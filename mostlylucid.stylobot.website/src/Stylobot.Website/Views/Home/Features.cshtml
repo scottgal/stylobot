@@ -1,0 +1,791 @@
+@{
+    ViewData["Title"] = "Features - Intelligent Bot Protection";
+}
+
+<!-- Hero Section -->
+<section class="bg-gradient-to-br from-primary/10 via-base-100 to-secondary/10 py-16 lg:py-24">
+    <div class="max-w-7xl mx-auto px-4">
+        <div class="text-center max-w-4xl mx-auto">
+            <div class="badge badge-primary badge-lg mb-6">Zero-Configuration Bot Protection</div>
+            <h1 class="text-4xl lg:text-6xl font-extrabold mb-6">
+                Bot Protection That <span class="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Just Works</span>
+            </h1>
+            <p class="text-xl text-base-content/70 leading-relaxed mb-8">
+                No machine learning expertise required. No complex rules to configure. No maintenance headaches.
+                Just drop it in and watch it adapt to your traffic in real-time. <span class="font-semibold text-primary">Every endpoint learns automatically.</span>
+            </p>
+            <div class="flex flex-col gap-3 items-center mb-4">
+                <div class="inline-flex items-center gap-3 px-6 py-3 bg-base-200 rounded-full">
+                    <svg class="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                    </svg>
+                    <span class="font-semibold">Works out of the box • Learns automatically • Improves continuously</span>
+                </div>
+                <div class="badge badge-accent badge-lg gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Powered by StyloFlow • Raspberry Pi to Server Clusters
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Key Differentiators -->
+<section class="py-20 bg-base-100">
+    <div class="max-w-7xl mx-auto px-4">
+        <div class="text-center mb-16">
+            <h2 class="text-4xl font-bold mb-4">Why StyloBot is Different</h2>
+            <p class="text-xl text-base-content/70">The features that make bot detection actually work</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <!-- Zero Configuration -->
+            <div class="card bg-gradient-to-br from-primary/5 to-primary/10 border-2 border-primary/20 hover:border-primary transition-all">
+                <div class="card-body">
+                    <div class="w-14 h-14 bg-primary rounded-xl flex items-center justify-center mb-4">
+                        <svg class="w-8 h-8 text-primary-content" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                    </div>
+                    <h3 class="card-title text-2xl mb-3">Zero Configuration</h3>
+                    <p class="text-base-content/70 mb-4">
+                        Add two lines of code and you're protected. No complex rules. No tuning required. No ML expertise needed.
+                    </p>
+                    <div class="mockup-code text-xs">
+                        <pre><code>builder.Services.AddBotDetection();
+app.UseBotDetection();</code></pre>
+                    </div>
+                    <p class="text-sm text-base-content/60 mt-3 italic">
+                        That's it. Really.
+                    </p>
+                </div>
+            </div>
+
+            <!-- Continuous Learning -->
+            <div class="card bg-gradient-to-br from-secondary/5 to-secondary/10 border-2 border-secondary/20 hover:border-secondary transition-all">
+                <div class="card-body">
+                    <div class="w-14 h-14 bg-secondary rounded-xl flex items-center justify-center mb-4">
+                        <svg class="w-8 h-8 text-secondary-content" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                    </div>
+                    <h3 class="card-title text-2xl mb-3">Self-Improving AI</h3>
+                    <p class="text-base-content/70 mb-4">
+                        Learns from every detection. Adapts to new bot tactics automatically. Gets smarter with every request.
+                    </p>
+                    <ul class="space-y-2 text-sm">
+                        <li class="flex items-center gap-2">
+                            <div class="w-2 h-2 bg-secondary rounded-full"></div>
+                            <span>Pattern reputation evolves in real-time</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <div class="w-2 h-2 bg-secondary rounded-full"></div>
+                            <span>Weights adjust based on outcomes</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <div class="w-2 h-2 bg-secondary rounded-full"></div>
+                            <span>Drift detection prevents model decay</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <div class="w-2 h-2 bg-secondary rounded-full"></div>
+                            <span>No retraining required</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Sub-Millisecond Speed -->
+            <div class="card bg-gradient-to-br from-success/5 to-success/10 border-2 border-success/20 hover:border-success transition-all">
+                <div class="card-body">
+                    <div class="w-14 h-14 bg-success rounded-xl flex items-center justify-center mb-4">
+                        <svg class="w-8 h-8 text-success-content" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                    </div>
+                    <h3 class="card-title text-2xl mb-3">Lightning Fast</h3>
+                    <p class="text-base-content/70 mb-4">
+                        Sub-millisecond detection doesn't slow your site. AI inference in <1ms. No noticeable latency.
+                    </p>
+                    <div class="stats bg-base-200 shadow w-full">
+                        <div class="stat p-4">
+                            <div class="stat-title text-xs">Heuristic AI</div>
+                            <div class="stat-value text-2xl text-success">&lt;1ms</div>
+                        </div>
+                        <div class="stat p-4">
+                            <div class="stat-title text-xs">Fast Detectors</div>
+                            <div class="stat-value text-2xl text-success">&lt;1ms</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stealth Operations -->
+            <div class="card bg-gradient-to-br from-accent/5 to-accent/10 border-2 border-accent/20 hover:border-accent transition-all">
+                <div class="card-body">
+                    <div class="w-14 h-14 bg-accent rounded-xl flex items-center justify-center mb-4">
+                        <svg class="w-8 h-8 text-accent-content" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                        </svg>
+                    </div>
+                    <h3 class="card-title text-2xl mb-3">Stealth Defense</h3>
+                    <p class="text-base-content/70 mb-4">
+                        Bots can't detect they're being detected. Stealth throttling, silent redirects, and invisible challenges.
+                    </p>
+                    <div class="alert alert-info text-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Bots keep trying, you stay protected</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- No External Dependencies -->
+            <div class="card bg-gradient-to-br from-warning/5 to-warning/10 border-2 border-warning/20 hover:border-warning transition-all">
+                <div class="card-body">
+                    <div class="w-14 h-14 bg-warning rounded-xl flex items-center justify-center mb-4">
+                        <svg class="w-8 h-8 text-warning-content" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                    </div>
+                    <h3 class="card-title text-2xl mb-3">Self-Hosted & Private</h3>
+                    <p class="text-base-content/70 mb-4">
+                        Everything runs in your infrastructure. No data leaves your servers. No third-party dependencies. GDPR friendly.
+                    </p>
+                    <div class="space-y-2 text-sm">
+                        <div class="flex items-center gap-2">
+                            <svg class="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span>No external API calls</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <svg class="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span>All ML runs in-process</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <svg class="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span>SQLite for storage (optional)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Composable Policies -->
+            <div class="card bg-gradient-to-br from-info/5 to-info/10 border-2 border-info/20 hover:border-info transition-all">
+                <div class="card-body">
+                    <div class="w-14 h-14 bg-info rounded-xl flex items-center justify-center mb-4">
+                        <svg class="w-8 h-8 text-info-content" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+                        </svg>
+                    </div>
+                    <h3 class="card-title text-2xl mb-3">Flexible Policies</h3>
+                    <p class="text-base-content/70 mb-4">
+                        Different rules for different endpoints. Strict for checkout, relaxed for content. Path-based, risk-based, fully customizable.
+                    </p>
+                    <div class="mockup-code text-xs">
+                        <pre><code>"PathPolicies": {
+  "/api/login": "strict",
+  "/api/checkout": "strict",
+  "/sitemap.xml": "allowBots"
+}</code></pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Adaptive Scaling -->
+            <div class="card bg-gradient-to-br from-purple-500/5 to-purple-500/10 border-2 border-purple-500/20 hover:border-purple-500 transition-all">
+                <div class="card-body">
+                    <div class="w-14 h-14 bg-purple-500 rounded-xl flex items-center justify-center mb-4">
+                        <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                    </div>
+                    <h3 class="card-title text-2xl mb-3">Adaptive Scaling</h3>
+                    <p class="text-base-content/70 mb-4">
+                        Built on the powerful <strong>StyloFlow</strong> workflow engine. Runs anywhere from a Raspberry Pi to massive server clusters. Dynamically optimizes resource usage based on load.
+                    </p>
+                    <ul class="space-y-2 text-sm">
+                        <li class="flex items-center gap-2">
+                            <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                            <span>Bounded concurrency prevents overload</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                            <span>Auto memory cleanup prevents leaks</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                            <span>Signal-based coordination</span>
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                            <span>Observable async operations</span>
+                        </li>
+                    </ul>
+                    <div class="mt-4">
+                        <a href="https://github.com/scottgal/mostlylucid.atoms/blob/main/mostlylucid.ephemeral/README.md"
+                           target="_blank"
+                           class="link link-primary text-xs flex items-center gap-1">
+                            <span>Learn about StyloFlow</span>
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Edge Deployment -->
+            <div class="card bg-gradient-to-br from-teal-500/5 to-teal-500/10 border-2 border-teal-500/20 hover:border-teal-500 transition-all">
+                <div class="card-body">
+                    <div class="w-14 h-14 bg-teal-500 rounded-xl flex items-center justify-center mb-4">
+                        <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </div>
+                    <h3 class="card-title text-2xl mb-3">Deploy Anywhere</h3>
+                    <p class="text-base-content/70 mb-4">
+                        Raspberry Pi for hobbyists. Cloud VMs for startups. Kubernetes clusters for enterprises. Same code, scales automatically.
+                    </p>
+                    <div class="stats stats-vertical bg-base-200 shadow w-full text-xs">
+                        <div class="stat py-2 px-3">
+                            <div class="stat-title text-xs">Minimum</div>
+                            <div class="stat-value text-sm text-teal-500">Pi Zero</div>
+                            <div class="stat-desc">512MB RAM</div>
+                        </div>
+                        <div class="stat py-2 px-3">
+                            <div class="stat-title text-xs">Maximum</div>
+                            <div class="stat-value text-sm text-teal-500">Unlimited</div>
+                            <div class="stat-desc">Horizontal scaling</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Zero Config / Infinite Control Paradox -->
+<section class="py-20 bg-gradient-to-br from-success/5 to-info/5">
+    <div class="max-w-7xl mx-auto px-4">
+        <div class="text-center mb-16">
+            <div class="badge badge-success badge-lg mb-4">The Paradox</div>
+            <h2 class="text-4xl font-bold mb-4">Zero Config. Infinite Control.</h2>
+            <p class="text-xl text-base-content/70 max-w-2xl mx-auto">
+                Set it and forget it, or become a bot-hunting surgeon. Your choice.
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12">
+            <!-- Zero Config Side -->
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-12 h-12 bg-success rounded-xl flex items-center justify-center">
+                            <svg class="w-6 h-6 text-success-content" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                            </svg>
+                        </div>
+                        <h3 class="text-2xl font-bold">Install & Ignore</h3>
+                    </div>
+                    <p class="text-base-content/70 mb-6">
+                        Two lines of code. That's it. The system immediately starts learning your traffic patterns and protecting your endpoints.
+                    </p>
+                    <div class="space-y-4">
+                        <div class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            <div>
+                                <p class="font-semibold mb-1">Auto-Discovery</p>
+                                <p class="text-sm text-base-content/60">Every endpoint in your app is automatically tracked and protected</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            <div>
+                                <p class="font-semibold mb-1">Per-Endpoint Learning</p>
+                                <p class="text-sm text-base-content/60">/login gets stricter, /sitemap.xml stays open—no config needed</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            <div>
+                                <p class="font-semibold mb-1">Traffic Profiling</p>
+                                <p class="text-sm text-base-content/60">Learns "normal" behavior unique to YOUR application</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                            <div>
+                                <p class="font-semibold mb-1">Adaptive Thresholds</p>
+                                <p class="text-sm text-base-content/60">Detection sensitivity adjusts automatically based on outcomes</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mockup-code mt-6 text-xs">
+                        <pre><code>builder.Services.AddBotDetection();
+app.UseBotDetection();
+
+// Done. Protected. Learning.</code></pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Infinite Control Side -->
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-12 h-12 bg-info rounded-xl flex items-center justify-center">
+                            <svg class="w-6 h-6 text-info-content" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                            </svg>
+                        </div>
+                        <h3 class="text-2xl font-bold">Surgical Precision</h3>
+                    </div>
+                    <p class="text-base-content/70 mb-6">
+                        Want control? You've got it. Override anything, tune everything, customize any behavior.
+                    </p>
+                    <div class="space-y-4">
+                        <div class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-info flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div>
+                                <p class="font-semibold mb-1">Per-Path Policies</p>
+                                <p class="text-sm text-base-content/60">/api/checkout: "nuclear", /blog/*: "relaxed"</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-info flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div>
+                                <p class="font-semibold mb-1">Risk-Based Actions</p>
+                                <p class="text-sm text-base-content/60">0.3-0.5: throttle, 0.5-0.8: challenge, 0.8+: block</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-info flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div>
+                                <p class="font-semibold mb-1">Custom Detectors</p>
+                                <p class="text-sm text-base-content/60">Write your own detection logic, plug it into the pipeline</p>
+                            </div>
+                        </div>
+                        <div class="flex items-start gap-3">
+                            <svg class="w-5 h-5 text-info flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div>
+                                <p class="font-semibold mb-1">Learning Rate Tuning</p>
+                                <p class="text-sm text-base-content/60">Conservative or aggressive—dial in the exact adaptation speed</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mockup-code mt-6 text-xs">
+                        <pre><code>"PathPolicies": {
+  "/api/admin/*": "paranoid",
+  "/api/checkout": "strict",
+  "/health": "allowAll"
+}</code></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- The Best Part -->
+        <div class="text-center mt-16">
+            <div class="card bg-gradient-to-r from-success/20 to-info/20 border-2 border-primary/30 max-w-3xl mx-auto">
+                <div class="card-body">
+                    <h3 class="text-2xl font-bold mb-3">The Best Part?</h3>
+                    <p class="text-lg text-base-content/70">
+                        You can switch between these modes <strong>instantly</strong>. Start with zero config, add overrides only where you need them.
+                        The automatic learning <strong>never stops</strong>—even your custom rules benefit from adaptive intelligence.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- The Magic: How It Actually Works -->
+<section class="py-20 bg-base-200">
+    <div class="max-w-7xl mx-auto px-4">
+        <div class="text-center mb-16">
+            <h2 class="text-4xl font-bold mb-4">The Intelligence Behind It</h2>
+            <p class="text-xl text-base-content/70">Multi-layered AI that adapts to your traffic</p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center mb-20">
+            <div>
+                <div class="badge badge-primary badge-lg mb-4">Adaptive Machine Learning</div>
+                <h3 class="text-3xl font-bold mb-6">Learns Your Traffic Patterns</h3>
+                <p class="text-lg text-base-content/70 mb-6">
+                    The heuristic AI model doesn't just detect bots—it learns what "normal" looks like for YOUR application.
+                    Every request refines the model. Every blocked bot makes it smarter. Every false positive teaches it to be more precise.
+                </p>
+                <ul class="space-y-4">
+                    <li class="flex items-start gap-3">
+                        <div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+                            <svg class="w-5 h-5 text-primary-content" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-lg mb-1">Exponential Moving Average Learning</h4>
+                            <p class="text-base-content/70">Pattern reputations evolve smoothly. Not too reactive, not too slow.</p>
+                        </div>
+                    </li>
+                    <li class="flex items-start gap-3">
+                        <div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+                            <svg class="w-5 h-5 text-primary-content" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-lg mb-1">Time Decay & Forgiveness</h4>
+                            <p class="text-base-content/70">Old patterns fade. Infrastructure changes don't haunt you forever.</p>
+                        </div>
+                    </li>
+                    <li class="flex items-start gap-3">
+                        <div class="w-8 h-8 bg-primary rounded-lg flex items-center justify-center flex-shrink-0 mt-1">
+                            <svg class="w-5 h-5 text-primary-content" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 class="font-semibold text-lg mb-1">Concept Drift Detection</h4>
+                            <p class="text-base-content/70">Alerts when bot behavior shifts. Automatic adaptation to new threats.</p>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+            <div class="card bg-base-100 shadow-2xl">
+                <div class="card-body">
+                    <h4 class="font-bold text-xl mb-4">Learning Feedback Loop</h4>
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-3">
+                            <div class="radial-progress text-primary" style="--value:100; --size:3rem;" role="progressbar">1</div>
+                            <div class="text-sm">
+                                <div class="font-semibold">Detection Occurs</div>
+                                <div class="text-base-content/60">Multi-signal analysis produces confidence score</div>
+                            </div>
+                        </div>
+                        <div class="divider my-1"></div>
+                        <div class="flex items-center gap-3">
+                            <div class="radial-progress text-secondary" style="--value:100; --size:3rem;" role="progressbar">2</div>
+                            <div class="text-sm">
+                                <div class="font-semibold">Action Taken</div>
+                                <div class="text-base-content/60">Block, throttle, challenge, or allow</div>
+                            </div>
+                        </div>
+                        <div class="divider my-1"></div>
+                        <div class="flex items-center gap-3">
+                            <div class="radial-progress text-accent" style="--value:100; --size:3rem;" role="progressbar">3</div>
+                            <div class="text-sm">
+                                <div class="font-semibold">Patterns Updated</div>
+                                <div class="text-base-content/60">Reputation scores and weights adjust</div>
+                            </div>
+                        </div>
+                        <div class="divider my-1"></div>
+                        <div class="flex items-center gap-3">
+                            <div class="radial-progress text-success" style="--value:100; --size:3rem;" role="progressbar">4</div>
+                            <div class="text-sm">
+                                <div class="font-semibold">Next Request Smarter</div>
+                                <div class="text-base-content/60">Improved accuracy on future detections</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fast Path Reputation -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <div class="order-2 lg:order-1">
+                <div class="card bg-gradient-to-br from-error/20 to-error/10 border-2 border-error/30">
+                    <div class="card-body">
+                        <h4 class="font-bold text-2xl mb-4">Instant Abort for Known Threats</h4>
+                        <p class="text-base-content/70 mb-6">
+                            Confirmed bad patterns trigger instant 403s before any analysis. Sub-microsecond lookups in memory cache.
+                        </p>
+                        <div class="stats stats-vertical bg-base-100">
+                            <div class="stat">
+                                <div class="stat-title">Latency Impact</div>
+                                <div class="stat-value text-error">&lt;0.1ms</div>
+                                <div class="stat-desc">Hash table lookup</div>
+                            </div>
+                            <div class="stat">
+                                <div class="stat-title">Known Bad Patterns</div>
+                                <div class="stat-value text-error">Instant</div>
+                                <div class="stat-desc">No analysis required</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="order-1 lg:order-2">
+                <div class="badge badge-error badge-lg mb-4">Performance Optimization</div>
+                <h3 class="text-3xl font-bold mb-6">Fast-Path Reputation Cache</h3>
+                <p class="text-lg text-base-content/70 mb-6">
+                    Once a pattern is confirmed bad (high confidence over multiple requests), it gets promoted to the fast-path cache.
+                    Future requests from that pattern get blocked instantly—no detection pipeline, no AI inference, just instant rejection.
+                </p>
+                <div class="alert">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                        <h4 class="font-bold">Why this matters</h4>
+                        <p class="text-sm">Under heavy bot attack, 90%+ of requests hit the fast-path cache. Your server barely notices.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Action Policies -->
+<section class="py-20 bg-base-100">
+    <div class="max-w-7xl mx-auto px-4">
+        <div class="text-center mb-16">
+            <h2 class="text-4xl font-bold mb-4">Flexible Response Actions</h2>
+            <p class="text-xl text-base-content/70">Not all bots deserve the same treatment</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div class="card bg-base-200 hover:shadow-xl transition-all">
+                <div class="card-body">
+                    <h3 class="card-title">Stealth Throttle</h3>
+                    <p class="text-sm text-base-content/70 mb-3">
+                        Slow bots down without them knowing. Variable delays with jitter. Risk-scaled timing.
+                    </p>
+                    <div class="badge badge-sm badge-primary">Default</div>
+                </div>
+            </div>
+
+            <div class="card bg-base-200 hover:shadow-xl transition-all">
+                <div class="card-body">
+                    <h3 class="card-title">Hard Block</h3>
+                    <p class="text-sm text-base-content/70 mb-3">
+                        Instant 403. For confirmed malicious traffic and security scanners.
+                    </p>
+                    <div class="badge badge-sm badge-error">Strict</div>
+                </div>
+            </div>
+
+            <div class="card bg-base-200 hover:shadow-xl transition-all">
+                <div class="card-body">
+                    <h3 class="card-title">Challenge</h3>
+                    <p class="text-sm text-base-content/70 mb-3">
+                        Proof-of-work, CAPTCHA, or JavaScript tests. Verify humanity before allowing access.
+                    </p>
+                    <div class="badge badge-sm badge-warning">Moderate</div>
+                </div>
+            </div>
+
+            <div class="card bg-base-200 hover:shadow-xl transition-all">
+                <div class="card-body">
+                    <h3 class="card-title">Honeypot Redirect</h3>
+                    <p class="text-sm text-base-content/70 mb-3">
+                        Silent redirect to study bot behavior. Learn new attack patterns automatically.
+                    </p>
+                    <div class="badge badge-sm badge-info">Intel</div>
+                </div>
+            </div>
+
+            <div class="card bg-base-200 hover:shadow-xl transition-all">
+                <div class="card-body">
+                    <h3 class="card-title">Shadow Mode</h3>
+                    <p class="text-sm text-base-content/70 mb-3">
+                        Log detections without blocking. Test rules in production safely.
+                    </p>
+                    <div class="badge badge-sm badge-success">Testing</div>
+                </div>
+            </div>
+
+            <div class="card bg-base-200 hover:shadow-xl transition-all">
+                <div class="card-body">
+                    <h3 class="card-title">Custom Policies</h3>
+                    <p class="text-sm text-base-content/70 mb-3">
+                        Write your own action policies. Webhook alerts, custom logging, anything.
+                    </p>
+                    <div class="badge badge-sm badge-secondary">Extensible</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Technical Depth Without the Complexity -->
+<section class="py-20 bg-gradient-to-br from-base-200 to-base-300">
+    <div class="max-w-6xl mx-auto px-4">
+        <div class="text-center mb-16">
+            <h2 class="text-4xl font-bold mb-4">Enterprise-Grade Architecture</h2>
+            <p class="text-xl text-base-content/70">Without the enterprise complexity</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                    <h3 class="card-title text-2xl mb-4">
+                        <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                        </svg>
+                        Production-Ready Features
+                    </h3>
+                    <ul class="space-y-3">
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span><strong>OpenTelemetry integration</strong> - Full observability out of the box</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span><strong>Health checks & diagnostics</strong> - Standard ASP.NET Core health endpoints</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span><strong>Graceful degradation</strong> - Never blocks your pipeline, even on failure</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span><strong>Docker & Kubernetes ready</strong> - Stateless design, volume mounts for persistence</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span><strong>Multi-instance safe</strong> - SQLite WAL mode or Redis for shared state</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="card bg-base-100 shadow-xl">
+                <div class="card-body">
+                    <h3 class="card-title text-2xl mb-4">
+                        <svg class="w-8 h-8 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Developer Experience
+                    </h3>
+                    <ul class="space-y-3">
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span><strong>Rich IntelliSense</strong> - Fully documented APIs with XML comments</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span><strong>Fluent configuration</strong> - JSON or code, your choice</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span><strong>Extension points everywhere</strong> - Custom detectors, policies, storage</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span><strong>Test mode support</strong> - Simulate any bot type in dev</span>
+                        </li>
+                        <li class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span><strong>Comprehensive docs</strong> - Real examples, not just API references</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Integration & Deployment -->
+<section class="py-20 bg-base-100">
+    <div class="max-w-7xl mx-auto px-4">
+        <div class="text-center mb-16">
+            <h2 class="text-4xl font-bold mb-4">Fits Your Stack</h2>
+            <p class="text-xl text-base-content/70">Works with what you already have</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div class="text-center">
+                <div class="w-16 h-16 bg-primary/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-10 h-10 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold mb-2">ASP.NET Core</h3>
+                <p class="text-base-content/70">Middleware, MVC attributes, endpoint filters. Use what feels natural.</p>
+            </div>
+
+
+            <div class="text-center">
+                <div class="w-16 h-16 bg-accent/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-10 h-10 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                    </svg>
+                </div>
+                <h3 class="text-xl font-bold mb-2">Docker/K8s</h3>
+                <p class="text-base-content/70">Stateless design. Volume mounts for learned weights. Horizontal scaling ready.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="py-20 bg-gradient-to-br from-primary/10 via-base-100 to-secondary/10">
+    <div class="max-w-4xl mx-auto px-4 text-center">
+        <h2 class="text-4xl lg:text-5xl font-bold mb-6">
+            Stop Configuring. Start Protecting.
+        </h2>
+        <p class="text-xl text-base-content/70 mb-8">
+            Bot protection that just works, learns automatically, and improves continuously.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center mb-8">
+            <a href="https://github.com/scottgal/mostlylucid.nugetpackages" class="btn btn-primary btn-lg px-8">
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                </svg>
+                View on GitHub
+            </a>
+            <a href="https://www.nuget.org/packages/mostlylucid.botdetection" class="btn btn-outline btn-lg px-8">
+                Install from NuGet
+            </a>
+        </div>
+        <div class="text-base-content/60">
+            <p>Open source • MIT License • .NET 8/9</p>
+        </div>
+    </div>
+</section>

@@ -1,0 +1,82 @@
+services:
+  # Caddy - SSL/TLS termination and reverse proxy
+  caddy:
+    image: caddy:latest
+    container_name: stylobot-caddy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - gateway
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+
+  # YARP Gateway - Bot detection layer
+  gateway:
+    image: scottgal/mostlylucid.yarpgateway:latest
+    container_name: stylobot-gateway
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      # Simple catch-all routing to website backend
+      - DEFAULT_UPSTREAM=http://website:8080
+    expose:
+      - "8080"
+    depends_on:
+      - website
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Stylobot Website - ASP.NET Core 10 backend
+  website:
+    image: stylobot-website:latest
+    container_name: stylobot-website
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+    expose:
+      - "8080"
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+    volumes:
+      # Persist learned bot detection patterns
+      - bot-detection-data:/app/data
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # Watchtower - Automatic container updates
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: stylobot-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_POLL_INTERVAL=300 # Check every 5 minutes
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+
+networks:
+  stylobot-network:
+    driver: bridge
+
+volumes:
+  bot-detection-data:
+    driver: local
+  caddy-data:
+    driver: local
+  caddy-config:
+    driver: local

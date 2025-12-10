@@ -1,0 +1,58 @@
+# Caddyfile for stylobot
+# Automatic HTTPS with Let's Encrypt
+
+{
+    # Global options
+    email scott.galloway+sb@gmail.com
+    # Uncomment for production
+    # acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+# Main site
+stylobot.net, www.stylobot.net {
+    # Reverse proxy to YARP Gateway (bot detection layer)
+    reverse_proxy gateway:8080 {
+        # Health check
+        health_uri /health
+        health_interval 10s
+        health_timeout 5s
+
+        # Forward real client IP
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+
+    # Security headers
+    header {
+        # Enable HSTS
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Prevent MIME sniffing
+        X-Content-Type-Options "nosniff"
+        # Enable XSS protection
+        X-Frame-Options "SAMEORIGIN"
+        # CSP
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com https://cdn.jsdelivr.net https://umami.mostlylucid.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://api.web3forms.com https://umami.mostlylucid.net"
+        # Remove server header
+        -Server
+    }
+
+    # Compress responses
+    encode gzip zstd
+
+    # Logging
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+}
+
+# Development/localhost (no HTTPS)
+:80 {
+    reverse_proxy gateway:8080 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}

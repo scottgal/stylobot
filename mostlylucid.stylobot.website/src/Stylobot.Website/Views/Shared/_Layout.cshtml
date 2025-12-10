@@ -1,0 +1,165 @@
+﻿@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
+<!DOCTYPE html>
+<html lang="en" class="dark" data-theme="dark" x-data="themeSwitcher()" x-init="init()">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>@ViewData["Title"] - Stylobot</title>
+
+    <!-- Favicons -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="manifest" href="/site.webmanifest">
+
+    <!-- Google Fonts: Raleway -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@800;900&display=swap" rel="stylesheet">
+
+    <!-- Built CSS (watch mode rebuilds on changes) -->
+    <link rel="stylesheet" href="/dist/assets/index.css" asp-append-version="true" />
+</head>
+<body class="min-h-screen flex flex-col">
+    <header class="sticky top-0 z-[9999] bg-base-100/95 backdrop-blur-md border-b border-base-300 shadow-lg">
+        <nav class="max-w-7xl mx-auto px-4 py-2" x-data="{ mobileMenuOpen: false }">
+            <div class="flex items-center justify-between gap-4">
+                <!-- Logo + Brand -->
+                <a asp-area="" asp-controller="Home" asp-action="Index" class="flex items-center gap-3 flex-shrink-0">
+                    <img src="/img/logo.png" alt="stylobot Logo" class="h-14 w-auto" />
+                    <span class="text-2xl font-semibold hidden sm:inline" style="font-family: 'Raleway', sans-serif;">
+                        <span class="stylo-text" style="font-style: italic;">stylo</span><span class="bot-text">bot</span>
+                    </span>
+                </a>
+
+                <!-- Desktop Navigation -->
+                <div class="hidden lg:flex items-center gap-6">
+                    <ul class="flex items-center gap-6">
+                        <li><a asp-area="" asp-controller="Home" asp-action="Index" class="font-medium hover:text-primary transition-colors">Home</a></li>
+                        <li><a asp-area="" asp-controller="Home" asp-action="Features" class="font-medium hover:text-primary transition-colors">Features</a></li>
+                        <li><a asp-area="" asp-controller="Home" asp-action="Detectors" class="font-medium hover:text-primary transition-colors">Detectors</a></li>
+                        <li><a asp-area="" asp-controller="Home" asp-action="Enterprise" class="font-medium hover:text-primary transition-colors">Enterprise</a></li>
+                        <li><a href="#pricing" class="font-medium hover:text-primary transition-colors">Pricing</a></li>
+                        <li><a href="https://github.com/scottgal/mostlylucid.nugetpackages/blob/main/Mostlylucid.BotDetection/README.md" target="_blank" class="font-medium hover:text-primary transition-colors">Docs</a></li>
+                    </ul>
+                    <div class="flex items-center gap-3">
+                        <!-- Theme Toggle -->
+                        <button @@click="$store.theme.toggle()" class="btn btn-ghost btn-sm btn-circle" title="Toggle theme">
+                            <svg x-show="$store.theme.current === 'light'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z" />
+                            </svg>
+                            <svg x-show="$store.theme.current === 'dark'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+                            </svg>
+                        </button>
+                        <div class="tooltip tooltip-bottom" data-tip="Coming Soon">
+                            <button class="btn btn-ghost btn-sm" disabled>Sign In</button>
+                        </div>
+                        <div class="tooltip tooltip-bottom" data-tip="Coming Soon">
+                            <button class="btn btn-primary btn-sm" disabled>Get Started</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mobile Menu Button -->
+                <div class="lg:hidden">
+                    <button @@click="mobileMenuOpen = !mobileMenuOpen" class="btn btn-ghost btn-square">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="inline-block w-6 h-6 stroke-current">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mobile Navigation Dropdown -->
+            <div x-show="mobileMenuOpen"
+                 x-transition
+                 @@click.away="mobileMenuOpen = false"
+                 class="absolute top-full left-0 right-0 bg-base-100 border-b border-base-300 shadow-lg lg:hidden">
+                <ul class="menu p-4">
+                    <li><a asp-area="" asp-controller="Home" asp-action="Index">Home</a></li>
+                    <li><a asp-area="" asp-controller="Home" asp-action="Detectors">Detectors</a></li>
+                    <li><a asp-area="" asp-controller="Home" asp-action="Enterprise">Enterprise</a></li>
+                    <li><a href="#pricing">Pricing</a></li>
+                    <li><a href="https://github.com/scottgal/mostlylucid.nugetpackages/blob/main/Mostlylucid.BotDetection/README.md" target="_blank">Docs</a></li>
+                    <li>
+                        <div class="tooltip tooltip-right" data-tip="Coming Soon">
+                            <button class="btn btn-ghost w-full justify-start" disabled>Dashboard</button>
+                        </div>
+                    </li>
+                    <li class="mt-4">
+                        <button @@click="$store.theme.toggle()" class="btn btn-ghost w-full justify-start">
+                            <span x-show="$store.theme.current === 'light'">🌙 Dark Mode</span>
+                            <span x-show="$store.theme.current === 'dark'">☀️ Light Mode</span>
+                        </button>
+                    </li>
+                    <li class="mt-2">
+                        <div class="tooltip tooltip-right" data-tip="Coming Soon">
+                            <button class="btn btn-ghost w-full" disabled>Sign In</button>
+                        </div>
+                    </li>
+                    <li class="mt-2">
+                        <div class="tooltip tooltip-right" data-tip="Coming Soon">
+                            <button class="btn btn-primary w-full" disabled>Get Started</button>
+                        </div>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+
+    <main class="flex-1">
+        @RenderBody()
+    </main>
+
+    <footer class="bg-base-200 mt-auto">
+        <div class="max-w-7xl mx-auto px-4 py-12">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
+                <div class="col-span-1 md:col-span-2">
+                    <div class="flex items-center gap-3 mb-4">
+                        <img src="/img/logo.png" alt="stylobot Logo" class="h-10 w-10" />
+                        <span class="text-2xl font-semibold" style="font-family: 'Raleway', sans-serif;">
+                            <span class="stylo-text" style="font-style: italic;">stylo</span><span class="bot-text">bot</span>
+                        </span>
+                    </div>
+                    <p class="text-base-content/70 max-w-md">
+                        Heuristics and advanced analytics for bot detection using a zero-PII approach. Protect your platform without compromising user privacy.
+                    </p>
+                </div>
+
+                <div>
+                    <h3 class="font-semibold mb-4">Product</h3>
+                    <ul class="space-y-2 text-base-content/70">
+                        <li><a asp-area="" asp-controller="Home" asp-action="Features" class="hover:text-primary transition-colors" hx-get="/Home/Features" hx-target="main" hx-push-url="true">Features</a></li>
+                        <li><a asp-area="" asp-controller="Home" asp-action="Detectors" class="hover:text-primary transition-colors" hx-get="/Home/Detectors" hx-target="main" hx-push-url="true">Detectors</a></li>
+                        <li><a asp-area="" asp-controller="Home" asp-action="Enterprise" class="hover:text-primary transition-colors" hx-get="/Home/Enterprise" hx-target="main" hx-push-url="true">Enterprise</a></li>
+                        <li><a href="https://github.com/scottgal/mostlylucid.nugetpackages/blob/main/Mostlylucid.BotDetection/README.md" target="_blank" class="hover:text-primary transition-colors">Documentation</a></li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h3 class="font-semibold mb-4">Company</h3>
+                    <ul class="space-y-2 text-base-content/70">
+                        <li><a href="https://www.mostlylucid.net" target="_blank" class="hover:text-primary transition-colors">About</a></li>
+                        <li><a href="https://www.mostlylucid.net" target="_blank" class="hover:text-primary transition-colors">Blog</a></li>
+                        <li><a asp-area="" asp-controller="Home" asp-action="Privacy" class="hover:text-primary transition-colors" hx-get="/Home/Privacy" hx-target="main" hx-push-url="true">Privacy</a></li>
+                        <li><a asp-area="" asp-controller="Home" asp-action="Contact" class="hover:text-primary transition-colors" hx-get="/Home/Contact" hx-target="main" hx-push-url="true">Contact</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="text-center text-base-content/60 text-sm">
+                &copy; 2025 Stylobot. All rights reserved.
+            </div>
+        </div>
+    </footer>
+
+    <!-- Built JS (watch mode rebuilds on changes) -->
+    <script type="module" src="/dist/assets/index.js" asp-append-version="true"></script>
+    <script defer src="https://umami.mostlylucid.net/getinfo" data-website-id="553967ea-c3de-4212-9b07-6d756c0f58b7"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

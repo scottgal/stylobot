@@ -1,0 +1,680 @@
+@{
+    ViewData["Title"] = "Bot Detection Methods";
+}
+
+<!-- Hero Section -->
+<section class="bg-gradient-to-br from-primary/5 via-base-100 to-secondary/5 py-16 lg:py-24">
+    <div class="max-w-7xl mx-auto px-4">
+        <div class="text-center max-w-4xl mx-auto">
+            <div class="badge badge-primary badge-lg mb-6">Detection Arsenal</div>
+            <h1 class="text-4xl lg:text-5xl font-extrabold mb-6">
+                Multi-Signal <span class="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Detection</span>
+            </h1>
+            <p class="text-xl text-base-content/70 leading-relaxed">
+                Our sophisticated detection system combines 11 specialized methods to identify bots with precision. From lightning-fast pattern matching to advanced AI analysis, each detector contributes unique insights.
+            </p>
+        </div>
+    </div>
+</section>
+
+<!-- Detectors Grid -->
+<section class="py-20 bg-base-100">
+    <div class="max-w-7xl mx-auto px-4">
+        <!-- Fast Detectors -->
+        <div class="mb-20">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="badge badge-success badge-lg">Lightning Fast</div>
+                <h2 class="text-3xl font-bold">&lt;1ms Response Time</h2>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- User-Agent Detector -->
+                <div class="card bg-base-200 hover:shadow-xl transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 bg-success/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-success">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.169.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-sm badge-outline">&lt;1ms</div>
+                        </div>
+                        <h3 class="card-title text-xl mb-2">User-Agent Analysis</h3>
+                        <p class="text-base-content/70 text-sm mb-4">
+                            Pattern matching against thousands of known bot signatures. Identifies crawlers, scrapers, and automated tools by their browser fingerprint.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm">Pattern Matching</div>
+                            <div class="badge badge-sm">Auto-Updated</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Header Detector -->
+                <div class="card bg-base-200 hover:shadow-xl transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 bg-success/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-success">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25H12" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-sm badge-outline">&lt;1ms</div>
+                        </div>
+                        <h3 class="card-title text-xl mb-2">Header Inspection</h3>
+                        <p class="text-base-content/70 text-sm mb-4">
+                            Analyzes HTTP headers for suspicious patterns. Catches bots missing Accept-Language, cookies, or other headers that real browsers always send.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm">HTTP Analysis</div>
+                            <div class="badge badge-sm">Anomaly Detection</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- IP Detector -->
+                <div class="card bg-base-200 hover:shadow-xl transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 bg-success/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-success">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-sm badge-outline">&lt;1ms</div>
+                        </div>
+                        <h3 class="card-title text-xl mb-2">Datacenter IP Detection</h3>
+                        <p class="text-base-content/70 text-sm mb-4">
+                            Identifies traffic from cloud hosting providers and datacenter IP ranges. Real users browse from ISPs, not AWS or Digital Ocean.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm">IP Ranges</div>
+                            <div class="badge badge-sm">Cloud Detection</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Version Age Detector -->
+                <div class="card bg-base-200 hover:shadow-xl transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 bg-success/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-success">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-sm badge-outline">&lt;1ms</div>
+                        </div>
+                        <h3 class="card-title text-xl mb-2">Version Staleness</h3>
+                        <p class="text-base-content/70 text-sm mb-4">
+                            Detects outdated browser and OS versions that real users rarely use. Bots often pretend to be old Chrome versions that stopped updating years ago.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm">Version Tracking</div>
+                            <div class="badge badge-sm">Age Analysis</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Security Tools Detector -->
+                <div class="card bg-base-200 hover:shadow-xl transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 bg-success/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-success">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-sm badge-outline">&lt;1ms</div>
+                        </div>
+                        <h3 class="card-title text-xl mb-2">Security Tool Detection</h3>
+                        <p class="text-base-content/70 text-sm mb-4">
+                            Identifies penetration testing tools like Nikto, sqlmap, Burp Suite, and vulnerability scanners. Blocks malicious reconnaissance instantly.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm">Pen-Test Tools</div>
+                            <div class="badge badge-sm">Threat Intel</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Medium Speed Detectors -->
+        <div class="mb-20">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="badge badge-warning badge-lg">Real-Time</div>
+                <h2 class="text-3xl font-bold">1-5ms Response Time</h2>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Behavioral Detector -->
+                <div class="card bg-base-200 hover:shadow-xl transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 bg-warning/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-warning">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-sm badge-outline">1-5ms</div>
+                        </div>
+                        <h3 class="card-title text-xl mb-2">Behavioral Analysis</h3>
+                        <p class="text-base-content/70 text-sm mb-4">
+                            Monitors request patterns, timing, and interaction sequences. Detects automated behavior like inhuman clicking speeds or robotic browsing patterns.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm">Rate Limiting</div>
+                            <div class="badge badge-sm">Pattern Analysis</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Inconsistency Detector -->
+                <div class="card bg-base-200 hover:shadow-xl transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 bg-warning/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-warning">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-sm badge-outline">1-5ms</div>
+                        </div>
+                        <h3 class="card-title text-xl mb-2">Cross-Signal Inconsistency</h3>
+                        <p class="text-base-content/70 text-sm mb-4">
+                            Catches mismatches between different signals. Like claiming to be Safari on Windows, or mobile Chrome without touch events. Bots often fake one thing but forget others.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm">Logic Validation</div>
+                            <div class="badge badge-sm">Correlation</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Client-Side Detector -->
+                <div class="card bg-base-200 hover:shadow-xl transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 bg-warning/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-warning">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-sm badge-outline">Client-Side</div>
+                        </div>
+                        <h3 class="card-title text-xl mb-2">JavaScript Fingerprinting</h3>
+                        <p class="text-base-content/70 text-sm mb-4">
+                            Browser-side detection that headless browsers can't fake. Tests for WebGL, canvas fingerprinting, and JavaScript execution that automated tools struggle to replicate.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm">Browser Checks</div>
+                            <div class="badge badge-sm">Headless Detection</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Advanced AI Detectors -->
+        <div class="mb-20">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="badge badge-primary badge-lg">AI-Powered</div>
+                <h2 class="text-3xl font-bold">Intelligent Analysis</h2>
+                <div class="badge badge-success">Free Tier Included</div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Heuristic AI -->
+                <div class="card bg-gradient-to-br from-primary/10 to-secondary/10 border-2 border-primary/20 hover:border-primary transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-14 h-14 bg-primary/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7 text-primary">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-primary">&lt;1ms</div>
+                        </div>
+                        <h3 class="card-title text-2xl mb-3">Heuristic AI Model</h3>
+                        <p class="text-base-content/70 mb-4">
+                            Lightning-fast machine learning model that weighs all detection signals to produce a confidence score. Learns from every detection to improve accuracy over time.
+                        </p>
+                        <div class="mb-4">
+                            <h4 class="font-semibold mb-2">Key Features:</h4>
+                            <ul class="space-y-1 text-sm text-base-content/70">
+                                <li class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <span>Sub-millisecond feature extraction</span>
+                                </li>
+                                <li class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <span>Continuous weight learning from feedback</span>
+                                </li>
+                                <li class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <span>Drift detection prevents model degradation</span>
+                                </li>
+                                <li class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <span>Adapts to new bot tactics automatically</span>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm badge-primary">Machine Learning</div>
+                            <div class="badge badge-sm badge-primary">Self-Improving</div>
+                            <div class="badge badge-sm badge-success">Free Tier</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LLM Detector -->
+                <div class="card bg-gradient-to-br from-secondary/10 to-accent/10 border-2 border-secondary/20 hover:border-secondary transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-14 h-14 bg-secondary/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7 text-secondary">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 9.75a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 01.778-.332 48.294 48.294 0 005.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-secondary">50-500ms</div>
+                        </div>
+                        <h3 class="card-title text-2xl mb-3">LLM Deep Analysis</h3>
+                        <div class="flex gap-2 mb-3">
+                            <div class="badge badge-success badge-sm">Local Ollama: Free</div>
+                        </div>
+                        <p class="text-base-content/70 mb-4">
+                            Full reasoning engine for complex cases. When standard detectors are uncertain, the LLM analyzes all evidence with human-like understanding to make the final call.
+                        </p>
+                        <div class="mb-4">
+                            <h4 class="font-semibold mb-2">Use Cases:</h4>
+                            <ul class="space-y-1 text-sm text-base-content/70">
+                                <li class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <span>Sophisticated bot spoofing attempts</span>
+                                </li>
+                                <li class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <span>Borderline cases needing context</span>
+                                </li>
+                                <li class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <span>Novel attack patterns</span>
+                                </li>
+                                <li class="flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                    <span>Training data for heuristic model</span>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm badge-secondary">Deep Reasoning</div>
+                            <div class="badge badge-sm badge-secondary">Escalation Only</div>
+                            <div class="badge badge-sm badge-success">Ollama Free</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Enterprise Detectors -->
+        <div class="mb-20">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="badge badge-accent badge-lg">Enterprise Only</div>
+                <h2 class="text-3xl font-bold">Advanced Detection & StyloWall</h2>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Advanced Heuristics -->
+                <div class="card bg-gradient-to-br from-accent/10 to-warning/10 border-2 border-accent/20 hover:border-accent transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-14 h-14 bg-accent/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7 text-accent">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.169.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-accent">Enterprise</div>
+                        </div>
+                        <h3 class="card-title text-2xl mb-3">Advanced Heuristic Models</h3>
+                        <p class="text-base-content/70 mb-4">
+                            Enhanced ML models with deeper feature extraction, more sophisticated pattern recognition, and industry-specific tuning for maximum accuracy.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm badge-accent">Enhanced Features</div>
+                            <div class="badge badge-sm badge-accent">Custom Tuning</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cloud LLM -->
+                <div class="card bg-gradient-to-br from-accent/10 to-info/10 border-2 border-accent/20 hover:border-accent transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-14 h-14 bg-accent/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7 text-accent">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-accent">Enterprise</div>
+                        </div>
+                        <h3 class="card-title text-2xl mb-3">Cloud LLM Analysis</h3>
+                        <p class="text-base-content/70 mb-4">
+                            Access to powerful cloud-based LLMs (OpenAI, Anthropic, etc.) for the most sophisticated reasoning and pattern detection across all traffic.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm badge-accent">GPT-4</div>
+                            <div class="badge badge-sm badge-accent">Claude</div>
+                            <div class="badge badge-sm badge-accent">Premium Models</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Enhanced Fingerprinting -->
+                <div class="card bg-gradient-to-br from-accent/10 to-primary/10 border-2 border-accent/20 hover:border-accent transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-14 h-14 bg-accent/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-7 h-7 text-accent">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.864 4.243A7.5 7.5 0 0119.5 10.5c0 2.92-.556 5.709-1.568 8.268M5.742 6.364A7.465 7.465 0 004.5 10.5a7.464 7.464 0 01-1.15 3.993m1.989 3.559A11.209 11.209 0 008.25 10.5a3.75 3.75 0 117.5 0c0 .527-.021 1.049-.064 1.565M12 10.5a14.94 14.94 0 01-3.6 9.75m6.633-4.596a18.666 18.666 0 01-2.485 5.33" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-accent">Enterprise</div>
+                        </div>
+                        <h3 class="card-title text-2xl mb-3">Enhanced Fingerprinting</h3>
+                        <p class="text-base-content/70 mb-4">
+                            Advanced browser fingerprinting techniques including TLS analysis, TCP/IP stack fingerprinting, and multi-layer identity correlation.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm badge-accent">TLS Fingerprinting</div>
+                            <div class="badge badge-sm badge-accent">Deep Inspection</div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- External Services -->
+        <div>
+            <div class="flex items-center gap-3 mb-8">
+                <div class="badge badge-info badge-lg">External Intel</div>
+                <h2 class="text-3xl font-bold">Threat Intelligence</h2>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Project Honeypot -->
+                <div class="card bg-base-200 hover:shadow-xl transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 bg-info/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-info">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.893 13.393l-1.135-1.135a2.252 2.252 0 01-.421-.585l-1.08-2.16a.414.414 0 00-.663-.107.827.827 0 01-.812.21l-1.273-.363a.89.89 0 00-.738 1.595l.587.39c.59.395.674 1.23.172 1.732l-.2.2c-.212.212-.33.498-.33.796v.41c0 .409-.11.809-.32 1.158l-1.315 2.191a2.11 2.11 0 01-1.81 1.025 1.055 1.055 0 01-1.055-1.055v-1.172c0-.92-.56-1.747-1.414-2.089l-.655-.261a2.25 2.25 0 01-1.383-2.46l.007-.042a2.25 2.25 0 01.29-.787l.09-.15a2.25 2.25 0 012.37-1.048l1.178.236a1.125 1.125 0 001.302-.795l.208-.73a1.125 1.125 0 00-.578-1.315l-.665-.332-.091.091a2.25 2.25 0 01-1.591.659h-.18c-.249 0-.487.1-.662.274a.931.931 0 01-1.458-1.137l1.411-2.353a2.25 2.25 0 00.286-.76m11.928 9.869A9 9 0 008.965 3.525m11.928 9.868A9 9 0 118.965 3.525" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-sm badge-outline">~100ms</div>
+                        </div>
+                        <h3 class="card-title text-xl mb-2">Project Honeypot</h3>
+                        <p class="text-base-content/70 text-sm mb-4">
+                            Checks IP reputation against the global Project Honeypot database via HTTP:BL DNS lookup. Identifies known malicious IPs from spam, harvesting, and attacks.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm">IP Reputation</div>
+                            <div class="badge badge-sm">Global Database</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Detection Pipeline -->
+<section class="py-20 bg-base-200">
+    <div class="max-w-7xl mx-auto px-4">
+        <div class="text-center mb-16">
+            <h2 class="text-4xl font-bold mb-4">How It All Works Together</h2>
+            <p class="text-xl text-base-content/70">Multi-layer defense with intelligent orchestration</p>
+        </div>
+
+        <div class="max-w-4xl mx-auto">
+            <div class="space-y-4">
+                <div class="flex items-center gap-4" x-data="{ show: false }" x-intersect="show = true">
+                    <div class="w-12 h-12 bg-success rounded-full flex items-center justify-center text-success-content font-bold flex-shrink-0"
+                         x-show="show"
+                         x-transition:enter="transition ease-out duration-300"
+                         x-transition:enter-start="opacity-0 scale-0"
+                         x-transition:enter-end="opacity-100 scale-100">
+                        1
+                    </div>
+                    <div class="card bg-base-100 flex-1 shadow-md">
+                        <div class="card-body py-4">
+                            <h3 class="font-bold">Fast Detectors Run First</h3>
+                            <p class="text-sm text-base-content/70">Lightning-fast checks (&lt;1ms) catch obvious bots immediately</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4" x-data="{ show: false }" x-intersect="show = true">
+                    <div class="w-12 h-12 bg-warning rounded-full flex items-center justify-center text-warning-content font-bold flex-shrink-0"
+                         x-show="show"
+                         x-transition:enter="transition ease-out duration-300 delay-150"
+                         x-transition:enter-start="opacity-0 scale-0"
+                         x-transition:enter-end="opacity-100 scale-100">
+                        2
+                    </div>
+                    <div class="card bg-base-100 flex-1 shadow-md">
+                        <div class="card-body py-4">
+                            <h3 class="font-bold">Behavioral Analysis</h3>
+                            <p class="text-sm text-base-content/70">Pattern and consistency checks for suspicious behavior</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4" x-data="{ show: false }" x-intersect="show = true">
+                    <div class="w-12 h-12 bg-primary rounded-full flex items-center justify-center text-primary-content font-bold flex-shrink-0"
+                         x-show="show"
+                         x-transition:enter="transition ease-out duration-300 delay-300"
+                         x-transition:enter-start="opacity-0 scale-0"
+                         x-transition:enter-end="opacity-100 scale-100">
+                        3
+                    </div>
+                    <div class="card bg-base-100 flex-1 shadow-md">
+                        <div class="card-body py-4">
+                            <h3 class="font-bold">Heuristic AI Scoring</h3>
+                            <p class="text-sm text-base-content/70">ML model weighs all signals to produce confidence score</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4" x-data="{ show: false }" x-intersect="show = true">
+                    <div class="w-12 h-12 bg-secondary rounded-full flex items-center justify-center text-secondary-content font-bold flex-shrink-0"
+                         x-show="show"
+                         x-transition:enter="transition ease-out duration-300 delay-450"
+                         x-transition:enter-start="opacity-0 scale-0"
+                         x-transition:enter-end="opacity-100 scale-100">
+                        4
+                    </div>
+                    <div class="card bg-base-100 flex-1 shadow-md">
+                        <div class="card-body py-4">
+                            <h3 class="font-bold">LLM Escalation (If Needed)</h3>
+                            <p class="text-sm text-base-content/70">Complex cases get deep reasoning analysis</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-4" x-data="{ show: false }" x-intersect="show = true">
+                    <div class="w-12 h-12 bg-accent rounded-full flex items-center justify-center text-accent-content font-bold flex-shrink-0"
+                         x-show="show"
+                         x-transition:enter="transition ease-out duration-300 delay-600"
+                         x-transition:enter-start="opacity-0 scale-0"
+                         x-transition:enter-end="opacity-100 scale-100">
+                        5
+                    </div>
+                    <div class="card bg-base-100 flex-1 shadow-md">
+                        <div class="card-body py-4">
+                            <h3 class="font-bold">Continuous Learning</h3>
+                            <p class="text-sm text-base-content/70">Feedback improves future detections automatically</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Product Family -->
+<section class="py-20 bg-base-200">
+    <div class="max-w-7xl mx-auto px-4">
+        <div class="text-center mb-16">
+            <div class="badge badge-lg mb-4" style="background-color: rgba(168, 85, 247, 0.2); color: rgb(192, 132, 252);">Product Family</div>
+            <h2 class="text-4xl font-bold mb-4">Built on a Common Core</h2>
+            <p class="text-xl text-base-content/70 max-w-3xl mx-auto">
+                StyloBot and StyloWall share the same powerful detection engine. Choose the package that fits your needs—or use both together.
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
+            <!-- StyloBot (Current Product) -->
+            <div class="card bg-gradient-to-br from-primary/10 to-secondary/10 border-2 border-primary shadow-xl">
+                <div class="card-body">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-16 h-16 bg-primary/20 rounded-xl flex items-center justify-center">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-8 h-8 text-primary">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-3xl font-bold">StyloBot</h3>
+                            <p class="text-sm text-base-content/70">Web Application Firewall Pack</p>
+                        </div>
+                    </div>
+                    <div class="badge badge-primary mb-4">You Are Here</div>
+                    <p class="text-base-content/70 mb-6">
+                        Specialized bot detection and blocking for web applications. Protects HTTP/HTTPS endpoints with intelligent traffic analysis, behavioral detection, and zero-PII approach.
+                    </p>
+                    <div class="space-y-2 mb-6">
+                        <div class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span class="text-sm">Web traffic bot detection (HTTP/HTTPS)</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span class="text-sm">11+ specialized web detectors</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span class="text-sm">Browser fingerprinting & behavioral analysis</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span class="text-sm">API protection & rate limiting</span>
+                        </div>
+                    </div>
+                    <a href="#early-access" class="btn btn-primary btn-block">Request Early Access</a>
+                </div>
+            </div>
+
+            <!-- StyloWall (Related Product) -->
+            <div class="card bg-gradient-to-br from-purple-500/10 to-pink-500/10 border-2 border-purple-500/30 shadow-xl">
+                <div class="card-body">
+                    <div class="flex items-center gap-3 mb-4">
+                        <img src="/img/stylowall.png" alt="StyloWall Logo" class="w-16 h-16 drop-shadow-[0_0_12px_rgba(0,0,0,0.9)]" style="filter: drop-shadow(0 0 12px rgba(0,0,0,0.9));" />
+                        <div>
+                            <h3 class="text-3xl font-bold">StyloWall</h3>
+                            <p class="text-sm text-base-content/70">Universal Firewall Pack</p>
+                        </div>
+                    </div>
+                    <div class="badge badge-sm" style="background-color: rgba(168, 85, 247, 0.2); color: rgb(192, 132, 252);">Coming Soon</div>
+                    <p class="text-base-content/70 mb-6 mt-4">
+                        Protect any port, any protocol, any endpoint. Advanced semantic firewall with AI honeypot, intrusion detection, and real-time threat characterization for hacking attempts.
+                    </p>
+                    <div class="space-y-2 mb-6">
+                        <div class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span class="text-sm"><strong>Any port/protocol protection</strong> (SSH, FTP, SMTP, etc.)</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span class="text-sm"><strong>AI-powered honeypot</strong> to characterize attacks</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span class="text-sm"><strong>Semantic content filtering</strong> (PII, sentiment, policy)</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <svg class="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                            <span class="text-sm"><strong>Edge content manipulation</strong> before backend</span>
+                        </div>
+                    </div>
+                    <button class="btn btn-outline btn-block" disabled>Coming Soon</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-12">
+            <div class="card bg-base-100 shadow-lg max-w-3xl mx-auto">
+                <div class="card-body">
+                    <div class="flex items-center justify-center gap-3 mb-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-info">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                        </svg>
+                        <h4 class="font-bold text-lg">Same Core, Different Focus</h4>
+                    </div>
+                    <p class="text-base-content/70">
+                        Both products are built on the powerful StyloFlow core—the same detection engine, workflow system, and zero-config philosophy. StyloBot specializes in web application protection, while StyloWall extends protection to any network service.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="py-20 bg-gradient-to-br from-primary/10 via-base-100 to-secondary/10">
+    <div class="max-w-4xl mx-auto px-4 text-center">
+        <h2 class="text-4xl font-bold mb-6">
+            Ready for Multi-Layer Protection?
+        </h2>
+        <p class="text-xl text-base-content/70 mb-8">
+            See how our detection methods work together to stop bots
+        </p>
+        <div class="flex flex-col sm:flex-row gap-4 justify-center">
+            <a href="#early-access" class="btn btn-primary btn-lg px-8">Request Early Access</a>
+            <a asp-area="" asp-controller="Home" asp-action="Enterprise" class="btn btn-outline btn-lg px-8">View Enterprise</a>
+        </div>
+    </div>
+</section>

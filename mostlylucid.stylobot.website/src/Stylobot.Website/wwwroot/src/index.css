@@ -1,0 +1,13 @@
+﻿@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* stylobot branding colors - dark mode only */
+.stylo-text {
+  color: #6b7280; /* Gray */
+}
+
+.bot-text {
+  color: #ffffff; /* White */
+}
+

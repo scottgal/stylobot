@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(node -e:*)",
+      "Bash(node test-design.mjs:*)",
+      "Bash(npm run build:*)",
+      "Bash(curl:*)",
+      "Bash(Select-String -Pattern \"web3forms|2bab237e|access_key\" -Context 0,1)",
+      "Bash(dotnet run:*)",
+      "Bash(docker build:*)",
+      "Bash(docker save:*)",
+      "Bash(gzip:*)",
+      "Bash(node test-theme.mjs:*)",
+      "Bash(node test-theme-system.mjs:*)",
+      "Bash(Select-String -Pattern \"base-100|data-theme\" \"D:\\Source\\mostlylucid.stylobot.website\\src\\Stylobot.Website\\wwwroot\\dist\\assets\\index.css\")",
+      "Bash(Select-Object -First 20)",
+      "Bash(npm uninstall:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(npm install)",
+      "Bash(npm run build:tw:*)",
+      "Bash(docker run:*)",
+      "Bash(npm run build:js:*)",
+      "Bash(node test-final.mjs:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(timeout /t 3)",
+      "Bash(timeout:*)",
+      "Bash(Select-String -Pattern \"wwwroot/src|daisyUI|Done in\")",
+      "Bash(node --version:*)",
+      "Bash(npm:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
