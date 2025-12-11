@@ -34,7 +34,10 @@
       "Bash(bash \"D:\\Source\\mostlylucid.stylobot\\mostlylucid.stylobot.website\\build-docker.sh\" --help)",
       "Bash(mkdir:*)",
       "mcp__ide__getDiagnostics",
-      "Bash(Select-String -Pattern \"Index.cshtml|Features.cshtml\" -Context 2)"
+      "Bash(Select-String -Pattern \"Index.cshtml|Features.cshtml\" -Context 2)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []
