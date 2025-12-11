@@ -37,7 +37,8 @@
       "Bash(Select-String -Pattern \"Index.cshtml|Features.cshtml\" -Context 2)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(docker-compose restart:*)"
     ],
     "deny": [],
     "ask": []
