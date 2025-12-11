@@ -10,8 +10,8 @@
 
 # Main site
 stylobot.net, www.stylobot.net {
-    # Reverse proxy to YARP Gateway (bot detection layer)
-    reverse_proxy gateway:8080 {
+    # Reverse proxy directly to website (gateway disabled temporarily)
+    reverse_proxy website:8080 {
         # Health check
         health_uri /health
         health_interval 10s
@@ -50,7 +50,7 @@ stylobot.net, www.stylobot.net {
 
 # Development/localhost (no HTTPS)
 :80 {
-    reverse_proxy gateway:8080 {
+    reverse_proxy website:8080 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}

@@ -12,29 +12,29 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
-      - gateway
-    networks:
-      - stylobot-network
-    restart: unless-stopped
-
-  # YARP Gateway - Bot detection layer
-  gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
-    container_name: stylobot-gateway
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ASPNETCORE_URLS=http://+:8080
-      # Simple catch-all routing to website backend
-      - DEFAULT_UPSTREAM=http://website:8080
-    expose:
-      - "8080"
-    depends_on:
       - website
     networks:
       - stylobot-network
     restart: unless-stopped
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
+
+  # YARP Gateway - Bot detection layer (disabled - gateway image not available yet)
+  # gateway:
+  #   image: scottgal/mostlylucid.yarpgateway:latest
+  #   container_name: stylobot-gateway
+  #   environment:
+  #     - ASPNETCORE_ENVIRONMENT=Production
+  #     - ASPNETCORE_URLS=http://+:8080
+  #     # Simple catch-all routing to website backend
+  #     - DEFAULT_UPSTREAM=http://website:8080
+  #   expose:
+  #     - "8080"
+  #   depends_on:
+  #     - website
+  #   networks:
+  #     - stylobot-network
+  #   restart: unless-stopped
+  #   labels:
+  #     - "com.centurylinklabs.watchtower.enable=true"
 
   # Stylobot Website - ASP.NET Core 10 backend
   website:
