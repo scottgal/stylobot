@@ -1,9 +1,13 @@
 using System.Diagnostics;
+using Stylobot.Website.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHealthChecks();
 // Add services to the container.
 builder.Services.AddControllersWithViews();
+
+// Register SEO service
+builder.Services.AddSingleton<SeoService>();
 
 var app = builder.Build();
 

@@ -28,7 +28,13 @@
       "Bash(timeout:*)",
       "Bash(Select-String -Pattern \"wwwroot/src|daisyUI|Done in\")",
       "Bash(node --version:*)",
-      "Bash(npm:*)"
+      "Bash(npm:*)",
+      "Bash(chmod:*)",
+      "Bash(Get-Help \"D:\\Source\\mostlylucid.stylobot\\mostlylucid.stylobot.website\\build-docker.ps1\")",
+      "Bash(bash \"D:\\Source\\mostlylucid.stylobot\\mostlylucid.stylobot.website\\build-docker.sh\" --help)",
+      "Bash(mkdir:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(Select-String -Pattern \"Index.cshtml|Features.cshtml\" -Context 2)"
     ],
     "deny": [],
     "ask": []

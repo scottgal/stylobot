@@ -1,11 +1,16 @@
 ﻿@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
+@using Stylobot.Website.Models
+@{
+    var seoMetadata = ViewData["SeoMetadata"] as SeoMetadata ?? new SeoMetadata();
+}
 <!DOCTYPE html>
 <html lang="en" class="dark" data-theme="dark" x-data="themeSwitcher()" x-init="init()">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <title>@ViewData["Title"] - Stylobot</title>
+    <!-- SEO Meta Tags -->
+    @await Html.PartialAsync("_SeoMetaTags", seoMetadata)
 
     <!-- Favicons -->
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">

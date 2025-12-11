@@ -14,6 +14,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "SolutionFolder", "SolutionF
 		docker-compose.yml = docker-compose.yml
 		Dockerfile = Dockerfile
 		setup-server.sh = setup-server.sh
+		.github\workflows\docker-build-push.yml = .github\workflows\docker-build-push.yml
 	EndProjectSection
 EndProject
 Global
