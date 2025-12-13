@@ -61,12 +61,12 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-left">
                     <div class="p-4 bg-base-200 rounded-lg">
-                        <div class="text-primary font-bold mb-2">📊 Complete Transparency</div>
-                        <div class="text-sm text-base-content/70">Every request returns detailed JSON with scores, signals, detector breakdowns, and reasoning. No black boxes.</div>
+                        <div class="text-primary font-bold mb-2">⚡ Drop-In Integration</div>
+                        <div class="text-sm text-base-content/70">YARP reverse proxy or ASP.NET Middleware adds bot intelligence as HTTP headers—zero code changes. Or use the full JSON API.</div>
                     </div>
                     <div class="p-4 bg-base-200 rounded-lg">
-                        <div class="text-accent font-bold mb-2">🎯 Your Choice</div>
-                        <div class="text-sm text-base-content/70">Use the recommended action (Allow/Block/Challenge) or build custom logic from the rich data. You're in control.</div>
+                        <div class="text-accent font-bold mb-2">📊 Complete Transparency</div>
+                        <div class="text-sm text-base-content/70">Every request includes scores, confidence, signals, detector breakdowns, and reasoning. No black boxes.</div>
                     </div>
                     <div class="p-4 bg-base-200 rounded-lg">
                         <div class="text-secondary font-bold mb-2">🔒 Privacy-First</div>
@@ -86,9 +86,12 @@
                     </svg>
                     <div class="text-left">
                         <h3 class="font-bold text-lg text-primary">Not an Auto-Blocker. A Data Engine.</h3>
-                        <p class="text-sm text-base-content/80">
+                        <p class="text-sm text-base-content/80 mb-3">
                             Every request returns comprehensive intelligence: <code class="text-xs bg-base-300 px-1 rounded">isBot</code>, <code class="text-xs bg-base-300 px-1 rounded">humanProbability</code>, <code class="text-xs bg-base-300 px-1 rounded">confidence</code>, <code class="text-xs bg-base-300 px-1 rounded">riskBand</code>, <code class="text-xs bg-base-300 px-1 rounded">recommendedAction</code>, detector breakdowns, signals, and reasoning. <span class="font-semibold text-accent">You get all the data—you decide what to do with it.</span>
                         </p>
+                        <div class="text-xs text-base-content/70 bg-base-100/50 rounded p-2 border border-base-content/10">
+                            <span class="font-semibold text-primary">Three integration options:</span> (1) YARP reverse proxy or (2) ASP.NET Middleware—both automatically add bot intelligence as HTTP headers to every request (no JSON parsing needed). (3) Full JSON API for direct integration and custom workflows.
+                        </div>
                     </div>
                 </div>
             </div>
@@ -192,7 +195,7 @@
                                     <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
-                                    <span><strong>Fast Path Optimization:</strong> While 17+ signals are available, stylobot typically uses only 1-2 detectors in the fast path for common requests (response in &lt;10ms). The full pipeline runs only when needed for sophisticated analysis.</span>
+                                    <span><strong>Fast Path Optimization:</strong> While 17+ signals are available, stylobot typically uses only 1-2 detectors in the fast path for common requests (response in &lt;1ms). The full pipeline runs only when needed for sophisticated analysis.</span>
                                 </div>
                             </div>
                         </div>
@@ -211,14 +214,33 @@
                         <p class="text-sm mb-3 text-base-content/70">
                             Try our working prototypes while stylobot is in development. These prototypes will evolve into the full stylobot product.
                         </p>
-                        <div class="flex flex-wrap gap-3">
-                            <a href="https://www.nuget.org/packages/mostlylucid.botdetection" target="_blank" class="inline-flex">
-                                <img src="https://img.shields.io/nuget/v/mostlylucid.botdetection.svg" alt="NuGet Package" />
+                        <div class="flex flex-wrap items-center gap-3">
+                            <a href="https://www.nuget.org/packages/mostlylucid.botdetection"
+                               target="_blank"
+                               class="inline-flex">
+                                <img
+                                    src="https://img.shields.io/nuget/v/mostlylucid.botdetection.svg?label=ASP.NET%20Bot%20Detection"
+                                    alt="ASP.NET Bot Detection Middleware & YARP Extension" />
                             </a>
-                            <a href="https://hub.docker.com/r/scottgal/mostlylucid.yarpgateway" target="_blank" class="inline-flex">
-                                <img src="https://img.shields.io/docker/pulls/scottgal/mostlylucid.yarpgateway?label=Docker%20Hub" alt="Docker Hub" />
+
+                            <a href="https://hub.docker.com/r/scottgal/mostlylucid.yarpgateway"
+                               target="_blank"
+                               class="inline-flex">
+                                <img
+                                    src="https://img.shields.io/docker/pulls/scottgal/mostlylucid.yarpgateway?label=YARP%20Gateway"
+                                    alt="YARP Reverse Proxy with Integrated Bot Detection" />
+                            </a>
+
+                            <a href="https://github.com/scottgal/mostlylucid.nugetpackages/releases/latest"
+                               target="_blank"
+                               class="inline-flex">
+                                <img
+                                    src="https://img.shields.io/github/v/release/scottgal/mostlylucid.nugetpackages?label=Tiny%20Gateway%20Binary"
+                                    alt="Minimal Cross-Platform Gateway Executable" />
                             </a>
                         </div>
+
+
                     </div>
                 </div>
             </div>
