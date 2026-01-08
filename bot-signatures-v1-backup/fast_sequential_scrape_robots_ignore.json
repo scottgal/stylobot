@@ -1,0 +1,54 @@
+{
+  "scenarioName": "fast_sequential_scrape_robots_ignore",
+  "scenario": "High-speed sequential requests with suspicious paths and no respect for robots.txt, indicative of automated scraping.",
+  "confidence": 0.92,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/api/large-dataset?limit=1000",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.05
+    },
+    {
+      "timestamp": 0.05,
+      "method": "GET",
+      "path": "/search?q=bot\u002Bscraper\u002Btest",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.03
+    },
+    {
+      "timestamp": 0.08,
+      "method": "GET",
+      "path": "/admin/export?format=json",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.02
+    },
+    {
+      "timestamp": 0.1,
+      "method": "GET",
+      "path": "/static/private/data",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatus": 403,
+      "delayAfter": 0.01
+    }
+  ],
+  "patterns": {
+    "requestInterval": "consistently \u003C0.1s between requests",
+    "pathSequence": "high-risk admin/search/data endpoints",
+    "userAgentPattern": "Go-http-client/2.0 (common in scraping tools)",
+    "statusCodePattern": "mix of 200 (success) and 403 (blocked) responses"
+  },
+  "reasoning": "The scenario exhibits rapid, sequential requests (\u003C0.1s delays) targeting sensitive endpoints (admin/export, static/private/data) and search queries. The mix of successful and blocked responses suggests automated probing, while the lack of delay between requests indicates a scraping bot. The User-Agent \u0027Go-http-client/2.0\u0027 is commonly associated with scraping tools, and the aggressive path selection violates typical human browsing patterns."
+}

@@ -1,0 +1,83 @@
+name: Publish Mostlylucid.BotDetection
+
+on:
+  push:
+    tags:
+      - 'botdetection-v*.*.*'
+      - 'allbot-v*.*.*'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Extract version and create MinVer tag
+      id: get_version
+      run: |
+        # Handle both botdetection-v* and allbot-v* tags
+        TAG=${GITHUB_REF#refs/tags/}
+        if [[ "$TAG" == botdetection-v* ]]; then
+          VERSION=${TAG#botdetection-v}
+        else
+          VERSION=${TAG#allbot-v}
+          # Create a local tag that MinVer will recognize
+          git tag "botdetection-v${VERSION}"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Publishing version: $VERSION"
+
+    - name: Restore dependencies
+      run: |
+        dotnet restore Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
+        dotnet restore Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj
+        dotnet restore Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj
+
+    - name: Build
+      run: dotnet build Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj --configuration Release --no-restore
+
+    - name: Run unit tests (excluding integration tests)
+      run: |
+        dotnet test Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj \
+          --configuration Release \
+          --verbosity normal \
+          --filter "Category!=Integration"
+        dotnet test Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj \
+          --configuration Release \
+          --verbosity normal \
+          --filter "Category!=Integration"
+
+    - name: Pack
+      run: dotnet pack Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj --configuration Release --no-build --output ./artifacts
+
+    - name: Login to NuGet (OIDC)
+      id: nuget_login
+      uses: NuGet/login@v1
+      with:
+        user: 'mostlylucid'
+
+    - name: Publish to NuGet (Trusted Publisher)
+      run: |
+        dotnet nuget push ./artifacts/*.nupkg \
+          --api-key ${{ steps.nuget_login.outputs.NUGET_API_KEY }} \
+          --source https://api.nuget.org/v3/index.json \
+          --skip-duplicate
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuget-package
+        path: ./artifacts/*.nupkg

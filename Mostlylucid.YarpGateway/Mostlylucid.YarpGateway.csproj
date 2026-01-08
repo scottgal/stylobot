@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+        <AssemblyName>Mostlylucid.YarpGateway</AssemblyName>
+        <RootNamespace>Mostlylucid.YarpGateway</RootNamespace>
+        <ContainerRepository>mostlylucid/yarp-gateway</ContainerRepository>
+        <ContainerImageTag>0.1</ContainerImageTag>
+
+        <!-- Size optimization -->
+        <SelfContained>false</SelfContained>
+        <InvariantGlobalization>true</InvariantGlobalization>
+        <PublishTrimmed>false</PublishTrimmed>
+
+        <!-- Reduce output size -->
+        <DebugType>none</DebugType>
+        <DebugSymbols>false</DebugSymbols>
+
+        <!-- Disable trim warnings (not using trimming) -->
+        <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+
+        <!-- Runtime identifiers for multi-arch Docker builds -->
+        <RuntimeIdentifiers>linux-x64;linux-musl-x64;linux-arm64;linux-musl-arm64</RuntimeIdentifiers>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Bot Detection -->
+        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- YARP Reverse Proxy -->
+        <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
+
+        <!-- Database providers (optional) -->
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.2" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.0" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+
+        <!-- Logging -->
+        <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+        <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+        <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+
+        <!-- Health checks -->
+        <PackageReference Include="AspNetCore.HealthChecks.NpgSql" Version="9.0.0" />
+        <PackageReference Include="AspNetCore.HealthChecks.SqlServer" Version="8.0.2" />
+
+        <!-- OpenAPI -->
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
+    </ItemGroup>
+
+</Project>

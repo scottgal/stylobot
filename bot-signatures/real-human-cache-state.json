@@ -1,0 +1,68 @@
+{
+  "scenarioName": "real-human-cache-state",
+  "scenario": "A real human user browsing a site with cache state.",
+  "confidence": 0.15,
+  "clientProfile": {
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "cookieMode": "sticky",
+    "headerCompleteness": "full",
+    "clientHintsPresent": true,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 3,
+    "delayAfterMs": {
+      "min": 2000,
+      "max": 15000
+    },
+    "pauseAfterBurstMs": {
+      "min": 5000,
+      "max": 20000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "browsing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Human",
+    "NaturalBrowsing"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003E",
+      "value": 3000,
+      "weight": 0.35
+    },
+    {
+      "signal": "robotstxt_consulted",
+      "op": "=",
+      "value": true,
+      "weight": 0.25
+    },
+    {
+      "signal": "full_headers",
+      "op": "=",
+      "value": true,
+      "weight": 0.15
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 2-15s"
+  },
+  "reasoning": "This profile is designed to mimic the browsing behavior of a real human user while ensuring that it meets typical characteristics for both humans and bots."
+}

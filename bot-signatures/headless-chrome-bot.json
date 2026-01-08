@@ -1,0 +1,137 @@
+{
+  "scenarioName": "headless-chrome-bot",
+  "scenario": "Headless Chrome bot interacting with website content.",
+  "confidence": 0.9,
+  "clientProfile": {
+    "userAgent": "HeadlessChrome/120.0.6099.109",
+    "cookieMode": "sticky",
+    "headerCompleteness": "full",
+    "clientHintsPresent": true,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 15,
+    "delayAfterMs": {
+      "min": 30,
+      "max": 200
+    },
+    "pauseAfterBurstMs": {
+      "min": 1000,
+      "max": 3000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "ignored",
+      "successCondition": "status 403|404|429"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "ignored",
+      "successCondition": "status 403|404|429"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "ignored",
+      "successCondition": "status 403|404|429"
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Bot",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 100,
+      "weight": 0.35
+    },
+    {
+      "signal": "cookies_count",
+      "op": "\u003E=",
+      "value": 2,
+      "weight": 0.4
+    },
+    {
+      "signal": "clientHints_count",
+      "op": "\u003E=",
+      "value": 3,
+      "weight": 0.2
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "This signature identifies a Headless Chrome bot interacting with the website, hitting sensitive paths and enumerating API data pages while failing to respect HTTP headers."
+}

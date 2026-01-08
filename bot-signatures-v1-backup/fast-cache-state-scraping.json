@@ -1,0 +1,54 @@
+{
+  "scenarioName": "fast-cache-state-scraping",
+  "scenario": "High-speed sequential requests to cache-sensitive endpoints with minimal delays, mimicking automated scraping behavior targeting static content and metadata",
+  "confidence": 0.92,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/api/cache-state?key=homepage",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.05
+    },
+    {
+      "timestamp": 0.05,
+      "method": "GET",
+      "path": "/api/cache-state?key=sidebar",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.03
+    },
+    {
+      "timestamp": 0.08,
+      "method": "GET",
+      "path": "/api/cache-state?key=footer",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.02
+    },
+    {
+      "timestamp": 0.1,
+      "method": "GET",
+      "path": "/api/cache-state?key=media",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.01
+    }
+  ],
+  "patterns": {
+    "requestInterval": "exactly \u003C0.1s (ranging 0.01\u20130.08s)",
+    "pathSequence": "sequential API endpoint scraping for cache metadata",
+    "userAgentPattern": "repeated python-requests/2.31.0",
+    "statusCodePattern": "consistent 200 responses for all requests"
+  },
+  "reasoning": "This behavior indicates automated scraping targeting cache metadata endpoints. The rapid, non-human-like timing (sub-second delays) and consistent API calls to cache-related endpoints suggest a bot/scraper attempting to bypass caching mechanisms or extract cached content for further processing. The lack of human-like variability in timing and path exploration further reinforces bot detection."
+}

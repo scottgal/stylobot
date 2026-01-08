@@ -1,0 +1,147 @@
+# Header Detector - Bot detection from HTTP header analysis
+name: HeaderContributor
+priority: 10  # Runs early with other stage-0 detectors
+enabled: true
+description: Analyzes HTTP headers for bot indicators (missing headers, ordering, consistency)
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: header
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with headers
+      signal_pattern: request.headers.*
+
+  required_signals:
+    - request.headers
+
+  optional_signals:
+    - request.headers.accept
+    - request.headers.accept-language
+    - request.headers.accept-encoding
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Header analysis contribution to detection ledger
+    - type: botdetection.header_signal
+      description: Detailed header analysis signals
+
+  signals:
+    - key: detection.header.confidence
+      entity_type: number
+      salience: 0.6
+      description: Bot confidence from header analysis
+    - key: detection.header.missing_count
+      entity_type: integer
+      salience: 0.7
+      description: Count of missing expected headers
+
+triggers:
+  requires: []  # No dependencies - runs first wave
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.header.started
+
+  on_complete:
+    - key: detection.header.confidence
+      type: double
+      description: Bot confidence from header analysis
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.header.missing_count
+      type: int
+      description: Count of expected headers that are missing
+
+    - key: detection.header.order_anomaly
+      type: bool
+      description: Whether header order is suspicious
+
+    - key: detection.header.accept_language
+      type: string
+      description: Accept-Language header value
+
+    - key: detection.header.accept_encoding
+      type: string
+      description: Accept-Encoding header value
+
+  on_failure:
+    - detector.header.failed
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 100
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:HeaderContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0           # Base contribution weight
+    bot_signal: 1.2     # Weight when bot pattern detected
+    human_signal: 0.9   # Weight for human indicators
+    verified: 1.5       # Weight for verified patterns
+    early_exit: 2.0     # Weight for early-exit triggering patterns
+
+  confidence:
+    neutral: 0.0        # Headers appear normal
+    bot_detected: 0.2   # Missing expected headers
+    human_indicated: -0.05  # All expected headers present
+    strong_signal: 0.5  # Multiple header anomalies
+    high_threshold: 0.7 # Threshold for "likely bot"
+    low_threshold: 0.2  # Threshold for "probably human"
+    escalation_threshold: 0.4  # When to escalate
+
+  timing:
+    timeout_ms: 20      # Max execution time (very fast)
+    cache_refresh_sec: 0  # No caching needed
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  # Detector-specific parameters
+  parameters:
+    # Headers that should be present in browser requests
+    expected_browser_headers:
+      - "Accept"
+      - "Accept-Language"
+      - "Accept-Encoding"
+    # Headers that indicate bots when present
+    bot_indicator_headers:
+      - "X-Forwarded-For"  # Not inherently bad, but track it
+    # Missing header confidence penalty per header
+    missing_header_penalty: 0.1
+    # Order anomaly confidence penalty
+    order_anomaly_penalty: 0.15
+    # Minimum expected header count (below this is suspicious)
+    min_header_count: 3
+    # Check Accept-Language validity
+    validate_accept_language: true
+
+tags:
+  - fast-path
+  - header-analysis
+  - stage-0

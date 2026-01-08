@@ -1,0 +1,6 @@
+{
+  PatternId: ua:GoodClient,
+  State: ConfirmedGood,
+  Support: 110.0,
+  FastPathWeight: -0.2
+}

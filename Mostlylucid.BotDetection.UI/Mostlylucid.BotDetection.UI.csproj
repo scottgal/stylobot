@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+    <PropertyGroup>
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+        <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+        <IsPackable>true</IsPackable>
+        <EnableDefaultContentItems>false</EnableDefaultContentItems>
+
+        <!-- Package metadata -->
+        <PackageId>Mostlylucid.BotDetection.UI</PackageId>
+        <Version>2.0.0</Version>
+        <Authors>Mostlylucid</Authors>
+        <Description>Real-time bot detection dashboard with SignalR, HTMX, DaisyUI, ECharts, and Tabulator. Includes Tag Helpers and View Components for displaying bot detection results.</Description>
+        <PackageTags>bot-detection;ui;dashboard;signalr;htmx;daisyui;echarts;tabulator;taghelper;viewcomponent;aspnetcore</PackageTags>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj"/>
+    </ItemGroup>
+
+    <!-- Static web assets (CSS, JS) for package consumption -->
+    <ItemGroup>
+        <!-- Include wwwroot files as static web assets for Razor Class Library -->
+        <Content Update="wwwroot\**\*">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        </Content>
+    </ItemGroup>
+
+    <!-- Ensure Razor views are compiled -->
+    <ItemGroup>
+        <Content Include="Views\**\*.cshtml"/>
+    </ItemGroup>
+
+    <!-- Exclude examples from compilation -->
+    <ItemGroup>
+        <Compile Remove="Examples\**\*.cs"/>
+        <None Include="Examples\**\*.cs"/>
+    </ItemGroup>
+
+</Project>

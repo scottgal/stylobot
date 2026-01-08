@@ -1,0 +1,817 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CRM API",
+    "description": "Customer Relationship Management API",
+    "version": "2.0.0"
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "paths": {
+    "/contacts": {
+      "get": {
+        "summary": "List contacts",
+        "parameters": [
+          {
+            "name": "company",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactList"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create contact",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ContactCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Contact"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/contacts/{id}": {
+      "get": {
+        "summary": "Get contact",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Contact"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/companies": {
+      "get": {
+        "summary": "List companies",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyList"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/deals": {
+      "get": {
+        "summary": "List deals",
+        "parameters": [
+          {
+            "name": "stage",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DealList"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Create deal",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DealCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deal"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/deals/{id}": {
+      "get": {
+        "summary": "Get deal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deal"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update deal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DealUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deal"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/activities": {
+      "get": {
+        "summary": "List activities",
+        "parameters": [
+          {
+            "name": "contactId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dealId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityList"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Log activity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivityCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Activity"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pipeline": {
+      "get": {
+        "summary": "Get pipeline overview",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pipeline"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Contact": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cont-12345"
+          },
+          "firstName": {
+            "type": "string",
+            "example": "John"
+          },
+          "lastName": {
+            "type": "string",
+            "example": "Smith"
+          },
+          "email": {
+            "type": "string",
+            "example": "john.smith@acme.com"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "mobile": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "example": "VP of Engineering"
+          },
+          "company": {
+            "$ref": "#/components/schemas/Company"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/User"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "lead",
+              "prospect",
+              "customer",
+              "churned"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "example": "website"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "lastContactedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ContactCreate": {
+        "type": "object",
+        "required": [
+          "firstName",
+          "lastName",
+          "email"
+        ],
+        "properties": {
+          "firstName": {
+            "type": "string"
+          },
+          "lastName": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "ContactList": {
+        "type": "object",
+        "properties": {
+          "contacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Contact"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          }
+        }
+      },
+      "Company": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "example": "Acme Corporation"
+          },
+          "domain": {
+            "type": "string",
+            "example": "acme.com"
+          },
+          "industry": {
+            "type": "string",
+            "example": "Technology"
+          },
+          "size": {
+            "type": "string",
+            "enum": [
+              "1-10",
+              "11-50",
+              "51-200",
+              "201-500",
+              "501-1000",
+              "1000+"
+            ]
+          },
+          "revenue": {
+            "type": "string",
+            "example": "$10M-$50M"
+          },
+          "website": {
+            "type": "string"
+          },
+          "address": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "contactCount": {
+            "type": "integer"
+          },
+          "dealCount": {
+            "type": "integer"
+          }
+        }
+      },
+      "CompanyList": {
+        "type": "object",
+        "properties": {
+          "companies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Company"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "Deal": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "deal-67890"
+          },
+          "name": {
+            "type": "string",
+            "example": "Enterprise License - Acme Corp"
+          },
+          "value": {
+            "type": "number",
+            "example": 150000
+          },
+          "currency": {
+            "type": "string",
+            "example": "USD"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "prospecting",
+              "qualification",
+              "proposal",
+              "negotiation",
+              "closed-won",
+              "closed-lost"
+            ]
+          },
+          "probability": {
+            "type": "integer",
+            "example": 60
+          },
+          "expectedCloseDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "actualCloseDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "company": {
+            "$ref": "#/components/schemas/Company"
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Contact"
+            }
+          },
+          "owner": {
+            "$ref": "#/components/schemas/User"
+          },
+          "nextStep": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DealCreate": {
+        "type": "object",
+        "required": [
+          "name",
+          "value",
+          "companyId"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "companyId": {
+            "type": "string"
+          },
+          "contactIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expectedCloseDate": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "DealUpdate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "probability": {
+            "type": "integer"
+          },
+          "expectedCloseDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "nextStep": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "DealList": {
+        "type": "object",
+        "properties": {
+          "deals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Deal"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "totalValue": {
+            "type": "number"
+          }
+        }
+      },
+      "Activity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "call",
+              "email",
+              "meeting",
+              "note",
+              "task"
+            ]
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "contact": {
+            "$ref": "#/components/schemas/Contact"
+          },
+          "deal": {
+            "$ref": "#/components/schemas/Deal"
+          },
+          "user": {
+            "$ref": "#/components/schemas/User"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "Duration in minutes"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "scheduledAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ActivityCreate": {
+        "type": "object",
+        "required": [
+          "type",
+          "subject"
+        ],
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "contactId": {
+            "type": "string"
+          },
+          "dealId": {
+            "type": "string"
+          },
+          "duration": {
+            "type": "integer"
+          },
+          "outcome": {
+            "type": "string"
+          }
+        }
+      },
+      "ActivityList": {
+        "type": "object",
+        "properties": {
+          "activities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Activity"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "Pipeline": {
+        "type": "object",
+        "properties": {
+          "stages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "dealCount": {
+                  "type": "integer"
+                },
+                "totalValue": {
+                  "type": "number"
+                },
+                "deals": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Deal"
+                  }
+                }
+              }
+            }
+          },
+          "totalDeals": {
+            "type": "integer"
+          },
+          "totalValue": {
+            "type": "number"
+          },
+          "weightedValue": {
+            "type": "number"
+          }
+        }
+      },
+      "Address": {
+        "type": "object",
+        "properties": {
+          "street": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "postalCode": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

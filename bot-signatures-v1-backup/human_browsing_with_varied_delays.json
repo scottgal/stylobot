@@ -1,0 +1,63 @@
+{
+  "scenarioName": "human_browsing_with_varied_delays",
+  "scenario": "Simulates a real human navigating a website with organic, variable delays between requests and natural path exploration (e.g., homepage \u2192 category pages \u2192 subpages \u2192 back to homepage).",
+  "confidence": 0.95,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 10
+    },
+    {
+      "timestamp": 15,
+      "method": "GET",
+      "path": "/products/electronics",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 18
+    },
+    {
+      "timestamp": 33,
+      "method": "GET",
+      "path": "/products/electronics/laptops",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 5
+    },
+    {
+      "timestamp": 38,
+      "method": "GET",
+      "path": "/products/electronics/laptops/accessories",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 25
+    },
+    {
+      "timestamp": 63,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 2-30s (avg ~15s)",
+    "pathSequence": "home \u2192 category \u2192 subcategory \u2192 back to home (natural browsing)",
+    "pathDepth": "2-3 levels deep"
+  },
+  "reasoning": "Human behavior exhibits unpredictable delays (e.g., 5s pause after a subpage load) and follows non-linear navigation paths (e.g., returning to homepage after exploring). The mix of short/long delays and organic path exploration aligns with real user behavior, unlike scripted bots that use fixed intervals or rigid sequences."
+}

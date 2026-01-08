@@ -1,0 +1,150 @@
+# FastPath Reputation Detector - Ultra-fast reputation lookup for instant allow/abort
+name: FastPathReputationContributor
+priority: 3  # Runs FIRST - enables instant allow/abort for known patterns
+enabled: true
+description: Checks reputation cache for confirmed good/bad patterns for instant decisions
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: fastpath
+
+taxonomy:
+  kind: gatekeeper  # Controls early exit decisions
+  determinism: deterministic
+  persistence: ephemeral  # Uses external cache
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for quick reputation lookup
+      signal_pattern: request.*
+
+  required_signals:
+    - request.headers.user-agent
+    - request.ip
+
+  optional_signals: []
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: FastPath reputation contribution (may trigger early exit)
+
+  signals:
+    - key: detection.fastpath.hit
+      entity_type: boolean
+      salience: 1.0
+      description: Whether a reputation match was found
+    - key: detection.early_exit.allow
+      entity_type: boolean
+      salience: 1.0
+      description: Signal to allow request immediately
+    - key: detection.early_exit.block
+      entity_type: boolean
+      salience: 1.0
+      description: Signal to block request immediately
+
+triggers:
+  requires: []  # No dependencies - runs first in Wave 0
+  skip_when: []  # Never skip - always runs first
+
+emits:
+  on_start:
+    - detector.fastpath.started
+
+  on_complete:
+    - key: detection.fastpath.hit
+      type: bool
+      description: Whether a reputation match was found
+
+    - key: detection.fastpath.match_type
+      type: string
+      description: Type of match (UserAgent, IP)
+
+    - key: detection.fastpath.pattern_id
+      type: string
+      description: Matched pattern identifier
+
+  on_failure:
+    - detector.fastpath.failed
+
+  conditional:
+    - key: detection.early_exit.allow
+      type: bool
+      when: fastpath.hit && reputation.can_allow
+      description: Signal to allow request immediately
+
+    - key: detection.early_exit.block
+      type: bool
+      when: fastpath.hit && reputation.can_abort
+      description: Signal to block request immediately
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 16  # Very fast - maximize throughput
+  priority: 200  # Highest priority
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:FastPathReputationContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 0.0           # No weight by itself - just triggers early exit
+    bot_signal: 0.0     # N/A
+    human_signal: 0.0   # N/A
+    verified: 3.0       # Very high for verified patterns
+    early_exit: 5.0     # Maximum weight for early exit decisions
+
+  confidence:
+    neutral: 0.0        # No pattern match
+    bot_detected: 1.0   # ConfirmedBad pattern - instant block
+    human_indicated: 0.0  # ConfirmedGood - instant allow
+    strong_signal: 1.0  # Both good and bad use full confidence
+    high_threshold: 0.8 # Minimum support for fast allow
+    low_threshold: 0.2  # N/A
+    escalation_threshold: 0.0  # Never escalates - it's the first check
+
+  timing:
+    timeout_ms: 5       # Ultra-fast - just cache lookup
+    cache_refresh_sec: 0  # Cache is externally managed
+
+  features:
+    detailed_logging: true  # Log fast-path hits for monitoring
+    enable_cache: true      # Uses external reputation cache
+    can_early_exit: true    # Primary purpose is early exit
+    can_escalate: false     # Never escalates
+
+  # FastPath-specific parameters
+  parameters:
+    # Weight for fast abort decisions
+    fast_abort_weight: 3.0
+    # Reputation states that trigger fast allow
+    allow_states:
+      - "ConfirmedGood"
+      - "ManuallyAllowed"
+    # Reputation states that trigger fast abort
+    abort_states:
+      - "ConfirmedBad"
+      - "ManuallyBlocked"
+    # Minimum support score for fast path
+    min_support_allow: 10.0   # Need 10+ observations for auto-allow
+    min_support_abort: 5.0    # Only need 5 observations for block
+    # Bot score thresholds
+    allow_max_bot_score: 0.1  # Must be very low to allow
+    abort_min_bot_score: 0.9  # Must be very high to abort
+
+tags:
+  - fast-path
+  - reputation
+  - early-exit
+  - stage-0
+  - circuit-breaker

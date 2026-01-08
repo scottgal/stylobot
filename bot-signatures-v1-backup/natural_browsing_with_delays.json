@@ -1,0 +1,64 @@
+{
+  "scenarioName": "natural_browsing_with_delays",
+  "scenario": "Simulates a human user exploring a website with organic delays and natural navigation patterns, including back-and-forth browsing and random page exploration.",
+  "confidence": 0.98,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 12
+    },
+    {
+      "timestamp": 12,
+      "method": "GET",
+      "path": "/search?q=technology",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 5
+    },
+    {
+      "timestamp": 17,
+      "method": "GET",
+      "path": "/products/123",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 20
+    },
+    {
+      "timestamp": 37,
+      "method": "GET",
+      "path": "/blog",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 8
+    },
+    {
+      "timestamp": 45,
+      "method": "GET",
+      "path": "/about",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 15,
+      "additionalBehavior": "Randomly scrolls page and pauses for 3s before navigating back to \u0027/search?q=technology\u0027 if available"
+    }
+  ],
+  "patterns": {
+    "requestInterval": "Variable (2-30s, with natural pauses)",
+    "pathSequence": "Natural browsing with back-and-forth exploration (e.g., search \u2192 product \u2192 blog \u2192 about)",
+    "behavioral": "Randomized delays, simulated human scrolling, and context-aware navigation"
+  },
+  "reasoning": "This mimics a real human user by incorporating organic delays, unpredictable navigation paths, and simulated human behaviors like scrolling and pausing. The variable delays (2-30s) and non-linear path exploration (e.g., jumping between categories) are hallmarks of human browsing patterns, unlike automated bots that follow rigid, predictable sequences."
+}

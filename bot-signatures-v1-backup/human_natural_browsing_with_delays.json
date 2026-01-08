@@ -1,0 +1,54 @@
+{
+  "scenarioName": "human_natural_browsing_with_delays",
+  "scenario": "Simulates a real human browsing behavior with deliberate delays and natural navigation patterns (e.g., exploring multiple pages with variable time gaps)",
+  "confidence": 0.98,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/homepage",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 10
+    },
+    {
+      "timestamp": 10,
+      "method": "GET",
+      "path": "/search?q=natural\u002Bbehavior",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 15
+    },
+    {
+      "timestamp": 25,
+      "method": "GET",
+      "path": "/about",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 5
+    },
+    {
+      "timestamp": 30,
+      "method": "GET",
+      "path": "/contact",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 20
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable (5\u201330s, with occasional longer pauses)",
+    "pathSequence": "logical navigation (home \u2192 search \u2192 about \u2192 contact)",
+    "mouseMovement": "simulated (e.g., hover delays, scroll pauses)",
+    "keyboardActivity": "typing delays (e.g., 1\u20133s between keystrokes)"
+  },
+  "reasoning": "Real humans exhibit unpredictable delays (e.g., 5\u201330s) between actions, often pausing to think or scroll. Natural navigation follows logical paths (e.g., search \u2192 related content). Mouse/keyboard interactions are slower than automated bots, and users may revisit pages with variable timing. This mimics organic user behavior rather than scripted automation."
+}

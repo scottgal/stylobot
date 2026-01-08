@@ -1,0 +1,205 @@
+using System.Collections.Immutable;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Analysis;
+using Mostlylucid.BotDetection.Models;
+using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
+
+namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
+
+/// <summary>
+///     Advanced behavioral analysis using statistical pattern detection.
+///     Applies entropy analysis, Markov chains, and time-series anomaly detection.
+///     Runs after basic behavioral detection to provide deeper insights.
+/// </summary>
+public class AdvancedBehavioralContributor : ContributingDetectorBase
+{
+    private readonly BehavioralPatternAnalyzer _analyzer;
+    private readonly ILogger<AdvancedBehavioralContributor> _logger;
+    private readonly BotDetectionOptions _options;
+
+    public AdvancedBehavioralContributor(
+        ILogger<AdvancedBehavioralContributor> logger,
+        IMemoryCache cache,
+        IOptions<BotDetectionOptions> options)
+    {
+        _logger = logger;
+        _options = options.Value;
+        _analyzer = new BehavioralPatternAnalyzer(
+            cache,
+            _options.Behavioral.AnalysisWindow,
+            _options.Behavioral.IdentityHashSalt);
+    }
+
+    public override string Name => "AdvancedBehavioral";
+    public override int Priority => 25; // Run after basic behavioral (priority 20)
+
+    // No triggers - runs in first wave alongside basic behavioral
+    public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
+
+    public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
+        BlackboardState state,
+        CancellationToken cancellationToken = default)
+    {
+        var contributions = new List<DetectionContribution>();
+
+        // Skip if advanced pattern detection is disabled
+        if (!_options.Behavioral.EnableAdvancedPatternDetection)
+            return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
+
+        var context = state.HttpContext;
+        var clientIp = GetClientIp(context);
+        if (string.IsNullOrEmpty(clientIp))
+            return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
+
+        var currentPath = context.Request.Path.ToString();
+        var currentTime = DateTime.UtcNow;
+
+        try
+        {
+            // Record this request for pattern analysis
+            _analyzer.RecordRequest(clientIp, currentPath, currentTime);
+
+            // Only analyze if we have enough data
+            var minRequests = _options.Behavioral.MinRequestsForPatternAnalysis;
+
+            // 1. Entropy Analysis - Path entropy
+            var pathEntropy = _analyzer.CalculatePathEntropy(clientIp);
+            if (pathEntropy > 0)
+            {
+                // Very high entropy (>3.5) = random scanning (bot)
+                // Very low entropy (<0.5) = too repetitive (bot)
+                if (pathEntropy > 3.5)
+                    contributions.Add(new DetectionContribution
+                    {
+                        DetectorName = Name,
+                        Category = "AdvancedBehavioral",
+                        ConfidenceDelta = 0.35,
+                        Weight = 1.3,
+                        Reason = $"High path entropy: {pathEntropy:F2} (random scanning pattern)",
+                        Signals = ImmutableDictionary<string, object>.Empty
+                            .Add("PathEntropy", pathEntropy)
+                            .Add("PathEntropyHigh", true)
+                    });
+                else if (pathEntropy < 0.5)
+                    contributions.Add(new DetectionContribution
+                    {
+                        DetectorName = Name,
+                        Category = "AdvancedBehavioral",
+                        ConfidenceDelta = 0.25,
+                        Weight = 1.2,
+                        Reason = $"Low path entropy: {pathEntropy:F2} (too repetitive)",
+                        Signals = ImmutableDictionary<string, object>.Empty
+                            .Add("PathEntropy", pathEntropy)
+                            .Add("PathEntropyLow", true)
+                    });
+            }
+
+            // 2. Timing Entropy
+            var timingEntropy = _analyzer.CalculateTimingEntropy(clientIp);
+            if (timingEntropy > 0)
+                // Very low timing entropy (<0.3) = too regular (bot)
+                if (timingEntropy < 0.3)
+                    contributions.Add(new DetectionContribution
+                    {
+                        DetectorName = Name,
+                        Category = "AdvancedBehavioral",
+                        ConfidenceDelta = 0.3,
+                        Weight = 1.3,
+                        Reason = $"Low timing entropy: {timingEntropy:F2} (too regular timing)",
+                        Signals = ImmutableDictionary<string, object>.Empty
+                            .Add("TimingEntropy", timingEntropy)
+                            .Add("TimingTooRegular", true)
+                    });
+
+            // 3. Timing Anomaly Detection
+            var (isAnomaly, zScore, anomalyDesc) = _analyzer.DetectTimingAnomaly(clientIp, currentTime);
+            if (isAnomaly)
+                contributions.Add(new DetectionContribution
+                {
+                    DetectorName = Name,
+                    Category = "AdvancedBehavioral",
+                    ConfidenceDelta = 0.25,
+                    Weight = 1.1,
+                    Reason = anomalyDesc,
+                    Signals = ImmutableDictionary<string, object>.Empty
+                        .Add("TimingAnomalyZScore", zScore)
+                        .Add("TimingAnomalyDetected", true)
+                });
+
+            // 4. Regular Pattern Detection (Coefficient of Variation)
+            var (isTooRegular, cv, cvDesc) = _analyzer.DetectRegularPattern(clientIp);
+            if (isTooRegular)
+                contributions.Add(new DetectionContribution
+                {
+                    DetectorName = Name,
+                    Category = "AdvancedBehavioral",
+                    ConfidenceDelta = 0.35,
+                    Weight = 1.4,
+                    Reason = cvDesc,
+                    Signals = ImmutableDictionary<string, object>.Empty
+                        .Add("CoefficientOfVariation", cv)
+                        .Add("PatternTooRegular", true)
+                });
+
+            // 5. Navigation Pattern Analysis (Markov)
+            var (transitionScore, navPattern) = _analyzer.AnalyzeNavigationPattern(clientIp, currentPath);
+            if (transitionScore > 0)
+                contributions.Add(new DetectionContribution
+                {
+                    DetectorName = Name,
+                    Category = "AdvancedBehavioral",
+                    ConfidenceDelta = transitionScore,
+                    Weight = 1.2,
+                    Reason = navPattern,
+                    Signals = ImmutableDictionary<string, object>.Empty
+                        .Add("NavigationAnomalyScore", transitionScore)
+                        .Add("NavigationPatternUnusual", true)
+                });
+
+            // 6. Burst Detection
+            var burstWindow = TimeSpan.FromSeconds(30);
+            var (isBurst, burstSize, burstDuration) = _analyzer.DetectBurstPattern(clientIp, burstWindow);
+            if (isBurst)
+                contributions.Add(new DetectionContribution
+                {
+                    DetectorName = Name,
+                    Category = "AdvancedBehavioral",
+                    ConfidenceDelta = 0.4,
+                    Weight = 1.5,
+                    Reason = $"Burst detected: {burstSize} requests in {burstDuration.TotalSeconds:F0}s",
+                    Signals = ImmutableDictionary<string, object>.Empty
+                        .Add("BurstDetected", true)
+                        .Add("BurstSize", burstSize)
+                        .Add("BurstDurationSeconds", burstDuration.TotalSeconds)
+                });
+
+            // 7. Positive signal: Good patterns detected
+            if (contributions.Count == 0 && pathEntropy > 0.5 && pathEntropy < 3.0 && cv > 0.3)
+                contributions.Add(new DetectionContribution
+                {
+                    DetectorName = Name,
+                    Category = "AdvancedBehavioral",
+                    ConfidenceDelta = -0.2,
+                    Weight = 1.0,
+                    Reason = "Natural browsing patterns detected (entropy, timing variation)",
+                    Signals = ImmutableDictionary<string, object>.Empty
+                        .Add("NaturalPatterns", true)
+                });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Advanced behavioral analysis failed for {ClientIp}", clientIp);
+        }
+
+        return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
+    }
+
+    private static string? GetClientIp(HttpContext context)
+    {
+        return context.Request.Headers["X-Forwarded-For"].FirstOrDefault()?.Split(',')[0].Trim()
+               ?? context.Connection.RemoteIpAddress?.ToString();
+    }
+}

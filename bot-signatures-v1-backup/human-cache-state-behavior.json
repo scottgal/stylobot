@@ -1,0 +1,65 @@
+{
+  "scenarioName": "human-cache-state-behavior",
+  "scenario": "Simulates a real human browsing with deliberate delays and natural navigation patterns, mimicking cache behavior (e.g., reloading cached pages with slight delays between requests).",
+  "confidence": 0.95,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/home",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Accept": "text/html,application/xhtml\u002Bxml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 15
+    },
+    {
+      "timestamp": 15,
+      "method": "GET",
+      "path": "/search?q=cache\u002Bsite\u002Bexample.com",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Referer": "https://example.com/home",
+        "Accept-Encoding": "gzip, deflate"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 20
+    },
+    {
+      "timestamp": 35,
+      "method": "GET",
+      "path": "/about",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Cache-Control": "max-age=0",
+        "DNT": "1"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 5
+    },
+    {
+      "timestamp": 40,
+      "method": "GET",
+      "path": "/contact",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 10
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 5-30s (with intentional delays for cache behavior)",
+    "pathSequence": "natural navigation (home \u2192 search \u2192 about \u2192 contact)",
+    "headersBehavior": {
+      "cacheControl": "randomized (e.g., max-age=0 for fresh data)",
+      "referer": "consistent for search queries",
+      "userAgent": "consistent but varied in minor details (e.g., Chrome version)"
+    }
+  },
+  "reasoning": "This scenario mimics a human user with deliberate delays (e.g., 5-30s) between requests to simulate cache behavior. The path sequence follows a natural browsing pattern (e.g., starting with home, then searching, then exploring other pages). Headers include realistic variations like \u0060Cache-Control\u0060 for freshness and \u0060Referer\u0060 for context. The variable delays and natural navigation patterns reduce bot-like predictability, making it harder to distinguish from a real human."
+}

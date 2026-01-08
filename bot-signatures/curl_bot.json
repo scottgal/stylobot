@@ -1,0 +1,566 @@
+{
+  "scenarioName": "curl_bot",
+  "scenario": "Curl based bot or scraper using curl/8.4.0.",
+  "confidence": 0.9,
+  "clientProfile": {
+    "userAgent": "curl/8.4.0",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 15,
+    "delayAfterMs": {
+      "min": 25,
+      "max": 180
+    },
+    "pauseAfterBurstMs": {
+      "min": 600,
+      "max": 3000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "expectedStatusAny": [
+        200
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "status code 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=10",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=50",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/health",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/logs",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/settings",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/roles",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/permissions",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/tokens",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/notifications",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/activities",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/audit-logs",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/triggers",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/dashboards",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/roles/1",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/roles/2",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/roles/3",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/roles/4",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/roles/5",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/roles/6",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/roles/7",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/roles/8",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/roles/9",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/roles/10",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users/1",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users/2",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users/3",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users/4",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users/5",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users/6",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users/7",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users/8",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users/9",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/users/10",
+      "headers": {
+        "User-Agent": "curl/8.4.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 200,
+      "weight": 0.35
+    },
+    {
+      "signal": "requests_per_second",
+      "op": "\u003E",
+      "value": 10,
+      "weight": 0.4
+    },
+    {
+      "signal": "burst_requests",
+      "op": "=",
+      "value": 15,
+      "weight": 0.2
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C180ms"
+  },
+  "reasoning": "This bot/scraper is using curl/8.4.0 and appears to be performing a series of actions that are characteristic of web scraping. It targets API endpoints, admin pages, and various user profiles."
+}

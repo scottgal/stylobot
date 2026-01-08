@@ -1,0 +1,71 @@
+{
+  "scenarioName": "natural_browsing_with_delayed_interactions",
+  "scenario": "Simulates a human user exploring a website with organic, delayed navigation patterns (e.g., pausing between pages, revisiting sections)",
+  "confidence": 0.95,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 10
+    },
+    {
+      "timestamp": 15,
+      "method": "GET",
+      "path": "/products?category=electronics",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 20
+    },
+    {
+      "timestamp": 35,
+      "method": "GET",
+      "path": "/products/12345",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 5
+    },
+    {
+      "timestamp": 40,
+      "method": "GET",
+      "path": "/reviews?product_id=12345",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 15
+    },
+    {
+      "timestamp": 55,
+      "method": "GET",
+      "path": "/cart",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 25
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 5-30s (avg ~15s)",
+    "pathSequence": [
+      "homepage \u2192 category filter \u2192 product detail \u2192 reviews \u2192 cart (revisits)",
+      "natural back-and-forth exploration with no fixed pattern"
+    ]
+  },
+  "reasoning": [
+    "1. **Variable delays (5-30s)**: Humans pause naturally between actions (e.g., reading, scrolling, decision-making). Bots often use fixed delays or no delays at all.",
+    "2. **Unpredictable pathing**: No strict sequence (e.g., no direct jumps from \u0060/products\u0060 to \u0060/cart\u0060). Humans explore organically, revisiting pages based on interest.",
+    "3. **Contextual navigation**: Requests like \u0060/reviews?product_id=12345\u0060 imply real-time decision-making (e.g., \u0027I liked this product, now checking reviews\u0027). Bots rarely include dynamic query parameters.",
+    "4. **No aggressive retries**: No rapid successive requests (e.g., 1s apart) for the same page, which is common in bot traffic.",
+    "5. **User-Agent consistency**: Same iOS-like UA across all requests, unlike bots that rotate UAs frequently."
+  ]
+}

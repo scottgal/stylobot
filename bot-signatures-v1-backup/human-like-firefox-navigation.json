@@ -1,0 +1,63 @@
+{
+  "scenarioName": "human-like-firefox-navigation",
+  "scenario": "Simulates a real human browsing pattern with variable delays and natural navigation through a website hierarchy (e.g., homepage \u2192 subpages \u2192 back navigation).",
+  "confidence": 0.98,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 12
+    },
+    {
+      "timestamp": 12,
+      "method": "GET",
+      "path": "/products",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 18
+    },
+    {
+      "timestamp": 30,
+      "method": "GET",
+      "path": "/products/123",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 5
+    },
+    {
+      "timestamp": 35,
+      "method": "GET",
+      "path": "/products/123/reviews",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 25
+    },
+    {
+      "timestamp": 60,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 10
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable (5-30s, with occasional longer pauses for natural browsing)",
+    "pathSequence": "logical navigation: homepage \u2192 category \u2192 item \u2192 reviews \u2192 back to homepage",
+    "human-like": "mimics real human behavior with non-linear, exploratory, and context-dependent paths"
+  },
+  "reasoning": "This pattern reflects a real human\u0027s unpredictable but logical browsing: delays vary to avoid detection, paths follow natural user intent (e.g., exploring products before reviews), and the sequence includes back-and-forth navigation. The mix of short and long delays (e.g., 5s vs. 25s) mimics real-world interruptions like reading, thinking, or waiting for content to load."
+}

@@ -1,0 +1,74 @@
+{
+  "scenarioName": "web-scraper-bot",
+  "scenario": "Detects a bot scraping with Apache-HttpClient/4.5.14 (Java/17.0.9).",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "Apache-HttpClient/4.5.14 (Java/17.0.9)",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 12,
+    "delayAfterMs": {
+      "min": 30,
+      "max": 180
+    },
+    "pauseAfterBurstMs": {
+      "min": 600,
+      "max": 2400
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "expectedStatusAny": [
+        200
+      ],
+      "successCondition": "exact response"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "expectedStatusAny": [
+        200,
+        403,
+        404,
+        429
+      ],
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=2",
+      "expectedStatusAny": [
+        200
+      ],
+      "successCondition": "exact response"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 30,
+      "weight": 0.4
+    },
+    {
+      "signal": "request_count_rate_per_hour",
+      "op": "\u003E=",
+      "value": 10,
+      "weight": 0.3
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C180ms"
+  },
+  "reasoning": "This bot uses Apache-HttpClient/4.5.14 (Java/17.0.9) and is likely a scraper or crawler trying to exploit the /admin and /api endpoints. It has a minimal header completeness, does not consult robots.txt, uses HEAD before GET sometimes, enumerates pages, and includes 403/404/429 in expectedStatusAny."
+}

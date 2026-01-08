@@ -1,0 +1,98 @@
+### Health Check
+GET http://localhost:5000/health HTTP/1.1
+
+###
+
+### Normal Human Request (Chrome)
+GET http://localhost:5000/ HTTP/1.1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+
+###
+
+### Bot Request (curl)
+GET http://localhost:5000/api/data HTTP/1.1
+User-Agent: curl/8.4.0
+
+###
+
+### Bot Request (Python requests)
+GET http://localhost:5000/api/scrape HTTP/1.1
+User-Agent: python-requests/2.31.0
+
+###
+
+### Headless Chrome (Suspicious)
+GET http://localhost:5000/ HTTP/1.1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/120.0.0.0 Safari/537.36
+
+###
+
+### Selenium Bot
+GET http://localhost:5000/login HTTP/1.1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Selenium/4.0.0
+
+###
+
+### Googlebot (Legitimate)
+GET http://localhost:5000/article HTTP/1.1
+User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
+
+###
+
+### Security Scanner (Acunetix)
+GET http://localhost:5000/admin HTTP/1.1
+User-Agent: Acunetix Web Vulnerability Scanner
+
+###
+
+### Missing User-Agent (Suspicious)
+GET http://localhost:5000/api/data HTTP/1.1
+
+###
+
+### Low Version Browser (Suspicious)
+GET http://localhost:5000/ HTTP/1.1
+User-Agent: Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.1 (KHTML, like Gecko) Chrome/45.0.2454.101 Safari/537.1
+
+###
+
+### Rapid Fire Test (5 requests in quick succession)
+GET http://localhost:5000/test1 HTTP/1.1
+User-Agent: curl/8.4.0
+
+###
+
+GET http://localhost:5000/test2 HTTP/1.1
+User-Agent: curl/8.4.0
+
+###
+
+GET http://localhost:5000/test3 HTTP/1.1
+User-Agent: curl/8.4.0
+
+###
+
+GET http://localhost:5000/test4 HTTP/1.1
+User-Agent: curl/8.4.0
+
+###
+
+GET http://localhost:5000/test5 HTTP/1.1
+User-Agent: curl/8.4.0
+
+###
+
+### Load Test (with timing)
+# @name LoadTest
+GET http://localhost:5000/perf HTTP/1.1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
+
+###
+
+### Check Detection Headers from Previous Request
+# Look for these headers in responses:
+# - X-Bot-Detection: True/False
+# - X-Bot-Probability: 0.00-1.00
+# - X-Bot-RiskBand: VeryLow/Low/Elevated/Medium/High/VeryHigh
+# - X-Bot-Name: (bot name if detected)
+# - X-Bot-DetectionTime: (ms)

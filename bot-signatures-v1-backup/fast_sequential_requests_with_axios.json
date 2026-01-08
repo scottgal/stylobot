@@ -1,0 +1,64 @@
+{
+  "scenarioName": "fast_sequential_requests_with_axios",
+  "scenario": "High-speed sequential requests with rapid delays and suspicious path navigation, indicative of automated scraping behavior.",
+  "confidence": 0.92,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/products?page=1",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.05
+    },
+    {
+      "timestamp": 0.05,
+      "method": "GET",
+      "path": "/products?page=2",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.03
+    },
+    {
+      "timestamp": 0.08,
+      "method": "GET",
+      "path": "/reviews?sort=recent",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.02
+    },
+    {
+      "timestamp": 0.10,
+      "method": "GET",
+      "path": "/cart",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.01
+    },
+    {
+      "timestamp": 0.11,
+      "method": "GET",
+      "path": "/checkout",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.00
+    }
+  ],
+  "patterns": {
+    "requestInterval": "consistently \u003C0.1s between requests",
+    "pathSequence": "rapid sequential navigation through product, review, and cart paths",
+    "userAgentPattern": "repeated use of axios/1.6.2",
+    "delayPattern": "minimal delays (0.01-0.05s) between requests"
+  },
+  "reasoning": "The scenario exhibits rapid, automated request timing with minimal delays (\u003C0.1s) between requests, indicative of a scraping bot. The paths follow a logical but suspicious sequence (products \u2192 reviews \u2192 cart \u2192 checkout), which is often used in automated data extraction. The consistent use of the \u0027axios/1.6.2\u0027 user-agent further reinforces the bot-like behavior, as human users typically vary their user agents."
+}

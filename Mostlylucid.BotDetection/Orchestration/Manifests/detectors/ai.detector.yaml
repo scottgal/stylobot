@@ -1,0 +1,157 @@
+# AI Detector - Advanced ML/ONNX-based analysis
+name: AiContributor
+priority: 100  # Runs last - expensive analysis for uncertain cases
+enabled: true
+description: Uses AI/ML models to analyze uncertain cases requiring deeper analysis
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: ai
+
+taxonomy:
+  kind: analyzer
+  determinism: probabilistic  # ML model outputs vary
+  persistence: ephemeral
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with accumulated signals for ML analysis
+      signal_pattern: detection.*
+    - type: botdetection.embedding
+      required: false
+      description: Optional embedding vectors from other detectors
+
+  required_signals:
+    - detection.useragent
+    - detection.header.confidence
+
+  optional_signals:
+    - detection.tls.confidence
+    - detection.http2.confidence
+    - detection.behavioral.confidence
+    - detection.heuristic.score
+    - detection.ip.reputation
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: ML-based bot detection contribution
+
+  signals:
+    - key: detection.ai.confidence
+      entity_type: number
+      salience: 0.85
+      description: Bot confidence from AI/ML analysis
+    - key: detection.ai.model_version
+      entity_type: string
+      salience: 0.3
+      description: AI model version used for analysis
+    - key: detection.ai.features_analyzed
+      entity_type: number
+      salience: 0.4
+      description: Number of features analyzed by the model
+    - key: detection.ai.feature_importance
+      entity_type: object
+      salience: 0.6
+      description: Feature importance scores from the model
+
+triggers:
+  requires:
+    - detection.useragent  # Need basic signals before AI analysis
+  skip_when:
+    - detection.early_exit  # Skip if already decided
+  when:
+    - detection.risk_score > 0.5  # Only run for medium+ risk
+
+emits:
+  on_start:
+    - detector.ai.started
+
+  on_complete:
+    - key: detection.ai.confidence
+      type: double
+      description: Bot confidence from AI analysis
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.ai.model_version
+      type: string
+      description: AI model version used
+
+    - key: detection.ai.features_analyzed
+      type: int
+      description: Number of features analyzed by the model
+
+  on_failure:
+    - detector.ai.failed
+
+listens:
+  required:
+    - detection.useragent
+    - detection.header
+  optional:
+    - detection.tls
+    - detection.http2
+    - detection.behavioral
+
+lane:
+  name: slow  # AI analysis is expensive
+  max_concurrency: 4
+  priority: 50
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:AiContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 0.5           # Conservative base weight
+    bot_signal: 0.8     # AI confirmation is supportive but not definitive
+    human_signal: 0.6   # AI human indication
+    verified: 1.0       # Weight when AI is highly confident
+    early_exit: 0.0     # Does not trigger early exit
+
+  confidence:
+    neutral: 0.0        # AI inconclusive
+    bot_detected: 0.2   # AI suggests bot
+    human_indicated: -0.1  # AI suggests human
+    strong_signal: 0.4  # AI highly confident bot
+    high_threshold: 0.7 # AI confidence threshold
+    low_threshold: 0.3  # Below this AI abstains
+    escalation_threshold: 0.5
+
+  timing:
+    timeout_ms: 5000    # AI can take time
+    cache_refresh_sec: 0  # No model caching needed
+
+  features:
+    detailed_logging: true  # Log AI decisions for review
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  # AI-specific parameters
+  parameters:
+    # Risk thresholds for AI engagement
+    high_risk_threshold: 0.8
+    medium_risk_threshold: 0.5
+    # AI adjustment values
+    high_risk_adjustment: 0.2
+    # Minimum detectors before AI runs
+    min_detector_count: 2
+    # ONNX model configuration
+    model_path: "models/botdetection.onnx"
+    model_version: "1.0.0"
+    # Feature extraction
+    max_features: 128
+    normalize_features: true
+
+tags:
+  - ai
+  - ml
+  - expensive
+  - stage-2

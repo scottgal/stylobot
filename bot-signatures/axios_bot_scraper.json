@@ -1,0 +1,113 @@
+{
+  "scenarioName": "axios_bot_scraper",
+  "scenario": "A bot/scraper using axios/1.6.2 attempting to cache state by crawling a website and making requests.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "axios/1.6.2",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 10,
+    "delayAfterMs": {
+      "min": 20,
+      "max": 150
+    },
+    "pauseAfterBurstMs": {
+      "min": 500,
+      "max": 2000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatusAny": [
+        200
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatusAny": [
+        200
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 150,
+      "weight": 0.35
+    },
+    {
+      "signal": "num_requests_per_second",
+      "op": "\u003E=",
+      "value": 2,
+      "weight": 0.4
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "The bot/scraper is using axios/1.6.2 and attempting to crawl the website while also performing a cache state check by making requests to /admin, /api, and enumerating data pages. The bot is likely not human and lacks essential headers like Accept-Language and Sec-Fetch-*."
+}

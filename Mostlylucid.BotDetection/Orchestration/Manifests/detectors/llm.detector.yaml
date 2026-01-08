@@ -1,0 +1,190 @@
+# LLM Detector - AI-powered bot detection for ambiguous cases
+name: LlmContributor
+priority: 40  # Runs late - expensive, only for escalated cases
+enabled: true
+description: Uses LLM to analyze ambiguous bot/human patterns
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: llm
+
+taxonomy:
+  kind: proposer
+  determinism: probabilistic
+  persistence: direct_write  # Writes learned patterns
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with accumulated signals for LLM analysis
+      signal_pattern: detection.*
+    - type: botdetection.ledger
+      required: true
+      description: Detection ledger with all prior contributions
+
+  required_signals:
+    - detection.heuristic.escalate_to_ai
+
+  optional_signals:
+    - detection.useragent
+    - detection.useragent.raw
+    - detection.header.confidence
+    - detection.header.anomalies
+    - detection.heuristic.score
+    - detection.heuristic.reasons
+    - detection.tls.fingerprint
+    - detection.http2.settings_fingerprint
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: LLM-based bot detection contribution
+    - type: botdetection.learning_record
+      description: Learned pattern for future detection
+
+  signals:
+    - key: detection.llm.prediction
+      entity_type: string
+      salience: 0.9
+      description: LLM prediction (bot/human)
+    - key: detection.llm.confidence
+      entity_type: number
+      salience: 0.9
+      description: LLM confidence in prediction
+    - key: detection.llm.reasoning
+      entity_type: string
+      salience: 0.7
+      description: LLM reasoning for the prediction
+    - key: detection.llm.bot_type
+      entity_type: string
+      salience: 0.85
+      description: Specific bot type if detected
+    - key: detection.llm.learned_pattern
+      entity_type: string
+      salience: 0.8
+      description: Pattern extracted for future learning
+
+triggers:
+  requires:
+    - signal: detection.heuristic.escalate_to_ai
+      value: true
+  skip_when:
+    - detection.early_exit
+    - detection.budget.exhausted
+
+emits:
+  on_start:
+    - detector.llm.started
+
+  on_complete:
+    - key: detection.llm.prediction
+      type: string
+      description: LLM prediction (bot/human)
+
+    - key: detection.llm.confidence
+      type: double
+      description: LLM confidence in prediction
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.llm.reasoning
+      type: string
+      description: LLM reasoning for the prediction
+
+    - key: detection.llm.bot_type
+      type: string
+      description: Specific bot type if detected
+
+    - key: detection.llm.learned_pattern
+      type: string
+      description: Pattern extracted for future learning
+
+  on_failure:
+    - detector.llm.failed
+
+listens:
+  required:
+    - detection.heuristic.escalate_to_ai
+  optional:
+    - detection.useragent
+    - detection.header.confidence
+    - detection.heuristic.score
+
+lane:
+  name: llm
+  max_concurrency: 1  # Expensive - limit concurrency
+  priority: 50
+
+budget:
+  max_duration: "00:00:05.000"  # 5 second max
+  max_tokens: 1000
+  max_cost: 0.01  # 1 cent per request max
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:LlmContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 2.0           # High base weight - LLM is authoritative
+    bot_signal: 2.5     # Strong bot signal weight
+    human_signal: 2.0   # Strong human signal weight
+    verified: 3.0       # Very high for LLM verification
+    early_exit: 0.0     # Does not trigger early exit (too slow)
+
+  confidence:
+    neutral: 0.5        # No clear determination
+    bot_detected: 0.8   # LLM says bot
+    human_indicated: 0.2  # LLM says human
+    strong_signal: 0.95 # Very confident prediction
+    high_threshold: 0.85 # Threshold for "definitely bot"
+    low_threshold: 0.15 # Threshold for "definitely human"
+    escalation_threshold: 0.5  # N/A - this is the escalation target
+
+  timing:
+    timeout_ms: 5000    # 5 second max
+    cache_refresh_sec: 86400  # Cache patterns for 24h
+
+  features:
+    detailed_logging: true  # Always log LLM calls
+    enable_cache: true      # Cache learned patterns
+    can_early_exit: false   # Too slow for early exit
+    can_escalate: false     # This IS the escalation target
+
+  # LLM-specific parameters
+  parameters:
+    # Weight and timeout settings
+    llm_weight: 2.5
+    max_timeout_ms: 30000
+    # Model configuration
+    model_name: "llama3.2:latest"  # Default local model
+    temperature: 0.1     # Low for consistent outputs
+    max_output_tokens: 500
+    # Prompt configuration
+    system_prompt: |
+      You are a bot detection expert. Analyze the provided signals and determine
+      if the request is from a bot or human. Respond with JSON containing:
+      - prediction: "bot" or "human"
+      - confidence: 0.0-1.0
+      - reasoning: brief explanation
+      - bot_type: specific type if bot detected
+    # Feature extraction
+    extract_patterns: true  # Extract patterns for learning
+    min_confidence_to_learn: 0.8  # Only learn high-confidence patterns
+    # Cost controls
+    daily_budget_cents: 100  # $1/day max
+    per_request_budget_cents: 1  # 1 cent max per request
+
+config:
+  bindings:
+    - config_key: EnableLlmDetection
+      skip_if_false: true
+
+tags:
+  - ai
+  - llm
+  - expensive
+  - stage-3

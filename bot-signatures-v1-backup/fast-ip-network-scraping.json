@@ -1,0 +1,64 @@
+{
+  "scenarioName": "fast-ip-network-scraping",
+  "scenario": "High-speed sequential requests from a single IP across multiple suspicious paths with minimal delays, indicative of automated scraping behavior.",
+  "confidence": 0.92,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/api/v1/items?limit=100",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.05
+    },
+    {
+      "timestamp": 0.05,
+      "method": "GET",
+      "path": "/search?q=bot\u002Bscraper\u002Bsite",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.03
+    },
+    {
+      "timestamp": 0.08,
+      "method": "GET",
+      "path": "/robots.txt",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.02
+    },
+    {
+      "timestamp": 0.1,
+      "method": "GET",
+      "path": "/static/analytics.js",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.01
+    },
+    {
+      "timestamp": 0.11,
+      "method": "GET",
+      "path": "/admin/dashboard",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatus": 403,
+      "delayAfter": 0.01
+    }
+  ],
+  "patterns": {
+    "requestInterval": "consistently \u003C0.1s between requests",
+    "pathSequence": "mixed direct API calls, search queries, and suspicious admin paths",
+    "userAgentPattern": "repeated libwww-perl/6.67",
+    "statusCodeTrend": "high success rate with occasional 403 (admin access attempt)"
+  },
+  "reasoning": "The rapid, sequential requests (\u003C0.1s delays) from a single IP with a fixed, non-human User-Agent (\u0027libwww-perl/6.67\u0027) strongly suggests automated scraping behavior. The mix of direct API calls, search queries, and suspicious admin paths (like /admin/dashboard) indicates systematic data extraction. The lack of human-like variability in timing, path selection, or error handling further reinforces bot detection."
+}

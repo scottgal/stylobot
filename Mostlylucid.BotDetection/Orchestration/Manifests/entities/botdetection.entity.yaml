@@ -1,0 +1,404 @@
+# Bot Detection Entity Types
+# These define the input/output contracts for bot detection atoms
+
+entity_types:
+  # ============================================
+  # INPUT ENTITIES - What detectors consume
+  # ============================================
+
+  - type: botdetection.request
+    category: botdetection
+    description: HTTP request with all relevant data for bot detection
+    extends: http.request
+    persistence: ephemeral
+    signal_patterns:
+      - request.headers.*
+      - request.method
+      - request.path
+      - request.ip
+      - request.tls.*
+    schema:
+      format: inline
+      inline:
+        type: object
+        properties:
+          headers:
+            type: object
+            description: HTTP headers dictionary
+          method:
+            type: string
+          path:
+            type: string
+          ip:
+            type: string
+            format: ipv4
+          tls_fingerprint:
+            type: string
+            nullable: true
+
+  - type: botdetection.signature
+    category: botdetection
+    description: Aggregated bot detection signature - all signals for classification
+    persistence: ephemeral
+    signal_patterns:
+      - botdetection.ua.*
+      - botdetection.ip.*
+      - botdetection.behavioral.*
+      - botdetection.tls.*
+      - botdetection.header.*
+      - botdetection.http2.*
+    schema:
+      format: inline
+      inline:
+        type: object
+        properties:
+          user_agent:
+            type: string
+          ip_address:
+            type: string
+          ip_reputation:
+            type: number
+          tls_fingerprint:
+            type: string
+          http2_fingerprint:
+            type: string
+          behavioral_score:
+            type: number
+          header_anomalies:
+            type: array
+            items:
+              type: string
+
+  # ============================================
+  # OUTPUT ENTITIES - What detectors produce
+  # ============================================
+
+  - type: botdetection.contribution
+    category: botdetection
+    description: A single detection contribution from a detector atom
+    persistence: ephemeral
+    signal_patterns:
+      - contribution.detector
+      - contribution.category
+      - contribution.confidence
+      - contribution.reason
+      - contribution.signals.*
+    schema:
+      format: inline
+      inline:
+        type: object
+        required: [detector_name, category, confidence_delta]
+        properties:
+          detector_name:
+            type: string
+          category:
+            type: string
+          confidence_delta:
+            type: number
+            minimum: -1.0
+            maximum: 1.0
+          weight:
+            type: number
+            default: 1.0
+          reason:
+            type: string
+          bot_type:
+            type: string
+            nullable: true
+          bot_name:
+            type: string
+            nullable: true
+          trigger_early_exit:
+            type: boolean
+            default: false
+          early_exit_verdict:
+            type: string
+            nullable: true
+          signals:
+            type: object
+            additionalProperties: true
+
+  - type: botdetection.ledger
+    category: botdetection
+    description: Accumulated detection evidence from all detectors
+    persistence: ephemeral
+    signal_patterns:
+      - ledger.request_id
+      - ledger.probability
+      - ledger.confidence
+      - ledger.contributions.*
+      - ledger.early_exit
+    schema:
+      format: inline
+      inline:
+        type: object
+        required: [request_id, bot_probability, confidence]
+        properties:
+          request_id:
+            type: string
+          fingerprint:
+            type: string
+            nullable: true
+          bot_probability:
+            type: number
+            minimum: 0.0
+            maximum: 1.0
+          confidence:
+            type: number
+            minimum: 0.0
+            maximum: 1.0
+          bot_type:
+            type: string
+            nullable: true
+          bot_name:
+            type: string
+            nullable: true
+          early_exit:
+            type: boolean
+          contributions:
+            type: array
+            items:
+              $ref: "#/entity_types/botdetection.contribution"
+
+  - type: botdetection.result
+    category: botdetection
+    description: Final bot detection result with classification
+    persistence: json
+    signal_patterns:
+      - result.is_bot
+      - result.confidence
+      - result.classification
+      - result.reasons
+    schema:
+      format: inline
+      inline:
+        type: object
+        required: [is_bot, confidence]
+        properties:
+          is_bot:
+            type: boolean
+          confidence:
+            type: number
+            minimum: 0.0
+            maximum: 1.0
+          classification:
+            type: string
+            enum: [human, good_bot, bad_bot, unknown]
+          bot_type:
+            type: string
+            nullable: true
+          bot_name:
+            type: string
+            nullable: true
+          reasons:
+            type: array
+            items:
+              type: string
+          processing_time_ms:
+            type: integer
+
+  # ============================================
+  # PERSISTENCE ENTITIES - For learning/storage
+  # ============================================
+
+  - type: botdetection.learning_record
+    category: botdetection
+    description: Learning record for training bot detection models
+    persistence: database
+    storage_hint: botdetection_learning_records
+    signal_patterns:
+      - learning.request_id
+      - learning.fingerprint
+      - learning.signals.*
+      - learning.label
+    schema:
+      format: inline
+      inline:
+        type: object
+        required: [request_id, is_bot, confidence, timestamp]
+        properties:
+          request_id:
+            type: string
+          fingerprint:
+            type: string
+          is_bot:
+            type: boolean
+          confidence:
+            type: number
+          signals:
+            type: object
+          contributing_detectors:
+            type: array
+            items:
+              type: string
+          timestamp:
+            type: string
+            format: date-time
+
+  - type: botdetection.embedding
+    category: botdetection
+    description: Vector embedding of detection signature for similarity search
+    persistence: embedded
+    vector_dimension: 256
+    signal_patterns:
+      - embedding.vector
+      - embedding.fingerprint
+      - embedding.model
+    schema:
+      format: inline
+      inline:
+        type: object
+        required: [fingerprint]
+        properties:
+          # Single vector (simple embedding)
+          vector:
+            type: array
+            items:
+              type: number
+            nullable: true
+          # Multi-vector with descriptions (ColBERT-style)
+          vectors:
+            type: array
+            nullable: true
+            items:
+              type: object
+              required: [vector]
+              properties:
+                vector:
+                  type: array
+                  items:
+                    type: number
+                description:
+                  type: string
+                  description: What this vector represents (e.g., "user_agent_pattern", "ip_behavior")
+                weight:
+                  type: number
+                  default: 1.0
+                  description: Relative importance of this vector in similarity search
+                metadata:
+                  type: object
+                  additionalProperties: true
+          fingerprint:
+            type: string
+          model:
+            type: string
+            default: botdetection-v1
+          timestamp:
+            type: string
+            format: date-time
+
+  - type: botdetection.multivector_embedding
+    category: botdetection
+    description: Multi-vector embedding for late interaction similarity (ColBERT-style)
+    persistence: embedded
+    signal_patterns:
+      - embedding.vectors
+      - embedding.tokens
+      - embedding.fingerprint
+      - embedding.model
+    schema:
+      format: inline
+      inline:
+        type: object
+        required: [vectors, fingerprint]
+        properties:
+          vectors:
+            type: array
+            description: Array of named vectors, each representing a distinct signal category
+            items:
+              type: object
+              required: [name, vector]
+              properties:
+                name:
+                  type: string
+                  description: Identifier for this vector (e.g., "ua", "ip", "tls", "behavioral")
+                vector:
+                  type: array
+                  items:
+                    type: number
+                description:
+                  type: string
+                  description: Human-readable description of what this vector captures
+                dimension:
+                  type: integer
+                  description: Dimension of this specific vector
+                weight:
+                  type: number
+                  default: 1.0
+                  description: Relative importance for MaxSim scoring
+                source_detector:
+                  type: string
+                  description: Which detector produced this vector
+                confidence:
+                  type: number
+                  minimum: 0.0
+                  maximum: 1.0
+                  description: Confidence in this vector's quality
+          fingerprint:
+            type: string
+          model:
+            type: string
+            default: botdetection-multivec-v1
+          aggregation:
+            type: string
+            enum: [maxsim, avgpool, concat]
+            default: maxsim
+            description: How to combine vectors for final similarity
+          timestamp:
+            type: string
+            format: date-time
+
+  # ============================================
+  # SIGNAL CATEGORY ENTITIES - Per-detector outputs
+  # ============================================
+
+  - type: botdetection.ua_signal
+    category: botdetection
+    description: User-Agent analysis signal
+    persistence: ephemeral
+    signal_patterns:
+      - botdetection.ua.raw
+      - botdetection.ua.confidence
+      - botdetection.ua.bot_type
+      - botdetection.ua.is_known
+
+  - type: botdetection.ip_signal
+    category: botdetection
+    description: IP reputation and geolocation signal
+    persistence: ephemeral
+    signal_patterns:
+      - botdetection.ip.address
+      - botdetection.ip.reputation
+      - botdetection.ip.geo.*
+      - botdetection.ip.is_datacenter
+      - botdetection.ip.is_proxy
+
+  - type: botdetection.tls_signal
+    category: botdetection
+    description: TLS fingerprint analysis signal
+    persistence: ephemeral
+    signal_patterns:
+      - botdetection.tls.fingerprint
+      - botdetection.tls.ja3
+      - botdetection.tls.ja4
+      - botdetection.tls.confidence
+      - botdetection.tls.is_automated
+
+  - type: botdetection.behavioral_signal
+    category: botdetection
+    description: User behavioral analysis signal
+    persistence: ephemeral
+    signal_patterns:
+      - botdetection.behavioral.timing.*
+      - botdetection.behavioral.mouse.*
+      - botdetection.behavioral.keyboard.*
+      - botdetection.behavioral.confidence
+
+  - type: botdetection.header_signal
+    category: botdetection
+    description: HTTP header analysis signal
+    persistence: ephemeral
+    signal_patterns:
+      - botdetection.header.anomalies
+      - botdetection.header.ordering
+      - botdetection.header.confidence

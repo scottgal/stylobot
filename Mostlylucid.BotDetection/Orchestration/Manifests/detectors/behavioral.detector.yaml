@@ -1,0 +1,165 @@
+# Behavioral Detector - Request pattern analysis
+name: BehavioralContributor
+priority: 20  # Runs after basic stage-0 detectors
+enabled: true
+description: Analyzes request patterns, timing, and frequency for bot indicators
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: behavioral
+
+taxonomy:
+  kind: sensor
+  determinism: probabilistic  # Behavior varies
+  persistence: stateful  # Tracks request history
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for behavioral analysis
+      signal_pattern: request.*
+    - type: behavioral.signature
+      required: false
+      description: Existing behavioral data from client
+      signal_pattern: behavioral.*
+
+  required_signals:
+    - request.ip
+    - request.path
+
+  optional_signals:
+    - request.timestamp
+    - detection.ip.address
+    - behavioral.timing.*
+    - behavioral.mouse.*
+    - behavioral.keyboard.*
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Behavioral analysis contribution to detection ledger
+    - type: botdetection.behavioral_signal
+      description: Detailed behavioral signals
+
+  signals:
+    - key: detection.behavioral.confidence
+      entity_type: number
+      salience: 0.8
+      description: Bot confidence from behavioral analysis
+    - key: detection.behavioral.anomaly_detected
+      entity_type: boolean
+      salience: 0.9
+      description: Whether behavioral anomalies detected
+    - key: detection.behavioral.rate_exceeded
+      entity_type: boolean
+      salience: 0.95
+      description: Whether rate limits were exceeded
+
+triggers:
+  requires: []  # No dependencies - tracks all requests
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.behavioral.started
+
+  on_complete:
+    - key: detection.behavioral.confidence
+      type: double
+      description: Bot confidence from behavioral analysis
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.behavioral.anomaly_detected
+      type: bool
+      description: Whether behavioral anomalies were detected
+
+    - key: detection.behavioral.rate_exceeded
+      type: bool
+      description: Whether request rate limits were exceeded
+
+    - key: detection.behavioral.pattern_type
+      type: string
+      description: Type of detected pattern if any
+
+  on_failure:
+    - detector.behavioral.failed
+
+listens:
+  required: []
+  optional:
+    - detection.ip  # Uses IP for per-client tracking
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 90
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:BehavioralContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0           # Base contribution weight
+    bot_signal: 1.5     # Behavioral is a strong signal
+    human_signal: 1.0   # Weight for normal patterns
+    verified: 2.0       # Weight for verified bot behavior
+    early_exit: 0.0     # Does not trigger early exit alone
+
+  confidence:
+    neutral: 0.0        # Request patterns appear normal
+    bot_detected: 0.4   # Bot-like behavior detected
+    human_indicated: -0.1  # Normal human-like patterns
+    strong_signal: 0.7  # Very suspicious behavior
+    high_threshold: 0.6 # Threshold for "likely bot"
+    low_threshold: 0.2  # Threshold for "probably human"
+    escalation_threshold: 0.5
+
+  timing:
+    timeout_ms: 50      # Fast - in-memory lookups
+    cache_refresh_sec: 0  # N/A - stateful tracking
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  # Behavioral-specific parameters
+  parameters:
+    # Weight multiplier for behavioral signals
+    behavioral_weight_multiplier: 1.5
+    # Rate limiting
+    rate_window_seconds: 60           # Window for rate counting
+    rate_limit_requests: 100          # Max requests per window
+    rate_limit_confidence: 0.5        # Confidence when rate exceeded
+    # Timing analysis
+    min_request_interval_ms: 50       # Faster than this is suspicious
+    rapid_request_threshold: 5        # # of rapid requests before flagging
+    rapid_request_confidence: 0.3     # Confidence for rapid requests
+    # Pattern analysis
+    repetition_threshold: 10          # Same path 10+ times is suspicious
+    repetition_confidence: 0.4        # Confidence for path repetition
+    sequential_pattern_confidence: 0.35  # Confidence for sequential patterns
+    # Tracking configuration
+    tracking_window_minutes: 15       # How long to track per client
+    max_tracked_clients: 10000        # Max clients to track in memory
+    # Known bot behaviors
+    bot_path_patterns:
+      - "/.env"
+      - "/wp-admin"
+      - "/wp-login.php"
+      - "/xmlrpc.php"
+      - "/admin"
+      - "/phpmyadmin"
+    bot_path_confidence: 0.6
+
+tags:
+  - behavioral
+  - rate-limiting
+  - stage-0

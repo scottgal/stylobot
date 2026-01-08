@@ -1,0 +1,179 @@
+# HTTP/2 Fingerprint Detector - AKAMAI-style HTTP/2 fingerprinting
+name: Http2FingerprintContributor
+priority: 13  # Runs early with other stage-0 detectors
+enabled: true
+description: Analyzes HTTP/2 settings frames, priorities, and HPACK patterns for automation detection
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: http2
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with HTTP/2 context
+      signal_pattern: request.http2.*
+
+  required_signals: []  # HTTP/2 data may not be available
+
+  optional_signals:
+    - request.http2.settings
+    - request.http2.priority
+    - request.headers.x-http2-fingerprint
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: HTTP/2 fingerprint analysis contribution
+
+  signals:
+    - key: detection.http2.confidence
+      entity_type: number
+      salience: 0.75
+      description: Bot confidence from HTTP/2 fingerprint
+    - key: detection.http2.is_http2
+      entity_type: boolean
+      salience: 0.6
+      description: Whether connection uses HTTP/2
+    - key: detection.http2.known_fingerprint
+      entity_type: string
+      salience: 0.9
+      description: Matched known fingerprint name
+
+triggers:
+  requires: []  # No dependencies - runs first wave
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.http2.started
+
+  on_complete:
+    - key: detection.http2.confidence
+      type: double
+      description: Bot confidence from HTTP/2 fingerprint analysis
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.http2.settings_fingerprint
+      type: string
+      description: HTTP/2 SETTINGS frame fingerprint
+
+    - key: detection.http2.priority_pattern
+      type: string
+      description: Stream priority behavior pattern
+
+    - key: detection.http2.pseudoheader_order
+      type: string
+      description: Order of pseudo-headers (method, authority, path, scheme)
+
+    - key: detection.http2.is_http2
+      type: bool
+      description: Whether connection uses HTTP/2
+
+    - key: detection.http2.known_fingerprint
+      type: string
+      description: Matched known fingerprint name if any
+
+  on_failure:
+    - detector.http2.failed
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 100
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:Http2FingerprintContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0           # Base contribution weight
+    bot_signal: 1.6     # HTTP/2 fingerprints are fairly reliable
+    human_signal: 1.4   # Weight for known browser fingerprints
+    verified: 1.8       # Weight for known automation fingerprints
+    early_exit: 0.0     # Does not trigger early exit alone
+
+  confidence:
+    neutral: 0.0        # HTTP/2 appears normal or not HTTP/2
+    bot_detected: 0.35  # Bot-like HTTP/2 fingerprint
+    human_indicated: -0.1  # Known browser fingerprint
+    strong_signal: 0.75 # Known bot framework fingerprint
+    high_threshold: 0.7 # Threshold for "likely automation"
+    low_threshold: 0.2  # Threshold for "likely browser"
+    escalation_threshold: 0.5
+
+  timing:
+    timeout_ms: 25      # Very fast - header analysis
+    cache_refresh_sec: 0  # No caching needed
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  # HTTP/2-specific parameters
+  parameters:
+    # Not HTTP/2 penalty (most browsers use HTTP/2)
+    http1_penalty_confidence: 0.1
+    # Fingerprint detection confidence values
+    bot_fingerprint_confidence: 0.7
+    browser_fingerprint_confidence: -0.2
+    non_standard_pseudoheader_confidence: 0.3
+    no_priority_confidence: 0.1
+    no_window_updates_confidence: 0.15
+    push_disabled_confidence: 0.12
+    invalid_preface_confidence: 0.8
+    # Pseudoheader order patterns
+    browser_pseudoheader_orders:
+      Chrome: ":method,:authority,:scheme,:path"
+      Firefox: ":method,:path,:authority,:scheme"
+      Safari: ":method,:scheme,:path,:authority"
+    # SETTINGS frame fingerprint patterns (known browsers)
+    browser_settings_patterns:
+      - name: "Chrome_Desktop_90+"
+        pattern: "1:65536,2:0,3:1000,4:6291456,6:262144"
+      - name: "Firefox_Desktop"
+        pattern: "1:65536,2:0,3:100,4:131072,5:16384"
+      - name: "Safari_Desktop"
+        pattern: "1:32768,2:0,3:100,4:2097152"
+    # SETTINGS frame fingerprint patterns (known bots)
+    bot_settings_patterns:
+      - name: "Go_HTTP2_Client"
+        pattern: "3:100,4:65536"
+        confidence: 0.6
+      - name: "Python_httpx"
+        pattern: "3:100,4:6291456"
+        confidence: 0.5
+      - name: "Node_HTTP2"
+        pattern: "1:4096,3:100,4:65536"
+        confidence: 0.6
+      - name: "cURL_HTTP2"
+        pattern: "3:100,5:16384"
+        confidence: 0.7
+    # Headers to check for HTTP/2 data (from reverse proxy)
+    h2_headers:
+      - "X-H2-Settings"
+      - "X-H2-Pseudoheaders"
+      - "X-H2-Priority"
+
+tags:
+  - fast-path
+  - fingerprinting
+  - http2
+  - stage-0

@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(ls:*)",
+      "Bash(dotnet sln:*)",
+      "Bash(git pull:*)",
+      "Bash(dotnet restore:*)",
+      "Bash(findstr:*)",
+      "Bash(dotnet clean:*)",
+      "Bash(cd:*)"
+    ]
+  }
+}

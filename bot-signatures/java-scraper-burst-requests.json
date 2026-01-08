@@ -1,0 +1,115 @@
+{
+  "scenarioName": "java-scraper-burst-requests",
+  "scenario": "High-volume Java-based scraper with rapid request bursts, targeting sensitive paths and bypassing delays to avoid detection.",
+  "confidence": 0.92,
+  "clientProfile": {
+    "userAgent": "Apache-HttpClient/4.5.14 (Java/17.0.9)",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 15,
+    "delayAfterMs": {
+      "min": 15,
+      "max": 120
+    },
+    "pauseAfterBurstMs": {
+      "min": 300,
+      "max": 1200
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/admin/dashboard",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "sensitive-path",
+      "successCondition": "any 2xx or 403"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "data-enumeration",
+      "successCondition": "any 2xx or 403"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "data-enumeration",
+      "successCondition": "any 2xx or 403"
+    },
+    {
+      "method": "HEAD",
+      "path": "/robots.txt",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404
+      ],
+      "expectedOutcome": "robots-check",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "Admin-Access",
+    "API-Enumeration",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 150,
+      "weight": 0.4
+    },
+    {
+      "signal": "request_count_per_second",
+      "op": "\u003E",
+      "value": 10,
+      "weight": 0.3
+    },
+    {
+      "signal": "path_sensitivity",
+      "op": "high",
+      "weight": 0.2
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C120ms",
+    "pathEnumeration": "/api/data?page=[1-2]\u002B",
+    "sensitivePath": "/admin.*|/api.*"
+  },
+  "reasoning": "Bot detection due to rapid request bursts (\u2264120ms), frequent API enumeration (/api/data?page=1,2), sensitive path access (/admin), and lack of human-like headers/cookies. Missing Accept-Language and Sec-Fetch-* headers further indicate automation."
+}

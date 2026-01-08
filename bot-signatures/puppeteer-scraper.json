@@ -1,0 +1,99 @@
+{
+  "scenarioName": "puppeteer-scraper",
+  "scenario": "A scraper or bot using Puppeteer to interact with a website.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "Puppeteer/21.6.0",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 5,
+    "delayAfterMs": {
+      "min": 30,
+      "max": 120
+    },
+    "pauseAfterBurstMs": {
+      "min": 700,
+      "max": 2500
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "Puppeteer/21.6.0"
+      },
+      "expectedStatusAny": [
+        403
+      ],
+      "expectedOutcome": "ignored",
+      "successCondition": "any 4xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "Puppeteer/21.6.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "Puppeteer/21.6.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=3",
+      "headers": {
+        "User-Agent": "Puppeteer/21.6.0"
+      },
+      "expectedStatusAny": [
+        403
+      ],
+      "expectedOutcome": "ignored",
+      "successCondition": "any 4xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 30,
+      "weight": 0.2
+    },
+    {
+      "signal": "missing_header_accept_language",
+      "op": "=",
+      "value": true,
+      "weight": 0.4
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C120ms"
+  },
+  "reasoning": "This bot is a scraper or bot using Puppeteer to interact with a website. It checks robots.txt, hits /admin and sensitive paths, and uses HEAD before GET sometimes to enumerate data. The bot\u0027s behavior differs from human users in terms of headers, cookies, natural navigation, referer chains, and variable timing."
+}

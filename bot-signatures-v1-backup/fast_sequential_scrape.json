@@ -1,0 +1,55 @@
+{
+  "scenarioName": "fast_sequential_scrape",
+  "scenario": "High-speed sequential requests with suspicious path navigation and minimal delays, indicative of automated scraping",
+  "confidence": 0.95,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/products",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.05
+    },
+    {
+      "timestamp": 0.05,
+      "method": "GET",
+      "path": "/products/123",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.03
+    },
+    {
+      "timestamp": 0.08,
+      "method": "GET",
+      "path": "/reviews?page=1",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.02
+    },
+    {
+      "timestamp": 0.1,
+      "method": "GET",
+      "path": "/api/related?limit=5",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.01
+    }
+  ],
+  "patterns": {
+    "requestInterval": "consistently \u003C0.1s (avg 0.05s)",
+    "pathSequence": "targeted scraping of product data, reviews, and related content",
+    "headers": {
+      "User-Agent": "Go-http-client/2.0 (repeated)"
+    }
+  },
+  "reasoning": "The scenario exhibits rapid, low-delay requests (all \u003C0.1s) with a deliberate sequence of paths targeting product data, reviews, and related content. The repeated identical User-Agent string and lack of human-like delays strongly suggest automated scraping behavior. The aggressive pacing and specific data extraction patterns are hallmarks of bot activity."
+}

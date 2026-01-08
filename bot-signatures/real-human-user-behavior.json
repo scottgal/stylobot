@@ -1,0 +1,101 @@
+{
+  "scenarioName": "real-human-user-behavior",
+  "scenario": "A realistic human user with natural browsing behavior.",
+  "confidence": 0.15,
+  "clientProfile": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "cookieMode": "sticky",
+    "headerCompleteness": "full",
+    "clientHintsPresent": true,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 3,
+    "delayAfterMs": {
+      "min": 2000,
+      "max": 15000
+    },
+    "pauseAfterBurstMs": {
+      "min": 5000,
+      "max": 20000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+        "Accept-Language": "en-US,en;q=0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "browsing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+        "Accept-Language": "en-US,en;q=0.9"
+      },
+      "expectedStatusAny": [
+        403
+      ],
+      "expectedOutcome": "failure",
+      "successCondition": "any 4xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+        "Accept-Language": "en-US,en;q=0.9"
+      },
+      "expectedStatusAny": [
+        403
+      ],
+      "expectedOutcome": "failure",
+      "successCondition": "any 4xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+        "Accept-Language": "en-US,en;q=0.9"
+      },
+      "expectedStatusAny": [
+        403
+      ],
+      "expectedOutcome": "failure",
+      "successCondition": "any 4xx"
+    }
+  ],
+  "labels": [
+    "Human",
+    "NaturalBrowsing"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003E",
+      "value": 2000,
+      "weight": 0.35
+    },
+    {
+      "signal": "requestCount_per_minute",
+      "op": "\u003C",
+      "value": 15,
+      "weight": 0.40
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 2-15s"
+  },
+  "reasoning": "A realistic human user with natural browsing behavior."
+}

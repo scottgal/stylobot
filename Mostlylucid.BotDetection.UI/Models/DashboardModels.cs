@@ -1,0 +1,97 @@
+namespace Mostlylucid.BotDetection.UI.Models;
+
+/// <summary>
+///     Real-time detection event for dashboard display.
+///     Sent via SignalR when a new detection occurs.
+/// </summary>
+public sealed record DashboardDetectionEvent
+{
+    public required string RequestId { get; init; }
+    public required DateTime Timestamp { get; init; }
+    public required bool IsBot { get; init; }
+    public required double BotProbability { get; init; }
+    public required double Confidence { get; init; }
+    public required string RiskBand { get; init; }
+    public string? BotType { get; init; }
+    public string? BotName { get; init; }
+    public string? Action { get; init; }
+    public string? PolicyName { get; init; }
+    public required string Method { get; init; }
+    public required string Path { get; init; }
+    public int StatusCode { get; init; }
+    public double ProcessingTimeMs { get; init; }
+    public string? IpAddress { get; init; }
+    public string? UserAgent { get; init; }
+    public List<string> TopReasons { get; init; } = new();
+    public string? PrimarySignature { get; init; }
+}
+
+/// <summary>
+///     Signature observation for the scrolling feed.
+///     Shows unique signatures being seen in real-time.
+/// </summary>
+public sealed record DashboardSignatureEvent
+{
+    public required string SignatureId { get; init; }
+    public required DateTime Timestamp { get; init; }
+    public required string PrimarySignature { get; init; }
+    public string? IpSignature { get; init; }
+    public string? UaSignature { get; init; }
+    public string? ClientSideSignature { get; init; }
+    public int FactorCount { get; init; }
+    public required string RiskBand { get; init; }
+    public int HitCount { get; init; }
+    public bool IsKnownBot { get; init; }
+    public string? BotName { get; init; }
+}
+
+/// <summary>
+///     Summary statistics for dashboard overview.
+///     Updated periodically and sent to clients.
+/// </summary>
+public sealed record DashboardSummary
+{
+    public required DateTime Timestamp { get; init; }
+    public required int TotalRequests { get; init; }
+    public required int BotRequests { get; init; }
+    public required int HumanRequests { get; init; }
+    public required int UncertainRequests { get; init; }
+
+    public double BotPercentage => TotalRequests > 0
+        ? (double)BotRequests / TotalRequests * 100
+        : 0;
+
+    public required Dictionary<string, int> RiskBandCounts { get; init; }
+    public required Dictionary<string, int> TopBotTypes { get; init; }
+    public required Dictionary<string, int> TopActions { get; init; }
+    public double AverageProcessingTimeMs { get; init; }
+    public required int UniqueSignatures { get; init; }
+}
+
+/// <summary>
+///     Time-series data point for charts.
+/// </summary>
+public sealed record DashboardTimeSeriesPoint
+{
+    public required DateTime Timestamp { get; init; }
+    public required int BotCount { get; init; }
+    public required int HumanCount { get; init; }
+    public required int TotalCount { get; init; }
+    public Dictionary<string, int>? RiskBandCounts { get; init; }
+}
+
+/// <summary>
+///     Filter criteria for dashboard queries.
+/// </summary>
+public sealed record DashboardFilter
+{
+    public DateTime? StartTime { get; init; }
+    public DateTime? EndTime { get; init; }
+    public List<string>? RiskBands { get; init; }
+    public bool? IsBot { get; init; }
+    public string? PathContains { get; init; }
+    public string? SignatureId { get; init; }
+    public bool HighRiskOnly { get; init; }
+    public int? Limit { get; init; } = 100;
+    public int? Offset { get; init; } = 0;
+}

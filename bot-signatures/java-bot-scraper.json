@@ -1,0 +1,131 @@
+{
+  "scenarioName": "java-bot-scraper",
+  "scenario": "A Java-based bot or scraper exhibiting typical behavior for bots/scraper.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "Java/17.0.9",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 20,
+    "delayAfterMs": {
+      "min": 5,
+      "max": 100
+    },
+    "pauseAfterBurstMs": {
+      "min": 1000,
+      "max": 4000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "Java/17.0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        301
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "Java/17.0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "Java/17.0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=3",
+      "headers": {
+        "User-Agent": "Java/17.0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=4",
+      "headers": {
+        "User-Agent": "Java/17.0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=5",
+      "headers": {
+        "User-Agent": "Java/17.0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Bot",
+    "Scraping",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 10,
+      "weight": 0.35
+    },
+    {
+      "signal": "requests_per_second",
+      "op": "\u003E=",
+      "value": 20,
+      "weight": 0.45
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C100ms"
+  },
+  "reasoning": "The bot/scraper uses HEAD requests to potentially bypass robots.txt checks and fetches multiple pages of data without a Referer header, indicating its intent as a scraper."
+}

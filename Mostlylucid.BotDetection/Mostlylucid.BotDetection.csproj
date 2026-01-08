@@ -1,0 +1,106 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <LangVersion>12</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+
+        <IsPackable>true</IsPackable>
+        <PackageId>mostlylucid.botdetection</PackageId>
+        <Authors>Scott Galloway</Authors>
+        <PackageIcon>icon.png</PackageIcon>
+        <RepositoryUrl>https://github.com/scottgal/stylobot</RepositoryUrl>
+        <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
+        <PackageTags>bot-detection;middleware;aspnetcore;security;crawler;web</PackageTags>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <Description>
+            Bot detection middleware for ASP.NET Core applications with behavioral analysis, header inspection, IP-based detection, and optional LLM-based classification.
+        </Description>
+        <PackageReleaseNotes>$([System.IO.File]::ReadAllText("$(MSBuildProjectDirectory)/ReleaseNotes.txt"))</PackageReleaseNotes>
+        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+
+        <!-- Not AOT/trimming compatible due to Ollama, SQLite, and dynamic JSON usage -->
+        <IsTrimmable>false</IsTrimmable>
+        <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
+    </PropertyGroup>
+    <PropertyGroup>
+        <MinVerTagPrefix>botdetection-v</MinVerTagPrefix>
+    </PropertyGroup>
+    <PropertyGroup>
+        <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="AngleSharp" Version="1.4.0"/>
+        <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.1"/>
+        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.1"/>
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.1"/>
+        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.1"/>
+        <PackageReference Include="OllamaSharp" Version="5.4.12"/>
+        <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.1"/>
+        <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.2"/>
+        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.1"/>
+        <PackageReference Include="System.IO.Hashing" Version="10.0.1"/>
+        <!-- StyloFlow: Use local project references for development -->
+        <ProjectReference Include="..\..\styloflow\src\StyloFlow.Core\StyloFlow.Core.csproj"/>
+        <ProjectReference Include="..\..\styloflow\src\StyloFlow.Retrieval.Core\StyloFlow.Retrieval.Core.csproj"/>
+        <!-- Ephemeral: Core signal/coordination infrastructure -->
+        <ProjectReference Include="..\..\mostlylucid.atoms\mostlylucid.ephemeral\src\mostlylucid.ephemeral\mostlylucid.ephemeral.csproj"/>
+        <ProjectReference Include="..\..\mostlylucid.atoms\mostlylucid.ephemeral\src\mostlylucid.ephemeral.atoms.taxonomy\mostlylucid.ephemeral.atoms.taxonomy.csproj"/>
+        <ProjectReference Include="..\..\mostlylucid.atoms\mostlylucid.ephemeral\src\mostlylucid.ephemeral.atoms.keyedsequential\mostlylucid.ephemeral.atoms.keyedsequential.csproj"/>
+        <ProjectReference Include="..\..\mostlylucid.atoms\mostlylucid.ephemeral\src\mostlylucid.ephemeral.atoms.slidingcache\mostlylucid.ephemeral.atoms.slidingcache.csproj"/>
+        <PackageReference Include="MathNet.Numerics" Version="5.0.0"/>
+        <PackageReference Include="YamlDotNet" Version="16.3.0"/>
+        <PackageReference Include="Vecc.YamlDotNet.Analyzers.StaticGenerator" Version="16.3.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="MinVer" Version="6.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="ReleaseNotes.txt"/>
+        <Content Include="docs\ai-detection.md"/>
+    </ItemGroup>
+
+    <!-- Embed JS files as resources for TagHelper -->
+    <ItemGroup>
+        <EmbeddedResource Include="ClientSide\botdetection.js"/>
+    </ItemGroup>
+
+    <!-- Embed policy definition YAML files -->
+    <ItemGroup>
+        <EmbeddedResource Include="Definitions\Actions\*.yaml"/>
+    </ItemGroup>
+
+    <!-- Embed detector and pipeline YAML manifests -->
+    <ItemGroup>
+        <EmbeddedResource Include="Orchestration\Manifests\detectors\*.yaml"/>
+        <EmbeddedResource Include="Orchestration\Manifests\pipelines\*.yaml"/>
+        <EmbeddedResource Include="Orchestration\Manifests\entities\*.yaml"/>
+        <EmbeddedResource Include="Orchestration\Manifests\schemas\*.json"/>
+    </ItemGroup>
+
+    <!-- Include icon and README in NuGet package -->
+    <ItemGroup>
+        <None Include=".\icon.png" Pack="true" PackagePath="">
+            <Link>Properties\icon.png</Link>
+        </None>
+        <None Include=".\README.md" Pack="true" PackagePath="">
+            <Link>Properties\README.md</Link>
+        </None>
+    </ItemGroup>
+
+    <!-- Exclude docs folder from NuGet package -->
+    <ItemGroup>
+        <Content Remove="docs\**"/>
+    </ItemGroup>
+</Project>

@@ -1,0 +1,146 @@
+# Inconsistency Detector - Cross-signal mismatch detection
+name: InconsistencyContributor
+priority: 50  # Runs after raw signal detectors have populated signals
+enabled: true
+description: Detects mismatches between claimed identity and actual behavior
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: inconsistency
+
+taxonomy:
+  kind: correlator
+  determinism: deterministic
+  persistence: ephemeral
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.signature
+      required: true
+      description: Aggregated signals for inconsistency checking
+      signal_pattern: botdetection.*
+
+  required_signals:
+    - detection.useragent
+
+  optional_signals:
+    - detection.ip.is_datacenter
+    - detection.header.accept_language
+    - detection.tls.protocol
+    - detection.version_age.browser_version
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Inconsistency analysis contribution
+
+  signals:
+    - key: detection.inconsistency.confidence
+      entity_type: number
+      salience: 0.85
+      description: Bot confidence from inconsistency analysis
+    - key: detection.inconsistency.mismatch_count
+      entity_type: integer
+      salience: 0.9
+      description: Number of detected mismatches
+    - key: detection.inconsistency.mismatch_types
+      entity_type: array
+      salience: 0.8
+      description: Types of mismatches detected
+
+triggers:
+  requires:
+    - detection.useragent  # Needs UA signal to check inconsistencies
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.inconsistency.started
+
+  on_complete:
+    - key: detection.inconsistency.confidence
+      type: double
+      description: Bot confidence from inconsistency analysis
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.inconsistency.mismatch_count
+      type: int
+      description: Number of detected mismatches
+
+    - key: detection.inconsistency.mismatch_types
+      type: string[]
+      description: Types of mismatches detected
+
+  on_failure:
+    - detector.inconsistency.failed
+
+listens:
+  required:
+    - detection.useragent
+  optional:
+    - detection.ip
+    - detection.header
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 80
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:InconsistencyContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0           # Base contribution weight
+    bot_signal: 1.5     # High weight - inconsistencies are strong signals
+    human_signal: 0.8   # Weight for consistent behavior
+    verified: 2.0       # Weight for verified mismatches
+    early_exit: 0.0     # Does not trigger early exit alone
+
+  confidence:
+    neutral: 0.0        # No inconsistencies detected
+    bot_detected: 0.4   # Single inconsistency detected
+    human_indicated: -0.05  # All signals consistent
+    strong_signal: 0.7  # Multiple inconsistencies
+    high_threshold: 0.6 # Threshold for "likely bot"
+    low_threshold: 0.2  # Threshold for "probably human"
+    escalation_threshold: 0.5
+
+  timing:
+    timeout_ms: 20      # Very fast - just comparisons
+    cache_refresh_sec: 0  # No caching needed
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  # Inconsistency-specific parameters
+  parameters:
+    # Datacenter IP + Browser UA mismatch
+    datacenter_browser_confidence: 0.7
+    # Missing Accept-Language with browser UA
+    missing_language_confidence: 0.5
+    # Chrome without Client Hints
+    missing_client_hints_confidence: 0.2
+    # Outdated browser version
+    outdated_browser_confidence: 0.3
+    # Minimum Chrome version considered current
+    min_chrome_version: 90
+    # Browsers to check for version age
+    tracked_browsers:
+      - Chrome
+      - Firefox
+      - Safari
+      - Edge
+
+tags:
+  - correlation
+  - inconsistency
+  - stage-1

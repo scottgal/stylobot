@@ -1,0 +1,117 @@
+{
+  "scenarioName": "web-crawler",
+  "scenario": "Detecting a web crawler that sends requests with Apache-HttpClient/4.5.14 (Java/17.0.9). The bot uses GET requests to /, checks robots.txt, and enumerates URLs.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "Apache-HttpClient/4.5.14 (Java/17.0.9)",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 20,
+    "delayAfterMs": {
+      "min": 150,
+      "max": 300
+    },
+    "pauseAfterBurstMs": {
+      "min": 1000,
+      "max": 4000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/403",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 4xx"
+    }
+  ],
+  "labels": [
+    "Bot",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 300,
+      "weight": 0.35
+    },
+    {
+      "signal": "num_requests",
+      "op": "\u003E=",
+      "value": 20,
+      "weight": 0.25
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "The bot sends HEAD requests to /admin and /api, enumerates URLs starting with /api/data?page=, and checks for 403/404/429 responses."
+}

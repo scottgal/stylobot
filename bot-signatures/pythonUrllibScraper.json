@@ -1,0 +1,86 @@
+{
+  "scenarioName": "pythonUrllibScraper",
+  "scenario": "A scraper/bot using python-urllib/3.11 to perform automated requests.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "python-urllib/3.11",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 10,
+    "delayAfterMs": {
+      "min": 20,
+      "max": 150
+    },
+    "pauseAfterBurstMs": {
+      "min": 500,
+      "max": 2000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "expectedStatusAny": [
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 4xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 10,
+      "weight": 0.35
+    },
+    {
+      "signal": "requests_count_burst",
+      "op": "\u003E",
+      "value": 8,
+      "weight": 0.25
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "This bot is identified by its use of python-urllib/3.11 as the user-agent string, its absence of client hints and cookies, and its aggressive behavior with high burst requests and short delays."
+}

@@ -1,0 +1,117 @@
+{
+  "scenarioName": "okhttp4120scraper",
+  "scenario": "A bot using okhttp/4.12.0 to scrape a website.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "okhttp/4.12.0",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 10,
+    "delayAfterMs": {
+      "min": 20,
+      "max": 150
+    },
+    "pauseAfterBurstMs": {
+      "min": 500,
+      "max": 2000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "okhttp/4.12.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "okhttp/4.12.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "okhttp/4.12.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "okhttp/4.12.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "okhttp/4.12.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 200,
+      "weight": 0.35
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "This bot is using okhttp/4.12.0 to scrape a website by making HEAD requests to /admin and sensitive paths like /api/data?page=1 and /api/data?page=2, which are not expected for normal browsing behavior."
+}

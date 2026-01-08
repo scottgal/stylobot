@@ -1,0 +1,52 @@
+# Built-in Challenge action policies
+# These define verification challenges presented to potential bots
+
+policies:
+  challenge:
+    type: Challenge
+    description: Default challenge - redirect to challenge page
+    tags: [default, verification]
+    challenge_type: Redirect
+    challenge_url: /challenge
+    use_tokens: true
+    token_cookie_name: bot_challenge_token
+    token_validity_minutes: 30
+    return_url_param: returnUrl
+
+  challenge-captcha:
+    type: Challenge
+    extends: challenge
+    description: CAPTCHA challenge - requires human verification
+    tags: [captcha, verification, strong]
+    challenge_type: Captcha
+    challenge_title: Verification Required
+    challenge_message: Please complete the CAPTCHA to continue.
+
+  challenge-js:
+    type: Challenge
+    extends: challenge
+    description: JavaScript challenge - lightweight browser verification
+    tags: [javascript, verification, lightweight]
+    challenge_type: JavaScript
+    challenge_script: /scripts/bot-challenge.js
+    challenge_title: Verifying...
+    challenge_message: Please wait while we verify your browser.
+
+  challenge-pow:
+    type: Challenge
+    extends: challenge
+    description: Proof-of-Work challenge - computational puzzle (expensive for bots)
+    tags: [pow, verification, anti-automation]
+    challenge_type: ProofOfWork
+    challenge_title: Security Check
+    challenge_message: Completing security verification...
+
+  challenge-inline:
+    type: Challenge
+    extends: challenge
+    description: Inline challenge - renders challenge directly in response
+    tags: [inline, verification]
+    challenge_type: Inline
+    challenge_status_code: 403
+    challenge_title: Access Restricted
+    challenge_message: Please verify that you are human to continue.

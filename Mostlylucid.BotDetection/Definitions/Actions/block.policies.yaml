@@ -1,0 +1,51 @@
+# Built-in Block action policies
+# These define how the system responds when blocking detected bots
+
+policies:
+  block:
+    type: Block
+    description: Default block policy - returns 403 Forbidden
+    tags: [default, production]
+    status_code: 403
+    message: Access denied
+    include_headers: false
+    include_risk_score: false
+
+  block-hard:
+    type: Block
+    extends: block
+    description: Hard block - 403 with no information leakage
+    tags: [production, strict, security]
+    status_code: 403
+    message: Access denied
+    content_type: text/plain
+    include_headers: false
+    include_risk_score: false
+
+  block-soft:
+    type: Block
+    extends: block
+    description: Soft block - 403 with retry hint
+    tags: [production, gentle]
+    status_code: 403
+    message: Please try again later
+    content_type: text/plain
+    include_headers: true
+    include_risk_score: false
+
+  block-debug:
+    type: Block
+    extends: block
+    description: Debug block - 403 with full detection details. WARNING - Reveals detection logic!
+    tags: [development, debug]
+    status_code: 403
+    message: Bot detected - debug mode
+    content_type: application/json
+    include_headers: true
+    include_risk_score: true
+
+  strict-block:
+    type: Block
+    extends: block-hard
+    description: Strict block for high-confidence threats - minimal response
+    tags: [production, strict, security, high-risk]

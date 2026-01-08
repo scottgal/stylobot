@@ -1,0 +1,113 @@
+# Built-in LogOnly action policies
+# These define logging and monitoring strategies without blocking
+
+policies:
+  logonly:
+    type: LogOnly
+    description: Minimal logging - shadow mode with basic info
+    tags: [default, shadow]
+    log_level: Information
+    log_full_evidence: false
+    add_response_headers: false
+    add_to_context_items: true
+    would_block_threshold: 0.85
+
+  shadow:
+    type: LogOnly
+    extends: logonly
+    description: Shadow mode with response headers for debugging
+    tags: [production, shadow, headers]
+    add_response_headers: true
+    include_detailed_headers: false
+
+  debug:
+    type: LogOnly
+    extends: logonly
+    description: Full debug logging with all evidence and headers
+    tags: [development, debug]
+    log_level: Debug
+    log_full_evidence: true
+    add_response_headers: true
+    include_detailed_headers: true
+
+  full-log:
+    type: LogOnly
+    extends: debug
+    description: Maximum visibility - debug logging with all response headers. Great for demos.
+    tags: [demo, debug, development]
+    log_level: Debug
+    log_full_evidence: true
+    add_response_headers: true
+    include_detailed_headers: true
+    add_to_context_items: true
+    would_block_threshold: 0.7
+
+  shadow-production:
+    type: LogOnly
+    extends: logonly
+    description: Production shadow mode - logs what WOULD be blocked without blocking. No headers exposed.
+    tags: [production, shadow, testing]
+    log_level: Information
+    log_full_evidence: false
+    add_response_headers: false
+    add_to_context_items: true
+    would_block_threshold: 0.7
+    metric_name: bot_detection_shadow
+
+  log-to-file:
+    type: LogOnly
+    extends: logonly
+    description: Writes detection events to JSON Lines files for playback and forensic analysis
+    tags: [production, audit, forensics]
+    log_level: Information
+    log_full_evidence: true
+    add_to_context_items: true
+    log_directory: logs/bot-detection
+    log_file_pattern: detections-{date}.jsonl
+    log_only_bots: true
+    log_min_confidence: 0.5
+    log_retain_files: 30
+
+  forward-to-honeypot:
+    type: LogOnly
+    extends: logonly
+    description: Forwards detection data to honeypot/trap service. Detection runs, request passes through.
+    tags: [honeypot, security, research]
+    log_level: Debug
+    log_full_evidence: true
+    add_to_context_items: true
+    forward_url: http://honeypot:8080/trap
+    forward_method: POST
+    forward_timeout_ms: 5000
+    forward_async: true
+    forward_include_headers: true
+    forward_include_reasons: true
+
+  forward-to-analytics:
+    type: LogOnly
+    extends: logonly
+    description: Fire-and-forget forwarding to SIEM/analytics endpoint
+    tags: [analytics, siem, monitoring]
+    log_level: Information
+    add_to_context_items: true
+    forward_url: http://analytics:9000/events/bot-detection
+    forward_method: POST
+    forward_async: true
+    forward_include_headers: false
+    forward_include_reasons: true
+
+  passthrough-internal:
+    type: LogOnly
+    extends: logonly
+    description: Allows known-good traffic through while still logging. Use for false positive exceptions.
+    tags: [internal, exceptions, false-positives]
+    log_level: Information
+    log_full_evidence: true
+    add_to_context_items: true
+    passthrough_user_agents:
+      - "InternalMonitor/.*"
+      - "HealthCheck/.*"
+    passthrough_ips:
+      - "10.0.0.0/8"
+      - "192.168.0.0/16"
+      - "172.16.0.0/12"

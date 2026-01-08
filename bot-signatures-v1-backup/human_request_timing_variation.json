@@ -1,0 +1,53 @@
+{
+  "scenarioName": "human_request_timing_variation",
+  "scenario": "Simulates natural human browsing with variable delays between requests and realistic path navigation (e.g., homepage \u2192 category \u2192 product details).",
+  "confidence": 0.98,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 10
+    },
+    {
+      "timestamp": 10,
+      "method": "GET",
+      "path": "/electronics/category",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 18
+    },
+    {
+      "timestamp": 28,
+      "method": "GET",
+      "path": "/electronics/category/laptops",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 5
+    },
+    {
+      "timestamp": 33,
+      "method": "GET",
+      "path": "/electronics/category/laptops/120-herz",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 22
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable (5\u201330s, with natural pauses)",
+    "pathSequence": "logical navigation (home \u2192 category \u2192 subcategory \u2192 product)",
+    "behavioral": "randomized delays mimicking human hesitation"
+  },
+  "reasoning": "Human users exhibit unpredictable delays (e.g., reading time, scrolling, or reconsidering paths). The 5\u201330s range aligns with real-world browsing, where users pause between actions. Paths follow a natural hierarchy (e.g., category \u2192 subcategory), and delays are irregular rather than uniform, reducing bot-like predictability."
+}

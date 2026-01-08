@@ -1,0 +1,370 @@
+### Bot Detection Demo - HTTP Request File
+### Use this file with Visual Studio, VS Code REST Client, or JetBrains HTTP Client
+
+@baseUrl = http://localhost:5000
+
+### ==========================================
+### Root & Test Page
+### ==========================================
+
+### Get API info (with your current detection status)
+GET {{baseUrl}}/api
+
+### ==========================================
+### Diagnostic Endpoints
+### ==========================================
+
+### Full bot detection check for current request
+GET {{baseUrl}}/bot-detection/check
+
+### Get detection statistics
+GET {{baseUrl}}/bot-detection/stats
+
+### Health check
+GET {{baseUrl}}/bot-detection/health
+
+### ==========================================
+### Test Mode Simulation (requires EnableTestMode = true)
+### ==========================================
+
+### Simulate human visitor
+GET {{baseUrl}}/api
+ml-bot-test-mode: human
+
+### Simulate Googlebot (Search Engine, Verified)
+GET {{baseUrl}}/api
+ml-bot-test-mode: googlebot
+
+### Simulate Bingbot (Search Engine, Verified)
+GET {{baseUrl}}/api
+ml-bot-test-mode: bingbot
+
+### Simulate Scraper bot
+GET {{baseUrl}}/api
+ml-bot-test-mode: scraper
+
+### Simulate Malicious bot
+GET {{baseUrl}}/api
+ml-bot-test-mode: malicious
+
+### Simulate Social Media bot
+GET {{baseUrl}}/api
+ml-bot-test-mode: social
+
+### Simulate Monitoring bot
+GET {{baseUrl}}/api
+ml-bot-test-mode: monitor
+
+### Bypass detection entirely
+GET {{baseUrl}}/api
+ml-bot-test-mode: disable
+
+### ==========================================
+### Protected Endpoints
+### ==========================================
+
+### Protected endpoint (allows verified bots like Googlebot)
+# As human
+GET {{baseUrl}}/api/protected
+Accept: text/html
+Accept-Language: en-US,en
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+
+### Protected endpoint - as Googlebot (should be allowed)
+GET {{baseUrl}}/api/protected
+ml-bot-test-mode: googlebot
+
+### Protected endpoint - as scraper (should be blocked)
+GET {{baseUrl}}/api/protected
+ml-bot-test-mode: scraper
+
+### Humans-only endpoint (blocks ALL bots including verified)
+# As human
+GET {{baseUrl}}/api/humans-only
+Accept: text/html
+Accept-Language: en-US,en
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+
+### Humans-only - as Googlebot (should be blocked)
+GET {{baseUrl}}/api/humans-only
+ml-bot-test-mode: googlebot
+
+### Allow search engines endpoint
+GET {{baseUrl}}/api/allow-search-engines
+ml-bot-test-mode: googlebot
+
+### Allow search engines - as scraper (should be blocked)
+GET {{baseUrl}}/api/allow-search-engines
+ml-bot-test-mode: scraper
+
+### Strict protection (only blocks >90% confidence)
+GET {{baseUrl}}/api/strict-protection
+
+### ==========================================
+### User-Agent Based Detection Tests
+### ==========================================
+
+### Real Browser - Chrome (should be human)
+GET {{baseUrl}}/bot-detection/check
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.9
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+
+### Real Browser - Firefox (should be human)
+GET {{baseUrl}}/bot-detection/check
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.9
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0
+
+### Real Browser - Safari (should be human)
+GET {{baseUrl}}/bot-detection/check
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.9
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 14_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15
+
+### Search Engine - Googlebot
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
+
+### Search Engine - Bingbot
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)
+
+### Search Engine - DuckDuckBot
+GET {{baseUrl}}/bot-detection/check
+User-Agent: DuckDuckBot/1.0; (+http://duckduckgo.com/duckduckbot.html)
+
+### Social Media - Facebook
+GET {{baseUrl}}/bot-detection/check
+User-Agent: facebookexternalhit/1.1
+
+### Social Media - Twitter
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Twitterbot/1.0
+
+### Social Media - LinkedIn
+GET {{baseUrl}}/bot-detection/check
+User-Agent: LinkedInBot/1.0
+
+### Social Media - Slack
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Slackbot-LinkExpanding 1.0
+
+### Social Media - Discord
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 (compatible; Discordbot/2.0)
+
+### Scraper - Scrapy
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Scrapy/2.5.0
+
+### Scraper - Python Requests
+GET {{baseUrl}}/bot-detection/check
+User-Agent: python-requests/2.28.0
+
+### Scraper - wget
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Wget/1.21
+
+### Scraper - curl
+GET {{baseUrl}}/bot-detection/check
+User-Agent: curl/7.68.0
+
+### Automation - Headless Chrome
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 HeadlessChrome/90.0.4430.212
+
+### Automation - Selenium
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 Selenium
+
+### Automation - Playwright
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 Playwright/1.20.0
+
+### Automation - PhantomJS
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 PhantomJS/2.1.1
+
+### Monitor - UptimeRobot
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 (compatible; UptimeRobot/2.0)
+
+### Monitor - Pingdom
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Pingdom.com_bot_version_1.4
+
+### Suspicious - Empty User-Agent
+GET {{baseUrl}}/bot-detection/check
+User-Agent:
+
+### Suspicious - Short User-Agent
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Bot
+
+### Suspicious - Go HTTP Client
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Go-http-client/1.1
+
+### Suspicious - Java
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Java/11.0.11
+
+### ==========================================
+### AI Crawler Bots
+### ==========================================
+
+### AI - GPTBot (OpenAI)
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.0; +https://openai.com/gptbot)
+
+### AI - ChatGPT User
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ChatGPT-User/1.0; +https://openai.com/bot)
+
+### AI - ClaudeBot (Anthropic)
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +https://www.anthropic.com)
+
+### AI - Google Extended
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 (compatible; Google-Extended)
+
+### AI - Cohere AI
+GET {{baseUrl}}/bot-detection/check
+User-Agent: cohere-ai
+
+### AI - PerplexityBot
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 (compatible; PerplexityBot/1.0)
+
+### AI - CCBot (Common Crawl for AI)
+GET {{baseUrl}}/bot-detection/check
+User-Agent: CCBot/2.0 (https://commoncrawl.org/faq/)
+
+### ==========================================
+### Showroom Page - Full Pipeline Tests
+### ==========================================
+
+### Bot Test Page - Human (full slow path)
+GET {{baseUrl}}/bot-test
+ml-bot-test-mode: human
+
+### Bot Test Page - Googlebot (verified search engine)
+GET {{baseUrl}}/bot-test
+ml-bot-test-mode: googlebot
+
+### Bot Test Page - Scraper
+GET {{baseUrl}}/bot-test
+ml-bot-test-mode: scrapy
+
+### Bot Test Page - Malicious bot
+GET {{baseUrl}}/bot-test
+ml-bot-test-mode: malicious
+
+### Bot Test Page - AI Crawler
+GET {{baseUrl}}/bot-test
+ml-bot-test-mode: gptbot
+
+### Bot Test Page - Puppeteer/Headless
+GET {{baseUrl}}/bot-test
+ml-bot-test-mode: puppeteer
+
+### ==========================================
+### Malicious Bot Patterns
+### ==========================================
+
+### Malicious - SQL Injection Attempt (via Path)
+GET {{baseUrl}}/bot-detection/check?id=1%27%20OR%20%271%27=%271
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+
+### Malicious - Known Bad Bot
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Netcraft
+
+### Malicious - Vulnerability Scanner
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Nmap Scripting Engine
+
+### Malicious - Credential Harvester
+GET {{baseUrl}}/bot-detection/check
+User-Agent: masscan/1.3
+
+### Malicious - SEO Spam
+GET {{baseUrl}}/bot-detection/check
+User-Agent: SemrushBot/7~bl
+
+### ==========================================
+### Edge Cases & Anomalies
+### ==========================================
+
+### Missing Accept Header
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0
+
+### Outdated Browser (Version Age Detection)
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 Chrome/45.0.2454.101 Safari/537.36
+
+### Very Old Browser
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)
+
+### Inconsistent Headers (Claims Chrome but wrong Accept)
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0
+Accept: */*
+Accept-Language:
+
+### Mobile Browser - iPhone
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1
+
+### Mobile Browser - Android
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36
+
+### ==========================================
+### HTTP Libraries & Clients
+### ==========================================
+
+### HTTP Client - Axios
+GET {{baseUrl}}/bot-detection/check
+User-Agent: axios/1.6.0
+
+### HTTP Client - Got
+GET {{baseUrl}}/bot-detection/check
+User-Agent: got (https://github.com/sindresorhus/got)
+
+### HTTP Client - httpx Python
+GET {{baseUrl}}/bot-detection/check
+User-Agent: python-httpx/0.25.0
+
+### HTTP Client - Ruby
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Ruby
+
+### HTTP Client - Perl LWP
+GET {{baseUrl}}/bot-detection/check
+User-Agent: libwww-perl/6.67
+
+### HTTP Client - Apache HttpClient
+GET {{baseUrl}}/bot-detection/check
+User-Agent: Apache-HttpClient/4.5.14 (Java/11.0.11)
+
+### HTTP Client - OkHttp
+GET {{baseUrl}}/bot-detection/check
+User-Agent: okhttp/4.11.0
+
+### ==========================================
+### Test Helpers
+### ==========================================
+
+### Get list of all test modes
+GET {{baseUrl}}/api/test-modes
+
+### Get sample user agents for testing
+GET {{baseUrl}}/api/sample-user-agents
+
+### Get PowerShell test script
+GET {{baseUrl}}/api/test-script

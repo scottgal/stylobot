@@ -1,0 +1,71 @@
+{
+  "scenarioName": "test-aggressive-scraper",
+  "scenario": "Aggressive web scraper hitting multiple API endpoints rapidly",
+  "confidence": 0.92,
+  "clientProfile": {
+    "userAgent": "python-requests/2.31.0",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 10,
+    "delayAfterMs": { "min": 20, "max": 150 },
+    "pauseAfterBurstMs": { "min": 500, "max": 2000 }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/users",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatusAny": [200, 403, 429],
+      "expectedOutcome": "data_exfil",
+      "successCondition": "any 2xx with payload > 1KB"
+    },
+    {
+      "method": "GET",
+      "path": "/api/products?limit=100",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatusAny": [200, 403, 429],
+      "expectedOutcome": "data_exfil",
+      "successCondition": "any 2xx with payload > 10KB"
+    },
+    {
+      "method": "HEAD",
+      "path": "/admin/dashboard",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatusAny": [200, 403, 404],
+      "expectedOutcome": "probing",
+      "successCondition": "any response"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/dashboard",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatusAny": [200, 403, 404],
+      "expectedOutcome": "data_exfil",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": ["Scraper", "RobotsIgnore", "SensitiveProbing"],
+  "evidence": [
+    { "signal": "interval_ms_p95", "op": "<", "value": 200, "weight": 0.35 },
+    { "signal": "sensitive_path_rate", "op": ">", "value": 0.5, "weight": 0.30 }
+  ],
+  "patterns": {
+    "requestInterval": "burst <150ms",
+    "pathSequence": "API enumeration with admin probing",
+    "userAgentPattern": "python-requests (bot library)",
+    "statefulness": "no cookies, minimal headers"
+  },
+  "reasoning": "Aggressive bot behavior: rapid requests, no cookies, minimal headers, sensitive path probing, HEAD before GET pattern"
+}

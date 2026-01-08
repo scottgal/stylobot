@@ -1,0 +1,63 @@
+{
+  "scenarioName": "human_behavior_organic_browsing",
+  "scenario": "Simulates natural human browsing with variable delays and organic path navigation (e.g., starting with homepage, exploring related categories, then returning to homepage after reading)",
+  "confidence": 0.95,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 10
+    },
+    {
+      "timestamp": 10,
+      "method": "GET",
+      "path": "/products?category=electronics",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 15
+    },
+    {
+      "timestamp": 25,
+      "method": "GET",
+      "path": "/reviews?product=12345",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 20
+    },
+    {
+      "timestamp": 45,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 5
+    },
+    {
+      "timestamp": 50,
+      "method": "GET",
+      "path": "/newsletter-signup",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 12
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 2-30s (avg ~15s)",
+    "pathSequence": "home \u2192 category \u2192 review \u2192 home \u2192 signup",
+    "behavioral": "natural pauses, no rapid clicks, mimics human decision-making delays"
+  },
+  "reasoning": "Human behavior includes organic navigation patterns (e.g., returning to homepage after reading reviews), variable delays reflecting real-time thought processes, and non-linear path exploration (e.g., jumping between categories). The absence of scripted, rapid requests aligns with unpredictable human decision-making."
+}

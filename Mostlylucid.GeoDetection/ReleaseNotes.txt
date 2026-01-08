@@ -1,0 +1,13 @@
+1.0.0
+Initial release of Mostlylucid.GeoDetection.
+
+Features:
+- IP-based geolocation detection
+- Country-based routing middleware
+- Region and city detection support
+- Endpoint routing with GeoRoute attribute
+- Configurable allowed/blocked country lists
+- Memory caching for performance
+- ASP.NET Core middleware integration
+- Dependency injection support via IServiceCollection
+- Configurable options via GeoRoutingOptions

@@ -1,0 +1,459 @@
+# Employee Management GraphQL Schema
+# This schema is used by the holodeck to generate realistic HR/Employee API responses
+
+scalar DateTime
+scalar Date
+
+type Query {
+  # Employee queries
+  employee(id: ID!): Employee
+  employees(
+    department: String
+    location: String
+    status: EmploymentStatus
+    search: String
+    first: Int = 20
+    after: String
+  ): EmployeeConnection!
+
+  # Department queries
+  department(id: ID!): Department
+  departments: [Department!]!
+
+  # Organization queries
+  orgChart(rootId: ID): OrgNode
+  directReports(managerId: ID!): [Employee!]!
+
+  # Time & Attendance
+  timeEntries(employeeId: ID!, startDate: Date!, endDate: Date!): [TimeEntry!]!
+  leaveBalance(employeeId: ID!): LeaveBalance!
+  leaveRequests(employeeId: ID, status: LeaveStatus): [LeaveRequest!]!
+
+  # Performance
+  performanceReviews(employeeId: ID!, year: Int): [PerformanceReview!]!
+  goals(employeeId: ID!, status: GoalStatus): [Goal!]!
+}
+
+type Mutation {
+  # Employee management
+  createEmployee(input: CreateEmployeeInput!): Employee!
+  updateEmployee(id: ID!, input: UpdateEmployeeInput!): Employee!
+  terminateEmployee(id: ID!, input: TerminationInput!): Employee!
+
+  # Time & Attendance
+  clockIn(employeeId: ID!, location: String): TimeEntry!
+  clockOut(entryId: ID!, notes: String): TimeEntry!
+  submitLeaveRequest(input: LeaveRequestInput!): LeaveRequest!
+  approveLeaveRequest(id: ID!, approved: Boolean!, comments: String): LeaveRequest!
+
+  # Performance
+  createGoal(input: GoalInput!): Goal!
+  updateGoalProgress(id: ID!, progress: Int!, notes: String): Goal!
+  submitPerformanceReview(input: PerformanceReviewInput!): PerformanceReview!
+}
+
+type Employee {
+  id: ID!
+  employeeNumber: String!
+  firstName: String!
+  lastName: String!
+  fullName: String!
+  email: String!
+  phone: String
+  title: String!
+  department: Department!
+  location: Location!
+  manager: Employee
+  directReports: [Employee!]!
+  hireDate: Date!
+  status: EmploymentStatus!
+  employmentType: EmploymentType!
+  salary: Salary
+  benefits: [Benefit!]!
+  skills: [Skill!]!
+  certifications: [Certification!]!
+  emergencyContacts: [EmergencyContact!]!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type EmployeeConnection {
+  edges: [EmployeeEdge!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type EmployeeEdge {
+  node: Employee!
+  cursor: String!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+type Department {
+  id: ID!
+  name: String!
+  code: String!
+  description: String
+  head: Employee
+  parent: Department
+  children: [Department!]!
+  employees: [Employee!]!
+  employeeCount: Int!
+  budget: Float
+  costCenter: String
+}
+
+type Location {
+  id: ID!
+  name: String!
+  address: Address!
+  timezone: String!
+  isHeadquarters: Boolean!
+  employeeCount: Int!
+}
+
+type Address {
+  street: String!
+  city: String!
+  state: String
+  postalCode: String!
+  country: String!
+}
+
+type Salary {
+  amount: Float!
+  currency: String!
+  payFrequency: PayFrequency!
+  effectiveDate: Date!
+}
+
+type Benefit {
+  id: ID!
+  type: BenefitType!
+  name: String!
+  description: String
+  enrollmentDate: Date!
+  coverage: String
+}
+
+type Skill {
+  id: ID!
+  name: String!
+  category: String!
+  level: SkillLevel!
+  yearsExperience: Float
+  endorsements: Int!
+}
+
+type Certification {
+  id: ID!
+  name: String!
+  issuingOrganization: String!
+  issueDate: Date!
+  expirationDate: Date
+  credentialId: String
+}
+
+type EmergencyContact {
+  name: String!
+  relationship: String!
+  phone: String!
+  email: String
+  isPrimary: Boolean!
+}
+
+type OrgNode {
+  employee: Employee!
+  children: [OrgNode!]!
+  depth: Int!
+}
+
+type TimeEntry {
+  id: ID!
+  employee: Employee!
+  clockIn: DateTime!
+  clockOut: DateTime
+  duration: Float
+  type: TimeEntryType!
+  location: String
+  notes: String
+  approved: Boolean!
+}
+
+type LeaveBalance {
+  employee: Employee!
+  vacation: LeaveTypeBalance!
+  sick: LeaveTypeBalance!
+  personal: LeaveTypeBalance!
+  parental: LeaveTypeBalance
+}
+
+type LeaveTypeBalance {
+  type: LeaveType!
+  entitled: Float!
+  used: Float!
+  pending: Float!
+  available: Float!
+}
+
+type LeaveRequest {
+  id: ID!
+  employee: Employee!
+  type: LeaveType!
+  startDate: Date!
+  endDate: Date!
+  days: Float!
+  status: LeaveStatus!
+  reason: String
+  approver: Employee
+  approvedAt: DateTime
+  comments: String
+  createdAt: DateTime!
+}
+
+type PerformanceReview {
+  id: ID!
+  employee: Employee!
+  reviewer: Employee!
+  period: String!
+  overallRating: Rating!
+  ratings: [CategoryRating!]!
+  strengths: [String!]!
+  areasForImprovement: [String!]!
+  goals: [Goal!]!
+  comments: String
+  status: ReviewStatus!
+  submittedAt: DateTime
+  acknowledgedAt: DateTime
+}
+
+type CategoryRating {
+  category: String!
+  rating: Rating!
+  comments: String
+}
+
+type Goal {
+  id: ID!
+  employee: Employee!
+  title: String!
+  description: String
+  category: GoalCategory!
+  status: GoalStatus!
+  priority: Priority!
+  progress: Int!
+  dueDate: Date!
+  completedAt: DateTime
+  milestones: [Milestone!]!
+  createdAt: DateTime!
+}
+
+type Milestone {
+  id: ID!
+  title: String!
+  completed: Boolean!
+  dueDate: Date
+  completedAt: DateTime
+}
+
+# Enums
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  TERMINATED
+  RETIRED
+  SUSPENDED
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+  TEMPORARY
+}
+
+enum PayFrequency {
+  WEEKLY
+  BI_WEEKLY
+  SEMI_MONTHLY
+  MONTHLY
+  ANNUALLY
+}
+
+enum BenefitType {
+  HEALTH
+  DENTAL
+  VISION
+  LIFE_INSURANCE
+  DISABILITY
+  RETIREMENT
+  HSA
+  FSA
+  STOCK_OPTIONS
+  OTHER
+}
+
+enum SkillLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum TimeEntryType {
+  REGULAR
+  OVERTIME
+  HOLIDAY
+  TRAINING
+  TRAVEL
+}
+
+enum LeaveType {
+  VACATION
+  SICK
+  PERSONAL
+  PARENTAL
+  BEREAVEMENT
+  JURY_DUTY
+  MILITARY
+  UNPAID
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum Rating {
+  EXCEEDS_EXPECTATIONS
+  MEETS_EXPECTATIONS
+  NEEDS_IMPROVEMENT
+  UNSATISFACTORY
+}
+
+enum ReviewStatus {
+  DRAFT
+  SUBMITTED
+  ACKNOWLEDGED
+  FINALIZED
+}
+
+enum GoalCategory {
+  PERFORMANCE
+  DEVELOPMENT
+  PROJECT
+  TEAM
+  PERSONAL
+}
+
+enum GoalStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DEFERRED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+# Input types
+input CreateEmployeeInput {
+  firstName: String!
+  lastName: String!
+  email: String!
+  phone: String
+  title: String!
+  departmentId: ID!
+  locationId: ID!
+  managerId: ID
+  hireDate: Date!
+  employmentType: EmploymentType!
+  salary: SalaryInput
+}
+
+input UpdateEmployeeInput {
+  firstName: String
+  lastName: String
+  phone: String
+  title: String
+  departmentId: ID
+  locationId: ID
+  managerId: ID
+  status: EmploymentStatus
+}
+
+input TerminationInput {
+  effectiveDate: Date!
+  reason: String!
+  type: TerminationType!
+  eligibleForRehire: Boolean!
+  notes: String
+}
+
+enum TerminationType {
+  VOLUNTARY
+  INVOLUNTARY
+  RETIREMENT
+  LAYOFF
+  END_OF_CONTRACT
+}
+
+input SalaryInput {
+  amount: Float!
+  currency: String!
+  payFrequency: PayFrequency!
+  effectiveDate: Date!
+}
+
+input LeaveRequestInput {
+  employeeId: ID!
+  type: LeaveType!
+  startDate: Date!
+  endDate: Date!
+  reason: String
+}
+
+input GoalInput {
+  employeeId: ID!
+  title: String!
+  description: String
+  category: GoalCategory!
+  priority: Priority!
+  dueDate: Date!
+  milestones: [MilestoneInput!]
+}
+
+input MilestoneInput {
+  title: String!
+  dueDate: Date
+}
+
+input PerformanceReviewInput {
+  employeeId: ID!
+  period: String!
+  overallRating: Rating!
+  ratings: [CategoryRatingInput!]!
+  strengths: [String!]!
+  areasForImprovement: [String!]!
+  comments: String
+}
+
+input CategoryRatingInput {
+  category: String!
+  rating: Rating!
+  comments: String
+}

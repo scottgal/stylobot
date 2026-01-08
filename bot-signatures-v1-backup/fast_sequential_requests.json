@@ -1,0 +1,63 @@
+{
+  "scenarioName": "fast_sequential_requests",
+  "scenario": "High-frequency sequential GET requests with minimal delays, targeting multiple suspicious paths in rapid succession.",
+  "confidence": 0.92,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/api/v1/users?limit=100",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.05
+    },
+    {
+      "timestamp": 0.05,
+      "method": "GET",
+      "path": "/api/v1/products?sort=price_asc",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.03
+    },
+    {
+      "timestamp": 0.08,
+      "method": "GET",
+      "path": "/admin/dashboard?token=invalid",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 403,
+      "delayAfter": 0.02
+    },
+    {
+      "timestamp": 0.1,
+      "method": "GET",
+      "path": "/search?q=bot\u002Bscraper\u002Btest",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.04
+    },
+    {
+      "timestamp": 0.14,
+      "method": "GET",
+      "path": "/api/v1/logout",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.01
+    }
+  ],
+  "patterns": {
+    "requestInterval": "varied but consistently \u003C0.1s (avg ~0.06s)",
+    "pathSequence": "mixed API paths, including sensitive endpoints (/admin/dashboard) and search queries",
+    "userAgentPattern": "repeated axios/1.6.2 without rotation"
+  },
+  "reasoning": "The rapid succession of requests (avg \u003C0.1s between them) with a focus on data-intensive endpoints (users, products) and suspicious paths (admin, logout) strongly indicates automated scraping. The lack of delays between requests and consistent UA suggests a scripted bot rather than human behavior. The inclusion of invalid tokens (403) and search queries hints at data extraction attempts."
+}

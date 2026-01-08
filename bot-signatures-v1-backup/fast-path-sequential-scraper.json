@@ -1,0 +1,57 @@
+{
+  "scenarioName": "fast-path-sequential-scraper",
+  "scenario": "High-speed sequential requests to multiple suspicious paths with minimal delays, indicative of automated scraping behavior.",
+  "confidence": 0.92,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/api/products?limit=100",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.05
+    },
+    {
+      "timestamp": 0.05,
+      "method": "GET",
+      "path": "/search?q=python\u002Bscraping\u0026page=1",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.03
+    },
+    {
+      "timestamp": 0.08,
+      "method": "GET",
+      "path": "/admin/analytics?token=scraper123",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.02
+    },
+    {
+      "timestamp": 0.10,
+      "method": "GET",
+      "path": "/static/data/last_updated.json",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.01
+    }
+  ],
+  "patterns": {
+    "requestInterval": "consistently \u003C0.1s between requests",
+    "pathSequence": "mixed API, search, admin, and static paths (common scraping targets)",
+    "userAgentPattern": "repeated identical User-Agent string",
+    "suspiciousPaths": [
+      "/api/products?limit=100",
+      "/admin/analytics?token=scraper123"
+    ]
+  },
+  "reasoning": "The scenario exhibits rapid, low-delay requests across a variety of paths\u2014commonly targeted by automated scrapers for data extraction. The use of a static User-Agent string and sequential, non-randomized paths (e.g., API endpoints, search queries, admin routes) strongly suggests automated behavior. The minimal delays (0.01\u20130.08s) align with typical scraping bot speeds, while the inclusion of both public and internal paths (e.g., \u0060/static/data/last_updated.json\u0060) indicates aggressive, non-human-like probing."
+}

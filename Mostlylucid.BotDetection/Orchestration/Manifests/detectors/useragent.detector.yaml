@@ -1,0 +1,156 @@
+# UserAgent Detector - Bot detection from User-Agent header analysis
+name: UserAgentContributor
+priority: 10  # Runs very early - provides foundation signals
+enabled: true
+description: Extracts bot signals from User-Agent header analysis
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: useragent
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with headers for UA extraction
+      signal_pattern: request.headers.*
+    - type: botdetection.signature
+      required: false
+      description: Existing signature to augment
+      signal_pattern: botdetection.signature.*
+
+  required_signals:
+    - request.headers.user-agent
+
+  optional_signals:
+    - request.headers.accept-language
+    - request.headers.accept-encoding
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: UA analysis contribution to detection ledger
+    - type: botdetection.ua_signal
+      description: Detailed UA analysis signals
+
+  signals:
+    - key: detection.useragent.confidence
+      entity_type: number
+      salience: 0.8
+      description: Bot detection confidence from UA analysis
+    - key: detection.useragent.bot_type
+      entity_type: string
+      salience: 0.9
+      description: Detected bot type if identified
+
+triggers:
+  requires: []  # No dependencies - runs first wave
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.useragent.started
+
+  on_complete:
+    - key: detection.useragent
+      type: string
+      description: Raw User-Agent string
+
+    - key: detection.useragent.confidence
+      type: double
+      description: Bot detection confidence from UA analysis
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.useragent.bot_type
+      type: string
+      description: Detected bot type (if any)
+
+    - key: detection.useragent.is_known_bot
+      type: bool
+      description: Whether UA matches known bot patterns
+
+  on_failure:
+    - detector.useragent.failed
+
+  conditional:
+    - key: detection.useragent.verified_bot
+      type: bool
+      when: confidence > 0.9 && bot_type != null
+      description: High-confidence bot identification
+
+listens:
+  required: []
+  optional:
+    - http.headers.accept_language
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 100
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:UserAgentContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0           # Base contribution weight
+    bot_signal: 1.5     # Weight when bot pattern detected
+    human_signal: 0.8   # Weight for human indicators
+    verified: 2.0       # Weight for verified bot patterns (Googlebot, etc.)
+    early_exit: 3.0     # Weight for early-exit triggering patterns
+
+  confidence:
+    neutral: 0.0        # No signal detected
+    bot_detected: 0.3   # Generic bot UA pattern match
+    human_indicated: -0.1  # Normal browser UA
+    strong_signal: 0.85 # High-confidence known bot
+    high_threshold: 0.9 # Threshold for "verified bot" signal
+    low_threshold: 0.2  # Threshold for "probably human"
+    escalation_threshold: 0.5  # When to escalate ambiguous cases
+
+  timing:
+    timeout_ms: 50      # Max execution time
+    cache_refresh_sec: 3600  # Bot list refresh interval
+
+  features:
+    detailed_logging: false
+    enable_cache: true
+    can_early_exit: true  # Can trigger early exit for verified bots
+    can_escalate: false
+
+  # Detector-specific parameters
+  parameters:
+    min_ua_length: 10          # UAs shorter than this are suspicious
+    max_ua_length: 2048        # UAs longer than this are truncated
+    verify_known_bots: true    # DNS/IP verify claimed good bots
+    missing_ua_confidence: 0.8 # Confidence penalty for missing UA
+    pattern_match_confidence: 0.9  # Confidence for known bot pattern matches
+    suspicious_confidence: 0.6     # Confidence for suspicious patterns
+    known_bot_patterns:        # Patterns that auto-verify
+      - "googlebot"
+      - "bingbot"
+      - "yandexbot"
+      - "duckduckbot"
+      - "slurp"
+      - "baiduspider"
+
+config:
+  bindings:
+    - config_key: EnableUserAgentDetection
+      skip_if_false: true
+
+tags:
+  - fast-path
+  - header-analysis
+  - stage-0
+  - foundation

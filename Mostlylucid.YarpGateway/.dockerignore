@@ -1,0 +1,18 @@
+**/.git
+**/.vs
+**/.vscode
+**/bin
+**/obj
+**/.idea
+**/node_modules
+**/*.user
+**/*.suo
+**/Thumbs.db
+**/.DS_Store
+**/docker-compose*.yml
+**/README.md
+**/*.md
+**/logs
+**/data
+# Exclude example config - users should mount their own or use DEFAULT_UPSTREAM
+config/

@@ -1,0 +1,63 @@
+{
+  "scenarioName": "natural_browsing_with_varied_delays",
+  "scenario": "Simulates a real human browsing pattern with organic delays and natural navigation between pages, mimicking real-time user behavior on a website.",
+  "confidence": 0.98,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 10
+    },
+    {
+      "timestamp": 10,
+      "method": "GET",
+      "path": "/search?q=mac\u002Bbook\u002Bpro\u002B2023",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 15
+    },
+    {
+      "timestamp": 25,
+      "method": "GET",
+      "path": "/reviews/amazon/product/1234567890",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 20
+    },
+    {
+      "timestamp": 45,
+      "method": "GET",
+      "path": "/support/faq",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 5
+    },
+    {
+      "timestamp": 50,
+      "method": "GET",
+      "path": "/cart",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 12
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 2-30s (avg ~15s) with natural pauses (e.g., 5-20s for exploration)",
+    "pathSequence": "non-linear, follows real user intent (search \u2192 review \u2192 support \u2192 cart)",
+    "human-like": "delays mimic real-time browsing, no fixed intervals, includes exploratory pauses"
+  },
+  "reasoning": "This pattern reflects a real human\u0027s unpredictable navigation: they don\u2019t follow a rigid sequence, often pause to read or think, and switch between tasks (e.g., researching, checking reviews, or exploring support). The delays are organic\u2014sometimes short (e.g., 5s for quick navigation), sometimes longer (e.g., 20s for contemplation). The path sequence avoids predictable patterns (e.g., always going from / \u2192 /search \u2192 /cart), instead mirroring how humans might drift between topics or revisit pages. This avoids bot-like automation and aligns with human cognitive behavior."
+}

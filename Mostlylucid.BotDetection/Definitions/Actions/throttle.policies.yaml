@@ -1,0 +1,57 @@
+# Built-in Throttle action policies
+# These define delay strategies for slowing down detected bots
+
+policies:
+  throttle:
+    type: Throttle
+    description: Default throttle - moderate delay with jitter
+    tags: [default, production]
+    base_delay_ms: 500
+    min_delay_ms: 100
+    max_delay_ms: 5000
+    jitter_percent: 0.25
+    scale_by_risk: true
+    return_status: false
+    include_headers: false
+
+  throttle-gentle:
+    type: Throttle
+    extends: throttle
+    description: Gentle throttle - minimal delay, good for low-confidence detections
+    tags: [production, gentle]
+    base_delay_ms: 200
+    max_delay_ms: 2000
+    jitter_percent: 0.2
+
+  throttle-moderate:
+    type: Throttle
+    extends: throttle
+    description: Moderate throttle - balanced delay for medium-confidence bots
+    tags: [default, production]
+    base_delay_ms: 500
+    max_delay_ms: 5000
+    jitter_percent: 0.25
+
+  throttle-aggressive:
+    type: Throttle
+    extends: throttle
+    description: Aggressive throttle - long delays for high-confidence bots
+    tags: [production, strict]
+    base_delay_ms: 2000
+    max_delay_ms: 30000
+    jitter_percent: 0.3
+    exponential_backoff: true
+    backoff_factor: 2.0
+
+  throttle-stealth:
+    type: Throttle
+    extends: throttle
+    description: Stealth throttle - randomized delays to avoid detection. No headers.
+    tags: [production, stealth, anti-scraping]
+    base_delay_ms: 500
+    max_delay_ms: 10000
+    jitter_percent: 0.5
+    scale_by_risk: true
+    return_status: false
+    include_headers: false
+    include_retry_after: false

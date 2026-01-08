@@ -1,0 +1,54 @@
+{
+  "scenarioName": "fast_sequential_scraping",
+  "scenario": "High-speed sequential requests with suspicious path jumps and minimal delays, indicative of automated scraping behavior targeting multiple pages in rapid succession.",
+  "confidence": 0.92,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/products?category=electronics",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.05
+    },
+    {
+      "timestamp": 0.05,
+      "method": "GET",
+      "path": "/products?category=books",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.03
+    },
+    {
+      "timestamp": 0.08,
+      "method": "GET",
+      "path": "/reviews?product_id=12345",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.02
+    },
+    {
+      "timestamp": 0.1,
+      "method": "GET",
+      "path": "/cart?token=scrap_123",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.01
+    }
+  ],
+  "patterns": {
+    "requestInterval": "consistently \u003C0.1s between requests",
+    "pathSequence": "jumping between unrelated paths (e.g., categories, reviews, cart)",
+    "userAgentPattern": "repeated identical Go-http-client/2.0",
+    "suspiciousHeaders": "lack of custom headers (e.g., referer, cookies)"
+  },
+  "reasoning": "The scenario exhibits rapid, low-delay requests across multiple unrelated endpoints (e.g., product listings, reviews, cart) with identical, generic User-Agent strings. This pattern is characteristic of automated scrapers that bypass human-like navigation delays and exploit multiple pages in parallel to extract data efficiently. The absence of referrer headers or session cookies further suggests automated behavior rather than organic user activity."
+}

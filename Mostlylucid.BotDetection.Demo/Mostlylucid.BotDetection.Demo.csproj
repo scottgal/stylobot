@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <UserSecretsId>75ee402f-8ec6-49a7-9093-3ce254a4b95a</UserSecretsId>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="7.2.0"/>
+        <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0"/>
+        <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.1.0"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\LLMApi\mostlylucid.mockllmapi\mostlylucid.mockllmapi.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj"/>
+        <ProjectReference Include="..\Mostlylucid.BotDetection.ApiHolodeck\Mostlylucid.BotDetection.ApiHolodeck.csproj"/>
+        <ProjectReference Include="..\Mostlylucid.GeoDetection\Mostlylucid.GeoDetection.csproj"/>
+        <ProjectReference Include="..\Mostlylucid.GeoDetection.Contributor\Mostlylucid.GeoDetection.Contributor.csproj"/>
+        <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj"/>
+    </ItemGroup>
+
+</Project>

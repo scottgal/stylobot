@@ -1,0 +1,341 @@
+### Bot Detection Demo - HTTP Test File
+### Use with VS Code REST Client extension or JetBrains HTTP Client
+### Start the demo: dotnet run --project Mostlylucid.BotDetection.Demo
+
+@baseUrl = http://localhost:5000
+
+### ============================================
+### BASELINE / DISCOVERY
+### ============================================
+
+### API Root - Shows available endpoints
+GET {{baseUrl}}/api
+Accept: application/json
+
+### Check detection mode and configured policies
+GET {{baseUrl}}/api/mode
+Accept: application/json
+
+### Built-in detection check endpoint
+GET {{baseUrl}}/bot-detection/check
+Accept: application/json
+
+### Detection stats
+GET {{baseUrl}}/bot-detection/stats
+Accept: application/json
+
+### Health check
+GET {{baseUrl}}/bot-detection/health
+Accept: application/json
+
+### ============================================
+### LOAD TESTING ENDPOINTS (/api/v1/*)
+### ============================================
+
+### Open endpoint - no detection (baseline for performance)
+GET {{baseUrl}}/api/v1/open
+Accept: application/json
+
+### Default detection policy
+GET {{baseUrl}}/api/v1/default
+Accept: application/json
+
+### Detailed detection response with all evidence
+GET {{baseUrl}}/api/v1/detailed
+Accept: application/json
+
+### Log-only policy - detects but never blocks
+GET {{baseUrl}}/api/v1/log-only
+Accept: application/json
+
+### ============================================
+### BROWSER USER-AGENTS (should pass as human)
+### ============================================
+
+### Chrome on Windows - Human
+GET {{baseUrl}}/api/v1/default
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.9
+
+### Firefox on Windows - Human
+GET {{baseUrl}}/api/v1/default
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.9
+
+### Safari on macOS - Human
+GET {{baseUrl}}/api/v1/default
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 14_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.9
+
+### Mobile Chrome on Android - Human
+GET {{baseUrl}}/api/v1/default
+User-Agent: Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.9
+
+### ============================================
+### SEARCH ENGINE BOTS (should be detected as SearchEngine)
+### ============================================
+
+### Googlebot - Verified SearchEngine
+GET {{baseUrl}}/api/v1/relaxed
+User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
+Accept: */*
+
+### Bingbot - Verified SearchEngine
+GET {{baseUrl}}/api/v1/relaxed
+User-Agent: Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)
+Accept: */*
+
+### DuckDuckBot - SearchEngine
+GET {{baseUrl}}/api/v1/relaxed
+User-Agent: DuckDuckBot/1.0; (+http://duckduckgo.com/duckduckbot.html)
+Accept: */*
+
+### YandexBot - SearchEngine
+GET {{baseUrl}}/api/v1/relaxed
+User-Agent: Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)
+Accept: */*
+
+### ============================================
+### SOCIAL MEDIA BOTS (SocialMedia type)
+### ============================================
+
+### Facebook - SocialMedia
+GET {{baseUrl}}/api/v1/default
+User-Agent: facebookexternalhit/1.1
+Accept: */*
+
+### Twitter - SocialMedia
+GET {{baseUrl}}/api/v1/default
+User-Agent: Twitterbot/1.0
+Accept: */*
+
+### LinkedIn - SocialMedia
+GET {{baseUrl}}/api/v1/default
+User-Agent: LinkedInBot/1.0
+Accept: */*
+
+### Slack - SocialMedia
+GET {{baseUrl}}/api/v1/default
+User-Agent: Slackbot-LinkExpanding 1.0
+Accept: */*
+
+### Discord - SocialMedia
+GET {{baseUrl}}/api/v1/default
+User-Agent: Mozilla/5.0 (compatible; Discordbot/2.0)
+Accept: */*
+
+### ============================================
+### SCRAPERS (should be blocked)
+### ============================================
+
+### Scrapy - Scraper (BLOCKED)
+GET {{baseUrl}}/api/v1/strict
+User-Agent: Scrapy/2.5.0
+Accept: */*
+
+### curl default - Library
+GET {{baseUrl}}/api/v1/default
+User-Agent: curl/7.68.0
+Accept: */*
+
+### Wget - Scraper
+GET {{baseUrl}}/api/v1/default
+User-Agent: Wget/1.21
+Accept: */*
+
+### Python requests - Library
+GET {{baseUrl}}/api/v1/default
+User-Agent: python-requests/2.28.0
+Accept: */*
+
+### Go HTTP client - Library
+GET {{baseUrl}}/api/v1/default
+User-Agent: Go-http-client/1.1
+Accept: */*
+
+### HTTrack - Scraper
+GET {{baseUrl}}/api/v1/default
+User-Agent: Mozilla/4.5 (compatible; HTTrack 3.0x; Windows 98)
+Accept: */*
+
+### ============================================
+### AUTOMATION/HEADLESS BROWSERS
+### ============================================
+
+### HeadlessChrome - Automation
+GET {{baseUrl}}/api/v1/default
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) HeadlessChrome/90.0.4430.212
+Accept: */*
+
+### PhantomJS - Automation
+GET {{baseUrl}}/api/v1/default
+User-Agent: Mozilla/5.0 (Unknown; Linux x86_64) PhantomJS/2.1.1 Safari/538.1
+Accept: */*
+
+### Selenium - Automation
+GET {{baseUrl}}/api/v1/default
+User-Agent: Mozilla/5.0 Selenium
+Accept: */*
+
+### Playwright - Automation
+GET {{baseUrl}}/api/v1/default
+User-Agent: Mozilla/5.0 Playwright/1.20.0
+Accept: */*
+
+### ============================================
+### SECURITY TOOLS (should trigger SecurityTool detection)
+### ============================================
+
+### SQLMap - SQL Injection tool
+GET {{baseUrl}}/api/v1/security-check
+User-Agent: sqlmap/1.5.2#stable (http://sqlmap.org)
+Accept: */*
+
+### Nikto - Vulnerability scanner
+GET {{baseUrl}}/api/v1/security-check
+User-Agent: Mozilla/5.0 (compatible; Nikto/2.1.6)
+Accept: */*
+
+### Nmap - Port scanner
+GET {{baseUrl}}/api/v1/security-check
+User-Agent: Mozilla/5.0 (compatible; Nmap Scripting Engine)
+Accept: */*
+
+### WPScan - WordPress scanner
+GET {{baseUrl}}/api/v1/security-check
+User-Agent: WPScan v3.8.22 (https://wpscan.com/)
+Accept: */*
+
+### Nuclei - Vulnerability scanner
+GET {{baseUrl}}/api/v1/security-check
+User-Agent: Nuclei - Open-source project (github.com/projectdiscovery/nuclei)
+Accept: */*
+
+### Gobuster - Directory scanner
+GET {{baseUrl}}/api/v1/security-check
+User-Agent: gobuster/3.1.0
+Accept: */*
+
+### ffuf - Fuzzer
+GET {{baseUrl}}/api/v1/security-check
+User-Agent: ffuf/1.5.0
+Accept: */*
+
+### ============================================
+### PROTECTED ENDPOINTS
+### ============================================
+
+### Strict - Human only (should PASS with browser UA)
+GET {{baseUrl}}/api/v1/strict
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36
+Accept: text/html
+Accept-Language: en-US,en;q=0.9
+
+### Strict - Bot (should be BLOCKED)
+GET {{baseUrl}}/api/v1/strict
+User-Agent: Scrapy/2.5.0
+Accept: */*
+
+### Relaxed - Googlebot (should PASS - verified bot allowed)
+GET {{baseUrl}}/api/v1/relaxed
+User-Agent: Mozilla/5.0 (compatible; Googlebot/2.1)
+Accept: */*
+
+### Relaxed - Scraper (should be BLOCKED)
+GET {{baseUrl}}/api/v1/relaxed
+User-Agent: Scrapy/2.5.0
+Accept: */*
+
+### High confidence - Low confidence bot (should PASS)
+GET {{baseUrl}}/api/v1/high-confidence
+User-Agent: python-requests/2.28.0
+Accept: */*
+
+### High confidence - Obvious bot (should be BLOCKED if >90%)
+GET {{baseUrl}}/api/v1/high-confidence
+User-Agent: Bot
+Accept: */*
+
+### ============================================
+### SUSPICIOUS PATTERNS
+### ============================================
+
+### Empty User-Agent - Suspicious
+GET {{baseUrl}}/api/v1/default
+User-Agent:
+Accept: */*
+
+### Very short UA - Suspicious
+GET {{baseUrl}}/api/v1/default
+User-Agent: Bot
+Accept: */*
+
+### Missing Accept-Language - Slightly suspicious
+GET {{baseUrl}}/api/v1/default
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0
+
+### ============================================
+### TEST MODE HEADER
+### ============================================
+
+### Test mode: Human simulation
+GET {{baseUrl}}/api/v1/detailed
+ml-bot-test-mode: human
+Accept: application/json
+
+### Test mode: Googlebot simulation
+GET {{baseUrl}}/api/v1/detailed
+ml-bot-test-mode: googlebot
+Accept: application/json
+
+### Test mode: Scraper simulation
+GET {{baseUrl}}/api/v1/detailed
+ml-bot-test-mode: scraper
+Accept: application/json
+
+### Test mode: Malicious simulation
+GET {{baseUrl}}/api/v1/detailed
+ml-bot-test-mode: malicious
+Accept: application/json
+
+### ============================================
+### BATCH TESTING
+### ============================================
+
+### Batch check multiple user agents
+POST {{baseUrl}}/api/v1/batch-check
+Content-Type: application/json
+
+{
+  "userAgents": [
+    "Mozilla/5.0 Chrome/120",
+    "Googlebot/2.1",
+    "Scrapy/2.5.0",
+    "curl/7.68.0",
+    "sqlmap/1.5.2"
+  ]
+}
+
+### ============================================
+### MONITORING BOTS
+### ============================================
+
+### UptimeRobot - Monitor
+GET {{baseUrl}}/api/v1/default
+User-Agent: Mozilla/5.0 (compatible; UptimeRobot/2.0; http://www.uptimerobot.com/)
+Accept: */*
+
+### Pingdom - Monitor
+GET {{baseUrl}}/api/v1/default
+User-Agent: Pingdom.com_bot_version_1.4_(http://www.pingdom.com/)
+Accept: */*
+
+### Site24x7 - Monitor
+GET {{baseUrl}}/api/v1/default
+User-Agent: Site24x7
+Accept: */*

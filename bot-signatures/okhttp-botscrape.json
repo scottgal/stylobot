@@ -1,0 +1,115 @@
+{
+  "scenarioName": "okhttp-botscrape",
+  "scenario": "Realistic bot/scraper using okhttp/4.12.0 with critical behaviors for bots and humans.",
+  "confidence": 0.95,
+  "clientProfile": {
+    "userAgent": "okhttp/4.12.0",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 5,
+    "delayAfterMs": {
+      "min": 10,
+      "max": 200
+    },
+    "pauseAfterBurstMs": {
+      "min": 1000,
+      "max": 3000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "okhttp/4.12.0"
+      },
+      "expectedStatusAny": [
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 4xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "okhttp/4.12.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "okhttp/4.12.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/sensitive-path",
+      "headers": {
+        "User-Agent": "okhttp/4.12.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=3",
+      "headers": {
+        "User-Agent": "okhttp/4.12.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Bot",
+    "Scraper"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 100,
+      "weight": 0.4
+    },
+    {
+      "signal": "request_count_burst",
+      "op": "\u003E=",
+      "value": 3,
+      "weight": 0.3
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "This bot/scraper behavior includes critical behaviors for bots (robots.txt check, missing headers, use of HEAD) and humans (full browser headers)."
+}

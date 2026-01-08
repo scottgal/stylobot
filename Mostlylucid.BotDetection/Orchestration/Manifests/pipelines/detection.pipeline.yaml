@@ -1,0 +1,141 @@
+# Detection Pipeline - Main bot detection pipeline orchestration
+name: DetectionPipeline
+description: Orchestrates bot detection from fast-path through LLM escalation
+priority: 100
+enabled: true
+
+# Execution stages - defines the wave structure
+stages:
+  - name: fast-path
+    description: Ultra-fast reputation lookup for instant decisions
+    detectors:
+      - FastPathReputationContributor
+    timeout: "00:00:00.010"  # 10ms max
+    early_exit: true         # Can exit pipeline early
+
+  - name: stage-0
+    description: First wave - parallel signal extraction (no dependencies)
+    detectors:
+      - SecurityToolContributor
+      - UserAgentContributor
+      - HeaderContributor
+      - TlsFingerprintContributor
+      - IpContributor
+      - Http2FingerprintContributor
+      - BehavioralContributor
+    timeout: "00:00:00.100"  # 100ms max
+    parallel: true            # All run in parallel
+    early_exit: true          # Security tool can exit early
+
+  - name: stage-1
+    description: Second wave - depends on stage-0 signals
+    detectors:
+      - VersionAgeContributor
+    timeout: "00:00:00.050"  # 50ms max
+    parallel: true
+
+  - name: stage-2
+    description: Aggregation and scoring
+    detectors:
+      - ReputationBiasContributor
+      - HeuristicContributor
+    timeout: "00:00:00.500"  # 500ms max
+    parallel: false           # Sequential for aggregation
+
+  - name: stage-3
+    description: LLM escalation for ambiguous cases
+    detectors:
+      - LlmContributor
+    timeout: "00:00:05.000"  # 5s max
+    conditional: true         # Only runs if escalated
+
+# Lane configurations - concurrency pools
+lanes:
+  fast:
+    max_concurrency: 16
+    priority: 200
+    description: Ultra-fast detectors (cache lookups, simple checks)
+
+  normal:
+    max_concurrency: 8
+    priority: 100
+    description: Standard detectors (signal extraction, analysis)
+
+  ml:
+    max_concurrency: 4
+    priority: 60
+    description: ML/heuristic detectors
+
+  llm:
+    max_concurrency: 1
+    priority: 50
+    description: LLM detectors (expensive, rate-limited)
+
+# Pipeline-level configuration
+config:
+  # Total pipeline budget
+  total_timeout: "00:00:06.000"  # 6 seconds max total
+
+  # Early exit signals that terminate the pipeline
+  early_exit_signals:
+    allow:
+      - detection.early_exit.allow
+      - detection.useragent.verified_bot  # Verified good bot
+    block:
+      - detection.early_exit.block
+      - detection.security_tool.detected  # Security tool
+
+  # Escalation rules
+  escalation:
+    to_llm:
+      signals:
+        - detection.heuristic.escalate_to_ai
+      skip_when:
+        - detection.budget.exhausted
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Pipeline:*
+# ============================================
+defaults:
+  # Timeout configuration
+  timing:
+    fast_path_timeout_ms: 10
+    stage_0_timeout_ms: 100
+    stage_1_timeout_ms: 50
+    stage_2_timeout_ms: 500
+    stage_3_timeout_ms: 5000
+    total_timeout_ms: 6000
+
+  # Scoring thresholds
+  scoring:
+    bot_threshold: 0.7        # Score >= this is "bot"
+    human_threshold: 0.3      # Score <= this is "human"
+    escalation_low: 0.4       # Below this, might escalate
+    escalation_high: 0.6      # Above this, might escalate
+    min_confidence: 0.5       # Required confidence before deciding
+
+  # Circuit breaker
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 5      # Failures before opening
+    success_threshold: 3      # Successes before closing
+    timeout_seconds: 30       # How long to stay open
+
+  # Budget allocation
+  budget:
+    max_total_cost_cents: 10  # Max cost per request
+    llm_budget_percent: 80    # % of budget for LLM
+    daily_llm_budget_dollars: 1.00  # Daily LLM budget cap
+
+  # Feature flags
+  features:
+    enable_fast_path: true
+    enable_llm_escalation: true
+    enable_learning: true
+    detailed_logging: false
+    emit_metrics: true
+
+tags:
+  - main-pipeline
+  - bot-detection

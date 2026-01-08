@@ -1,0 +1,53 @@
+{
+  "scenarioName": "human_navigation_with_organic_delay",
+  "scenario": "Simulates a real human browsing pattern with intentional delays and natural navigation through a website hierarchy (e.g., homepage \u2192 search \u2192 results \u2192 detailed product page).",
+  "confidence": 0.98,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 10
+    },
+    {
+      "timestamp": 10,
+      "method": "GET",
+      "path": "/search?q=organic\u002Bskincare",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 15
+    },
+    {
+      "timestamp": 25,
+      "method": "GET",
+      "path": "/search/results?page=2",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 5
+    },
+    {
+      "timestamp": 30,
+      "method": "GET",
+      "path": "/products/12345",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 20
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 2-30s (with intentional pauses for reading/scrolling)",
+    "pathSequence": "logical navigation: homepage \u2192 search \u2192 results \u2192 detailed product page",
+    "behavioral": "mimics human hesitation, scrolling, and multi-step exploration"
+  },
+  "reasoning": "Real humans exhibit unpredictable delays (e.g., 10s to read, 5s to scroll) and follow non-linear paths (e.g., revisiting search results). The sequence reflects organic exploration, not scripted automation. Variable delays and context-dependent paths (e.g., clicking a product after reviewing results) are hallmarks of human interaction."
+}

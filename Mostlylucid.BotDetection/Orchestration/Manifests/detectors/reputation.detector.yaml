@@ -1,0 +1,164 @@
+# Reputation Bias Detector - Reputation-based scoring bias
+name: ReputationBiasContributor
+priority: 45  # Runs in stage-2 after signals extracted
+enabled: true
+description: Applies reputation bias from learned patterns to scoring (non-fast-path patterns)
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: reputation
+
+taxonomy:
+  kind: proposer
+  determinism: probabilistic
+  persistence: direct_read  # Reads from reputation cache
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for reputation lookup
+      signal_pattern: request.*
+    - type: botdetection.signature
+      required: true
+      description: Request signature for pattern matching
+
+  required_signals:
+    - detection.useragent
+
+  optional_signals:
+    - detection.ip
+    - detection.header.confidence
+    - request.ip
+    - request.headers.user-agent
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Reputation bias contribution
+
+  signals:
+    - key: detection.reputation.bias_applied
+      entity_type: boolean
+      salience: 0.7
+      description: Whether reputation bias was applied
+    - key: detection.reputation.pattern_match
+      entity_type: string
+      salience: 0.75
+      description: Matched pattern identifier if any
+    - key: detection.reputation.bias_delta
+      entity_type: number
+      salience: 0.8
+      description: Confidence delta from reputation
+    - key: detection.reputation.support_score
+      entity_type: number
+      salience: 0.6
+      description: Support score for the matched pattern
+
+triggers:
+  requires:
+    - signal: detection.useragent
+      condition: HasValue
+  skip_when:
+    - detection.early_exit.allow
+    - detection.early_exit.block
+
+emits:
+  on_start:
+    - detector.reputation.started
+
+  on_complete:
+    - key: detection.reputation.bias_applied
+      type: bool
+      description: Whether reputation bias was applied
+
+    - key: detection.reputation.pattern_match
+      type: string
+      description: Matched pattern identifier if any
+
+    - key: detection.reputation.bias_delta
+      type: double
+      description: Confidence delta from reputation
+      confidence_range: [-1.0, 1.0]
+
+  on_failure:
+    - detector.reputation.failed
+
+listens:
+  required:
+    - detection.useragent
+  optional:
+    - detection.ip
+    - detection.header.confidence
+
+lane:
+  name: normal
+  max_concurrency: 4
+  priority: 60
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:ReputationBiasContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0           # Base contribution weight
+    bot_signal: 1.5     # Weight for bad reputation
+    human_signal: 1.2   # Weight for good reputation
+    verified: 2.0       # Weight for high-support patterns
+    early_exit: 0.0     # Does not trigger early exit (use FastPath for that)
+
+  confidence:
+    neutral: 0.0        # No reputation data
+    bot_detected: 0.3   # Suspect pattern match
+    human_indicated: -0.2  # Neutral/good pattern match
+    strong_signal: 0.5  # High-support pattern match
+    high_threshold: 0.6 # Threshold for strong bias
+    low_threshold: 0.2  # Threshold for weak bias
+    escalation_threshold: 0.0  # Never escalates
+
+  timing:
+    timeout_ms: 30      # Fast - cache lookup
+    cache_refresh_sec: 0  # Cache is externally managed
+
+  features:
+    detailed_logging: false
+    enable_cache: true    # Uses reputation cache
+    can_early_exit: false # Use FastPath for early exit
+    can_escalate: false
+
+  # Reputation-specific parameters
+  parameters:
+    # Weight settings
+    confirmed_bad_weight: 2.5
+    combined_pattern_multiplier: 1.5
+    reputation_weight_multiplier: 1.5
+    # States to apply bias from (not fast-path states)
+    bias_states:
+      - "Suspect"
+      - "Neutral"
+      - "ProbablyGood"
+      - "ProbablyBad"
+    # Minimum support for bias to apply
+    min_support_for_bias: 3.0
+    # Bias scaling by state
+    state_bias_multipliers:
+      Suspect: 0.3
+      ProbablyBad: 0.4
+      Neutral: 0.0
+      ProbablyGood: -0.2
+    # Support scaling (higher support = stronger bias)
+    support_scaling_factor: 0.1
+    max_support_multiplier: 2.0
+    # Pattern matching options
+    match_normalized_ua: true
+    match_ip_range: true
+    ip_range_prefix_length: 24  # /24 for IPv4
+
+tags:
+  - reputation
+  - scoring
+  - stage-2

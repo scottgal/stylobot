@@ -1,0 +1,156 @@
+# Version Age Detector - Outdated browser/OS detection
+name: VersionAgeContributor
+priority: 25  # Runs in stage-1 after UserAgent provides UA signal
+enabled: true
+description: Analyzes browser and OS version age to detect outdated or impossible combinations
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: versionage
+
+taxonomy:
+  kind: analyzer
+  determinism: deterministic
+  persistence: ephemeral
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with user-agent for version analysis
+      signal_pattern: request.headers.user-agent
+
+  required_signals:
+    - detection.useragent.parsed  # Need parsed UA data from UserAgent detector
+
+  optional_signals:
+    - detection.useragent.browser
+    - detection.useragent.os
+    - detection.useragent.version
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Version age analysis contribution
+
+  signals:
+    - key: detection.version_age.confidence
+      entity_type: number
+      salience: 0.7
+      description: Bot confidence from version age analysis
+    - key: detection.version_age.browser_age
+      entity_type: number
+      salience: 0.5
+      description: Browser version age in major versions
+    - key: detection.version_age.os_age
+      entity_type: number
+      salience: 0.5
+      description: OS version age indicator
+    - key: detection.version_age.issues
+      entity_type: string[]
+      salience: 0.8
+      description: List of version-related issues found
+
+triggers:
+  requires:
+    - signal: detection.useragent
+      condition: HasValue
+  skip_when:
+    - detection.early_exit.allow
+    - detection.early_exit.block
+
+emits:
+  on_start:
+    - detector.versionage.started
+
+  on_complete:
+    - key: detection.version_age.analyzed
+      type: bool
+      description: Whether version age analysis was completed
+
+    - key: detection.version_age.confidence
+      type: double
+      description: Bot confidence from version age analysis
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.version_age.issues
+      type: string[]
+      description: List of version-related issues found
+
+  on_failure:
+    - detector.versionage.failed
+
+listens:
+  required:
+    - detection.useragent
+  optional: []
+
+lane:
+  name: normal
+  max_concurrency: 8
+  priority: 70
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:VersionAgeContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0           # Base contribution weight
+    bot_signal: 1.2     # Version age is a strong signal
+    human_signal: 0.8   # Weight for current versions
+    verified: 1.5       # Weight for impossible version combos
+    early_exit: 0.0     # Does not trigger early exit alone
+
+  confidence:
+    neutral: 0.0        # Versions appear current
+    bot_detected: 0.25  # Outdated versions
+    human_indicated: -0.05  # Very current versions
+    strong_signal: 0.6  # Impossible version combination
+    high_threshold: 0.5 # Threshold for "likely bot"
+    low_threshold: 0.15 # Threshold for "probably human"
+    escalation_threshold: 0.4
+
+  timing:
+    timeout_ms: 30      # Fast - pattern matching
+    cache_refresh_sec: 86400  # Update version data daily
+
+  features:
+    detailed_logging: false
+    enable_cache: true    # Cache parsed UA data
+    can_early_exit: false
+    can_escalate: false
+
+  # VersionAge-specific parameters
+  parameters:
+    # How old is "outdated" (in major versions behind current)
+    outdated_threshold_major: 3       # 3+ major versions old
+    very_outdated_threshold_major: 5  # 5+ major versions old
+    # Confidence adjustments
+    outdated_confidence: 0.2
+    very_outdated_confidence: 0.4
+    ancient_confidence: 0.6           # Very old versions (5+ years)
+    # Known impossible combinations (OS + Browser)
+    impossible_combos:
+      - os: "Windows XP"
+        browser: "Chrome 100+"
+        confidence: 0.8
+      - os: "iOS 8"
+        browser: "Safari 15+"
+        confidence: 0.9
+    # Current version references (update periodically)
+    current_versions:
+      Chrome: 120
+      Firefox: 121
+      Safari: 17
+      Edge: 120
+    # Maximum acceptable version age (years)
+    max_acceptable_age_years: 3
+
+tags:
+  - ua-analysis
+  - version-checking
+  - stage-1

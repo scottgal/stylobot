@@ -1,0 +1,120 @@
+{
+  "scenarioName": "fast_api_data_scraper_with_robots_ignore",
+  "scenario": "High-confidence bot/scraper targeting API endpoints with aggressive request timing, skipping robots.txt, and hitting sensitive paths like /admin and /api endpoints. Uses Puppeteer/21.6.0 with minimal headers and bursts of requests.",
+  "confidence": 0.92,
+  "clientProfile": {
+    "userAgent": "Puppeteer/21.6.0",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 15,
+    "delayAfterMs": {
+      "min": 10,
+      "max": 120
+    },
+    "pauseAfterBurstMs": {
+      "min": 300,
+      "max": 1000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "Puppeteer/21.6.0"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "blocking",
+      "successCondition": "any 2xx or 4xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "Puppeteer/21.6.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "Puppeteer/21.6.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/robots.txt",
+      "headers": {
+        "User-Agent": "Puppeteer/21.6.0"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404
+      ],
+      "expectedOutcome": "blocking",
+      "successCondition": "any 2xx or 4xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore",
+    "AdminAccessAttempt",
+    "APIEnumeration"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 150,
+      "weight": 0.4
+    },
+    {
+      "signal": "request_count_per_second",
+      "op": "\u003E",
+      "value": 10,
+      "weight": 0.3
+    },
+    {
+      "signal": "status_code_4xx_ratio",
+      "op": "\u003E",
+      "value": 0.2,
+      "weight": 0.2
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms",
+    "pathEnumeration": "/api/data?page=[1-2]",
+    "sensitivePath": "/admin"
+  },
+  "reasoning": "The scenario exhibits aggressive request timing (bursts under 150ms), missing critical headers (Accept-Language, Sec-Fetch-*), and systematically targets sensitive paths (/admin, /api endpoints) with HEAD/GET mix. Skipping robots.txt and frequent 4xx/429 responses indicate automated scraping behavior. The lack of cookies, referrer headers, and natural navigation further supports bot detection."
+}

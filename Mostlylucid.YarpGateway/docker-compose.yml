@@ -1,0 +1,100 @@
+# Docker Compose examples for Mostlylucid.YarpGateway
+# Usage: docker-compose up -d
+
+services:
+  # Example 1: Zero-config mode (default upstream)
+  gateway-simple:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - DEFAULT_UPSTREAM=http://backend:3000
+    profiles:
+      - simple
+
+  # Example 2: File-based configuration
+  gateway-files:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - ADMIN_SECRET=changeme
+    profiles:
+      - files
+
+  # Example 3: Full stack with Postgres
+  gateway-postgres:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - DB_PROVIDER=postgres
+      - DB_CONNECTION_STRING=Host=postgres;Database=gateway;Username=gateway;Password=gateway
+      - ADMIN_SECRET=changeme
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles:
+      - postgres
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=gateway
+      - POSTGRES_USER=gateway
+      - POSTGRES_PASSWORD=gateway
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gateway"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - postgres
+
+  # Example 4: Full stack with SQL Server
+  gateway-sqlserver:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - DB_PROVIDER=sqlserver
+      - DB_CONNECTION_STRING=Server=sqlserver;Database=gateway;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=true
+      - ADMIN_SECRET=changeme
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    profiles:
+      - sqlserver
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=YourStrong@Passw0rd
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P YourStrong@Passw0rd -Q 'SELECT 1' -C || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - sqlserver
+
+volumes:
+  postgres_data:
+  sqlserver_data:

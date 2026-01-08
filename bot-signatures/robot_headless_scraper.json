@@ -1,0 +1,104 @@
+{
+  "scenarioName": "robot_headless_scraper",
+  "scenario": "Robots.txt check and scraping behavior.",
+  "confidence": 0.9,
+  "clientProfile": {
+    "userAgent": "HeadlessChrome/120.0.6099.109",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 15,
+    "delayAfterMs": {
+      "min": 40,
+      "max": 200
+    },
+    "pauseAfterBurstMs": {
+      "min": 700,
+      "max": 3000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/sensitive/path",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Bot",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 100,
+      "weight": 0.4
+    },
+    {
+      "signal": "request_interval_min",
+      "op": "\u003E=",
+      "value": 50,
+      "weight": 0.3
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C200ms"
+  },
+  "reasoning": "This bot exhibits characteristics of a scraper, with frequent HEAD requests and burst behavior. It also attempts to access /admin, sensitive paths, and enumerates pages using GET requests."
+}

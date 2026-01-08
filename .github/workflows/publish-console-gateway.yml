@@ -1,0 +1,370 @@
+name: Publish Console Gateway Binaries
+
+on:
+  push:
+    tags:
+      - 'console-v*'
+      - 'allbot-v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: write  # Needed to create releases
+
+jobs:
+  build-binaries:
+    name: Build ${{ matrix.runtime }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux x64
+          - os: ubuntu-latest
+            runtime: linux-x64
+            artifact-name: minigw-linux-x64
+            file-ext: ''
+
+          # Linux ARM64 (Raspberry Pi 4/5)
+          - os: ubuntu-latest
+            runtime: linux-arm64
+            artifact-name: minigw-linux-arm64
+            file-ext: ''
+
+          # Windows x64
+          - os: windows-latest
+            runtime: win-x64
+            artifact-name: minigw-win-x64
+            file-ext: '.exe'
+
+          # Windows ARM64 (Surface Pro X, Windows on ARM)
+          - os: windows-latest
+            runtime: win-arm64
+            artifact-name: minigw-win-arm64
+            file-ext: '.exe'
+
+          # macOS x64 (Intel)
+          - os: macos-latest
+            runtime: osx-x64
+            artifact-name: minigw-osx-x64
+            file-ext: ''
+
+          # macOS ARM64 (Apple Silicon M1/M2)
+          - os: macos-latest
+            runtime: osx-arm64
+            artifact-name: minigw-osx-arm64
+            file-ext: ''
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Install ARM64 cross-compilation tools (Linux ARM64 only)
+      if: matrix.runtime == 'linux-arm64'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang zlib1g-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+    - name: Extract version
+      id: get_version
+      shell: bash
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          TAG=${GITHUB_REF#refs/tags/}
+          if [[ "$TAG" == console-v* ]]; then
+            VERSION=${TAG#console-v}
+          else
+            VERSION=${TAG#allbot-v}
+          fi
+        fi
+
+        # Check if prerelease
+        if [[ "$VERSION" == *"-"* ]]; then
+          IS_PRERELEASE="true"
+        else
+          IS_PRERELEASE="false"
+        fi
+
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+        echo "Publishing version: $VERSION (prerelease: $IS_PRERELEASE)"
+
+    - name: Restore dependencies
+      run: dotnet restore Mostlylucid.BotDetection.Console/Mostlylucid.BotDetection.Console.csproj
+
+    - name: Publish ${{ matrix.runtime }} binary
+      shell: bash
+      run: |
+        # Set objcopy for ARM64 cross-compilation
+        if [ "${{ matrix.runtime }}" = "linux-arm64" ]; then
+          OBJCOPY_PARAM="-p:ObjCopyName=aarch64-linux-gnu-objcopy"
+        else
+          OBJCOPY_PARAM=""
+        fi
+
+        dotnet publish Mostlylucid.BotDetection.Console/Mostlylucid.BotDetection.Console.csproj \
+          --configuration Release \
+          --runtime ${{ matrix.runtime }} \
+          --self-contained true \
+          --output ./publish/${{ matrix.runtime }} \
+          -p:PublishAot=true \
+          -p:PublishTrimmed=true \
+          -p:TrimMode=full \
+          -p:PublishSingleFile=true \
+          -p:StripSymbols=true \
+          -p:Version=${{ steps.get_version.outputs.VERSION }} \
+          $OBJCOPY_PARAM
+
+    - name: Create distribution package
+      shell: bash
+      run: |
+        mkdir -p ./dist
+        cd ./publish/${{ matrix.runtime }}
+
+        # Copy binary
+        cp minigw${{ matrix.file-ext }} ../../dist/
+
+        # Copy all DLL files (including SQLite native libraries)
+        cp *.dll ../../dist/ 2>/dev/null || true
+        cp *.so ../../dist/ 2>/dev/null || true
+        cp *.dylib ../../dist/ 2>/dev/null || true
+
+        # Copy config files
+        cp ../../Mostlylucid.BotDetection.Console/appsettings.json ../../dist/ || true
+        cp ../../Mostlylucid.BotDetection.Console/appsettings.production.json ../../dist/ || true
+
+        # Copy wwwroot folder (client-side detection test page)
+        if [ -d "../../Mostlylucid.BotDetection.Console/wwwroot" ]; then
+          mkdir -p ../../dist/wwwroot
+          cp -r ../../Mostlylucid.BotDetection.Console/wwwroot/* ../../dist/wwwroot/ || true
+        fi
+
+        # Copy README.md if it exists
+        cp ../../Mostlylucid.BotDetection.Console/README.md ../../dist/ || true
+
+        # Create README
+        cat > ../../dist/README.txt << 'EOF'
+        Mostlylucid Bot Detection Console Gateway
+        ==========================================
+
+        Version: ${{ steps.get_version.outputs.VERSION }}
+        Platform: ${{ matrix.runtime }}
+
+        Quick Start:
+        ------------
+
+        # Demo mode (verbose logging)
+        ./minigw${{ matrix.file-ext }} --upstream http://localhost:8080 --port 5000 --mode demo
+
+        # Production mode (structured logging, blocking)
+        ./minigw${{ matrix.file-ext }} --upstream http://backend:8080 --port 80 --mode production
+
+        # Using environment variables
+        export UPSTREAM=http://backend:8080
+        export PORT=5000
+        export MODE=production
+        ./minigw${{ matrix.file-ext }}
+
+        Documentation:
+        --------------
+        https://github.com/scottgal/mostlylucid.nugetpackages
+
+        Configuration:
+        --------------
+        Edit appsettings.json or appsettings.production.json to customize:
+        - Detection policies
+        - Action policies
+        - Thresholds
+        - Learning settings
+
+        EOF
+
+        cd ../../dist
+
+        # Create archive
+        if [ "${{ runner.os }}" = "Windows" ]; then
+          7z a -tzip ../${{ matrix.artifact-name }}.zip *
+        else
+          tar czf ../${{ matrix.artifact-name }}.tar.gz *
+        fi
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact-name }}
+        path: |
+          ${{ matrix.artifact-name }}.zip
+          ${{ matrix.artifact-name }}.tar.gz
+        retention-days: 7
+        if-no-files-found: ignore
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-binaries
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Extract version
+      id: get_version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          TAG=${GITHUB_REF#refs/tags/}
+          if [[ "$TAG" == console-v* ]]; then
+            VERSION=${TAG#console-v}
+          else
+            VERSION=${TAG#allbot-v}
+          fi
+        fi
+
+        if [[ "$VERSION" == *"-"* ]]; then
+          IS_PRERELEASE="true"
+        else
+          IS_PRERELEASE="false"
+        fi
+
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Display structure of downloaded files
+      run: ls -R artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets
+        find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release-assets/ \;
+        ls -lh release-assets/
+
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        cat > release_notes.md << 'EOF'
+        ## Bot Detection Console Gateway v${{ steps.get_version.outputs.VERSION }}
+
+        Minimal, single-file YARP gateway with bot detection middleware. Native AOT-compiled for maximum performance and minimal footprint.
+
+        ### Downloads
+
+        Download the binary for your platform:
+
+        - **Linux x64**: `minigw-linux-x64.tar.gz` (~12MB)
+        - **Linux ARM64**: `minigw-linux-arm64.tar.gz` (~11MB) - For Raspberry Pi 4/5
+        - **Windows x64**: `minigw-win-x64.zip` (~10MB)
+        - **Windows ARM64**: `minigw-win-arm64.zip` (~10MB) - For Surface Pro X, Windows on ARM
+        - **macOS Intel**: `minigw-osx-x64.tar.gz` (~13MB)
+        - **macOS Apple Silicon**: `minigw-osx-arm64.tar.gz` (~11MB)
+
+        ### Quick Start
+
+        Extract the archive and run:
+
+        ```bash
+        # Linux/macOS - make executable first
+        chmod +x minigw
+        ./minigw --upstream http://localhost:8080 --port 5000
+
+        # Windows
+        minigw.exe --upstream http://localhost:8080 --port 5000
+        ```
+
+        ### Features
+
+        - ✅ **Native AOT** - Zero dependencies, instant startup, minimal memory footprint
+        - ✅ **Cross-platform** - Linux (x64, ARM64), Windows, macOS
+        - ✅ **YARP reverse proxy** - Forward to any upstream backend
+        - ✅ **Bot detection** - Full detection pipeline with HMAC-SHA256 signature storage
+        - ✅ **Client-side validation** - Browser fingerprinting via JavaScript callback
+        - ✅ **Header forwarding** - Results sent via `X-Bot-Detection-*` headers
+        - ✅ **Signature tracking** - Stores high-confidence detections as privacy-safe signatures
+        - ✅ **Mismatch detection** - Logs conflicts between server/client verdicts
+        - ✅ **Learning events** - Publishes client-side results for model improvement
+        - ✅ **Demo mode** - Colorful console logging
+        - ✅ **Production mode** - Structured JSON logging
+        - ✅ **Raspberry Pi support** - Runs on Pi 4/5 (ARM64)
+
+        ### Configuration
+
+        ```bash
+        # Command-line arguments
+        --upstream <url>    # Upstream backend URL (default: http://localhost:8080)
+        --port <port>       # Listen port (default: 5000)
+        --mode <mode>       # demo or production (default: demo)
+
+        # Environment variables
+        export UPSTREAM=http://backend:8080
+        export PORT=5000
+        export MODE=production
+        ./minigw
+        ```
+
+        ### Demo Loop
+
+        See the complete YARP → Backend demo:
+
+        1. Start backend: `cd demo && dotnet run`
+        2. Start gateway: `./minigw --upstream http://localhost:5000 --port 5100 --mode demo`
+        3. Open: `http://localhost:5100/YarpProxyDemo`
+
+        ### Documentation
+
+        - [Console Gateway README](https://github.com/scottgal/mostlylucid.nugetpackages/blob/main/Mostlylucid.BotDetection.Console/README.md)
+        - [Blackboard Architecture](https://github.com/scottgal/mostlylucid.nugetpackages/blob/main/BLACKBOARD_ARCHITECTURE.md)
+        - [Full Documentation](https://github.com/scottgal/mostlylucid.nugetpackages)
+
+        ### Checksums
+
+        See below for SHA256 checksums of all release assets.
+        EOF
+
+        echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
+        cat release_notes.md >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Generate checksums
+      working-directory: release-assets
+      run: |
+        sha256sum * > SHA256SUMS.txt
+        cat SHA256SUMS.txt
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Console Gateway v${{ steps.get_version.outputs.VERSION }}
+        tag_name: ${{ github.ref_name }}
+        body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
+        draft: false
+        prerelease: ${{ steps.get_version.outputs.IS_PRERELEASE }}
+        files: |
+          release-assets/*
+        fail_on_unmatched_files: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Release created
+      run: |
+        echo "✅ Release created successfully!"
+        echo "Version: ${{ steps.get_version.outputs.VERSION }}"
+        echo "Prerelease: ${{ steps.get_version.outputs.IS_PRERELEASE }}"
+        echo "Assets:"
+        ls -lh release-assets/

@@ -1,0 +1,147 @@
+# IP Detector - IP address analysis for bot detection
+name: IpContributor
+priority: 12  # Runs early with other stage-0 detectors
+enabled: true
+description: Analyzes client IP for datacenter, local, or suspicious ranges
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: ip
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with client IP
+      signal_pattern: request.ip.*
+
+  required_signals:
+    - request.ip
+
+  optional_signals:
+    - request.headers.x-forwarded-for
+    - request.headers.x-real-ip
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: IP analysis contribution to detection ledger
+    - type: botdetection.ip_signal
+      description: Detailed IP analysis signals
+
+  signals:
+    - key: detection.ip.confidence
+      entity_type: number
+      salience: 0.7
+      description: Bot confidence from IP analysis
+    - key: detection.ip.is_datacenter
+      entity_type: boolean
+      salience: 0.9
+      description: Whether IP is from known datacenter
+
+triggers:
+  requires: []  # No dependencies - runs first wave
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.ip.started
+
+  on_complete:
+    - key: detection.ip.confidence
+      type: double
+      description: Bot confidence from IP analysis
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.ip.is_datacenter
+      type: bool
+      description: Whether IP is from known datacenter/cloud provider
+
+    - key: detection.ip.datacenter_name
+      type: string
+      description: Name of datacenter provider if detected
+
+    - key: detection.ip.is_local
+      type: bool
+      description: Whether IP is local/private
+
+    - key: detection.ip.is_ipv6
+      type: bool
+      description: Whether IP is IPv6
+
+  on_failure:
+    - detector.ip.failed
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 100
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:IpContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0           # Base contribution weight
+    bot_signal: 1.2     # Weight for datacenter IPs
+    human_signal: 1.0   # Weight for residential IPs
+    verified: 1.5       # Weight for known bad IP ranges
+    early_exit: 0.0     # Does not trigger early exit alone
+
+  confidence:
+    neutral: 0.0        # IP appears normal
+    bot_detected: 0.6   # Datacenter IP detected
+    human_indicated: -0.1  # Residential IP
+    strong_signal: 0.8  # Known bad IP
+    high_threshold: 0.7 # Threshold for "likely bot"
+    low_threshold: 0.2  # Threshold for "probably human"
+    escalation_threshold: 0.5
+
+  timing:
+    timeout_ms: 20      # Very fast - just IP parsing
+    cache_refresh_sec: 0  # No caching needed
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  # IP-specific parameters
+  parameters:
+    # Confidence penalty for missing IP
+    missing_ip_penalty: 0.6
+    # Private/local IP handling
+    loopback_penalty: 0.0     # 127.0.0.1, ::1 - neutral for dev
+    private_ip_penalty: 0.1   # 192.168.x.x, 10.x.x.x - slight indicator
+    # Datacenter ranges (simplified prefixes)
+    datacenter_ranges:
+      AWS: ["3.", "13.", "18.", "35.", "52.", "54."]
+      Google: ["34.", "35."]
+      Azure: ["13.", "20.", "40.", "52."]
+      DigitalOcean: ["104.131.", "104.236.", "159.65.", "167.99."]
+      Linode: ["45.33.", "45.56.", "45.79."]
+      Vultr: ["45.32.", "45.63.", "45.76.", "45.77."]
+      OVH: ["51.38.", "51.68.", "51.77.", "51.91."]
+      Hetzner: ["65.21.", "95.216.", "135.181.", "168.119."]
+    # Datacenter IP base confidence
+    datacenter_confidence: 0.6
+
+tags:
+  - fast-path
+  - ip-analysis
+  - stage-0

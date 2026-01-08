@@ -1,0 +1,238 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mostlylucid.net/schemas/bdf-v2.json",
+  "title": "Bot Detection Format (BDF) v2",
+  "description": "Schema for realistic bot/human behavioral signatures used for detection training and testing",
+  "type": "object",
+  "required": ["scenarioName", "scenario", "confidence", "clientProfile", "timingProfile", "requests"],
+  "properties": {
+    "scenarioName": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Kebab-case identifier for this scenario"
+    },
+    "scenario": {
+      "type": "string",
+      "minLength": 10,
+      "description": "Human-readable description of the behavior pattern"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Confidence score that this is bot behavior (0=human, 1=definitely bot)"
+    },
+    "clientProfile": {
+      "type": "object",
+      "required": ["userAgent", "cookieMode", "headerCompleteness", "clientHintsPresent", "robotsConsulted"],
+      "properties": {
+        "userAgent": {
+          "type": "string",
+          "minLength": 5,
+          "description": "Exact User-Agent string used in requests"
+        },
+        "cookieMode": {
+          "type": "string",
+          "enum": ["none", "stateless", "sticky"],
+          "description": "Cookie handling behavior: none (no cookies), stateless (send but don't persist), sticky (normal browser)"
+        },
+        "headerCompleteness": {
+          "type": "string",
+          "enum": ["minimal", "partial", "full"],
+          "description": "How complete the HTTP headers are: minimal (UA only), partial (some headers), full (all browser headers)"
+        },
+        "clientHintsPresent": {
+          "type": "boolean",
+          "description": "Whether Sec-CH-UA-* client hint headers are present"
+        },
+        "robotsConsulted": {
+          "type": "boolean",
+          "description": "Whether robots.txt was checked before requests"
+        },
+        "protocol": {
+          "type": "string",
+          "enum": ["http/1.1", "http/2", "http/3"],
+          "description": "HTTP protocol version used"
+        }
+      }
+    },
+    "timingProfile": {
+      "type": "object",
+      "required": ["burstRequests", "delayAfterMs", "pauseAfterBurstMs"],
+      "properties": {
+        "burstRequests": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Number of requests in a burst before pausing"
+        },
+        "delayAfterMs": {
+          "type": "object",
+          "required": ["min", "max"],
+          "properties": {
+            "min": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Minimum delay between requests within a burst (milliseconds)"
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum delay between requests within a burst (milliseconds)"
+            }
+          }
+        },
+        "pauseAfterBurstMs": {
+          "type": "object",
+          "required": ["min", "max"],
+          "properties": {
+            "min": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Minimum pause after completing a burst (milliseconds)"
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum pause after completing a burst (milliseconds)"
+            }
+          }
+        }
+      }
+    },
+    "requests": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["method", "path"],
+        "properties": {
+          "method": {
+            "type": "string",
+            "enum": ["GET", "POST", "HEAD", "OPTIONS", "PUT", "PATCH", "DELETE"],
+            "description": "HTTP method"
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^/",
+            "description": "URL path (must start with /)"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Request-specific headers (merged with clientProfile headers)"
+          },
+          "expectedStatusAny": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 599
+            },
+            "description": "Array of acceptable HTTP status codes"
+          },
+          "expectedOutcome": {
+            "type": "string",
+            "enum": ["data_exfil", "probing", "indexing", "auth_bypass_attempt", "browsing", "content_interaction"],
+            "description": "What the bot/human is trying to achieve with this request"
+          },
+          "successCondition": {
+            "type": "string",
+            "description": "Human-readable condition for when the request is considered successful"
+          },
+          "note": {
+            "type": "string",
+            "description": "Optional explanation of this specific request"
+          }
+        }
+      }
+    },
+    "patterns": {
+      "type": "object",
+      "description": "Human-readable pattern descriptions",
+      "properties": {
+        "requestInterval": {
+          "type": "string"
+        },
+        "pathSequence": {
+          "type": "string"
+        },
+        "userAgentPattern": {
+          "type": "string"
+        },
+        "statefulness": {
+          "type": "string"
+        },
+        "statusCodePattern": {
+          "type": "string"
+        }
+      }
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "Scraper",
+          "Bot",
+          "Human",
+          "RobotsIgnore",
+          "RobotsRespect",
+          "SensitiveProbing",
+          "NaturalBrowsing",
+          "DataExfiltration",
+          "Reconnaissance",
+          "BruteForce",
+          "Enumeration",
+          "Headless",
+          "Legitimate"
+        ]
+      },
+      "description": "Classification labels for this scenario"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["signal", "op", "value", "weight"],
+        "properties": {
+          "signal": {
+            "type": "string",
+            "enum": [
+              "interval_ms_p95",
+              "interval_ms_p50",
+              "sensitive_path_rate",
+              "error_rate",
+              "burst_detected",
+              "header_count",
+              "cookie_count"
+            ],
+            "description": "The signal being measured"
+          },
+          "op": {
+            "type": "string",
+            "enum": ["<", ">", "<=", ">=", "==", "!="],
+            "description": "Comparison operator"
+          },
+          "value": {
+            "type": "number",
+            "description": "Threshold value for this signal"
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Weight of this evidence in detection (0-1)"
+          }
+        }
+      },
+      "description": "Machine-readable evidence signals for detection"
+    },
+    "reasoning": {
+      "type": "string",
+      "description": "Explanation of why this is classified as bot or human behavior"
+    }
+  }
+}

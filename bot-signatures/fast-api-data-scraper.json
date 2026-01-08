@@ -1,0 +1,127 @@
+{
+  "scenarioName": "fast-api-data-scraper",
+  "scenario": "High-speed automated scraping targeting API pagination endpoints with aggressive request bursts, missing critical headers, and bypassing common security measures.",
+  "confidence": 0.92,
+  "clientProfile": {
+    "userAgent": "HeadlessChrome/120.0.6099.109",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 15,
+    "delayAfterMs": {
+      "min": 15,
+      "max": 120
+    },
+    "pauseAfterBurstMs": {
+      "min": 300,
+      "max": 1000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/robots.txt",
+      "headers": {},
+      "expectedStatusAny": [
+        200
+      ],
+      "expectedOutcome": "ignored",
+      "successCondition": "status 200"
+    },
+    {
+      "method": "GET",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        403,
+        404
+      ],
+      "expectedOutcome": "error",
+      "successCondition": "status 4xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "status 2xx or 4xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "status 2xx or 4xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        200,
+        204,
+        403,
+        429
+      ],
+      "expectedOutcome": "metadata",
+      "successCondition": "status 2xx or 4xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "API-Enumeration",
+    "Rate-Limited",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 120,
+      "weight": 0.45
+    },
+    {
+      "signal": "header_completeness",
+      "op": "missing",
+      "value": [
+        "Accept-Language",
+        "Sec-Fetch-Dest",
+        "Sec-Fetch-Mode"
+      ],
+      "weight": 0.30
+    },
+    {
+      "signal": "request_method_variation",
+      "op": "high",
+      "value": 0.3,
+      "weight": 0.25
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C120ms",
+    "methodMix": "HEAD/GET ratio \u003E0.3",
+    "pathEnumeration": "/api/data?page=[1-2]"
+  },
+  "reasoning": "Behavior matches automated scraping with aggressive timing, missing critical headers, and API pagination enumeration. Missing cookies, full headers, and natural navigation patterns strongly suggest bot activity."
+}

@@ -1,0 +1,80 @@
+{
+  "scenarioName": "python_requests_scraper",
+  "scenario": "A bot or scraper using the Python requests library with a specific user-agent.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "python-requests/2.31.0",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 5,
+    "delayAfterMs": {
+      "min": 20,
+      "max": 100
+    },
+    "pauseAfterBurstMs": {
+      "min": 300,
+      "max": 1800
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatusAny": [
+        403
+      ]
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 100,
+      "weight": 0.3
+    },
+    {
+      "signal": "requestInterval",
+      "pattern": "burst \u003C150ms"
+    }
+  ],
+  "reasoning": "This bot/scraper uses the Python requests library with a specific user-agent, has limited header completeness and missing Accept-Language, Sec-Fetch-* headers. It also hits /admin, /api, and enumerates paths like /api/data?page=1."
+}

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFrameworks>net6.0;net7.0;net8.0;net9.0</TargetFrameworks>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <LangVersion>12</LangVersion>
+
+        <!-- Package metadata -->
+        <PackageId>Mostlylucid.Common</PackageId>
+        <Title>Mostlylucid Common</Title>
+        <Description>Shared abstractions, base classes, and utilities for Mostlylucid NuGet packages</Description>
+        <Authors>Scott Galloway</Authors>
+        <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
+        <PackageProjectUrl>https://github.com/scottgal/mostlylucid.nugetpackages</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/scottgal/mostlylucid.nugetpackages</RepositoryUrl>
+        <PackageTags>common;utilities;caching;middleware;aspnetcore</PackageTags>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+
+        <!-- Versioning -->
+        <MinVerTagPrefix>common-v</MinVerTagPrefix>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="README.md" Pack="true" PackagePath="\"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.Caching.Abstractions" Version="6.0.1"/>
+        <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="6.0.2"/>
+        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="6.0.0"/>
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.4"/>
+        <PackageReference Include="Microsoft.Extensions.Options" Version="6.0.0"/>
+        <PackageReference Include="Microsoft.AspNetCore.Http.Abstractions" Version="2.2.0"/>
+        <PackageReference Include="MinVer" Version="6.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,164 @@
+# TLS Fingerprint Detector - JA3/JA4 TLS handshake analysis
+name: TlsFingerprintContributor
+priority: 11  # Runs early with other stage-0 detectors
+enabled: true
+description: Analyzes TLS fingerprints (JA3/JA4) to detect automated clients
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: tls
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with TLS context
+      signal_pattern: request.tls.*
+
+  required_signals: []  # TLS data may not be available
+
+  optional_signals:
+    - request.tls.protocol
+    - request.tls.cipher
+    - request.headers.x-ja3-hash
+    - request.headers.x-tls-protocol
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: TLS analysis contribution to detection ledger
+    - type: botdetection.tls_signal
+      description: Detailed TLS fingerprint signals
+
+  signals:
+    - key: detection.tls.confidence
+      entity_type: number
+      salience: 0.8
+      description: Bot confidence from TLS fingerprint
+    - key: detection.tls.ja3_hash
+      entity_type: string
+      salience: 0.9
+      description: JA3 fingerprint hash
+    - key: detection.tls.known_fingerprint
+      entity_type: boolean
+      salience: 0.95
+      description: Whether fingerprint matches known pattern
+
+triggers:
+  requires: []  # No dependencies - runs first wave
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.tls.started
+
+  on_complete:
+    - key: detection.tls.confidence
+      type: double
+      description: Bot confidence from TLS fingerprint analysis
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.tls.ja3_hash
+      type: string
+      description: JA3 fingerprint hash
+
+    - key: detection.tls.protocol
+      type: string
+      description: TLS protocol version
+
+    - key: detection.tls.cipher_suite
+      type: string
+      description: Negotiated cipher suite
+
+    - key: detection.tls.is_https
+      type: bool
+      description: Whether connection uses HTTPS
+
+    - key: detection.tls.known_fingerprint
+      type: bool
+      description: Whether fingerprint matches known bot or browser
+
+  on_failure:
+    - detector.tls.failed
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 100
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:TlsFingerprintContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0           # Base contribution weight
+    bot_signal: 1.8     # Strong signal - TLS fingerprints are reliable
+    human_signal: 1.5   # Weight for known browser fingerprints
+    verified: 2.0       # Weight for known bad fingerprints
+    early_exit: 0.0     # Does not trigger early exit alone
+
+  confidence:
+    neutral: 0.0        # TLS appears normal
+    bot_detected: 0.4   # Bot-like TLS fingerprint
+    human_indicated: -0.15  # Known browser fingerprint
+    strong_signal: 0.85 # Known bot fingerprint match
+    high_threshold: 0.8 # Threshold for "definitely bot"
+    low_threshold: 0.2  # Threshold for "definitely browser"
+    escalation_threshold: 0.5
+
+  timing:
+    timeout_ms: 30      # Very fast - just header parsing
+    cache_refresh_sec: 0  # No caching needed
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  # TLS-specific parameters
+  parameters:
+    # HTTP indicator (not HTTPS)
+    http_confidence_penalty: 0.05
+    # Known fingerprint detection
+    known_bot_fingerprint_confidence: 0.85
+    known_browser_fingerprint_confidence: -0.15
+    # Old TLS protocol penalties
+    outdated_ssl_penalty: 0.7
+    old_tls_penalty: 0.2
+    tls_version_penalties:
+      SSLv3: 0.7
+      TLSv1.0: 0.3
+      TLSv1.1: 0.2
+      TLSv1.2: 0.0
+      TLSv1.3: -0.05
+    # Weak cipher penalty
+    weak_cipher_penalty: 0.4
+    # Client cert present (uncommon for browsers)
+    client_cert_penalty: 0.3
+    # Headers to check for JA3 data (from reverse proxy)
+    ja3_headers:
+      - "X-JA3-Hash"
+      - "X-JA3-String"
+      - "X-TLS-Protocol"
+      - "X-TLS-Cipher"
+
+tags:
+  - fast-path
+  - fingerprinting
+  - tls
+  - stage-0

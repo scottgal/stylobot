@@ -1,0 +1,177 @@
+1.2.0
+
+Enhanced Detection Pipeline & Security Layer:
+
+Security Detection:
+- SecurityToolContributor: Detects penetration testing tools (SQLMap, Nikto, Nmap, Burp Suite, etc.)
+- ProjectHoneypotContributor: HTTP:BL IP reputation lookups via DNS with test mode simulation
+- Pattern fetching from digininja/scanner_user_agents and OWASP CoreRuleSet
+- Honeypot test mode: Use <test-honeypot:harvester|spammer|suspicious> markers for testing
+
+AI Detection Improvements:
+- HeuristicLateContributor: Post-AI refinement layer that runs after LLM for final classification
+- Improved LLM prompt for better accuracy with smaller models
+- Fixed localhost IP detection - no longer incorrectly flagged as datacenter IP
+- Default LLM model upgraded to gemma3:4b for better reasoning
+
+Demo Enhancements:
+- Interactive bot simulator with 20+ preconfigured bot types
+- Custom User-Agent input field for testing arbitrary UA strings
+- UA Only policy for fast User-Agent-only detection testing
+- Honeypot simulator buttons for testing Project Honeypot integration
+- Security scanner buttons (Nikto, Nessus, Nmap, Burp Suite, Acunetix)
+
+Production Security Defaults:
+- ResponseHeaders.Enabled defaults to false (never leak detection details)
+- EnableTestMode defaults to false
+- Detection results flow downstream only via HttpContext.Items
+
+New Documentation:
+- security-tools-detection.md - Comprehensive security tool detection guide
+- project-honeypot.md - HTTP:BL integration and testing guide
+- Updated ai-detection.md with HeuristicLate contributor details
+
+Integration Tests:
+- Production security defaults verification
+- Honeypot test mode simulation tests
+- Contributor registration tests
+
+New SignalKeys:
+- SecurityToolDetected, SecurityToolName, SecurityToolCategory
+- HoneypotChecked, HoneypotListed, HoneypotThreatScore, HoneypotVisitorType
+- HoneypotTestMode (for test mode simulation)
+
+---
+
+1.0.0
+
+🎉 First Stable Release!
+
+Bot detection middleware for ASP.NET Core with multi-signal detection,
+AI-powered classification with continuous learning, and full observability.
+
+Key Features:
+- Multi-signal detection: User-Agent, headers, IP ranges, behavioral analysis, client-side fingerprinting
+- AI-powered classification: Heuristic model (<1ms) with optional LLM escalation
+- Continuous learning: Heuristic weights adapt over time based on detection feedback
+- Composable policies: Separate detection (WHAT) from action (HOW)
+- Stealth responses: Throttle, challenge, or honeypot bots without revealing detection
+- Auto-updated threat intel: isbot patterns and cloud IP ranges
+- Full observability: OpenTelemetry traces and metrics
+
+Breaking Changes from Preview:
+- Default LLM model changed from gemma3:1b to gemma3:4b (better reasoning)
+- Default LLM timeout increased from 2000ms to 5000ms
+- ONNX provider removed in favor of Heuristic provider (faster, no external dependencies)
+
+Migration Guide:
+- Replace "Provider": "Onnx" with "Provider": "Heuristic" in config
+- Update Ollama model if using LLM escalation: gemma3:4b recommended
+
+---
+
+0.5.0-preview2
+
+Composable Action Policy System:
+- Named action policies separate from detection policies
+- Built-in: block, throttle, challenge, redirect, logonly
+- BlockActionPolicy: Configurable status codes, messages, headers
+- ThrottleActionPolicy: Jitter, risk-scaling, exponential backoff, stealth mode
+- ChallengeActionPolicy: CAPTCHA, JavaScript, proof-of-work challenges
+- RedirectActionPolicy: Honeypot, tarpit, error page with templates
+- LogOnlyActionPolicy: Shadow mode, debug headers, metrics
+- IActionPolicyFactory for configuration-based creation
+- IActionPolicyRegistry for runtime policy lookup
+- Custom action policies via IActionPolicy interface
+- [BotAction("policy-name")] attribute for endpoint overrides
+- ActionPolicyName property on detection policies and transitions
+
+---
+
+0.5.0-preview1
+
+Policy-Based Detection:
+- Named policies with configurable detectors per endpoint
+- Path-based resolution with glob patterns (/api/*, /admin/**)
+- Built-in: default, strict, relaxed, allowVerifiedBots
+- Transitions based on risk thresholds and signals
+- Per-policy weight overrides
+- Actions: Allow, Block, Challenge, Throttle, EscalateToAi
+
+Management Endpoints & Attributes:
+- MapBotPolicyEndpoints() for CRUD and testing
+- [BotPolicy("strict")] attribute for controllers/actions
+- [BotDetector("UserAgent,Header")] for inline ad-hoc detection
+- [SkipBotDetection] to bypass detection
+- Policy simulation endpoint for testing transitions
+
+Response Headers & TagHelpers:
+- Configurable response headers (X-Bot-Risk-Score, X-Bot-Policy)
+- <bot-detection-result /> TagHelper for client-side JS integration
+- Full JSON result via Base64-encoded header option
+
+Throttling with Jitter:
+- Configurable base delay, max delay, jitter percent
+- ScaleByRisk option for risk-proportional delays
+- DelayResponse to slow bots at TCP level
+- Custom throttle messages and challenge types
+
+Blackboard Architecture:
+- Event-driven detection with evidence aggregation
+- Wave-based parallel execution
+- Trigger conditions (WhenSignalExists, WhenRiskExceeds)
+- Circuit breakers per detector
+- Early exit for high-confidence detections
+
+Pattern Reputation System:
+- BotScore, Support, State tracking with time decay
+- Online EMA updates, state machine (Neutral → Suspect → ConfirmedBad)
+- Manual overrides never auto-downgrade
+- Drift detection for bot/human ratio changes
+
+Fast/Slow Path:
+- Fast path: sync detectors (<100ms)
+- Slow path: async AI/learning via LearningEventBus
+
+New Interfaces:
+- IContributingDetector, ILearningEventHandler, IPatternReputationCache
+- IPolicyRegistry, IPolicyEvaluator
+
+SQLite Pattern Store, comprehensive documentation
+
+---
+
+0.0.5-preview1
+
+Client-Side Fingerprinting:
+- BotDetectionTagHelper for fingerprint collection JS
+- Signed token system prevents spoofing
+- Detects headless browsers, automation markers
+
+Inconsistency Detection:
+- Catches UA/header mismatches
+- Cross-signal contradiction detection
+
+Risk Assessment:
+- RiskBand enum (Low, Elevated, Medium, High)
+- GetRiskBand(), ShouldChallengeRequest(), GetRecommendedAction()
+
+Session-Level Behavioral Analysis:
+- Multi-identity tracking (IP, fingerprint, API key, user)
+- Anomaly detection (spikes, new paths, timing)
+
+---
+
+0.0.4-preview1
+
+- ONNX-based detection (1-10ms latency)
+- Source-generated regex for performance
+- OpenTelemetry metrics integration
+- YARP reverse proxy integration
+
+---
+
+0.0.3-preview2: Security fixes (ReDoS, CIDR validation)
+0.0.3-preview1: Documentation improvements
+0.0.2-preview1: Background updates, SQLite storage
+0.0.1-preview1: Initial release

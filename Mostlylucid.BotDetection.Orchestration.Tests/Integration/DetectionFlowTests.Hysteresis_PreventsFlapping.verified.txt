@@ -1,0 +1,20 @@
+[
+  {
+    Phase: Built up to ConfirmedBad,
+    State: ConfirmedBad,
+    BotScore: 1.0
+  },
+  {
+    Phase: After 30 human events,
+    State: ConfirmedBad,
+    BotScore: 0.04
+  },
+  {
+    Phase: After 70 human events,
+    State: ConfirmedGood
+  },
+  {
+    Phase: After 120 human events,
+    State: ConfirmedGood
+  }
+]

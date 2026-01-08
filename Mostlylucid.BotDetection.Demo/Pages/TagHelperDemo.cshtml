@@ -1,0 +1,239 @@
+@page "/tag-helper-demo"
+@model TagHelperDemoModel
+@{
+    ViewData["Title"] = "Tag Helper Demo";
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - Bot Detection Tag Helper</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0d1117;
+            color: #c9d1d9;
+        }
+
+        h1 {
+            color: #58a6ff;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #8b949e;
+            margin-bottom: 30px;
+        }
+
+        .section {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }
+
+        .section h2 {
+            margin-top: 0;
+            color: #c9d1d9;
+            font-size: 1.2em;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+        }
+
+        .info-box {
+            background: #21262d;
+            border-left: 3px solid #58a6ff;
+            padding: 15px 18px;
+            margin-bottom: 20px;
+            border-radius: 0 6px 6px 0;
+        }
+
+        .info-box strong {
+            color: #58a6ff;
+        }
+
+        .code-example {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 0.9em;
+            overflow-x: auto;
+        }
+
+        .code-example code {
+            color: #c9d1d9;
+            display: block;
+            white-space: pre;
+        }
+
+        .keyword {
+            color: #ff7b72;
+        }
+
+        .string {
+            color: #a5d6ff;
+        }
+
+        .comment {
+            color: #8b949e;
+            font-style: italic;
+        }
+
+        .tag {
+            color: #7ee787;
+        }
+
+        .attribute {
+            color: #79c0ff;
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+
+        .nav-btn {
+            padding: 10px 18px;
+            background: #238636;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .nav-btn:hover {
+            background: #2ea043;
+        }
+
+        .nav-btn.secondary {
+            background: #1f6feb;
+        }
+
+        .nav-btn.secondary:hover {
+            background: #388bfd;
+        }
+    </style>
+</head>
+<body>
+<h1>Bot Detection Tag Helper Demo</h1>
+<p class="subtitle">Rendering bot detection results with the &lt;bot-detection-details /&gt; tag helper</p>
+
+<div class="nav-buttons">
+    <a href="/bot-test" class="nav-btn">← Back to Main Demo</a>
+    <a href="/tag-helper-demo?refresh=true" class="nav-btn secondary">Refresh Detection</a>
+</div>
+
+<!-- Usage Example -->
+<div class="section">
+    <h2>How to Use</h2>
+    <div class="info-box">
+        <strong>Simple Usage:</strong> The tag helper automatically reads bot detection results from HttpContext and
+        renders them beautifully. No parameters required!
+    </div>
+
+    <p style="color: #8b949e; margin-bottom: 15px;">Add this single line to your Razor page:</p>
+    <div class="code-example">
+        <code><span class="tag">&lt;bot-detection-details</span> <span class="tag">/&gt;</span></code>
+    </div>
+
+    <p style="color: #8b949e; margin: 20px 0 15px 0;">Or with optional attributes:</p>
+    <div class="code-example">
+        <code><span class="comment">&lt;!-- Collapsed by default --&gt;</span>
+            <span class="tag">&lt;bot-detection-details</span> <span class="attribute">collapsed</span>=<span
+                class="string">"true"</span> <span class="tag">/&gt;</span>
+
+            <span class="comment">&lt;!-- With custom CSS class --&gt;</span>
+            <span class="tag">&lt;bot-detection-details</span> <span class="attribute">class</span>=<span
+                class="string">"my-custom-class"</span> <span class="tag">/&gt;</span></code>
+    </div>
+
+    <p style="color: #8b949e; margin: 20px 0 15px 0;">Register the tag helper in your _ViewImports.cshtml:</p>
+    <div class="code-example">
+        <code><span class="keyword">@@addTagHelper</span> *, Mostlylucid.BotDetection.UI</code>
+    </div>
+</div>
+
+<!-- Live Demo -->
+<div class="section">
+    <h2>Live Rendering</h2>
+    <div class="info-box">
+        <strong>Current Detection:</strong> This page is protected by bot detection middleware. The results below show
+        the analysis of YOUR current request.
+    </div>
+
+    <!-- The actual tag helper in action -->
+    <bot-detection-details/>
+</div>
+
+<!-- Integration Modes -->
+<div class="section">
+    <h2>Integration Modes</h2>
+    <div class="info-box">
+        The tag helper works in two modes automatically:
+    </div>
+
+    <h3 style="color: #58a6ff; margin: 20px 0 10px 0; font-size: 1em;">1. Inline Middleware Mode</h3>
+    <p style="color: #8b949e; margin-bottom: 15px;">
+        When bot detection middleware runs on the same server, detection results are stored in HttpContext.Items and
+        automatically read by the tag helper.
+    </p>
+    <div class="code-example">
+        <code><span class="comment">// In Program.cs</span>
+            <span class="keyword">app</span>.UseBotDetection();
+            <span class="keyword">app</span>.MapRazorPages();
+
+            <span class="comment">// In your page</span>
+            <span class="tag">&lt;bot-detection-details</span> <span class="tag">/&gt;</span> <span class="comment">← Automatically displays results</span></code>
+    </div>
+
+    <h3 style="color: #58a6ff; margin: 30px 0 10px 0; font-size: 1em;">2. YARP Proxy Mode</h3>
+    <p style="color: #8b949e; margin-bottom: 15px;">
+        When your app sits behind a YARP reverse proxy with bot detection, the tag helper reads detection results from
+        X-Bot-Detection-* headers automatically.
+    </p>
+    <div class="code-example">
+        <code><span class="comment">// YARP proxy server (with bot detection)</span>
+            <span class="keyword">app</span>.UseYarpBotDetectionProxy();
+
+            <span class="comment">// Your downstream app (reads headers)</span>
+            <span class="tag">&lt;bot-detection-details</span> <span class="tag">/&gt;</span> <span class="comment">← Reads from proxy headers</span></code>
+    </div>
+</div>
+
+<!-- Features -->
+<div class="section">
+    <h2>Features</h2>
+    <ul style="color: #8b949e; line-height: 1.8;">
+        <li><strong style="color: #c9d1d9;">Zero Configuration:</strong> Works out of the box with bot detection
+            middleware
+        </li>
+        <li><strong style="color: #c9d1d9;">Beautiful UI:</strong> Styled detection results with responsive design</li>
+        <li><strong style="color: #c9d1d9;">Detailed Breakdown:</strong> Shows bot probability, risk band, detector
+            contributions, and reasoning
+        </li>
+        <li><strong style="color: #c9d1d9;">YARP Compatible:</strong> Seamlessly works with YARP reverse proxy headers
+        </li>
+        <li><strong style="color: #c9d1d9;">Performance Metrics:</strong> Displays processing time and detector
+            execution details
+        </li>
+        <li><strong style="color: #c9d1d9;">Collapsible:</strong> Optional collapsed state for compact display</li>
+    </ul>
+</div>
+</body>
+</html>

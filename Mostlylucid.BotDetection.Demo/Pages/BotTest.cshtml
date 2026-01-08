@@ -1,0 +1,1821 @@
+@page "/bot-test"
+@model BotTestModel
+@{
+    ViewData["Title"] = "Bot Detection Test";
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - Mostlylucid.BotDetection</title>
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <!-- highlight.js for JSON syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/json.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0d1117;
+            color: #c9d1d9;
+        }
+
+        h1 {
+            color: #58a6ff;
+            margin-bottom: 5px;
+        }
+
+        .subtitle {
+            color: #8b949e;
+            margin-bottom: 25px;
+        }
+
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            margin-top: 0;
+            color: #c9d1d9;
+            font-size: 1.1em;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 10px;
+        }
+
+        /* Test Buttons */
+        .test-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+
+        .test-btn {
+            padding: 8px 14px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85em;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .test-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .test-btn.human {
+            background: #238636;
+            color: white;
+        }
+
+        .test-btn.search {
+            background: #1f6feb;
+            color: white;
+        }
+
+        .test-btn.scraper {
+            background: #f0883e;
+            color: white;
+        }
+
+        .test-btn.malicious {
+            background: #da3633;
+            color: white;
+        }
+
+        .test-btn.ai {
+            background: #8957e5;
+            color: white;
+        }
+
+        .test-btn.social {
+            background: #3fb950;
+            color: white;
+        }
+
+        .test-btn.monitor {
+            background: #388bfd;
+            color: white;
+        }
+
+        .test-btn.active {
+            box-shadow: 0 0 0 2px #58a6ff;
+        }
+
+        /* Detection Mode Selector */
+        .mode-selector {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #21262d;
+            border-radius: 6px;
+        }
+
+        .mode-selector-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .mode-selector-title {
+            font-size: 0.9em;
+            color: #8b949e;
+            font-weight: 500;
+        }
+
+        .mode-options {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        @@media (max-width: 900px) {
+            .mode-options {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        .mode-option {
+            position: relative;
+        }
+
+        .mode-option input[type="radio"] {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+            z-index: 1;
+        }
+
+        .mode-option label {
+            display: block;
+            padding: 12px 14px;
+            background: #161b22;
+            border: 2px solid #30363d;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .mode-option input[type="radio"]:checked + label {
+            border-color: #58a6ff;
+            background: #1f6feb20;
+        }
+
+        .mode-option input[type="radio"]:hover + label {
+            border-color: #484f58;
+        }
+
+        .mode-option-title {
+            font-weight: 600;
+            font-size: 0.9em;
+            color: #c9d1d9;
+            margin-bottom: 4px;
+        }
+
+        .mode-option-desc {
+            font-size: 0.75em;
+            color: #8b949e;
+            line-height: 1.4;
+        }
+
+        .mode-option-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.7em;
+            font-weight: 600;
+            margin-left: 6px;
+        }
+
+        .mode-option-badge.debug {
+            background: #8957e5;
+            color: white;
+        }
+
+        .mode-option-badge.fast {
+            background: #238636;
+            color: white;
+        }
+
+        .mode-option-badge.blocked {
+            background: #da3633;
+            color: white;
+        }
+
+        .mode-option-badge.learning {
+            background: #1f6feb;
+            color: white;
+        }
+
+        /* Custom UA Input */
+        .custom-ua-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #30363d;
+        }
+
+        .custom-ua-input {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+        }
+
+        .custom-ua-input input[type="text"] {
+            flex: 1;
+            padding: 10px 14px;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 0.85em;
+        }
+
+        .custom-ua-input input[type="text"]:focus {
+            outline: none;
+            border-color: #58a6ff;
+        }
+
+        .custom-ua-input input[type="text"]::placeholder {
+            color: #6e7681;
+        }
+
+        .custom-ua-input button {
+            padding: 10px 20px;
+            background: #238636;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        .custom-ua-input button:hover {
+            background: #2ea043;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-box {
+            background: #21262d;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #58a6ff;
+        }
+
+        .stat-label {
+            font-size: 0.8em;
+            color: #8b949e;
+            margin-top: 5px;
+        }
+
+        /* Detection Result */
+        .result-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .result-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9em;
+        }
+
+        .result-badge.human {
+            background: #238636;
+            color: white;
+        }
+
+        .result-badge.bot {
+            background: #da3633;
+            color: white;
+        }
+
+        .result-badge.suspicious {
+            background: #f0883e;
+            color: white;
+        }
+
+        .confidence-score {
+            font-size: 2em;
+            font-weight: bold;
+        }
+
+        .confidence-score.low {
+            color: #3fb950;
+        }
+
+        .confidence-score.medium {
+            color: #f0883e;
+        }
+
+        .confidence-score.high {
+            color: #da3633;
+        }
+
+        /* Risk Band & Action */
+        .risk-action {
+            display: flex;
+            gap: 20px;
+            margin: 15px 0;
+        }
+
+        .risk-item {
+            flex: 1;
+        }
+
+        .risk-label {
+            font-size: 0.8em;
+            color: #8b949e;
+            margin-bottom: 5px;
+        }
+
+        .risk-value {
+            font-weight: 600;
+            padding: 4px 10px;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        .risk-value.low {
+            background: #238636;
+            color: white;
+        }
+
+        .risk-value.medium {
+            background: #f0883e;
+            color: white;
+        }
+
+        .risk-value.high {
+            background: #da3633;
+            color: white;
+        }
+
+        .risk-value.critical {
+            background: #8957e5;
+            color: white;
+        }
+
+        .action-value {
+            font-weight: 600;
+            color: #c9d1d9;
+        }
+
+        /* Detectors */
+        .detector-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 15px 0;
+        }
+
+        .detector-tag {
+            padding: 4px 10px;
+            background: #30363d;
+            border-radius: 12px;
+            font-size: 0.8em;
+            color: #8b949e;
+        }
+
+        .detector-tag.active {
+            background: #1f6feb;
+            color: white;
+        }
+
+        /* Signals List */
+        .signals-list {
+            margin-top: 15px;
+        }
+
+        .signal-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: #21262d;
+            border-radius: 4px;
+            margin-bottom: 6px;
+            font-size: 0.9em;
+        }
+
+        .signal-category {
+            font-weight: 600;
+            color: #58a6ff;
+            min-width: 120px;
+        }
+
+        .signal-detail {
+            flex: 1;
+            color: #c9d1d9;
+            margin: 0 15px;
+        }
+
+        .signal-impact {
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+
+        .signal-impact.high {
+            background: #da3633;
+            color: white;
+        }
+
+        .signal-impact.medium {
+            background: #f0883e;
+            color: white;
+        }
+
+        .signal-impact.low {
+            background: #f0883e33;
+            color: #f0883e;
+        }
+
+        .signal-impact.human {
+            background: #238636;
+            color: white;
+        }
+
+        .signal-impact.neutral {
+            background: #30363d;
+            color: #8b949e;
+        }
+
+        /* Category Scores */
+        .category-scores {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .category-item {
+            background: #21262d;
+            padding: 10px;
+            border-radius: 6px;
+        }
+
+        .category-name {
+            font-size: 0.8em;
+            color: #8b949e;
+        }
+
+        .category-bar {
+            height: 6px;
+            background: #30363d;
+            border-radius: 3px;
+            margin-top: 6px;
+            overflow: hidden;
+        }
+
+        .category-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
+
+        .category-fill.low {
+            background: #3fb950;
+        }
+
+        .category-fill.medium {
+            background: #f0883e;
+        }
+
+        .category-fill.high {
+            background: #da3633;
+        }
+
+        /* Client Detection - Compact */
+        .client-grid-compact {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .client-score-compact {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .client-details-compact {
+            flex: 1;
+            font-size: 0.85em;
+            color: #8b949e;
+            min-width: 200px;
+        }
+
+        .fingerprint-data {
+            font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 0.8em;
+            background: #0d1117;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 400px;
+        }
+
+        .fingerprint-data-compact {
+            font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 0.75em;
+            background: #0d1117;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 120px;
+        }
+
+        /* Override highlight.js background for consistency */
+        .fingerprint-data pre {
+            margin: 0;
+            background: transparent !important;
+        }
+
+        .fingerprint-data code {
+            background: transparent !important;
+        }
+
+        .hljs {
+            background: transparent !important;
+        }
+
+        /* Loading indicator */
+        .htmx-request .htmx-indicator {
+            display: inline-block;
+        }
+
+        .htmx-indicator {
+            display: none;
+            margin-left: 8px;
+        }
+
+        /* Loading Modal */
+        .loading-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .loading-modal.active {
+            display: flex;
+        }
+
+        .loading-content {
+            background: #161b22;
+            border: 2px solid #58a6ff;
+            border-radius: 12px;
+            padding: 40px 60px;
+            text-align: center;
+        }
+
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid #30363d;
+            border-top-color: #58a6ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @@keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loading-text {
+            color: #c9d1d9;
+            font-size: 1.1em;
+            font-weight: 500;
+        }
+
+        .loading-subtext {
+            color: #8b949e;
+            font-size: 0.9em;
+            margin-top: 8px;
+        }
+
+        @@media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .client-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .category-scores {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .mode-options {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* YARP Proxy Modal */
+        .proxy-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 1000;
+            overflow: auto;
+        }
+
+        .proxy-modal.active {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .proxy-modal-header {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .proxy-modal-title {
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #c9d1d9;
+        }
+
+        .proxy-modal-close {
+            background: #da3633;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .proxy-modal-close:hover {
+            background: #f85149;
+        }
+
+        .proxy-session-info {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 15px 20px;
+        }
+
+        .proxy-session-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .proxy-session-id {
+            font-family: 'Courier New', monospace;
+            color: #58a6ff;
+            font-size: 0.85em;
+        }
+
+        .proxy-bot-score {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .proxy-score-label {
+            font-size: 0.9em;
+            color: #8b949e;
+        }
+
+        .proxy-score-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            padding: 4px 12px;
+            border-radius: 4px;
+        }
+
+        .proxy-score-human {
+            background: #238636;
+            color: white;
+        }
+
+        .proxy-score-bot {
+            background: #da3633;
+            color: white;
+        }
+
+        .proxy-score-suspicious {
+            background: #f0883e;
+            color: white;
+        }
+
+        .proxy-stats {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+        }
+
+        .proxy-stat {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .proxy-stat-label {
+            font-size: 0.75em;
+            color: #8b949e;
+            text-transform: uppercase;
+        }
+
+        .proxy-stat-value {
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #58a6ff;
+        }
+
+        .proxy-requests-list {
+            max-height: 120px;
+            overflow-y: auto;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+
+        .proxy-request-item {
+            padding: 6px 10px;
+            border-bottom: 1px solid #30363d;
+            font-size: 0.8em;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .proxy-request-item:last-child {
+            border-bottom: none;
+        }
+
+        .proxy-request-path {
+            color: #58a6ff;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .proxy-request-confidence {
+            color: #f0883e;
+            margin-left: 10px;
+        }
+
+        .proxy-request-type {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.75em;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+
+        .proxy-type-html {
+            background: #238636;
+            color: white;
+        }
+
+        .proxy-type-static {
+            background: #30363d;
+            color: #8b949e;
+        }
+
+        .proxy-modal-content {
+            flex: 1;
+            background: white;
+            overflow: hidden;
+        }
+
+        .proxy-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .proxy-loading {
+            display: none;
+            color: #58a6ff;
+            font-size: 0.9em;
+            margin-left: 15px;
+        }
+
+        .proxy-loading.active {
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+<h1>Bot Detection Showroom</h1>
+<p class="subtitle">Interactive demonstration of the bot detection pipeline - select a mode to see different
+    behaviors</p>
+
+<div style="margin-bottom: 20px;">
+    <a href="/tag-helper-demo"
+       style="padding: 8px 14px; background: #1f6feb; color: white; text-decoration: none; border-radius: 6px; font-size: 0.9em; display: inline-block;">
+        View Tag Helper Demo →
+    </a>
+</div>
+
+<!-- Test Buttons -->
+<div class="card">
+    <h2>Simulate Bot Types</h2>
+    <p style="font-size: 0.85em; color: #8b949e; margin-bottom: 15px;">Click to test detection with different bot
+        signatures</p>
+    <div
+        style="background: #21262d; border-left: 3px solid #f0883e; padding: 12px 15px; margin-bottom: 15px; border-radius: 0 6px 6px 0;">
+        <strong style="color: #f0883e;">Demo Note:</strong>
+        <span style="color: #8b949e; font-size: 0.85em;">
+                These buttons simulate bot User-Agent strings only. Your real browser's fingerprint, headers, and behavioral
+                patterns remain legitimate, so detection may still classify you as human &mdash; for example, "Malicious Bot"
+                may return as human with the LLM noting: <em style="color: #c9d1d9;">"missing Accept-Language/Referer, datacenter IP detected,
+                and weak evidence suggests possible bot activity. Further investigation needed."</em>
+                Check the <strong style="color: #c9d1d9;">Raw API Response</strong> below for full detector reasoning.
+                In production, actual bots exhibit consistent bot signals across all detectors.
+            </span>
+    </div>
+    <div class="test-buttons">
+        <button class="test-btn human" data-ua-mode="human"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "human", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('human')">Real Browser
+        </button>
+        <button class="test-btn search" data-ua-mode="googlebot"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "googlebot", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('googlebot')">Googlebot
+        </button>
+        <button class="test-btn search" data-ua-mode="bingbot"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "bingbot", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('bingbot')">Bingbot
+        </button>
+        <button class="test-btn scraper" data-ua-mode="scrapy"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "scrapy", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('scrapy')">Scrapy
+        </button>
+        <button class="test-btn scraper" data-ua-mode="curl"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "curl", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('curl')">cURL
+        </button>
+        <button class="test-btn scraper" data-ua-mode="puppeteer"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "puppeteer", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('puppeteer')">Puppeteer
+        </button>
+        <button class="test-btn malicious" data-ua-mode="malicious"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "malicious", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('malicious')">Malicious Bot
+        </button>
+        <button class="test-btn ai" data-ua-mode="gptbot"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "gptbot", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('gptbot')">GPTBot
+        </button>
+        <button class="test-btn ai" data-ua-mode="claudebot"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "claudebot", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('claudebot')">ClaudeBot
+        </button>
+        <button class="test-btn social" data-ua-mode="twitterbot"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "twitterbot", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('twitterbot')">TwitterBot
+        </button>
+        <button class="test-btn social" data-ua-mode="facebookbot"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "facebookbot", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('facebookbot')">FacebookBot
+        </button>
+        <button class="test-btn monitor" data-ua-mode="uptimerobot"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "uptimerobot", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('uptimerobot')">UptimeRobot
+        </button>
+        <button class="test-btn malicious" data-ua-mode="nikto"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "nikto", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('nikto')">Nikto Scanner
+        </button>
+        <button class="test-btn malicious" data-ua-mode="nessus"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "nessus", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('nessus')">Nessus
+        </button>
+        <button class="test-btn malicious" data-ua-mode="nmap"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "nmap", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('nmap')">Nmap
+        </button>
+        <button class="test-btn malicious" data-ua-mode="burpsuite"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "burpsuite", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('burpsuite')">Burp Suite
+        </button>
+        <button class="test-btn malicious" data-ua-mode="acunetix"
+                hx-get="/bot-test"
+                hx-headers='{"ml-bot-test-mode": "acunetix", "X-Bot-Policy": "demo"}'
+                hx-target="body"
+                hx-swap="outerHTML"
+                onclick="showUaInInput('acunetix')">Acunetix
+        </button>
+    </div>
+
+    <!-- Custom User-Agent Input -->
+    <div class="custom-ua-section">
+        <div style="font-size: 0.85em; color: #8b949e; margin-bottom: 8px;">
+            Test with custom User-Agent string
+        </div>
+        <div class="custom-ua-input">
+            <input type="text"
+                   id="customUaInput"
+                   placeholder="Enter any User-Agent string to test... e.g. MyBot/1.0 or curl/7.68.0"
+                   onkeypress="if(event.key==='Enter') testCustomUa()">
+            <button onclick="testCustomUa()">Test UA</button>
+        </div>
+    </div>
+
+    <!-- YARP Proxy URL Input -->
+    <div class="custom-ua-section">
+        <div style="font-size: 0.85em; color: #8b949e; margin-bottom: 8px;">
+            Test URL through YARP proxy with bot detection
+        </div>
+        <div class="custom-ua-input">
+            <input type="text"
+                   id="proxyUrlInput"
+                   placeholder="Enter URL to proxy... e.g. www.mostlylucid.net or https://example.com"
+                   value="www.mostlylucid.net"
+                   onkeypress="if(event.key==='Enter') openProxyModal()">
+            <button onclick="openProxyModal()">Test URL</button>
+        </div>
+    </div>
+
+    <!-- Detection Mode Selector -->
+    <div class="mode-selector">
+        <div class="mode-selector-header">
+            <span class="mode-selector-title">Detection Mode</span>
+            <span style="font-size: 0.8em; color: #8b949e;">
+                    Processing: <strong id="timingDisplay">@Model.ProcessingTimeMs.ToString("F2")ms</strong>
+                </span>
+        </div>
+        <div class="mode-options">
+            <div class="mode-option">
+                <input type="radio" name="detectionMode" id="mode-realfast" value="realfast" checked>
+                <label for="mode-realfast">
+                    <div class="mode-option-title">Real Experience<span class="mode-option-badge fast">DEFAULT</span>
+                    </div>
+                    <div class="mode-option-desc">What users actually see. Fast detection, bots get
+                        blocked/challenged!
+                    </div>
+                </label>
+            </div>
+            <div class="mode-option">
+                <input type="radio" name="detectionMode" id="mode-uaonly" value="uaonly">
+                <label for="mode-uaonly">
+                    <div class="mode-option-title">UA Only<span class="mode-option-badge fast">FASTEST</span></div>
+                    <div class="mode-option-desc">Just User-Agent analysis. Best for testing custom UA strings. ~5ms
+                    </div>
+                </label>
+            </div>
+            <div class="mode-option">
+                <input type="radio" name="detectionMode" id="mode-fastpath" value="fastpath">
+                <label for="mode-fastpath">
+                    <div class="mode-option-title">Fast (No Block)<span class="mode-option-badge debug">DEBUG</span>
+                    </div>
+                    <div class="mode-option-desc">All static detectors + Heuristic. Shows results without blocking.
+                        ~50ms
+                    </div>
+                </label>
+            </div>
+            <div class="mode-option">
+                <input type="radio" name="detectionMode" id="mode-demo" value="demo">
+                <label for="mode-demo">
+                    <div class="mode-option-title">Full Pipeline<span class="mode-option-badge debug">DEBUG</span></div>
+                    <div class="mode-option-desc">All detectors + AI (Heuristic + LLM). Complete pipeline with debug
+                        logging. ~500ms
+                    </div>
+                </label>
+            </div>
+            <div class="mode-option">
+                <input type="radio" name="detectionMode" id="mode-learning" value="learning">
+                <label for="mode-learning">
+                    <div class="mode-option-title">Learning<span class="mode-option-badge learning">ASYNC</span></div>
+                    <div class="mode-option-desc">Full pipeline for weight learning. Never blocks, saves patterns.</div>
+                </label>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Pipeline Stats -->
+<div class="stats-grid">
+    <div class="stat-box">
+        <div class="stat-value">@Model.DetectorCount</div>
+        <div class="stat-label">Detectors Ran</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-value">@Model.Reasons.Count</div>
+        <div class="stat-label">Signals Found</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-value">@Model.CategoryScores.Count</div>
+        <div class="stat-label">Categories</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-value" id="processingTimeDisplay">@Model.ProcessingTimeMs.ToString("F1")ms</div>
+        <div class="stat-label">Processing Time</div>
+    </div>
+</div>
+
+<!-- Detection Result -->
+<div class="card">
+    <h2>Detection Result</h2>
+    @{
+        // Show both probabilities to demonstrate dual scoring
+        var humanProb = Model.HumanProbability;
+        var botProb = Model.BotProbability;
+    }
+    <div class="result-header">
+            <span class="result-badge @(Model.IsBot ? Model.BotProbability > 0.7 ? "bot" : "suspicious" : "human")">
+                @(Model.IsBot ? Model.BotProbability > 0.7 ? "Bot Detected" : "Suspicious" : "Human")
+            </span>
+        @if (Model.RecommendedAction == "Block" || Model.RecommendedAction == "Deny")
+        {
+            <span class="result-badge bot" style="background: #da3633; margin-left: 10px;">
+                    🛑 BLOCKED
+                </span>
+        }
+        else if (Model.RecommendedAction == "Challenge")
+        {
+            <span class="result-badge suspicious" style="background: #f0883e; margin-left: 10px;">
+                    ⚠️ CHALLENGED
+                </span>
+        }
+    </div>
+    <!-- Dual probability display -->
+    <div style="display: flex; gap: 24px; margin-top: 12px; justify-content: center;">
+        <div style="text-align: center;">
+            <div style="font-size: 1.8em; font-weight: 700; color: @(humanProb > 0.5 ? "#3fb950" : "#8b949e");">
+                @humanProb.ToString("P0")
+            </div>
+            <div style="color: #8b949e; font-size: 0.85em;">Human Probability</div>
+        </div>
+        <div style="text-align: center;">
+            <div style="font-size: 1.8em; font-weight: 700; color: @(botProb > 0.5 ? "#f85149" : "#8b949e");">
+                @botProb.ToString("P0")
+            </div>
+            <div style="color: #8b949e; font-size: 0.85em;">Bot Probability</div>
+        </div>
+    </div>
+
+    <div class="risk-action">
+        <div class="risk-item">
+            <div class="risk-label">Risk Band</div>
+            <span class="risk-value @Model.RiskBand.ToLower()">@Model.RiskBand</span>
+        </div>
+        <div class="risk-item">
+            <div class="risk-label">Recommended Action</div>
+            <span class="action-value">@Model.RecommendedAction</span>
+        </div>
+        <div class="risk-item">
+            <div class="risk-label">Bot Type</div>
+            <span class="action-value">@Model.BotType</span>
+        </div>
+        <div class="risk-item">
+            <div class="risk-label">Bot Name</div>
+            <span class="action-value">@Model.BotName</span>
+        </div>
+    </div>
+
+    <!-- AI Explanation -->
+    @if (!string.IsNullOrEmpty(Model.AiExplanation))
+    {
+        var isLlm = Model.AiExplanationSource == "LLM";
+        var accentColor = isLlm ? "#8957e5" : "#388bfd";
+        var label = isLlm ? "LLM Analysis" : "Heuristic Analysis";
+        <div
+            style="margin-top: 20px; background: #21262d; border-left: 3px solid @accentColor; padding: 12px 15px; border-radius: 0 6px 6px 0;">
+            <div style="font-size: 0.8em; color: @accentColor; font-weight: 600; margin-bottom: 6px;">
+                <span style="margin-right: 6px;">@(isLlm ? "🤖" : "📊")</span>@label
+            </div>
+            <div style="color: #c9d1d9; font-size: 0.9em; line-height: 1.5;">@Model.AiExplanation</div>
+        </div>
+    }
+
+    <!-- Active Detectors -->
+    <div style="margin-top: 20px;">
+        <div style="font-size: 0.85em; color: #8b949e; margin-bottom: 8px;">Active Detectors</div>
+        <div class="detector-tags">
+            @foreach (var detector in Model.DetectorsRan)
+            {
+                <span class="detector-tag active">@detector</span>
+            }
+            @if (!Model.DetectorsRan.Any())
+            {
+                <span class="detector-tag">No detectors reported</span>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Detection Signals -->
+@if (Model.Reasons.Any())
+{
+    <div class="card">
+        <h2>Detection Signals (@Model.Reasons.Count)</h2>
+        <div class="signals-list">
+            @foreach (var reason in Model.Reasons.OrderByDescending(r => Math.Abs(r.Impact)))
+            {
+                <div class="signal-item">
+                    <span class="signal-category">@reason.Category</span>
+                    <span class="signal-detail">@reason.Detail</span>
+                    <span class="signal-impact @reason.ImpactClass">@reason.ImpactDisplay</span>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<!-- Category Scores -->
+@if (Model.CategoryScores.Any())
+{
+    <div class="card">
+        <h2>Category Breakdown</h2>
+        <div class="category-scores">
+            @foreach (var cat in Model.CategoryScores.OrderByDescending(c => c.Value))
+            {
+                var pct = cat.Value * 100;
+                var level = pct < 30 ? "low" : pct < 60 ? "medium" : "high";
+                <div class="category-item">
+                    <div class="category-name">@cat.Key: @cat.Value.ToString("P0")</div>
+                    <div class="category-bar">
+                        <div class="category-fill @level" style="width: @pct%"></div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<!-- API Response -->
+<div class="card">
+    <h2>Raw API Response</h2>
+    <button class="test-btn search" onclick="fetchDetectionCheck()">Refresh Detection</button>
+    <div class="fingerprint-data" id="apiResponse" style="margin-top: 15px;">Click button to fetch...</div>
+</div>
+
+<!-- Client-Side Detection - Compact -->
+<div class="card">
+    <h2>Client-Side Detection</h2>
+    <div class="client-grid-compact">
+        <div class="client-score-compact">
+            <span class="result-badge human" id="clientBadge" style="font-size: 0.85em;">Collecting...</span>
+            <span class="confidence-score" id="clientScore" style="font-size: 1.5em;">--</span>
+            <span style="color: #8b949e; font-size: 0.85em;">integrity</span>
+        </div>
+        <div class="client-details-compact" id="clientDetails">Waiting for fingerprint data...</div>
+        <button class="test-btn search"
+                onclick="document.getElementById('fingerprintToggle').style.display = document.getElementById('fingerprintToggle').style.display === 'none' ? 'block' : 'none'"
+                style="white-space: nowrap;">Show Data
+        </button>
+    </div>
+    <div id="fingerprintToggle" style="display: none; margin-top: 10px;">
+        <div style="font-size: 0.85em; color: #8b949e; margin-bottom: 6px;">Fingerprint Data</div>
+        <div class="fingerprint-data-compact" id="fingerprintData">Waiting for fingerprint collection...</div>
+    </div>
+</div>
+
+<!-- Bot Detection Script - fingerprint collection -->
+<!-- Note: Fingerprint endpoint uses path mapping to demo policy for consistent collection -->
+<bot-detection-script endpoint="/bot-detection/fingerprint"/>
+
+<!-- Loading Modal -->
+<div class="loading-modal" id="loadingModal">
+    <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Analyzing Request...</div>
+        <div class="loading-subtext">Running bot detection pipeline</div>
+    </div>
+</div>
+
+<!-- YARP Proxy Modal -->
+<div class="proxy-modal" id="proxyModal">
+    <div class="proxy-modal-header">
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <span class="proxy-modal-title">YARP Proxy - Bot Detection</span>
+            <span class="proxy-loading" id="proxyLoading">Loading...</span>
+        </div>
+        <button class="proxy-modal-close" onclick="closeProxyModal()">Close</button>
+    </div>
+    <div class="proxy-session-info">
+        <div class="proxy-session-row">
+            <div>
+                <div class="proxy-session-id">Session: <span id="proxySessionId">--</span></div>
+            </div>
+            <div class="proxy-bot-score">
+                <span class="proxy-score-label">Bot Score:</span>
+                <div class="proxy-score-value proxy-score-human" id="proxyBotScore">0.00</div>
+            </div>
+        </div>
+        <div class="proxy-stats">
+            <div class="proxy-stat">
+                <div class="proxy-stat-label">Total Requests</div>
+                <div class="proxy-stat-value" id="proxyTotalRequests">0</div>
+            </div>
+            <div class="proxy-stat">
+                <div class="proxy-stat-label">HTML Docs</div>
+                <div class="proxy-stat-value" id="proxyHtmlCount">0</div>
+            </div>
+            <div class="proxy-stat">
+                <div class="proxy-stat-label">Static Assets</div>
+                <div class="proxy-stat-value" id="proxyStaticCount">0</div>
+            </div>
+            <div class="proxy-stat">
+                <div class="proxy-stat-label">Bot Type</div>
+                <div class="proxy-stat-value" id="proxyBotType">Human</div>
+            </div>
+            <div class="proxy-stat">
+                <div class="proxy-stat-label">Duration</div>
+                <div class="proxy-stat-value" id="proxySessionDuration">0ms</div>
+            </div>
+        </div>
+        <div class="proxy-requests-list">
+            <div id="proxyRequestsList"></div>
+        </div>
+    </div>
+    <div class="proxy-modal-content">
+        <iframe class="proxy-iframe" id="proxyIframe"></iframe>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // Helper functions (must be defined first)
+    // ==========================================
+
+    // Helper to escape HTML for safe display
+    function escapeHtml(text) {
+        var div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Helper to render JSON with syntax highlighting
+    function renderHighlightedJson(element, data) {
+        var json = JSON.stringify(data, null, 2);
+        element.innerHTML = '<pre><code class="language-json">' + escapeHtml(json) + '</code></pre>';
+        hljs.highlightElement(element.querySelector('code'));
+    }
+
+    // ==========================================
+    // User-Agent Strings Map (matches appsettings.json TestModeSimulations)
+    // ==========================================
+    var uaStrings = {
+        'human': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'googlebot': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+        'bingbot': 'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
+        'scrapy': 'Scrapy/2.11 (+https://scrapy.org)',
+        'curl': 'curl/8.4.0',
+        'puppeteer': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/120.0.0.0 Safari/537.36',
+        'malicious': 'sqlmap/1.7 (http://sqlmap.org)',
+        'gptbot': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.0; +https://openai.com/gptbot)',
+        'claudebot': 'ClaudeBot/1.0; +https://anthropic.com',
+        'twitterbot': 'Twitterbot/1.0',
+        'facebookbot': 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+        'uptimerobot': 'UptimeRobot/2.0; +http://www.uptimerobot.com/',
+        // Security scanners
+        'nikto': 'Mozilla/5.00 (Nikto/2.1.6) (Evasions:None) (Test:Port Check)',
+        'nessus': 'Nessus SOAP',
+        'nmap': 'Mozilla/5.0 (compatible; Nmap Scripting Engine; https://nmap.org/book/nse.html)',
+        'burpsuite': 'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Burp/2023.10',
+        'acunetix': 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US) Acunetix Web Vulnerability Scanner'
+    };
+
+    // Show UA string in input when clicking preset buttons
+    // Also store in sessionStorage so it survives page refresh (HTMX replaces body)
+    // For "human" mode, clear the session so API uses real browser UA
+    function showUaInInput(mode) {
+        var input = document.getElementById('customUaInput');
+        if (mode === 'human') {
+            // Clear test mode - use real browser UA for API calls
+            sessionStorage.removeItem('botTestLastUA');
+            if (input) {
+                input.value = '';
+                input.placeholder = 'Your real browser UA will be used';
+            }
+        } else if (input && uaStrings[mode]) {
+            input.value = uaStrings[mode];
+            sessionStorage.setItem('botTestLastUA', uaStrings[mode]);
+        }
+    }
+
+    // Restore last UA on page load (after HTMX swaps)
+    (function restoreLastUA() {
+        var lastUA = sessionStorage.getItem('botTestLastUA');
+        if (lastUA) {
+            var input = document.getElementById('customUaInput');
+            if (input) {
+                input.value = lastUA;
+            }
+        }
+    })();
+
+    // ==========================================
+    // Custom User-Agent testing
+    // ==========================================
+
+    function testCustomUa() {
+        var input = document.getElementById('customUaInput');
+        var ua = input.value.trim();
+
+        if (!ua) {
+            input.focus();
+            input.style.borderColor = '#da3633';
+            setTimeout(function () {
+                input.style.borderColor = '#30363d';
+            }, 1000);
+            return;
+        }
+
+        var mode = getSelectedMode();
+
+        // Use HTMX to make the request with custom UA header
+        htmx.ajax('GET', '/bot-test', {
+            target: 'body',
+            swap: 'outerHTML',
+            headers: {
+                'ml-bot-test-ua': ua,
+                'X-Bot-Policy': mode
+            }
+        });
+    }
+
+    // ==========================================
+    // Detection Mode selector functionality
+    // ==========================================
+
+    // Get the currently selected detection mode
+    function getSelectedMode() {
+        var selected = document.querySelector('input[name="detectionMode"]:checked');
+        return selected ? selected.value : 'demo';
+    }
+
+    // Handle mode change - update all buttons and optionally refresh
+    function handleModeChange(triggerRefresh) {
+        var mode = getSelectedMode();
+
+        // Persist to localStorage
+        localStorage.setItem('botDetectionMode', mode);
+
+        // Update all HTMX buttons to use the selected policy
+        document.querySelectorAll('.test-btn[hx-get]').forEach(function (btn) {
+            var headers = JSON.parse(btn.getAttribute('hx-headers') || '{}');
+            headers['X-Bot-Policy'] = mode;
+            btn.setAttribute('hx-headers', JSON.stringify(headers));
+        });
+
+        // Auto-refresh when changing mode (but not on initial load)
+        if (triggerRefresh) {
+            var headers = {'X-Bot-Policy': mode};
+            htmx.ajax('GET', '/bot-test', {target: 'body', swap: 'outerHTML', headers: headers});
+        }
+    }
+
+    // Initialize mode selector from localStorage and attach event listeners
+    (function initModeSelector() {
+        var savedMode = localStorage.getItem('botDetectionMode') || 'realfast';
+
+        // Set the saved mode as checked
+        var radio = document.getElementById('mode-' + savedMode);
+        if (radio) {
+            radio.checked = true;
+        } else {
+            // Fallback to realfast if invalid mode
+            document.getElementById('mode-realfast').checked = true;
+        }
+
+        // Attach change listeners to all radio buttons
+        document.querySelectorAll('input[name="detectionMode"]').forEach(function (radio) {
+            radio.addEventListener('change', function () {
+                handleModeChange(true);
+            });
+        });
+
+        // Initialize button headers without triggering refresh
+        handleModeChange(false);
+    })();
+
+    // Intercept fingerprint data
+    (function () {
+        var originalXHR = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.send = function (data) {
+            if (this._url && this._url.includes('fingerprint')) {
+                try {
+                    var parsed = JSON.parse(data);
+                    renderHighlightedJson(document.getElementById('fingerprintData'), parsed);
+                    updateClientUI(parsed);
+                } catch (e) {
+                }
+            }
+            originalXHR.apply(this, arguments);
+        };
+
+        var originalOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function (method, url) {
+            this._url = url;
+            originalOpen.apply(this, arguments);
+        };
+    })();
+
+    function updateClientUI(data) {
+        var score = data.score || 0;
+        var badge = document.getElementById('clientBadge');
+        var scoreEl = document.getElementById('clientScore');
+        var details = document.getElementById('clientDetails');
+
+        scoreEl.textContent = score + '/100';
+
+        if (score >= 70) {
+            badge.className = 'result-badge human';
+            badge.textContent = 'Likely Human';
+            scoreEl.className = 'confidence-score low';
+        } else if (score >= 40) {
+            badge.className = 'result-badge suspicious';
+            badge.textContent = 'Suspicious';
+            scoreEl.className = 'confidence-score medium';
+        } else {
+            badge.className = 'result-badge bot';
+            badge.textContent = 'Likely Bot';
+            scoreEl.className = 'confidence-score high';
+        }
+
+        var signals = [];
+        if (data.webdriver) signals.push('WebDriver detected');
+        if (data.phantom) signals.push('PhantomJS detected');
+        if (data.selenium) signals.push('Selenium detected');
+        if (data.cdc) signals.push('CDP markers detected');
+        if (data.plugins === 0 && data.chrome) signals.push('Chrome with no plugins');
+        if (data.outerW === 0) signals.push('Zero outer dimensions');
+
+        details.innerHTML = signals.length ? signals.join(' | ') : 'No suspicious signals detected';
+    }
+
+    function fetchDetectionCheck() {
+        // Get current policy from mode selector
+        var policy = getSelectedMode();
+        var apiResponse = document.getElementById('apiResponse');
+
+        // In "realfast" mode (Real Experience), the API doesn't return debug JSON
+        // It either blocks bots or allows humans silently - no detailed response
+        if (policy === 'realfast') {
+            apiResponse.innerHTML = '<span style="color: #8b949e;">Real Experience mode - API returns minimal response (bots blocked, humans allowed silently).\n\nSwitch to a debug mode (Full Pipeline, Fast, UA Only, or Learning) to see detailed API response.</span>';
+            return;
+        }
+
+        // Build headers with policy
+        var headers = {'X-Bot-Policy': policy};
+
+        // If we have a stored test mode, include it so API result matches page render
+        var lastUA = sessionStorage.getItem('botTestLastUA');
+        if (lastUA) {
+            headers['ml-bot-test-ua'] = lastUA;
+        }
+
+        fetch('/bot-detection/check', {
+            headers: headers
+        })
+            .then(r => r.json())
+            .then(data => {
+                renderHighlightedJson(apiResponse, data);
+                // Update timing displays from API response
+                if (data.processingTimeMs !== undefined) {
+                    var timeStr = data.processingTimeMs.toFixed(1) + 'ms';
+                    document.getElementById('timingDisplay').textContent = timeStr;
+                    document.getElementById('processingTimeDisplay').textContent = timeStr;
+                }
+            })
+            .catch(e => {
+                apiResponse.innerHTML = '<span style="color: #da3633;">Error: ' + e.message + '</span>';
+            });
+    }
+
+    // Auto-fetch on load
+    setTimeout(fetchDetectionCheck, 500);
+
+    // ==========================================
+    // YARP Proxy Modal Functions
+    // ==========================================
+    // Note: Using 'var' instead of 'let' because HTMX body swaps re-execute this script
+    // and 'let' would throw "already declared" errors on subsequent swaps
+
+    var proxySession_Id = null;
+    var proxySessionRequests = [];
+    var proxySessionStartTime = null;
+    var proxyPollingInterval = null;
+
+    function generateProxySessionId() {
+        return 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    }
+
+    function openProxyModal() {
+        const urlInput = document.getElementById('proxyUrlInput');
+        const modal = document.getElementById('proxyModal');
+        const loading = document.getElementById('proxyLoading');
+        const iframe = document.getElementById('proxyIframe');
+        const requestsList = document.getElementById('proxyRequestsList');
+
+        let url = urlInput.value.trim();
+        if (!url) {
+            urlInput.focus();
+            urlInput.style.borderColor = '#da3633';
+            setTimeout(() => {
+                urlInput.style.borderColor = '#30363d';
+            }, 1000);
+            return;
+        }
+
+        // Normalize URL
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            url = 'https://' + url;
+        }
+
+        // CLEAR ALL STATE
+        proxySession_Id = generateProxySessionId();
+        proxySessionRequests = [];
+        proxySessionStartTime = Date.now();
+
+        // Clear previous polling
+        if (proxyPollingInterval) {
+            clearInterval(proxyPollingInterval);
+            proxyPollingInterval = null;
+        }
+
+        // Reset UI
+        document.getElementById('proxySessionId').textContent = proxySession_Id;
+        document.getElementById('proxyBotScore').textContent = '0.00';
+        document.getElementById('proxyBotScore').className = 'proxy-score-value proxy-score-human';
+        document.getElementById('proxyTotalRequests').textContent = '0';
+        document.getElementById('proxyHtmlCount').textContent = '0';
+        document.getElementById('proxyStaticCount').textContent = '0';
+        document.getElementById('proxyBotType').textContent = 'Human';
+        document.getElementById('proxySessionDuration').textContent = '0ms';
+        requestsList.innerHTML = '';
+
+        // Show modal and loading
+        modal.classList.add('active');
+        loading.classList.add('active');
+
+        // Load URL through proxy - keep the full URL with protocol
+        const proxyUrl = `/proxy/${url}`;
+        iframe.src = proxyUrl;
+
+        // Wait for sub-requests to complete
+        setTimeout(() => {
+            pollProxySessionData();
+            // Poll for 5 seconds to catch all sub-requests
+            let pollCount = 0;
+            proxyPollingInterval = setInterval(() => {
+                pollProxySessionData();
+                pollCount++;
+                if (pollCount >= 10) {
+                    clearInterval(proxyPollingInterval);
+                    loading.classList.remove('active');
+                }
+            }, 500);
+        }, 1000);
+    }
+
+    function closeProxyModal() {
+        const modal = document.getElementById('proxyModal');
+        modal.classList.remove('active');
+
+        // Clear polling
+        if (proxyPollingInterval) {
+            clearInterval(proxyPollingInterval);
+            proxyPollingInterval = null;
+        }
+
+        // Clear iframe
+        document.getElementById('proxyIframe').src = '';
+    }
+
+    async function pollProxySessionData() {
+        if (!proxySession_Id) return;
+
+        try {
+            const response = await fetch(`/api/v1/signature/${proxySession_Id}`);
+
+            if (response.ok) {
+                const data = await response.json();
+                updateProxyDisplayFromSignature(data);
+            }
+        } catch (error) {
+            console.error('Failed to fetch proxy session data:', error);
+        }
+    }
+
+    function updateProxyDisplayFromSignature(data) {
+        if (!data.behavior) return;
+
+        const behavior = data.behavior;
+
+        // Update bot score
+        const probability = behavior.averageBotProbability || 0;
+        const scoreEl = document.getElementById('proxyBotScore');
+        scoreEl.textContent = probability.toFixed(2);
+        scoreEl.className = 'proxy-score-value ' +
+            (probability > 0.7 ? 'proxy-score-bot' :
+                probability > 0.3 ? 'proxy-score-suspicious' :
+                    'proxy-score-human');
+
+        // Update stats
+        document.getElementById('proxyTotalRequests').textContent = behavior.requestCount || 0;
+        document.getElementById('proxyHtmlCount').textContent =
+            (behavior.requests?.filter(r => r.path.endsWith('.html') || !r.path.includes('.')).length || 0);
+        document.getElementById('proxyStaticCount').textContent =
+            (behavior.requests?.filter(r => r.path.includes('.') && !r.path.endsWith('.html')).length || 0);
+
+        // Determine bot type
+        const botType = behavior.isAberrant ? 'Aberrant Bot' :
+            (behavior.aberrationScore > 0.5 ? 'Suspicious' : 'Human');
+        document.getElementById('proxyBotType').textContent = botType;
+
+        // Update duration
+        const firstSeen = new Date(behavior.firstSeen);
+        const lastSeen = new Date(behavior.lastSeen);
+        const duration = lastSeen - firstSeen;
+        document.getElementById('proxySessionDuration').textContent = Math.round(duration) + 'ms';
+
+        // Update requests list
+        if (behavior.requests) {
+            proxySessionRequests = behavior.requests.map(r => ({
+                path: r.path,
+                type: r.path.includes('.') && !r.path.endsWith('.html') ? 'static' : 'html',
+                confidence: r.botProbability
+            }));
+            updateProxyRequestsList();
+        }
+    }
+
+    function updateProxyRequestsList() {
+        const requestsList = document.getElementById('proxyRequestsList');
+        requestsList.innerHTML = proxySessionRequests.map(req => `
+                <div class="proxy-request-item">
+                    <div class="proxy-request-path" title="${req.path}">${req.path}</div>
+                    <span class="proxy-request-type proxy-type-${req.type}">${req.type.toUpperCase()}</span>
+                    <span class="proxy-request-confidence">${req.confidence.toFixed(2)}</span>
+                </div>
+            `).join('');
+    }
+
+    // Close modal on Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeProxyModal();
+        }
+    });
+
+    // ==========================================
+    // Loading Modal - HTMX Integration
+    // ==========================================
+
+    // Show loading modal when any HTMX request starts
+    document.body.addEventListener('htmx:beforeRequest', function (evt) {
+        // Create or show loading modal (recreate if body was swapped)
+        let loadingModal = document.getElementById('loadingModal');
+        if (!loadingModal) {
+            loadingModal = createLoadingModal();
+            document.body.appendChild(loadingModal);
+        }
+        loadingModal.classList.add('active');
+    });
+
+    // Hide loading modal when HTMX request completes
+    document.body.addEventListener('htmx:afterSwap', function (evt) {
+        const loadingModal = document.getElementById('loadingModal');
+        if (loadingModal) {
+            loadingModal.classList.remove('active');
+        }
+    });
+
+    // Hide loading modal if request fails
+    document.body.addEventListener('htmx:responseError', function (evt) {
+        const loadingModal = document.getElementById('loadingModal');
+        if (loadingModal) {
+            loadingModal.classList.remove('active');
+        }
+    });
+
+    // Helper to create loading modal dynamically if needed
+    function createLoadingModal() {
+        const modal = document.createElement('div');
+        modal.id = 'loadingModal';
+        modal.className = 'loading-modal';
+        modal.innerHTML = `
+                <div class="loading-content">
+                    <div class="loading-spinner"></div>
+                    <div class="loading-text">Analyzing Request...</div>
+                    <div class="loading-subtext">Running bot detection pipeline</div>
+                </div>
+            `;
+        return modal;
+    }
+</script>
+</body>
+</html>

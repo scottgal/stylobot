@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <LangVersion>12</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+
+        <IsPackable>true</IsPackable>
+        <PackageId>mostlylucid.geodetection</PackageId>
+        <Authors>Scott Galloway</Authors>
+        <PackageIcon>icon.png</PackageIcon>
+        <RepositoryUrl>https://github.com/scottgal/mostlylucidweb/tree/main/Mostlylucid.GeoDetection</RepositoryUrl>
+        <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
+        <PackageTags>geolocation;geo-routing;middleware;aspnetcore;ip-location;country</PackageTags>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <Description>
+            Geographic location detection and routing middleware for ASP.NET Core applications with country-based routing and IP geolocation.
+        </Description>
+        <PackageReleaseNotes>$([System.IO.File]::ReadAllText("$(MSBuildProjectDirectory)/ReleaseNotes.txt"))</PackageReleaseNotes>
+        <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+    </PropertyGroup>
+    <PropertyGroup>
+        <MinVerTagPrefix>geodetection-v</MinVerTagPrefix>
+    </PropertyGroup>
+    <PropertyGroup>
+        <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="9.0.0"/>
+        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0"/>
+        <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.0"/>
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0"/>
+        <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.0"/>
+        <PackageReference Include="MaxMind.GeoIP2" Version="5.3.0"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0"/>
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.0"/>
+        <PackageReference Include="MinVer" Version="6.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="ReleaseNotes.txt"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Mostlylucid.Common\Mostlylucid.Common.csproj"/>
+    </ItemGroup>
+    <ItemGroup>
+        <None Include=".\icon.png" Pack="true" PackagePath="">
+            <Link>Properties\icon.png</Link>
+        </None>
+        <None Include=".\README.md" Pack="true" PackagePath="">
+            <Link>Properties\README.md</Link>
+        </None>
+    </ItemGroup>
+</Project>

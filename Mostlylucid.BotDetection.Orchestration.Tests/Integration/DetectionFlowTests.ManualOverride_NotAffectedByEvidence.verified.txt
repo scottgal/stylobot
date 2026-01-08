@@ -1,0 +1,22 @@
+{
+  afterBlock: {
+    Phase: After Manual Block,
+    State: ManuallyBlocked,
+    BotScore: 1.0,
+    IsManual: true,
+    Notes: Admin blocked this
+  },
+  afterHumanEvidence: {
+    Phase: After 100 Human Evidence Events,
+    State: ManuallyBlocked,
+    BotScore: 1.0,
+    IsManual: true,
+    Notes: Admin blocked this
+  },
+  afterTimeDecay: {
+    Phase: After 60-day Time Decay,
+    State: ManuallyBlocked,
+    BotScore: 1.0,
+    IsManual: true
+  }
+}

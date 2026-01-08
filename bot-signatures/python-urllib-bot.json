@@ -1,0 +1,177 @@
+{
+  "scenarioName": "python-urllib-bot",
+  "scenario": "A Python-based bot/scraper using urllib for user-agent \u0027python-urllib/3.11\u0027",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "python-urllib/3.11",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 5,
+    "delayAfterMs": {
+      "min": 30,
+      "max": 180
+    },
+    "pauseAfterBurstMs": {
+      "min": 600,
+      "max": 2400
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=3",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=4",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=5",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=6",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=7",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=8",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=9",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Bot",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 30,
+      "weight": 0.4
+    },
+    {
+      "signal": "requests_per_second",
+      "op": "\u003C",
+      "value": 2,
+      "weight": 0.3
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C180ms"
+  },
+  "reasoning": "This bot/scraper uses urllib to perform head requests on /admin and API endpoints with varying page parameters, which are characteristic of bots. It also includes GET requests for sensitive paths like /api/data that might not be indexed by humans."
+}

@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>Bot Detection Client-Side Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+
+        .status {
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+
+        .status.loading {
+            background: #FFF3CD;
+            color: #856404;
+            border: 1px solid #FFE69C;
+        }
+
+        .status.success {
+            background: #D4EDDA;
+            color: #155724;
+            border: 1px solid #C3E6CB;
+        }
+
+        .status.error {
+            background: #F8D7DA;
+            color: #721C24;
+            border: 1px solid #F5C6CB;
+        }
+
+        .status.bot {
+            background: #F8D7DA;
+            color: #721C24;
+            border: 2px solid #DC3545;
+        }
+
+        .status.human {
+            background: #D4EDDA;
+            color: #155724;
+            border: 2px solid #28A745;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 200px 1fr;
+            gap: 10px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+
+        .info-label {
+            font-weight: bold;
+            color: #666;
+        }
+
+        .info-value {
+            color: #333;
+            font-family: 'Courier New', monospace;
+        }
+
+        .check-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+            border-radius: 3px;
+        }
+
+        .check-item.fail {
+            border-left-color: #DC3545;
+        }
+
+        .json-display {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        button.secondary {
+            background: #2196F3;
+        }
+
+        button.secondary:hover {
+            background: #0b7dda;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🔍 Bot Detection Client-Side Test</h1>
+
+    <div class="status loading" id="status">
+        ⏳ Initializing bot detection...
+    </div>
+
+    <h2>Server-Side Detection</h2>
+    <div class="info-grid" id="server-info">
+        <div class="info-label">Detected as Bot:</div>
+        <div class="info-value" id="server-isbot">Loading...</div>
+
+        <div class="info-label">Confidence Score:</div>
+        <div class="info-value" id="server-probability">Loading...</div>
+
+        <div class="info-label">Bot Name:</div>
+        <div class="info-value" id="server-botname">Loading...</div>
+
+        <div class="info-label">Callback URL:</div>
+        <div class="info-value" id="callback-url">Loading...</div>
+    </div>
+
+    <h2>Client-Side Checks</h2>
+    <div id="client-checks">
+        <div class="check-item" id="check-canvas">
+            <strong>Canvas API:</strong> <span id="canvas-result">Checking...</span>
+        </div>
+        <div class="check-item" id="check-webgl">
+            <strong>WebGL:</strong> <span id="webgl-result">Checking...</span>
+        </div>
+        <div class="check-item" id="check-audio">
+            <strong>Audio Context:</strong> <span id="audio-result">Checking...</span>
+        </div>
+        <div class="check-item" id="check-plugins">
+            <strong>Navigator Plugins:</strong> <span id="plugins-result">Checking...</span>
+        </div>
+        <div class="check-item" id="check-languages">
+            <strong>Languages:</strong> <span id="languages-result">Checking...</span>
+        </div>
+        <div class="check-item" id="check-screen">
+            <strong>Screen Info:</strong> <span id="screen-result">Checking...</span>
+        </div>
+        <div class="check-item" id="check-touch">
+            <strong>Touch Support:</strong> <span id="touch-result">Checking...</span>
+        </div>
+        <div class="check-item" id="check-hardware">
+            <strong>Hardware Concurrency:</strong> <span id="hardware-result">Checking...</span>
+        </div>
+    </div>
+
+    <h2>Client-Side Detection Result</h2>
+    <div class="json-display" id="client-result">
+        Running client-side checks...
+    </div>
+
+    <h2>Callback Response</h2>
+    <div class="json-display" id="callback-response">
+        Waiting for callback...
+    </div>
+
+    <div style="margin-top: 30px;">
+        <button onclick="runDetection()">🔄 Re-run Detection</button>
+        <button class="secondary" onclick="location.reload()">🔃 Full Reload</button>
+    </div>
+</div>
+
+<script>
+    // Global results storage
+    let serverHeaders = {};
+    let clientChecks = {};
+    let callbackUrl = null;
+
+    async function runDetection() {
+        document.getElementById('status').className = 'status loading';
+        document.getElementById('status').textContent = '⏳ Running detection...';
+
+        try {
+            // Step 1: Get server-side detection headers
+            const response = await fetch(window.location.href, {
+                method: 'HEAD',
+                cache: 'no-cache'
+            });
+
+            // Extract server-side detection results from headers
+            serverHeaders = {
+                isBot: response.headers.get('X-Bot-Detection'),
+                probability: response.headers.get('X-Bot-Probability'),
+                botName: response.headers.get('X-Bot-Name'),
+                botType: response.headers.get('X-Bot-Type')
+            };
+            callbackUrl = response.headers.get('X-Bot-Detection-Callback-Url');
+
+            // Update server-side display
+            document.getElementById('server-isbot').textContent = serverHeaders.isBot || 'Not detected';
+            document.getElementById('server-probability').textContent = serverHeaders.probability || 'N/A';
+            document.getElementById('server-botname').textContent = serverHeaders.botName || 'None';
+            document.getElementById('callback-url').textContent = callbackUrl || 'Not provided';
+
+            // Step 2: Run client-side checks
+            clientChecks = await runClientSideChecks();
+
+            // Display client-side results
+            document.getElementById('client-result').textContent = JSON.stringify(clientChecks, null, 2);
+
+            // Step 3: Send results to callback URL
+            if (callbackUrl) {
+                const callbackPayload = {
+                    timestamp: new Date().toISOString(),
+                    serverDetection: serverHeaders,
+                    clientChecks: clientChecks,
+                    userAgent: navigator.userAgent,
+                    referrer: document.referrer
+                };
+
+                const callbackResponse = await fetch(callbackUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(callbackPayload)
+                });
+
+                const callbackResult = await callbackResponse.json();
+                document.getElementById('callback-response').textContent = JSON.stringify(callbackResult, null, 2);
+
+                // Update final status
+                const isBot = serverHeaders.isBot === 'True';
+                document.getElementById('status').className = isBot ? 'status bot' : 'status human';
+                document.getElementById('status').textContent = isBot
+                    ? `🤖 Server detected you as a BOT (confidence: ${serverHeaders.probability})`
+                    : `✅ Server detected you as HUMAN (confidence: ${1 - parseFloat(serverHeaders.probability || 0)})`;
+
+            } else {
+                document.getElementById('callback-response').textContent = 'No callback URL provided by server';
+                document.getElementById('status').className = 'status error';
+                document.getElementById('status').textContent = '❌ No callback URL - cannot send client-side results';
+            }
+
+        } catch (error) {
+            console.error('Detection error:', error);
+            document.getElementById('status').className = 'status error';
+            document.getElementById('status').textContent = '❌ Error: ' + error.message;
+            document.getElementById('callback-response').textContent = 'Error: ' + error.message;
+        }
+    }
+
+    async function runClientSideChecks() {
+        const checks = {};
+
+        // Canvas fingerprinting
+        try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            checks.hasCanvas = !!ctx;
+
+            if (ctx) {
+                canvas.width = 200;
+                canvas.height = 50;
+                ctx.textBaseline = 'top';
+                ctx.font = '14px Arial';
+                ctx.fillStyle = '#f60';
+                ctx.fillRect(125, 1, 62, 20);
+                ctx.fillStyle = '#069';
+                ctx.fillText('BotDetection Test 🤖', 2, 15);
+                checks.canvasFingerprint = canvas.toDataURL().substring(0, 100) + '...';
+            }
+
+            updateCheckResult('canvas', true, `Canvas API available, fingerprint generated`);
+        } catch (e) {
+            checks.hasCanvas = false;
+            checks.canvasError = e.message;
+            updateCheckResult('canvas', false, `Canvas check failed: ${e.message}`);
+        }
+
+        // WebGL
+        try {
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            checks.hasWebGL = !!gl;
+
+            if (gl) {
+                checks.webglVendor = gl.getParameter(gl.VENDOR);
+                checks.webglRenderer = gl.getParameter(gl.RENDERER);
+            }
+
+            updateCheckResult('webgl', !!gl, gl ? `WebGL available (${checks.webglVendor})` : 'WebGL not available');
+        } catch (e) {
+            checks.hasWebGL = false;
+            checks.webglError = e.message;
+            updateCheckResult('webgl', false, `WebGL check failed: ${e.message}`);
+        }
+
+        // Audio Context
+        try {
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            checks.hasAudioContext = !!AudioContext;
+
+            if (AudioContext) {
+                const audioCtx = new AudioContext();
+                const oscillator = audioCtx.createOscillator();
+                const analyser = audioCtx.createAnalyser();
+                const gainNode = audioCtx.createGain();
+                const scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+
+                gainNode.gain.value = 0;
+                oscillator.connect(analyser);
+                analyser.connect(scriptProcessor);
+                scriptProcessor.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+
+                oscillator.start(0);
+
+                checks.audioFingerprint = audioCtx.sampleRate.toString();
+
+                audioCtx.close();
+            }
+
+            updateCheckResult('audio', checks.hasAudioContext, `Audio Context available (${checks.audioFingerprint} Hz)`);
+        } catch (e) {
+            checks.hasAudioContext = false;
+            checks.audioError = e.message;
+            updateCheckResult('audio', false, `Audio check failed: ${e.message}`);
+        }
+
+        // Plugins
+        checks.pluginCount = navigator.plugins ? navigator.plugins.length : 0;
+        checks.plugins = Array.from(navigator.plugins || []).map(p => p.name);
+        updateCheckResult('plugins', checks.pluginCount > 0, `${checks.pluginCount} plugins detected`);
+
+        // Languages
+        checks.languages = navigator.languages || [navigator.language];
+        checks.language = navigator.language;
+        updateCheckResult('languages', true, `Languages: ${checks.languages.join(', ')}`);
+
+        // Screen info
+        checks.screen = {
+            width: screen.width,
+            height: screen.height,
+            availWidth: screen.availWidth,
+            availHeight: screen.availHeight,
+            colorDepth: screen.colorDepth,
+            pixelDepth: screen.pixelDepth
+        };
+        updateCheckResult('screen', true, `${screen.width}x${screen.height}, ${screen.colorDepth}-bit`);
+
+        // Touch support
+        checks.maxTouchPoints = navigator.maxTouchPoints || 0;
+        checks.touchSupport = 'ontouchstart' in window;
+        updateCheckResult('touch', true, `${checks.maxTouchPoints} touch points, touchstart: ${checks.touchSupport}`);
+
+        // Hardware concurrency
+        checks.hardwareConcurrency = navigator.hardwareConcurrency || 0;
+        updateCheckResult('hardware', true, `${checks.hardwareConcurrency} CPU cores`);
+
+        // Additional checks
+        checks.platform = navigator.platform;
+        checks.vendor = navigator.vendor;
+        checks.cookieEnabled = navigator.cookieEnabled;
+        checks.doNotTrack = navigator.doNotTrack;
+        checks.timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        checks.timezoneOffset = new Date().getTimezoneOffset();
+
+        return checks;
+    }
+
+    function updateCheckResult(checkId, passed, message) {
+        const element = document.getElementById(`check-${checkId}`);
+        const resultElement = document.getElementById(`${checkId}-result`);
+
+        if (element && resultElement) {
+            element.className = passed ? 'check-item' : 'check-item fail';
+            resultElement.textContent = message;
+        }
+    }
+
+    // Run detection on page load
+    window.addEventListener('load', runDetection);
+</script>
+</body>
+</html>

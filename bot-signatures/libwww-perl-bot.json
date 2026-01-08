@@ -1,0 +1,136 @@
+{
+  "scenarioName": "libwww-perl-bot",
+  "scenario": "A bot/scraper utilizing libwww-perl for web scraping, exhibiting behavioral characteristics.",
+  "confidence": 0.9,
+  "clientProfile": {
+    "userAgent": "libwww-perl/6.67",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 5,
+    "delayAfterMs": {
+      "min": 30,
+      "max": 120
+    },
+    "pauseAfterBurstMs": {
+      "min": 400,
+      "max": 1600
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/403",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/404",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/429",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Bot",
+    "LibWWW-Perl"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 100,
+      "weight": 0.4
+    },
+    {
+      "signal": "request_count_per_minute",
+      "op": "\u003E=",
+      "value": 20,
+      "weight": 0.6
+    }
+  ],
+  "patterns": {
+    "burstRequests": "5 \u003C 15"
+  },
+  "reasoning": "This bot/scraper uses libwww-perl to interact with the site, following a pattern of requests that mimics the typical behavior of bots."
+}

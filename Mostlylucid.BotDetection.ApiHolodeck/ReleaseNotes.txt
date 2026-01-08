@@ -1,0 +1,7 @@
+v1.0.0 - Initial Release
+- HolodeckActionPolicy: Redirect detected bots to fake API endpoints powered by MockLLMApi
+- HoneypotLinkContributor: Detect when bots follow hidden honeypot links
+- HoneypotReporter: Report malicious IPs to Project Honeypot
+- Integration with mostlylucid.mockllmapi for LLM-powered fake responses
+- Configurable modes: realistic, realistic-but-useless, chaos, strict-schema
+- Context-based fake worlds per bot fingerprint

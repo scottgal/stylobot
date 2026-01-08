@@ -1,0 +1,233 @@
+@model Mostlylucid.BotDetection.UI.Models.DetectionDisplayModel
+
+@if (!Model.HasData)
+{
+    <div class="bot-detection-no-data">
+        <p>No bot detection data available</p>
+    </div>
+    return;
+}
+
+<div class="bot-detection-container">
+    <!-- Header -->
+    <div class="bot-detection-header">
+        <div class="bot-detection-status @(Model.IsBot ? "is-bot" : "is-human")">
+            <span class="status-icon">@(Model.IsBot ? "🤖" : "👤")</span>
+            <span class="status-text">@(Model.IsBot ? "Bot" : "Human")</span>
+        </div>
+        <div class="bot-detection-score">
+            <div class="score-label">Bot Probability</div>
+            <div class="score-value">@Model.BotProbability.ToString("P1")</div>
+        </div>
+        <div class="bot-detection-confidence">
+            <div class="confidence-label">Confidence</div>
+            <div class="confidence-value">@Model.Confidence.ToString("P1")</div>
+        </div>
+        <div class="bot-detection-risk">
+            <div class="risk-label">Risk Band</div>
+            <div class="risk-value risk-@Model.RiskBand.ToLower()">@Model.RiskBand</div>
+        </div>
+    </div>
+
+    <!-- Metadata -->
+    @if (!string.IsNullOrEmpty(Model.BotType) || !string.IsNullOrEmpty(Model.PolicyName) || !string.IsNullOrEmpty(Model.Action))
+    {
+        <div class="bot-detection-metadata">
+            @if (!string.IsNullOrEmpty(Model.BotType))
+            {
+                <div class="metadata-item">
+                    <span class="metadata-label">Bot Type:</span>
+                    <span class="metadata-value">@Model.BotType</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(Model.BotName))
+            {
+                <div class="metadata-item">
+                    <span class="metadata-label">Bot Name:</span>
+                    <span class="metadata-value">@Model.BotName</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(Model.PolicyName))
+            {
+                <div class="metadata-item">
+                    <span class="metadata-label">Policy:</span>
+                    <span class="metadata-value">@Model.PolicyName</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(Model.Action))
+            {
+                <div class="metadata-item">
+                    <span class="metadata-label">Action:</span>
+                    <span class="metadata-value action-@Model.Action.ToLower()">@Model.Action</span>
+                </div>
+            }
+            <div class="metadata-item">
+                <span class="metadata-label">Processing Time:</span>
+                <span class="metadata-value">@Model.ProcessingTimeMs.ToString("F2")ms</span>
+            </div>
+        </div>
+    }
+
+    <!-- YARP Info (if behind proxy) -->
+    @if (!string.IsNullOrEmpty(Model.YarpCluster) || !string.IsNullOrEmpty(Model.YarpDestination))
+    {
+        <div class="bot-detection-yarp">
+            <div class="yarp-label">YARP Proxy</div>
+            @if (!string.IsNullOrEmpty(Model.YarpCluster))
+            {
+                <div class="yarp-item">
+                    <span class="yarp-key">Cluster:</span>
+                    <span class="yarp-value">@Model.YarpCluster</span>
+                </div>
+            }
+            @if (!string.IsNullOrEmpty(Model.YarpDestination))
+            {
+                <div class="yarp-item">
+                    <span class="yarp-key">Destination:</span>
+                    <span class="yarp-value">@Model.YarpDestination</span>
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Multi-Factor Signatures -->
+    @if (Model.Signatures != null)
+    {
+        <div class="bot-detection-signatures">
+            <h4 class="signatures-title">🔐 Multi-Factor Signatures</h4>
+
+            <div class="signatures-explanation">
+                @Model.Signatures.Explanation
+            </div>
+
+            @if (Model.Signatures.AvailableFactors.Any())
+            {
+                <div class="signatures-factors">
+                    <div class="factors-label">Available Signature Factors (@Model.Signatures.FactorCount):</div>
+                    <div class="factors-list">
+                        @if (!string.IsNullOrEmpty(Model.Signatures.PrimarySignature))
+                        {
+                            <div class="factor-item">
+                                <span class="factor-name">Primary (IP+UA):</span>
+                                <code class="factor-hash">@Model.Signatures.PrimarySignature</code>
+                                <span class="factor-desc">Main identity - exact same client</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(Model.Signatures.IpSignature))
+                        {
+                            <div class="factor-item">
+                                <span class="factor-name">IP:</span>
+                                <code class="factor-hash">@Model.Signatures.IpSignature</code>
+                                <span class="factor-desc">Handles browser updates</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(Model.Signatures.UaSignature))
+                        {
+                            <div class="factor-item">
+                                <span class="factor-name">User-Agent:</span>
+                                <code class="factor-hash">@Model.Signatures.UaSignature</code>
+                                <span class="factor-desc">Handles dynamic IPs (mobile)</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(Model.Signatures.ClientSideSignature))
+                        {
+                            <div class="factor-item">
+                                <span class="factor-name">Browser Fingerprint:</span>
+                                <code class="factor-hash">@Model.Signatures.ClientSideSignature</code>
+                                <span class="factor-desc">Most stable - hardware-based</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(Model.Signatures.PluginSignature))
+                        {
+                            <div class="factor-item">
+                                <span class="factor-name">Browser Config:</span>
+                                <code class="factor-hash">@Model.Signatures.PluginSignature</code>
+                                <span class="factor-desc">Plugins & extensions</span>
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(Model.Signatures.IpSubnetSignature))
+                        {
+                            <div class="factor-item">
+                                <span class="factor-name">Network Subnet:</span>
+                                <code class="factor-hash">@Model.Signatures.IpSubnetSignature</code>
+                                <span class="factor-desc">Datacenter/corporate grouping</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <div class="signatures-privacy-note">
+                    <strong>🔒 Privacy:</strong> All signatures are HMAC-SHA256 hashed - non-reversible and privacy-safe.
+                    Raw IPs and user-agents are never stored, only these cryptographic hashes.
+                </div>
+            }
+        </div>
+    }
+
+    <!-- Top Reasons -->
+    @if (Model.TopReasons.Any())
+    {
+        <div class="bot-detection-reasons">
+            <h4 class="reasons-title">Detection Reasons</h4>
+            <ul class="reasons-list">
+                @foreach (var reason in Model.TopReasons)
+                {
+                    <li class="reason-item">@reason</li>
+                }
+            </ul>
+        </div>
+    }
+
+    <!-- Detector Contributions -->
+    @if (Model.DetectorContributions.Any())
+    {
+        <div class="bot-detection-contributions">
+            <h4 class="contributions-title">Detector Contributions</h4>
+            <div class="contributions-list">
+                @foreach (var detector in Model.DetectorContributions)
+                {
+                    var contributionPercent = detector.Contribution * 100;
+                    var contributionClass = detector.Contribution > 0 ? "positive" : "negative";
+                    var barWidth = Math.Min(Math.Abs(contributionPercent), 100);
+
+                    <div class="contribution-item">
+                        <div class="contribution-header">
+                            <div class="contribution-name">
+                                <span class="detector-name">@detector.Name</span>
+                                <span class="detector-category">(@detector.Category)</span>
+                            </div>
+                            <div class="contribution-value @contributionClass">
+                                @contributionPercent.ToString("+0.0;-0.0;0")%
+                            </div>
+                        </div>
+                        <div class="contribution-bar-container">
+                            <div class="contribution-bar @contributionClass" style="width: @barWidth%"></div>
+                        </div>
+                        @if (!string.IsNullOrEmpty(detector.Reason))
+                        {
+                            <div class="contribution-reason">@detector.Reason</div>
+                        }
+                        <div class="contribution-stats">
+                            <span class="stat">Delta: @detector.ConfidenceDelta.ToString("F3")</span>
+                            <span class="stat">Weight: @detector.Weight.ToString("F2")</span>
+                            <span class="stat">Time: @detector.ExecutionTimeMs.ToString("F2")ms</span>
+                            <span class="stat">Priority: @detector.Priority</span>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Footer -->
+    <div class="bot-detection-footer">
+        <div class="footer-item">
+            <span class="footer-label">Request ID:</span>
+            <span class="footer-value">@Model.RequestId</span>
+        </div>
+        <div class="footer-item">
+            <span class="footer-label">Timestamp:</span>
+            <span class="footer-value">@Model.Timestamp.ToString("yyyy-MM-dd HH:mm:ss UTC")</span>
+        </div>
+    </div>
+</div>

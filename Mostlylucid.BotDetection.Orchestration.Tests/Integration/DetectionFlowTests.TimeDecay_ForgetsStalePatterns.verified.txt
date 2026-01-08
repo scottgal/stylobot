@@ -1,0 +1,14 @@
+{
+  before: {
+    Phase: Before Decay,
+    State: ConfirmedBad,
+    BotScore: 0.95,
+    Support: 200.0
+  },
+  after: {
+    Phase: After 30-day Decay,
+    State: ConfirmedBad,
+    BotScore: 0.51,
+    Support: 23.0
+  }
+}

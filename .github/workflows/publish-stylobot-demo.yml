@@ -1,0 +1,138 @@
+name: Publish Stylobot Demo Docker Image
+
+on:
+  push:
+    tags:
+      - 'demo-v*'
+      - 'allbot-v*.*.*'
+    paths:
+      - 'Mostlylucid.BotDetection.Demo/**'
+      - 'Mostlylucid.BotDetection/**'
+      - 'Mostlylucid.BotDetection.UI/**'
+      - '.github/workflows/publish-stylobot-demo.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: scottgal/stylobot-demo
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Extract version and date
+        id: get_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            # Handle both demo-v* and allbot-v* tags
+            TAG=${GITHUB_REF#refs/tags/}
+            if [[ "$TAG" == demo-v* ]]; then
+              VERSION=${TAG#demo-v}
+            else
+              VERSION=${TAG#allbot-v}
+            fi
+          fi
+          DATE=$(date +%Y%m%d)
+          
+          # Check if this is a preview/prerelease version
+          if [[ "$VERSION" == *"-"* ]]; then
+            IS_PRERELEASE="true"
+          else
+            IS_PRERELEASE="false"
+          fi
+          
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "DATE=$DATE" >> $GITHUB_OUTPUT
+          echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION (date: $DATE, prerelease: $IS_PRERELEASE)"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.get_version.outputs.VERSION }}
+            type=raw,value=${{ steps.get_version.outputs.DATE }}
+            type=raw,value=latest,enable=${{ steps.get_version.outputs.IS_PRERELEASE == 'false' }}
+          labels: |
+            org.opencontainers.image.title=Stylobot Demo
+            org.opencontainers.image.description=Interactive bot detection demo with full detection pipeline
+            org.opencontainers.image.vendor=Mostlylucid
+            org.opencontainers.image.version=${{ steps.get_version.outputs.VERSION }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Mostlylucid.BotDetection.Demo/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_VERSION=${{ steps.get_version.outputs.VERSION }}
+
+      - name: Image digest
+        run: |
+          echo "✅ Docker image pushed successfully!"
+          echo "Image: ${{ env.IMAGE_NAME }}"
+          echo "Version: ${{ steps.get_version.outputs.VERSION }}"
+          echo "Tags: ${{ steps.meta.outputs.tags }}"
+          echo "Digest: ${{ steps.build-push.outputs.digest }}"
+
+      - name: Create summary
+        run: |
+          echo "## 🚀 Stylobot Demo Docker Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`${{ steps.get_version.outputs.VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Quick Start" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# Pull and run" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -p 5000:5000 ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Or use docker-compose" >> $GITHUB_STEP_SUMMARY
+          echo "docker-compose up -d" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Access" >> $GITHUB_STEP_SUMMARY
+          echo "- Demo UI: http://localhost:5000" >> $GITHUB_STEP_SUMMARY
+          echo "- Bot Test: http://localhost:5000/bot-test" >> $GITHUB_STEP_SUMMARY
+          echo "- Health: http://localhost:5000/health" >> $GITHUB_STEP_SUMMARY

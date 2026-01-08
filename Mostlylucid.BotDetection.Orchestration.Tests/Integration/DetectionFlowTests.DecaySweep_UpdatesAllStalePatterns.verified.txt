@@ -1,0 +1,14 @@
+{
+  StalePattern: {
+    PatternId: ua:stale1,
+    BotScore: 0.55,
+    Support: 37.0,
+    State: ConfirmedBad
+  },
+  FreshPattern: {
+    PatternId: ua:fresh1,
+    BotScore: 0.9,
+    Support: 100.0,
+    State: ConfirmedBad
+  }
+}

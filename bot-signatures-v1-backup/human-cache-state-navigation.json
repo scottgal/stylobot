@@ -1,0 +1,78 @@
+{
+  "scenarioName": "human-cache-state-navigation",
+  "scenario": "Simulates a real human browsing with deliberate delays and natural path exploration while maintaining cache state consistency",
+  "confidence": 0.98,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Accept": "text/html,application/xhtml\u002Bxml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Cache-Control": "max-age=0",
+        "Connection": "keep-alive"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 15
+    },
+    {
+      "timestamp": 15,
+      "method": "GET",
+      "path": "/search?q=human\u002Bbehavior\u002Bcache",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Referer": "https://example.com/",
+        "Connection": "keep-alive"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 22
+    },
+    {
+      "timestamp": 37,
+      "method": "GET",
+      "path": "/about",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Accept": "text/html",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 12
+    },
+    {
+      "timestamp": 49,
+      "method": "GET",
+      "path": "/contact",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Cookie": "session_id=abc123; cache_version=1.2",
+        "Connection": "keep-alive"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 8
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 2-30s (avg ~15s) with natural pauses",
+    "pathSequence": "logical navigation: root \u2192 search \u2192 about \u2192 contact (cache-sensitive pages)",
+    "headersBehavior": {
+      "cacheControl": "consistent max-age=0 for fresh data, variable for static assets",
+      "referer": "only present for search requests",
+      "accept": "adaptive based on content type"
+    }
+  },
+  "reasoning": [
+    "1. **Variable Delays**: Human-like pauses (12s-22s) simulate real cognitive processing between requests.",
+    "2. **Logical Path**: Follows a natural browsing pattern (root \u2192 search \u2192 about \u2192 contact) with intentional exploration.",
+    "3. **Cache State Consistency**: Uses \u0060max-age=0\u0060 for dynamic content (search) while maintaining cookies/headers for static pages (about/contact).",
+    "4. **Adaptive Headers**: Varies \u0060Accept\u0060 and \u0060Referer\u0060 based on context (e.g., JSON for search, HTML for about).",
+    "5. **No Predictable Patterns**: No rapid successive requests or uniform delays, avoiding bot-like behavior."
+  ]
+}

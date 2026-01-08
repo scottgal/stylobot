@@ -1,0 +1,54 @@
+{
+  "scenarioName": "fast_sequential_content_scraping",
+  "scenario": "High-speed sequential requests to multiple pages with identical User-Agent, indicative of automated scraping for content extraction.",
+  "confidence": 0.92,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/products",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.05
+    },
+    {
+      "timestamp": 0.05,
+      "method": "GET",
+      "path": "/products/123",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.03
+    },
+    {
+      "timestamp": 0.08,
+      "method": "GET",
+      "path": "/reviews?page=2",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.02
+    },
+    {
+      "timestamp": 0.1,
+      "method": "GET",
+      "path": "/blog?category=technology",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 0.01
+    }
+  ],
+  "patterns": {
+    "requestInterval": "consistently \u003C0.1s between requests",
+    "pathSequence": "targeted, sequential scraping of related content (products, reviews, blog)",
+    "userAgentPattern": "repeated identical axios/1.6.2 User-Agent",
+    "expectedStatus": "all requests return 200 (indicating active probing)"
+  },
+  "reasoning": "The scenario exhibits rapid, low-delay requests with identical User-Agent strings across multiple related endpoints. This behavior is characteristic of automated scrapers that systematically extract content for analysis or aggregation. The lack of delays, repeated identical headers, and sequential path exploration strongly suggest bot-like activity rather than human interaction."
+}

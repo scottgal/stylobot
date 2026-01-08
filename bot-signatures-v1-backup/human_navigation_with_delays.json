@@ -1,0 +1,63 @@
+{
+  "scenarioName": "human_navigation_with_delays",
+  "scenario": "Simulates a real human browsing pattern with organic delays and natural path exploration on a website",
+  "confidence": 0.98,
+  "requests": [
+    {
+      "timestamp": 0,
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 10
+    },
+    {
+      "timestamp": 10,
+      "method": "GET",
+      "path": "/search?q=human\u002Bbehavior\u002Bdetector",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 15
+    },
+    {
+      "timestamp": 25,
+      "method": "GET",
+      "path": "/about",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 20
+    },
+    {
+      "timestamp": 45,
+      "method": "GET",
+      "path": "/blog/2023/09/ai-detection-patterns",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 5
+    },
+    {
+      "timestamp": 50,
+      "method": "GET",
+      "path": "/contact",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      },
+      "expectedStatus": 200,
+      "delayAfter": 12
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 5-30s (with occasional longer pauses)",
+    "pathSequence": "mix of direct navigation (search) and exploratory (about, blog, contact) paths",
+    "behavioral": "randomized delays, no rapid successive requests, natural typing pauses"
+  },
+  "reasoning": "This mimics a human\u0027s unpredictable but organic browsing: a mix of intentional searches (e.g., \u0027/search?q=...\u0027) and exploratory clicks (e.g., \u0027/about\u0027, \u0027/blog\u0027). Delays vary widely (5s\u201330s) to avoid bot-like precision timing. No consecutive requests occur within seconds, and paths are not strictly sequential, reflecting real-world hesitation and curiosity."
+}

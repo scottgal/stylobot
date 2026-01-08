@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net9.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+
+        <!-- NuGet Package Metadata -->
+        <PackageId>Mostlylucid.BotDetection.ApiHolodeck</PackageId>
+        <Version>1.0.0</Version>
+        <Authors>Scott Galloway</Authors>
+        <Company>Mostlylucid</Company>
+        <Description>API Holodeck extension for Mostlylucid.BotDetection - honeypot API simulation using LLM-powered mock responses. Includes: HolodeckActionPolicy (redirect bots to fake APIs), HoneypotContributor (detect honeypot link followers), and Project Honeypot data submission.</Description>
+        <PackageTags>bot-detection;honeypot;holodeck;api-mocking;llm;security;anti-scraping</PackageTags>
+        <PackageProjectUrl>https://github.com/scottgal/mostlylucid.nugetpackages</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/scottgal/mostlylucid.nugetpackages</RepositoryUrl>
+        <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageReleaseNotes>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)/ReleaseNotes.txt'))</PackageReleaseNotes>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <None Include="README.md" Pack="true" PackagePath="\"/>
+        <None Include="ReleaseNotes.txt" Pack="false"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Core BotDetection dependency -->
+        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- MockLLMApi for LLM-powered fake responses -->
+        <PackageReference Include="mostlylucid.mockllmapi" Version="2.1.0"/>
+    </ItemGroup>
+
+</Project>

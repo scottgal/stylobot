@@ -1,0 +1,183 @@
+{
+  "scenarioName": "playwright-botscraper",
+  "scenario": "A bot using Playwright to scrape a website by enumerating pages and bypassing robot.txt.",
+  "confidence": 0.9,
+  "clientProfile": {
+    "userAgent": "Playwright/1.40.0 (node)",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 5,
+    "delayAfterMs": {
+      "min": 40,
+      "max": 120
+    },
+    "pauseAfterBurstMs": {
+      "min": 700,
+      "max": 3000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "Playwright/1.40.0 (node)"
+      },
+      "expectedStatusAny": [
+        200
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api",
+      "headers": {
+        "User-Agent": "Playwright/1.40.0 (node)"
+      },
+      "expectedStatusAny": [
+        200
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "Playwright/1.40.0 (node)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "Playwright/1.40.0 (node)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=3",
+      "headers": {
+        "User-Agent": "Playwright/1.40.0 (node)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=4",
+      "headers": {
+        "User-Agent": "Playwright/1.40.0 (node)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=5",
+      "headers": {
+        "User-Agent": "Playwright/1.40.0 (node)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=6",
+      "headers": {
+        "User-Agent": "Playwright/1.40.0 (node)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=7",
+      "headers": {
+        "User-Agent": "Playwright/1.40.0 (node)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=8",
+      "headers": {
+        "User-Agent": "Playwright/1.40.0 (node)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Bot",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 100,
+      "weight": 0.3
+    },
+    {
+      "signal": "requests_per_minute",
+      "op": "\u003E=",
+      "value": 20,
+      "weight": 0.4
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "The bot uses Playwright to aggressively enumerate pages and bypasses robot.txt by attempting to access sensitive APIs."
+}

@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>Bot Detection Demo</title>
+    <style>
+        :root {
+            --green-50: #f0fdf4;
+            --green-100: #dcfce7;
+            --green-200: #bbf7d0;
+            --green-300: #86efac;
+            --green-400: #4ade80;
+            --green-500: #22c55e;
+            --green-600: #16a34a;
+            --green-700: #15803d;
+            --green-800: #166534;
+            --green-900: #14532d;
+            --gray-50: #f9fafb;
+            --gray-100: #f3f4f6;
+            --gray-200: #e5e7eb;
+            --gray-300: #d1d5db;
+            --gray-600: #4b5563;
+            --gray-700: #374151;
+            --gray-800: #1f2937;
+            --gray-900: #111827;
+            --red-500: #ef4444;
+            --red-100: #fee2e2;
+            --yellow-500: #eab308;
+            --yellow-100: #fef9c3;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, var(--green-50) 0%, var(--gray-50) 100%);
+            min-height: 100vh;
+            color: var(--gray-800);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 2rem;
+            padding: 2rem;
+            background: linear-gradient(135deg, var(--green-600) 0%, var(--green-700) 100%);
+            border-radius: 1rem;
+            color: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .card {
+            background: white;
+            border-radius: 0.75rem;
+            padding: 1rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--gray-200);
+        }
+
+        .card h2 {
+            color: var(--green-700);
+            font-size: 1rem;
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--green-200);
+        }
+
+        .card h3 {
+            color: var(--gray-700);
+            font-size: 0.875rem;
+            margin: 0.75rem 0 0.5rem;
+        }
+
+        label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 0.25rem;
+            color: var(--gray-700);
+            font-size: 0.8rem;
+        }
+
+        input, select, textarea {
+            width: 100%;
+            padding: 0.375rem 0.5rem;
+            border: 1px solid var(--gray-300);
+            border-radius: 0.375rem;
+            font-size: 0.8rem;
+            margin-bottom: 0.5rem;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--green-500);
+            box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 50px;
+            font-family: monospace;
+        }
+
+        button {
+            background: linear-gradient(135deg, var(--green-500) 0%, var(--green-600) 100%);
+            color: white;
+            border: none;
+            padding: 0.625rem 1.25rem;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: transform 0.1s, box-shadow 0.15s;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button.secondary {
+            background: var(--gray-100);
+            color: var(--gray-700);
+            border: 1px solid var(--gray-300);
+        }
+
+        button.secondary:hover {
+            background: var(--gray-200);
+        }
+
+        .btn-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .btn-small {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.75rem;
+        }
+
+        .result-box {
+            background: var(--gray-50);
+            border: 1px solid var(--gray-200);
+            border-radius: 0.5rem;
+            padding: 0.5rem;
+            margin-top: 0.5rem;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .result-box pre {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 0.7rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .status-human {
+            background: var(--green-100);
+            color: var(--green-700);
+        }
+
+        .status-bot {
+            background: var(--red-100);
+            color: var(--red-500);
+        }
+
+        .status-verified {
+            background: var(--yellow-100);
+            color: var(--yellow-500);
+        }
+
+        .current-status {
+            background: var(--green-50);
+            border: 1px solid var(--green-200);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .current-status h3 {
+            margin: 0 0 0.75rem;
+            color: var(--green-700);
+            font-size: 1.1rem;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.5rem;
+            text-align: center;
+        }
+
+        .stat-item {
+            padding: 0.5rem;
+            background: white;
+            border-radius: 0.375rem;
+        }
+
+        .stat-value {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--green-600);
+        }
+
+        .stat-label {
+            font-size: 0.65rem;
+            color: var(--gray-600);
+            text-transform: uppercase;
+        }
+
+        .ua-preset {
+            cursor: pointer;
+            padding: 0.375rem;
+            border-radius: 0.375rem;
+            border: 1px solid var(--gray-200);
+            margin-bottom: 0.375rem;
+            transition: background 0.15s;
+            font-size: 0.75rem;
+        }
+
+        .ua-preset:hover {
+            background: var(--green-50);
+            border-color: var(--green-300);
+        }
+
+        .ua-preset .name {
+            font-weight: 600;
+            color: var(--green-700);
+        }
+
+        .ua-preset .type {
+            font-size: 0.65rem;
+            color: var(--gray-600);
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid var(--gray-200);
+            margin-bottom: 0.75rem;
+        }
+
+        .tab {
+            padding: 0.375rem 0.75rem;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+            font-size: 0.8rem;
+            color: var(--gray-600);
+            transition: color 0.15s, border-color 0.15s;
+        }
+
+        .tab:hover {
+            color: var(--green-600);
+        }
+
+        .tab.active {
+            color: var(--green-600);
+            border-bottom-color: var(--green-500);
+            font-weight: 500;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .endpoint-list {
+            list-style: none;
+        }
+
+        .endpoint-list li {
+            padding: 0.25rem 0;
+            border-bottom: 1px solid var(--gray-100);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.75rem;
+        }
+
+        .endpoint-list li:last-child {
+            border-bottom: none;
+        }
+
+        .endpoint-list code {
+            background: var(--green-100);
+            color: var(--green-800);
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            font-size: 0.7rem;
+        }
+
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: normal;
+            cursor: pointer;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid var(--gray-200);
+            border-top-color: var(--green-500);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--gray-600);
+            font-size: 0.875rem;
+        }
+
+        footer a {
+            color: var(--green-600);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            .stat-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>Bot Detection Demo</h1>
+        <p>Test and explore bot detection capabilities</p>
+        <div id="modeIndicator" style="margin-top: 0.75rem; display: none;">
+            <span id="modeBadge"
+                  style="display: inline-block; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600;"></span>
+        </div>
+    </header>
+
+    <div class="current-status" id="currentStatus">
+        <h3>Your Current Detection Status</h3>
+        <div id="statusLoading"><span class="loading"></span> Checking...</div>
+        <div id="statusContent" style="display: none;">
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
+                <span class="status" id="statusBadge">Loading...</span>
+                <span class="status" id="typeBadge" style="display: none;"></span>
+                <span class="status" id="searchEngineBadge" style="display: none;"></span>
+            </div>
+            <div class="stat-grid">
+                <div class="stat-item">
+                    <div class="stat-value" id="confidence">-</div>
+                    <div class="stat-label">Confidence</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="botType">-</div>
+                    <div class="stat-label">Type</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="botName">-</div>
+                    <div class="stat-label">Name</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="processingTime">-</div>
+                    <div class="stat-label">Processing (ms)</div>
+                </div>
+            </div>
+            <div id="reasonsSection" style="display: none; margin-top: 0.75rem;">
+                <h4 style="font-size: 0.8rem; color: var(--gray-700); margin-bottom: 0.5rem;">Detection Reasons</h4>
+                <div id="reasonsList"
+                     style="font-size: 0.7rem; background: white; border-radius: 0.375rem; padding: 0.5rem; max-height: 100px; overflow-y: auto;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid">
+        <!-- Custom Request Tester -->
+        <div class="card">
+            <h2>Custom Request Tester</h2>
+
+            <label for="endpoint">Endpoint</label>
+            <select id="endpoint">
+                <option value="/">/ (Home - Detection Info)</option>
+                <option value="/bot-detection/check">/bot-detection/check (Full Analysis)</option>
+                <option value="/api/protected">/api/protected (Blocks Unverified Bots)</option>
+                <option value="/api/humans-only">/api/humans-only (Blocks ALL Bots)</option>
+                <option value="/api/allow-search-engines">/api/allow-search-engines</option>
+                <option value="/api/strict-protection">/api/strict-protection (>90% Only)</option>
+            </select>
+
+            <label for="userAgent">User-Agent</label>
+            <input id="userAgent" placeholder="Leave empty to use your browser's UA" type="text">
+
+            <label for="testMode">Test Mode Header (ml-bot-test-mode)</label>
+            <select id="testMode">
+                <option value="">None - Use Real Detection</option>
+                <option value="human">human - Simulate Human</option>
+                <option value="bot">bot - Generic Bot</option>
+                <option value="googlebot">googlebot - Search Engine</option>
+                <option value="bingbot">bingbot - Search Engine</option>
+                <option value="scraper">scraper - Web Scraper</option>
+                <option value="malicious">malicious - Malicious Bot</option>
+                <option value="social">social - Social Media Bot</option>
+                <option value="monitor">monitor - Monitoring Bot</option>
+                <option value="disable">disable - Bypass Detection</option>
+            </select>
+
+            <label for="customHeaders">Additional Headers (JSON)</label>
+            <textarea id="customHeaders" placeholder='{"Accept": "text/html", "Accept-Language": "en-US"}'></textarea>
+
+            <button onclick="sendRequest()">Send Request</button>
+            <button class="secondary" onclick="clearResult()">Clear</button>
+
+            <div class="result-box" id="result">
+                <pre>Results will appear here...</pre>
+            </div>
+        </div>
+
+        <!-- User-Agent Presets -->
+        <div class="card">
+            <h2>User-Agent Presets</h2>
+
+            <div class="tabs">
+                <div class="tab active" onclick="showTab('browsers')">Browsers</div>
+                <div class="tab" onclick="showTab('search')">Search</div>
+                <div class="tab" onclick="showTab('social')">Social</div>
+                <div class="tab" onclick="showTab('bots')">Bots</div>
+            </div>
+
+            <div class="tab-content active" id="tab-browsers">
+                <div class="ua-preset"
+                     onclick="setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')">
+                    <div class="name">Chrome (Windows)</div>
+                    <div class="type">Real Browser - Should be Human</div>
+                </div>
+                <div class="ua-preset"
+                     onclick="setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 14_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15')">
+                    <div class="name">Safari (macOS)</div>
+                    <div class="type">Real Browser - Should be Human</div>
+                </div>
+                <div class="ua-preset"
+                     onclick="setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0')">
+                    <div class="name">Firefox (Windows)</div>
+                    <div class="type">Real Browser - Should be Human</div>
+                </div>
+                <div class="ua-preset"
+                     onclick="setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1')">
+                    <div class="name">Safari (iOS)</div>
+                    <div class="type">Mobile Browser - Should be Human</div>
+                </div>
+            </div>
+
+            <div class="tab-content" id="tab-search">
+                <div class="ua-preset"
+                     onclick="setUserAgent('Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)')">
+                    <div class="name">Googlebot</div>
+                    <div class="type">Search Engine - Verified Bot</div>
+                </div>
+                <div class="ua-preset"
+                     onclick="setUserAgent('Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)')">
+                    <div class="name">Bingbot</div>
+                    <div class="type">Search Engine - Verified Bot</div>
+                </div>
+                <div class="ua-preset"
+                     onclick="setUserAgent('DuckDuckBot/1.0; (+http://duckduckgo.com/duckduckbot.html)')">
+                    <div class="name">DuckDuckBot</div>
+                    <div class="type">Search Engine - Verified Bot</div>
+                </div>
+                <div class="ua-preset"
+                     onclick="setUserAgent('Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)')">
+                    <div class="name">YandexBot</div>
+                    <div class="type">Search Engine - Verified Bot</div>
+                </div>
+            </div>
+
+            <div class="tab-content" id="tab-social">
+                <div class="ua-preset" onclick="setUserAgent('facebookexternalhit/1.1')">
+                    <div class="name">Facebook</div>
+                    <div class="type">Social Media Preview Bot</div>
+                </div>
+                <div class="ua-preset" onclick="setUserAgent('Twitterbot/1.0')">
+                    <div class="name">Twitter/X</div>
+                    <div class="type">Social Media Preview Bot</div>
+                </div>
+                <div class="ua-preset" onclick="setUserAgent('LinkedInBot/1.0')">
+                    <div class="name">LinkedIn</div>
+                    <div class="type">Social Media Preview Bot</div>
+                </div>
+                <div class="ua-preset" onclick="setUserAgent('Slackbot-LinkExpanding 1.0')">
+                    <div class="name">Slack</div>
+                    <div class="type">Social Media Preview Bot</div>
+                </div>
+                <div class="ua-preset" onclick="setUserAgent('Mozilla/5.0 (compatible; Discordbot/2.0)')">
+                    <div class="name">Discord</div>
+                    <div class="type">Social Media Preview Bot</div>
+                </div>
+            </div>
+
+            <div class="tab-content" id="tab-bots">
+                <div class="ua-preset" onclick="setUserAgent('Scrapy/2.5.0')">
+                    <div class="name">Scrapy</div>
+                    <div class="type">Web Scraper - Should Block</div>
+                </div>
+                <div class="ua-preset" onclick="setUserAgent('python-requests/2.28.0')">
+                    <div class="name">Python Requests</div>
+                    <div class="type">HTTP Library - Suspicious</div>
+                </div>
+                <div class="ua-preset" onclick="setUserAgent('Mozilla/5.0 HeadlessChrome/90.0.4430.212')">
+                    <div class="name">Headless Chrome</div>
+                    <div class="type">Automation - Should Detect</div>
+                </div>
+                <div class="ua-preset" onclick="setUserAgent('curl/7.68.0')">
+                    <div class="name">curl</div>
+                    <div class="type">CLI Tool - Should Detect</div>
+                </div>
+                <div class="ua-preset" onclick="setUserAgent('')">
+                    <div class="name">Empty User-Agent</div>
+                    <div class="type">Suspicious - No UA</div>
+                </div>
+                <div class="ua-preset" onclick="setUserAgent('Bot')">
+                    <div class="name">Generic "Bot"</div>
+                    <div class="type">Obvious Bot</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="card">
+            <h2>Detection Statistics</h2>
+            <button onclick="loadStats()">Refresh Stats</button>
+            <div class="result-box" id="statsResult">
+                <pre>Click "Refresh Stats" to load...</pre>
+            </div>
+        </div>
+
+        <!-- YARP Proxy Demo -->
+        <div class="card">
+            <h2>🤖 YARP Proxy Demo</h2>
+            <p style="font-size: 0.8rem; color: var(--gray-600); margin-bottom: 1rem;">
+                Test bot detection through a transparent YARP reverse proxy with session tracking
+            </p>
+            <button onclick="window.location.href='/proxy.html'" style="width: 100%;">
+                Open YARP Proxy Demo
+            </button>
+            <div style="margin-top: 0.75rem; font-size: 0.75rem; color: var(--gray-600);">
+                <strong>Features:</strong>
+                <ul style="margin-top: 0.25rem; padding-left: 1.5rem;">
+                    <li>Session-based bot detection (page + all sub-requests)</li>
+                    <li>Real-time scoring and request tracking</li>
+                    <li>Aberration detection for suspicious patterns</li>
+                    <li>SignatureCoordinator integration</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Endpoint Reference -->
+        <div class="card">
+            <h2>Available Endpoints</h2>
+            <h3>Diagnostic Endpoints</h3>
+            <ul class="endpoint-list">
+                <li>
+                    <code>GET /bot-detection/check</code>
+                    <button class="btn-small" onclick="quickTest('/bot-detection/check')">Test</button>
+                </li>
+                <li>
+                    <code>GET /bot-detection/stats</code>
+                    <button class="btn-small" onclick="quickTest('/bot-detection/stats')">Test</button>
+                </li>
+                <li>
+                    <code>GET /bot-detection/health</code>
+                    <button class="btn-small" onclick="quickTest('/bot-detection/health')">Test</button>
+                </li>
+            </ul>
+
+            <h3>Protected Endpoints</h3>
+            <ul class="endpoint-list">
+                <li>
+                    <code>GET /api/protected</code>
+                    <span style="font-size: 0.75rem; color: var(--gray-600);">Allows verified bots</span>
+                </li>
+                <li>
+                    <code>GET /api/humans-only</code>
+                    <span style="font-size: 0.75rem; color: var(--gray-600);">Blocks ALL bots</span>
+                </li>
+                <li>
+                    <code>GET /api/allow-search-engines</code>
+                    <span style="font-size: 0.75rem; color: var(--gray-600);">Search engines OK</span>
+                </li>
+                <li>
+                    <code>GET /api/strict-protection</code>
+                    <span style="font-size: 0.75rem; color: var(--gray-600);">>90% confidence only</span>
+                </li>
+            </ul>
+
+            <h3>Test Helpers</h3>
+            <ul class="endpoint-list">
+                <li>
+                    <code>GET /api/test-modes</code>
+                    <button class="btn-small" onclick="quickTest('/api/test-modes')">View</button>
+                </li>
+                <li>
+                    <code>GET /api/sample-user-agents</code>
+                    <button class="btn-small" onclick="quickTest('/api/sample-user-agents')">View</button>
+                </li>
+            </ul>
+        </div>
+    </div>
+
+    <footer>
+        <p>Mostlylucid.BotDetection Demo | <a href="/swagger">Swagger UI</a></p>
+    </footer>
+</div>
+
+<script>
+    // Check current status and detection mode on load
+    document.addEventListener('DOMContentLoaded', () => {
+        checkCurrentStatus();
+        checkDetectionMode();
+    });
+
+    async function checkDetectionMode() {
+        try {
+            const response = await fetch('/api/mode');
+            const data = await response.json();
+            const indicator = document.getElementById('modeIndicator');
+            const badge = document.getElementById('modeBadge');
+
+            indicator.style.display = 'block';
+
+            if (data.fullLogEnabled) {
+                badge.style.background = 'rgba(250, 204, 21, 0.9)';
+                badge.style.color = '#713f12';
+                badge.textContent = 'Full-Log Policy Active';
+                badge.title = `${data.description}\nPolicies: ${data.configuredPolicies.join(', ')}`;
+            } else {
+                badge.style.background = 'rgba(255, 255, 255, 0.2)';
+                badge.style.color = 'rgba(255, 255, 255, 0.9)';
+                badge.textContent = `${data.configuredPolicies.length} Policies`;
+                badge.title = `${data.description}\nPolicies: ${data.configuredPolicies.join(', ')}`;
+            }
+        } catch (error) {
+            console.log('Could not fetch detection mode');
+        }
+    }
+
+    async function checkCurrentStatus() {
+        try {
+            const response = await fetch('/bot-detection/check');
+            const data = await response.json();
+
+            document.getElementById('statusLoading').style.display = 'none';
+            document.getElementById('statusContent').style.display = 'block';
+
+            const statusBadge = document.getElementById('statusBadge');
+            const typeBadge = document.getElementById('typeBadge');
+
+            if (data.isBot) {
+                if (data.isVerifiedBot) {
+                    statusBadge.className = 'status status-verified';
+                    statusBadge.textContent = 'Verified Bot';
+                } else {
+                    statusBadge.className = 'status status-bot';
+                    statusBadge.textContent = 'Bot Detected';
+                }
+            } else {
+                statusBadge.className = 'status status-human';
+                statusBadge.textContent = 'Human';
+            }
+
+            if (data.botType) {
+                typeBadge.style.display = 'inline-flex';
+                typeBadge.className = 'status';
+                typeBadge.style.background = 'var(--gray-100)';
+                typeBadge.style.color = 'var(--gray-700)';
+                typeBadge.textContent = data.botType;
+            }
+
+            // Show search engine badge if applicable
+            const searchEngineBadge = document.getElementById('searchEngineBadge');
+            if (data.isSearchEngineBot) {
+                searchEngineBadge.style.display = 'inline-flex';
+                searchEngineBadge.className = 'status';
+                searchEngineBadge.style.background = 'var(--yellow-100)';
+                searchEngineBadge.style.color = 'var(--yellow-500)';
+                searchEngineBadge.textContent = 'Search Engine';
+            }
+
+            // Handle null/undefined confidence score to avoid NaN
+            const confidence = data.confidenceScore != null ? data.confidenceScore : 0;
+            document.getElementById('confidence').textContent = (confidence * 100).toFixed(1) + '%';
+            document.getElementById('botType').textContent = data.botType || 'N/A';
+            document.getElementById('botName').textContent = data.botName || 'N/A';
+            document.getElementById('processingTime').textContent =
+                data.processingTimeMs != null ? data.processingTimeMs.toFixed(1) : 'N/A';
+
+            // Show detection reasons if available
+            if (data.reasons && data.reasons.length > 0) {
+                document.getElementById('reasonsSection').style.display = 'block';
+                const reasonsList = document.getElementById('reasonsList');
+                reasonsList.innerHTML = data.reasons.map(r =>
+                    `<div style="padding: 0.2rem 0; border-bottom: 1px solid var(--gray-100);">
+                            <strong style="color: var(--green-700);">${r.category}</strong>: ${r.detail || 'No details'}
+                            <span style="color: var(--gray-500); font-size: 0.6rem;">(${r.impact > 0 ? '+' : ''}${(r.impact * 100).toFixed(0)}%)</span>
+                        </div>`
+                ).join('');
+            }
+
+            // Also show the full response in the result box
+            document.getElementById('result').innerHTML = `<pre><span style="color: var(--green-600)">Initial Detection Result:</span>\n\n${JSON.stringify(data, null, 2)}</pre>`;
+
+        } catch (error) {
+            document.getElementById('statusLoading').innerHTML =
+                '<span style="color: var(--red-500);">Error loading status</span>';
+        }
+    }
+
+    async function sendRequest() {
+        const endpoint = document.getElementById('endpoint').value;
+        const userAgent = document.getElementById('userAgent').value;
+        const testMode = document.getElementById('testMode').value;
+        const customHeadersRaw = document.getElementById('customHeaders').value;
+
+        const resultBox = document.getElementById('result');
+        resultBox.innerHTML = '<pre><span class="loading"></span> Sending request...</pre>';
+
+        const headers = {};
+
+        if (testMode) {
+            headers['ml-bot-test-mode'] = testMode;
+        }
+
+        if (customHeadersRaw.trim()) {
+            try {
+                const customHeaders = JSON.parse(customHeadersRaw);
+                Object.assign(headers, customHeaders);
+            } catch (e) {
+                resultBox.innerHTML = '<pre style="color: var(--red-500);">Invalid JSON in custom headers</pre>';
+                return;
+            }
+        }
+
+        try {
+            const response = await fetch(endpoint, {headers});
+            const contentType = response.headers.get('content-type');
+
+            let data;
+            if (contentType && contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                data = await response.text();
+            }
+
+            const statusColor = response.ok ? 'var(--green-600)' : 'var(--red-500)';
+
+            resultBox.innerHTML = `<pre><span style="color: ${statusColor}">HTTP ${response.status} ${response.statusText}</span>\n\n${JSON.stringify(data, null, 2)}</pre>`;
+
+        } catch (error) {
+            resultBox.innerHTML = `<pre style="color: var(--red-500);">Error: ${error.message}</pre>`;
+        }
+    }
+
+    function clearResult() {
+        document.getElementById('result').innerHTML = '<pre>Results will appear here...</pre>';
+    }
+
+    function setUserAgent(ua) {
+        document.getElementById('userAgent').value = ua;
+        // Auto-add Accept headers for browser UAs
+        if (ua.includes('Mozilla') && !ua.includes('bot') && !ua.includes('Bot') && !ua.includes('Headless')) {
+            document.getElementById('customHeaders').value = JSON.stringify({
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9"
+            }, null, 2);
+        } else {
+            document.getElementById('customHeaders').value = '';
+        }
+    }
+
+    function showTab(tabName) {
+        // Hide all tabs
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+
+        // Show selected tab
+        document.getElementById('tab-' + tabName).classList.add('active');
+        event.target.classList.add('active');
+    }
+
+    async function loadStats() {
+        const resultBox = document.getElementById('statsResult');
+        resultBox.innerHTML = '<pre><span class="loading"></span> Loading stats...</pre>';
+
+        try {
+            const response = await fetch('/bot-detection/stats');
+            const data = await response.json();
+            resultBox.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+        } catch (error) {
+            resultBox.innerHTML = `<pre style="color: var(--red-500);">Error: ${error.message}</pre>`;
+        }
+    }
+
+    async function quickTest(endpoint) {
+        document.getElementById('endpoint').value = endpoint;
+        await sendRequest();
+    }
+</script>
+</body>
+</html>

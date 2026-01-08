@@ -1,0 +1,473 @@
+/* Bot Detection Details Styles */
+
+.bot-detection-details {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    color: #333;
+}
+
+.bot-detection-no-data {
+    padding: 20px;
+    text-align: center;
+    color: #999;
+    font-style: italic;
+}
+
+.bot-detection-container {
+    border: 1px solid #e1e4e8;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+}
+
+/* Header */
+.bot-detection-header {
+    display: flex;
+    gap: 20px;
+    padding: 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.bot-detection-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.status-icon {
+    font-size: 24px;
+}
+
+.bot-detection-status.is-bot {
+    color: #fff;
+}
+
+.bot-detection-status.is-human {
+    color: #d4edda;
+}
+
+.bot-detection-score,
+.bot-detection-confidence,
+.bot-detection-risk {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.score-label,
+.confidence-label,
+.risk-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    opacity: 0.9;
+    letter-spacing: 0.5px;
+}
+
+.score-value,
+.confidence-value,
+.risk-value {
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.risk-value {
+    padding: 2px 8px;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.risk-verylow {
+    background-color: #28a745;
+}
+
+.risk-low {
+    background-color: #5cb85c;
+}
+
+.risk-medium {
+    background-color: #ffc107;
+    color: #333;
+}
+
+.risk-high {
+    background-color: #fd7e14;
+}
+
+.risk-veryhigh {
+    background-color: #dc3545;
+}
+
+/* Metadata */
+.bot-detection-metadata {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    padding: 16px 20px;
+    background: #f6f8fa;
+    border-bottom: 1px solid #e1e4e8;
+}
+
+.metadata-item {
+    display: flex;
+    gap: 8px;
+}
+
+.metadata-label {
+    font-weight: 600;
+    color: #586069;
+}
+
+.metadata-value {
+    color: #24292e;
+}
+
+.metadata-value.action-allow {
+    color: #28a745;
+    font-weight: 600;
+}
+
+.metadata-value.action-block {
+    color: #dc3545;
+    font-weight: 600;
+}
+
+.metadata-value.action-throttle {
+    color: #ffc107;
+    font-weight: 600;
+}
+
+.metadata-value.action-challenge {
+    color: #fd7e14;
+    font-weight: 600;
+}
+
+/* YARP Info */
+.bot-detection-yarp {
+    padding: 12px 20px;
+    background: #fff3cd;
+    border-bottom: 1px solid #e1e4e8;
+}
+
+.yarp-label {
+    font-weight: 600;
+    color: #856404;
+    margin-bottom: 8px;
+}
+
+.yarp-item {
+    display: inline-flex;
+    gap: 8px;
+    margin-right: 16px;
+}
+
+.yarp-key {
+    font-weight: 600;
+    color: #856404;
+}
+
+.yarp-value {
+    color: #533f03;
+    font-family: 'Courier New', monospace;
+}
+
+/* Reasons */
+.bot-detection-reasons {
+    padding: 20px;
+    border-bottom: 1px solid #e1e4e8;
+}
+
+.reasons-title {
+    margin: 0 0 12px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #24292e;
+}
+
+.reasons-list {
+    margin: 0;
+    padding-left: 20px;
+    list-style-type: disc;
+}
+
+.reason-item {
+    margin-bottom: 8px;
+    color: #586069;
+}
+
+/* Detector Contributions */
+.bot-detection-contributions {
+    padding: 20px;
+    border-bottom: 1px solid #e1e4e8;
+}
+
+.contributions-title {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #24292e;
+}
+
+.contributions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.contribution-item {
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    padding: 12px;
+    background: #f6f8fa;
+}
+
+.contribution-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.contribution-name {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.detector-name {
+    font-weight: 600;
+    color: #24292e;
+}
+
+.detector-category {
+    font-size: 12px;
+    color: #586069;
+}
+
+.contribution-value {
+    font-weight: 700;
+    font-size: 16px;
+}
+
+.contribution-value.positive {
+    color: #dc3545;
+}
+
+.contribution-value.negative {
+    color: #28a745;
+}
+
+.contribution-bar-container {
+    height: 8px;
+    background: #e1e4e8;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+
+.contribution-bar {
+    height: 100%;
+    transition: width 0.3s ease;
+}
+
+.contribution-bar.positive {
+    background: linear-gradient(90deg, #ff6b6b, #ee5a6f);
+}
+
+.contribution-bar.negative {
+    background: linear-gradient(90deg, #51cf66, #37b24d);
+}
+
+.contribution-reason {
+    font-size: 13px;
+    color: #586069;
+    margin-bottom: 8px;
+    font-style: italic;
+}
+
+.contribution-stats {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: #6a737d;
+}
+
+.contribution-stats .stat {
+    display: inline-flex;
+    align-items: center;
+}
+
+/* Footer */
+.bot-detection-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: #fafbfc;
+    font-size: 12px;
+    color: #586069;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.footer-item {
+    display: flex;
+    gap: 8px;
+}
+
+.footer-label {
+    font-weight: 600;
+}
+
+.footer-value {
+    font-family: 'Courier New', monospace;
+}
+
+/* Collapsed state */
+.bot-detection-details.collapsed .bot-detection-container {
+    max-height: 100px;
+    overflow: hidden;
+    position: relative;
+}
+
+.bot-detection-details.collapsed .bot-detection-container::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: linear-gradient(to bottom, transparent, #fff);
+}
+
+/* Multi-Factor Signatures */
+.bot-detection-signatures {
+    padding: 20px;
+    border-bottom: 1px solid #e1e4e8;
+    background: #f0f7ff;
+}
+
+.signatures-title {
+    margin: 0 0 12px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #0366d6;
+}
+
+.signatures-explanation {
+    font-size: 14px;
+    color: #586069;
+    line-height: 1.6;
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #fff;
+    border-left: 3px solid #0366d6;
+    border-radius: 4px;
+}
+
+.signatures-factors {
+    margin-top: 16px;
+}
+
+.factors-label {
+    font-weight: 600;
+    color: #24292e;
+    margin-bottom: 12px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.factors-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.factor-item {
+    display: grid;
+    grid-template-columns: 180px 1fr 200px;
+    gap: 12px;
+    padding: 10px 12px;
+    background: #fff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    align-items: center;
+    transition: all 0.2s;
+}
+
+.factor-item:hover {
+    border-color: #0366d6;
+    box-shadow: 0 1px 3px rgba(3, 102, 214, 0.1);
+}
+
+.factor-name {
+    font-weight: 600;
+    color: #0366d6;
+    font-size: 13px;
+}
+
+.factor-hash {
+    font-family: 'Courier New', Monaco, monospace;
+    font-size: 12px;
+    background: #f6f8fa;
+    padding: 4px 8px;
+    border-radius: 3px;
+    color: #6a737d;
+    border: 1px solid #e1e4e8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.factor-desc {
+    font-size: 12px;
+    color: #586069;
+    font-style: italic;
+}
+
+.signatures-privacy-note {
+    margin-top: 16px;
+    padding: 12px;
+    background: #fff;
+    border: 1px solid #28a745;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #24292e;
+}
+
+.signatures-privacy-note strong {
+    color: #28a745;
+    font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .bot-detection-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .bot-detection-metadata {
+        grid-template-columns: 1fr;
+    }
+
+    .bot-detection-footer {
+        flex-direction: column;
+    }
+
+    .factor-item {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .factor-desc {
+        padding-left: 12px;
+        border-left: 2px solid #e1e4e8;
+    }
+}

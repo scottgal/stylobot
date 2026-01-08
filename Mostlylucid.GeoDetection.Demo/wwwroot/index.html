@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>GeoDetection Demo</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #eee;
+            min-height: 100vh;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 2rem;
+            background: linear-gradient(90deg, #00d4ff, #7b2ff7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .card h2 {
+            color: #00d4ff;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 0.75rem 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            color: #fff;
+            font-size: 1rem;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(90deg, #00d4ff, #7b2ff7);
+            color: #fff;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, opacity 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            opacity: 0.9;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .test-btn {
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .test-btn:hover {
+            background: rgba(0, 212, 255, 0.2);
+            border-color: #00d4ff;
+        }
+
+        .result {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.9rem;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            min-height: 100px;
+        }
+
+        .result.error {
+            border-left: 3px solid #ff4757;
+        }
+
+        .result.success {
+            border-left: 3px solid #2ed573;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1rem;
+        }
+
+        .stat-item {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #00d4ff;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #888;
+            margin-top: 0.25rem;
+        }
+
+        .sample-ips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .sample-ip {
+            padding: 0.25rem 0.75rem;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .sample-ip:hover {
+            background: rgba(0, 212, 255, 0.3);
+        }
+
+        .location-display {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .location-item {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 0.75rem;
+            border-radius: 6px;
+        }
+
+        .location-item label {
+            font-size: 0.75rem;
+            color: #888;
+            text-transform: uppercase;
+        }
+
+        .location-item .value {
+            font-size: 1rem;
+            color: #fff;
+            margin-top: 0.25rem;
+        }
+
+        .setup-note {
+            background: rgba(255, 193, 7, 0.1);
+            border: 1px solid rgba(255, 193, 7, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .setup-note h3 {
+            color: #ffc107;
+            margin-bottom: 0.5rem;
+        }
+
+        .setup-note code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+        }
+
+        .setup-note a {
+            color: #00d4ff;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>GeoDetection Demo</h1>
+
+    <div class="setup-note" style="background: rgba(46,213,115,0.1); border-color: rgba(46,213,115,0.3);">
+        <h3 style="color: #2ed573;">Works Out of the Box!</h3>
+        <p>This demo uses <strong>ip-api.com</strong> - a free geolocation API that requires no setup or account.</p>
+        <p style="margin-top: 0.5rem; font-size: 0.9rem; color: #aaa;">
+            For production with higher rate limits, configure MaxMind GeoLite2 (free account at
+            <a href="https://www.maxmind.com/en/geolite2/signup" target="_blank">maxmind.com</a>).
+        </p>
+    </div>
+
+    <div class="card">
+        <h2>Your Location</h2>
+        <div class="location-display" id="my-location">
+            <p>Loading...</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>IP Lookup</h2>
+        <div class="input-group">
+            <input id="ip-input" placeholder="Enter IP address (e.g., 8.8.8.8)" type="text">
+            <button onclick="lookupIp()">Lookup</button>
+        </div>
+        <p style="font-size: 0.85rem; color: #888; margin-bottom: 0.5rem;">Try these sample IPs:</p>
+        <div class="sample-ips">
+            <span class="sample-ip" onclick="setIp('8.8.8.8')">8.8.8.8 (Google DNS)</span>
+            <span class="sample-ip" onclick="setIp('1.1.1.1')">1.1.1.1 (Cloudflare)</span>
+            <span class="sample-ip" onclick="setIp('208.67.222.222')">208.67.222.222 (OpenDNS)</span>
+            <span class="sample-ip" onclick="setIp('185.199.108.153')">185.199.108.153 (GitHub)</span>
+            <span class="sample-ip" onclick="setIp('151.101.1.140')">151.101.1.140 (Reddit)</span>
+            <span class="sample-ip" onclick="setIp('104.16.132.229')">104.16.132.229 (Cloudflare)</span>
+        </div>
+        <div class="result" id="lookup-result" style="margin-top: 1rem;"></div>
+    </div>
+
+    <div class="card">
+        <h2>Service Statistics</h2>
+        <div class="stats-grid" id="stats">
+            <div class="stat-item">
+                <div class="stat-value" id="stat-lookups">-</div>
+                <div class="stat-label">Total Lookups</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-cache-hits">-</div>
+                <div class="stat-label">Cache Hits</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-cached">-</div>
+                <div class="stat-label">Cached Entries</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="stat-db-loaded">-</div>
+                <div class="stat-label">Database Loaded</div>
+            </div>
+        </div>
+        <button onclick="refreshStats()" style="margin-top: 1rem;">Refresh Stats</button>
+    </div>
+
+    <div class="card">
+        <h2>Test Mode - Simulate Countries</h2>
+        <p style="font-size: 0.9rem; color: #888; margin-bottom: 1rem;">
+            Test mode is enabled! Use the <code>ml-geo-test-mode</code> header to simulate different countries.
+            <br><span style="color: #ffc107;">In production, set <code>EnableTestMode = false</code> to disable.</span>
+        </p>
+        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">
+            <button class="test-btn" onclick="testCountry('US')">Test as US</button>
+            <button class="test-btn" onclick="testCountry('GB')">Test as UK</button>
+            <button class="test-btn" onclick="testCountry('DE')">Test as Germany</button>
+            <button class="test-btn" onclick="testCountry('FR')">Test as France</button>
+            <button class="test-btn" onclick="testCountry('CN')">Test as China</button>
+            <button class="test-btn" onclick="testCountry('JP')">Test as Japan</button>
+        </div>
+        <div class="result" id="test-result" style="min-height: 60px;"></div>
+        <p style="font-size: 0.85rem; color: #666; margin-top: 0.5rem;">
+            Try accessing <code>/api/us-only</code> and <code>/api/eu-content</code> with different simulated countries!
+        </p>
+    </div>
+
+    <div class="card">
+        <h2>API Endpoints</h2>
+        <div class="result">
+            GET /api/my-location - Get your detected location
+            GET /api/lookup/{ip} - Lookup location for an IP
+            GET /api/stats - Get service statistics
+            GET /api/is-from/{cc}/{ip} - Check if IP is from country
+            POST /api/lookup/batch - Batch lookup (JSON array of IPs)
+
+            GET /api/us-only - Example: US-only endpoint (451 if blocked)
+            GET /api/eu-content - Example: EU countries only
+        </div>
+    </div>
+</div>
+
+<script>
+    async function loadMyLocation() {
+        try {
+            const res = await fetch('/api/my-location');
+            const data = await res.json();
+            const container = document.getElementById('my-location');
+
+            if (data.location) {
+                container.innerHTML = `
+                        <div class="location-item"><label>IP Address</label><div class="value">${data.ip}</div></div>
+                        <div class="location-item"><label>Country</label><div class="value">${data.location.countryName || '-'} (${data.location.countryCode || '-'})</div></div>
+                        <div class="location-item"><label>Continent</label><div class="value">${data.location.continentCode || '-'}</div></div>
+                        <div class="location-item"><label>Region</label><div class="value">${data.location.regionCode || '-'}</div></div>
+                        <div class="location-item"><label>City</label><div class="value">${data.location.city || '-'}</div></div>
+                        <div class="location-item"><label>Timezone</label><div class="value">${data.location.timeZone || '-'}</div></div>
+                        <div class="location-item"><label>Coordinates</label><div class="value">${data.location.latitude?.toFixed(4) || '-'}, ${data.location.longitude?.toFixed(4) || '-'}</div></div>
+                        <div class="location-item"><label>VPN/Hosting</label><div class="value">${data.location.isVpn ? 'VPN' : ''} ${data.location.isHosting ? 'Hosting' : ''} ${!data.location.isVpn && !data.location.isHosting ? 'No' : ''}</div></div>
+                    `;
+            } else {
+                container.innerHTML = `<p>Could not determine location for IP: ${data.ip}</p>`;
+            }
+        } catch (err) {
+            document.getElementById('my-location').innerHTML = `<p>Error: ${err.message}</p>`;
+        }
+    }
+
+    function setIp(ip) {
+        document.getElementById('ip-input').value = ip;
+        lookupIp();
+    }
+
+    async function lookupIp() {
+        const ip = document.getElementById('ip-input').value.trim();
+        const resultDiv = document.getElementById('lookup-result');
+
+        if (!ip) {
+            resultDiv.textContent = 'Please enter an IP address';
+            resultDiv.className = 'result error';
+            return;
+        }
+
+        resultDiv.textContent = 'Looking up...';
+        resultDiv.className = 'result';
+
+        try {
+            const res = await fetch(`/api/lookup/${encodeURIComponent(ip)}`);
+            const data = await res.json();
+
+            if (res.ok) {
+                resultDiv.textContent = JSON.stringify(data, null, 2);
+                resultDiv.className = 'result success';
+            } else {
+                resultDiv.textContent = JSON.stringify(data, null, 2);
+                resultDiv.className = 'result error';
+            }
+        } catch (err) {
+            resultDiv.textContent = `Error: ${err.message}`;
+            resultDiv.className = 'result error';
+        }
+
+        refreshStats();
+    }
+
+    async function refreshStats() {
+        try {
+            const res = await fetch('/api/stats');
+            const data = await res.json();
+
+            document.getElementById('stat-lookups').textContent = data.totalLookups;
+            document.getElementById('stat-cache-hits').textContent = data.cacheHits;
+            document.getElementById('stat-cached').textContent = data.cachedEntries;
+            document.getElementById('stat-db-loaded').textContent = data.databaseLoaded ? 'Yes' : 'No';
+        } catch (err) {
+            console.error('Failed to load stats:', err);
+        }
+    }
+
+    // Test mode - simulate countries
+    async function testCountry(countryCode) {
+        const resultDiv = document.getElementById('test-result');
+        resultDiv.textContent = `Testing as ${countryCode}...`;
+        resultDiv.className = 'result';
+
+        try {
+            // Test US-only endpoint
+            const usRes = await fetch('/api/us-only', {
+                headers: {'ml-geo-test-mode': countryCode}
+            });
+            const usData = await usRes.json();
+
+            // Test EU endpoint
+            const euRes = await fetch('/api/eu-content', {
+                headers: {'ml-geo-test-mode': countryCode}
+            });
+            const euData = await euRes.json();
+
+            resultDiv.innerHTML = `<strong>Simulating: ${countryCode}</strong>\n\n` +
+                `<span style="color: ${usRes.ok ? '#2ed573' : '#ff4757'}">` +
+                `/api/us-only: ${usRes.status} ${usRes.ok ? 'ALLOWED' : 'BLOCKED'}</span>\n` +
+                JSON.stringify(usData, null, 2) + '\n\n' +
+                `<span style="color: ${euRes.ok ? '#2ed573' : '#ff4757'}">` +
+                `/api/eu-content: ${euRes.status} ${euRes.ok ? 'ALLOWED' : 'BLOCKED'}</span>\n` +
+                JSON.stringify(euData, null, 2);
+            resultDiv.className = 'result success';
+        } catch (err) {
+            resultDiv.textContent = `Error: ${err.message}`;
+            resultDiv.className = 'result error';
+        }
+    }
+
+    // Initial load
+    loadMyLocation();
+    refreshStats();
+
+    // Handle Enter key
+    document.getElementById('ip-input').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') lookupIp();
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,107 @@
+{
+  "scenarioName": "bot-scraper-request-timing",
+  "scenario": "A realistic scraper/bot using libwww-perl/6.67 with specific request timing patterns.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "libwww-perl/6.67",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 10,
+    "delayAfterMs": {
+      "min": 20,
+      "max": 150
+    },
+    "pauseAfterBurstMs": {
+      "min": 500,
+      "max": 2000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429,
+        200
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429,
+        200
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429,
+        200
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429,
+        200
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 200,
+      "weight": 0.35
+    },
+    {
+      "signal": "number_requests_burst",
+      "op": "\u003E=",
+      "value": 10,
+      "weight": 0.40
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "This bot uses libwww-perl/6.67 for scraping and employs specific timing patterns to mimic a scraper\u0027s behavior while avoiding common human headers."
+}
