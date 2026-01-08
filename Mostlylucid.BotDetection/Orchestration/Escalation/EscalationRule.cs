@@ -35,7 +35,9 @@ public sealed class EscalationRule
 
     /// <summary>
     ///     Compile condition expression into a function.
-    ///     TODO: Use expression trees for production.
+    ///     NOTE: Current implementation uses simple string parsing. For high-performance
+    ///     production scenarios with complex expressions, consider expression trees or
+    ///     a proper expression parser (e.g., DynamicExpresso, NCalc).
     /// </summary>
     private static Func<Dictionary<string, object>, bool> CompileCondition(string condition)
     {

@@ -10,14 +10,14 @@ using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 
-/// TODO: WE NEED TO USE THIS LIST AND MAINTAIN COMPATABILITY WITH SIGNATURES SO WE CAN USE THEM.
-/// https://threatfox.abuse.ch/export/json/recent/
 /// <summary>
 ///     TLS fingerprinting contributor using JA3/JA4-style fingerprinting.
 ///     Analyzes TLS handshake parameters to detect automated clients.
 ///     Best-in-breed approach:
 ///     - JA3: TLS client hello fingerprinting (SSLVersion,Ciphers,Extensions,EllipticCurves,EllipticCurvePointFormats)
 ///     - JA4: Modern evolution with better normalization
+///     FUTURE ENHANCEMENT: Integrate with ThreatFox (https://threatfox.abuse.ch/export/json/recent/)
+///     for a maintained database of malicious TLS fingerprints. Current implementation uses sample fingerprints.
 ///     - Detects headless browsers, automation frameworks, and custom HTTP clients
 ///     IMPORTANT: This contributor relies on reverse proxy (nginx/HAProxy) to extract
 ///     TLS handshake data and pass via headers (X-JA3-Hash, X-TLS-Protocol, X-TLS-Cipher).

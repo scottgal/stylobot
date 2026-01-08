@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Data;
 
@@ -554,21 +555,25 @@ public class ReputationCacheStats
 
 /// <summary>
 ///     In-memory implementation of the pattern reputation cache.
+///     Optionally persists to SQLite via ILearnedPatternStore.
 /// </summary>
 public class InMemoryPatternReputationCache : IPatternReputationCache
 {
     private readonly ConcurrentDictionary<string, PatternReputation> _cache = new();
     private readonly ILogger<InMemoryPatternReputationCache> _logger;
+    private readonly ILearnedPatternStore? _patternStore;
     private readonly PatternReputationUpdater _updater;
     private DateTimeOffset _lastDecaySweep = DateTimeOffset.UtcNow;
     private DateTimeOffset _lastGc = DateTimeOffset.UtcNow;
 
     public InMemoryPatternReputationCache(
         ILogger<InMemoryPatternReputationCache> logger,
-        PatternReputationUpdater updater)
+        PatternReputationUpdater updater,
+        ILearnedPatternStore? patternStore = null)
     {
         _logger = logger;
         _updater = updater;
+        _patternStore = patternStore;
     }
 
     public PatternReputation? Get(string patternId)
@@ -650,16 +655,87 @@ public class InMemoryPatternReputationCache : IPatternReputationCache
         return Task.CompletedTask;
     }
 
-    public Task PersistAsync(CancellationToken ct = default)
+    public async Task PersistAsync(CancellationToken ct = default)
     {
-        // TODO: Persist to SQLite via ILearnedPatternStore
-        return Task.CompletedTask;
+        if (_patternStore == null)
+            return;
+
+        var persisted = 0;
+        foreach (var reputation in _cache.Values)
+        {
+            if (ct.IsCancellationRequested) break;
+
+            var signature = new LearnedSignature
+            {
+                PatternId = reputation.PatternId,
+                SignatureType = reputation.PatternType,
+                Pattern = reputation.Pattern,
+                Confidence = reputation.BotScore,
+                Occurrences = (int)Math.Round(reputation.Support),
+                FirstSeen = reputation.FirstSeen,
+                LastSeen = reputation.LastSeen,
+                Action = reputation.State switch
+                {
+                    ReputationState.ManuallyBlocked => LearnedPatternAction.Full,
+                    ReputationState.ConfirmedBad => LearnedPatternAction.Full,
+                    ReputationState.Suspect => LearnedPatternAction.ScoreOnly,
+                    _ => LearnedPatternAction.LogOnly
+                },
+                BotType = null,
+                BotName = null,
+                Source = "InMemoryCache"
+            };
+
+            await _patternStore.UpsertAsync(signature, ct);
+            persisted++;
+        }
+
+        if (persisted > 0)
+            _logger.LogInformation("Persisted {Count} patterns to SQLite", persisted);
     }
 
-    public Task LoadAsync(CancellationToken ct = default)
+    public async Task LoadAsync(CancellationToken ct = default)
     {
-        // TODO: Load from SQLite via ILearnedPatternStore
-        return Task.CompletedTask;
+        if (_patternStore == null)
+            return;
+
+        var signatures = await _patternStore.GetByConfidenceAsync(0.0, ct);
+        var loaded = 0;
+
+        foreach (var signature in signatures)
+        {
+            if (ct.IsCancellationRequested) break;
+
+            var state = signature.Action switch
+            {
+                LearnedPatternAction.Full when signature.Confidence >= 0.9 => ReputationState.ConfirmedBad,
+                LearnedPatternAction.Full => ReputationState.Suspect,
+                LearnedPatternAction.ScoreOnly when signature.Confidence >= 0.6 => ReputationState.Suspect,
+                LearnedPatternAction.LogOnly when signature.Confidence >= 0.9 => ReputationState.ConfirmedBad,
+                LearnedPatternAction.LogOnly when signature.Confidence >= 0.6 => ReputationState.Suspect,
+                LearnedPatternAction.LogOnly when signature.Confidence <= 0.1 => ReputationState.ConfirmedGood,
+                _ => ReputationState.Neutral
+            };
+
+            var reputation = new PatternReputation
+            {
+                PatternId = signature.PatternId,
+                PatternType = signature.SignatureType,
+                Pattern = signature.Pattern,
+                BotScore = signature.Confidence,
+                Support = signature.Occurrences,
+                State = state,
+                FirstSeen = signature.FirstSeen,
+                LastSeen = signature.LastSeen,
+                StateChangedAt = signature.LastSeen
+            };
+
+            _cache[signature.PatternId] = reputation;
+            loaded++;
+        }
+
+        if (loaded > 0)
+            _logger.LogInformation("Loaded {Count} patterns from SQLite", loaded);
     }
 
     public ReputationCacheStats GetStats()

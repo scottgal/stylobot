@@ -66,13 +66,32 @@ public sealed class SignatureResponseCoordinator : IAsyncDisposable
             // Emit notification signal (lanes can query state when they see this)
             _sink.Raise("request.early.arrived", signal.RequestId);
 
-            // If honeypot or very high risk, update heuristic immediately
+            // If honeypot or very high risk, emit heuristic feedback signals
             if (signal.Honeypot || signal.Risk > 0.8)
+            {
                 _logger.LogWarning(
                     "Early high-risk signal for {Signature}: risk={Risk:F2}, honeypot={Honeypot}",
                     _signature, signal.Risk, signal.Honeypot);
-            // TODO: Immediate heuristic feedback
-            // heuristicStore.UpdateAsync(_signature, signal.Risk);
+
+                // Emit heuristic feedback signals for learning handlers
+                _sink.Raise("heuristic.feedback.signature", _signature);
+                _sink.Raise("heuristic.feedback.risk", signal.Risk.ToString("F4"));
+                _sink.Raise("heuristic.feedback.honeypot", signal.Honeypot.ToString());
+                _sink.Raise("heuristic.feedback.path", signal.Path ?? "/");
+                _sink.Raise("heuristic.feedback.datacenter", signal.Datacenter ?? "unknown");
+
+                // Signal high-confidence bot detection for immediate learning
+                if (signal.Honeypot)
+                {
+                    _sink.Raise("learning.high_confidence_bot", _signature);
+                    _sink.Raise("learning.feedback.type", "honeypot_hit");
+                }
+                else if (signal.Risk > 0.9)
+                {
+                    _sink.Raise("learning.high_risk_signature", _signature);
+                    _sink.Raise("learning.feedback.type", "high_risk");
+                }
+            }
         }
         finally
         {

@@ -266,35 +266,60 @@ public sealed class SignatureEscalatorAtom : IAsyncDisposable
     }
 
     /// <summary>
-    ///     Store operation summary (future: to database, logs, etc.)
+    ///     Store operation summary by emitting signals for persistence handlers.
+    ///     Decoupled storage - handlers subscribe to storage signals.
     /// </summary>
     private async Task StoreOperationAsync(
         EscalationDecision decision,
         Dictionary<string, object> allSignals,
         CancellationToken cancellationToken)
     {
-        // TODO: Implement storage
-        // - Database write
-        // - Log aggregation
-        // - S3/blob storage
-        _logger.LogDebug("Storage decision for {Signature}: {Reason}", _signature, decision.Reason);
+        // Emit storage signals that persistence handlers can subscribe to
+        _operationSink.Raise("storage.operation.store", _requestId);
+        _operationSink.Raise("storage.operation.signature", _signature);
+        _operationSink.Raise("storage.operation.priority", decision.Priority.ToString());
+        _operationSink.Raise("storage.operation.reason", decision.Reason);
+
+        // Emit high-value signals for storage
+        foreach (var signal in allSignals.Take(10))
+        {
+            _operationSink.Raise($"storage.signal.{signal.Key}", signal.Value?.ToString() ?? "null");
+        }
+
+        _logger.LogInformation(
+            "Storage triggered for {Signature}: priority={Priority}, reason={Reason}, signals={Count}",
+            _signature, decision.Priority, decision.Reason, allSignals.Count);
+
         await Task.CompletedTask;
     }
 
     /// <summary>
-    ///     Emit alert signal (future: webhook, Slack, PagerDuty, etc.)
+    ///     Emit alert signals for alert handlers (webhook, Slack, PagerDuty, etc.)
+    ///     Decoupled alerting - handlers subscribe to alert signals.
     /// </summary>
     private async Task EmitAlertAsync(
         EscalationDecision decision,
         Dictionary<string, object> allSignals,
         CancellationToken cancellationToken)
     {
-        // TODO: Implement alerting
-        // - Webhook
-        // - Email
-        // - Slack/Teams
-        // - PagerDuty
-        _logger.LogWarning("ALERT for {Signature}: {Reason}", _signature, decision.Reason);
+        // Emit alert signals that notification handlers can subscribe to
+        _operationSink.Raise("alert.triggered", _requestId);
+        _operationSink.Raise("alert.signature", _signature);
+        _operationSink.Raise("alert.priority", decision.Priority.ToString());
+        _operationSink.Raise("alert.reason", decision.Reason);
+
+        // Extract key alert context
+        var risk = allSignals.TryGetValue("risk", out var r) ? r?.ToString() : "unknown";
+        var honeypot = allSignals.TryGetValue("honeypot", out var h) && h?.ToString() == "True";
+
+        _operationSink.Raise("alert.risk", risk ?? "0.0");
+        _operationSink.Raise("alert.honeypot", honeypot.ToString());
+
+        // Log at warning level for visibility
+        _logger.LogWarning(
+            "ALERT: {Signature} priority={Priority}, reason={Reason}, risk={Risk}, honeypot={Honeypot}",
+            _signature, decision.Priority, decision.Reason, risk, honeypot);
+
         await Task.CompletedTask;
     }
 

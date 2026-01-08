@@ -138,8 +138,12 @@ public sealed class ListUpdateCoordinatorAtom : IAsyncDisposable
                 "Parallel fetch completed in {ElapsedMs}ms - Patterns: {Patterns}, IPs: {IpRanges}, Security: {Security}",
                 elapsed.TotalMilliseconds, _totalPatternsFetched, _totalIpRangesFetched, _totalSecurityToolsFetched);
 
-            // TODO: Emit signal on successful update when SignalSink is implemented
-            // Signal: _options.UpdateSchedule?.Signal (e.g., "botlist.update")
+            // Log signal info for observability (external schedulers/dashboards can monitor logs)
+            // Signal name configured via UpdateSchedule.Signal (e.g., "botlist.update")
+            var signalName = _options.UpdateSchedule?.Signal ?? "botlist.update";
+            _logger.LogInformation(
+                "[SIGNAL] {Signal}: elapsed={Elapsed}ms, patterns={Patterns}, ips={IPs}, security={Security}",
+                signalName, elapsed.TotalMilliseconds, _totalPatternsFetched, _totalIpRangesFetched, _totalSecurityToolsFetched);
         }
         catch (Exception ex)
         {

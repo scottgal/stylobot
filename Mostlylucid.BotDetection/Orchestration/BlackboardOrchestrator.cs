@@ -236,6 +236,7 @@ public class BlackboardOrchestrator
     private readonly ILearningEventBus? _learningBus;
     private readonly ILogger<BlackboardOrchestrator> _logger;
     private readonly OrchestratorOptions _options;
+    private readonly PiiHasher _piiHasher;
     private readonly IPolicyEvaluator? _policyEvaluator;
     private readonly IPolicyRegistry? _policyRegistry;
     private readonly SignatureCoordinator? _signatureCoordinator;
@@ -244,6 +245,7 @@ public class BlackboardOrchestrator
         ILogger<BlackboardOrchestrator> logger,
         IOptions<BotDetectionOptions> options,
         IEnumerable<IContributingDetector> detectors,
+        PiiHasher piiHasher,
         ILearningEventBus? learningBus = null,
         IPolicyRegistry? policyRegistry = null,
         IPolicyEvaluator? policyEvaluator = null,
@@ -252,6 +254,7 @@ public class BlackboardOrchestrator
         _logger = logger;
         _options = options.Value.Orchestrator;
         _detectors = detectors;
+        _piiHasher = piiHasher;
         _learningBus = learningBus;
         _policyRegistry = policyRegistry;
         _policyEvaluator = policyEvaluator;
@@ -858,14 +861,9 @@ public class BlackboardOrchestrator
         var clientIp = httpContext.Connection.RemoteIpAddress?.ToString();
         var userAgent = httpContext.Request.Headers.UserAgent.ToString();
 
-        // Use PiiHasher for HMAC-SHA256 (cryptographic, non-reversible)
-        // TODO: Inject PiiHasher via constructor for proper key management
-        var tempKey = new byte[32]; // TEMPORARY - should come from config/vault
-        RandomNumberGenerator.Fill(tempKey);
-        var hasher = new PiiHasher(tempKey);
-
-        // Generate PRIMARY signature (IP + UA)
-        return hasher.ComputeSignature(clientIp, userAgent);
+        // Use injected PiiHasher for HMAC-SHA256 (cryptographic, non-reversible)
+        // Key is managed via DI configuration (from config/vault)
+        return _piiHasher.ComputeSignature(clientIp, userAgent);
     }
 
     #endregion
