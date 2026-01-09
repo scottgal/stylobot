@@ -234,9 +234,17 @@ public class StyloBotDashboardMiddleware
         // Rows
         foreach (var d in detections)
             await writer.WriteLineAsync(
-                $"{d.RequestId},{d.Timestamp:O},{d.IsBot},{d.BotProbability},{d.Confidence}," +
-                $"{d.RiskBand},{d.BotType},{d.BotName},{d.Action},{d.Method},{d.Path}," +
+                $"{EscapeCsv(d.RequestId)},{d.Timestamp:O},{d.IsBot},{d.BotProbability},{d.Confidence}," +
+                $"{EscapeCsv(d.RiskBand)},{EscapeCsv(d.BotType)},{EscapeCsv(d.BotName)},{EscapeCsv(d.Action)},{EscapeCsv(d.Method)},{EscapeCsv(d.Path)}," +
                 $"{d.StatusCode},{d.ProcessingTimeMs}");
+    }
+
+    private static string EscapeCsv(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return "";
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        return value;
     }
 }
 

@@ -163,14 +163,14 @@ public class BotDetectionService : IBotDetectionService
                     _logger.LogDebug("{Detector} (stage {Stage}) confidence: {Confidence:F2}",
                         detector.Name, stage, detectorResult.Confidence);
 
-                    return (detector.Name, Result: detectorResult, Error: null);
+                    return (detector.Name, Result: (DetectorResult?)detectorResult, Error: (Exception?)null);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Detector {Detector} failed in stage {Stage}",
                         detector.Name, stage);
                     _metrics?.RecordError(detector.Name, ex.GetType().Name);
-                    return (detector.Name, Result: (DetectorResult?)null, Error: ex);
+                    return (detector.Name, Result: (DetectorResult?)null, Error: (Exception?)ex);
                 }
             });
 

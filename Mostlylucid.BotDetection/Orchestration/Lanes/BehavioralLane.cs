@@ -86,7 +86,8 @@ internal sealed class BehavioralLane : AnalysisLaneBase
 
         // Group paths and compute frequencies
         var pathCounts = window
-            .GroupBy(op => NormalizePath(op.Path))
+            .Where(op => op.Path != null)
+            .GroupBy(op => NormalizePath(op.Path!))
             .ToDictionary(g => g.Key, g => g.Count());
 
         var total = (double)window.Count;
@@ -131,7 +132,13 @@ internal sealed class BehavioralLane : AnalysisLaneBase
         if (window.Count < 3) return 0.0;
 
         var sequentialCount = 0;
-        var paths = window.Select(op => op.Path).ToList();
+        var paths = window
+            .Select(op => op.Path)
+            .Where(p => p != null)
+            .Cast<string>()
+            .ToList();
+
+        if (paths.Count < 3) return 0.0;
 
         for (var i = 2; i < paths.Count; i++)
         {
@@ -147,7 +154,7 @@ internal sealed class BehavioralLane : AnalysisLaneBase
             }
         }
 
-        return Math.Clamp(sequentialCount / (double)(window.Count - 2), 0.0, 1.0);
+        return Math.Clamp(sequentialCount / (double)(paths.Count - 2), 0.0, 1.0);
     }
 
     private static string NormalizePath(string path)

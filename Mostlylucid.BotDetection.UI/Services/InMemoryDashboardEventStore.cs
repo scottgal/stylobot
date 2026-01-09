@@ -55,41 +55,43 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
 
     public Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null)
     {
-        var detections = _detections.ToList();
+        IEnumerable<DashboardDetectionEvent> query = _detections;
 
         if (filter != null)
         {
             if (filter.StartTime.HasValue)
-                detections = detections.Where(d => d.Timestamp >= filter.StartTime.Value).ToList();
+                query = query.Where(d => d.Timestamp >= filter.StartTime.Value);
 
             if (filter.EndTime.HasValue)
-                detections = detections.Where(d => d.Timestamp <= filter.EndTime.Value).ToList();
+                query = query.Where(d => d.Timestamp <= filter.EndTime.Value);
 
             if (filter.RiskBands?.Any() == true)
-                detections = detections.Where(d => filter.RiskBands.Contains(d.RiskBand)).ToList();
+                query = query.Where(d => filter.RiskBands.Contains(d.RiskBand));
 
             if (filter.IsBot.HasValue)
-                detections = detections.Where(d => d.IsBot == filter.IsBot.Value).ToList();
+                query = query.Where(d => d.IsBot == filter.IsBot.Value);
 
             if (!string.IsNullOrEmpty(filter.PathContains))
-                detections = detections
-                    .Where(d => d.Path.Contains(filter.PathContains, StringComparison.OrdinalIgnoreCase)).ToList();
+                query = query.Where(d => d.Path.Contains(filter.PathContains, StringComparison.OrdinalIgnoreCase));
 
             if (!string.IsNullOrEmpty(filter.SignatureId))
-                detections = detections.Where(d => d.PrimarySignature == filter.SignatureId).ToList();
+                query = query.Where(d => d.PrimarySignature == filter.SignatureId);
 
             if (filter.HighRiskOnly)
-                detections = detections.Where(d => d.RiskBand is "High" or "VeryHigh").ToList();
-
-            // Apply offset and limit
-            if (filter.Offset > 0)
-                detections = detections.Skip(filter.Offset.Value).ToList();
-
-            if (filter.Limit.HasValue)
-                detections = detections.Take(filter.Limit.Value).ToList();
+                query = query.Where(d => d.RiskBand is "High" or "VeryHigh");
         }
 
-        return Task.FromResult(detections.OrderByDescending(d => d.Timestamp).ToList());
+        // Order first, then apply offset/limit for correct pagination
+        var orderedQuery = query.OrderByDescending(d => d.Timestamp);
+
+        IEnumerable<DashboardDetectionEvent> result = orderedQuery;
+        if (filter?.Offset > 0)
+            result = result.Skip(filter.Offset.Value);
+
+        if (filter?.Limit.HasValue == true)
+            result = result.Take(filter.Limit.Value);
+
+        return Task.FromResult(result.ToList());
     }
 
     public Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100)

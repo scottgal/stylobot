@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Orchestration.Escalation;
 using Mostlylucid.BotDetection.Orchestration.SignalMatching;
@@ -348,7 +349,8 @@ public sealed class SignatureEscalatorAtom : IAsyncDisposable
     ///     Get latest signal value from operation sink.
     ///     Returns the Key property which contains the value (from Raise(signal, value))
     /// </summary>
-    private T GetSignal<T>(string signalName, T defaultValue = default)
+    [return: MaybeNull]
+    private T GetSignal<T>(string signalName, [AllowNull] T defaultValue = default)
     {
         var events = _operationSink.Sense(evt => evt.Signal == signalName);
         var latest = events.OrderByDescending(e => e.Timestamp).FirstOrDefault();
