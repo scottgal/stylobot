@@ -391,13 +391,24 @@ public class BotDetectionOptions
 
     /// <summary>
     ///     Storage provider for bot patterns and IP ranges.
-    ///     - Sqlite (default): Fast, recommended for production
-    ///     - Json: Simple file-based, useful for debugging or small deployments
+    ///     - PostgreSQL: Recommended for production when connection string is provided
+    ///     - Sqlite: Fast, good for single-node deployments (default fallback)
+    ///     - Json: Simple file-based, useful for debugging
+    ///     NOTE: When PostgreSQLConnectionString is set, PostgreSQL is used automatically.
     /// </summary>
     public StorageProvider StorageProvider { get; set; } = StorageProvider.Sqlite;
 
     /// <summary>
+    ///     PostgreSQL connection string for bot detection data storage.
+    ///     When set, automatically enables PostgreSQL as the storage provider.
+    ///     Takes precedence over SQLite - PostgreSQL is always preferred when available.
+    ///     Example: "Host=localhost;Database=botdetection;Username=user;Password=pass"
+    /// </summary>
+    public string? PostgreSQLConnectionString { get; set; }
+
+    /// <summary>
     ///     Path to the storage file (SQLite database or JSON file).
+    ///     Only used when StorageProvider is Sqlite or Json.
     ///     Default for SQLite: {AppContext.BaseDirectory}/botdetection.db
     ///     Default for JSON: {AppContext.BaseDirectory}/botdetection.json
     /// </summary>
@@ -2128,8 +2139,15 @@ public class AnomalySaverOptions
 public enum StorageProvider
 {
     /// <summary>
-    ///     SQLite database storage (default).
-    ///     Fast indexed queries, good for production with many patterns.
+    ///     PostgreSQL database storage (recommended for production).
+    ///     Scalable, supports clustering, and integrates with TimescaleDB.
+    ///     Requires PostgreSQL connection string.
+    /// </summary>
+    PostgreSQL,
+
+    /// <summary>
+    ///     SQLite database storage.
+    ///     Fast indexed queries, good for single-node deployments.
     ///     File: botdetection.db
     /// </summary>
     Sqlite,
