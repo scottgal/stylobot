@@ -119,7 +119,7 @@
     }
 
     <!-- Expandable Detector Details -->
-    @if (Model.DetectorContributions.Any())
+    @if (Model.DetectorContributions?.Any() == true)
     {
         <div class="bot-detection-details-compact">
             <button type="button" class="toggle-btn" @@click="showDetails = !showDetails">

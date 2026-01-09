@@ -30,7 +30,8 @@
       "Bash(dotnet run:*)",
       "Bash(timeout:*)",
       "Bash(docker inspect:*)",
-      "Bash(dotnet user-secrets:*)"
+      "Bash(dotnet user-secrets:*)",
+      "Bash(PGPASSWORD=sdfksdoii8980 psql:*)"
     ]
   }
 }

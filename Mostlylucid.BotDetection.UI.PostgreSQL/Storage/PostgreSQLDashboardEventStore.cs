@@ -336,24 +336,53 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         DateTime endTime,
         TimeSpan bucketSize)
     {
-        var sql = $@"
-            WITH time_buckets AS (
+        // Use TimescaleDB time_bucket if enabled, otherwise use standard PostgreSQL date_trunc
+        string sql;
+        if (_options.EnableTimescaleDB)
+        {
+            sql = $@"
+                WITH time_buckets AS (
+                    SELECT
+                        time_bucket('{bucketSize.TotalSeconds} seconds', timestamp) as bucket,
+                        COUNT(*) FILTER (WHERE is_bot)::int as bot_count,
+                        COUNT(*) FILTER (WHERE NOT is_bot)::int as human_count,
+                        COUNT(*)::int as total_count
+                    FROM dashboard_detections
+                    WHERE timestamp >= @StartTime AND timestamp <= @EndTime
+                    GROUP BY bucket
+                    ORDER BY bucket
+                )
                 SELECT
-                    time_bucket('{bucketSize.TotalSeconds} seconds', timestamp) as bucket,
-                    COUNT(*) FILTER (WHERE is_bot)::int as bot_count,
-                    COUNT(*) FILTER (WHERE NOT is_bot)::int as human_count,
-                    COUNT(*)::int as total_count
-                FROM dashboard_detections
-                WHERE timestamp >= @StartTime AND timestamp <= @EndTime
-                GROUP BY bucket
-                ORDER BY bucket
-            )
-            SELECT
-                bucket as Timestamp,
-                bot_count as BotCount,
-                human_count as HumanCount,
-                total_count as TotalCount
-            FROM time_buckets";
+                    bucket as Timestamp,
+                    bot_count as BotCount,
+                    human_count as HumanCount,
+                    total_count as TotalCount
+                FROM time_buckets";
+        }
+        else
+        {
+            // Standard PostgreSQL fallback using date_trunc
+            // Map bucket size to nearest supported interval
+            var truncUnit = GetDateTruncUnit(bucketSize);
+            sql = $@"
+                WITH time_buckets AS (
+                    SELECT
+                        date_trunc('{truncUnit}', timestamp) as bucket,
+                        COUNT(*) FILTER (WHERE is_bot)::int as bot_count,
+                        COUNT(*) FILTER (WHERE NOT is_bot)::int as human_count,
+                        COUNT(*)::int as total_count
+                    FROM dashboard_detections
+                    WHERE timestamp >= @StartTime AND timestamp <= @EndTime
+                    GROUP BY bucket
+                    ORDER BY bucket
+                )
+                SELECT
+                    bucket as Timestamp,
+                    bot_count as BotCount,
+                    human_count as HumanCount,
+                    total_count as TotalCount
+                FROM time_buckets";
+        }
 
         try
         {
@@ -369,6 +398,22 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
             _logger.LogError(ex, "Failed to get time series from PostgreSQL");
             throw;
         }
+    }
+
+    /// <summary>
+    /// Maps a TimeSpan bucket size to the nearest PostgreSQL date_trunc unit.
+    /// </summary>
+    private static string GetDateTruncUnit(TimeSpan bucketSize)
+    {
+        return bucketSize.TotalMinutes switch
+        {
+            < 1 => "second",
+            < 60 => "minute",
+            < 1440 => "hour",  // < 1 day
+            < 10080 => "day",  // < 1 week
+            < 43200 => "week", // < 30 days
+            _ => "month"
+        };
     }
 
     // Mapping helpers

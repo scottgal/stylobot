@@ -106,9 +106,27 @@ CREATE TRIGGER trigger_update_signature_timestamp
 -- Enable pg_trgm extension for trigram GIN indexes (fuzzy search)
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
+-- Cleanup function for retention policy
+CREATE OR REPLACE FUNCTION cleanup_old_detections(retention_days INTEGER)
+RETURNS INTEGER AS $$
+DECLARE
+    deleted_count INTEGER;
+BEGIN
+    WITH deleted AS (
+        DELETE FROM dashboard_detections
+        WHERE created_at < NOW() - (retention_days || ' days')::INTERVAL
+        RETURNING 1
+    )
+    SELECT COUNT(*) INTO deleted_count FROM deleted;
+
+    RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Comments for documentation
 COMMENT ON TABLE dashboard_detections IS 'Real-time bot detection events for dashboard display';
 COMMENT ON TABLE dashboard_signatures IS 'Unique bot signatures with GIN-indexed fast lookup';
 COMMENT ON COLUMN dashboard_signatures.primary_signature IS 'HMAC signature of IP+UA, GIN-indexed for fast fuzzy search';
 COMMENT ON COLUMN dashboard_signatures.metadata IS 'JSONB metadata for extensibility, GIN-indexed';
 COMMENT ON INDEX idx_signatures_primary_gin IS 'Trigram GIN index for fast partial signature matching';
+COMMENT ON FUNCTION cleanup_old_detections IS 'Deletes detection events older than retention_days, returns count of deleted rows';
