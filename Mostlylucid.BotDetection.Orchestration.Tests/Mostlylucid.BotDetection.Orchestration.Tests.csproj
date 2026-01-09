@@ -43,10 +43,15 @@
 
         <!-- Browser automation for integration testing -->
         <PackageReference Include="PuppeteerSharp" Version="20.0.5"/>
+
+        <!-- PostgreSQL testing -->
+        <PackageReference Include="Npgsql" Version="9.0.3"/>
+        <PackageReference Include="Xunit.Extensions.Logging" Version="1.1.0"/>
     </ItemGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj"/>
+        <ProjectReference Include="..\Mostlylucid.BotDetection.UI.PostgreSQL\Mostlylucid.BotDetection.UI.PostgreSQL.csproj"/>
     </ItemGroup>
 
 </Project>
