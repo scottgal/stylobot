@@ -13,9 +13,10 @@ public interface IDashboardEventStore
     Task AddDetectionAsync(DashboardDetectionEvent detection);
 
     /// <summary>
-    ///     Add a signature observation to the store.
+    ///     Add or update a signature observation in the store.
+    ///     Returns the signature with updated hit_count after upsert.
     /// </summary>
-    Task AddSignatureAsync(DashboardSignatureEvent signature);
+    Task<DashboardSignatureEvent> AddSignatureAsync(DashboardSignatureEvent signature);
 
     /// <summary>
     ///     Get recent detections with optional filtering.

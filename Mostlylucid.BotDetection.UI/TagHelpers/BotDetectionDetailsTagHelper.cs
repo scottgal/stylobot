@@ -33,6 +33,12 @@ public class BotDetectionDetailsTagHelper : TagHelper
     [HtmlAttributeName("collapsed")]
     public bool Collapsed { get; set; } = false;
 
+    /// <summary>
+    ///     View mode: "default" for full display, "compact" for detection bar
+    /// </summary>
+    [HtmlAttributeName("view")]
+    public string View { get; set; } = "default";
+
     public override async Task ProcessAsync(TagHelperContext context, TagHelperOutput output)
     {
         if (ViewContext != null) (_viewComponentHelper as IViewContextAware)?.Contextualize(ViewContext);
@@ -41,14 +47,15 @@ public class BotDetectionDetailsTagHelper : TagHelper
         output.TagMode = TagMode.StartTagAndEndTag;
 
         // Add CSS class
-        var cssClasses = "bot-detection-details";
+        var cssClasses = View == "compact" ? "stylobot-detection-bar-container" : "bot-detection-details";
         if (!string.IsNullOrEmpty(CssClass)) cssClasses += $" {CssClass}";
         if (Collapsed) cssClasses += " collapsed";
 
         output.Attributes.SetAttribute("class", cssClasses);
 
-        // Render the view component
-        var content = await _viewComponentHelper.InvokeAsync("BotDetectionDetails");
+        // Render the view component with the view name
+        var viewName = View == "compact" ? "Compact" : "Default";
+        var content = await _viewComponentHelper.InvokeAsync("BotDetectionDetails", new { viewName });
         output.Content.SetHtmlContent(content);
     }
 }

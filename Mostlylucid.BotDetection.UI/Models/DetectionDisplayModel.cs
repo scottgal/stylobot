@@ -89,6 +89,18 @@ public sealed class MultiFactorSignatureDisplay
 
     /// <summary>Which factors are available (for display)</summary>
     public List<string> AvailableFactors { get; init; } = new();
+
+    /// <summary>When this signature was first observed (null if new)</summary>
+    public DateTimeOffset? FirstSeen { get; init; }
+
+    /// <summary>When this signature was last observed before this request</summary>
+    public DateTimeOffset? LastSeen { get; init; }
+
+    /// <summary>Total times this signature has been seen</summary>
+    public int? TotalHits { get; init; }
+
+    /// <summary>Whether this is a new (never seen before) signature</summary>
+    public bool IsNew => FirstSeen == null;
 }
 
 /// <summary>

@@ -8,7 +8,29 @@
       "Bash(dotnet restore:*)",
       "Bash(findstr:*)",
       "Bash(dotnet clean:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(git fetch:*)",
+      "Bash(dotnet nuget search:*)",
+      "WebFetch(domain:www.nuget.org)",
+      "Bash(timeout 20 dotnet run:*)",
+      "Bash(curl:*)",
+      "Bash(npm run build:*)",
+      "Bash(taskkill:*)",
+      "Bash(node screenshot-compact-bar.mjs:*)",
+      "Bash(cat:*)",
+      "Bash(tasklist:*)",
+      "Bash(cmd.exe /c \"taskkill /F /PID 141984\")",
+      "Bash(powershell.exe -Command \"Stop-Process -Id 141984 -Force\")",
+      "Bash(Stop-Process -Id 59740 -Force)",
+      "Bash(powershell:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker compose:*)",
+      "Bash(netstat:*)",
+      "Bash(docker exec:*)",
+      "Bash(dotnet run:*)",
+      "Bash(timeout:*)",
+      "Bash(docker inspect:*)",
+      "Bash(dotnet user-secrets:*)"
     ]
   }
 }

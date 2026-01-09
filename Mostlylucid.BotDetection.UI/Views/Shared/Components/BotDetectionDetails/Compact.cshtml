@@ -1,0 +1,276 @@
+@model Mostlylucid.BotDetection.UI.Models.DetectionDisplayModel
+@using Mostlylucid.BotDetection.UI.Models
+
+@* Compact Detection Bar - Real-time updates via SignalR *@
+@{
+    var hubPath = "/_stylobot/hub";
+    var initialSignature = Model.Signatures?.PrimarySignature ?? "";
+    var initialData = new {
+        isBot = Model.IsBot,
+        botProbability = Model.BotProbability,
+        confidence = Model.Confidence,
+        riskBand = Model.RiskBand ?? "Unknown",
+        processingTimeMs = Model.ProcessingTimeMs,
+        topSignal = Model.TopReasons.FirstOrDefault() ?? "No signals",
+        hitCount = 1
+    };
+}
+
+<div class="stylobot-detection-bar-container"
+     x-data="detectionBar()"
+     x-init="init()"
+     x-cloak>
+
+    <!-- Main Compact Bar -->
+    <div class="stylobot-detection-bar">
+        <div class="detection-bar-main" @@click="expanded = !expanded">
+            <div class="detection-bar-content">
+                <!-- Status Icon + Classification -->
+                <div class="detection-bar-status">
+                    <span class="detection-bar-icon" :class="{ 'is-bot-icon': isBot }">
+                        <span x-text="isBot ? 'R' : 'H'"></span>
+                    </span>
+                    <span class="detection-bar-classification" :class="isBot ? 'is-bot' : 'is-human'">
+                        <span x-text="isBot ? 'Bot' : 'Human'"></span>
+                    </span>
+                </div>
+
+                <!-- Bot Probability -->
+                <div class="detection-bar-metric">
+                    <span class="metric-label">Prob</span>
+                    <span class="metric-value" x-text="Math.round(botProbability * 100) + '%'"
+                          :class="{ 'updating': justUpdated }"></span>
+                </div>
+
+                <!-- Confidence -->
+                <div class="detection-bar-metric">
+                    <span class="metric-label">Conf</span>
+                    <span class="metric-value" x-text="Math.round(confidence * 100) + '%'"></span>
+                </div>
+
+                <!-- Risk Badge -->
+                <div class="detection-bar-risk" :class="'risk-' + riskBand.toLowerCase()" x-text="riskBand"></div>
+
+                <!-- Recommendation -->
+                <div class="detection-bar-action" :class="'action-' + action.toLowerCase()" x-text="action"></div>
+
+                <!-- Top Signal (truncated) -->
+                <div class="detection-bar-signal">
+                    <span x-text="topSignal.length > 40 ? topSignal.substring(0, 37) + '...' : topSignal"></span>
+                </div>
+
+                <!-- Timing -->
+                <div class="detection-bar-timing">
+                    <span x-text="processingTimeMs.toFixed(0) + 'ms'"></span>
+                </div>
+
+                <!-- Hit Count - Updates in real-time -->
+                <div class="detection-bar-seen">
+                    <span class="seen-hits" :class="{ 'pulse': justUpdated }" x-show="hitCount > 0">
+                        <span x-text="'x' + hitCount"></span>
+                    </span>
+                    <span class="seen-live" x-show="connected" title="Live updates active">LIVE</span>
+                </div>
+
+                <!-- Expand Indicator -->
+                <div class="detection-bar-expand">
+                    <span x-text="expanded ? '[-]' : '[+]'"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Expanded Details Panel -->
+        <div x-show="expanded" x-collapse class="detection-bar-details">
+            <div class="details-grid">
+                <!-- Left: Signature Info -->
+                <div class="details-section">
+                    <div class="details-title">Your Signature</div>
+                    <div class="signatures-compact">
+                        <div class="sig-item"><span class="sig-label">ID:</span> <code x-text="signature.substring(0, 12) + '...'"></code></div>
+                        <div class="sig-item"><span class="sig-label">Hits:</span> <span x-text="hitCount"></span></div>
+                        <div class="sig-privacy">Zero-PII HMAC signature</div>
+                    </div>
+                </div>
+
+                <!-- Center: Live Stats -->
+                <div class="details-section">
+                    <div class="details-title">Real-Time Stats</div>
+                    <div class="contributors-list">
+                        <div class="contributor-item">
+                            <span class="contributor-name">Bot Probability</span>
+                            <span class="contributor-value" x-text="(botProbability * 100).toFixed(1) + '%'"></span>
+                        </div>
+                        <div class="contributor-item">
+                            <span class="contributor-name">Confidence</span>
+                            <span class="contributor-value" x-text="(confidence * 100).toFixed(1) + '%'"></span>
+                        </div>
+                        <div class="contributor-item">
+                            <span class="contributor-name">Avg Response</span>
+                            <span class="contributor-value" x-text="processingTimeMs.toFixed(0) + 'ms'"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Connection Status -->
+                <div class="details-section">
+                    <div class="details-title">Connection</div>
+                    <div class="signals-list">
+                        <div class="signal-item" x-show="connected" style="color: #51cf66;">SignalR Connected</div>
+                        <div class="signal-item" x-show="!connected" style="color: #ff6b6b;">Connecting...</div>
+                        <div class="signal-item">Updates: <span x-text="updateCount"></span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard Link -->
+            <div class="details-footer">
+                <a :href="'/_stylobot?signature=' + signature" class="dashboard-link">
+                    View Full Dashboard & All Signals &rarr;
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('detectionBar', () => ({
+        // State from server
+        signature: '@initialSignature',
+        isBot: @(Model.IsBot ? "true" : "false"),
+        botProbability: @Model.BotProbability.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        confidence: @Model.Confidence.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        riskBand: '@(Model.RiskBand ?? "Unknown")',
+        processingTimeMs: @Model.ProcessingTimeMs.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        topSignal: '@(Model.TopReasons.FirstOrDefault()?.Replace("'", "\\'") ?? "No signals")',
+
+        // Dynamic state
+        hitCount: 1,
+        expanded: false,
+        connected: false,
+        connection: null,
+        updateCount: 0,
+        justUpdated: false,
+
+        get action() {
+            if (this.botProbability >= 0.9) return 'Block';
+            if (this.botProbability >= 0.7) return 'Challenge';
+            if (this.botProbability >= 0.5) return 'Throttle';
+            if (this.botProbability >= 0.3) return 'Monitor';
+            return 'Allow';
+        },
+
+        async init() {
+            await this.connect();
+        },
+
+        async connect() {
+            try {
+                if (typeof signalR === 'undefined') {
+                    await this.loadSignalR();
+                }
+
+                this.connection = new signalR.HubConnectionBuilder()
+                    .withUrl('@hubPath')
+                    .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+                    .configureLogging(signalR.LogLevel.Warning)
+                    .build();
+
+                // Listen for detection events - update if it's OUR signature
+                this.connection.on('BroadcastDetection', (detection) => {
+                    if (detection.primarySignature === this.signature) {
+                        this.updateFromDetection(detection);
+                    }
+                });
+
+                // Listen for signature events - get accurate hit count from database
+                this.connection.on('BroadcastSignature', (sig) => {
+                    if (sig.primarySignature === this.signature) {
+                        this.hitCount = sig.hitCount;
+                        console.log('[DetectionBar] Signature hit count from DB:', sig.hitCount);
+                    }
+                });
+
+                this.connection.onclose(() => { this.connected = false; });
+                this.connection.onreconnecting(() => { this.connected = false; });
+                this.connection.onreconnected(() => { this.connected = true; });
+
+                await this.connection.start();
+                this.connected = true;
+                console.log('[DetectionBar] Connected - tracking signature:', this.signature.substring(0, 12));
+
+            } catch (error) {
+                console.error('[DetectionBar] Connection failed:', error);
+                this.connected = false;
+            }
+        },
+
+        async loadSignalR() {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js';
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        },
+
+        updateFromDetection(detection) {
+            // Update all metrics from the new detection
+            this.isBot = detection.isBot;
+            this.botProbability = detection.botProbability;
+            this.confidence = detection.confidence;
+            this.riskBand = detection.riskBand;
+            this.processingTimeMs = detection.processingTimeMs;
+            if (detection.topReasons && detection.topReasons.length > 0) {
+                this.topSignal = detection.topReasons[0];
+            }
+
+            // Increment update counter (hit count comes from BroadcastSignature)
+            this.updateCount++;
+
+            // Visual feedback
+            this.justUpdated = true;
+            setTimeout(() => { this.justUpdated = false; }, 500);
+
+            console.log('[DetectionBar] Updated - hits:', this.hitCount, 'prob:', this.botProbability);
+        }
+    }));
+});
+</script>
+
+<style>
+.detection-bar-seen .seen-live {
+    color: #51cf66;
+    font-size: 9px;
+    font-weight: 600;
+    background: rgba(81, 207, 102, 0.15);
+    padding: 1px 4px;
+    border-radius: 2px;
+    margin-left: 4px;
+    animation: pulse-live 2s infinite;
+}
+
+.detection-bar-seen .seen-hits.pulse {
+    animation: pulse-update 0.5s ease-out;
+}
+
+.metric-value.updating {
+    animation: pulse-update 0.5s ease-out;
+}
+
+@@keyframes pulse-live {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+@@keyframes pulse-update {
+    0% { transform: scale(1.2); color: #51cf66; }
+    100% { transform: scale(1); }
+}
+
+.is-bot-icon {
+    background: #dc3545 !important;
+    color: white !important;
+}
+</style>

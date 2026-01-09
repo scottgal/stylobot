@@ -25,6 +25,9 @@
 
     <!-- Built CSS (watch mode rebuilds on changes) -->
     <link rel="stylesheet" href="/dist/assets/index.css" asp-append-version="true" />
+
+    <!-- Bot Detection UI CSS -->
+    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/bot-detection-details.css" />
 </head>
 <body class="min-h-screen flex flex-col">
     <header class="sticky top-0 z-[9999] bg-base-100/95 backdrop-blur-md border-b border-base-300 shadow-lg">
@@ -85,6 +88,15 @@
             </div>
         </nav>
     </header>
+
+    <!-- Real-Time Detection Bar - YOUR actual detection -->
+    <bot-detection-details view="compact" />
+
+    <!-- Live Bot Ticker - Shows recent detections via SignalR -->
+    <bot-ticker />
+
+    <!-- Client-side fingerprinting for enhanced detection -->
+    <bot-detection-script />
 
     <main class="flex-1">
         @RenderBody()

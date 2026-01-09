@@ -27,9 +27,9 @@
 
   <!-- Embed SQL schema as resource -->
   <ItemGroup>
+    <EmbeddedResource Include="Schema\schema.sql" />
     <EmbeddedResource Include="Schema\comprehensive_schema.sql" />
     <EmbeddedResource Include="Schema\timescaledb_enhancements.sql" />
-    <None Include="Schema\schema.sql" />
   </ItemGroup>
 
   <!-- Include documentation -->

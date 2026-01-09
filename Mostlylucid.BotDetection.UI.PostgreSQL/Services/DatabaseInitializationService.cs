@@ -35,7 +35,7 @@ public class DatabaseInitializationService : IHostedService
             _logger.LogInformation("Initializing PostgreSQL database schema...");
 
             var assembly = Assembly.GetExecutingAssembly();
-            var resourceName = "Mostlylucid.BotDetection.UI.PostgreSQL.Schema.comprehensive_schema.sql";
+            var resourceName = "Mostlylucid.BotDetection.UI.PostgreSQL.Schema.schema.sql";
 
             await using var stream = assembly.GetManifestResourceStream(resourceName);
             if (stream == null)

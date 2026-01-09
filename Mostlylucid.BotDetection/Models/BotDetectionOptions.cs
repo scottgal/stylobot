@@ -42,6 +42,15 @@ public class BotDetectionOptions
     /// </summary>
     public Dictionary<string, string> TestModeSimulations { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    ///     Base64-encoded HMAC key for PII signature hashing (zero-PII architecture).
+    ///     Must be at least 128 bits (16 bytes) when decoded.
+    ///     If not provided, a random key will be auto-generated (suitable for dev only).
+    ///     For production, store in Key Vault/environment variable and configure here.
+    ///     Generate with: Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+    /// </summary>
+    public string? SignatureHashKey { get; set; }
+
     // ==========================================
     // Detection Strategy Toggles
     // ==========================================

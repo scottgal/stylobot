@@ -36,14 +36,21 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
         return Task.CompletedTask;
     }
 
-    public Task AddSignatureAsync(DashboardSignatureEvent signature)
+    public Task<DashboardSignatureEvent> AddSignatureAsync(DashboardSignatureEvent signature)
     {
-        _signatures.Enqueue(signature);
+        // Update hit count if we've seen this signature before
+        var hitCount = _signatureHitCounts.AddOrUpdate(
+            signature.PrimarySignature,
+            1,
+            (_, count) => count + 1);
+
+        var updatedSignature = signature with { HitCount = hitCount };
+        _signatures.Enqueue(updatedSignature);
 
         // Trim if over limit
         while (_signatures.Count > _maxEvents) _signatures.TryDequeue(out _);
 
-        return Task.CompletedTask;
+        return Task.FromResult(updatedSignature);
     }
 
     public Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null)

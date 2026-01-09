@@ -1,22 +1,19 @@
 ﻿@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+@using Microsoft.AspNetCore.Http
+@inject IHttpContextAccessor HttpContextAccessor
 @{
     ViewData["Title"] = "Bot Detection Intelligence - All the Data, Your Decision";
     var web3FormsKey = Configuration["Web3Forms:AccessKey"];
 }
 
 <!-- Hero Section with Coming Soon -->
-<section class="relative bg-gradient-to-br from-base-100 via-base-200 to-base-100 py-12 lg:py-16 overflow-hidden">
+<section class="relative bg-gradient-to-br from-base-100 via-base-200 to-base-100 py-6 lg:py-8 overflow-hidden">
     <!-- Animated Background Pattern -->
     <div class="absolute inset-0 opacity-5">
         <div class="absolute inset-0" style="background-image: radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0); background-size: 40px 40px;"></div>
     </div>
 
     <div class="max-w-7xl mx-auto px-4 relative z-10">
-        <!-- Logo centered -->
-        <div class="flex justify-center mb-6">
-            <img src="/img/logo.png" alt="stylobot Logo" class="h-48 w-auto lg:h-64 lg:w-auto drop-shadow-[0_0_30px_rgba(0,0,0,0.9)]" style="filter: drop-shadow(0 0 30px rgba(0,0,0,0.9));" />
-        </div>
-
         <!-- stylobot -->
         <div class="text-center mb-4">
             <h1 class="text-7xl lg:text-9xl leading-none" style="font-family: 'Raleway', sans-serif; font-weight: 900;">
@@ -270,6 +267,7 @@
         </div>
     </div>
 </section>
+
 
 <!-- StyloFlow Core Technology Callout -->
 <section class="py-16 bg-gradient-to-br from-purple-500/10 via-base-100 to-cyan-500/10">

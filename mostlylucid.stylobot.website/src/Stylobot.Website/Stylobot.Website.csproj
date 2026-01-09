@@ -1,9 +1,17 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>d7076ff6-3c0e-4f35-9535-1e35c5cbc764</UserSecretsId>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Bot Detection from main repo - using project reference for development -->
+    <ProjectReference Include="..\..\..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
+    <ProjectReference Include="..\..\..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
+    <ProjectReference Include="..\..\..\Mostlylucid.BotDetection.UI.PostgreSQL\Mostlylucid.BotDetection.UI.PostgreSQL.csproj" />
+  </ItemGroup>
 
 </Project>

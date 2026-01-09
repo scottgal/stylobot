@@ -1,0 +1,173 @@
+@* Bot Ticker - Real-time detection feed using SignalR + Alpine.js + HTMX *@
+@{
+    var hubPath = "/_stylobot/hub";
+}
+
+<div class="stylobot-ticker"
+     x-data="botTicker()"
+     x-init="connect()"
+     x-cloak>
+
+    <!-- Ticker Bar -->
+    <div class="ticker-bar">
+        <div class="ticker-label">
+            <span class="ticker-icon">R</span>
+            <span>LIVE</span>
+        </div>
+
+        <!-- Scrolling detections -->
+        <div class="ticker-scroll" x-ref="tickerScroll">
+            <template x-for="detection in detections" :key="detection.requestId">
+                <a class="ticker-item"
+                   :href="'/_stylobot?signature=' + detection.primarySignature"
+                   :class="{ 'is-bot': detection.isBot }"
+                   hx-get="/_stylobot/signature-details"
+                   hx-vals="js:{signature: detection.primarySignature}"
+                   hx-target="#signature-detail-panel"
+                   hx-swap="innerHTML"
+                   hx-push-url="true">
+                    <span class="ticker-item-icon" x-text="detection.isBot ? 'R' : 'H'"></span>
+                    <span class="ticker-item-risk" :class="'risk-' + detection.riskBand.toLowerCase()" x-text="detection.riskBand"></span>
+                    <span class="ticker-item-path" x-text="detection.path.length > 20 ? detection.path.substring(0, 17) + '...' : detection.path"></span>
+                    <span class="ticker-item-prob" x-text="Math.round(detection.botProbability * 100) + '%'"></span>
+                    <span class="ticker-item-time" x-text="formatTime(detection.timestamp)"></span>
+                </a>
+            </template>
+
+            <!-- Empty state -->
+            <template x-if="detections.length === 0 && connected">
+                <span class="ticker-empty">Waiting for detections...</span>
+            </template>
+
+            <!-- Connecting state -->
+            <template x-if="!connected">
+                <span class="ticker-connecting">Connecting to live feed...</span>
+            </template>
+        </div>
+
+        <!-- Stats summary -->
+        <div class="ticker-stats" x-show="summary">
+            <span class="stat-item">
+                <span class="stat-label">Total:</span>
+                <span class="stat-value" x-text="summary?.totalRequests || 0"></span>
+            </span>
+            <span class="stat-item stat-bot">
+                <span class="stat-label">Bots:</span>
+                <span class="stat-value" x-text="summary?.botRequests || 0"></span>
+            </span>
+            <span class="stat-item stat-human">
+                <span class="stat-label">Humans:</span>
+                <span class="stat-value" x-text="summary?.humanRequests || 0"></span>
+            </span>
+        </div>
+
+        <!-- Dashboard link -->
+        <a href="/_stylobot" class="ticker-dashboard-link" title="Open Dashboard">
+            Dashboard
+        </a>
+    </div>
+</div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    Alpine.data('botTicker', () => ({
+        connected: false,
+        detections: [],
+        summary: null,
+        connection: null,
+        maxDetections: 20,
+
+        async connect() {
+            try {
+                // Load SignalR if not already loaded
+                if (typeof signalR === 'undefined') {
+                    await this.loadSignalR();
+                }
+
+                this.connection = new signalR.HubConnectionBuilder()
+                    .withUrl('@hubPath')
+                    .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+                    .configureLogging(signalR.LogLevel.Warning)
+                    .build();
+
+                // Handle detection events
+                this.connection.on('BroadcastDetection', (detection) => {
+                    this.addDetection(detection);
+                });
+
+                // Handle signature events (for bots)
+                this.connection.on('BroadcastSignature', (signature) => {
+                    // Could highlight this in ticker
+                });
+
+                // Handle summary updates
+                this.connection.on('BroadcastSummary', (summary) => {
+                    this.summary = summary;
+                });
+
+                // Connection state handlers
+                this.connection.onclose(() => {
+                    this.connected = false;
+                });
+
+                this.connection.onreconnecting(() => {
+                    this.connected = false;
+                });
+
+                this.connection.onreconnected(() => {
+                    this.connected = true;
+                });
+
+                await this.connection.start();
+                this.connected = true;
+                console.log('[BotTicker] Connected to SignalR hub');
+
+            } catch (error) {
+                console.error('[BotTicker] Connection failed:', error);
+                this.connected = false;
+            }
+        },
+
+        async loadSignalR() {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js';
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        },
+
+        addDetection(detection) {
+            // Only show interesting detections: bots OR medium+ risk
+            const dominated = detection.isBot ||
+                              detection.botProbability >= 0.4 ||
+                              ['Medium', 'High', 'VeryHigh'].includes(detection.riskBand);
+
+            if (!dominated) return; // Skip low-interest detections
+
+            // Add to front
+            this.detections.unshift({
+                ...detection,
+                timestamp: new Date(detection.timestamp)
+            });
+
+            // Keep only recent detections
+            if (this.detections.length > this.maxDetections) {
+                this.detections = this.detections.slice(0, this.maxDetections);
+            }
+        },
+
+        formatTime(timestamp) {
+            if (!timestamp) return '';
+            const d = new Date(timestamp);
+            return d.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            });
+        }
+    }));
+});
+</script>

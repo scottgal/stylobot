@@ -21,13 +21,13 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         _httpContextAccessor = httpContextAccessor;
     }
 
-    public IViewComponentResult Invoke()
+    public IViewComponentResult Invoke(string viewName = "Default")
     {
         var context = _httpContextAccessor.HttpContext ?? HttpContext;
-        if (context == null) return View(new DetectionDisplayModel());
+        if (context == null) return View(viewName, new DetectionDisplayModel());
 
         var model = ExtractDetectionData(context);
-        return View(model);
+        return View(viewName, model);
     }
 
     /// <summary>
@@ -193,7 +193,7 @@ public class BotDetectionDetailsViewComponent : ViewComponent
             try
             {
                 var signatures = JsonSerializer.Deserialize<Dictionary<string, string>>(signaturesJson);
-                if (signatures != null) return BuildSignatureDisplay(signatures);
+                if (signatures != null) return BuildSignatureDisplay(signatures, context);
             }
             catch
             {
@@ -206,7 +206,7 @@ public class BotDetectionDetailsViewComponent : ViewComponent
             try
             {
                 var signatures = JsonSerializer.Deserialize<Dictionary<string, string>>(signatureHeader);
-                if (signatures != null) return BuildSignatureDisplay(signatures);
+                if (signatures != null) return BuildSignatureDisplay(signatures, context);
             }
             catch
             {
@@ -219,7 +219,7 @@ public class BotDetectionDetailsViewComponent : ViewComponent
     /// <summary>
     ///     Builds a MultiFactorSignatureDisplay from signature dictionary with plain English explanation.
     /// </summary>
-    private MultiFactorSignatureDisplay BuildSignatureDisplay(Dictionary<string, string> signatures)
+    private MultiFactorSignatureDisplay BuildSignatureDisplay(Dictionary<string, string> signatures, HttpContext? context = null)
     {
         var availableFactors = new List<string>();
         var explanations = new List<string>();
@@ -285,6 +285,26 @@ public class BotDetectionDetailsViewComponent : ViewComponent
                 $"while avoiding false positives from shared corporate networks."
         };
 
+        // Try to extract FirstSeen/LastSeen from context items
+        DateTimeOffset? firstSeen = null;
+        DateTimeOffset? lastSeen = null;
+        int? totalHits = null;
+
+        if (context != null)
+        {
+            if (context.Items.TryGetValue("BotDetection.Signature.FirstSeen", out var firstSeenObj) &&
+                firstSeenObj is DateTimeOffset fs)
+                firstSeen = fs;
+
+            if (context.Items.TryGetValue("BotDetection.Signature.LastSeen", out var lastSeenObj) &&
+                lastSeenObj is DateTimeOffset ls)
+                lastSeen = ls;
+
+            if (context.Items.TryGetValue("BotDetection.Signature.TotalHits", out var hitsObj) &&
+                hitsObj is int hits)
+                totalHits = hits;
+        }
+
         return new MultiFactorSignatureDisplay
         {
             PrimarySignature = primary,
@@ -295,7 +315,10 @@ public class BotDetectionDetailsViewComponent : ViewComponent
             IpSubnetSignature = ipSubnet,
             FactorCount = availableFactors.Count,
             Explanation = overallExplanation,
-            AvailableFactors = availableFactors
+            AvailableFactors = availableFactors,
+            FirstSeen = firstSeen,
+            LastSeen = lastSeen,
+            TotalHits = totalHits
         };
     }
 

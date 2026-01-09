@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Behavioral;
 using Mostlylucid.BotDetection.ClientSide;
+using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
@@ -372,6 +373,22 @@ public static class ServiceCollectionExtensions
 
         // Register response coordinator (tracks response patterns for behavioral feedback)
         services.TryAddSingleton<ResponseCoordinator>();
+
+        // Register PiiHasher for zero-PII signature generation
+        // Key should ideally come from secure config (Key Vault, env var), but auto-generate if not provided
+        services.TryAddSingleton(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+            // Check if a key is configured via SignatureHashKey (base64)
+            if (!string.IsNullOrEmpty(options.SignatureHashKey))
+            {
+                return PiiHasher.FromBase64Key(options.SignatureHashKey);
+            }
+            // Auto-generate key for development/testing (logs warning)
+            var logger = sp.GetService<ILogger<PiiHasher>>();
+            logger?.LogWarning("PiiHasher using auto-generated key. Configure BotDetection:SignatureHashKey for production.");
+            return new PiiHasher(PiiHasher.GenerateKey());
+        });
 
         // Register both orchestrators - ephemeral for new architecture, blackboard for compatibility
         services.TryAddSingleton<BlackboardOrchestrator>();

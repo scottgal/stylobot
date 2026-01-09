@@ -77,7 +77,7 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         }
     }
 
-    public async Task AddSignatureAsync(DashboardSignatureEvent signature)
+    public async Task<DashboardSignatureEvent> AddSignatureAsync(DashboardSignatureEvent signature)
     {
         const string sql = @"
             INSERT INTO dashboard_signatures (
@@ -93,12 +93,16 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
             DO UPDATE SET
                 hit_count = dashboard_signatures.hit_count + 1,
                 timestamp = EXCLUDED.timestamp,
-                updated_at = NOW()";
+                risk_band = EXCLUDED.risk_band,
+                is_known_bot = EXCLUDED.is_known_bot,
+                bot_name = EXCLUDED.bot_name,
+                updated_at = NOW()
+            RETURNING hit_count";
 
         try
         {
             await using var connection = new NpgsqlConnection(_options.ConnectionString);
-            await connection.ExecuteAsync(sql, new
+            var hitCount = await connection.ExecuteScalarAsync<int>(sql, new
             {
                 signature.SignatureId,
                 signature.Timestamp,
@@ -113,6 +117,9 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                 signature.BotName,
                 Metadata = "{}" // Empty JSONB for extensibility
             }, commandTimeout: _options.CommandTimeoutSeconds);
+
+            // Return updated signature with actual hit count from database
+            return signature with { HitCount = hitCount };
         }
         catch (Exception ex)
         {

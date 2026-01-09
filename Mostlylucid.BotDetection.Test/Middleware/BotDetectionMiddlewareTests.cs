@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
+using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
@@ -59,11 +60,12 @@ public class BotDetectionMiddlewareTests
 
     private static Mock<BlackboardOrchestrator> CreateMockOrchestrator(AggregatedEvidence? result = null)
     {
-        // Constructor: logger, options, detectors, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?
+        // Constructor: logger, options, detectors, piiHasher, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?
         var mock = new Mock<BlackboardOrchestrator>(
             Mock.Of<ILogger<BlackboardOrchestrator>>(),
             Options.Create(new BotDetectionOptions()),
             Enumerable.Empty<IContributingDetector>(),
+            new PiiHasher(new byte[32]), // piiHasher with test key
             null, // learningBus
             null, // policyRegistry
             null, // policyEvaluator
@@ -532,11 +534,12 @@ public class BotDetectionMiddlewareTests
         RequestDelegate next = _ => Task.CompletedTask;
         CancellationToken capturedToken = default;
 
-        // Constructor: logger, options, detectors, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?
+        // Constructor: logger, options, detectors, piiHasher, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?
         var mockOrchestrator = new Mock<BlackboardOrchestrator>(
             Mock.Of<ILogger<BlackboardOrchestrator>>(),
             Options.Create(new BotDetectionOptions()),
             Enumerable.Empty<IContributingDetector>(),
+            new PiiHasher(new byte[32]), // piiHasher with test key
             Mock.Of<ILearningEventBus>(), // learningBus
             Mock.Of<IPolicyRegistry>(), // policyRegistry
             Mock.Of<IPolicyEvaluator>(), // policyEvaluator

@@ -52,11 +52,15 @@ public static class StyloBotDashboardServiceExtensions
 
         if (!options.Enabled) return app;
 
-        // Map SignalR hub
-        app.UseEndpoints(endpoints => { endpoints.MapHub<StyloBotDashboardHub>(options.HubPath); });
+        // Broadcast REAL detections to SignalR - must be BEFORE UseEndpoints
+        // This runs for ALL requests to capture detection results
+        app.UseMiddleware<DetectionBroadcastMiddleware>();
 
-        // Use dashboard middleware for routing
+        // Use dashboard middleware for routing dashboard UI requests
         app.UseMiddleware<StyloBotDashboardMiddleware>();
+
+        // Map SignalR hub - this must be inside UseEndpoints
+        app.UseEndpoints(endpoints => { endpoints.MapHub<StyloBotDashboardHub>(options.HubPath); });
 
         return app;
     }
