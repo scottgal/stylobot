@@ -923,6 +923,22 @@ rm botdetection.db
 
 ---
 
+## Production Storage (PostgreSQL)
+
+For multi-server deployments or >100K requests/day, replace SQLite with PostgreSQL.
+See the [Deployment Guide](deployment-guide.md) for full setup.
+
+Package: `Mostlylucid.BotDetection.UI.PostgreSQL`
+
+| Feature | Docs |
+|---------|------|
+| PostgreSQL setup | [PostgreSQL README](../../Mostlylucid.BotDetection.UI.PostgreSQL/README.md) |
+| TimescaleDB | [TIMESCALEDB_GUIDE.md](../../Mostlylucid.BotDetection.UI.PostgreSQL/TIMESCALEDB_GUIDE.md) |
+| pgvector | [PGVECTOR_GUIDE.md](../../Mostlylucid.BotDetection.UI.PostgreSQL/PGVECTOR_GUIDE.md) |
+| Architecture | [ARCHITECTURE.md](../../Mostlylucid.BotDetection.UI.PostgreSQL/ARCHITECTURE.md) |
+
+---
+
 ## Pattern Learning Settings (Experimental)
 
 ```json

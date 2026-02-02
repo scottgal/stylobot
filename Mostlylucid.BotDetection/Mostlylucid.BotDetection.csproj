@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <LangVersion>12</LangVersion>
+        <LangVersion>preview</LangVersion>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
 
@@ -37,30 +37,32 @@
 
     <ItemGroup>
         <PackageReference Include="AngleSharp" Version="1.4.0"/>
-        <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.1"/>
-        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.1"/>
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.1"/>
-        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.1"/>
-        <PackageReference Include="OllamaSharp" Version="5.4.12"/>
-        <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.1"/>
+        <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.2" />
+        <PackageReference Include="OllamaSharp" Version="5.4.16" />
+        <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.2" />
         <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.2"/>
-        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.1"/>
-        <PackageReference Include="System.IO.Hashing" Version="10.0.1"/>
+        <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.2" />
+        <PackageReference Include="System.IO.Hashing" Version="10.0.2" />
         <!-- StyloFlow: NuGet package references -->
-        <PackageReference Include="Mostlylucid.StyloFlow.Core" Version="2.3.1-alpha0"/>
-        <PackageReference Include="Mostlylucid.StyloFlow.Retrieval.Core" Version="2.3.1-alpha0"/>
+        <PackageReference Include="Mostlylucid.StyloFlow.Core" Version="2.4.0" />
+        <PackageReference Include="Mostlylucid.StyloFlow.Retrieval.Core" Version="2.4.0" />
         <!-- Ephemeral: Core signal/coordination infrastructure (NuGet packages) -->
         <PackageReference Include="Mostlylucid.Ephemeral" Version="2.3.2" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Taxonomy" Version="2.3.2" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.KeyedSequential" Version="2.3.2" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.SlidingCache" Version="2.3.2" />
+        <PackageReference Include="HNSW" Version="25.3.56901"/>
+        <PackageReference Include="System.Numerics.Tensors" Version="9.0.3"/>
         <PackageReference Include="MathNet.Numerics" Version="5.0.0"/>
         <PackageReference Include="YamlDotNet" Version="16.3.0"/>
         <PackageReference Include="Vecc.YamlDotNet.Analyzers.StaticGenerator" Version="16.3.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="MinVer" Version="6.0.0">
+        <PackageReference Include="MinVer" Version="7.0.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>

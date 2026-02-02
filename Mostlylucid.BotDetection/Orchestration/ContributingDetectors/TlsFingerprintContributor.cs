@@ -120,7 +120,7 @@ public class TlsFingerprintContributor : ConfiguredContributorBase
             if (state.HttpContext.Request.Headers.TryGetValue("X-TLS-Protocol", out var tlsProtoHeader))
             {
                 var protocol = tlsProtoHeader.ToString();
-                signals.Add("tls.protocol", protocol);
+                signals.Add(SignalKeys.TlsProtocol, protocol);
                 AnalyzeTlsProtocol(protocol, contributions, signals);
             }
 

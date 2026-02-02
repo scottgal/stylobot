@@ -84,6 +84,20 @@ public class SeoService
     }
 
     /// <summary>
+    /// Gets SEO metadata for the Live Demo page
+    /// </summary>
+    public SeoMetadata GetLiveDemoMetadata()
+    {
+        var metadata = GetDefaultMetadata();
+        metadata.Title = "Live Demo - See Your Detection in Real-Time | Stylobot";
+        metadata.Description = "Experience Stylobot's bot detection live. See your own detection results in real-time: probability scores, confidence levels, risk bands, and detector breakdowns.";
+        metadata.OgUrl = $"{_baseUrl}/Home/LiveDemo";
+        metadata.Canonical = $"{_baseUrl}/Home/LiveDemo";
+        metadata.JsonLd = GenerateSoftwareApplicationJsonLd();
+        return metadata;
+    }
+
+    /// <summary>
     /// Gets SEO metadata for the Contact page
     /// </summary>
     public SeoMetadata GetContactMetadata()

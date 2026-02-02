@@ -32,7 +32,22 @@
       "Bash(docker inspect:*)",
       "Bash(dotnet user-secrets:*)",
       "Bash(PGPASSWORD=sdfksdoii8980 psql:*)",
-      "Bash(docker-compose up:*)"
+      "Bash(docker-compose up:*)",
+      "Bash(find:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(dotnet --info:*)",
+      "Bash(dotnet tool list:*)",
+      "Bash(dotnet ildasm:*)",
+      "Bash(dotnet new:*)",
+      "Bash(dotnet add package:*)",
+      "Bash(grep:*)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_console_messages",
+      "mcp__plugin_playwright_playwright__browser_evaluate",
+      "mcp__plugin_playwright_playwright__browser_wait_for",
+      "mcp__plugin_playwright_playwright__browser_take_screenshot"
     ]
   }
 }

@@ -34,13 +34,21 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
     public override string Name => "MultiLayerCorrelation";
     public override int Priority => 4; // Run late, after fingerprinting
 
-    // Requires signals from fingerprinting contributors
+    // Requires UA signal plus at least one fingerprint layer.
+    // In environments without a reverse proxy that injects TLS/TCP/HTTP2 headers,
+    // not all fingerprint signals will be available, so we use AnyOfTrigger.
     public override IReadOnlyList<TriggerCondition> TriggerConditions => new TriggerCondition[]
     {
-        new SignalExistsTrigger("tcp.os_hint"),
-        new SignalExistsTrigger("tls.protocol"),
-        new SignalExistsTrigger("h2.protocol"),
-        new SignalExistsTrigger("user_agent.parsed")
+        new AllOfTrigger(new TriggerCondition[]
+        {
+            new SignalExistsTrigger(SignalKeys.UserAgent),
+            new AnyOfTrigger(new TriggerCondition[]
+            {
+                new SignalExistsTrigger(SignalKeys.TcpOsHint),
+                new SignalExistsTrigger(SignalKeys.TlsProtocol),
+                new SignalExistsTrigger(SignalKeys.H2Protocol)
+            })
+        })
     };
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
@@ -56,12 +64,12 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
             var anomalyLayers = new List<string>();
 
             // Extract signals from previous detectors
-            var tcpOsHint = GetSignal<string>(state, "tcp.os_hint_ttl");
-            var tcpWindowOsHint = GetSignal<string>(state, "tcp.os_hint_window");
-            var userAgentOs = GetSignal<string>(state, "user_agent.os");
-            var userAgentBrowser = GetSignal<string>(state, "user_agent.browser");
-            var h2ClientType = GetSignal<string>(state, "h2.client_type");
-            var tlsProtocol = GetSignal<string>(state, "tls.protocol");
+            var tcpOsHint = GetSignal<string>(state, SignalKeys.TcpOsHintTtl);
+            var tcpWindowOsHint = GetSignal<string>(state, SignalKeys.TcpOsHintWindow);
+            var userAgentOs = GetSignal<string>(state, SignalKeys.UserAgentOs);
+            var userAgentBrowser = GetSignal<string>(state, SignalKeys.UserAgentBrowser);
+            var h2ClientType = GetSignal<string>(state, SignalKeys.H2ClientType);
+            var tlsProtocol = GetSignal<string>(state, SignalKeys.TlsProtocol);
             var ipIsDatacenter = GetSignal<bool>(state, SignalKeys.IpIsDatacenter);
 
             // 1. OS Fingerprint Correlation
@@ -146,8 +154,8 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
             // 6. Calculate overall consistency score
             var totalLayers = 5; // OS, Browser, TLS, Geo, IP-Browser
             var consistencyScore = 1.0 - (double)anomalyCount / totalLayers;
-            signals.Add("correlation.consistency_score", consistencyScore);
-            signals.Add("correlation.anomaly_count", anomalyCount);
+            signals.Add(SignalKeys.CorrelationConsistencyScore, consistencyScore);
+            signals.Add(SignalKeys.CorrelationAnomalyCount, anomalyCount);
             signals.Add("correlation.anomaly_layers", string.Join(",", anomalyLayers));
 
             // High anomaly count = very suspicious
@@ -223,7 +231,7 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
                        !networkOsNorm.Contains(userAgentOsNorm, StringComparison.OrdinalIgnoreCase) &&
                        !userAgentOsNorm.Contains(networkOsNorm, StringComparison.OrdinalIgnoreCase);
 
-        signals.Add("correlation.os_mismatch", mismatch);
+        signals.Add(SignalKeys.CorrelationOsMismatch, mismatch);
         return mismatch;
     }
 
@@ -244,7 +252,7 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
                        !h2ClientType.Contains("Bot") && // If H2 detected bot, that's already flagged
                        !string.IsNullOrEmpty(browserNorm);
 
-        signals.Add("correlation.browser_mismatch", mismatch);
+        signals.Add(SignalKeys.CorrelationBrowserMismatch, mismatch);
         return mismatch;
     }
 

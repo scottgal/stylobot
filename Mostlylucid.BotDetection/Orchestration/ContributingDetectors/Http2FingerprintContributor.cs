@@ -135,7 +135,7 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
         try
         {
             var protocol = state.HttpContext.Request.Protocol;
-            signals.Add("h2.protocol", protocol);
+            signals.Add(SignalKeys.H2Protocol, protocol);
 
             // Check if HTTP/2 is being used
             var isHttp2 = protocol.Equals("HTTP/2", StringComparison.OrdinalIgnoreCase) ||
@@ -167,7 +167,7 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                 var matchedClient = MatchFingerprint(settings);
                 if (matchedClient != null)
                 {
-                    signals.Add("h2.client_type", matchedClient);
+                    signals.Add(SignalKeys.H2ClientType, matchedClient);
 
                     if (matchedClient.Contains("Bot") || matchedClient.Contains("HTTP2_Client"))
                         contributions.Add(BotContribution(

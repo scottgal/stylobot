@@ -46,6 +46,15 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "solution", "solution", "{5F8D2911-09EE-4F4E-829E-3D356A1DF107}"
 	ProjectSection(SolutionItems) = preProject
 		.gitignore = .gitignore
+		.github\workflows\ci.yml = .github\workflows\ci.yml
+		.github\workflows\docker-build-push.yml = .github\workflows\docker-build-push.yml
+		.github\workflows\publish-botdetection.yml = .github\workflows\publish-botdetection.yml
+		.github\workflows\publish-common.yml = .github\workflows\publish-common.yml
+		.github\workflows\publish-console-gateway.yml = .github\workflows\publish-console-gateway.yml
+		.github\workflows\publish-geodetection.yml = .github\workflows\publish-geodetection.yml
+		.github\workflows\publish-stylobot-demo.yml = .github\workflows\publish-stylobot-demo.yml
+		.github\workflows\publish-yarpgateway.yml = .github\workflows\publish-yarpgateway.yml
+		.github\workflows\README_RELEASES.md = .github\workflows\README_RELEASES.md
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "StyloFlow", "StyloFlow", "{603CDA6A-9BCB-128E-863A-883896A9E69D}"

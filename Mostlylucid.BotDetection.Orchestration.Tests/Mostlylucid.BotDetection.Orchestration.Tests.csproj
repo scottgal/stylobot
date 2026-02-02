@@ -33,11 +33,11 @@
         <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="9.0.0"/>
 
         <!-- Extensions -->
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.1"/>
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2"/>
         <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" Version="9.0.0"/>
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.1"/>
-        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.1"/>
-        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.1"/>
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.2"/>
+        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.2"/>
+        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.2"/>
         <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.1"/>
         <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="9.0.0"/>
 

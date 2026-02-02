@@ -52,9 +52,15 @@
                         <li><a href="https://github.com/scottgal/mostlylucid.nugetpackages/blob/main/Mostlylucid.BotDetection/README.md" target="_blank" class="font-medium hover:text-primary transition-colors">Docs</a></li>
                     </ul>
                     <div class="flex items-center gap-3">
-                        <div class="tooltip tooltip-bottom" data-tip="Coming Soon">
-                            <button class="btn btn-primary btn-sm" disabled>Get Started</button>
-                        </div>
+                        <a asp-area="" asp-controller="Home" asp-action="LiveDemo"
+                           class="btn btn-sm border-2 gap-1.5 font-semibold"
+                           style="border-color: #5BA3A3; color: #5BA3A3; background: rgba(91,163,163,0.1);">
+                            <span class="relative flex h-2 w-2">
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background-color: #5BA3A3;"></span>
+                                <span class="relative inline-flex rounded-full h-2 w-2" style="background-color: #5BA3A3;"></span>
+                            </span>
+                            Live Demo
+                        </a>
                     </div>
                 </div>
 
@@ -80,9 +86,15 @@
                     <li><a href="#pricing">Pricing</a></li>
                     <li><a href="https://github.com/scottgal/mostlylucid.nugetpackages/blob/main/Mostlylucid.BotDetection/README.md" target="_blank">Docs</a></li>
                     <li class="mt-2">
-                        <div class="tooltip tooltip-right" data-tip="Coming Soon">
-                            <button class="btn btn-primary w-full" disabled>Get Started</button>
-                        </div>
+                        <a asp-area="" asp-controller="Home" asp-action="LiveDemo"
+                           class="btn w-full border-2 gap-1.5 font-semibold"
+                           style="border-color: #5BA3A3; color: #5BA3A3; background: rgba(91,163,163,0.1);">
+                            <span class="relative flex h-2 w-2">
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background-color: #5BA3A3;"></span>
+                                <span class="relative inline-flex rounded-full h-2 w-2" style="background-color: #5BA3A3;"></span>
+                            </span>
+                            Live Demo
+                        </a>
                     </li>
                 </ul>
             </div>

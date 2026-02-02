@@ -207,8 +207,8 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                 signals.Add("ip.id_pattern", ipIdPattern.ToString());
 
                 if (ipIdPattern == "sequential")
-                    signals.Add("tcp.os_hint", "Windows");
-                else if (ipIdPattern == "random") signals.Add("tcp.os_hint", "Linux/BSD");
+                    signals.Add(SignalKeys.TcpOsHint, "Windows");
+                else if (ipIdPattern == "random") signals.Add(SignalKeys.TcpOsHint, "Linux/BSD");
             }
 
             // Analyze connection reuse patterns
@@ -279,7 +279,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
         if (WindowSizePatterns.TryGetValue(windowSize, out var patterns))
         {
             var pattern = patterns[0];
-            signals.Add("tcp.os_hint_window", pattern);
+            signals.Add(SignalKeys.TcpOsHintWindow, pattern);
 
             if (patterns.Any(p => p.Contains("Bot")))
                 contributions.Add(DetectionContribution.Bot(
@@ -310,7 +310,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
         if (TtlPatterns.TryGetValue(ttl, out var patterns))
         {
             var pattern = patterns[0];
-            signals.Add("tcp.os_hint_ttl", pattern);
+            signals.Add(SignalKeys.TcpOsHintTtl, pattern);
 
             if (patterns.Any(p => p.Contains("Bot")))
                 contributions.Add(DetectionContribution.Bot(

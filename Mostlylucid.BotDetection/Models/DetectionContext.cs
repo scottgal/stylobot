@@ -318,4 +318,107 @@ public static class SignalKeys
 
     /// <summary>Boolean: true if overall cache behavior patterns are anomalous</summary>
     public const string CacheBehaviorAnomaly = "cache.behavior_anomaly";
+
+    // ==========================================
+    // TCP/IP fingerprinting signals
+    // Set by TcpIpFingerprintContributor
+    // ==========================================
+
+    /// <summary>String: OS hint from TCP/IP fingerprint analysis</summary>
+    public const string TcpOsHint = "tcp.os_hint";
+
+    /// <summary>String: OS hint derived from TTL value</summary>
+    public const string TcpOsHintTtl = "tcp.os_hint_ttl";
+
+    /// <summary>String: OS hint derived from TCP window size</summary>
+    public const string TcpOsHintWindow = "tcp.os_hint_window";
+
+    // ==========================================
+    // TLS fingerprinting signals
+    // Set by TlsFingerprintContributor
+    // ==========================================
+
+    /// <summary>String: TLS protocol version (e.g., TLSv1.2, TLSv1.3)</summary>
+    public const string TlsProtocol = "tls.protocol";
+
+    // ==========================================
+    // HTTP/2 fingerprinting signals
+    // Set by Http2FingerprintContributor
+    // ==========================================
+
+    /// <summary>String: HTTP protocol version (e.g., HTTP/2, HTTP/1.1)</summary>
+    public const string H2Protocol = "h2.protocol";
+
+    /// <summary>String: Client type inferred from HTTP/2 fingerprint</summary>
+    public const string H2ClientType = "h2.client_type";
+
+    // ==========================================
+    // User-Agent parsed signals
+    // Used by MultiLayerCorrelationContributor
+    // ==========================================
+
+    /// <summary>String: Parsed OS from User-Agent</summary>
+    public const string UserAgentOs = "user_agent.os";
+
+    /// <summary>String: Parsed browser from User-Agent</summary>
+    public const string UserAgentBrowser = "user_agent.browser";
+
+    // ==========================================
+    // Correlation signals
+    // Set by MultiLayerCorrelationContributor
+    // ==========================================
+
+    /// <summary>Double: Cross-layer consistency score (0.0 = all mismatched, 1.0 = all consistent)</summary>
+    public const string CorrelationConsistencyScore = "correlation.consistency_score";
+
+    /// <summary>Int: Number of cross-layer anomalies detected</summary>
+    public const string CorrelationAnomalyCount = "correlation.anomaly_count";
+
+    /// <summary>Boolean: OS mismatch between TCP fingerprint and User-Agent</summary>
+    public const string CorrelationOsMismatch = "correlation.os_mismatch";
+
+    /// <summary>Boolean: Browser mismatch between HTTP/2 fingerprint and User-Agent</summary>
+    public const string CorrelationBrowserMismatch = "correlation.browser_mismatch";
+
+    // ==========================================
+    // Waveform signals
+    // Set by BehavioralWaveformContributor
+    // ==========================================
+
+    /// <summary>String: Client waveform signature (IP:UA hash)</summary>
+    public const string WaveformSignature = "waveform.signature";
+
+    /// <summary>Double: Timing regularity score (coefficient of variation)</summary>
+    public const string WaveformTimingRegularity = "waveform.timing_regularity_score";
+
+    /// <summary>Boolean: Whether a request burst was detected</summary>
+    public const string WaveformBurstDetected = "waveform.burst_detected";
+
+    /// <summary>Double: Path diversity ratio (unique paths / total paths)</summary>
+    public const string WaveformPathDiversity = "waveform.path_diversity";
+
+    // ==========================================
+    // Client interaction signals
+    // Set by client-side JavaScript tracking
+    // ==========================================
+
+    /// <summary>Int: Number of mouse events detected</summary>
+    public const string ClientMouseEvents = "client.mouse_events";
+
+    /// <summary>Int: Number of keyboard events detected</summary>
+    public const string ClientKeyboardEvents = "client.keyboard_events";
+
+    // ==========================================
+    // Similarity search signals
+    // Set by SimilarityContributor
+    // ==========================================
+
+    /// <summary>Float: Highest similarity score to known signatures</summary>
+    public const string SimilarityTopScore = "similarity.top_score";
+
+    /// <summary>Int: Number of similar signatures found above threshold</summary>
+    public const string SimilarityMatchCount = "similarity.match_count";
+
+    /// <summary>Boolean: Whether the most similar signature was a known bot</summary>
+    public const string SimilarityKnownBot = "similarity.known_bot";
 }

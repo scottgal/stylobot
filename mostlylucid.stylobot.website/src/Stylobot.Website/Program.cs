@@ -171,6 +171,8 @@ app.UseAuthorization();
 
 app.MapStaticAssets();
 
+app.MapBotDetectionEndpoints("/bot-detection");
+
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Home}/{action=Index}/{id?}")

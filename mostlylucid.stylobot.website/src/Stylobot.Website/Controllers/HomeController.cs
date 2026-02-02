@@ -50,6 +50,12 @@ public class HomeController : Controller
         return View();
     }
 
+    public IActionResult LiveDemo()
+    {
+        ViewData["SeoMetadata"] = _seoService.GetLiveDemoMetadata();
+        return View();
+    }
+
     [HttpGet]
     public IActionResult Time()
     {

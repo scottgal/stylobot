@@ -38,6 +38,7 @@ public class SitemapController : Controller
             new() { Loc = $"{_baseUrl}/Home/Features", Priority = 0.9, ChangeFreq = "monthly" },
             new() { Loc = $"{_baseUrl}/Home/Detectors", Priority = 0.9, ChangeFreq = "monthly" },
             new() { Loc = $"{_baseUrl}/Home/Enterprise", Priority = 0.8, ChangeFreq = "monthly" },
+            new() { Loc = $"{_baseUrl}/Home/LiveDemo", Priority = 0.9, ChangeFreq = "weekly" },
             new() { Loc = $"{_baseUrl}/Home/Privacy", Priority = 0.5, ChangeFreq = "yearly" },
             new() { Loc = $"{_baseUrl}/Home/Contact", Priority = 0.6, ChangeFreq = "yearly" }
         };

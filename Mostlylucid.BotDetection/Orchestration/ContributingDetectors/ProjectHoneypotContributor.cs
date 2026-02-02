@@ -175,7 +175,9 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
         if (_cache.TryGetValue(ip, out var cached) && cached.Expires > DateTime.UtcNow) return cached.Result;
 
         // Build DNS query: [key].[reversed-ip].dnsbl.httpbl.org
-        var reversedIp = string.Join(".", ip.Split('.').Reverse());
+        var parts = ip.Split('.');
+        Array.Reverse(parts);
+        var reversedIp = string.Join(".", parts);
         var query = $"{_options.ProjectHoneypot.AccessKey}.{reversedIp}.dnsbl.httpbl.org";
 
         try

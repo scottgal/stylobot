@@ -44,10 +44,10 @@ public class BehavioralWaveformContributor : ContributingDetectorBase
     public override string Name => "BehavioralWaveform";
     public override int Priority => 3; // Run late, after individual detectors
 
-    // Requires basic detection to have completed
+    // Requires basic Wave 0 detection to have completed (UA signal is always present after Wave 0)
     public override IReadOnlyList<TriggerCondition> TriggerConditions => new TriggerCondition[]
     {
-        new SignalExistsTrigger("request.path")
+        new SignalExistsTrigger(SignalKeys.UserAgent)
     };
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
@@ -61,7 +61,7 @@ public class BehavioralWaveformContributor : ContributingDetectorBase
         {
             // Get or create signature for this client
             var signature = GetClientSignature(state);
-            signals.Add("waveform.signature", signature);
+            signals.Add(SignalKeys.WaveformSignature, signature);
 
             // Get request history for this signature
             var history = GetOrCreateHistory(signature);
@@ -151,7 +151,7 @@ public class BehavioralWaveformContributor : ContributingDetectorBase
 
         // Coefficient of variation (CV = stddev / mean)
         var cv = mean > 0 ? stdDev / mean : 0;
-        signals.Add("waveform.timing_regularity_score", cv);
+        signals.Add(SignalKeys.WaveformTimingRegularity, cv);
 
         // Very low CV = too regular = likely bot
         if (cv < 0.15 && intervals.Count >= 5)
@@ -176,7 +176,7 @@ public class BehavioralWaveformContributor : ContributingDetectorBase
         var recentRequests = history.Where(r => r.Timestamp > DateTimeOffset.UtcNow.AddSeconds(-10)).Count();
         if (recentRequests >= 10)
         {
-            signals.Add("waveform.burst_detected", true);
+            signals.Add(SignalKeys.WaveformBurstDetected, true);
             signals.Add("waveform.burst_size", recentRequests);
 
             contributions.Add(DetectionContribution.Bot(
@@ -197,7 +197,7 @@ public class BehavioralWaveformContributor : ContributingDetectorBase
         // Calculate path diversity
         var uniquePaths = recentPaths.Distinct().Count();
         var pathDiversity = (double)uniquePaths / recentPaths.Count;
-        signals.Add("waveform.path_diversity", pathDiversity);
+        signals.Add(SignalKeys.WaveformPathDiversity, pathDiversity);
 
         // Very low diversity = scanning/crawling same paths
         if (pathDiversity < 0.3 && recentPaths.Count >= 10)
@@ -307,7 +307,7 @@ public class BehavioralWaveformContributor : ContributingDetectorBase
         // Check for client-side interaction signals (mouse movement, keyboard events)
         // These would be sent from JavaScript tracking
 
-        if (state.Signals.TryGetValue("client.mouse_events", out var mouseEvents) &&
+        if (state.Signals.TryGetValue(SignalKeys.ClientMouseEvents, out var mouseEvents) &&
             mouseEvents is int mouseCount)
         {
             signals.Add("waveform.mouse_events", mouseCount);
@@ -324,7 +324,7 @@ public class BehavioralWaveformContributor : ContributingDetectorBase
                 });
         }
 
-        if (state.Signals.TryGetValue("client.keyboard_events", out var keyboardEvents) &&
+        if (state.Signals.TryGetValue(SignalKeys.ClientKeyboardEvents, out var keyboardEvents) &&
             keyboardEvents is int keyCount)
             signals.Add("waveform.keyboard_events", keyCount);
     }

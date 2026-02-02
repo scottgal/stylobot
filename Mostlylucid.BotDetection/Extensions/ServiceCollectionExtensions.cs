@@ -20,6 +20,7 @@ using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.BotDetection.Persistence;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.Similarity;
 
 namespace Mostlylucid.BotDetection.Extensions;
 
@@ -433,10 +434,25 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, MultiLayerCorrelationContributor>();
         // Behavioral waveform analysis - analyzes patterns across multiple requests
         services.AddSingleton<IContributingDetector, BehavioralWaveformContributor>();
+        // Similarity search - runs after Heuristic (priority 60) to leverage feature extraction
+        services.AddSingleton<IContributingDetector, SimilarityContributor>();
         // AI/LLM detectors (run when escalation triggered or in demo mode)
         services.AddSingleton<IContributingDetector, LlmContributor>();
         // Heuristic late - runs AFTER AI (or after all static if no AI), consumes all evidence
         services.AddSingleton<IContributingDetector, HeuristicLateContributor>();
+
+        // ==========================================
+        // Similarity Search (HNSW approximate nearest neighbor)
+        // ==========================================
+
+        // Feature vectorizer converts dynamic feature dictionaries to fixed-length vectors
+        services.TryAddSingleton<FeatureVectorizer>();
+
+        // HNSW file-backed similarity search (loads from disk on startup, auto-saves periodically)
+        services.TryAddSingleton<ISignatureSimilaritySearch, HnswFileSimilaritySearch>();
+
+        // Learning handler that feeds high-confidence detections into the similarity index
+        services.AddSingleton<ILearningEventHandler, SimilarityLearningHandler>();
 
         // ==========================================
         // Behavioral Signature / BDF System (closed-loop testing)
