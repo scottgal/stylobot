@@ -503,6 +503,15 @@ internal static class DashboardHtmlTemplate
     </div>
 
     <script>
+        // Generate a consistent HSL color from a signature hash for visual correlation
+        function sigColor(sig) {{
+            if (!sig) return '#6b7280';
+            let hash = 0;
+            for (let i = 0; i < sig.length; i++) {{ hash = sig.charCodeAt(i) + ((hash << 5) - hash); }}
+            const hue = ((hash % 360) + 360) % 360;
+            return `hsl(${{hue}}, 65%, 55%)`;
+        }}
+
         // Normalize PascalCase API keys to camelCase for JS consumption
         function toCamel(obj) {{
             if (Array.isArray(obj)) return obj.map(toCamel);
@@ -631,6 +640,17 @@ internal static class DashboardHtmlTemplate
                                 if (!v) return '';
                                 const d = new Date(v);
                                 return isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
+                            }} }},
+                            {{ title: 'Signature', field: 'primarySignature', width: 105, formatter: (cell) => {{
+                                const sig = cell.getValue();
+                                if (!sig) return '<span style=""color:#6b7280"">-</span>';
+                                const color = sigColor(sig);
+                                const short = sig.substring(0, 8);
+                                return `<span style=""display:inline-flex;align-items:center;gap:4px""><span style=""width:8px;height:8px;border-radius:50%;background:${{color}};display:inline-block""></span><code style=""color:${{color}};font-size:0.75rem"">${{short}}</code></span>`;
+                            }},
+                            tooltip: (e, cell) => {{
+                                const sig = cell.getValue();
+                                return sig ? `Client Signature: ${{sig}}` : '';
                             }} }},
                             {{ title: 'Type', field: 'isBot', width: 80, formatter: (cell) => {{
                                 const isBot = cell.getValue();

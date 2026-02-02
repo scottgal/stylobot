@@ -29,6 +29,9 @@ public static class StyloBotDashboardServiceExtensions
         services.AddSingleton(options);
         services.AddSignalR();
 
+        // Detection data extraction for ViewComponents
+        services.AddSingleton<DetectionDataExtractor>();
+
         // Event store for in-memory history
         services.AddSingleton<IDashboardEventStore, InMemoryDashboardEventStore>();
 

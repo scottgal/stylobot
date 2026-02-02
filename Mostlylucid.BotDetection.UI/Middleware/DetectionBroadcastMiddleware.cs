@@ -50,7 +50,10 @@ public class DetectionBroadcastMiddleware
                         var sigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(sigJson);
                         primarySignature = sigs?.GetValueOrDefault("primary");
                     }
-                    catch { /* ignore */ }
+                    catch (System.Text.Json.JsonException ex)
+                    {
+                        _logger.LogDebug(ex, "Failed to deserialize primary signature JSON");
+                    }
                 }
 
                 var sigValue = primarySignature ?? GenerateFallbackSignature(context);
@@ -102,7 +105,10 @@ public class DetectionBroadcastMiddleware
                             factorCount = allSigs.Count(s => !string.IsNullOrEmpty(s.Value) && s.Key != "primary");
                         }
                     }
-                    catch { /* ignore */ }
+                    catch (System.Text.Json.JsonException ex)
+                    {
+                        _logger.LogDebug(ex, "Failed to deserialize signature factors JSON");
+                    }
                 }
 
                 var signature = new DashboardSignatureEvent
@@ -129,7 +135,7 @@ public class DetectionBroadcastMiddleware
                 _logger.LogDebug(
                     "Broadcast detection: {Path} sig={Signature} prob={Probability:F2} hits={HitCount}",
                     detection.Path,
-                    detection.PrimarySignature?.Substring(0, Math.Min(8, detection.PrimarySignature?.Length ?? 0)),
+                    detection.PrimarySignature?[..Math.Min(8, detection.PrimarySignature.Length)],
                     detection.BotProbability,
                     updatedSignature.HitCount);
             }
@@ -151,6 +157,6 @@ public class DetectionBroadcastMiddleware
 
         using var sha = System.Security.Cryptography.SHA256.Create();
         var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(combined));
-        return Convert.ToHexString(hash).Substring(0, 16).ToLowerInvariant();
+        return Convert.ToHexString(hash)[..16].ToLowerInvariant();
     }
 }

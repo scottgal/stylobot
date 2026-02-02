@@ -37,9 +37,9 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.GeoDetection.De
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.GeoDetection.Test", "Mostlylucid.GeoDetection.Test\Mostlylucid.GeoDetection.Test.csproj", "{A37A239F-4888-4C1F-A899-258F60F165EA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.YarpGateway", "Mostlylucid.YarpGateway\Mostlylucid.YarpGateway.csproj", "{AA9CFA0B-F877-49CF-B634-79743075460A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Stylobot.Gateway", "Stylobot.Gateway\Stylobot.Gateway.csproj", "{AA9CFA0B-F877-49CF-B634-79743075460A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.YarpGateway.Tests", "Mostlylucid.YarpGateway.Tests\Mostlylucid.YarpGateway.Tests.csproj", "{C189A4D3-916A-4EB7-B69B-31A2D0F3001D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Stylobot.Gateway.Tests", "Stylobot.Gateway.Tests\Stylobot.Gateway.Tests.csproj", "{C189A4D3-916A-4EB7-B69B-31A2D0F3001D}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestSite", "TestSite\TestSite.csproj", "{166614D7-E6A2-4355-9C19-D4BB312383C1}"
 EndProject
@@ -53,8 +53,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "solution", "solution", "{5F
 		.github\workflows\publish-console-gateway.yml = .github\workflows\publish-console-gateway.yml
 		.github\workflows\publish-geodetection.yml = .github\workflows\publish-geodetection.yml
 		.github\workflows\publish-stylobot-demo.yml = .github\workflows\publish-stylobot-demo.yml
-		.github\workflows\publish-yarpgateway.yml = .github\workflows\publish-yarpgateway.yml
+		.github\workflows\publish-gateway.yml = .github\workflows\publish-gateway.yml
 		.github\workflows\README_RELEASES.md = .github\workflows\README_RELEASES.md
+		README.md = README.md
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Stylobot.Website", "mostlylucid.stylobot.website\src\Stylobot.Website\Stylobot.Website.csproj", "{7FB9F33D-846A-46FA-B63B-2E7E670AA7ED}"

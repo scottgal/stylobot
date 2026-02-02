@@ -1,0 +1,133 @@
+name: Publish Stylobot.Gateway
+
+on:
+  push:
+    tags:
+      - 'gateway-v*'
+      - 'allbot-v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0-preview1)'
+        required: true
+        default: '1.0.0-preview1'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: scottgal/stylobot-gateway
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Extract version and date
+      id: get_version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          # Handle both gateway-v* and allbot-v* tags
+          TAG=${GITHUB_REF#refs/tags/}
+          if [[ "$TAG" == gateway-v* ]]; then
+            VERSION=${TAG#gateway-v}
+          else
+            VERSION=${TAG#allbot-v}
+          fi
+        fi
+        DATE=$(date +%Y%m%d)
+
+        # Check if this is a preview/prerelease version
+        if [[ "$VERSION" == *"-"* ]]; then
+          IS_PRERELEASE="true"
+        else
+          IS_PRERELEASE="false"
+        fi
+
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "DATE=$DATE" >> $GITHUB_OUTPUT
+        echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+        echo "Publishing version: $VERSION (date: $DATE, prerelease: $IS_PRERELEASE)"
+
+    - name: Restore dependencies
+      run: |
+        dotnet restore Stylobot.Gateway/Stylobot.Gateway.csproj
+        dotnet restore Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj
+        dotnet restore Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
+        dotnet restore Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj
+        dotnet restore Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj
+
+    - name: Build projects
+      run: |
+        dotnet build Stylobot.Gateway/Stylobot.Gateway.csproj --configuration Release --no-restore
+        dotnet build Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-restore
+        dotnet build Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj --configuration Release --no-restore
+        dotnet build Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj --configuration Release --no-restore
+
+    - name: Run Gateway unit tests
+      run: |
+        dotnet test Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj \
+          --configuration Release \
+          --no-build \
+          --verbosity normal
+
+    - name: Run BotDetection unit tests
+      run: |
+        dotnet test Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj \
+          --configuration Release \
+          --no-build \
+          --verbosity normal \
+          --filter "Category!=Integration"
+        dotnet test Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj \
+          --configuration Release \
+          --no-build \
+          --verbosity normal \
+          --filter "Category!=Integration"
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Extract metadata for Docker
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=raw,value=${{ steps.get_version.outputs.VERSION }}
+          type=raw,value=${{ steps.get_version.outputs.DATE }}
+          type=raw,value=latest,enable=${{ steps.get_version.outputs.IS_PRERELEASE == 'false' }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Stylobot.Gateway/Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        platforms: linux/amd64,linux/arm64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Image digest
+      run: echo "Image pushed with digest ${{ steps.meta.outputs.digest }}"

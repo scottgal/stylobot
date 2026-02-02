@@ -6,24 +6,22 @@ using Mostlylucid.BotDetection.UI.Services;
 namespace Mostlylucid.BotDetection.UI.ViewComponents;
 
 /// <summary>
-///     View component for displaying bot detection results.
-///     Works in two modes:
-///     1. Inline with middleware: Reads from HttpContext.Items
-///     2. Behind YARP proxy: Reads from X-Bot-Detection-* headers
+///     Unified bot detection header - single slim bar combining your detection status
+///     with a live ticker feed. Replaces the separate BotDetectionDetails (compact) and BotTicker.
 /// </summary>
-public class BotDetectionDetailsViewComponent : ViewComponent
+public class BotDetectionHeaderViewComponent : ViewComponent
 {
     private readonly DetectionDataExtractor _extractor;
 
-    public BotDetectionDetailsViewComponent(DetectionDataExtractor extractor)
+    public BotDetectionHeaderViewComponent(DetectionDataExtractor extractor)
     {
         _extractor = extractor;
     }
 
-    public IViewComponentResult Invoke(string viewName = "Default")
+    public IViewComponentResult Invoke()
     {
         var context = HttpContext;
         var model = context != null ? _extractor.Extract(context) : new DetectionDisplayModel();
-        return View(viewName, model);
+        return View(model);
     }
 }

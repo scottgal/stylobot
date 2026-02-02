@@ -59,7 +59,7 @@ services:
   gateway:
     build:
       context: .
-      dockerfile: Mostlylucid.YarpGateway/Dockerfile
+      dockerfile: Stylobot.Gateway/Dockerfile
     image: stylobot-gateway:demo
     container_name: stylobot-gateway
     environment:

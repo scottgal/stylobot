@@ -1,0 +1,560 @@
+@model Mostlylucid.BotDetection.UI.Models.DetectionDisplayModel
+@using Mostlylucid.BotDetection.UI.Models
+
+@* Unified Bot Detection Header - single slim bar with your detection + live ticker *@
+@{
+    var hubPath = "/_stylobot/hub";
+    var initialSignature = Model.Signatures?.PrimarySignature ?? "";
+}
+
+<div class="stylobot-header"
+     x-data="styloBotHeader()"
+     x-init="init()"
+     x-cloak>
+
+    <!-- Single Slim Bar -->
+    <div class="stylobot-header-bar">
+        <!-- Left: Your Detection Status -->
+        <div class="stylobot-header-you" @@click="expanded = !expanded" title="Click to expand details">
+            <span class="stylobot-header-icon" :class="{ 'is-bot': isBot }">
+                <span x-text="isBot ? 'R' : 'H'"></span>
+            </span>
+            <span class="stylobot-header-label" :class="isBot ? 'is-bot' : 'is-human'"
+                  x-text="isBot ? 'Bot' : 'Human'"></span>
+            <span class="stylobot-header-prob" :class="{ 'pulse-update': justUpdated }"
+                  x-text="Math.round(botProbability * 100) + '%'"></span>
+            <span class="stylobot-header-risk" :class="'risk-' + riskBand.toLowerCase()"
+                  x-text="riskBand"></span>
+            <span class="stylobot-header-time" x-text="processingTimeMs.toFixed(0) + 'ms'"></span>
+            <span class="stylobot-header-hits" x-show="hitCount > 1" :class="{ 'pulse-update': justUpdated }"
+                  x-text="'x' + hitCount"></span>
+            <span class="stylobot-header-expand" x-text="expanded ? '[-]' : '[+]'"></span>
+        </div>
+
+        <!-- Divider -->
+        <span class="stylobot-header-divider"></span>
+
+        <!-- Center: Compact Ticker (recent detections scroll) -->
+        <div class="stylobot-header-ticker">
+            <template x-if="!connected && tickerItems.length === 0">
+                <span class="stylobot-header-ticker-empty">Connecting...</span>
+            </template>
+            <template x-for="(item, idx) in tickerItems" :key="item._id || idx">
+                <a class="stylobot-header-ticker-item"
+                   :href="'/_stylobot?signature=' + (item.primarySignature || '')"
+                   :class="{ 'is-bot': item.isBot, 'ticker-new': item._isNew }">
+                    <span class="ticker-icon-sm" x-text="item.isBot ? 'R' : 'H'"></span>
+                    <span class="ticker-risk-sm" :class="'risk-' + (item.riskBand || '').toLowerCase()"
+                          x-text="(item.riskBand || '-').substring(0, 4)"></span>
+                    <template x-if="item.botName">
+                        <span class="ticker-name-sm" x-text="item.botName"></span>
+                    </template>
+                    <span class="ticker-prob-sm" x-text="Math.round((item.botProbability || 0) * 100) + '%'"></span>
+                </a>
+            </template>
+        </div>
+
+        <!-- Right: Live indicator + Dashboard link -->
+        <div class="stylobot-header-right">
+            <span class="stylobot-header-live" x-show="connected">LIVE</span>
+            <a href="/_stylobot" class="stylobot-header-dashboard" title="Open Dashboard">Dashboard</a>
+        </div>
+    </div>
+
+    <!-- Expanded Details Panel -->
+    <div x-show="expanded" x-collapse class="stylobot-header-details">
+        <div class="stylobot-header-details-grid">
+            <!-- Your Signature -->
+            <div class="stylobot-header-section">
+                <div class="section-title">Your Signature</div>
+                <div class="section-content">
+                    <div><span class="section-label">ID:</span> <code x-text="signature.substring(0, 12) + '...'"></code></div>
+                    <div><span class="section-label">Hits:</span> <span x-text="hitCount"></span></div>
+                    <div class="section-note">HMAC-SHA256 hashed, zero PII</div>
+                </div>
+            </div>
+
+            <!-- Detection Stats -->
+            <div class="stylobot-header-section">
+                <div class="section-title">Detection</div>
+                <div class="section-content">
+                    <div><span class="section-label">Probability:</span> <span x-text="(botProbability * 100).toFixed(1) + '%'"></span></div>
+                    <div><span class="section-label">Confidence:</span> <span x-text="(confidence * 100).toFixed(1) + '%'"></span></div>
+                    <div><span class="section-label">Processing:</span> <span x-text="processingTimeMs.toFixed(1) + 'ms'"></span></div>
+                </div>
+            </div>
+
+            <!-- Top Signal -->
+            <div class="stylobot-header-section">
+                <div class="section-title">Top Signal</div>
+                <div class="section-content">
+                    <div x-text="topSignal"></div>
+                </div>
+            </div>
+
+            <!-- Live Stats -->
+            <div class="stylobot-header-section">
+                <div class="section-title">Live Feed</div>
+                <div class="section-content">
+                    <div x-show="connected" style="color: #51cf66;">SignalR Connected</div>
+                    <div x-show="!connected" style="color: #ff6b6b;">Connecting...</div>
+                    <div>Updates: <span x-text="updateCount"></span></div>
+                    <div>Ticker items: <span x-text="tickerItems.length"></span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stylobot-header-details-footer">
+            <a :href="'/_stylobot?signature=' + signature" class="dashboard-link">
+                View Full Dashboard & All Signals &rarr;
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    // PascalCase to camelCase helper
+    function toCamel(obj) {
+        if (Array.isArray(obj)) return obj.map(toCamel);
+        if (obj !== null && typeof obj === 'object') {
+            return Object.fromEntries(
+                Object.entries(obj).map(([k, v]) => [k.charAt(0).toLowerCase() + k.slice(1), toCamel(v)])
+            );
+        }
+        return obj;
+    }
+
+    let tickerId = 0;
+
+    Alpine.data('styloBotHeader', () => ({
+        // Your detection state (from server)
+        signature: '@initialSignature',
+        isBot: @(Model.IsBot ? "true" : "false"),
+        botProbability: @Model.BotProbability.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        confidence: @Model.Confidence.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        riskBand: '@(Model.RiskBand ?? "Unknown")',
+        processingTimeMs: @Model.ProcessingTimeMs.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        topSignal: '@(Model.TopReasons.FirstOrDefault()?.Replace("'", "\\'") ?? "No signals")',
+
+        // Dynamic state
+        hitCount: 1,
+        expanded: false,
+        connected: false,
+        connection: null,
+        updateCount: 0,
+        justUpdated: false,
+        tickerItems: [],
+        maxTickerItems: 8,
+
+        async init() {
+            await this.connect();
+        },
+
+        async connect() {
+            try {
+                if (typeof signalR === 'undefined') {
+                    await new Promise((resolve, reject) => {
+                        const s = document.createElement('script');
+                        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js';
+                        s.onload = resolve;
+                        s.onerror = reject;
+                        document.head.appendChild(s);
+                    });
+                }
+
+                this.connection = new signalR.HubConnectionBuilder()
+                    .withUrl('@hubPath')
+                    .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+                    .configureLogging(signalR.LogLevel.Warning)
+                    .build();
+
+                // Detection events: update YOUR bar + add to ticker
+                this.connection.on('BroadcastDetection', (raw) => {
+                    const detection = toCamel(raw);
+
+                    // Update YOUR detection if it matches your signature
+                    if (detection.primarySignature === this.signature) {
+                        this.updateYourDetection(detection);
+                    }
+
+                    // Add to ticker (bots and medium+ risk only)
+                    this.addToTicker(detection);
+                });
+
+                // Signature events: accurate hit count from DB
+                this.connection.on('BroadcastSignature', (raw) => {
+                    const sig = toCamel(raw);
+                    if (sig.primarySignature === this.signature) {
+                        this.hitCount = sig.hitCount;
+                    }
+                });
+
+                this.connection.onclose(() => { this.connected = false; });
+                this.connection.onreconnecting(() => { this.connected = false; });
+                this.connection.onreconnected(() => { this.connected = true; });
+
+                await this.connection.start();
+                this.connected = true;
+            } catch (error) {
+                console.error('[StyloBot] Connection failed:', error);
+                this.connected = false;
+            }
+        },
+
+        updateYourDetection(d) {
+            this.isBot = d.isBot;
+            this.botProbability = d.botProbability;
+            this.confidence = d.confidence;
+            this.riskBand = d.riskBand;
+            this.processingTimeMs = d.processingTimeMs;
+            if (d.topReasons && d.topReasons.length > 0) {
+                this.topSignal = d.topReasons[0];
+            }
+            this.updateCount++;
+            this.justUpdated = true;
+            setTimeout(() => { this.justUpdated = false; }, 500);
+        },
+
+        addToTicker(d) {
+            const dominated = d.isBot ||
+                (d.botProbability || 0) >= 0.4 ||
+                ['Medium', 'High', 'VeryHigh'].includes(d.riskBand);
+            if (!dominated) return;
+
+            this.tickerItems.unshift({
+                ...d,
+                _id: ++tickerId,
+                _isNew: true
+            });
+
+            setTimeout(() => {
+                const item = this.tickerItems.find(i => i._id === tickerId);
+                if (item) item._isNew = false;
+            }, 600);
+
+            if (this.tickerItems.length > this.maxTickerItems) {
+                this.tickerItems = this.tickerItems.slice(0, this.maxTickerItems);
+            }
+        }
+    }));
+});
+</script>
+
+<style>
+/* === Unified StyloBot Header Bar === */
+.stylobot-header {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 11px;
+    line-height: 1;
+    background: #1a1a2e;
+    border-bottom: 1px solid rgba(91, 163, 163, 0.2);
+}
+
+.stylobot-header-bar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 4px 12px;
+    min-height: 28px;
+    overflow: hidden;
+}
+
+/* Left: Your detection status */
+.stylobot-header-you {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 2px 8px 2px 0;
+    user-select: none;
+}
+
+.stylobot-header-you:hover {
+    background: rgba(255,255,255,0.03);
+    border-radius: 3px;
+}
+
+.stylobot-header-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    background: #28a745;
+    color: white;
+}
+
+.stylobot-header-icon.is-bot {
+    background: #dc3545;
+}
+
+.stylobot-header-label {
+    font-weight: 600;
+    color: #adb5bd;
+}
+
+.stylobot-header-label.is-bot { color: #ff6b6b; }
+.stylobot-header-label.is-human { color: #51cf66; }
+
+.stylobot-header-prob {
+    color: #e9ecef;
+    font-weight: 600;
+}
+
+.stylobot-header-risk {
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.stylobot-header-risk.risk-verylow,
+.stylobot-header-risk.risk-low { background: rgba(40, 167, 69, 0.2); color: #51cf66; }
+.stylobot-header-risk.risk-medium { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
+.stylobot-header-risk.risk-high { background: rgba(253, 126, 20, 0.2); color: #fd7e14; }
+.stylobot-header-risk.risk-veryhigh { background: rgba(220, 53, 69, 0.2); color: #ff6b6b; }
+.stylobot-header-risk.risk-verified { background: rgba(91, 163, 163, 0.2); color: #5BA3A3; }
+
+.stylobot-header-time {
+    color: #6c757d;
+}
+
+.stylobot-header-hits {
+    color: #5BA3A3;
+    font-weight: 600;
+}
+
+.stylobot-header-expand {
+    color: #6c757d;
+    font-size: 10px;
+}
+
+/* Divider */
+.stylobot-header-divider {
+    width: 1px;
+    height: 16px;
+    background: rgba(255,255,255,0.1);
+    flex-shrink: 0;
+    margin: 0 8px;
+}
+
+/* Center: Compact ticker */
+.stylobot-header-ticker {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.stylobot-header-ticker-empty {
+    color: #6c757d;
+    font-style: italic;
+}
+
+.stylobot-header-ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 5px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.03);
+    text-decoration: none;
+    color: #adb5bd;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background 0.15s, opacity 0.3s;
+}
+
+.stylobot-header-ticker-item:hover {
+    background: rgba(255,255,255,0.08);
+    color: #e9ecef;
+}
+
+.stylobot-header-ticker-item.is-bot {
+    background: rgba(220, 53, 69, 0.08);
+}
+
+.stylobot-header-ticker-item.ticker-new {
+    animation: ticker-flash 0.6s ease-out;
+}
+
+.ticker-icon-sm {
+    font-size: 8px;
+    font-weight: 700;
+    width: 12px;
+    height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.1);
+}
+
+.stylobot-header-ticker-item.is-bot .ticker-icon-sm {
+    background: rgba(220, 53, 69, 0.3);
+    color: #ff6b6b;
+}
+
+.ticker-risk-sm {
+    font-size: 8px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.ticker-risk-sm.risk-low { color: #51cf66; }
+.ticker-risk-sm.risk-medium { color: #ffc107; }
+.ticker-risk-sm.risk-high { color: #fd7e14; }
+.ticker-risk-sm.risk-veryhigh { color: #ff6b6b; }
+.ticker-risk-sm.risk-verified { color: #5BA3A3; }
+
+.ticker-name-sm {
+    color: #e9ecef;
+    font-weight: 500;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ticker-prob-sm {
+    color: #6c757d;
+}
+
+/* Right: Live + Dashboard */
+.stylobot-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    margin-left: 8px;
+}
+
+.stylobot-header-live {
+    color: #51cf66;
+    font-size: 8px;
+    font-weight: 700;
+    background: rgba(81, 207, 102, 0.15);
+    padding: 1px 4px;
+    border-radius: 2px;
+    animation: pulse-live 2s infinite;
+}
+
+.stylobot-header-dashboard {
+    color: #5BA3A3;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 10px;
+}
+
+.stylobot-header-dashboard:hover {
+    color: #7dc4c4;
+    text-decoration: underline;
+}
+
+/* Expanded details panel */
+.stylobot-header-details {
+    background: #16162a;
+    border-top: 1px solid rgba(91, 163, 163, 0.15);
+    padding: 10px 12px;
+}
+
+.stylobot-header-details-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+.stylobot-header-section .section-title {
+    color: #5BA3A3;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.stylobot-header-section .section-content {
+    color: #adb5bd;
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+.stylobot-header-section .section-label {
+    color: #6c757d;
+}
+
+.stylobot-header-section .section-note {
+    color: #495057;
+    font-size: 9px;
+    margin-top: 2px;
+}
+
+.stylobot-header-section code {
+    font-family: inherit;
+    color: #e9ecef;
+    background: rgba(255,255,255,0.05);
+    padding: 0 3px;
+    border-radius: 2px;
+}
+
+.stylobot-header-details-footer {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.stylobot-header-details-footer .dashboard-link {
+    color: #5BA3A3;
+    text-decoration: none;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.stylobot-header-details-footer .dashboard-link:hover {
+    color: #7dc4c4;
+    text-decoration: underline;
+}
+
+/* Animations */
+.pulse-update {
+    animation: pulse-val 0.5s ease-out;
+}
+
+@@keyframes pulse-live {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+@@keyframes pulse-val {
+    0% { transform: scale(1.15); color: #51cf66; }
+    100% { transform: scale(1); }
+}
+
+@@keyframes ticker-flash {
+    0% { background: rgba(91, 163, 163, 0.3); }
+    100% { background: rgba(255,255,255,0.03); }
+}
+
+/* Responsive */
+@@media (max-width: 768px) {
+    .stylobot-header-ticker { display: none; }
+    .stylobot-header-divider { display: none; }
+    .stylobot-header-details-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@@media (max-width: 480px) {
+    .stylobot-header-time { display: none; }
+    .stylobot-header-details-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>

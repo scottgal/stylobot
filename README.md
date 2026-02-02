@@ -1,9 +1,10 @@
 # StyloBot
+by ***mostly*lucid**
 
 Bot detection framework for ASP.NET Core. 21 detectors, heuristic AI with continuous learning, zero-PII architecture.
 
 
-<img src="https://github.com/scottgal/stylobot/blob/main/mostlylucid.stylobot.website/src/Stylobot.Website/wwwroot/img/logo.png?raw=true" alt="img" style="max-width:250px; height:auto;" />
+<img src="https://raw.githubusercontent.com/scottgal/stylobot/refs/heads/main/mostlylucid.stylobot.website/src/Stylobot.Website/wwwroot/img/stylowall.svg?raw=true" alt="img" style="max-width:200px; height:auto;" />
 
 
 ```csharp

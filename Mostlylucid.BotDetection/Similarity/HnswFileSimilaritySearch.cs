@@ -29,6 +29,7 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
     private readonly ILogger<HnswFileSimilaritySearch> _logger;
     private readonly object _writeLock = new();
     private readonly Timer _autoSaveTimer;
+    private readonly Task _loadTask;
 
     // Pending vectors not yet in the HNSW graph (added since last rebuild)
     private readonly List<float[]> _pendingVectors = [];
@@ -52,8 +53,8 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
 
         _autoSaveTimer = new Timer(_ => AutoSave(), null, AutoSaveInterval, AutoSaveInterval);
 
-        // Load existing data on startup
-        _ = Task.Run(async () =>
+        // Load existing data on startup (tracked so we can await before first search)
+        _loadTask = Task.Run(async () =>
         {
             try
             {
@@ -75,9 +76,12 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
         }
     }
 
-    public Task<IReadOnlyList<SimilarSignature>> FindSimilarAsync(
+    public async Task<IReadOnlyList<SimilarSignature>> FindSimilarAsync(
         float[] vector, int topK = 5, float minSimilarity = 0.80f)
     {
+        // Ensure startup load completes before first search
+        await _loadTask.ConfigureAwait(false);
+
         var results = new List<SimilarSignature>();
 
         // Cosine distance = 1 - cosine_similarity
@@ -146,7 +150,7 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
         if (results.Count > topK)
             results.RemoveRange(topK, results.Count - topK);
 
-        return Task.FromResult<IReadOnlyList<SimilarSignature>>(results);
+        return (IReadOnlyList<SimilarSignature>)results;
     }
 
     public Task AddAsync(float[] vector, string signatureId, bool wasBot, double confidence)
@@ -303,7 +307,8 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
         _autoSaveTimer.Dispose();
         try
         {
-            SaveAsync().GetAwaiter().GetResult();
+            if (!SaveAsync().Wait(TimeSpan.FromSeconds(5)))
+                _logger.LogWarning("HNSW index save timed out on shutdown");
         }
         catch (Exception ex)
         {
@@ -388,15 +393,17 @@ public class SignatureMetadata
 internal sealed class DefaultRandomGenerator : IProvideRandomValues
 {
     public static readonly DefaultRandomGenerator Instance = new();
-    private readonly Random _random = new(42);
 
-    public bool IsThreadSafe => false;
-    public int Next(int minValue, int maxValue) => _random.Next(minValue, maxValue);
-    public float NextFloat() => _random.NextSingle();
+    [ThreadStatic] private static Random? t_random;
+    private static Random ThreadRandom => t_random ??= Random.Shared;
+
+    public bool IsThreadSafe => true;
+    public int Next(int minValue, int maxValue) => ThreadRandom.Next(minValue, maxValue);
+    public float NextFloat() => ThreadRandom.NextSingle();
     public void NextFloats(Span<float> buffer)
     {
         for (var i = 0; i < buffer.Length; i++)
-            buffer[i] = _random.NextSingle();
+            buffer[i] = ThreadRandom.NextSingle();
     }
 }
 

@@ -50,7 +50,7 @@ dotnet pack Mostlylucid.BotDetection -c Release
 | `Mostlylucid.BotDetection.UI.PostgreSQL` | PostgreSQL persistence layer |
 | `Mostlylucid.BotDetection.Demo` | Interactive demo with all 21 detectors |
 | `Mostlylucid.BotDetection.Console` | Standalone gateway/proxy console |
-| `Mostlylucid.YarpGateway` | Docker-first YARP reverse proxy |
+| `Stylobot.Gateway` | Docker-first YARP reverse proxy |
 | `Mostlylucid.GeoDetection` | Geographic routing (MaxMind, ip-api) |
 | `Mostlylucid.GeoDetection.Contributor` | Geo enrichment for bot detection |
 | `Mostlylucid.Common` | Shared utilities (caching, telemetry) |
