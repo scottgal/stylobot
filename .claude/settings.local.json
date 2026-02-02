@@ -57,7 +57,8 @@
       "Bash(dotnet-ildasm:*)",
       "Bash(where:*)",
       "Bash(git mv:*)",
-      "Bash(if not exist \"D:\\\\Source\\\\mostlylucid.stylobot\\\\Mostlylucid.BotDetection.UI\\\\Views\\\\Shared\\\\Components\\\\BotDetectionHeader\" mkdir \"D:\\\\Source\\\\mostlylucid.stylobot\\\\Mostlylucid.BotDetection.UI\\\\Views\\\\Shared\\\\Components\\\\BotDetectionHeader\")"
+      "Bash(if not exist \"D:\\\\Source\\\\mostlylucid.stylobot\\\\Mostlylucid.BotDetection.UI\\\\Views\\\\Shared\\\\Components\\\\BotDetectionHeader\" mkdir \"D:\\\\Source\\\\mostlylucid.stylobot\\\\Mostlylucid.BotDetection.UI\\\\Views\\\\Shared\\\\Components\\\\BotDetectionHeader\")",
+      "Bash(git log:*)"
     ]
   }
 }
