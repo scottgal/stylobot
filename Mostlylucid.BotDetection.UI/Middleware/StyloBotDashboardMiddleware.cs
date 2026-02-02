@@ -443,9 +443,9 @@ internal static class DashboardHtmlTemplate
                         <span class=""live-dot ml-2""></span>
                     </h2>
                     <div class=""scrolling-signatures"">
-                        <template x-for=""sig in signatures"" :key=""sig.signatureId || sig.primarySignature"">
+                        <template x-for=""(sig, idx) in signatures"" :key=""sig.signatureId || sig.primarySignature || idx"">
                             <div class=""signature-item flex items-center gap-3 px-3 py-2 mb-1 rounded-lg bg-base-300/50 hover:bg-base-300 transition-colors"">
-                                <span class=""font-mono text-xs opacity-70"" x-text=""(sig.primarySignature || '').substring(0, 12) + '...'""></span>
+                                <span class=""font-mono text-xs opacity-70"" x-text=""(sig.primarySignature || sig.signatureId || '-').substring(0, 12) + '...'""></span>
                                 <span class=""badge badge-xs""
                                       :class=""{{
                                           'badge-error': sig.riskBand === 'VeryHigh' || sig.riskBand === 'High',
@@ -453,14 +453,15 @@ internal static class DashboardHtmlTemplate
                                           'badge-info': sig.riskBand === 'Low',
                                           'badge-success': sig.riskBand === 'VeryLow'
                                       }}""
-                                      x-text=""sig.riskBand""></span>
+                                      x-text=""sig.riskBand || 'Unknown'""></span>
                                 <template x-if=""sig.botName"">
                                     <span class=""badge badge-ghost badge-xs"" x-text=""sig.botName""></span>
                                 </template>
-                                <span class=""text-xs opacity-60 ml-auto"" x-text=""'x' + (sig.hitCount || 1)""></span>
-                                <span class=""text-xs font-mono""
-                                      :class=""(sig.botProbability || 0) >= 0.7 ? 'text-error' : (sig.botProbability || 0) >= 0.4 ? 'text-warning' : 'text-success'""
-                                      x-text=""Math.round((sig.botProbability || 0) * 100) + '%'""></span>
+                                <template x-if=""sig.isKnownBot && !sig.botName"">
+                                    <span class=""badge badge-ghost badge-xs"">Known Bot</span>
+                                </template>
+                                <span class=""text-xs opacity-60 ml-auto"" x-text=""'hits: ' + (sig.hitCount || 0)""></span>
+                                <span class=""text-xs opacity-60"" x-text=""sig.factorCount ? (sig.factorCount + ' factors') : ''""></span>
                             </div>
                         </template>
                         <template x-if=""signatures.length === 0"">
@@ -502,6 +503,17 @@ internal static class DashboardHtmlTemplate
     </div>
 
     <script>
+        // Normalize PascalCase API keys to camelCase for JS consumption
+        function toCamel(obj) {{
+            if (Array.isArray(obj)) return obj.map(toCamel);
+            if (obj !== null && typeof obj === 'object') {{
+                return Object.fromEntries(
+                    Object.entries(obj).map(([k, v]) => [k.charAt(0).toLowerCase() + k.slice(1), toCamel(v)])
+                );
+            }}
+            return obj;
+        }}
+
         function dashboardState() {{
             return {{
                 connection: null,
@@ -545,20 +557,24 @@ internal static class DashboardHtmlTemplate
                         .build();
 
                     this.connection.on('BroadcastDetection', (detection) => {{
-                        this.detections.unshift(detection);
+                        const d = toCamel(detection);
+                        this.detections.unshift(d);
                         if (this.detections.length > 100) this.detections.pop();
                         this.tabulatorTable?.setData(this.detections);
                     }});
 
                     this.connection.on('BroadcastSignature', (signature) => {{
-                        const idx = this.signatures.findIndex(s => s.primarySignature === signature.primarySignature);
-                        if (idx >= 0) {{ this.signatures[idx] = signature; }}
-                        else {{ this.signatures.unshift(signature); }}
+                        const sig = toCamel(signature);
+                        const idx = this.signatures.findIndex(s => s.primarySignature === sig.primarySignature);
+                        if (idx >= 0) {{ this.signatures[idx] = sig; }}
+                        else {{ this.signatures.unshift(sig); }}
                         if (this.signatures.length > 50) this.signatures.pop();
                     }});
 
                     this.connection.on('BroadcastSummary', (summary) => {{
-                        this.summary = {{ ...this.summary, ...summary }};
+                        const s = toCamel(summary);
+                        this.summary = {{ ...this.summary, ...s }};
+                        this.updateTopBotsFromSummary();
                         this.updateCharts();
                     }});
 
@@ -610,33 +626,49 @@ internal static class DashboardHtmlTemplate
                         pagination: true,
                         paginationSize: 25,
                         columns: [
-                            {{ title: 'Time', field: 'timestamp', width: 100, formatter: (cell) => new Date(cell.getValue()).toLocaleTimeString() }},
+                            {{ title: 'Time', field: 'timestamp', width: 100, formatter: (cell) => {{
+                                const v = cell.getValue();
+                                if (!v) return '';
+                                const d = new Date(v);
+                                return isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
+                            }} }},
                             {{ title: 'Type', field: 'isBot', width: 80, formatter: (cell) => {{
                                 const isBot = cell.getValue();
                                 return `<span style=""color:${{isBot ? '#ef4444' : '#86B59C'}};font-weight:600"">${{isBot ? 'Bot' : 'Human'}}</span>`;
                             }} }},
                             {{ title: 'Risk', field: 'riskBand', width: 90, formatter: (cell) => {{
-                                const v = cell.getValue();
+                                const v = cell.getValue() || '';
                                 const c = riskColors[v] || '#6b7280';
-                                return `<span style=""color:${{c}};font-weight:500"">${{v}}</span>`;
+                                return `<span style=""color:${{c}};font-weight:500"">${{v || '-'}}</span>`;
                             }} }},
-                            {{ title: 'Method', field: 'method', width: 70 }},
-                            {{ title: 'Path', field: 'path', minWidth: 150 }},
-                            {{ title: 'Action', field: 'action', width: 90 }},
-                            {{ title: 'Prob', field: 'botProbability', width: 70, hozAlign: 'right', formatter: (cell) => (cell.getValue() * 100).toFixed(0) + '%' }},
-                            {{ title: 'Time (ms)', field: 'processingTimeMs', width: 80, hozAlign: 'right', formatter: (cell) => (cell.getValue() || 0).toFixed(0) }}
+                            {{ title: 'Method', field: 'method', width: 70, formatter: (cell) => cell.getValue() || '' }},
+                            {{ title: 'Path', field: 'path', minWidth: 150, formatter: (cell) => cell.getValue() || '' }},
+                            {{ title: 'Action', field: 'action', width: 90, formatter: (cell) => cell.getValue() || '' }},
+                            {{ title: 'Prob', field: 'botProbability', width: 70, hozAlign: 'right', formatter: (cell) => {{
+                                const v = cell.getValue();
+                                return (v != null && !isNaN(v)) ? (v * 100).toFixed(0) + '%' : '-';
+                            }} }},
+                            {{ title: 'Time (ms)', field: 'processingTimeMs', width: 80, hozAlign: 'right', formatter: (cell) => {{
+                                const v = cell.getValue();
+                                return (v != null && !isNaN(v)) ? v.toFixed(0) : '0';
+                            }} }}
                         ]
                     }});
                 }},
 
                 async loadInitialData() {{
                     try {{
-                        const [summary, detections, signatures, timeseries] = await Promise.all([
+                        const [summaryRaw, detectionsRaw, signaturesRaw, timeseriesRaw] = await Promise.all([
                             fetch('{options.BasePath}/api/summary').then(r => r.json()),
                             fetch('{options.BasePath}/api/detections?limit=100').then(r => r.json()),
                             fetch('{options.BasePath}/api/signatures?limit=50').then(r => r.json()),
                             fetch('{options.BasePath}/api/timeseries?bucket=60').then(r => r.json()).catch(() => [])
                         ]);
+
+                        const summary = toCamel(summaryRaw);
+                        const detections = toCamel(detectionsRaw);
+                        const signatures = toCamel(signaturesRaw);
+                        const timeseries = toCamel(timeseriesRaw);
 
                         this.summary = {{ ...this.summary, ...summary }};
                         this.detections = detections;
@@ -644,7 +676,7 @@ internal static class DashboardHtmlTemplate
                         this.signatures = signatures;
                         this.updateCharts();
                         this.updateTimeline(timeseries);
-                        this.computeTopBots(detections);
+                        this.updateTopBotsFromSummary();
                     }} catch (e) {{
                         console.error('Failed to load initial data:', e);
                     }}
@@ -652,8 +684,8 @@ internal static class DashboardHtmlTemplate
 
                 updateTimeline(timeseries) {{
                     if (!timeseries || !timeseries.length) return;
-                    const botData = timeseries.map(t => [new Date(t.timestamp || t.Timestamp), t.botCount || t.BotCount || 0]);
-                    const humanData = timeseries.map(t => [new Date(t.timestamp || t.Timestamp), t.humanCount || t.HumanCount || 0]);
+                    const botData = timeseries.map(t => [new Date(t.timestamp), t.botCount || 0]);
+                    const humanData = timeseries.map(t => [new Date(t.timestamp), t.humanCount || 0]);
                     this.riskChart.setOption({{
                         series: [
                             {{ data: botData }},
@@ -662,16 +694,14 @@ internal static class DashboardHtmlTemplate
                     }});
                 }},
 
-                computeTopBots(detections) {{
-                    const counts = {{}};
-                    detections.filter(d => d.isBot).forEach(d => {{
-                        const name = d.botName || d.botType || 'Unknown';
-                        counts[name] = (counts[name] || 0) + 1;
-                    }});
-                    this.topBots = Object.entries(counts)
-                        .map(([name, count]) => ({{ name, count }}))
-                        .sort((a, b) => b.count - a.count)
-                        .slice(0, 8);
+                updateTopBotsFromSummary() {{
+                    const topBotTypes = this.summary.topBotTypes;
+                    if (topBotTypes && typeof topBotTypes === 'object') {{
+                        this.topBots = Object.entries(topBotTypes)
+                            .map(([name, count]) => ({{ name, count }}))
+                            .sort((a, b) => b.count - a.count)
+                            .slice(0, 8);
+                    }}
                 }},
 
                 updateCharts() {{
@@ -692,10 +722,10 @@ internal static class DashboardHtmlTemplate
                     if (this.filters.classification === 'bot') url += '&isBot=true';
                     if (this.filters.classification === 'human') url += '&isBot=false';
 
-                    fetch(url).then(r => r.json()).then(data => {{
+                    fetch(url).then(r => r.json()).then(raw => {{
+                        const data = toCamel(raw);
                         this.detections = data;
                         this.tabulatorTable.setData(data);
-                        this.computeTopBots(data);
                     }});
                 }},
 

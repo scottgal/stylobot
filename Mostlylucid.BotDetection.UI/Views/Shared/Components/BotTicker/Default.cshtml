@@ -17,19 +17,22 @@
 
         <!-- Scrolling detections -->
         <div class="ticker-scroll" x-ref="tickerScroll">
-            <template x-for="detection in detections" :key="detection.requestId">
+            <template x-for="(detection, idx) in detections" :key="detection._id || idx">
                 <a class="ticker-item"
-                   :href="'/_stylobot?signature=' + detection.primarySignature"
-                   :class="{ 'is-bot': detection.isBot }"
-                   hx-get="/_stylobot/signature-details"
-                   hx-vals="js:{signature: detection.primarySignature}"
-                   hx-target="#signature-detail-panel"
-                   hx-swap="innerHTML"
-                   hx-push-url="true">
+                   :href="'/_stylobot?signature=' + (detection.primarySignature || '')"
+                   :class="{ 'is-bot': detection.isBot, 'ticker-item-new': detection._isNew }">
                     <span class="ticker-item-icon" x-text="detection.isBot ? 'R' : 'H'"></span>
-                    <span class="ticker-item-risk" :class="'risk-' + detection.riskBand.toLowerCase()" x-text="detection.riskBand"></span>
-                    <span class="ticker-item-path" x-text="detection.path.length > 20 ? detection.path.substring(0, 17) + '...' : detection.path"></span>
-                    <span class="ticker-item-prob" x-text="Math.round(detection.botProbability * 100) + '%'"></span>
+                    <span class="ticker-item-risk"
+                          :class="'risk-' + (detection.riskBand || '').toLowerCase()"
+                          x-text="detection.riskBand || '-'"></span>
+                    <template x-if="detection.botName">
+                        <span class="ticker-item-botname" x-text="detection.botName"></span>
+                    </template>
+                    <template x-if="detection.botType && !detection.botName">
+                        <span class="ticker-item-botname" x-text="detection.botType"></span>
+                    </template>
+                    <span class="ticker-item-path" x-text="(detection.path || '').length > 20 ? (detection.path || '').substring(0, 17) + '...' : (detection.path || '')"></span>
+                    <span class="ticker-item-prob" x-text="Math.round((detection.botProbability || 0) * 100) + '%'"></span>
                     <span class="ticker-item-time" x-text="formatTime(detection.timestamp)"></span>
                 </a>
             </template>
@@ -70,6 +73,19 @@
 
 <script>
 document.addEventListener('alpine:init', () => {
+    // Normalize PascalCase API keys to camelCase
+    function toCamel(obj) {
+        if (Array.isArray(obj)) return obj.map(toCamel);
+        if (obj !== null && typeof obj === 'object') {
+            return Object.fromEntries(
+                Object.entries(obj).map(([k, v]) => [k.charAt(0).toLowerCase() + k.slice(1), toCamel(v)])
+            );
+        }
+        return obj;
+    }
+
+    let tickerId = 0;
+
     Alpine.data('botTicker', () => ({
         connected: false,
         detections: [],
@@ -91,36 +107,27 @@ document.addEventListener('alpine:init', () => {
                     .build();
 
                 // Handle detection events
-                this.connection.on('BroadcastDetection', (detection) => {
-                    this.addDetection(detection);
+                this.connection.on('BroadcastDetection', (raw) => {
+                    this.addDetection(toCamel(raw));
                 });
 
-                // Handle signature events (for bots)
-                this.connection.on('BroadcastSignature', (signature) => {
-                    // Could highlight this in ticker
+                // Handle signature events
+                this.connection.on('BroadcastSignature', (raw) => {
+                    // Could highlight in ticker
                 });
 
                 // Handle summary updates
-                this.connection.on('BroadcastSummary', (summary) => {
-                    this.summary = summary;
+                this.connection.on('BroadcastSummary', (raw) => {
+                    this.summary = toCamel(raw);
                 });
 
                 // Connection state handlers
-                this.connection.onclose(() => {
-                    this.connected = false;
-                });
-
-                this.connection.onreconnecting(() => {
-                    this.connected = false;
-                });
-
-                this.connection.onreconnected(() => {
-                    this.connected = true;
-                });
+                this.connection.onclose(() => { this.connected = false; });
+                this.connection.onreconnecting(() => { this.connected = false; });
+                this.connection.onreconnected(() => { this.connected = true; });
 
                 await this.connection.start();
                 this.connected = true;
-                console.log('[BotTicker] Connected to SignalR hub');
 
             } catch (error) {
                 console.error('[BotTicker] Connection failed:', error);
@@ -141,16 +148,24 @@ document.addEventListener('alpine:init', () => {
         addDetection(detection) {
             // Only show interesting detections: bots OR medium+ risk
             const dominated = detection.isBot ||
-                              detection.botProbability >= 0.4 ||
+                              (detection.botProbability || 0) >= 0.4 ||
                               ['Medium', 'High', 'VeryHigh'].includes(detection.riskBand);
 
-            if (!dominated) return; // Skip low-interest detections
+            if (!dominated) return;
 
-            // Add to front
+            // Add to front with unique ID and new-entry animation flag
             this.detections.unshift({
                 ...detection,
-                timestamp: new Date(detection.timestamp)
+                _id: ++tickerId,
+                _isNew: true,
+                timestamp: detection.timestamp ? new Date(detection.timestamp) : new Date()
             });
+
+            // Remove new animation class after transition
+            setTimeout(() => {
+                const d = this.detections.find(d => d._id === tickerId);
+                if (d) d._isNew = false;
+            }, 600);
 
             // Keep only recent detections
             if (this.detections.length > this.maxDetections) {
@@ -161,6 +176,7 @@ document.addEventListener('alpine:init', () => {
         formatTime(timestamp) {
             if (!timestamp) return '';
             const d = new Date(timestamp);
+            if (isNaN(d.getTime())) return '';
             return d.toLocaleTimeString('en-US', {
                 hour: '2-digit',
                 minute: '2-digit',

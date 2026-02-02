@@ -530,6 +530,452 @@ Learned patterns and weights start fresh when switching storage backends. To pre
 
 ---
 
+## YARP Gateway: Smart Router & Endpoint Protection
+
+The [YARP Gateway](https://hub.docker.com/r/scottgal/mostlylucid.yarpgateway) (`scottgal/mostlylucid.yarpgateway`) is a standalone Docker container that adds bot detection intelligence to any web stack. Deploy it in front of your existing infrastructure -- Caddy, Nginx, Traefik, or directly to your backends -- as a smart routing layer that enriches every request with bot detection headers.
+
+```
+Internet → YARP Gateway (bot detection) → Your reverse proxy / backend
+                 │
+                 ├── X-Bot-Detected: true/false
+                 ├── X-Bot-Risk-Score: 0.82
+                 ├── X-Bot-Risk-Band: High
+                 ├── X-Bot-Action: Block
+                 └── X-Bot-Confidence: 0.91
+```
+
+Your backend or downstream proxy reads these headers and decides what to do. The gateway does detection; you decide the response.
+
+### In Front of Caddy
+
+Caddy handles TLS termination and static files. The YARP Gateway sits between the internet and Caddy, enriching requests with bot intelligence. Caddy can then use header matchers to route or block.
+
+```yaml
+# docker-compose.yml
+services:
+  gateway:
+    image: scottgal/mostlylucid.yarpgateway:latest
+    ports:
+      - "80:8080"
+    environment:
+      DEFAULT_UPSTREAM: "http://caddy:443"
+      ADMIN_SECRET: "${ADMIN_SECRET}"
+      GATEWAY_DEMO_MODE: "false"
+    volumes:
+      - ./config:/app/config:ro
+    depends_on:
+      - caddy
+
+  caddy:
+    image: caddy:2-alpine
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    expose:
+      - "443"
+      - "80"
+
+  app:
+    build: .
+    expose:
+      - "8080"
+
+volumes:
+  caddy_data:
+```
+
+**Caddyfile** -- use the bot detection headers for routing decisions:
+
+```
+your-domain.com {
+    # Block high-risk bots based on gateway headers
+    @blocked {
+        header X-Bot-Action Block
+    }
+    respond @blocked "Access Denied" 403
+
+    # Challenge medium-risk requests
+    @challenge {
+        header X-Bot-Risk-Band High
+    }
+    redir @challenge /captcha
+
+    # Everything else goes to your app
+    reverse_proxy app:8080
+}
+```
+
+**`config/yarp.json`** -- route to Caddy:
+
+```json
+{
+  "ReverseProxy": {
+    "Routes": {
+      "all": {
+        "ClusterId": "caddy",
+        "Match": { "Path": "/{**catch-all}" }
+      }
+    },
+    "Clusters": {
+      "caddy": {
+        "Destinations": {
+          "caddy1": { "Address": "http://caddy:80" }
+        }
+      }
+    }
+  }
+}
+```
+
+### In Front of Nginx
+
+Same pattern, with Nginx reading the `X-Bot-*` headers:
+
+```yaml
+# docker-compose.yml
+services:
+  gateway:
+    image: scottgal/mostlylucid.yarpgateway:latest
+    ports:
+      - "80:8080"
+    environment:
+      DEFAULT_UPSTREAM: "http://nginx:80"
+      ADMIN_SECRET: "${ADMIN_SECRET}"
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    expose:
+      - "80"
+
+  app:
+    build: .
+    expose:
+      - "8080"
+```
+
+**nginx.conf** -- block or throttle based on bot headers:
+
+```nginx
+map $http_x_bot_action $bot_blocked {
+    "Block"     1;
+    default     0;
+}
+
+map $http_x_bot_risk_band $bot_throttle {
+    "High"      1;
+    "VeryHigh"  1;
+    default     0;
+}
+
+server {
+    listen 80;
+
+    # Block bots the gateway flagged
+    if ($bot_blocked) {
+        return 403;
+    }
+
+    # Rate-limit high-risk requests
+    location / {
+        if ($bot_throttle) {
+            # send to a rate-limited upstream or return challenge
+            return 429;
+        }
+        proxy_pass http://app:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Forward all bot headers to your app
+        proxy_set_header X-Bot-Detected $http_x_bot_detected;
+        proxy_set_header X-Bot-Risk-Score $http_x_bot_risk_score;
+        proxy_set_header X-Bot-Risk-Band $http_x_bot_risk_band;
+        proxy_set_header X-Bot-Action $http_x_bot_action;
+        proxy_set_header X-Bot-Confidence $http_x_bot_confidence;
+    }
+}
+```
+
+### In Front of Traefik
+
+Traefik is common in Docker Swarm and K8s. Use the gateway as an external middleware layer:
+
+```yaml
+# docker-compose.yml
+services:
+  gateway:
+    image: scottgal/mostlylucid.yarpgateway:latest
+    ports:
+      - "8080:8080"
+    environment:
+      DEFAULT_UPSTREAM: "http://traefik:80"
+      ADMIN_SECRET: "${ADMIN_SECRET}"
+
+  traefik:
+    image: traefik:v3.0
+    command:
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    expose:
+      - "80"
+
+  app:
+    build: .
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app.rule=PathPrefix(`/`)"
+    expose:
+      - "8080"
+```
+
+### Kubernetes Deployment
+
+Deploy the YARP Gateway as a Deployment + Service in Kubernetes. It sits between your Ingress controller and your backend services, acting as a bot-detection sidecar or gateway.
+
+#### Architecture
+
+```
+                                ┌──────────────────────────┐
+Internet → Ingress Controller → │  YARP Gateway Service    │ → Backend Services
+           (nginx/traefik/      │  (bot detection + headers)│   (your pods)
+            cloud LB)           └──────────────────────────┘
+```
+
+#### Gateway Deployment
+
+```yaml
+# k8s/gateway-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stylobot-gateway
+  labels:
+    app: stylobot-gateway
+spec:
+  replicas: 2  # Scale horizontally - detection state is per-request
+  selector:
+    matchLabels:
+      app: stylobot-gateway
+  template:
+    metadata:
+      labels:
+        app: stylobot-gateway
+    spec:
+      containers:
+        - name: gateway
+          image: scottgal/mostlylucid.yarpgateway:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ADMIN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: stylobot-secrets
+                  key: admin-secret
+          volumeMounts:
+            - name: yarp-config
+              mountPath: /app/config
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /admin/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /admin/health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+      volumes:
+        - name: yarp-config
+          configMap:
+            name: stylobot-yarp-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stylobot-gateway
+spec:
+  selector:
+    app: stylobot-gateway
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: ClusterIP
+```
+
+#### YARP Config (ConfigMap)
+
+Route to your backend services by Kubernetes service name:
+
+```yaml
+# k8s/yarp-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stylobot-yarp-config
+data:
+  yarp.json: |
+    {
+      "ReverseProxy": {
+        "Routes": {
+          "api": {
+            "ClusterId": "api-backend",
+            "Match": { "Path": "/api/{**catch-all}" }
+          },
+          "web": {
+            "ClusterId": "web-backend",
+            "Match": { "Path": "/{**catch-all}" }
+          }
+        },
+        "Clusters": {
+          "api-backend": {
+            "LoadBalancingPolicy": "RoundRobin",
+            "Destinations": {
+              "api-svc": { "Address": "http://api-service.default.svc.cluster.local:80" }
+            },
+            "HealthCheck": {
+              "Passive": { "Enabled": true }
+            }
+          },
+          "web-backend": {
+            "Destinations": {
+              "web-svc": { "Address": "http://web-service.default.svc.cluster.local:80" }
+            }
+          }
+        }
+      }
+    }
+```
+
+#### Secrets
+
+```yaml
+# k8s/secrets.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: stylobot-secrets
+type: Opaque
+stringData:
+  admin-secret: "your-admin-secret-here"
+```
+
+#### Ingress (route to gateway instead of backends)
+
+Point your Ingress at the gateway service instead of directly at your app:
+
+```yaml
+# k8s/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  annotations:
+    # Works with any ingress controller
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "30"
+spec:
+  rules:
+    - host: your-domain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: stylobot-gateway  # Gateway, not your app directly
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - your-domain.com
+      secretName: tls-secret
+```
+
+#### With PostgreSQL for Shared Learning
+
+For multi-replica deployments where you want shared learning state across gateway pods:
+
+```yaml
+# Add to gateway deployment env:
+env:
+  - name: DB_PROVIDER
+    value: "postgres"
+  - name: DB_CONNECTION_STRING
+    valueFrom:
+      secretKeyRef:
+        name: stylobot-secrets
+        key: db-connection-string
+```
+
+All gateway replicas share the same PostgreSQL for learned patterns, weights, and detection history. Each pod is stateless -- scaling is horizontal.
+
+#### Horizontal Pod Autoscaler
+
+```yaml
+# k8s/hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: stylobot-gateway-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: stylobot-gateway
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+```
+
+### Why Use the Gateway Instead of Middleware?
+
+| Scenario | Use Middleware | Use YARP Gateway |
+|----------|:---:|:---:|
+| Single ASP.NET app | Yes | -- |
+| Non-.NET backend (Node, Python, Go) | -- | Yes |
+| Multiple backends / microservices | -- | Yes |
+| Already using Caddy/Nginx/Traefik | -- | Yes |
+| Kubernetes with multiple services | -- | Yes |
+| Need bot detection without code changes | -- | Yes |
+| Want detection as HTTP headers | -- | Yes |
+
+The gateway adds bot intelligence as HTTP headers to every proxied request. Your backend reads the headers and decides what to do -- no SDK, no code changes, any language.
+
+### Environment Variables Reference
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEFAULT_UPSTREAM` | -- | Catch-all upstream URL (simplest config) |
+| `GATEWAY_HTTP_PORT` | `8080` | Listen port |
+| `ADMIN_SECRET` | -- | Protects `/admin` endpoints |
+| `ADMIN_BASE_PATH` | `/admin` | Admin API path prefix |
+| `GATEWAY_DEMO_MODE` | `false` | Enable all 21 detectors |
+| `DB_PROVIDER` | `none` | `none`, `postgres`, `sqlserver` |
+| `DB_CONNECTION_STRING` | -- | Database connection string |
+| `YARP_CONFIG_FILE` | `/app/config/yarp.json` | YARP routing config path |
+| `LOG_LEVEL` | `Information` | Serilog log level |
+
+---
+
 ## Security Checklist
 
 | Item | Tier 1 | Tier 2 | Tier 3 |
