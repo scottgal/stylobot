@@ -48,7 +48,7 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
-          context: ./mostlylucid.stylobot.website
+          context: .
           file: ./mostlylucid.stylobot.website/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}

@@ -21,16 +21,19 @@ RUN apt-get update && apt-get install -y curl \
 
 WORKDIR /src
 
-# Copy csproj and restore
-COPY ["src/Stylobot.Website/Stylobot.Website.csproj", "src/Stylobot.Website/"]
-RUN dotnet restore "src/Stylobot.Website/Stylobot.Website.csproj"
+# Copy csproj files for restore (layer caching)
+COPY ["mostlylucid.stylobot.website/src/Stylobot.Website/Stylobot.Website.csproj", "mostlylucid.stylobot.website/src/Stylobot.Website/"]
+COPY ["Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj", "Mostlylucid.BotDetection/"]
+COPY ["Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj", "Mostlylucid.BotDetection.UI/"]
+COPY ["Mostlylucid.BotDetection.UI.PostgreSQL/Mostlylucid.BotDetection.UI.PostgreSQL.csproj", "Mostlylucid.BotDetection.UI.PostgreSQL/"]
+COPY ["Mostlylucid.Common/Mostlylucid.Common.csproj", "Mostlylucid.Common/"]
+RUN dotnet restore "mostlylucid.stylobot.website/src/Stylobot.Website/Stylobot.Website.csproj"
 
 # Copy entire source
 COPY . .
 
 # Install NPM dependencies and build assets
-WORKDIR "/src/src/Stylobot.Website"
-COPY src/Stylobot.Website/package*.json ./
+WORKDIR "/src/mostlylucid.stylobot.website/src/Stylobot.Website"
 RUN npm install
 RUN npm run build
 
@@ -39,7 +42,7 @@ RUN dotnet build "Stylobot.Website.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
 # Publish stage
 FROM build AS publish
-WORKDIR /src/src/Stylobot.Website
+WORKDIR "/src/mostlylucid.stylobot.website/src/Stylobot.Website"
 RUN dotnet publish "Stylobot.Website.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false --no-restore
 
 # Final runtime image

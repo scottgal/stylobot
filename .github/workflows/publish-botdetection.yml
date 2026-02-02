@@ -5,6 +5,7 @@ on:
     tags:
       - 'botdetection-v*.*.*'
       - 'allbot-v*.*.*'
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -23,7 +24,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '9.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Extract version and create MinVer tag
       id: get_version
