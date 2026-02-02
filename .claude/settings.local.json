@@ -54,7 +54,8 @@
       "Bash(dotnet add:*)",
       "Bash(dotnet tool run ilspy:*)",
       "Bash(dotnet:*)",
-      "Bash(dotnet-ildasm:*)"
+      "Bash(dotnet-ildasm:*)",
+      "Bash(where:*)"
     ]
   }
 }

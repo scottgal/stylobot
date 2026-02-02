@@ -41,8 +41,8 @@ public class AdminEndpointsTests : IClassFixture<GatewayTestFixture>
         var content = await response.Content.ReadFromJsonAsync<HealthResponse>();
         content.Should().NotBeNull();
         content!.Status.Should().Be("ok");
-        content.RoutesConfigured.Should().BeGreaterOrEqualTo(0);
-        content.UptimeSeconds.Should().BeGreaterOrEqualTo(0);
+        content.RoutesConfigured.Should().BeGreaterThanOrEqualTo(0);
+        content.UptimeSeconds.Should().BeGreaterThanOrEqualTo(0);
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class AdminEndpointsTests : IClassFixture<GatewayTestFixture>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var content = await response.Content.ReadFromJsonAsync<RoutesResponse>();
         content.Should().NotBeNull();
-        content!.Count.Should().BeGreaterOrEqualTo(0);
+        content!.Count.Should().BeGreaterThanOrEqualTo(0);
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public class AdminEndpointsTests : IClassFixture<GatewayTestFixture>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var content = await response.Content.ReadFromJsonAsync<ClustersResponse>();
         content.Should().NotBeNull();
-        content!.Count.Should().BeGreaterOrEqualTo(0);
+        content!.Count.Should().BeGreaterThanOrEqualTo(0);
     }
 
     [Fact]
@@ -106,8 +106,8 @@ public class AdminEndpointsTests : IClassFixture<GatewayTestFixture>
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var content = await response.Content.ReadFromJsonAsync<MetricsResponse>();
         content.Should().NotBeNull();
-        content!.UptimeSeconds.Should().BeGreaterOrEqualTo(0);
-        content.RequestsTotal.Should().BeGreaterOrEqualTo(0);
+        content!.UptimeSeconds.Should().BeGreaterThanOrEqualTo(0);
+        content.RequestsTotal.Should().BeGreaterThanOrEqualTo(0);
     }
 
     [Fact]

@@ -84,7 +84,7 @@ public class ConfigurationTests
         Thread.Sleep(100);
 
         // Assert
-        metrics.Uptime.TotalMilliseconds.Should().BeGreaterOrEqualTo(90);
+        metrics.Uptime.TotalMilliseconds.Should().BeGreaterThanOrEqualTo(90);
     }
 
     [Fact]
@@ -161,7 +161,7 @@ public class ConfigurationTests
 
         // Assert - should have some RPS value after time elapsed
         // The RPS window needs at least 0.1s to calculate
-        metrics.RequestsPerSecond.Should().BeGreaterOrEqualTo(0);
+        metrics.RequestsPerSecond.Should().BeGreaterThanOrEqualTo(0);
     }
 
     [Fact]

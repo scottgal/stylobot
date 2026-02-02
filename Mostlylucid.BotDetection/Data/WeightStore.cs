@@ -592,8 +592,8 @@ public class SqliteWeightStore : IWeightStore, IAsyncDisposable, IDisposable
                 "Weight decay: {Updated} decayed, {Deleted} deleted",
                 updated, deleted);
 
-            // Compact cache to remove stale entries (MemoryCache handles this automatically via sliding expiration)
-            _cache.Compact(0.25);
+            // Clear all cached weights since bulk decay makes them stale
+            _cache.Compact(1.0);
         }
     }
 
@@ -748,6 +748,12 @@ public class SqliteWeightStore : IWeightStore, IAsyncDisposable, IDisposable
         try
         {
             if (_initialized) return;
+
+            // Ensure the parent directory exists before SQLite tries to create the file
+            var dataSource = _connectionString.Replace("Data Source=", "", StringComparison.OrdinalIgnoreCase);
+            var directory = Path.GetDirectoryName(dataSource);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                Directory.CreateDirectory(directory);
 
             await using var conn = new SqliteConnection(_connectionString);
             await conn.OpenAsync(ct);

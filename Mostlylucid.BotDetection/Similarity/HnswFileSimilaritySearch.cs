@@ -18,7 +18,7 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
     private const int RebuildThreshold = 50;
     private static readonly TimeSpan AutoSaveInterval = TimeSpan.FromMinutes(5);
 
-    private static readonly SmallWorld<float[], float>.Parameters GraphParameters = new()
+    private static readonly SmallWorldParameters GraphParameters = new()
     {
         M = DefaultM,
         LevelLambda = 1.0 / Math.Log(DefaultM),

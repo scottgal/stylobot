@@ -126,7 +126,7 @@ public class ProxyRoutingTests : IClassFixture<GatewayTestFixture>
         content.Should().Contain("slow response");
 
         // Should take at least 500ms (the upstream delay)
-        stopwatch.ElapsedMilliseconds.Should().BeGreaterOrEqualTo(400); // Allow some tolerance
+        stopwatch.ElapsedMilliseconds.Should().BeGreaterThanOrEqualTo(400); // Allow some tolerance
     }
 
     [Fact]
