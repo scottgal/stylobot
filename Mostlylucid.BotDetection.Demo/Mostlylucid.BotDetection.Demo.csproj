@@ -9,13 +9,13 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Swashbuckle.AspNetCore" Version="7.2.0"/>
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.1"/>
         <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0"/>
-        <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.1.0"/>
+        <PackageReference Include="Microsoft.AspNetCore.SignalR" Version="1.2.9"/>
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\LLMApi\mostlylucid.mockllmapi\mostlylucid.mockllmapi.csproj"/>
+        <PackageReference Include="mostlylucid.mockllmapi" Version="2.5.0"/>
     </ItemGroup>
 
     <ItemGroup>

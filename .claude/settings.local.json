@@ -51,7 +51,10 @@
       "mcp__plugin_playwright_playwright__browser_tabs",
       "Bash(npm install)",
       "Bash(dotnet list:*)",
-      "Bash(dotnet add:*)"
+      "Bash(dotnet add:*)",
+      "Bash(dotnet tool run ilspy:*)",
+      "Bash(dotnet:*)",
+      "Bash(dotnet-ildasm:*)"
     ]
   }
 }
