@@ -530,12 +530,12 @@ Learned patterns and weights start fresh when switching storage backends. To pre
 
 ---
 
-## YARP Gateway: Smart Router & Endpoint Protection
+## Stylobot Gateway: Smart Router & Endpoint Protection
 
-The [YARP Gateway](https://hub.docker.com/r/scottgal/mostlylucid.yarpgateway) (`scottgal/mostlylucid.yarpgateway`) is a standalone Docker container that adds bot detection intelligence to any web stack. Deploy it in front of your existing infrastructure -- Caddy, Nginx, Traefik, or directly to your backends -- as a smart routing layer that enriches every request with bot detection headers.
+The [Stylobot Gateway](https://hub.docker.com/r/scottgal/stylobot-gateway) (`scottgal/stylobot-gateway`) is a standalone Docker container that adds bot detection intelligence to any web stack. Deploy it in front of your existing infrastructure -- Caddy, Nginx, Traefik, or directly to your backends -- as a smart routing layer that enriches every request with bot detection headers.
 
 ```
-Internet → YARP Gateway (bot detection) → Your reverse proxy / backend
+Internet → Stylobot Gateway (bot detection) → Your reverse proxy / backend
                  │
                  ├── X-Bot-Detected: true/false
                  ├── X-Bot-Risk-Score: 0.82
@@ -548,13 +548,13 @@ Your backend or downstream proxy reads these headers and decides what to do. The
 
 ### In Front of Caddy
 
-Caddy handles TLS termination and static files. The YARP Gateway sits between the internet and Caddy, enriching requests with bot intelligence. Caddy can then use header matchers to route or block.
+Caddy handles TLS termination and static files. The Stylobot Gateway sits between the internet and Caddy, enriching requests with bot intelligence. Caddy can then use header matchers to route or block.
 
 ```yaml
 # docker-compose.yml
 services:
   gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
+    image: scottgal/stylobot-gateway:latest
     ports:
       - "80:8080"
     environment:
@@ -635,7 +635,7 @@ Same pattern, with Nginx reading the `X-Bot-*` headers:
 # docker-compose.yml
 services:
   gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
+    image: scottgal/stylobot-gateway:latest
     ports:
       - "80:8080"
     environment:
@@ -705,7 +705,7 @@ Traefik is common in Docker Swarm and K8s. Use the gateway as an external middle
 # docker-compose.yml
 services:
   gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
+    image: scottgal/stylobot-gateway:latest
     ports:
       - "8080:8080"
     environment:
@@ -733,13 +733,13 @@ services:
 
 ### Kubernetes Deployment
 
-Deploy the YARP Gateway as a Deployment + Service in Kubernetes. It sits between your Ingress controller and your backend services, acting as a bot-detection sidecar or gateway.
+Deploy the Stylobot Gateway as a Deployment + Service in Kubernetes. It sits between your Ingress controller and your backend services, acting as a bot-detection sidecar or gateway.
 
 #### Architecture
 
 ```
                                 ┌──────────────────────────┐
-Internet → Ingress Controller → │  YARP Gateway Service    │ → Backend Services
+Internet → Ingress Controller → │  Stylobot Gateway Service    │ → Backend Services
            (nginx/traefik/      │  (bot detection + headers)│   (your pods)
             cloud LB)           └──────────────────────────┘
 ```
@@ -766,7 +766,7 @@ spec:
     spec:
       containers:
         - name: gateway
-          image: scottgal/mostlylucid.yarpgateway:latest
+          image: scottgal/stylobot-gateway:latest
           ports:
             - containerPort: 8080
           env:
@@ -948,7 +948,7 @@ spec:
 
 ### Why Use the Gateway Instead of Middleware?
 
-| Scenario | Use Middleware | Use YARP Gateway |
+| Scenario | Use Middleware | Use Stylobot Gateway |
 |----------|:---:|:---:|
 | Single ASP.NET app | Yes | -- |
 | Non-.NET backend (Node, Python, Go) | -- | Yes |
