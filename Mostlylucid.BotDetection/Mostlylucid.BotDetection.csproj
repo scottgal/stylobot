@@ -17,7 +17,7 @@
             Bot detection middleware for ASP.NET Core applications with behavioral analysis, header inspection, IP-based detection, and optional LLM-based classification.
         </Description>
         <PackageReleaseNotes>$([System.IO.File]::ReadAllText("$(MSBuildProjectDirectory)/ReleaseNotes.txt"))</PackageReleaseNotes>
-        <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
+        <TargetFrameworks>net10.0</TargetFrameworks>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 
         <!-- Not AOT/trimming compatible due to Ollama, SQLite, and dynamic JSON usage -->
@@ -32,18 +32,18 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="AngleSharp" Version="1.4.0"/>
+        <PackageReference Include="AngleSharp" Version="1.4.0" />
         <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.2" />
         <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.2" />
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
         <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.2" />
         <PackageReference Include="OllamaSharp" Version="5.4.16" />
         <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.2" />
-        <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.2"/>
+        <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.2" />
         <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.2" />
         <PackageReference Include="System.IO.Hashing" Version="10.0.2" />
         <!-- StyloFlow: NuGet package references -->
@@ -54,10 +54,10 @@
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Taxonomy" Version="2.3.2" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.KeyedSequential" Version="2.3.2" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.SlidingCache" Version="2.3.2" />
-        <PackageReference Include="HNSW" Version="25.3.56901"/>
-        <PackageReference Include="System.Numerics.Tensors" Version="9.0.3"/>
-        <PackageReference Include="MathNet.Numerics" Version="5.0.0"/>
-        <PackageReference Include="YamlDotNet" Version="16.3.0"/>
+        <PackageReference Include="HNSW" Version="26.1.63669" />
+        <PackageReference Include="System.Numerics.Tensors" Version="10.0.2" />
+        <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+        <PackageReference Include="YamlDotNet" Version="16.3.0" />
         <PackageReference Include="Vecc.YamlDotNet.Analyzers.StaticGenerator" Version="16.3.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
@@ -69,26 +69,26 @@
     </ItemGroup>
 
     <ItemGroup>
-        <None Include="ReleaseNotes.txt"/>
-        <Content Include="docs\ai-detection.md"/>
+        <None Include="ReleaseNotes.txt" />
+        <Content Include="docs\ai-detection.md" />
     </ItemGroup>
 
     <!-- Embed JS files as resources for TagHelper -->
     <ItemGroup>
-        <EmbeddedResource Include="ClientSide\botdetection.js"/>
+        <EmbeddedResource Include="ClientSide\botdetection.js" />
     </ItemGroup>
 
     <!-- Embed policy definition YAML files -->
     <ItemGroup>
-        <EmbeddedResource Include="Definitions\Actions\*.yaml"/>
+        <EmbeddedResource Include="Definitions\Actions\*.yaml" />
     </ItemGroup>
 
     <!-- Embed detector and pipeline YAML manifests -->
     <ItemGroup>
-        <EmbeddedResource Include="Orchestration\Manifests\detectors\*.yaml"/>
-        <EmbeddedResource Include="Orchestration\Manifests\pipelines\*.yaml"/>
-        <EmbeddedResource Include="Orchestration\Manifests\entities\*.yaml"/>
-        <EmbeddedResource Include="Orchestration\Manifests\schemas\*.json"/>
+        <EmbeddedResource Include="Orchestration\Manifests\detectors\*.yaml" />
+        <EmbeddedResource Include="Orchestration\Manifests\pipelines\*.yaml" />
+        <EmbeddedResource Include="Orchestration\Manifests\entities\*.yaml" />
+        <EmbeddedResource Include="Orchestration\Manifests\schemas\*.json" />
     </ItemGroup>
 
     <!-- Include icon and README in NuGet package -->
@@ -103,6 +103,6 @@
 
     <!-- Exclude docs folder from NuGet package -->
     <ItemGroup>
-        <Content Remove="docs\**"/>
+        <Content Remove="docs\**" />
     </ItemGroup>
 </Project>

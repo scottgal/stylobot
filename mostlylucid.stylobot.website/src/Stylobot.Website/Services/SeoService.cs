@@ -122,7 +122,7 @@ public class SeoService
             type = "Organization",
             name = "Stylobot",
             url = _baseUrl,
-            logo = $"{_baseUrl}/img/logo.png",
+            logo = $"{_baseUrl}/img/stylowall.svg",
             image = $"{_baseUrl}/img/card.png",
             description = "Advanced bot detection using heuristics and analytics with a zero-PII approach",
             sameAs = new[]

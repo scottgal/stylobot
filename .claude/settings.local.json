@@ -49,7 +49,9 @@
       "mcp__plugin_playwright_playwright__browser_wait_for",
       "mcp__plugin_playwright_playwright__browser_take_screenshot",
       "mcp__plugin_playwright_playwright__browser_tabs",
-      "Bash(npm install)"
+      "Bash(npm install)",
+      "Bash(dotnet list:*)",
+      "Bash(dotnet add:*)"
     ]
   }
 }

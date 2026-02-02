@@ -40,6 +40,8 @@ services:
   website:
     image: stylobot-website:latest
     container_name: stylobot-website
+    env_file:
+      - .env
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080

@@ -30,12 +30,12 @@
     <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/bot-detection-details.css" />
 </head>
 <body class="min-h-screen flex flex-col">
-    <header class="sticky top-0 z-[9999] bg-base-100/95 backdrop-blur-md border-b border-base-300 shadow-lg">
+    <header class="sticky top-0 z-[9999] bg-base-100/95 backdrop-blur-md border-b border-base-300/30">
         <nav class="max-w-7xl mx-auto px-4 py-2" x-data="{ mobileMenuOpen: false }">
             <div class="flex items-center justify-between gap-4">
                 <!-- Logo + Brand -->
                 <a asp-area="" asp-controller="Home" asp-action="Index" class="flex items-center gap-3 flex-shrink-0">
-                    <img src="/img/logo.png" alt="stylobot Logo" class="h-14 w-auto" />
+                    <img src="/img/stylowall.svg" alt="stylobot Logo" class="h-14 w-auto logo-adaptive" />
                     <span class="text-2xl font-semibold hidden sm:inline" style="font-family: 'Raleway', sans-serif;">
                         <span class="stylo-text" style="font-style: italic;">stylo</span><span class="bot-text">bot</span>
                     </span>
@@ -119,7 +119,7 @@
             <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
                 <div class="col-span-1 md:col-span-2">
                     <div class="flex items-center gap-3 mb-4">
-                        <img src="/img/logo.png" alt="stylobot Logo" class="h-10 w-10" />
+                        <img src="/img/stylowall.svg" alt="stylobot Logo" class="h-10 w-auto logo-adaptive" />
                         <span class="text-2xl font-semibold" style="font-family: 'Raleway', sans-serif;">
                             <span class="stylo-text" style="font-style: italic;">stylo</span><span class="bot-text">bot</span>
                         </span>

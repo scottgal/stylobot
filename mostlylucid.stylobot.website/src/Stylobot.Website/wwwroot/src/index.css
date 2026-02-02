@@ -11,3 +11,12 @@
   color: #ffffff; /* White */
 }
 
+/* Logo adaptive: SVG is white, invert it on light theme */
+.logo-adaptive {
+  filter: none; /* Dark theme: white SVG is fine */
+}
+
+[data-theme="light"] .logo-adaptive {
+  filter: invert(1);
+}
+

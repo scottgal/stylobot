@@ -32,17 +32,17 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0"/>
-        <PackageReference Include="Serilog.AspNetCore" Version="10.0.0"/>
-        <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1"/>
-        <PackageReference Include="Serilog.Sinks.File" Version="7.0.0"/>
-        <PackageReference Include="Serilog.Settings.Configuration" Version="10.0.0"/>
-        <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.0"/>
-        <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.0"/>
+        <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
+        <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
+        <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
+        <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+        <PackageReference Include="Serilog.Settings.Configuration" Version="10.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.2" />
+        <PackageReference Include="Microsoft.Extensions.Hosting.Systemd" Version="10.0.2" />
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj"/>
+        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
     </ItemGroup>
 
     <ItemGroup>

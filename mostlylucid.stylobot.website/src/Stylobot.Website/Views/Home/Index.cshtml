@@ -1,4 +1,4 @@
-﻿@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+@inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @using Microsoft.AspNetCore.Http
 @inject IHttpContextAccessor HttpContextAccessor
 @{
@@ -6,713 +6,329 @@
     var web3FormsKey = Configuration["Web3Forms:AccessKey"];
 }
 
-<!-- Hero Section with Coming Soon -->
-<section class="relative bg-gradient-to-br from-base-100 via-base-200 to-base-100 py-6 lg:py-8 overflow-hidden">
-    <!-- Animated Background Pattern -->
+<!-- Hero -->
+<section class="py-10 lg:py-14 bg-gradient-to-br from-base-100 via-base-200 to-base-100 relative overflow-hidden">
     <div class="absolute inset-0 opacity-5">
         <div class="absolute inset-0" style="background-image: radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0); background-size: 40px 40px;"></div>
     </div>
-
-    <div class="max-w-7xl mx-auto px-4 relative z-10">
-        <!-- stylobot -->
-        <div class="text-center mb-2">
-            <h1 class="text-4xl lg:text-5xl leading-none" style="font-family: 'Raleway', sans-serif; font-weight: 900;">
-                <span style="color: #6b7280; font-style: italic;">stylo</span><span style="color: #ffffff;">bot</span>
+    <div class="max-w-3xl mx-auto px-4 relative z-10">
+        <!-- Brand -->
+        <div class="text-center mb-6">
+            <h1 class="text-3xl lg:text-4xl leading-none mb-3" style="font-family: 'Raleway', sans-serif; font-weight: 900;">
+                <span style="color: #6b7280; font-style: italic;">stylo</span><span class="text-base-content">bot</span>
             </h1>
+            <p class="text-sm text-base-content/40 uppercase tracking-widest" style="font-family: 'Raleway', sans-serif; font-weight: 600;">
+                open source bot detection
+            </p>
         </div>
 
-        <!-- What is this - immediate answer -->
-        <div class="text-center mb-4">
-            <p class="text-xl lg:text-2xl font-bold text-base-content leading-snug">
+        <!-- Pitch -->
+        <div class="text-center mb-8 space-y-3">
+            <p class="text-base lg:text-lg font-semibold text-base-content">
                 Detect and stop scrapers, bots, and API abuse.
             </p>
-            <p class="text-base lg:text-lg mt-2" style="color: #5BA3A3; font-weight: 700;">
+            <p class="text-sm" style="color: #5BA3A3;">
                 You get all the data. You make the decisions. No black boxes.
             </p>
-            <p class="text-sm mt-2 text-base-content/70">
-                <span style="color: #86B59C; font-weight: 700;">Zero PII by design</span> — no IP addresses stored, no fingerprinting, no personal data collected. GDPR compliant without even trying.
+            <p class="text-xs text-base-content/50">
+                <span style="color: #86B59C;">Zero PII by design</span> — nothing stored, GDPR compliant without trying.
             </p>
         </div>
 
-        <!-- Tagline -->
-        <div class="text-center mb-4">
-            <p class="text-xs lg:text-sm text-base-content/50" style="font-family: 'Raleway', sans-serif; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase;">
-                open source bot detection intelligence
-            </p>
-        </div>
-
-        <!-- by mostlylucid -->
-        <div class="flex items-center justify-center gap-2 mb-6">
-            <span class="text-sm text-base-content/60">by</span>
-            <a href="https://www.mostlylucid.net" target="_blank" class="inline-flex items-center hover:opacity-80 transition-opacity">
-                <img src="https://www.mostlylucid.net/img/logo.svg" alt="mostlylucid" class="h-6 w-auto mostlylucid-logo" />
+        <!-- CTA -->
+        <div class="flex flex-col sm:flex-row gap-3 justify-center items-center mb-6">
+            <a href="https://github.com/scottgal/mostlylucid.nugetpackages/blob/main/Mostlylucid.BotDetection/README.md"
+               target="_blank"
+               class="btn btn-primary gap-2 px-6">
+                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                Read the Docs
+            </a>
+            <a href="/Home/LiveDemo" class="btn btn-outline gap-2 px-6" style="border-color: #5BA3A3; color: #5BA3A3;">
+                <span class="relative flex h-2 w-2">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background-color: #5BA3A3;"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2" style="background-color: #5BA3A3;"></span>
+                </span>
+                Live Demo
             </a>
         </div>
 
-        <!-- Content centered -->
-        <div class="text-center max-w-3xl mx-auto">
-
-            <!-- Attractor Text -->
-            <div class="mb-8 space-y-4">
-                <h2 class="text-lg lg:text-xl font-bold text-base-content">
-                    13+ detectors analyse every request. <span style="color: #5BA3A3;">You get the full picture—not a score from someone else's algorithm.</span>
-                </h2>
-
-                <p class="text-base text-base-content/80 leading-relaxed">
-                    <strong>stylobot</strong> runs heuristics, behavioural analysis, fingerprinting, and optional LLM detection on your traffic and gives you everything: probability scores, confidence levels, risk bands, detector breakdowns, signals, and reasoning. Block automatically, log for analysis, challenge with CAPTCHA, or build custom workflows—your traffic, your rules. All detection methods are <a href="https://github.com/scottgal/mostlylucid.nugetpackages/tree/main/Mostlylucid.BotDetection" target="_blank" class="link link-primary">open source on GitHub</a>.
-                </p>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-left">
-                    <div class="p-4 bg-base-200 rounded-lg border" style="border-color: rgba(91, 163, 163, 0.3);">
-                        <div class="font-bold mb-2" style="color: #5BA3A3;">⚡ Drop-In Integration</div>
-                        <div class="text-sm text-base-content/70">YARP reverse proxy or ASP.NET Middleware adds bot intelligence as HTTP headers—zero code changes. Or use the full JSON API.</div>
-                    </div>
-                    <div class="p-4 bg-base-200 rounded-lg border" style="border-color: rgba(107, 114, 128, 0.3);">
-                        <div class="font-bold mb-2" style="color: #6b7280;">📊 Complete Transparency</div>
-                        <div class="text-sm text-base-content/70">Every request includes scores, confidence, signals, detector breakdowns, and reasoning. No black boxes.</div>
-                    </div>
-                    <div class="p-4 bg-base-200 rounded-lg border" style="border-color: rgba(134, 181, 156, 0.3);">
-                        <div class="font-bold mb-2" style="color: #86B59C;">🔒 Privacy-First</div>
-                        <div class="text-sm text-base-content/70">No IP addresses stored. No fingerprinting. No PII collection—ever. GDPR compliant by design.</div>
-                    </div>
-                </div>
-
-                <!-- Prototype Links -->
-                <div class="alert shadow-lg rounded-xl border px-4 py-3" style="background-color: rgba(91, 163, 163, 0.08); border-color: rgba(91, 163, 163, 0.3);">
-                    <svg class="w-5 h-5 flex-shrink-0" style="color: #5BA3A3;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div class="text-left flex-1">
-                        <h3 class="font-bold text-sm mb-2" style="color: #5BA3A3;">Current Prototypes Available</h3>
-                        <p class="text-xs mb-2 text-base-content/70">
-                            Try our working prototypes while stylobot is in development.
-                        </p>
-                        <div class="flex flex-wrap items-center gap-2">
-                            <a href="https://www.nuget.org/packages/mostlylucid.botdetection"
-                               target="_blank"
-                               class="inline-flex">
-                                <img
-                                    src="https://img.shields.io/nuget/v/mostlylucid.botdetection.svg?label=ASP.NET%20Bot%20Detection"
-                                    alt="ASP.NET Bot Detection Middleware & YARP Extension" />
-                            </a>
-
-                            <a href="https://hub.docker.com/r/scottgal/mostlylucid.yarpgateway"
-                               target="_blank"
-                               class="inline-flex">
-                                <img
-                                    src="https://img.shields.io/docker/pulls/scottgal/mostlylucid.yarpgateway?label=YARP%20Gateway"
-                                    alt="YARP Reverse Proxy with Integrated Bot Detection" />
-                            </a>
-
-                            <a href="https://github.com/scottgal/mostlylucid.nugetpackages/releases/latest"
-                               target="_blank"
-                               class="inline-flex">
-                                <img
-                                    src="https://img.shields.io/github/v/release/scottgal/mostlylucid.nugetpackages?label=Tiny%20Gateway%20Binary"
-                                    alt="Minimal Cross-Platform Gateway Executable" />
-                            </a>
-                        </div>
-                    </div>
-                </div>
-
-                <p class="text-base text-base-content/80 italic mt-6">
-                    From Raspberry Pi to enterprise clusters—same code, scales automatically. Built on the powerful <a href="https://github.com/scottgal/mostlylucid.atoms" target="_blank" class="link link-primary">StyloFlow workflow engine</a>.
-                </p>
-            </div>
-
-            <div class="mb-8">
-                <div class="alert shadow-lg border rounded-lg px-6 py-4" style="background-color: rgba(91, 163, 163, 0.05); border-color: rgba(91, 163, 163, 0.25);">
-                    <svg class="w-6 h-6 flex-shrink-0" style="color: #5BA3A3;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <div class="text-left">
-                        <h3 class="font-bold text-lg" style="color: #5BA3A3;">A Behavioral Data Engine.</h3>
-                        <p class="text-sm text-base-content/80 mb-3">
-                            Every request returns comprehensive intelligence: <code class="text-xs bg-base-300 px-1 rounded">isBot</code>, <code class="text-xs bg-base-300 px-1 rounded">humanProbability</code>, <code class="text-xs bg-base-300 px-1 rounded">confidence</code>, <code class="text-xs bg-base-300 px-1 rounded">riskBand</code>, <code class="text-xs bg-base-300 px-1 rounded">recommendedAction</code>, detector breakdowns, signals, and reasoning. <span class="font-semibold">You get all the data—you decide what to do with it.</span>
-                        </p>
-                        <div class="text-xs text-base-content/70 rounded p-2 border" style="background-color: rgba(107, 114, 128, 0.05); border-color: rgba(107, 114, 128, 0.2);">
-                            <span class="font-semibold" style="color: #6b7280;">Three integration options:</span> (1) YARP reverse proxy or (2) ASP.NET Middleware—both automatically add bot intelligence as HTTP headers to every request (no JSON parsing needed). (3) Full JSON API for direct integration and custom workflows.
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Data Example Showcase -->
-            <div class="mb-8">
-                <div class="card bg-base-200 shadow-lg border" style="border-color: rgba(107, 114, 128, 0.3);">
-                    <div class="card-body">
-                        <h3 class="card-title text-2xl mb-4" style="color: #6b7280;">
-                            <svg class="w-6 h-6" style="color: #6b7280;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                            </svg>
-                            See the Data: Example Full JSON Response
-                        </h3>
-                        <div class="border rounded-lg text-xs mb-4 px-4 py-3 flex gap-3" style="background-color: rgba(218, 165, 100, 0.1); border-color: rgba(218, 165, 100, 0.3);">
-                            <svg class="w-4 h-4 flex-shrink-0" style="color: #DAA564;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <span class="text-base-content/90"><strong>Note:</strong> Normally uses super-fast path (&lt;1ms) with learned data for your traffic. Full JSON available when needed—most use YARP/Middleware for automatic HTTP headers.</span>
-                        </div>
-                        <p class="text-sm text-base-content/70 mb-4">
-                            Here's a real example of the complete response (human detected with 99.6% confidence):
-                        </p>
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
-                            <div class="border rounded p-3" style="background-color: rgba(134, 181, 156, 0.08); border-color: rgba(134, 181, 156, 0.3);">
-                                <div class="text-xs font-mono mb-1" style="color: rgba(134, 181, 156, 0.8);">humanProbability</div>
-                                <div class="text-2xl font-bold" style="color: #86B59C;">99.6%</div>
-                            </div>
-                            <div class="border rounded p-3" style="background-color: rgba(91, 163, 163, 0.08); border-color: rgba(91, 163, 163, 0.3);">
-                                <div class="text-xs font-mono mb-1" style="color: rgba(91, 163, 163, 0.8);">confidence</div>
-                                <div class="text-2xl font-bold" style="color: #5BA3A3;">90.6%</div>
-                            </div>
-                            <div class="border rounded p-3" style="background-color: rgba(134, 181, 156, 0.08); border-color: rgba(134, 181, 156, 0.3);">
-                                <div class="text-xs font-mono mb-1" style="color: rgba(134, 181, 156, 0.8);">riskBand</div>
-                                <div class="text-2xl font-bold" style="color: #86B59C;">VeryLow</div>
-                            </div>
-                            <div class="bg-base-300/50 border border-base-content/20 rounded p-3">
-                                <div class="text-xs text-base-content/60 font-mono mb-1">recommendedAction</div>
-                                <div class="text-lg font-bold" style="color: #86B59C;">Allow</div>
-                                <div class="text-xs text-base-content/60 mt-1">"Very low risk (&lt;1%)"</div>
-                            </div>
-                            <div class="bg-base-300/50 border border-base-content/20 rounded p-3">
-                                <div class="text-xs text-base-content/60 font-mono mb-1">detectorsRan</div>
-                                <div class="text-lg font-bold text-base-content">13 detectors</div>
-                                <div class="text-xs text-base-content/60 mt-1">1.45s (includes LLM)</div>
-                            </div>
-                            <div class="border rounded p-3" style="background-color: rgba(91, 163, 163, 0.08); border-color: rgba(91, 163, 163, 0.3);">
-                                <div class="text-xs font-mono mb-1" style="color: rgba(91, 163, 163, 0.8);">aiRan</div>
-                                <div class="text-lg font-bold" style="color: #5BA3A3;">true</div>
-                                <div class="text-xs text-base-content/60 mt-1">LLM reasoning included</div>
-                            </div>
-                        </div>
-
-                        <div class="collapse collapse-arrow bg-base-100 border" style="border-color: rgba(107, 114, 128, 0.2);">
-                            <input type="checkbox" />
-                            <div class="collapse-title text-sm font-medium">
-                                <span style="color: #6b7280;">▸</span> View full breakdown: 17+ detection signals with reasoning
-                            </div>
-                            <div class="collapse-content">
-                                <div class="text-xs text-base-content/70 mb-3 mt-2">Each response includes granular signal-level data like this:</div>
-
-                                <div class="bg-base-200 rounded p-3 mb-3 border border-base-content/10">
-                                    <div class="font-bold text-xs mb-2">Detection Signals (17+)</div>
-                                    <div class="space-y-1 text-xs">
-                                        <div class="flex justify-between items-start gap-2">
-                                            <div class="flex-1">
-                                                <span class="font-semibold">HeuristicEarly</span>
-                                                <span class="text-base-content/60 ml-2">Heuristic model (early): 92% human likelihood</span>
-                                            </div>
-                                            <span class="badge badge-sm" style="background-color: rgba(134, 181, 156, 0.2); color: #86B59C; border-color: rgba(134, 181, 156, 0.3);">-84%</span>
-                                        </div>
-                                        <div class="flex justify-between items-start gap-2">
-                                            <div class="flex-1">
-                                                <span class="font-semibold">UserAgent</span>
-                                                <span class="text-base-content/60 ml-2">User-Agent appears normal</span>
-                                            </div>
-                                            <span class="badge badge-sm" style="background-color: rgba(134, 181, 156, 0.2); color: #86B59C; border-color: rgba(134, 181, 156, 0.3);">-20%</span>
-                                        </div>
-                                        <div class="flex justify-between items-start gap-2">
-                                            <div class="flex-1">
-                                                <span class="font-semibold">Waveform</span>
-                                                <span class="text-base-content/60 ml-2">Natural timing variation detected (CV=0.957)</span>
-                                            </div>
-                                            <span class="badge badge-sm" style="background-color: rgba(134, 181, 156, 0.2); color: #86B59C; border-color: rgba(134, 181, 156, 0.3);">-15%</span>
-                                        </div>
-                                        <div class="flex justify-between items-start gap-2">
-                                            <div class="flex-1">
-                                                <span class="font-semibold">TCP/IP</span>
-                                                <span class="text-base-content/60 ml-2">Missing Connection header (unusual)</span>
-                                            </div>
-                                            <span class="badge badge-sm" style="background-color: rgba(218, 165, 100, 0.2); color: #DAA564; border-color: rgba(218, 165, 100, 0.3);">+20%</span>
-                                        </div>
-                                        <div class="text-xs text-base-content/50 italic mt-2">...and 13 more signals</div>
-                                    </div>
-                                </div>
-
-                                <div class="text-xs text-base-content/70 mb-2">Full JSON response includes:</div>
-                                <ul class="text-xs space-y-1 mb-3 text-base-content/70">
-                                    <li>• <strong>Signals:</strong> <code class="bg-base-200 px-1">ua.is_bot</code>, <code class="bg-base-200 px-1">header.has_accept_language</code>, <code class="bg-base-200 px-1">behavioral.anomaly</code>, <code class="bg-base-200 px-1">ai.learned_pattern</code>, and more</li>
-                                    <li>• <strong>Category Breakdown:</strong> Score and weight for each detector category (UserAgent, Header, Behavioral, Heuristic, AI, etc.)</li>
-                                    <li>• <strong>Contributions:</strong> Every detector's impact, processing time, reason, and weighted impact on the final verdict</li>
-                                    <li>• <strong>LLM Reasoning:</strong> When AI runs, get the full natural language explanation (e.g., "User agent suggests a standard web browser. Referrer, language, cookies present—common for human users")</li>
-                                    <li>• <strong>Performance Metrics:</strong> Processing time per detector, total time, early exit information</li>
-                                </ul>
-                                <div class="border rounded-lg text-xs px-4 py-3 flex gap-3" style="background-color: rgba(91, 163, 163, 0.1); border-color: rgba(91, 163, 163, 0.3);">
-                                    <svg class="w-4 h-4 flex-shrink-0" style="color: #5BA3A3;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    <span class="text-base-content/90"><strong>Fast Path Optimization:</strong> While 17+ signals are available, stylobot typically uses only 1-2 detectors in the fast path for common requests (response in &lt;1ms). The full pipeline runs only when needed for sophisticated analysis.</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-
-            <!-- CTA Buttons -->
-            <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
-                <a href="https://github.com/scottgal/mostlylucid.nugetpackages/blob/main/Mostlylucid.BotDetection/README.md"
-                   target="_blank"
-                   class="btn btn-primary btn-lg gap-2 px-8 shadow-lg hover:shadow-xl transition-shadow">
-                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                    </svg>
-                    Read the Docs
-                </a>
-                <a href="https://github.com/scottgal/mostlylucid.nugetpackages"
-                   target="_blank"
-                   class="btn btn-outline btn-lg gap-2 px-8">
-                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                    </svg>
-                    View on GitHub
-                </a>
-            </div>
+        <!-- by mostlylucid -->
+        <div class="flex items-center justify-center gap-2">
+            <span class="text-xs text-base-content/40">by</span>
+            <a href="https://www.mostlylucid.net" target="_blank" class="inline-flex items-center hover:opacity-80 transition-opacity">
+                <img src="https://www.mostlylucid.net/img/logo.svg" alt="mostlylucid" class="h-5 w-auto mostlylucid-logo" />
+            </a>
         </div>
     </div>
 </section>
 
-
-<!-- StyloFlow Core Technology Callout -->
-<section class="py-16 bg-gradient-to-br from-purple-500/10 via-base-100 to-cyan-500/10">
-    <div class="max-w-6xl mx-auto px-4">
-        <div class="card bg-base-100/80 backdrop-blur shadow-2xl border-2 border-primary/20">
-            <div class="card-body lg:flex-row items-center gap-8">
-                <div class="flex-1">
-                    <div class="badge badge-primary badge-lg mb-4">Powered by StyloFlow</div>
-                    <h2 class="text-3xl lg:text-4xl font-bold mb-4">
-                        Runs Everywhere. <span class="text-primary">Adapts Automatically.</span>
-                    </h2>
-                    <p class="text-lg text-base-content/70 mb-6">
-                        From a $10 Raspberry Pi to enterprise Kubernetes clusters—same code, seamless scaling. Built on the powerful <a href="https://github.com/scottgal/mostlylucid.atoms" target="_blank" class="link link-primary">StyloFlow workflow engine</a> that dynamically optimizes resource usage, prevents memory leaks, and maintains peak performance under any load.
-                    </p>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-                        <div class="flex items-start gap-3">
-                            <svg class="w-6 h-6 text-primary flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                            </svg>
-                            <div>
-                                <h3 class="font-semibold mb-1">Self-Cleaning Architecture</h3>
-                                <p class="text-sm text-base-content/60">Zero memory leaks, automatic operation cleanup</p>
-                            </div>
-                        </div>
-                        <div class="flex items-start gap-3">
-                            <svg class="w-6 h-6 text-secondary flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                            </svg>
-                            <div>
-                                <h3 class="font-semibold mb-1">Bounded Execution</h3>
-                                <p class="text-sm text-base-content/60">Prevents resource exhaustion automatically</p>
-                            </div>
-                        </div>
-                        <div class="flex items-start gap-3">
-                            <svg class="w-6 h-6 text-accent flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                            <div>
-                                <h3 class="font-semibold mb-1">Real-Time Observability</h3>
-                                <p class="text-sm text-base-content/60">Monitor all operations live, no blind spots</p>
-                            </div>
-                        </div>
-                        <div class="flex items-start gap-3">
-                            <svg class="w-6 h-6 text-success flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                            </svg>
-                            <div>
-                                <h3 class="font-semibold mb-1">Signal Coordination</h3>
-                                <p class="text-sm text-base-content/60">Decoupled event-driven workflows</p>
-                            </div>
-                        </div>
-                    </div>
-                    <a href="https://github.com/scottgal/mostlylucid.atoms"
-                       target="_blank"
-                       class="btn btn-outline btn-primary gap-2">
-                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                        </svg>
-                        View StyloFlow on GitHub
-                    </a>
-                </div>
-                <div class="flex-shrink-0">
-                    <div class="stats stats-vertical shadow-xl border border-primary/20">
-                        <div class="stat bg-base-200">
-                            <div class="stat-figure text-primary">
-                                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-                                </svg>
-                            </div>
-                            <div class="stat-title">Minimum Hardware</div>
-                            <div class="stat-value text-primary text-2xl">Pi Zero</div>
-                            <div class="stat-desc">512MB RAM sufficient</div>
-                        </div>
-                        <div class="stat bg-base-200">
-                            <div class="stat-figure text-secondary">
-                                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
-                                </svg>
-                            </div>
-                            <div class="stat-title">Maximum Scale</div>
-                            <div class="stat-value text-secondary text-2xl">Infinite</div>
-                            <div class="stat-desc">K8s horizontal scaling</div>
-                        </div>
-                        <div class="stat bg-base-200">
-                            <div class="stat-figure text-accent">
-                                <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                </svg>
-                            </div>
-                            <div class="stat-title">Overhead</div>
-                            <div class="stat-value text-accent text-2xl">&lt;1%</div>
-                            <div class="stat-desc">Of total resources</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- Features Section -->
-<section id="features" class="py-20 bg-base-100">
-    <div class="max-w-7xl mx-auto px-4">
-        <div class="text-center mb-16">
-            <h2 class="text-4xl lg:text-5xl font-bold mb-4">
-                Zero-PII <span class="text-primary">Protection</span>
-            </h2>
-            <p class="text-xl text-base-content/70 max-w-2xl mx-auto">
-                Advanced bot detection without collecting personal data. Privacy-first security for the modern web.
-            </p>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <!-- Feature 1 -->
-            <div class="card bg-base-200 hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-                <div class="card-body">
-                    <div class="w-12 h-12 bg-primary/20 rounded-lg flex items-center justify-center mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-primary">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.169.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
-                        </svg>
-                    </div>
-                    <h3 class="card-title text-2xl mb-2">Forensic Analysis</h3>
-                    <p class="text-base-content/70">
-                        Deep behavioral analysis and pattern recognition to identify sophisticated bot attacks in real-time.
-                    </p>
-                </div>
-            </div>
-
-            <!-- Feature 2 -->
-            <div class="card bg-base-200 hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-                <div class="card-body">
-                    <div class="w-12 h-12 bg-secondary/20 rounded-lg flex items-center justify-center mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-secondary">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                        </svg>
-                    </div>
-                    <h3 class="card-title text-2xl mb-2">Zero-PII Approach</h3>
-                    <p class="text-base-content/70">
-                        Protect users without collecting personal information. GDPR-compliant by design, privacy-first always.
-                    </p>
-                </div>
-            </div>
-
-            <!-- Feature 3 -->
-            <div class="card bg-base-200 hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-                <div class="card-body">
-                    <div class="w-12 h-12 bg-accent/20 rounded-lg flex items-center justify-center mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-accent">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-                        </svg>
-                    </div>
-                    <h3 class="card-title text-2xl mb-2">Real-Time Adaptation</h3>
-                    <p class="text-base-content/70">
-                        Machine learning models that adapt to new threats instantly, staying ahead of evolving bot tactics.
-                    </p>
-                </div>
-            </div>
-
-            <!-- Feature 4 -->
-            <div class="card bg-base-200 hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-                <div class="card-body">
-                    <div class="w-12 h-12 bg-primary/20 rounded-lg flex items-center justify-center mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-primary">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-                        </svg>
-                    </div>
-                    <h3 class="card-title text-2xl mb-2">Live Dashboard</h3>
-                    <p class="text-base-content/70">
-                        Monitor threats in real-time with comprehensive analytics and actionable insights at your fingertips.
-                    </p>
-                </div>
-            </div>
-
-            <!-- Feature 5 -->
-            <div class="card bg-base-200 hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-                <div class="card-body">
-                    <div class="w-12 h-12 bg-secondary/20 rounded-lg flex items-center justify-center mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-secondary">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                    </div>
-                    <h3 class="card-title text-2xl mb-2">Live Config Editing</h3>
-                    <p class="text-base-content/70">
-                        Adjust protection rules on-the-fly without downtime. Fine-tune your security posture in real-time.
-                    </p>
-                </div>
-            </div>
-
-            <!-- Feature 6 -->
-            <div class="card bg-base-200 hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
-                <div class="card-body">
-                    <div class="w-12 h-12 bg-accent/20 rounded-lg flex items-center justify-center mb-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-accent">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-                        </svg>
-                    </div>
-                    <h3 class="card-title text-2xl mb-2">Semantic Analysis</h3>
-                    <p class="text-base-content/70">
-                        Advanced NLP and behavior modeling to understand intent, not just patterns. Smarter protection.
-                    </p>
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- Pricing Section -->
-<section id="pricing" class="py-20 bg-base-200">
-    <div class="max-w-7xl mx-auto px-4">
-        <div class="text-center mb-16">
-            <h2 class="text-4xl lg:text-5xl font-bold mb-4">
-                Simple <span class="text-primary">Pricing</span>
-            </h2>
-            <p class="text-xl text-base-content/70">
-                Start free, scale as you grow
-            </p>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-            <!-- Free Tier -->
-            <div class="card bg-base-100 shadow-xl">
-                <div class="card-body">
-                    <h3 class="card-title text-3xl mb-2">Basic</h3>
-                    <div class="mb-6">
-                        <span class="text-5xl font-bold">Free</span>
-                        <span class="text-base-content/60">/forever</span>
-                    </div>
-                    <ul class="space-y-3 mb-8">
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span><strong>Unlimited requests</strong></span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span>Core bot detection (11 detectors)</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span>Heuristics & analytics engine</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span>Continuous learning</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span>Dashboard access</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-info flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <span class="text-base-content/60"><strong>Shadow mode:</strong> View premium signals (not enforced)</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-success flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span>Community support</span>
-                        </li>
-                    </ul>
-                    <a href="#early-access" class="btn btn-outline btn-block">Get Started</a>
-                </div>
-            </div>
-
-            <!-- Enterprise Tier -->
-            <div class="card bg-gradient-to-br from-primary/10 to-secondary/10 shadow-xl border-2 border-primary">
-                <div class="badge badge-primary absolute right-4 top-4">Popular</div>
-                <div class="card-body">
-                    <h3 class="card-title text-3xl mb-2">Enterprise</h3>
-                    <div class="mb-6">
-                        <span class="text-5xl font-bold">Custom</span>
-                    </div>
-                    <ul class="space-y-3 mb-8">
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span class="font-semibold">Everything in Basic, plus:</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span>Unlimited requests</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span><strong>Premium detectors enforced:</strong></span>
-                        </li>
-                        <li class="flex items-start gap-2 pl-8">
-                            <svg class="w-4 h-4 text-primary flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                            </svg>
-                            <span class="text-sm">Advanced heuristic models</span>
-                        </li>
-                        <li class="flex items-start gap-2 pl-8">
-                            <svg class="w-4 h-4 text-primary flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                            </svg>
-                            <span class="text-sm">Cloud LLM detection (Ollama/OpenAI)</span>
-                        </li>
-                        <li class="flex items-start gap-2 pl-8">
-                            <svg class="w-4 h-4 text-primary flex-shrink-0 mt-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                            </svg>
-                            <span class="text-sm">Enhanced fingerprinting</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span>Live config editing</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span>Advanced analytics & forensics</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span>Priority support & SLA</span>
-                        </li>
-                        <li class="flex items-start gap-2">
-                            <svg class="w-6 h-6 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                            </svg>
-                            <span>Custom integration support</span>
-                        </li>
-                    </ul>
-                    <a asp-area="" asp-controller="Home" asp-action="Enterprise" class="btn btn-primary btn-block">Learn More</a>
-                </div>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- Contact / Inquiry CTA -->
-<section id="contact" class="py-20 bg-gradient-to-br from-primary/10 via-base-100 to-secondary/10">
-    <div class="max-w-4xl mx-auto px-4 text-center">
-        <h2 class="text-4xl lg:text-5xl font-bold mb-6">
-            Get in Touch
+<!-- How It Works -->
+<section class="py-10 bg-base-100">
+    <div class="max-w-4xl mx-auto px-4">
+        <h2 class="text-base font-semibold text-base-content mb-4">
+            13+ detectors analyse every request. <span style="color: #5BA3A3;">You get the full picture.</span>
         </h2>
-        <p class="text-xl text-base-content/70 mb-8">
-            Questions about <span style="font-family: 'Raleway', sans-serif; font-style: italic;" class="stylo-text">stylo</span><span style="font-family: 'Raleway', sans-serif;" class="bot-text">bot</span>? Let's talk.
+        <p class="text-sm text-base-content/70 mb-6 max-w-2xl">
+            Heuristics, behavioural analysis, fingerprinting, and optional LLM detection. You get probability scores, confidence levels, risk bands, detector breakdowns, signals, and reasoning. Block, log, challenge, or build custom workflows. All <a href="https://github.com/scottgal/mostlylucid.nugetpackages/tree/main/Mostlylucid.BotDetection" target="_blank" class="link link-primary">open source</a>.
         </p>
 
-        <div class="card bg-base-100 shadow-2xl border-2 border-primary/20 max-w-2xl mx-auto">
-            <div class="card-body p-8">
-                <form action="https://api.web3forms.com/submit" method="POST" class="space-y-6">
-                    <input type="hidden" name="access_key" value="@web3FormsKey">
-                    <input type="hidden" name="subject" value="New stylobot Inquiry">
-                    <input type="hidden" name="redirect" value="https://stylobot.net/?success=true">
-                    <input type="hidden" name="from_name" value="stylobot Homepage Form">
-
-                    <!-- Name Field -->
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text font-semibold">Name <span class="text-error">*</span></span>
-                        </label>
-                        <input type="text"
-                               name="name"
-                               placeholder="Your name"
-                               class="input input-bordered input-lg w-full focus:input-primary"
-                               required />
-                    </div>
-
-                    <!-- Email Field -->
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text font-semibold">Email <span class="text-error">*</span></span>
-                        </label>
-                        <input type="email"
-                               name="email"
-                               placeholder="your@email.com"
-                               class="input input-bordered input-lg w-full focus:input-primary"
-                               required />
-                    </div>
-
-                    <!-- Company Field -->
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text font-semibold">Company</span>
-                            <span class="label-text-alt text-base-content/60">Optional</span>
-                        </label>
-                        <input type="text"
-                               name="company"
-                               placeholder="Your company name"
-                               class="input input-bordered w-full focus:input-primary" />
-                    </div>
-
-                    <!-- Message Field -->
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text font-semibold">Message</span>
-                            <span class="label-text-alt text-base-content/60">Optional</span>
-                        </label>
-                        <textarea name="message"
-                                  placeholder="Tell us what you're interested in..."
-                                  class="textarea textarea-bordered h-32 w-full focus:textarea-primary"></textarea>
-                        <label class="label">
-                            <span class="label-text-alt text-base-content/60">Questions, feedback, or partnership inquiries welcome</span>
-                        </label>
-                    </div>
-
-                    <!-- Honeypot (spam prevention) -->
-                    <input type="checkbox" name="botcheck" class="hidden" style="display: none;">
-
-                    <!-- Submit Button -->
-                    <button type="submit" class="btn btn-primary btn-lg btn-block gap-2 shadow-lg hover:shadow-xl transition-all">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-                        </svg>
-                        Send Message
-                    </button>
-
-                    <p class="text-sm text-center text-base-content/60">
-                        We typically respond within 24 hours
-                    </p>
-                </form>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <div class="p-4 bg-base-200 rounded-lg border border-base-content/10">
+                <div class="text-sm font-semibold mb-1" style="color: #5BA3A3;">Drop-in integration</div>
+                <div class="text-xs text-base-content/60">YARP proxy or ASP.NET Middleware adds bot intelligence as HTTP headers. Or use the JSON API.</div>
+            </div>
+            <div class="p-4 bg-base-200 rounded-lg border border-base-content/10">
+                <div class="text-sm font-semibold mb-1" style="color: #6b7280;">Full transparency</div>
+                <div class="text-xs text-base-content/60">Every request returns scores, confidence, signals, detector breakdowns, and reasoning.</div>
+            </div>
+            <div class="p-4 bg-base-200 rounded-lg border border-base-content/10">
+                <div class="text-sm font-semibold mb-1" style="color: #86B59C;">Zero PII</div>
+                <div class="text-xs text-base-content/60">Nothing stored. No IP addresses, no fingerprints, no cookies. GDPR compliant by design.</div>
             </div>
         </div>
+
+        <!-- Prototypes -->
+        <div class="p-4 bg-base-200 rounded-lg border border-base-content/10 mb-8">
+            <div class="text-sm font-semibold mb-2" style="color: #5BA3A3;">Available now</div>
+            <div class="flex flex-wrap items-center gap-2">
+                <a href="https://www.nuget.org/packages/mostlylucid.botdetection" target="_blank" class="inline-flex">
+                    <img src="https://img.shields.io/nuget/v/mostlylucid.botdetection.svg?label=ASP.NET%20Bot%20Detection" alt="NuGet" />
+                </a>
+                <a href="https://hub.docker.com/r/scottgal/mostlylucid.yarpgateway" target="_blank" class="inline-flex">
+                    <img src="https://img.shields.io/docker/pulls/scottgal/mostlylucid.yarpgateway?label=YARP%20Gateway" alt="Docker" />
+                </a>
+                <a href="https://github.com/scottgal/mostlylucid.nugetpackages/releases/latest" target="_blank" class="inline-flex">
+                    <img src="https://img.shields.io/github/v/release/scottgal/mostlylucid.nugetpackages?label=Tiny%20Gateway" alt="Release" />
+                </a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Example Response -->
+<section class="py-10 bg-base-200">
+    <div class="max-w-4xl mx-auto px-4">
+        <h2 class="text-base font-semibold text-base-content mb-2">What you get back</h2>
+        <p class="text-xs text-base-content/50 mb-4">Real example — human detected with 99.6% confidence</p>
+
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+            <div class="p-3 bg-base-100 rounded border border-base-content/10">
+                <div class="text-xs font-mono text-base-content/40 mb-1">humanProb</div>
+                <div class="text-lg font-bold" style="color: #86B59C;">99.6%</div>
+            </div>
+            <div class="p-3 bg-base-100 rounded border border-base-content/10">
+                <div class="text-xs font-mono text-base-content/40 mb-1">confidence</div>
+                <div class="text-lg font-bold" style="color: #5BA3A3;">90.6%</div>
+            </div>
+            <div class="p-3 bg-base-100 rounded border border-base-content/10">
+                <div class="text-xs font-mono text-base-content/40 mb-1">riskBand</div>
+                <div class="text-lg font-bold" style="color: #86B59C;">VeryLow</div>
+            </div>
+            <div class="p-3 bg-base-100 rounded border border-base-content/10">
+                <div class="text-xs font-mono text-base-content/40 mb-1">action</div>
+                <div class="text-lg font-bold" style="color: #86B59C;">Allow</div>
+            </div>
+            <div class="p-3 bg-base-100 rounded border border-base-content/10">
+                <div class="text-xs font-mono text-base-content/40 mb-1">detectors</div>
+                <div class="text-lg font-bold text-base-content">13</div>
+            </div>
+            <div class="p-3 bg-base-100 rounded border border-base-content/10">
+                <div class="text-xs font-mono text-base-content/40 mb-1">aiRan</div>
+                <div class="text-lg font-bold" style="color: #5BA3A3;">true</div>
+            </div>
+        </div>
+
+        <div class="collapse collapse-arrow bg-base-100 border border-base-content/10 rounded-lg">
+            <input type="checkbox" />
+            <div class="collapse-title text-xs font-medium text-base-content/60">
+                View full breakdown: 17+ detection signals with reasoning
+            </div>
+            <div class="collapse-content">
+                <div class="space-y-2 text-xs">
+                    <div class="flex justify-between items-center py-1 border-b border-base-content/5">
+                        <div><span class="font-semibold">HeuristicEarly</span> <span class="text-base-content/50 ml-2">92% human likelihood</span></div>
+                        <span class="font-mono" style="color: #86B59C;">-84%</span>
+                    </div>
+                    <div class="flex justify-between items-center py-1 border-b border-base-content/5">
+                        <div><span class="font-semibold">UserAgent</span> <span class="text-base-content/50 ml-2">Appears normal</span></div>
+                        <span class="font-mono" style="color: #86B59C;">-20%</span>
+                    </div>
+                    <div class="flex justify-between items-center py-1 border-b border-base-content/5">
+                        <div><span class="font-semibold">Waveform</span> <span class="text-base-content/50 ml-2">Natural timing (CV=0.957)</span></div>
+                        <span class="font-mono" style="color: #86B59C;">-15%</span>
+                    </div>
+                    <div class="flex justify-between items-center py-1 border-b border-base-content/5">
+                        <div><span class="font-semibold">TCP/IP</span> <span class="text-base-content/50 ml-2">Missing Connection header</span></div>
+                        <span class="font-mono" style="color: #DAA564;">+20%</span>
+                    </div>
+                    <div class="text-base-content/40 italic pt-1">...and 13 more signals</div>
+                </div>
+                <div class="mt-3 p-2 rounded text-xs text-base-content/50 border border-base-content/5">
+                    Fast path: &lt;1ms for common requests. Full pipeline runs only when needed.
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Platform -->
+<section class="py-10 bg-base-100">
+    <div class="max-w-4xl mx-auto px-4">
+        <div class="flex flex-col lg:flex-row gap-8 items-start">
+            <div class="flex-1">
+                <div class="text-xs uppercase tracking-wider text-primary mb-2">Powered by StyloFlow</div>
+                <h2 class="text-base font-semibold text-base-content mb-3">
+                    Runs everywhere. Adapts automatically.
+                </h2>
+                <p class="text-sm text-base-content/60 mb-4">
+                    From a $10 Raspberry Pi to Kubernetes clusters. Same code, seamless scaling. Built on <a href="https://github.com/scottgal/mostlylucid.atoms" target="_blank" class="link link-primary">StyloFlow</a>.
+                </p>
+                <div class="grid grid-cols-2 gap-3 mb-4">
+                    <div class="text-sm"><span class="font-semibold">Self-cleaning</span><br><span class="text-xs text-base-content/50">Zero memory leaks</span></div>
+                    <div class="text-sm"><span class="font-semibold">Bounded execution</span><br><span class="text-xs text-base-content/50">No resource exhaustion</span></div>
+                    <div class="text-sm"><span class="font-semibold">Real-time observability</span><br><span class="text-xs text-base-content/50">No blind spots</span></div>
+                    <div class="text-sm"><span class="font-semibold">Signal coordination</span><br><span class="text-xs text-base-content/50">Event-driven workflows</span></div>
+                </div>
+            </div>
+            <div class="flex-shrink-0">
+                <div class="grid grid-cols-3 gap-3 text-center">
+                    <div class="p-3 bg-base-200 rounded-lg">
+                        <div class="text-lg font-bold text-primary">Pi Zero</div>
+                        <div class="text-xs text-base-content/50">Minimum</div>
+                    </div>
+                    <div class="p-3 bg-base-200 rounded-lg">
+                        <div class="text-lg font-bold text-secondary">Infinite</div>
+                        <div class="text-xs text-base-content/50">K8s scale</div>
+                    </div>
+                    <div class="p-3 bg-base-200 rounded-lg">
+                        <div class="text-lg font-bold text-accent">&lt;1%</div>
+                        <div class="text-xs text-base-content/50">Overhead</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Features -->
+<section id="features" class="py-10 bg-base-200">
+    <div class="max-w-4xl mx-auto px-4">
+        <h2 class="text-base font-semibold text-base-content mb-6">Capabilities</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div class="p-4 bg-base-100 rounded-lg">
+                <div class="text-sm font-semibold mb-1">Forensic analysis</div>
+                <div class="text-xs text-base-content/60">Behavioral pattern recognition for sophisticated bot attacks.</div>
+            </div>
+            <div class="p-4 bg-base-100 rounded-lg">
+                <div class="text-sm font-semibold mb-1">Real-time adaptation</div>
+                <div class="text-xs text-base-content/60">ML models that adapt to new threats as they appear.</div>
+            </div>
+            <div class="p-4 bg-base-100 rounded-lg">
+                <div class="text-sm font-semibold mb-1">Live dashboard</div>
+                <div class="text-xs text-base-content/60">Monitor threats with real-time analytics and actionable insights.</div>
+            </div>
+            <div class="p-4 bg-base-100 rounded-lg">
+                <div class="text-sm font-semibold mb-1">Live config editing</div>
+                <div class="text-xs text-base-content/60">Adjust rules on-the-fly without downtime.</div>
+            </div>
+            <div class="p-4 bg-base-100 rounded-lg">
+                <div class="text-sm font-semibold mb-1">Semantic analysis</div>
+                <div class="text-xs text-base-content/60">NLP and behavior modeling to understand intent, not just patterns.</div>
+            </div>
+            <div class="p-4 bg-base-100 rounded-lg">
+                <div class="text-sm font-semibold mb-1">Continuous learning</div>
+                <div class="text-xs text-base-content/60">Gets smarter with every request. No manual retraining.</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Pricing -->
+<section id="pricing" class="py-10 bg-base-100">
+    <div class="max-w-4xl mx-auto px-4">
+        <h2 class="text-base font-semibold text-base-content mb-6">Pricing</h2>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Free -->
+            <div class="p-6 bg-base-200 rounded-lg">
+                <div class="text-sm font-semibold mb-1">Open Source</div>
+                <div class="text-lg font-bold mb-4">Free <span class="text-xs font-normal text-base-content/50">everything included</span></div>
+                <ul class="space-y-2 text-sm text-base-content/70 mb-6">
+                    <li>Unlimited requests</li>
+                    <li>All 13+ detectors</li>
+                    <li>Heuristic engine + continuous learning</li>
+                    <li>LLM escalation (bring your own Ollama)</li>
+                    <li>Live dashboard + real-time analytics</li>
+                    <li>YARP gateway + NuGet package</li>
+                    <li>Community support via GitHub</li>
+                </ul>
+                <a href="https://github.com/scottgal/mostlylucid.nugetpackages/blob/main/Mostlylucid.BotDetection/README.md"
+                   target="_blank"
+                   class="btn btn-primary btn-sm btn-block gap-2">
+                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    Get Started
+                </a>
+            </div>
+
+            <!-- Enterprise -->
+            <div class="p-6 rounded-lg border border-base-content/10 bg-base-200">
+                <div class="flex justify-between items-center mb-1">
+                    <div class="text-sm font-semibold">Enterprise</div>
+                    <div class="badge badge-ghost badge-sm text-base-content/40">Coming soon</div>
+                </div>
+                <div class="text-lg font-bold mb-4 text-base-content/40">On the roadmap</div>
+                <ul class="space-y-2 text-sm text-base-content/40 mb-6">
+                    <li>Managed cloud deployment</li>
+                    <li>Multi-tenant configuration</li>
+                    <li>SSO + team management</li>
+                    <li>SLA + priority support</li>
+                    <li>Custom detector development</li>
+                    <li>Advanced reporting + exports</li>
+                </ul>
+                <a asp-area="" asp-controller="Home" asp-action="Contact" class="btn btn-outline btn-sm btn-block text-base-content/50">Register Interest</a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Contact -->
+<section id="contact" class="py-10 bg-base-200">
+    <div class="max-w-2xl mx-auto px-4">
+        <h2 class="text-base font-semibold text-base-content mb-1">Get in touch</h2>
+        <p class="text-xs text-base-content/50 mb-6">Questions, feedback, or partnership inquiries.</p>
+
+        <form action="https://api.web3forms.com/submit" method="POST" class="space-y-4">
+            <input type="hidden" name="access_key" value="@web3FormsKey">
+            <input type="hidden" name="subject" value="New stylobot Inquiry">
+            <input type="hidden" name="redirect" value="https://stylobot.net/?success=true">
+            <input type="hidden" name="from_name" value="stylobot Homepage Form">
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="form-control">
+                    <label class="label"><span class="label-text text-xs">Name *</span></label>
+                    <input type="text" name="name" placeholder="Your name" class="input input-bordered input-sm w-full" required />
+                </div>
+                <div class="form-control">
+                    <label class="label"><span class="label-text text-xs">Email *</span></label>
+                    <input type="email" name="email" placeholder="you@company.com" class="input input-bordered input-sm w-full" required />
+                </div>
+            </div>
+            <div class="form-control">
+                <label class="label"><span class="label-text text-xs">Company <span class="text-base-content/40">(optional)</span></span></label>
+                <input type="text" name="company" placeholder="Your company" class="input input-bordered input-sm w-full" />
+            </div>
+            <div class="form-control">
+                <label class="label"><span class="label-text text-xs">Message <span class="text-base-content/40">(optional)</span></span></label>
+                <textarea name="message" placeholder="Tell us what you're interested in..." class="textarea textarea-bordered textarea-sm h-24 w-full"></textarea>
+            </div>
+            <input type="checkbox" name="botcheck" class="hidden" style="display: none;">
+            <button type="submit" class="btn btn-primary btn-sm gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                </svg>
+                Send Message
+            </button>
+        </form>
     </div>
 </section>
 
@@ -725,8 +341,6 @@
     .animate-gradient {
         animation: gradient 3s ease infinite;
     }
-
-    /* Invert mostlylucid logo colors on light theme */
     [data-theme="light"] .mostlylucid-logo {
         filter: invert(1);
     }
