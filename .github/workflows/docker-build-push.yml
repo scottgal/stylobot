@@ -35,16 +35,14 @@ jobs:
         with:
           images: ${{ env.DOCKER_IMAGE }}
           tags: |
-            # Tag as 'latest' on main branch pushes
-            type=raw,value=latest,enable={{is_default_branch}}
+            # Always tag as 'latest' on main branch or workflow_dispatch
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') || github.event_name == 'workflow_dispatch' }}
             # Tag with version on tag pushes (e.g., v1.0.0 -> 1.0.0)
             type=semver,pattern={{version}}
             # Tag with major.minor on tag pushes (e.g., v1.0.0 -> 1.0)
             type=semver,pattern={{major}}.{{minor}}
-            # Tag with major version on tag pushes (e.g., v1.0.0 -> 1)
-            type=semver,pattern={{major}}
             # Tag with commit SHA for traceability
-            type=sha,prefix={{branch}}-
+            type=sha,prefix=sha-
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6

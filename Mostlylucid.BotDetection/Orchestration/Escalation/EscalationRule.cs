@@ -8,12 +8,12 @@ public sealed class EscalationRule
 {
     private Func<Dictionary<string, object>, bool>? _compiledCondition;
     private Func<Dictionary<string, object>, string>? _compiledReason;
-    public required string Name { get; init; }
-    public required int Priority { get; init; }
-    public required string Condition { get; init; } // Expression: "risk > 0.8"
-    public required bool ShouldStore { get; init; }
-    public required bool ShouldAlert { get; init; }
-    public required string Reason { get; init; } // Template: "High risk: {risk}"
+    public string Name { get; init; } = string.Empty;
+    public int Priority { get; init; }
+    public string Condition { get; init; } = string.Empty; // Expression: "risk > 0.8"
+    public bool ShouldStore { get; init; }
+    public bool ShouldAlert { get; init; }
+    public string Reason { get; init; } = string.Empty; // Template: "High risk: {risk}"
 
     /// <summary>
     ///     Check if this rule should escalate based on signals.
