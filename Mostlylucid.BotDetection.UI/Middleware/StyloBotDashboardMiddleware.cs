@@ -270,9 +270,6 @@ internal static class DashboardHtmlTemplate
     <!-- Alpine.js -->
     <script defer src=""https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js""></script>
 
-    <!-- HTMX -->
-    <script src=""https://unpkg.com/htmx.org@1.9.10""></script>
-
     <!-- SignalR -->
     <script src=""https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js""></script>
 
@@ -283,76 +280,119 @@ internal static class DashboardHtmlTemplate
     <link href=""https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator_midnight.min.css"" rel=""stylesheet"">
     <script src=""https://unpkg.com/tabulator-tables@6.2.1/dist/js/tabulator.min.js""></script>
 
+    <!-- Google Fonts -->
+    <link rel=""preconnect"" href=""https://fonts.googleapis.com"">
+    <link href=""https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Raleway:wght@800;900&display=swap"" rel=""stylesheet"">
+
     <style>
         body {{ font-family: 'Inter', sans-serif; }}
-        .gradient-header {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        .brand-header {{
+            background: linear-gradient(135deg, #2d3748 0%, #1a202c 50%, #2d3748 100%);
+            border-bottom: 3px solid #5BA3A3;
         }}
         .scrolling-signatures {{
-            max-height: 300px;
+            max-height: 350px;
             overflow-y: auto;
         }}
         .signature-item {{
             animation: slideIn 0.3s ease-out;
         }}
-        @keyframes slideIn {{
+        @@keyframes slideIn {{
             from {{ opacity: 0; transform: translateY(-10px); }}
             to {{ opacity: 1; transform: translateY(0); }}
+        }}
+        @@keyframes pulse-dot {{
+            0%, 100% {{ opacity: 1; }}
+            50% {{ opacity: 0.4; }}
+        }}
+        .live-dot {{
+            width: 8px; height: 8px; border-radius: 50%; background: #5BA3A3;
+            display: inline-block; animation: pulse-dot 2s infinite;
+        }}
+        .risk-veryhigh {{ color: #dc2626; }}
+        .risk-high {{ color: #ef4444; }}
+        .risk-medium {{ color: #DAA564; }}
+        .risk-elevated {{ color: #DAA564; }}
+        .risk-low {{ color: #86B59C; }}
+        .risk-verylow {{ color: #86B59C; }}
+        .bot-pct-bar {{
+            height: 6px; border-radius: 3px; transition: width 0.5s ease;
         }}
     </style>
 </head>
 <body class=""bg-base-100"">
 
-    <div x-data=""dashboardState()"" x-init=""init()"" class=""container mx-auto p-4"">
+    <div x-data=""dashboardState()"" x-init=""init()"" class=""min-h-screen"">
 
         <!-- Header -->
-        <div class=""gradient-header rounded-lg shadow-lg p-6 mb-6"">
-            <h1 class=""text-4xl font-bold text-white"">Stylobot Dashboard</h1>
-            <p class=""text-white/80 mt-2"">Real-time bot detection monitoring</p>
+        <div class=""brand-header p-6 mb-6"">
+            <div class=""container mx-auto flex items-center justify-between"">
+                <div class=""flex items-center gap-4"">
+                    <div>
+                        <h1 class=""text-3xl font-bold text-white"" style=""font-family: 'Raleway', sans-serif;"">
+                            <span style=""color: #6b7280; font-style: italic;"">stylo</span><span>bot</span>
+                        </h1>
+                        <p class=""text-sm text-white/60 mt-1"">Real-time bot detection dashboard</p>
+                    </div>
+                </div>
+                <div class=""flex items-center gap-3"">
+                    <span class=""live-dot""></span>
+                    <span class=""text-sm font-medium"" :class=""signalrConnected ? 'text-green-400' : 'text-red-400'""
+                          x-text=""signalrConnected ? 'Connected' : 'Reconnecting...'""></span>
+                    <a href=""https://github.com/scottgal/stylobot"" target=""_blank"" class=""btn btn-ghost btn-sm text-white/70"">GitHub</a>
+                </div>
+            </div>
         </div>
 
+        <div class=""container mx-auto px-4 pb-8"">
+
         <!-- Summary Cards -->
-        <div class=""grid grid-cols-1 md:grid-cols-4 gap-4 mb-6"">
+        <div class=""grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6"">
             <div class=""stat bg-base-200 rounded-lg shadow"">
                 <div class=""stat-title"">Total Requests</div>
-                <div class=""stat-value"" x-text=""summary.totalRequests"">0</div>
+                <div class=""stat-value text-2xl"" x-text=""summary.totalRequests"">0</div>
             </div>
             <div class=""stat bg-base-200 rounded-lg shadow"">
                 <div class=""stat-title"">Bot Requests</div>
-                <div class=""stat-value text-error"" x-text=""summary.botRequests"">0</div>
-                <div class=""stat-desc"" x-text=""summary.botPercentage.toFixed(1) + '%'"">0%</div>
+                <div class=""stat-value text-2xl text-error"" x-text=""summary.botRequests"">0</div>
+                <div class=""stat-desc"">
+                    <div class=""flex items-center gap-2"">
+                        <div class=""flex-1 bg-base-300 rounded-full"" style=""height:6px"">
+                            <div class=""bot-pct-bar bg-error"" :style=""'width:' + (summary.botPercentage || 0) + '%'""></div>
+                        </div>
+                        <span x-text=""(summary.botPercentage || 0).toFixed(1) + '%'""></span>
+                    </div>
+                </div>
             </div>
             <div class=""stat bg-base-200 rounded-lg shadow"">
                 <div class=""stat-title"">Human Requests</div>
-                <div class=""stat-value text-success"" x-text=""summary.humanRequests"">0</div>
+                <div class=""stat-value text-2xl"" style=""color: #86B59C;"" x-text=""summary.humanRequests"">0</div>
             </div>
             <div class=""stat bg-base-200 rounded-lg shadow"">
                 <div class=""stat-title"">Unique Signatures</div>
-                <div class=""stat-value"" x-text=""summary.uniqueSignatures"">0</div>
+                <div class=""stat-value text-2xl"" style=""color: #5BA3A3;"" x-text=""summary.uniqueSignatures"">0</div>
+            </div>
+            <div class=""stat bg-base-200 rounded-lg shadow"">
+                <div class=""stat-title"">Avg Processing</div>
+                <div class=""stat-value text-2xl"" x-text=""(summary.averageProcessingTimeMs || 0).toFixed(0) + 'ms'"">0ms</div>
             </div>
         </div>
 
         <!-- Controls Bar -->
         <div class=""card bg-base-200 shadow-lg mb-6"">
-            <div class=""card-body"">
-                <h2 class=""card-title"">Filters</h2>
-                <div class=""grid grid-cols-1 md:grid-cols-4 gap-4"">
-
-                    <!-- Time Range -->
+            <div class=""card-body py-3"">
+                <div class=""flex flex-wrap items-end gap-4"">
                     <div class=""form-control"">
-                        <label class=""label""><span class=""label-text"">Time Range</span></label>
-                        <select x-model=""filters.timeRange"" class=""select select-bordered"" @change=""applyFilters()"">
-                            <option value=""5m"">Last 5 minutes</option>
+                        <label class=""label py-0""><span class=""label-text text-xs"">Time Range</span></label>
+                        <select x-model=""filters.timeRange"" class=""select select-bordered select-sm"" @change=""applyFilters()"">
+                            <option value=""5m"">Last 5 min</option>
                             <option value=""1h"">Last hour</option>
-                            <option value=""24h"" selected>Last 24 hours</option>
-                            <option value=""custom"">Custom</option>
+                            <option value=""24h"" selected>Last 24h</option>
                         </select>
                     </div>
-
-                    <!-- Risk Bands -->
                     <div class=""form-control"">
-                        <label class=""label""><span class=""label-text"">Risk Band</span></label>
-                        <select x-model=""filters.riskBand"" class=""select select-bordered"" @change=""applyFilters()"">
+                        <label class=""label py-0""><span class=""label-text text-xs"">Risk Band</span></label>
+                        <select x-model=""filters.riskBand"" class=""select select-bordered select-sm"" @change=""applyFilters()"">
                             <option value="""">All</option>
                             <option value=""VeryLow"">Very Low</option>
                             <option value=""Low"">Low</option>
@@ -361,24 +401,17 @@ internal static class DashboardHtmlTemplate
                             <option value=""VeryHigh"">Very High</option>
                         </select>
                     </div>
-
-                    <!-- Classification -->
                     <div class=""form-control"">
-                        <label class=""label""><span class=""label-text"">Classification</span></label>
-                        <select x-model=""filters.classification"" class=""select select-bordered"" @change=""applyFilters()"">
+                        <label class=""label py-0""><span class=""label-text text-xs"">Classification</span></label>
+                        <select x-model=""filters.classification"" class=""select select-bordered select-sm"" @change=""applyFilters()"">
                             <option value="""">All</option>
                             <option value=""bot"">Bots</option>
                             <option value=""human"">Humans</option>
                         </select>
                     </div>
-
-                    <!-- Export -->
-                    <div class=""form-control"">
-                        <label class=""label""><span class=""label-text"">Export</span></label>
-                        <div class=""btn-group"">
-                            <button @click=""exportData('json')"" class=""btn btn-sm btn-outline"">JSON</button>
-                            <button @click=""exportData('csv')"" class=""btn btn-sm btn-outline"">CSV</button>
-                        </div>
+                    <div class=""ml-auto flex gap-2"">
+                        <button @click=""exportData('json')"" class=""btn btn-sm btn-outline"">Export JSON</button>
+                        <button @click=""exportData('csv')"" class=""btn btn-sm btn-outline"">Export CSV</button>
                     </div>
                 </div>
             </div>
@@ -386,45 +419,73 @@ internal static class DashboardHtmlTemplate
 
         <!-- Charts Row -->
         <div class=""grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6"">
-            <!-- Risk Timeline -->
             <div class=""card bg-base-200 shadow-lg"">
                 <div class=""card-body"">
-                    <h2 class=""card-title"">Detection Timeline</h2>
-                    <div id=""riskTimelineChart"" style=""height: 300px;""></div>
+                    <h2 class=""card-title text-base"">Detection Timeline</h2>
+                    <div id=""riskTimelineChart"" style=""height: 280px;""></div>
                 </div>
             </div>
-
-            <!-- Bot/Human Split -->
             <div class=""card bg-base-200 shadow-lg"">
                 <div class=""card-body"">
-                    <h2 class=""card-title"">Classification Distribution</h2>
-                    <div id=""classificationChart"" style=""height: 300px;""></div>
+                    <h2 class=""card-title text-base"">Classification Distribution</h2>
+                    <div id=""classificationChart"" style=""height: 280px;""></div>
                 </div>
             </div>
         </div>
 
-        <!-- Scrolling Signatures -->
-        <div class=""card bg-base-200 shadow-lg mb-6"">
-            <div class=""card-body"">
-                <h2 class=""card-title"">Live Signatures Feed</h2>
-                <div class=""scrolling-signatures"">
-                    <template x-for=""sig in signatures"" :key=""sig.signatureId"">
-                        <div class=""signature-item alert mb-2""
-                             :class=""{{
-                                'alert-error': sig.riskBand === 'VeryHigh' || sig.riskBand === 'High',
-                                'alert-warning': sig.riskBand === 'Medium',
-                                'alert-info': sig.riskBand === 'Low' || sig.riskBand === 'VeryLow'
-                             }}"">
-                            <div>
-                                <span class=""font-mono text-sm"" x-text=""sig.primarySignature""></span>
-                                <span class=""badge badge-sm"" x-text=""sig.riskBand""></span>
-                                <span class=""text-xs ml-2"" x-text=""'Hits: ' + sig.hitCount""></span>
+        <!-- Signatures + Top Bots Row -->
+        <div class=""grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6"">
+            <!-- Scrolling Signatures (2 cols) -->
+            <div class=""card bg-base-200 shadow-lg lg:col-span-2"">
+                <div class=""card-body"">
+                    <h2 class=""card-title text-base"">
+                        Live Signatures Feed
+                        <span class=""live-dot ml-2""></span>
+                    </h2>
+                    <div class=""scrolling-signatures"">
+                        <template x-for=""sig in signatures"" :key=""sig.signatureId || sig.primarySignature"">
+                            <div class=""signature-item flex items-center gap-3 px-3 py-2 mb-1 rounded-lg bg-base-300/50 hover:bg-base-300 transition-colors"">
+                                <span class=""font-mono text-xs opacity-70"" x-text=""(sig.primarySignature || '').substring(0, 12) + '...'""></span>
+                                <span class=""badge badge-xs""
+                                      :class=""{{
+                                          'badge-error': sig.riskBand === 'VeryHigh' || sig.riskBand === 'High',
+                                          'badge-warning': sig.riskBand === 'Medium',
+                                          'badge-info': sig.riskBand === 'Low',
+                                          'badge-success': sig.riskBand === 'VeryLow'
+                                      }}""
+                                      x-text=""sig.riskBand""></span>
                                 <template x-if=""sig.botName"">
-                                    <span class=""text-xs ml-2"" x-text=""sig.botName""></span>
+                                    <span class=""badge badge-ghost badge-xs"" x-text=""sig.botName""></span>
                                 </template>
+                                <span class=""text-xs opacity-60 ml-auto"" x-text=""'x' + (sig.hitCount || 1)""></span>
+                                <span class=""text-xs font-mono""
+                                      :class=""(sig.botProbability || 0) >= 0.7 ? 'text-error' : (sig.botProbability || 0) >= 0.4 ? 'text-warning' : 'text-success'""
+                                      x-text=""Math.round((sig.botProbability || 0) * 100) + '%'""></span>
                             </div>
-                        </div>
-                    </template>
+                        </template>
+                        <template x-if=""signatures.length === 0"">
+                            <div class=""text-center text-base-content/50 py-8"">Waiting for signatures...</div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top Bots Leaderboard (1 col) -->
+            <div class=""card bg-base-200 shadow-lg"">
+                <div class=""card-body"">
+                    <h2 class=""card-title text-base"">Top Bot Types</h2>
+                    <div class=""space-y-2"">
+                        <template x-for=""(bot, i) in topBots"" :key=""i"">
+                            <div class=""flex items-center gap-2"">
+                                <span class=""text-xs font-bold w-5 text-center opacity-50"" x-text=""i + 1""></span>
+                                <span class=""text-sm flex-1 truncate"" x-text=""bot.name || 'Unknown'""></span>
+                                <span class=""badge badge-sm badge-error"" x-text=""bot.count""></span>
+                            </div>
+                        </template>
+                        <template x-if=""topBots.length === 0"">
+                            <div class=""text-center text-base-content/50 py-4 text-sm"">No bots detected yet</div>
+                        </template>
+                    </div>
                 </div>
             </div>
         </div>
@@ -432,27 +493,31 @@ internal static class DashboardHtmlTemplate
         <!-- Detections Grid -->
         <div class=""card bg-base-200 shadow-lg"">
             <div class=""card-body"">
-                <h2 class=""card-title"">Detections Grid</h2>
+                <h2 class=""card-title text-base"">Detections Grid</h2>
                 <div id=""detectionsTable""></div>
             </div>
         </div>
 
+        </div>
     </div>
 
     <script>
-        // Alpine.js state management
         function dashboardState() {{
             return {{
                 connection: null,
+                signalrConnected: false,
                 summary: {{
                     totalRequests: 0,
                     botRequests: 0,
                     humanRequests: 0,
                     uniqueSignatures: 0,
-                    botPercentage: 0
+                    botPercentage: 0,
+                    averageProcessingTimeMs: 0,
+                    uncertainRequests: 0
                 }},
                 signatures: [],
                 detections: [],
+                topBots: [],
                 filters: {{
                     timeRange: '24h',
                     riskBand: '',
@@ -467,6 +532,10 @@ internal static class DashboardHtmlTemplate
                     this.initCharts();
                     this.initTable();
                     this.loadInitialData();
+                    window.addEventListener('resize', () => {{
+                        this.riskChart?.resize();
+                        this.classificationChart?.resize();
+                    }});
                 }},
 
                 initSignalR() {{
@@ -482,97 +551,142 @@ internal static class DashboardHtmlTemplate
                     }});
 
                     this.connection.on('BroadcastSignature', (signature) => {{
-                        this.signatures.unshift(signature);
+                        const idx = this.signatures.findIndex(s => s.primarySignature === signature.primarySignature);
+                        if (idx >= 0) {{ this.signatures[idx] = signature; }}
+                        else {{ this.signatures.unshift(signature); }}
                         if (this.signatures.length > 50) this.signatures.pop();
                     }});
 
                     this.connection.on('BroadcastSummary', (summary) => {{
-                        this.summary = summary;
+                        this.summary = {{ ...this.summary, ...summary }};
                         this.updateCharts();
                     }});
 
+                    this.connection.onclose(() => {{ this.signalrConnected = false; }});
+                    this.connection.onreconnecting(() => {{ this.signalrConnected = false; }});
+                    this.connection.onreconnected(() => {{ this.signalrConnected = true; }});
+
                     this.connection.start()
-                        .then(() => console.log('SignalR connected'))
+                        .then(() => {{ this.signalrConnected = true; }})
                         .catch(err => console.error('SignalR error:', err));
                 }},
 
                 initCharts() {{
-                    // Risk Timeline Chart
+                    const darkText = '#a0aec0';
                     this.riskChart = echarts.init(document.getElementById('riskTimelineChart'));
                     this.riskChart.setOption({{
                         tooltip: {{ trigger: 'axis' }},
-                        legend: {{ data: ['Bots', 'Humans'] }},
-                        xAxis: {{ type: 'time' }},
-                        yAxis: {{ type: 'value' }},
+                        legend: {{ data: ['Bots', 'Humans'], textStyle: {{ color: darkText }} }},
+                        grid: {{ left: 40, right: 20, top: 40, bottom: 30 }},
+                        xAxis: {{ type: 'time', axisLabel: {{ color: darkText }}, axisLine: {{ lineStyle: {{ color: '#4a5568' }} }} }},
+                        yAxis: {{ type: 'value', axisLabel: {{ color: darkText }}, splitLine: {{ lineStyle: {{ color: '#2d3748' }} }} }},
                         series: [
-                            {{ name: 'Bots', type: 'line', data: [], smooth: true, areaStyle: {{}}, color: '#ef4444' }},
-                            {{ name: 'Humans', type: 'line', data: [], smooth: true, areaStyle: {{}}, color: '#10b981' }}
+                            {{ name: 'Bots', type: 'line', data: [], smooth: true, areaStyle: {{ opacity: 0.15 }}, lineStyle: {{ width: 2 }}, color: '#ef4444' }},
+                            {{ name: 'Humans', type: 'line', data: [], smooth: true, areaStyle: {{ opacity: 0.15 }}, lineStyle: {{ width: 2 }}, color: '#86B59C' }}
                         ]
                     }});
 
-                    // Classification Chart
                     this.classificationChart = echarts.init(document.getElementById('classificationChart'));
                     this.classificationChart.setOption({{
                         tooltip: {{ trigger: 'item' }},
                         series: [{{
                             type: 'pie',
-                            radius: '50%',
+                            radius: ['40%', '65%'],
+                            label: {{ color: darkText }},
                             data: [
                                 {{ value: 0, name: 'Bots', itemStyle: {{ color: '#ef4444' }} }},
-                                {{ value: 0, name: 'Humans', itemStyle: {{ color: '#10b981' }} }},
-                                {{ value: 0, name: 'Uncertain', itemStyle: {{ color: '#f59e0b' }} }}
+                                {{ value: 0, name: 'Humans', itemStyle: {{ color: '#86B59C' }} }},
+                                {{ value: 0, name: 'Uncertain', itemStyle: {{ color: '#DAA564' }} }}
                             ]
                         }}]
                     }});
                 }},
 
                 initTable() {{
+                    const riskColors = {{ VeryHigh: '#dc2626', High: '#ef4444', Medium: '#DAA564', Elevated: '#DAA564', Low: '#86B59C', VeryLow: '#86B59C' }};
                     this.tabulatorTable = new Tabulator('#detectionsTable', {{
                         data: [],
                         layout: 'fitColumns',
                         pagination: true,
-                        paginationSize: 20,
+                        paginationSize: 25,
                         columns: [
-                            {{ title: 'Time', field: 'timestamp', formatter: (cell) => new Date(cell.getValue()).toLocaleTimeString() }},
-                            {{ title: 'Type', field: 'isBot', formatter: (cell) => cell.getValue() ? 'Bot' : 'Human' }},
-                            {{ title: 'Risk', field: 'riskBand' }},
-                            {{ title: 'Method', field: 'method' }},
-                            {{ title: 'Path', field: 'path' }},
-                            {{ title: 'Action', field: 'action' }},
-                            {{ title: 'Probability', field: 'botProbability', formatter: (cell) => (cell.getValue() * 100).toFixed(1) + '%' }}
+                            {{ title: 'Time', field: 'timestamp', width: 100, formatter: (cell) => new Date(cell.getValue()).toLocaleTimeString() }},
+                            {{ title: 'Type', field: 'isBot', width: 80, formatter: (cell) => {{
+                                const isBot = cell.getValue();
+                                return `<span style=""color:${{isBot ? '#ef4444' : '#86B59C'}};font-weight:600"">${{isBot ? 'Bot' : 'Human'}}</span>`;
+                            }} }},
+                            {{ title: 'Risk', field: 'riskBand', width: 90, formatter: (cell) => {{
+                                const v = cell.getValue();
+                                const c = riskColors[v] || '#6b7280';
+                                return `<span style=""color:${{c}};font-weight:500"">${{v}}</span>`;
+                            }} }},
+                            {{ title: 'Method', field: 'method', width: 70 }},
+                            {{ title: 'Path', field: 'path', minWidth: 150 }},
+                            {{ title: 'Action', field: 'action', width: 90 }},
+                            {{ title: 'Prob', field: 'botProbability', width: 70, hozAlign: 'right', formatter: (cell) => (cell.getValue() * 100).toFixed(0) + '%' }},
+                            {{ title: 'Time (ms)', field: 'processingTimeMs', width: 80, hozAlign: 'right', formatter: (cell) => (cell.getValue() || 0).toFixed(0) }}
                         ]
                     }});
                 }},
 
                 async loadInitialData() {{
-                    const summary = await fetch('{options.BasePath}/api/summary').then(r => r.json());
-                    this.summary = summary;
+                    try {{
+                        const [summary, detections, signatures, timeseries] = await Promise.all([
+                            fetch('{options.BasePath}/api/summary').then(r => r.json()),
+                            fetch('{options.BasePath}/api/detections?limit=100').then(r => r.json()),
+                            fetch('{options.BasePath}/api/signatures?limit=50').then(r => r.json()),
+                            fetch('{options.BasePath}/api/timeseries?bucket=60').then(r => r.json()).catch(() => [])
+                        ]);
 
-                    const detections = await fetch('{options.BasePath}/api/detections?limit=100').then(r => r.json());
-                    this.detections = detections;
-                    this.tabulatorTable.setData(detections);
+                        this.summary = {{ ...this.summary, ...summary }};
+                        this.detections = detections;
+                        this.tabulatorTable.setData(detections);
+                        this.signatures = signatures;
+                        this.updateCharts();
+                        this.updateTimeline(timeseries);
+                        this.computeTopBots(detections);
+                    }} catch (e) {{
+                        console.error('Failed to load initial data:', e);
+                    }}
+                }},
 
-                    const signatures = await fetch('{options.BasePath}/api/signatures?limit=50').then(r => r.json());
-                    this.signatures = signatures;
+                updateTimeline(timeseries) {{
+                    if (!timeseries || !timeseries.length) return;
+                    const botData = timeseries.map(t => [new Date(t.timestamp || t.Timestamp), t.botCount || t.BotCount || 0]);
+                    const humanData = timeseries.map(t => [new Date(t.timestamp || t.Timestamp), t.humanCount || t.HumanCount || 0]);
+                    this.riskChart.setOption({{
+                        series: [
+                            {{ data: botData }},
+                            {{ data: humanData }}
+                        ]
+                    }});
+                }},
 
-                    this.updateCharts();
+                computeTopBots(detections) {{
+                    const counts = {{}};
+                    detections.filter(d => d.isBot).forEach(d => {{
+                        const name = d.botName || d.botType || 'Unknown';
+                        counts[name] = (counts[name] || 0) + 1;
+                    }});
+                    this.topBots = Object.entries(counts)
+                        .map(([name, count]) => ({{ name, count }}))
+                        .sort((a, b) => b.count - a.count)
+                        .slice(0, 8);
                 }},
 
                 updateCharts() {{
-                    // Update pie chart
                     this.classificationChart.setOption({{
                         series: [{{
                             data: [
                                 {{ value: this.summary.botRequests, name: 'Bots' }},
                                 {{ value: this.summary.humanRequests, name: 'Humans' }},
-                                {{ value: this.summary.uncertainRequests, name: 'Uncertain' }}
+                                {{ value: this.summary.uncertainRequests || 0, name: 'Uncertain' }}
                             ]
                         }}]
                     }});
                 }},
 
                 applyFilters() {{
-                    // Reload detections with filters
                     let url = '{options.BasePath}/api/detections?limit=100';
                     if (this.filters.riskBand) url += `&riskBands=${{this.filters.riskBand}}`;
                     if (this.filters.classification === 'bot') url += '&isBot=true';
@@ -581,6 +695,7 @@ internal static class DashboardHtmlTemplate
                     fetch(url).then(r => r.json()).then(data => {{
                         this.detections = data;
                         this.tabulatorTable.setData(data);
+                        this.computeTopBots(data);
                     }});
                 }},
 
