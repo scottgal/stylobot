@@ -1,13 +1,13 @@
-# YARP Gateway
+# Stylobot Gateway
 
 A lightweight, Docker-first YARP reverse proxy gateway - the companion project to Mostlylucid.BotDetection.
 
-> **Full Documentation**: See the [Mostlylucid.YarpGateway README](../../Mostlylucid.YarpGateway/README.md) for complete
+> **Full Documentation**: See the [Stylobot.Gateway README](../../Stylobot.Gateway/README.md) for complete
 > documentation.
 
 ## Overview
 
-Mostlylucid.YarpGateway is a standalone Docker image that provides:
+Stylobot.Gateway is a standalone Docker image that provides:
 
 - Zero-config reverse proxy (just set `DEFAULT_UPSTREAM`)
 - YARP-based routing with hot-reload configuration
@@ -19,20 +19,20 @@ Mostlylucid.YarpGateway is a standalone Docker image that provides:
 
 ```bash
 # Zero-config mode
-docker run -p 8080:8080 -e DEFAULT_UPSTREAM=http://your-backend:3000 scottgal/mostlylucid.yarpgateway
+docker run -p 8080:8080 -e DEFAULT_UPSTREAM=http://your-backend:3000 scottgal/stylobot-gateway
 
 # With file configuration
-docker run -p 8080:8080 -v ./config:/app/config:ro scottgal/mostlylucid.yarpgateway
+docker run -p 8080:8080 -v ./config:/app/config:ro scottgal/stylobot-gateway
 ```
 
 ## Using with BotDetection
 
-The YarpGateway pairs naturally with Mostlylucid.BotDetection for edge protection:
+The Stylobot Gateway pairs naturally with Mostlylucid.BotDetection for edge protection:
 
 ### Architecture
 
 ```
-Internet → YarpGateway → Your App (with BotDetection)
+Internet → Stylobot Gateway → Your App (with BotDetection)
               ↓
         Load balancing
         Health checks
@@ -41,7 +41,7 @@ Internet → YarpGateway → Your App (with BotDetection)
 
 ### Deployment Pattern
 
-1. **YarpGateway** handles:
+1. **Stylobot Gateway** handles:
     - Edge routing and load balancing
     - TLS termination
     - Request forwarding
@@ -58,7 +58,7 @@ Internet → YarpGateway → Your App (with BotDetection)
 ```yaml
 services:
   gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
+    image: scottgal/stylobot-gateway:latest
     ports:
       - "80:8080"
     environment:
@@ -101,7 +101,7 @@ With `yarp.json`:
 
 ## Raspberry Pi Deployment
 
-YarpGateway is optimized for Raspberry Pi as a home network gateway:
+Stylobot Gateway is optimized for Raspberry Pi as a home network gateway:
 
 ```bash
 # On Raspberry Pi (64-bit OS recommended)
@@ -109,10 +109,10 @@ docker run -d --name gateway \
   -p 80:8080 \
   --restart unless-stopped \
   -e DEFAULT_UPSTREAM=http://192.168.1.100:3000 \
-  scottgal/mostlylucid.yarpgateway
+  scottgal/stylobot-gateway
 ```
 
-See the [full Pi documentation](../../Mostlylucid.YarpGateway/README.md#raspberry-pi-deployment) for:
+See the [full Pi documentation](../../Stylobot.Gateway/README.md#raspberry-pi-deployment) for:
 
 - Memory-optimized settings
 - Performance tips
@@ -138,18 +138,18 @@ For complete configuration options including:
 - Database setup (Postgres, SQL Server)
 - Admin API endpoints
 
-**See: [Full Configuration Documentation](../../Mostlylucid.YarpGateway/README.md#configuration)**
+**See: [Full Configuration Documentation](../../Stylobot.Gateway/README.md#configuration)**
 
 ## Available Tags
 
 The Docker image is published with multiple tags:
 
-- `scottgal/mostlylucid.yarpgateway:latest` - Latest release
-- `scottgal/mostlylucid.yarpgateway:X.Y.Z[-previewN]` - Specific version (e.g., `1.0.0-preview1`)
-- `scottgal/mostlylucid.yarpgateway:YYYYMMDD` - Date-based (e.g., `20231203`)
+- `scottgal/stylobot-gateway:latest` - Latest release
+- `scottgal/stylobot-gateway:X.Y.Z[-previewN]` - Specific version (e.g., `1.0.0-preview1`)
+- `scottgal/stylobot-gateway:YYYYMMDD` - Date-based (e.g., `20231203`)
 
 ## Links
 
-- [Docker Hub](https://hub.docker.com/r/scottgal/mostlylucid.yarpgateway)
-- [Full Documentation](../../Mostlylucid.YarpGateway/README.md)
-- [Source Code](../../Mostlylucid.YarpGateway/)
+- [Docker Hub](https://hub.docker.com/r/scottgal/stylobot-gateway)
+- [Full Documentation](../../Stylobot.Gateway/README.md)
+- [Source Code](../../Stylobot.Gateway/)

@@ -53,6 +53,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "solution", "solution", "{5F
 		.github\workflows\publish-console-gateway.yml = .github\workflows\publish-console-gateway.yml
 		.github\workflows\publish-geodetection.yml = .github\workflows\publish-geodetection.yml
 		.github\workflows\publish-stylobot-demo.yml = .github\workflows\publish-stylobot-demo.yml
+		.github\workflows\publish-all.yml = .github\workflows\publish-all.yml
 		.github\workflows\publish-gateway.yml = .github\workflows\publish-gateway.yml
 		.github\workflows\README_RELEASES.md = .github\workflows\README_RELEASES.md
 		README.md = README.md

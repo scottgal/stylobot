@@ -6,7 +6,7 @@
 
 ApiHolodeck isn’t a new mock engine – it’s a **gateway-level policy** that:
 
-* Lives inside **Mostlylucid.YarpGateway**
+* Lives inside **Stylobot.Gateway**
 * Uses **Mostlylucid.BotDetection** to decide “who gets holodecked”
 * Uses **mostlylucid.mockllmapi** as the **simulation backend**
 * Keys its “fake universe” by **fingerprint / context**
@@ -241,5 +241,5 @@ Practically, in vFuture:
 
 If you want, next step I can draft:
 
-* A **small “Future Features” section** you can drop into the YarpGateway README (“Holodeck Routing (planned)”).
+* A **small “Future Features” section** you can drop into the Stylobot Gateway README (“Holodeck Routing (planned)”).
 * Or a **concrete example BotDetection config** snippet that assumes `mockllmapi` is running in the same compose.

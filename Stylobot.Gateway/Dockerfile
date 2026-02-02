@@ -12,7 +12,7 @@ RUN dotnet restore Stylobot.Gateway/Stylobot.Gateway.csproj
 # Copy source and publish with optimizations
 COPY Stylobot.Gateway/ Stylobot.Gateway/
 COPY Mostlylucid.BotDetection/ Mostlylucid.BotDetection/
-RUN dotnet publish Stylobot.Gateway/Stylobot.Gateway.csproj -c Release -o /app --no-restore \
+RUN dotnet publish Stylobot.Gateway/Stylobot.Gateway.csproj -c Release -o /app \
     /p:DebugType=none \
     /p:DebugSymbols=false
 

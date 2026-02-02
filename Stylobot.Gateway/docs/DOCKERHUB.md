@@ -1,4 +1,4 @@
-# Mostlylucid.YarpGateway
+# Stylobot.Gateway
 
 **Not just another reverse proxy.** This is a **behavioral router** with production-ready bot detection built-in.
 
@@ -95,7 +95,7 @@ Request
 ```bash
 docker run -d -p 8080:8080 \
   -e DEFAULT_UPSTREAM=http://your-backend:3000 \
-  scottgal/mostlylucid.yarpgateway
+  scottgal/stylobot-gateway
 ```
 
 ### With Configuration
@@ -103,7 +103,7 @@ docker run -d -p 8080:8080 \
 ```bash
 docker run -d -p 8080:8080 \
   -v ./config:/app/config:ro \
-  scottgal/mostlylucid.yarpgateway
+  scottgal/stylobot-gateway
 ```
 
 ### Configuration Precedence
@@ -301,7 +301,7 @@ For complex cases, escalate to an LLM for full reasoning:
 ```yaml
 services:
   gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
+    image: scottgal/stylobot-gateway:latest
     environment:
       - BOTDETECTION__AIDETECTION__LLMESCALATION__OLLAMAURL=http://ollama:11434
     depends_on:
@@ -336,7 +336,7 @@ Add IP reputation checking (free API key from [projecthoneypot.org](https://www.
 ```yaml
 services:
   gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
+    image: scottgal/stylobot-gateway:latest
     ports:
       - "80:8080"
     volumes:
@@ -434,7 +434,7 @@ docker run -d --name gateway \
   -p 80:8080 \
   --restart unless-stopped \
   -e DEFAULT_UPSTREAM=http://192.168.1.100:3000 \
-  scottgal/mostlylucid.yarpgateway
+  scottgal/stylobot-gateway
 ```
 
 ### Pi-Optimized Settings
@@ -442,7 +442,7 @@ docker run -d --name gateway \
 ```yaml
 services:
   gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
+    image: scottgal/stylobot-gateway:latest
     ports:
       - "80:8080"
     environment:

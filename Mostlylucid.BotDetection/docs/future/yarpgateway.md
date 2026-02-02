@@ -2,7 +2,7 @@
 
 ---
 
-## Mostlylucid.YarpGateway v0.1 – Functional Specification
+## Stylobot.Gateway v0.1 – Functional Specification
 
 ### 1. Purpose
 

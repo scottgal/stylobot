@@ -831,7 +831,7 @@ Mostlylucid.BotDetection/
 │       ├── OfflineModeOptions.cs
 │       └── LearningModeOptions.cs
 
-Mostlylucid.YarpGateway/
+Stylobot.Gateway/
 ├── Training/
 │   ├── YarpLearningMode.cs
 │   └── README_LEARNING_MODE.md

@@ -1,0 +1,431 @@
+name: Publish All
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0)'
+        required: true
+      components:
+        description: 'Components to publish'
+        required: true
+        type: choice
+        options:
+          - all
+          - nuget-only
+          - docker-only
+          - console-only
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  actions: write
+
+jobs:
+  # Publish BotDetection NuGet package
+  publish-botdetection:
+    if: inputs.components == 'all' || inputs.components == 'nuget-only'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Create MinVer tag
+      run: git tag "botdetection-v${{ inputs.version }}"
+
+    - name: Restore dependencies
+      run: |
+        dotnet restore Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
+        dotnet restore Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj
+        dotnet restore Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj
+
+    - name: Build
+      run: dotnet build Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj --configuration Release --no-restore
+
+    - name: Run unit tests
+      run: |
+        dotnet test Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj \
+          --configuration Release --verbosity normal --filter "Category!=Integration"
+        dotnet test Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj \
+          --configuration Release --verbosity normal --filter "Category!=Integration"
+
+    - name: Pack
+      run: dotnet pack Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj --configuration Release --no-build --output ./artifacts
+
+    - name: Login to NuGet (OIDC)
+      id: nuget_login
+      uses: NuGet/login@v1
+      with:
+        user: 'mostlylucid'
+
+    - name: Publish to NuGet
+      run: |
+        dotnet nuget push ./artifacts/*.nupkg \
+          --api-key ${{ steps.nuget_login.outputs.NUGET_API_KEY }} \
+          --source https://api.nuget.org/v3/index.json \
+          --skip-duplicate
+
+  # Publish Common NuGet package
+  publish-common:
+    if: inputs.components == 'all' || inputs.components == 'nuget-only'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Restore, Build, Pack
+      run: |
+        dotnet restore Mostlylucid.Common/Mostlylucid.Common.csproj
+        dotnet build Mostlylucid.Common/Mostlylucid.Common.csproj --configuration Release --no-restore
+        dotnet pack Mostlylucid.Common/Mostlylucid.Common.csproj --configuration Release --no-build --output ./artifacts
+
+    - name: Login to NuGet (OIDC)
+      id: nuget_login
+      uses: NuGet/login@v1
+      with:
+        user: 'mostlylucid'
+
+    - name: Publish to NuGet
+      run: |
+        dotnet nuget push ./artifacts/*.nupkg \
+          --api-key ${{ steps.nuget_login.outputs.NUGET_API_KEY }} \
+          --source https://api.nuget.org/v3/index.json \
+          --skip-duplicate
+
+  # Publish GeoDetection NuGet package
+  publish-geodetection:
+    if: inputs.components == 'all' || inputs.components == 'nuget-only'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Restore, Build, Test, Pack
+      run: |
+        dotnet restore Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj
+        dotnet build Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj --configuration Release --no-restore
+        dotnet test Mostlylucid.GeoDetection.Test/Mostlylucid.GeoDetection.Test.csproj --configuration Release --verbosity normal
+        dotnet pack Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj --configuration Release --no-build --output ./artifacts
+
+    - name: Login to NuGet (OIDC)
+      id: nuget_login
+      uses: NuGet/login@v1
+      with:
+        user: 'mostlylucid'
+
+    - name: Publish to NuGet
+      run: |
+        dotnet nuget push ./artifacts/*.nupkg \
+          --api-key ${{ steps.nuget_login.outputs.NUGET_API_KEY }} \
+          --source https://api.nuget.org/v3/index.json \
+          --skip-duplicate
+
+  # Publish Stylobot.Gateway Docker image
+  publish-gateway:
+    if: inputs.components == 'all' || inputs.components == 'docker-only'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Build and test
+      run: |
+        dotnet restore Stylobot.Gateway/Stylobot.Gateway.csproj
+        dotnet restore Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj
+        dotnet build Stylobot.Gateway/Stylobot.Gateway.csproj --configuration Release --no-restore
+        dotnet build Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-restore
+        dotnet test Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-build --verbosity normal
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Build and push
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Stylobot.Gateway/Dockerfile
+        push: true
+        tags: |
+          scottgal/stylobot-gateway:${{ inputs.version }}
+          scottgal/stylobot-gateway:latest
+        platforms: linux/amd64,linux/arm64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # Publish Stylobot Demo Docker image
+  publish-demo:
+    if: inputs.components == 'all' || inputs.components == 'docker-only'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Build and push
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./Mostlylucid.BotDetection.Demo/Dockerfile
+        push: true
+        tags: |
+          scottgal/stylobot-demo:${{ inputs.version }}
+          scottgal/stylobot-demo:latest
+        platforms: linux/amd64,linux/arm64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          BUILD_VERSION=${{ inputs.version }}
+
+  # Publish Stylobot Website Docker image
+  publish-website:
+    if: inputs.components == 'all' || inputs.components == 'docker-only'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_HUB_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+    - name: Build and push
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: ./mostlylucid.stylobot.website/Dockerfile
+        push: true
+        tags: |
+          scottgal/stylobot-site:${{ inputs.version }}
+          scottgal/stylobot-site:latest
+        platforms: linux/amd64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  # Publish Console Gateway cross-platform binaries
+  publish-console:
+    if: inputs.components == 'all' || inputs.components == 'console-only'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            runtime: linux-x64
+            artifact-name: minigw-linux-x64
+            file-ext: ''
+          - os: ubuntu-latest
+            runtime: linux-arm64
+            artifact-name: minigw-linux-arm64
+            file-ext: ''
+          - os: windows-latest
+            runtime: win-x64
+            artifact-name: minigw-win-x64
+            file-ext: '.exe'
+          - os: windows-latest
+            runtime: win-arm64
+            artifact-name: minigw-win-arm64
+            file-ext: '.exe'
+          - os: macos-latest
+            runtime: osx-x64
+            artifact-name: minigw-osx-x64
+            file-ext: ''
+          - os: macos-latest
+            runtime: osx-arm64
+            artifact-name: minigw-osx-arm64
+            file-ext: ''
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Install ARM64 cross-compilation tools
+      if: matrix.runtime == 'linux-arm64'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y clang zlib1g-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+    - name: Restore dependencies
+      run: dotnet restore Mostlylucid.BotDetection.Console/Mostlylucid.BotDetection.Console.csproj
+
+    - name: Publish binary
+      shell: bash
+      run: |
+        if [ "${{ matrix.runtime }}" = "linux-arm64" ]; then
+          OBJCOPY_PARAM="-p:ObjCopyName=aarch64-linux-gnu-objcopy"
+        else
+          OBJCOPY_PARAM=""
+        fi
+
+        dotnet publish Mostlylucid.BotDetection.Console/Mostlylucid.BotDetection.Console.csproj \
+          --configuration Release \
+          --runtime ${{ matrix.runtime }} \
+          --self-contained true \
+          --output ./publish/${{ matrix.runtime }} \
+          -p:PublishAot=true \
+          -p:PublishTrimmed=true \
+          -p:TrimMode=full \
+          -p:PublishSingleFile=true \
+          -p:StripSymbols=true \
+          -p:Version=${{ inputs.version }} \
+          $OBJCOPY_PARAM
+
+    - name: Create distribution package
+      shell: bash
+      run: |
+        mkdir -p ./dist
+        cd ./publish/${{ matrix.runtime }}
+        cp minigw${{ matrix.file-ext }} ../../dist/
+        cp *.dll ../../dist/ 2>/dev/null || true
+        cp *.so ../../dist/ 2>/dev/null || true
+        cp *.dylib ../../dist/ 2>/dev/null || true
+        cp ../../Mostlylucid.BotDetection.Console/appsettings.json ../../dist/ || true
+        cp ../../Mostlylucid.BotDetection.Console/appsettings.production.json ../../dist/ || true
+        if [ -d "../../Mostlylucid.BotDetection.Console/wwwroot" ]; then
+          mkdir -p ../../dist/wwwroot
+          cp -r ../../Mostlylucid.BotDetection.Console/wwwroot/* ../../dist/wwwroot/ || true
+        fi
+        cd ../../dist
+        if [ "${{ runner.os }}" = "Windows" ]; then
+          7z a -tzip ../${{ matrix.artifact-name }}.zip *
+        else
+          tar czf ../${{ matrix.artifact-name }}.tar.gz *
+        fi
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact-name }}
+        path: |
+          ${{ matrix.artifact-name }}.zip
+          ${{ matrix.artifact-name }}.tar.gz
+        retention-days: 7
+        if-no-files-found: ignore
+
+  # Create GitHub Release for console gateway
+  create-console-release:
+    if: inputs.components == 'all' || inputs.components == 'console-only'
+    needs: publish-console
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets
+        find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release-assets/ \;
+        ls -lh release-assets/
+
+    - name: Generate checksums
+      working-directory: release-assets
+      run: |
+        sha256sum * > SHA256SUMS.txt
+        cat SHA256SUMS.txt
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        name: Console Gateway v${{ inputs.version }}
+        tag_name: console-v${{ inputs.version }}
+        body: |
+          ## Bot Detection Console Gateway v${{ inputs.version }}
+
+          Published via Publish All workflow.
+
+          ### Downloads
+
+          - **Linux x64**: `minigw-linux-x64.tar.gz`
+          - **Linux ARM64**: `minigw-linux-arm64.tar.gz`
+          - **Windows x64**: `minigw-win-x64.zip`
+          - **Windows ARM64**: `minigw-win-arm64.zip`
+          - **macOS Intel**: `minigw-osx-x64.tar.gz`
+          - **macOS Apple Silicon**: `minigw-osx-arm64.tar.gz`
+        draft: false
+        prerelease: false
+        files: |
+          release-assets/*
+        fail_on_unmatched_files: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Summary
+  summary:
+    if: always()
+    needs: [publish-botdetection, publish-common, publish-geodetection, publish-gateway, publish-demo, publish-website, publish-console, create-console-release]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Create summary
+      run: |
+        echo "## Publish All - v${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| BotDetection NuGet | ${{ needs.publish-botdetection.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Common NuGet | ${{ needs.publish-common.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| GeoDetection NuGet | ${{ needs.publish-geodetection.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Gateway Docker | ${{ needs.publish-gateway.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Demo Docker | ${{ needs.publish-demo.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Website Docker | ${{ needs.publish-website.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Console Binaries | ${{ needs.publish-console.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Console Release | ${{ needs.create-console-release.result }} |" >> $GITHUB_STEP_SUMMARY

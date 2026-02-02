@@ -317,18 +317,18 @@ For advanced similarity-based detection, embeddings support named vectors:
 | **Client-Side Fingerprinting** | Headless browser detection                | [client-side-fingerprinting.md](docs/client-side-fingerprinting.md) |
 | **YARP Integration**           | Bot-aware reverse proxy                   | [yarp-integration.md](docs/yarp-integration.md)                     |
 | **Telemetry**                  | OpenTelemetry traces and metrics          | [telemetry-and-metrics.md](docs/telemetry-and-metrics.md)           |
-| **YARP Gateway**               | Companion Docker gateway                  | [yarp-gateway.md](docs/yarp-gateway.md)                             |
+| **Stylobot Gateway**           | Companion Docker gateway                  | [yarp-gateway.md](docs/yarp-gateway.md)                             |
 
-## Companion Project: YARP Gateway
+## Companion Project: Stylobot Gateway
 
-For edge deployments, use **[Mostlylucid.YarpGateway](../Mostlylucid.YarpGateway/)** - a lightweight Docker-first
+For edge deployments, use **[Stylobot.Gateway](../Stylobot.Gateway/)** - a lightweight Docker-first
 reverse proxy:
 
-[![Docker Hub](https://img.shields.io/docker/pulls/scottgal/mostlylucid.yarpgateway?label=Docker%20Hub)](https://hub.docker.com/r/scottgal/mostlylucid.yarpgateway)
+[![Docker Hub](https://img.shields.io/docker/pulls/scottgal/stylobot-gateway?label=Docker%20Hub)](https://hub.docker.com/r/scottgal/stylobot-gateway)
 
 ```bash
 # Zero-config reverse proxy in seconds
-docker run -p 80:8080 -e DEFAULT_UPSTREAM=http://your-app:3000 scottgal/mostlylucid.yarpgateway
+docker run -p 80:8080 -e DEFAULT_UPSTREAM=http://your-app:3000 scottgal/stylobot-gateway
 ```
 
 **Why use it with BotDetection?**

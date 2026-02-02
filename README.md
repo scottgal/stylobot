@@ -49,7 +49,7 @@ Result -> Action Policy -> Learning Bus -> Weight/Pattern Updates
 | [`Mostlylucid.BotDetection.UI.PostgreSQL`](Mostlylucid.BotDetection.UI.PostgreSQL/) | PostgreSQL + TimescaleDB + pgvector storage |
 | [`Mostlylucid.BotDetection.Demo`](Mostlylucid.BotDetection.Demo/) | Interactive demo with all 21 detectors |
 | [`Mostlylucid.BotDetection.Console`](Mostlylucid.BotDetection.Console/) | Standalone gateway/proxy console |
-| [`Mostlylucid.YarpGateway`](Mostlylucid.YarpGateway/) | Docker-first YARP reverse proxy |
+| [`Stylobot.Gateway`](Stylobot.Gateway/) | Docker-first YARP reverse proxy |
 | [`Mostlylucid.GeoDetection`](Mostlylucid.GeoDetection/) | Geographic routing (MaxMind, ip-api) |
 | [`Mostlylucid.GeoDetection.Contributor`](Mostlylucid.GeoDetection.Contributor/) | Geo enrichment for bot detection |
 | [`Mostlylucid.Common`](Mostlylucid.Common/) | Shared utilities (caching, telemetry) |

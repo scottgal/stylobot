@@ -3,12 +3,12 @@ by ***mostly*lucid**
 
 A lightweight, Docker-first YARP reverse proxy gateway with built-in bot detection.
 
-[![Docker Hub](https://img.shields.io/docker/pulls/scottgal/mostlylucid.yarpgateway?label=Docker%20Hub)](https://hub.docker.com/r/scottgal/mostlylucid.yarpgateway)
+[![Docker Hub](https://img.shields.io/docker/pulls/scottgal/stylobot-gateway?label=Docker%20Hub)](https://hub.docker.com/r/scottgal/stylobot-gateway)
 
 ## Quick Start (30 Seconds)
 
 ```bash
-docker run -p 8080:8080 -e DEFAULT_UPSTREAM=http://your-backend:3000 scottgal/mostlylucid.yarpgateway
+docker run -p 8080:8080 -e DEFAULT_UPSTREAM=http://your-backend:3000 scottgal/stylobot-gateway
 ```
 
 That's it. Every request is now analyzed for bots. Check the logs:
@@ -33,7 +33,7 @@ One environment variable, zero config files. Bot detection runs in-memory with n
 # docker-compose.yml
 services:
   gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
+    image: scottgal/stylobot-gateway:latest
     ports:
       - "80:8080"
     environment:
@@ -70,7 +70,7 @@ Add config files for custom routing, action policies, and admin protection. Lear
 # docker-compose.yml
 services:
   gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
+    image: scottgal/stylobot-gateway:latest
     ports:
       - "80:8080"
     environment:
@@ -153,7 +153,7 @@ PostgreSQL stores learned weights, patterns, and reputation data. Enables all 21
 # docker-compose.yml
 services:
   gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
+    image: scottgal/stylobot-gateway:latest
     ports:
       - "80:8080"
     environment:
@@ -693,7 +693,7 @@ Protect sensitive endpoints more aggressively:
 Just set `DEFAULT_UPSTREAM`:
 
 ```bash
-docker run -p 8080:8080 -e DEFAULT_UPSTREAM=http://backend:3000 scottgal/mostlylucid.yarpgateway
+docker run -p 8080:8080 -e DEFAULT_UPSTREAM=http://backend:3000 scottgal/stylobot-gateway
 ```
 
 ### File-Based (Multiple Backends)
@@ -875,7 +875,7 @@ Add IP reputation checking (free API key from [projecthoneypot.org](https://www.
 ```bash
 docker run -e DEFAULT_UPSTREAM=http://backend:3000 \
            -e BOTDETECTION__PROJECTHONEYPOT__ACCESSKEY=your-key \
-           scottgal/mostlylucid.yarpgateway
+           scottgal/stylobot-gateway
 ```
 
 </details>
@@ -906,7 +906,7 @@ Docker compose with Ollama:
 ```yaml
 services:
   gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
+    image: scottgal/stylobot-gateway:latest
     environment:
       - DEFAULT_UPSTREAM=http://backend:3000
       - BOTDETECTION__AIDETECTION__LLMESCALATION__OLLAMAURL=http://ollama:11434
@@ -956,7 +956,7 @@ Requests with valid client-side probes receive up to -0.3 risk reduction.
 ```bash
 docker run -e DEFAULT_UPSTREAM=http://backend:3000 \
            -e BOTDETECTION__LOGALLREQUESTS=false \
-           scottgal/mostlylucid.yarpgateway
+           scottgal/stylobot-gateway
 ```
 
 </details>
@@ -992,9 +992,9 @@ docker run -e DEFAULT_UPSTREAM=http://backend:3000 \
 
 ### Tags
 
-- `scottgal/mostlylucid.yarpgateway:latest`
-- `scottgal/mostlylucid.yarpgateway:X.Y.Z[-previewN]`
-- `scottgal/mostlylucid.yarpgateway:YYYYMMDD`
+- `scottgal/stylobot-gateway:latest`
+- `scottgal/stylobot-gateway:X.Y.Z[-previewN]`
+- `scottgal/stylobot-gateway:YYYYMMDD`
 
 ---
 
@@ -1011,7 +1011,7 @@ docker run -d --name gateway \
   --restart unless-stopped \
   -e DEFAULT_UPSTREAM=http://192.168.1.100:3000 \
   -e LOG_LEVEL=Warning \
-  scottgal/mostlylucid.yarpgateway
+  scottgal/stylobot-gateway
 ```
 
 <details>
@@ -1020,7 +1020,7 @@ docker run -d --name gateway \
 ```yaml
 services:
   gateway:
-    image: scottgal/mostlylucid.yarpgateway:latest
+    image: scottgal/stylobot-gateway:latest
     ports:
       - "80:8080"
     environment:
@@ -1075,7 +1075,7 @@ Tips:
 
 ```bash
 # Docker image
-docker build -t scottgal/mostlylucid.yarpgateway .
+docker build -t scottgal/stylobot-gateway .
 
 # .NET SDK
 dotnet publish -c Release
@@ -1085,8 +1085,8 @@ dotnet publish -c Release
 
 ```bash
 # Tag and push
-git tag yarpgateway-v1.0.0
-git push origin yarpgateway-v1.0.0
+git tag gateway-v1.0.0
+git push origin gateway-v1.0.0
 # GitHub Actions builds multi-arch images and pushes to Docker Hub
 ```
 

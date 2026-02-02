@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-This feature adds **inference-based phishing detection** to the Mostlylucid.YarpGateway stack by:
+This feature adds **inference-based phishing detection** to the Stylobot.Gateway stack by:
 
 * Capturing signals from:
 

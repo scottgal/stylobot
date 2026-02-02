@@ -6,6 +6,7 @@ on:
       - main
     tags:
       - 'v*'
+      - 'allbot-v*.*.*'
   workflow_dispatch:
 
 env:

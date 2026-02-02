@@ -19,7 +19,7 @@ services:
 
   # YARP Gateway - Bot detection layer (disabled - gateway image not available yet)
   # gateway:
-  #   image: scottgal/mostlylucid.yarpgateway:latest
+  #   image: scottgal/stylobot-gateway:latest
   #   container_name: stylobot-gateway
   #   environment:
   #     - ASPNETCORE_ENVIRONMENT=Production

@@ -125,13 +125,13 @@ git push origin allbot-v1.0.0
 
 This will trigger:
 - Console gateway binary release
-- YarpGateway Docker image
+- Stylobot Gateway Docker image
 - BotDetection NuGet packages
 - Any other configured workflows
 
 Use this for coordinated releases across the entire bot detection suite.
 
-## YarpGateway Docker Release
+## Stylobot Gateway Docker Release
 
 **Workflow:** `publish-yarpgateway.yml`
 
@@ -140,9 +140,9 @@ Builds and publishes Docker images to Docker Hub.
 ### Trigger
 
 ```bash
-# For YarpGateway release
-git tag yarpgateway-v1.0.0
-git push origin yarpgateway-v1.0.0
+# For Stylobot Gateway release
+git tag gateway-v1.0.0
+git push origin gateway-v1.0.0
 
 # Or use all-in-one
 git tag allbot-v1.0.0

@@ -4,7 +4,13 @@ on:
   push:
     tags:
       - 'geodetection-v*.*.*'
+      - 'allbot-v*.*.*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
 
 permissions:
   id-token: write
@@ -28,9 +34,18 @@ jobs:
     - name: Extract version from tag
       id: get_version
       run: |
-        TAG=${GITHUB_REF#refs/tags/geodetection-v}
-        echo "VERSION=$TAG" >> $GITHUB_OUTPUT
-        echo "Publishing version: $TAG"
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          TAG=${GITHUB_REF#refs/tags/}
+          if [[ "$TAG" == geodetection-v* ]]; then
+            VERSION=${TAG#geodetection-v}
+          else
+            VERSION=${TAG#allbot-v}
+          fi
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Publishing version: $VERSION"
 
     - name: Restore dependencies
       run: dotnet restore Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj

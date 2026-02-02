@@ -1,10 +1,10 @@
-# Native TLS Fingerprinting in YarpGateway
+# Native TLS Fingerprinting in Stylobot Gateway
 
 This guide shows how to configure Kestrel to capture TLS handshake metadata (protocol version and cipher suite) for bot detection **without requiring an external reverse proxy**.
 
 ## Overview
 
-The YarpGateway now supports native TLS fingerprinting through:
+The Stylobot Gateway now supports native TLS fingerprinting through:
 
 1. **Kestrel TLS Callbacks** - Captures TLS metadata during handshake using `RemoteCertificateValidationCallback`
 2. **TlsMetadataMiddleware** - Copies metadata from connection context to HttpContext
@@ -19,7 +19,7 @@ This provides the same TLS fingerprinting capabilities as nginx's `ssl_ja3` modu
 In your `Program.cs`, configure Kestrel to use the TLS capture callback:
 
 ```csharp
-using Mostlylucid.YarpGateway.Configuration;
+using Stylobot.Gateway.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -127,8 +127,8 @@ These headers are consumed by bot detection contributors:
   {
     "Logging": {
       "LogLevel": {
-        "Mostlylucid.YarpGateway.Middleware.TlsMetadataMiddleware": "Trace",
-        "Mostlylucid.YarpGateway.Configuration": "Trace"
+        "Stylobot.Gateway.Middleware.TlsMetadataMiddleware": "Trace",
+        "Stylobot.Gateway.Configuration": "Trace"
       }
     }
   }
@@ -144,7 +144,7 @@ location / {
     proxy_set_header X-JA3-Hash $ssl_ja3;
     proxy_set_header X-TLS-Protocol $ssl_protocol;
     proxy_set_header X-TLS-Cipher $ssl_cipher;
-    proxy_pass http://yarpgateway:8080;
+    proxy_pass http://stylobot-gateway:8080;
 }
 ```
 
@@ -178,8 +178,8 @@ frontend https_front
 ## Example: Complete Program.cs
 
 ```csharp
-using Mostlylucid.YarpGateway.Configuration;
-using Mostlylucid.YarpGateway.Middleware;
+using Stylobot.Gateway.Configuration;
+using Stylobot.Gateway.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -224,7 +224,7 @@ app.Run();
 
 ## Summary
 
-Native TLS fingerprinting is now fully supported in YarpGateway with:
+Native TLS fingerprinting is now fully supported in Stylobot Gateway with:
 - ✅ Kestrel callback-based capture
 - ✅ Zero external dependencies
 - ✅ Sub-3μs overhead

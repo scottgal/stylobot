@@ -241,6 +241,7 @@ jobs:
 
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+        echo "TAG_NAME=console-v${VERSION}" >> $GITHUB_OUTPUT
 
     - name: Download all artifacts
       uses: actions/download-artifact@v4
@@ -351,7 +352,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         name: Console Gateway v${{ steps.get_version.outputs.VERSION }}
-        tag_name: ${{ github.ref_name }}
+        tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
         body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
         draft: false
         prerelease: ${{ steps.get_version.outputs.IS_PRERELEASE }}
