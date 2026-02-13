@@ -28,6 +28,9 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         {
             throw new ArgumentException("ConnectionString is required", nameof(options));
         }
+
+        // Enable Dapper snake_case → PascalCase mapping for PostgreSQL columns
+        DefaultTypeMap.MatchNamesWithUnderscores = true;
     }
 
     public async Task AddDetectionAsync(DashboardDetectionEvent detection)

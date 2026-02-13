@@ -109,7 +109,9 @@
       "Bash(Get-Process -Name \"Stylobot.Website\" -ErrorAction SilentlyContinue)",
       "Bash(Stop-Process -Force)",
       "Bash(\"done\")",
-      "mcp__plugin_playwright_playwright__browser_select_option"
+      "mcp__plugin_playwright_playwright__browser_select_option",
+      "Bash(ping:*)",
+      "Bash(Start-Sleep -Seconds 8)"
     ]
   }
 }

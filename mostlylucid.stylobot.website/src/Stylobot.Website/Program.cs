@@ -105,12 +105,15 @@ builder.Services.AddBotDetection(options =>
     var aiProvider = GetConfig("BotDetection:AiProvider", "BOTDETECTION_AI_PROVIDER", "Heuristic");
     options.EnableLlmDetection = aiProvider.Equals("Ollama", StringComparison.OrdinalIgnoreCase);
 
+    // Always configure Ollama endpoint - used by DetectionDescriptionService
+    // even when detection mode is Heuristic (descriptions are separate from detection)
+    options.AiDetection.Ollama.Endpoint = GetConfig("BotDetection:Ollama:Endpoint", "BOTDETECTION_OLLAMA_ENDPOINT", "");
+    options.AiDetection.Ollama.Model = GetConfig("BotDetection:Ollama:Model", "BOTDETECTION_OLLAMA_MODEL", "llama3.2:1b");
+    options.AiDetection.TimeoutMs = GetConfigInt("BotDetection:Ollama:TimeoutMs", "BOTDETECTION_OLLAMA_TIMEOUT_MS", 5000);
+
     if (options.EnableLlmDetection)
     {
         options.AiDetection.Provider = Mostlylucid.BotDetection.Models.AiProvider.Ollama;
-        options.AiDetection.Ollama.Endpoint = GetConfig("BotDetection:Ollama:Endpoint", "BOTDETECTION_OLLAMA_ENDPOINT", "http://localhost:11434");
-        options.AiDetection.Ollama.Model = GetConfig("BotDetection:Ollama:Model", "BOTDETECTION_OLLAMA_MODEL", "llama3.2:1b");
-        options.AiDetection.TimeoutMs = GetConfigInt("BotDetection:Ollama:TimeoutMs", "BOTDETECTION_OLLAMA_TIMEOUT_MS", 5000);
     }
     else
     {
@@ -131,15 +134,17 @@ builder.Services.AddStyloBotDashboard(options =>
 // Add PostgreSQL/TimescaleDB storage for signature ledger and detection events
 // This replaces in-memory storage with durable database-backed storage
 var pgConnectionString = GetConfig("StyloBotDashboard:PostgreSQL:ConnectionString", "STYLOBOT_POSTGRESQL_CONNECTION", "");
+if (string.IsNullOrEmpty(pgConnectionString))
+    pgConnectionString = Environment.GetEnvironmentVariable("DATABASE_CONNECTION_STRING") ?? "";
 if (!string.IsNullOrEmpty(pgConnectionString))
 {
     builder.Services.AddStyloBotPostgreSQL(pgConnectionString, options =>
     {
-        options.EnableTimescaleDB = GetConfigBool("StyloBotDashboard:PostgreSQL:EnableTimescaleDB", "STYLOBOT_ENABLE_TIMESCALEDB", true);
-        options.AutoInitializeSchema = GetConfigBool("StyloBotDashboard:PostgreSQL:AutoInitializeSchema", "STYLOBOT_AUTO_INIT_SCHEMA", true);
-        options.RetentionDays = GetConfigInt("StyloBotDashboard:PostgreSQL:RetentionDays", "STYLOBOT_RETENTION_DAYS", 30);
+        options.EnableTimescaleDB = GetConfigBool("StyloBotDashboard:PostgreSQL:EnableTimescaleDB", "DATABASE_TIMESCALEDB_ENABLED", true);
+        options.AutoInitializeSchema = GetConfigBool("StyloBotDashboard:PostgreSQL:AutoInitializeSchema", "DATABASE_AUTO_INIT_SCHEMA", true);
+        options.RetentionDays = GetConfigInt("StyloBotDashboard:PostgreSQL:RetentionDays", "DATABASE_RETENTION_DAYS", 30);
         options.EnableAutomaticCleanup = GetConfigBool("StyloBotDashboard:PostgreSQL:EnableAutomaticCleanup", "STYLOBOT_ENABLE_CLEANUP", true);
-        options.EnablePgVector = GetConfigBool("StyloBotDashboard:PostgreSQL:EnablePgVector", "STYLOBOT_ENABLE_PGVECTOR", false); // For embedding similarity
+        options.EnablePgVector = GetConfigBool("StyloBotDashboard:PostgreSQL:EnablePgVector", "STYLOBOT_ENABLE_PGVECTOR", false);
     });
 }
 

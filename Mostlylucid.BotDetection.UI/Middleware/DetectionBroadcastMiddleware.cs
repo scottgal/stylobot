@@ -29,7 +29,8 @@ public class DetectionBroadcastMiddleware
     public async Task InvokeAsync(
         HttpContext context,
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
-        IDashboardEventStore eventStore)
+        IDashboardEventStore eventStore,
+        DetectionDescriptionService descriptionService)
     {
         // Call next middleware first (so detection runs)
         await _next(context);
@@ -131,6 +132,10 @@ public class DetectionBroadcastMiddleware
                 // Broadcast detection and signature (with hit_count) to all connected clients
                 await hubContext.Clients.All.BroadcastDetection(detection);
                 await hubContext.Clients.All.BroadcastSignature(updatedSignature);
+
+                // Fire-and-forget: generate plain-english description via Ollama for bot detections
+                if (detection.IsBot)
+                    _ = descriptionService.GenerateAndBroadcastAsync(detection);
 
                 _logger.LogDebug(
                     "Broadcast detection: {Path} sig={Signature} prob={Probability:F2} hits={HitCount}",

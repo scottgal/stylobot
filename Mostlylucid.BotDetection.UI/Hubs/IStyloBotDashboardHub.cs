@@ -25,4 +25,12 @@ public interface IStyloBotDashboardHub
     /// </summary>
     /// <param name="summary">Current summary statistics</param>
     Task BroadcastSummary(DashboardSummary summary);
+
+    /// <summary>
+    ///     Broadcast an LLM-generated description update for a detection event.
+    ///     Sent asynchronously after the detection was already broadcast.
+    /// </summary>
+    /// <param name="requestId">The request ID of the detection to update</param>
+    /// <param name="description">The plain-english description</param>
+    Task BroadcastDescriptionUpdate(string requestId, string description);
 }

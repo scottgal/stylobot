@@ -635,6 +635,12 @@ document.addEventListener('alpine:init', () => {
         connection: null,
 
         async init() {
+            // Listen for client-side fingerprint completion
+            document.addEventListener('mlbotd:fingerprint', () => {
+                this.hasClientFp = true;
+                this.justUpdated = true;
+                setTimeout(() => { this.justUpdated = false; }, 500);
+            });
             await this.connect();
         },
 

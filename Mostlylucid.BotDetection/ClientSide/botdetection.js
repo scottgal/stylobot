@@ -25,7 +25,7 @@
  * - Interaction tracking is boolean only (did interact: yes/no)
  * - Network hints are coarse (effectiveType, not bandwidth details)
  * - User preferences are standard media queries (not fingerprintable)
- * - Uses sendBeacon for reliable, non-blocking delivery
+ * - Uses fetch with keepalive for reliable, non-blocking delivery
  * - Explainable scoring with reasons for transparency
  *
  * Enhancements (2025):
@@ -552,24 +552,34 @@
 ,
 
     /**
-     * Send fingerprint data to server (prefer sendBeacon for reliability)
+     * Send fingerprint data to server using fetch (requires custom header for token validation)
      */
     send: function (data) {
         try {
             var payload = JSON.stringify(data);
+            var token = this.token;
 
-            // Prefer sendBeacon for non-blocking, reliable delivery
-            if (navigator.sendBeacon) {
-                var blob = new Blob([payload], {type: 'application/json'});
-                navigator.sendBeacon(this.endpoint, blob);
+            // Use fetch with custom header (sendBeacon cannot send custom headers)
+            if (window.fetch) {
+                fetch(this.endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-ML-BotD-Token': token
+                    },
+                    body: payload,
+                    keepalive: true // Ensures delivery even during page unload (like sendBeacon)
+                }).catch(function () {
+                    // Silent fail - don't break the page
+                });
                 return;
             }
 
-            // Fallback to XHR
+            // Fallback to XHR for very old browsers
             var xhr = new XMLHttpRequest();
             xhr.open('POST', this.endpoint, true);
             xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.setRequestHeader('X-ML-BotD-Token', this.token);
+            xhr.setRequestHeader('X-ML-BotD-Token', token);
             xhr.timeout = this.config.timeout;
 
             xhr.onerror = function () {

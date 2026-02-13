@@ -815,6 +815,15 @@ internal static class DashboardHtmlTemplate
                         this.updateCharts();
                     }});
 
+                    this.connection.on('BroadcastDescriptionUpdate', (requestId, description) => {{
+                        // Update matching detection with the LLM-generated description
+                        const det = this.detections.find(d => d.requestId === requestId);
+                        if (det) {{
+                            det.description = description;
+                            this.tabulatorTable?.updateData([det]);
+                        }}
+                    }});
+
                     this.connection.onclose(() => {{ this.signalrConnected = false; }});
                     this.connection.onreconnecting(() => {{ this.signalrConnected = false; }});
                     this.connection.onreconnected(() => {{ this.signalrConnected = true; }});
@@ -903,6 +912,13 @@ internal static class DashboardHtmlTemplate
                                 const v = cell.getValue();
                                 if (!v || !v.length) return '<span style=""color:#6b7280"">-</span>';
                                 return `<span style=""font-size:0.7rem;opacity:0.8"">${{v[0]}}</span>`;
+                            }} }},
+                            {{ title: 'AI Description', field: 'description', minWidth: 180, formatter: (cell) => {{
+                                const v = cell.getValue();
+                                const row = cell.getRow().getData();
+                                if (!v && row.isBot) return '<span style=""color:#6b7280;font-size:0.65rem""><i class=""bx bx-loader-alt bx-spin"" style=""font-size:0.7rem""></i> Awaiting AI...</span>';
+                                if (!v) return '<span style=""color:#6b7280;font-size:0.65rem"">-</span>';
+                                return `<span style=""font-size:0.7rem;color:#5BA3A3;font-style:italic""><i class=""bx bx-bot"" style=""font-size:0.7rem;margin-right:2px""></i>${{v}}</span>`;
                             }} }},
                             {{ title: 'ms', field: 'processingTimeMs', width: 60, hozAlign: 'right', formatter: (cell) => {{
                                 const v = cell.getValue();

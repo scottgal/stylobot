@@ -217,16 +217,32 @@ document.addEventListener('alpine:init', () => {
         },
 
         addToTicker(d) {
-            // Show all detections in the ticker so the feed is always active
+            // Deduplicate by signature - update existing entries, only add genuinely new signatures
+            const sig = d.primarySignature;
+            if (sig) {
+                const existing = this.tickerItems.find(i => i.primarySignature === sig);
+                if (existing) {
+                    // Update in-place: certainty may have changed
+                    existing.isBot = d.isBot;
+                    existing.botProbability = d.botProbability;
+                    existing.riskBand = d.riskBand;
+                    existing.botName = d.botName;
+                    existing._isNew = true;
+                    setTimeout(() => { existing._isNew = false; }, 600);
+                    return;
+                }
+            }
 
+            // New unique signature
             this.tickerItems.unshift({
                 ...d,
                 _id: ++tickerId,
                 _isNew: true
             });
 
+            const currentId = tickerId;
             setTimeout(() => {
-                const item = this.tickerItems.find(i => i._id === tickerId);
+                const item = this.tickerItems.find(i => i._id === currentId);
                 if (item) item._isNew = false;
             }, 600);
 

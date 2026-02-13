@@ -38,6 +38,9 @@ public static class StyloBotDashboardServiceExtensions
         // Background service for summary updates
         services.AddHostedService<DashboardSummaryBroadcaster>();
 
+        // LLM-powered description generation for bot detections
+        services.AddSingleton<DetectionDescriptionService>();
+
         // Simulator if enabled
         if (options.EnableSimulator) services.AddHostedService<DashboardSimulatorService>();
 
