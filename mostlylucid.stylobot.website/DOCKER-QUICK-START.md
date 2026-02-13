@@ -1,56 +1,39 @@
 # Docker Quick Start
 
-## Build Commands
+## Fast path
 
-### Windows (PowerShell)
-```powershell
-# Basic build
-.\build-docker.ps1
-
-# Build for deployment (creates .tar.gz)
-.\build-docker.ps1 -Compress
-
-# Build specific version
-.\build-docker.ps1 -Tag "v1.0.0" -Compress
+```bash
+cp .env.example .env
+# set required secrets
+docker compose up -d
 ```
 
-### Linux/Mac/WSL (Bash)
-```bash
-# Basic build
-./build-docker.sh
+Open:
 
-# Build for deployment (creates .tar.gz)
+- `http://localhost`
+- `http://localhost/docs`
+
+## Verify health
+
+```bash
+docker compose ps
+docker compose logs --tail 100
+curl http://localhost/health
+```
+
+## Stop
+
+```bash
+docker compose down
+```
+
+## Rebuild local image
+
+```bash
+# from mostlylucid.stylobot.website
 ./build-docker.sh -c
-
-# Build specific version
-./build-docker.sh -t v1.0.0 -c
+# or Windows
+.\build-docker.ps1 -Compress
 ```
 
-## Output
-
-Compressed image will be saved to: `dist/stylobot-website-{tag}.tar.gz`
-
-## Deploy to Server
-
-```bash
-# 1. Copy to server
-scp dist/stylobot-website-v1.0.0.tar.gz user@server:/tmp/
-
-# 2. On server: Load image
-gunzip -c /tmp/stylobot-website-v1.0.0.tar.gz | docker load
-
-# 3. Start services
-docker-compose up -d
-```
-
-## Local Testing
-
-```bash
-# Run standalone
-docker run -d -p 8080:8080 --name stylobot stylobot-website:latest
-
-# Or with full stack
-docker-compose up -d
-```
-
-See [DOCKER-BUILD.md](docs/DOCKER-BUILD.md) for complete documentation.
+See `SETUP.md` for first-time server setup and `DEPLOYMENT.md` for production rollout.

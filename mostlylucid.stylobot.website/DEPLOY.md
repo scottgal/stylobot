@@ -222,6 +222,6 @@ docker-compose down -v
 
 ## Support
 
-- GitHub: https://github.com/scottgal/mostlylucid.nugetpackages
-- Documentation: https://github.com/scottgal/mostlylucid.nugetpackages/blob/main/Mostlylucid.BotDetection/README.md
-- Issues: https://github.com/scottgal/mostlylucid.nugetpackages/issues
+- GitHub: https://github.com/scottgal/mostlylucid.stylobot
+- Documentation: https://github.com/scottgal/mostlylucid.stylobot/blob/main/Mostlylucid.BotDetection/README.md
+- Issues: https://github.com/scottgal/mostlylucid.stylobot/issues

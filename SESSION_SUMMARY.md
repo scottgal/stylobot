@@ -1,5 +1,11 @@
 # Bot Detection Demo - Complete Session Summary
 
+## Document Status
+- Status: Historical/implementation note kept for engineering context.
+- Canonical docs to use first: `docs/README.md`, `QUICKSTART.md`, `DOCKER_SETUP.md`.
+- Website-friendly docs: `mostlylucid.stylobot.website/src/Stylobot.Website/Docs/`.
+
+
 **Date**: 2025-01-11
 **Branch**: features/zeropii
 **Status**: ✅ COMPLETE - All features implemented and tested
@@ -352,7 +358,7 @@ The `full-demo` policy enables ALL non-AI detectors:
 ### Quick Start
 
 ```bash
-cd D:\Source\mostlylucid.nugetpackages\Mostlylucid.BotDetection.Demo
+cd D:\Source\mostlylucid.stylobot\Mostlylucid.BotDetection.Demo
 dotnet run
 ```
 

@@ -43,7 +43,7 @@ dotnet run
 
 ```bash
 # Windows PowerShell
-cp ..\Mostlylucid.BotDetection.Demo\bin\Debug\net9.0\botdetection.db .
+cp ..\Mostlylucid.BotDetection.Demo\bin\Debug\net10.0\botdetection.db .
 
 # Or from your current directory if demo is running
 # The generator will automatically search the demo's bin directory
@@ -187,7 +187,7 @@ These markers trigger the ProjectHoneypotContributor's test mode, simulating rea
 
 ```bash
 # Copy database to BDF generator directory
-cp ../Mostlylucid.BotDetection.Demo/bin/Debug/net9.0/botdetection.db .
+cp ../Mostlylucid.BotDetection.Demo/bin/Debug/net10.0/botdetection.db .
 
 # Run generator
 dotnet run
@@ -263,7 +263,7 @@ jobs:
 
 The generator automatically searches these locations:
 - Current directory (`./botdetection.db`)
-- Demo bin directories (`../Mostlylucid.BotDetection.Demo/bin/Debug/net9.0/botdetection.db`)
+- Demo bin directories (`../Mostlylucid.BotDetection.Demo/bin/Debug/net10.0/botdetection.db`)
 - Parent directories
 
 **Solution 1:** Run the demo app first (if not already done):
@@ -278,7 +278,7 @@ dotnet run
 
 ```bash
 # From BdfGenerator directory
-cp ../Mostlylucid.BotDetection.Demo/bin/Debug/net9.0/botdetection.db .
+cp ../Mostlylucid.BotDetection.Demo/bin/Debug/net10.0/botdetection.db .
 ```
 
 ### "Ollama connection refused"
@@ -393,3 +393,4 @@ After generating scenarios:
 - [BDF Specification](../Mostlylucid.BotDetection/docs/future/bdf-behaviouralsignature.md)
 - [Project Honeypot Test Mode](../Mostlylucid.BotDetection/Orchestration/ContributingDetectors/ProjectHoneypotContributor.cs#L326-L399)
 - [Ollama Documentation](https://ollama.ai/docs)
+

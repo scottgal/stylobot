@@ -1,5 +1,11 @@
 # Refactoring Complete - Summary Report
 
+## Document Status
+- Status: Historical/implementation note kept for engineering context.
+- Canonical docs to use first: `docs/README.md`, `QUICKSTART.md`, `DOCKER_SETUP.md`.
+- Website-friendly docs: `mostlylucid.stylobot.website/src/Stylobot.Website/Docs/`.
+
+
 **Date**: 2025-01-10
 **Ephemeral Version Updated**: 1.6.0 → 1.6.8
 
@@ -373,4 +379,4 @@ a separate, systematic API migration effort across the entire codebase.
 
 **Report Generated**: 2025-01-10
 **Refactoring Completed By**: Claude (Sonnet 4.5)
-**Project**: mostlylucid.nugetpackages/Mostlylucid.BotDetection
+**Project**: mostlylucid.stylobot/Mostlylucid.BotDetection

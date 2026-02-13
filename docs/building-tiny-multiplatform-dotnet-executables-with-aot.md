@@ -73,7 +73,7 @@ Here's a complete `.csproj` configured for multi-platform AOT:
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
@@ -612,7 +612,7 @@ The GitHub Actions workflow provided here builds all major platforms automatical
 ## Complete Example Repository
 
 For a complete working example with GitHub Actions, see:
-[Mostlylucid Bot Detection Console Gateway](https://github.com/scottgal/mostlylucid.nugetpackages/tree/main/Mostlylucid.BotDetection.Console)
+[Mostlylucid Bot Detection Console Gateway](https://github.com/scottgal/mostlylucid.stylobot/tree/main/Mostlylucid.BotDetection.Console)
 
 ---
 

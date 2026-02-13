@@ -1,5 +1,11 @@
 # Stylobot Dashboard - Implementation Summary
 
+## Document Status
+- Status: Historical/implementation note kept for engineering context.
+- Canonical docs to use first: `docs/README.md`, `QUICKSTART.md`, `DOCKER_SETUP.md`.
+- Website-friendly docs: `mostlylucid.stylobot.website/src/Stylobot.Website/Docs/`.
+
+
 ## ✅ What Was Built
 
 A complete **real-time bot detection dashboard** for Mostlylucid.BotDetection.UI with:
@@ -179,7 +185,7 @@ Then navigate to: `https://localhost:5001/stylobot`
 
 ## Build Status
 
-✅ **Build successful** - Compiles for .NET 8.0, 9.0, and 10.0
+✅ **Build successful** - Compiles for .NET 10.0
 
 ## Bugs Fixed
 
@@ -201,7 +207,7 @@ Then navigate to: `https://localhost:5001/stylobot`
 
 - **Package ID**: `Mostlylucid.BotDetection.UI`
 - **Version**: 2.0.0
-- **Targets**: net8.0, net9.0, net10.0
+- **Targets**: net10.0
 - **License**: (Same as Mostlylucid.BotDetection)
 
 ## Files Created
@@ -241,7 +247,7 @@ Mostlylucid.BotDetection.UI/
 
 ## Testing Checklist
 
-- [x] Build succeeds for .NET 8.0, 9.0, and 10.0
+- [x] Build succeeds for .NET 10.0
 - [ ] SignalR hub connects and broadcasts
 - [ ] Simulator generates realistic data
 - [ ] Dashboard loads at `/stylobot`
@@ -256,3 +262,5 @@ Mostlylucid.BotDetection.UI/
 ---
 
 **Status**: ✅ Complete and ready for testing!
+
+

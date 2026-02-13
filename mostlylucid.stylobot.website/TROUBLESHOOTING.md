@@ -311,4 +311,4 @@ docker images | grep stylobot
 ```
 
 **Then create an issue with the output at:**
-https://github.com/scottgal/mostlylucid.nugetpackages/issues
+https://github.com/scottgal/mostlylucid.stylobot/issues

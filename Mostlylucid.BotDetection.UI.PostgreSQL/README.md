@@ -402,6 +402,6 @@ Part of Mostlylucid.BotDetection suite.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/mostlylucid/mostlylucid.nugetpackages/issues)
+- **Issues**: [GitHub Issues](https://github.com/scottgal/mostlylucid.stylobot/issues)
 - **Documentation**: [Bot Detection Docs](#)
 - **Examples**: See `Examples/` directory

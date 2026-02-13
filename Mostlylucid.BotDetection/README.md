@@ -366,7 +366,7 @@ builder.Services.AddAdvancedBotDetection("http://localhost:11434", "gemma3:4b");
 
 ## Requirements
 
-- .NET 8.0 or .NET 9.0
+- .NET 10.0
 - Optional: [Ollama](https://ollama.ai/) for LLM-based detection escalation
 
 ## License
@@ -375,6 +375,7 @@ builder.Services.AddAdvancedBotDetection("http://localhost:11434", "gemma3:4b");
 
 ## Links
 
-- [GitHub](https://github.com/scottgal/mostlylucid.nugetpackages/tree/main/Mostlylucid.BotDetection)
+- [GitHub](https://github.com/scottgal/mostlylucid.stylobot/tree/main/Mostlylucid.BotDetection)
 - [NuGet](https://www.nuget.org/packages/mostlylucid.botdetection/)
 - [Full Documentation](docs/)
+

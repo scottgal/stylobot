@@ -476,9 +476,9 @@ Optimized Alpine-based image:
 
 ## Links
 
-- **GitHub**: [github.com/scottgal/mostlylucid.nugetpackages](https://github.com/scottgal/mostlylucid.nugetpackages)
+- **GitHub**: [github.com/scottgal/mostlylucid.stylobot](https://github.com/scottgal/mostlylucid.stylobot)
 - **NuGet (BotDetection)**: [nuget.org/packages/Mostlylucid.BotDetection](https://www.nuget.org/packages/Mostlylucid.BotDetection)
-- **Full Documentation**: [BotDetection README](https://github.com/scottgal/mostlylucid.nugetpackages/tree/main/Mostlylucid.BotDetection)
+- **Full Documentation**: [BotDetection README](https://github.com/scottgal/mostlylucid.stylobot/tree/main/Mostlylucid.BotDetection)
 
 ## License
 

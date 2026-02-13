@@ -1,5 +1,11 @@
 # PostgreSQL Storage Plugin - Implementation Summary
 
+## Document Status
+- Status: Historical/implementation note kept for engineering context.
+- Canonical docs to use first: `docs/README.md`, `QUICKSTART.md`, `DOCKER_SETUP.md`.
+- Website-friendly docs: `mostlylucid.stylobot.website/src/Stylobot.Website/Docs/`.
+
+
 ## ✅ What Was Built
 
 A **complete PostgreSQL storage provider** for Stylobot, built as a **separate extensible plugin** following DDD principles.
@@ -240,7 +246,7 @@ The schema uses these extensions (auto-created):
 
 ## Build Status
 
-✅ **Build successful** for .NET 8.0, 9.0, 10.0
+✅ **Build successful** for .NET 10.0
 ✅ **0 compilation errors**
 ✅ **All services registered correctly**
 ✅ **Schema embedded as resource**
@@ -338,3 +344,4 @@ PostgreSQL is for:
 **Lines of Code**: ~1500 (schema, services, repositories, config, docs)
 
 **Ready For**: Production deployment with millions of events per day!
+

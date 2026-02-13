@@ -107,6 +107,7 @@ builder.Services.AddControllersWithViews();
 
 // Register SEO service
 builder.Services.AddSingleton<SeoService>();
+builder.Services.AddSingleton<IMarkdownDocsService, MarkdownDocsService>();
 
 var app = builder.Build();
 

@@ -7,6 +7,12 @@ Canonical entry points for this repository.
 - `README.md`: Repo overview, architecture surface, and primary commands
 - `QUICKSTART.md`: Fast local runbook for demo and gateway
 - `DOCKER_SETUP.md`: Containerized deployment options
+- `GETTING_STARTED.md`: First implementation path
+- `ARCHITECTURE.md`: Component and flow overview
+- `OPERATIONS.md`: Day-2 operations and rollout pattern
+- `TESTING.md`: Test strategy and verification paths
+- `SECURITY_AND_PRIVACY.md`: Security and privacy baseline
+- `RELEASE_CHECKLIST.md`: Pre/post release checks
 
 ## Core Product Docs
 

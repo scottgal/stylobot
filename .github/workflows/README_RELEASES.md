@@ -31,7 +31,7 @@ This will:
 
 You can also trigger releases manually from GitHub Actions UI:
 
-1. Go to https://github.com/scottgal/mostlylucid.nugetpackages/actions
+1. Go to https://github.com/scottgal/mostlylucid.stylobot/actions
 2. Select "Publish Console Gateway Binaries" workflow
 3. Click "Run workflow"
 4. Enter version (e.g., `1.0.0` or `1.0.0-preview1`)

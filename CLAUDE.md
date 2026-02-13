@@ -145,7 +145,7 @@ Uses MinVer with tag prefix `botdetection-v{version}`. NuGet packages auto-versi
 
 ## Target Frameworks
 
-.NET 8.0, 9.0, 10.0 (multi-targeting)
+.NET 10.0
 
 ## External Dependencies (Local Project References)
 
@@ -181,3 +181,4 @@ Detailed docs in `Mostlylucid.BotDetection/docs/`:
 - `action-policies.md` - Response handling
 - `configuration.md` - Full options reference
 - `yarp-integration.md` - Reverse proxy setup
+

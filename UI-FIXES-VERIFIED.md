@@ -1,5 +1,11 @@
 # UI Fixes - Verification Report
 
+## Document Status
+- Status: Historical/implementation note kept for engineering context.
+- Canonical docs to use first: `docs/README.md`, `QUICKSTART.md`, `DOCKER_SETUP.md`.
+- Website-friendly docs: `mostlylucid.stylobot.website/src/Stylobot.Website/Docs/`.
+
+
 ## Summary
 All UI issues have been fixed and verified. The demo application is now displaying bot detection data correctly and the loading modal works as expected.
 
@@ -83,10 +89,10 @@ function createLoadingModal() {
 
 ## Files Modified
 
-1. **D:\Source\mostlylucid.nugetpackages\Mostlylucid.BotDetection.UI\ViewComponents\BotDetectionDetailsViewComponent.cs**
+1. **D:\Source\mostlylucid.stylobot\Mostlylucid.BotDetection.UI\ViewComponents\BotDetectionDetailsViewComponent.cs**
    - Line 60: Fixed HttpContext.Items key
 
-2. **D:\Source\mostlylucid.nugetpackages\Mostlylucid.BotDetection.Demo\Pages\BotTest.cshtml**
+2. **D:\Source\mostlylucid.stylobot\Mostlylucid.BotDetection.Demo\Pages\BotTest.cshtml**
    - Lines 1430-1470: Added loading modal recreation logic
 
 ## Build Status

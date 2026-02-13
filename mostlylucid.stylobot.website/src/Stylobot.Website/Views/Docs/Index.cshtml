@@ -1,0 +1,72 @@
+@model Stylobot.Website.Models.DocsPageViewModel
+
+@{
+    ViewData["Title"] = Model.Title;
+}
+
+<style>
+    .docs-markdown h1, .docs-markdown h2, .docs-markdown h3 { margin-top: 1.25rem; margin-bottom: 0.5rem; font-weight: 700; }
+    .docs-markdown p, .docs-markdown ul, .docs-markdown ol, .docs-markdown pre { margin-bottom: 0.9rem; }
+    .docs-markdown pre { padding: 0.9rem; border-radius: 0.75rem; overflow-x: auto; }
+    .docs-markdown code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .docs-markdown a { text-decoration: underline; }
+    .docs-markdown blockquote { border-left: 4px solid color-mix(in oklab, currentColor 35%, transparent); padding-left: 0.8rem; opacity: 0.9; }
+</style>
+
+<section class="max-w-7xl mx-auto px-4 py-10">
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <aside class="lg:col-span-1">
+            <div class="sticky top-24 rounded-xl border border-base-300 bg-base-200 p-4">
+                <h2 class="text-lg font-bold mb-3">Docs</h2>
+                <nav class="space-y-2">
+                    @foreach (var navItem in Model.Navigation)
+                    {
+                        var isActive = string.Equals(navItem.Slug, Model.Slug, StringComparison.OrdinalIgnoreCase);
+                        <a class="block rounded px-3 py-2 text-sm @(isActive ? "bg-primary text-primary-content" : "hover:bg-base-300")"
+                           href="@Url.Action("Index", "Docs", new { slug = navItem.Slug })">
+                            @navItem.Title
+                        </a>
+                    }
+                </nav>
+            </div>
+        </aside>
+
+        <article class="lg:col-span-3 rounded-2xl border border-base-300 bg-base-100 p-6 lg:p-10">
+            <div class="mb-6 text-sm text-base-content/60">
+                Last updated: @Model.LastUpdatedUtc.ToString("yyyy-MM-dd HH:mm 'UTC'")
+            </div>
+            <div id="markdown-content" class="docs-markdown">
+                @Html.Raw(Model.Html)
+            </div>
+        </article>
+    </div>
+</section>
+
+@section Scripts {
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            document.querySelectorAll("pre code.language-mermaid").forEach(function (codeBlock) {
+                const pre = codeBlock.closest("pre");
+                if (!pre) {
+                    return;
+                }
+                const div = document.createElement("div");
+                div.className = "mermaid";
+                div.textContent = codeBlock.textContent || "";
+                pre.replaceWith(div);
+            });
+
+            document.querySelectorAll("pre code").forEach(function (el) {
+                if (!el.classList.contains("language-mermaid")) {
+                    hljs.highlightElement(el);
+                }
+            });
+
+            mermaid.initialize({ startOnLoad: false, theme: "default" });
+            mermaid.run({ querySelector: ".mermaid" });
+        });
+    </script>
+}
