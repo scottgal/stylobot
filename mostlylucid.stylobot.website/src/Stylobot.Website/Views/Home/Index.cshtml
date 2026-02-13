@@ -635,7 +635,11 @@ document.addEventListener('alpine:init', () => {
         connection: null,
 
         async init() {
-            // Listen for client-side fingerprint completion
+            // Check if fingerprint already completed before Alpine initialized
+            if (window.__mlbotd_done) {
+                this.hasClientFp = true;
+            }
+            // Also listen for the event in case it fires after init
             document.addEventListener('mlbotd:fingerprint', () => {
                 this.hasClientFp = true;
                 this.justUpdated = true;

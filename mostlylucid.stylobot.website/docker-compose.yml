@@ -38,7 +38,7 @@ services:
 
   # Stylobot Website - ASP.NET Core 10 backend
   website:
-    image: stylobot-website:latest
+    image: scottgal/stylobot-site:latest
     container_name: stylobot-website
     env_file:
       - .env

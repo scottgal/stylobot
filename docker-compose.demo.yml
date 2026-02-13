@@ -60,7 +60,7 @@ services:
     build:
       context: .
       dockerfile: Stylobot.Gateway/Dockerfile
-    image: stylobot-gateway:demo
+    image: scottgal/stylobot-gateway:latest
     container_name: stylobot-gateway
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
@@ -123,7 +123,7 @@ services:
     build:
       context: .
       dockerfile: mostlylucid.stylobot.website/Dockerfile
-    image: stylobot-website:latest
+    image: scottgal/stylobot-site:latest
     container_name: stylobot-website
     env_file:
       - .env
