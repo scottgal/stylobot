@@ -42,7 +42,7 @@ public class YarpSignatureWriter : IYarpSignatureWriter, IDisposable
 
         // Auto-flush timer (every 10 seconds)
         _autoFlushTimer = new Timer(
-            _ => FlushAsync().GetAwaiter().GetResult(),
+            _ => _ = FlushSafeAsync(),
             null,
             TimeSpan.FromSeconds(10),
             TimeSpan.FromSeconds(10));
@@ -54,7 +54,16 @@ public class YarpSignatureWriter : IYarpSignatureWriter, IDisposable
     public void Dispose()
     {
         _autoFlushTimer.Dispose();
-        FlushAsync().GetAwaiter().GetResult();
+        // Synchronous drain - no async needed for simple file write
+        try
+        {
+            FlushSync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Final flush failed during dispose");
+        }
+
         _flushLock.Dispose();
     }
 
@@ -112,6 +121,112 @@ public class YarpSignatureWriter : IYarpSignatureWriter, IDisposable
         {
             _flushLock.Release();
         }
+    }
+
+    private async Task FlushSafeAsync()
+    {
+        try
+        {
+            await FlushAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Auto-flush failed");
+        }
+    }
+
+    /// <summary>
+    ///     Synchronous flush for use in Dispose to avoid sync-over-async deadlocks.
+    /// </summary>
+    private void FlushSync()
+    {
+        if (_bufferedCount == 0)
+            return;
+
+        _flushLock.Wait();
+        try
+        {
+            var filePath = GetCurrentFilePath();
+
+            var signatures = new List<YarpBotSignature>();
+            while (_buffer.TryDequeue(out var sig)) signatures.Add(sig);
+
+            if (signatures.Count == 0)
+                return;
+
+            if (_options.FileFormat.Equals("jsonl", StringComparison.OrdinalIgnoreCase))
+                WriteJsonLinesSync(filePath, signatures);
+            else
+                WriteJsonArraySync(filePath, signatures);
+
+            Interlocked.Exchange(ref _bufferedCount, 0);
+            _currentFileSize += signatures.Count * 500;
+
+            _logger.LogDebug(
+                "Flushed {Count} signatures to {FilePath} (sync)",
+                signatures.Count, filePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to flush signatures (sync)");
+        }
+        finally
+        {
+            _flushLock.Release();
+        }
+    }
+
+    private void WriteJsonLinesSync(string filePath, List<YarpBotSignature> signatures)
+    {
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = false
+        };
+
+        using var stream = new FileStream(
+            filePath,
+            FileMode.Append,
+            FileAccess.Write,
+            FileShare.Read,
+            4096,
+            false);
+
+        using var writer = new StreamWriter(stream);
+
+        foreach (var signature in signatures)
+        {
+            var json = JsonSerializer.Serialize(signature, options);
+            writer.WriteLine(json);
+        }
+    }
+
+    private void WriteJsonArraySync(string filePath, List<YarpBotSignature> signatures)
+    {
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = true
+        };
+
+        var allSignatures = new List<YarpBotSignature>();
+
+        if (File.Exists(filePath))
+            try
+            {
+                var existingJson = File.ReadAllText(filePath);
+                var existing = JsonSerializer.Deserialize<List<YarpBotSignature>>(existingJson, options);
+                if (existing != null) allSignatures.AddRange(existing);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to read existing JSON file, starting fresh");
+            }
+
+        allSignatures.AddRange(signatures);
+
+        var json = JsonSerializer.Serialize(allSignatures, options);
+        File.WriteAllText(filePath, json);
     }
 
     private string GetCurrentFilePath()

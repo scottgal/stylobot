@@ -9,7 +9,7 @@ namespace Mostlylucid.BotDetection.Extensions;
 /// <summary>
 ///     Extension methods for easy access to bot detection results from HttpContext
 /// </summary>
-public static class HttpContextExtensions
+public static partial class HttpContextExtensions
 {
     /// <summary>
     ///     Gets the bot detection result from the current request.
@@ -283,8 +283,7 @@ public static class HttpContextExtensions
             return null;
 
         // Parse score from detail string like "Low browser integrity score: 45/100"
-        var match = Regex.Match(
-            clientSideReason.Detail, @"(\d+)/100");
+        var match = IntegrityScoreRegex().Match(clientSideReason.Detail);
 
         if (match.Success && int.TryParse(match.Groups[1].Value, out var score))
             return score;
@@ -306,14 +305,19 @@ public static class HttpContextExtensions
             return null;
 
         // Parse likelihood from detail string like "Headless browser detected (likelihood: 0.85)"
-        var match = Regex.Match(
-            headlessReason.Detail, @"likelihood:\s*([\d.]+)");
+        var match = HeadlessLikelihoodRegex().Match(headlessReason.Detail);
 
         if (match.Success && double.TryParse(match.Groups[1].Value, out var likelihood))
             return likelihood;
 
         return headlessReason.ConfidenceImpact;
     }
+
+    [GeneratedRegex(@"(\d+)/100")]
+    private static partial Regex IntegrityScoreRegex();
+
+    [GeneratedRegex(@"likelihood:\s*([\d.]+)")]
+    private static partial Regex HeadlessLikelihoodRegex();
 }
 
 // NOTE: RiskBand and RecommendedAction enums are now in Mostlylucid.BotDetection.Orchestration.DetectionContribution

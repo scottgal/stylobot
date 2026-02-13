@@ -385,9 +385,8 @@ public class BlackboardOrchestrator
 
                     // Check for early exit - but still run policy evaluation for transitions
                     var earlyExitTriggered = false;
-                    if (aggregator.EarlyExit)
+                    if (aggregator.EarlyExit && aggregator.EarlyExitContribution is { } exitContrib)
                     {
-                        var exitContrib = aggregator.EarlyExitContribution!;
                         _logger.LogInformation(
                             "Early exit triggered by {Detector}: {Verdict} - {Reason}",
                             exitContrib.DetectorName,
@@ -407,8 +406,8 @@ public class BlackboardOrchestrator
                         var evalState = BuildState(
                             httpContext,
                             signals,
-                            completedDetectors.Keys.ToHashSet(),
-                            failedDetectors.Keys.ToHashSet(),
+                            completedDetectors.Keys,
+                            failedDetectors.Keys,
                             aggregator,
                             requestId,
                             stopwatch.Elapsed);
@@ -618,7 +617,8 @@ public class BlackboardOrchestrator
         }
         else
         {
-            // Parallel execution with semaphore
+            // Parallel execution with semaphore — allocated per-wave intentionally.
+            // A class-level semaphore would throttle across concurrent requests, not per-request.
             using var semaphore = new SemaphoreSlim(_options.MaxParallelDetectors);
             var tasks = detectors.Select(async detector =>
             {
@@ -740,8 +740,8 @@ public class BlackboardOrchestrator
             HttpContext = httpContext,
             Signals = signals, // Pass by reference - no copy
             CurrentRiskScore = aggregated.BotProbability,
-            CompletedDetectors = completedDetectors as IReadOnlySet<string> ?? completedDetectors.ToHashSet(),
-            FailedDetectors = failedDetectors as IReadOnlySet<string> ?? failedDetectors.ToHashSet(),
+            CompletedDetectors = new HashSet<string>(completedDetectors),
+            FailedDetectors = new HashSet<string>(failedDetectors),
             Contributions = aggregated.Contributions,
             RequestId = requestId,
             Elapsed = elapsed

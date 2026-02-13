@@ -98,19 +98,19 @@ public partial class CommonUserAgentService : BackgroundService, ICommonUserAgen
     }
 
     // Regex patterns for browser version extraction
-    [GeneratedRegex(@"Chrome/(\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"Chrome/(\d+)")]
     private static partial Regex ChromeVersionRegex();
 
-    [GeneratedRegex(@"Firefox/(\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"Firefox/(\d+)")]
     private static partial Regex FirefoxVersionRegex();
 
-    [GeneratedRegex(@"Version/(\d+).*Safari", RegexOptions.Compiled)]
+    [GeneratedRegex(@"Version/(\d+).*Safari")]
     private static partial Regex SafariVersionRegex();
 
-    [GeneratedRegex(@"Edg/(\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"Edg/(\d+)")]
     private static partial Regex EdgeVersionRegex();
 
-    [GeneratedRegex(@"OPR/(\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"OPR/(\d+)")]
     private static partial Regex OperaVersionRegex();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

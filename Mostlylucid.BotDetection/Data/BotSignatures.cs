@@ -159,51 +159,51 @@ public static partial class BotSignatures
     ];
 
     // Source-generated regex methods - compiled at build time
-    [GeneratedRegex(@"\bbot\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"\bbot\b", RegexOptions.IgnoreCase, 100)]
     private static partial Regex BotRegex();
 
-    [GeneratedRegex(@"\bcrawl", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"\bcrawl", RegexOptions.IgnoreCase, 100)]
     private static partial Regex CrawlRegex();
 
-    [GeneratedRegex(@"\bspider\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"\bspider\b", RegexOptions.IgnoreCase, 100)]
     private static partial Regex SpiderRegex();
 
-    [GeneratedRegex(@"\bslurp\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"\bslurp\b", RegexOptions.IgnoreCase, 100)]
     private static partial Regex SlurpRegex();
 
-    [GeneratedRegex(@"\barchive\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"\barchive\b", RegexOptions.IgnoreCase, 100)]
     private static partial Regex ArchiveRegex();
 
-    [GeneratedRegex(@"\bindex", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"\bindex", RegexOptions.IgnoreCase, 100)]
     private static partial Regex IndexRegex();
 
-    [GeneratedRegex(@"\bscrape", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"\bscrape", RegexOptions.IgnoreCase, 100)]
     private static partial Regex ScrapeRegex();
 
-    [GeneratedRegex(@"\bfetch\b", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"\bfetch\b", RegexOptions.IgnoreCase, 100)]
     private static partial Regex FetchRegex();
 
-    [GeneratedRegex(@"http://", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"http://", RegexOptions.IgnoreCase, 100)]
     private static partial Regex HttpRegex();
 
-    [GeneratedRegex(@"https://", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"https://", RegexOptions.IgnoreCase, 100)]
     private static partial Regex HttpsRegex();
 
-    [GeneratedRegex(@"\+http", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"\+http", RegexOptions.IgnoreCase, 100)]
     private static partial Regex PlusHttpRegex();
 
-    [GeneratedRegex(@"@", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"@", RegexOptions.IgnoreCase, 100)]
     private static partial Regex AtSymbolRegex();
 
-    [GeneratedRegex(@"\.com", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"\.com", RegexOptions.IgnoreCase, 100)]
     private static partial Regex DotComRegex();
 
-    [GeneratedRegex(@"\.org", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"\.org", RegexOptions.IgnoreCase, 100)]
     private static partial Regex DotOrgRegex();
 
-    [GeneratedRegex(@"\.net", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"\.net", RegexOptions.IgnoreCase, 100)]
     private static partial Regex DotNetRegex();
 
-    [GeneratedRegex(@"^\w+\/[\d\.]+$", RegexOptions.IgnoreCase | RegexOptions.Compiled, 100)]
+    [GeneratedRegex(@"^\w+\/[\d\.]+$", RegexOptions.IgnoreCase, 100)]
     private static partial Regex SimpleVersionRegex();
 }

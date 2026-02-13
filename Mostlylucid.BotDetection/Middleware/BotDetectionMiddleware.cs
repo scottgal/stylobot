@@ -74,8 +74,7 @@ public class BotDetectionMiddleware(
             ["uptimerobot"] = "UptimeRobot/2.0"
         };
 
-    // Thread-safe random using ThreadLocal to avoid race conditions
-    private static readonly ThreadLocal<Random> Jitter = new(() => new Random(Guid.NewGuid().GetHashCode()));
+    // Random.Shared is thread-safe in .NET 6+
 
     private readonly ILogger<BotDetectionMiddleware> _logger = logger;
     private readonly RequestDelegate _next = next;
@@ -606,7 +605,7 @@ public class BotDetectionMiddleware(
         {
             // Add jitter: ±JitterPercent of base delay
             var jitterRange = baseDelay * (throttleConfig.JitterPercent / 100.0);
-            var jitterValue = (Jitter.Value!.NextDouble() * 2 - 1) * jitterRange;
+            var jitterValue = (Random.Shared.NextDouble() * 2 - 1) * jitterRange;
             delay = Math.Max(1, baseDelay + (int)jitterValue);
         }
 
@@ -632,7 +631,7 @@ public class BotDetectionMiddleware(
             {
                 // Add jitter to response delay too
                 var delayJitter = (int)(responseDelay * (throttleConfig.JitterPercent / 100.0));
-                responseDelay += Jitter.Value!.Next(-delayJitter, delayJitter);
+                responseDelay += Random.Shared.Next(-delayJitter, delayJitter);
                 responseDelay = Math.Max(100, responseDelay);
             }
 
@@ -811,31 +810,6 @@ public class BotDetectionMiddleware(
         }
 
         return false;
-    }
-
-    // Legacy test mode handler for fallback
-    private async Task HandleTestMode(HttpContext context, string testMode)
-    {
-        _logger.LogInformation("Test mode (legacy): Simulating bot detection as '{Mode}'", testMode);
-
-        var testResult = CreateTestResult(testMode);
-        PopulateContextItems(context, testResult);
-
-        // Add test mode headers
-        context.Response.Headers.TryAdd("X-Test-Mode",
-            testMode.Equals("disable", StringComparison.OrdinalIgnoreCase) ? "disabled" : "true");
-
-        if (testResult.IsBot)
-        {
-            context.Response.Headers.TryAdd("X-Bot-Detected", "true");
-            context.Response.Headers.TryAdd("X-Bot-Confidence", testResult.ConfidenceScore.ToString("F2"));
-        }
-
-        _logger.LogInformation(
-            "Test mode result: IsBot={IsBot}, Type={BotType}, Confidence={Confidence:F2}",
-            testResult.IsBot, testResult.BotType, testResult.ConfidenceScore);
-
-        await _next(context);
     }
 
     private static BotDetectionResult CreateTestResult(string testMode)

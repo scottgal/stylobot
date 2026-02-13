@@ -119,14 +119,12 @@ public static class DetectionLedgerExtensions
         Add("Inconsistency", 0.8);
         Add("Heuristic", 2.0);
 
+        // Only include AI in denominator when AI actually ran.
+        // When AI is not configured/enabled, it should not penalize confidence.
         if (aiRan)
         {
             maxScore += 2.5;
             score += 2.5;
-        }
-        else
-        {
-            maxScore += 2.5;
         }
 
         return maxScore == 0 ? 0 : score / maxScore;

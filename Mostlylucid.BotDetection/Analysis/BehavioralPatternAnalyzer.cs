@@ -12,7 +12,7 @@ namespace Mostlylucid.BotDetection.Analysis;
 ///     PRIVACY NOTE: This analyzer uses hashed identities to ensure NO PII (like IP addresses)
 ///     is ever stored directly. All cache keys are derived from XxHash64 signatures.
 /// </summary>
-public class BehavioralPatternAnalyzer
+public partial class BehavioralPatternAnalyzer
 {
     private readonly TimeSpan _analysisWindow;
     private readonly IMemoryCache _cache;
@@ -281,14 +281,10 @@ public class BehavioralPatternAnalyzer
     private static string SimplifyPath(string path)
     {
         // Replace numeric IDs with placeholder
-        var simplified = Regex.Replace(path, @"\d+", "{id}");
+        var simplified = NumericIdRegex().Replace(path, "{id}");
 
         // Replace GUIDs with placeholder
-        simplified = Regex.Replace(
-            simplified,
-            @"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
-            "{guid}",
-            RegexOptions.IgnoreCase);
+        simplified = GuidRegex().Replace(simplified, "{guid}");
 
         return simplified.ToLowerInvariant();
     }
@@ -324,4 +320,10 @@ public class BehavioralPatternAnalyzer
     }
 
     #endregion
+
+    [GeneratedRegex(@"\d+")]
+    private static partial Regex NumericIdRegex();
+
+    [GeneratedRegex(@"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", RegexOptions.IgnoreCase)]
+    private static partial Regex GuidRegex();
 }

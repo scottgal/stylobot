@@ -811,7 +811,7 @@ public class SqliteWeightStore : IWeightStore, IAsyncDisposable, IDisposable
             // Flush any remaining pending writes synchronously
             try
             {
-                FlushPendingWritesAsync(CancellationToken.None).GetAwaiter().GetResult();
+                Task.Run(() => FlushPendingWritesAsync(CancellationToken.None)).GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {

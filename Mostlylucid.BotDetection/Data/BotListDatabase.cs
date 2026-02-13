@@ -144,15 +144,8 @@ public class BotListDatabase : IBotListDatabase, IDisposable
         while (await reader.ReadAsync(cancellationToken))
         {
             var pattern = reader.GetString(0);
-            try
-            {
-                if (Regex.IsMatch(userAgent, pattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)))
-                    return true;
-            }
-            catch (RegexMatchTimeoutException)
-            {
-                _logger.LogWarning("Regex timeout for pattern: {Pattern}", pattern);
-            }
+            if (TryMatchPattern(userAgent, pattern))
+                return true;
         }
 
         return false;
@@ -177,21 +170,14 @@ public class BotListDatabase : IBotListDatabase, IDisposable
         while (await reader.ReadAsync(cancellationToken))
         {
             var pattern = reader.GetString(1);
-            try
-            {
-                if (Regex.IsMatch(userAgent, pattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)))
-                    return new BotInfo
-                    {
-                        Name = reader.GetString(0),
-                        Category = reader.GetString(2),
-                        Url = reader.IsDBNull(3) ? null : reader.GetString(3),
-                        IsVerified = reader.GetInt32(4) == 1
-                    };
-            }
-            catch (RegexMatchTimeoutException)
-            {
-                _logger.LogWarning("Regex timeout for pattern: {Pattern}", pattern);
-            }
+            if (TryMatchPattern(userAgent, pattern))
+                return new BotInfo
+                {
+                    Name = reader.GetString(0),
+                    Category = reader.GetString(2),
+                    Url = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    IsVerified = reader.GetInt32(4) == 1
+                };
         }
 
         return null;
@@ -467,6 +453,19 @@ public class BotListDatabase : IBotListDatabase, IDisposable
     public void Dispose()
     {
         _initLock?.Dispose();
+    }
+
+    private bool TryMatchPattern(string input, string pattern)
+    {
+        try
+        {
+            return Regex.IsMatch(input, pattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            _logger.LogWarning("Regex timeout for pattern: {Pattern}", pattern);
+            return false;
+        }
     }
 
     private static bool IsVerifiedBot(string? name)

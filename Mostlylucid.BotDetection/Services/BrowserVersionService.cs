@@ -33,7 +33,7 @@ public interface IBrowserVersionService
 /// <summary>
 ///     Background service that periodically fetches current browser versions.
 /// </summary>
-public class BrowserVersionService : BackgroundService, IBrowserVersionService
+public partial class BrowserVersionService : BackgroundService, IBrowserVersionService
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<BrowserVersionService> _logger;
@@ -230,27 +230,27 @@ public class BrowserVersionService : BackgroundService, IBrowserVersionService
     private void ExtractAndUpdateVersion(string userAgent)
     {
         // Chrome
-        var chromeMatch = Regex.Match(userAgent, @"Chrome/(\d+)");
+        var chromeMatch = ChromeVersionRegex().Match(userAgent);
         if (chromeMatch.Success && int.TryParse(chromeMatch.Groups[1].Value, out var chromeVer))
             UpdateIfNewer("Chrome", chromeVer);
 
         // Edge
-        var edgeMatch = Regex.Match(userAgent, @"Edg/(\d+)");
+        var edgeMatch = EdgeVersionRegex().Match(userAgent);
         if (edgeMatch.Success && int.TryParse(edgeMatch.Groups[1].Value, out var edgeVer))
             UpdateIfNewer("Edge", edgeVer);
 
         // Firefox
-        var firefoxMatch = Regex.Match(userAgent, @"Firefox/(\d+)");
+        var firefoxMatch = FirefoxVersionRegex().Match(userAgent);
         if (firefoxMatch.Success && int.TryParse(firefoxMatch.Groups[1].Value, out var ffVer))
             UpdateIfNewer("Firefox", ffVer);
 
         // Safari
-        var safariMatch = Regex.Match(userAgent, @"Version/(\d+).*Safari");
+        var safariMatch = SafariVersionRegex().Match(userAgent);
         if (safariMatch.Success && int.TryParse(safariMatch.Groups[1].Value, out var safariVer))
             UpdateIfNewer("Safari", safariVer);
 
         // Opera
-        var operaMatch = Regex.Match(userAgent, @"OPR/(\d+)");
+        var operaMatch = OperaVersionRegex().Match(userAgent);
         if (operaMatch.Success && int.TryParse(operaMatch.Groups[1].Value, out var operaVer))
             UpdateIfNewer("Opera", operaVer);
     }
@@ -277,4 +277,19 @@ public class BrowserVersionService : BackgroundService, IBrowserVersionService
             _ => name
         };
     }
+
+    [GeneratedRegex(@"Chrome/(\d+)")]
+    private static partial Regex ChromeVersionRegex();
+
+    [GeneratedRegex(@"Edg/(\d+)")]
+    private static partial Regex EdgeVersionRegex();
+
+    [GeneratedRegex(@"Firefox/(\d+)")]
+    private static partial Regex FirefoxVersionRegex();
+
+    [GeneratedRegex(@"Version/(\d+).*Safari")]
+    private static partial Regex SafariVersionRegex();
+
+    [GeneratedRegex(@"OPR/(\d+)")]
+    private static partial Regex OperaVersionRegex();
 }

@@ -103,35 +103,35 @@ public partial class VersionAgeDetector : IDetector
     }
 
     // Pre-compiled regex for extracting browser versions from User-Agent
-    [GeneratedRegex(@"Chrome/(\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"Chrome/(\d+)")]
     private static partial Regex ChromeVersionRegex();
 
-    [GeneratedRegex(@"Firefox/(\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"Firefox/(\d+)")]
     private static partial Regex FirefoxVersionRegex();
 
-    [GeneratedRegex(@"Version/(\d+).*Safari", RegexOptions.Compiled)]
+    [GeneratedRegex(@"Version/(\d+).*Safari")]
     private static partial Regex SafariVersionRegex();
 
-    [GeneratedRegex(@"Edg/(\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"Edg/(\d+)")]
     private static partial Regex EdgeVersionRegex();
 
-    [GeneratedRegex(@"OPR/(\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"OPR/(\d+)")]
     private static partial Regex OperaVersionRegex();
 
-    [GeneratedRegex(@"Brave/(\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"Brave/(\d+)")]
     private static partial Regex BraveVersionRegex();
 
     // OS extraction patterns
-    [GeneratedRegex(@"Windows NT (\d+\.\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"Windows NT (\d+\.\d+)")]
     private static partial Regex WindowsVersionRegex();
 
-    [GeneratedRegex(@"Mac OS X (\d+[_\.]\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"Mac OS X (\d+[_\.]\d+)")]
     private static partial Regex MacOsVersionRegex();
 
-    [GeneratedRegex(@"Android (\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"Android (\d+)")]
     private static partial Regex AndroidVersionRegex();
 
-    [GeneratedRegex(@"iPhone OS (\d+)|iPad.*OS (\d+)", RegexOptions.Compiled)]
+    [GeneratedRegex(@"iPhone OS (\d+)|iPad.*OS (\d+)")]
     private static partial Regex IosVersionRegex();
 
     private async Task CheckBrowserVersionAge(string browserName, int browserVersion, DetectorResult result,

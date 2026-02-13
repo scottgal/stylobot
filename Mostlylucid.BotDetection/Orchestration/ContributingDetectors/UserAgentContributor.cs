@@ -17,8 +17,9 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     Configuration loaded from: useragent.detector.yaml
 ///     Override via: appsettings.json → BotDetection:Detectors:UserAgentContributor:*
 /// </summary>
-public class UserAgentContributor : ConfiguredContributorBase
+public partial class UserAgentContributor : ConfiguredContributorBase
 {
+
     private readonly ILogger<UserAgentContributor> _logger;
     private readonly BotDetectionOptions _options;
     private readonly ICompiledPatternCache? _patternCache;
@@ -198,14 +199,14 @@ public class UserAgentContributor : ConfiguredContributorBase
         }
 
         // Contains "bot" or "crawler" but not whitelisted
-        if (Regex.IsMatch(userAgent, @"\b(bot|crawler|spider|scraper)\b", RegexOptions.IgnoreCase))
+        if (BotKeywordRegex().IsMatch(userAgent))
         {
             reason = "Contains bot/crawler keyword";
             return true;
         }
 
         // Empty version numbers (common in simple bots)
-        if (Regex.IsMatch(userAgent, @"Mozilla/\d+\.\d+\s*$"))
+        if (BareMozillaRegex().IsMatch(userAgent))
         {
             reason = "Bare Mozilla version without details";
             return true;
@@ -214,6 +215,15 @@ public class UserAgentContributor : ConfiguredContributorBase
         reason = string.Empty;
         return false;
     }
+
+    [GeneratedRegex(@"\b(bot|crawler|spider|scraper)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex BotKeywordRegex();
+
+    [GeneratedRegex(@"Mozilla/\d+\.\d+\s*$")]
+    private static partial Regex BareMozillaRegex();
+
+    [GeneratedRegex(@"Chrome/(\d+)")]
+    private static partial Regex ChromeVersionRegex();
 }
 
 /// <summary>
@@ -223,8 +233,9 @@ public class UserAgentContributor : ConfiguredContributorBase
 ///     Configuration loaded from: inconsistency.detector.yaml
 ///     Override via: appsettings.json → BotDetection:Detectors:InconsistencyContributor:*
 /// </summary>
-public class InconsistencyContributor : ConfiguredContributorBase
+public partial class InconsistencyContributor : ConfiguredContributorBase
 {
+
     private readonly ILogger<InconsistencyContributor> _logger;
 
     public InconsistencyContributor(
@@ -320,12 +331,15 @@ public class InconsistencyContributor : ConfiguredContributorBase
     private bool IsOutdatedBrowser(string userAgent)
     {
         // Check for very old Chrome versions - threshold from YAML
-        var chromeMatch = Regex.Match(userAgent, @"Chrome/(\d+)");
+        var chromeMatch = InconsistencyChromeVersionRegex().Match(userAgent);
         if (chromeMatch.Success && int.TryParse(chromeMatch.Groups[1].Value, out var version))
             return version < MinChromeVersion;
 
         return false;
     }
+
+    [GeneratedRegex(@"Chrome/(\d+)")]
+    private static partial Regex InconsistencyChromeVersionRegex();
 }
 
 /// <summary>

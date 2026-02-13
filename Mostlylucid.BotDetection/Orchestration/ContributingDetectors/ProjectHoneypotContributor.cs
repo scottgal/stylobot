@@ -23,6 +23,10 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
     // Cache for DNS lookups to avoid repeated queries
     private static readonly ConcurrentDictionary<string, (HoneypotResult Result, DateTime Expires)> _cache = new();
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(30);
+    private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(5);
+    private const int MaxCacheSize = 10_000;
+    private static DateTime _lastCleanup = DateTime.UtcNow;
+    private static readonly object _cleanupLock = new();
     private readonly ILogger<ProjectHoneypotContributor> _logger;
     private readonly BotDetectionOptions _options;
 
@@ -174,7 +178,19 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
     private async Task<HoneypotResult?> LookupIpAsync(string ip, CancellationToken cancellationToken)
     {
         // Check cache first
-        if (_cache.TryGetValue(ip, out var cached) && cached.Expires > DateTime.UtcNow) return cached.Result;
+        if (_cache.TryGetValue(ip, out var cached))
+        {
+            if (cached.Expires > DateTime.UtcNow)
+            {
+                CleanupExpiredEntries();
+                return cached.Result;
+            }
+
+            // Remove the stale entry instead of just ignoring it
+            _cache.TryRemove(ip, out _);
+        }
+
+        CleanupExpiredEntries();
 
         // Build DNS query: [key].[reversed-ip].dnsbl.httpbl.org
         var parts = ip.Split('.');
@@ -222,6 +238,44 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
             // NXDOMAIN means IP is not in the database
             _cache[ip] = (new HoneypotResult { IsListed = false }, DateTime.UtcNow.Add(CacheDuration));
             return null;
+        }
+    }
+
+    /// <summary>
+    ///     Periodically removes expired entries from the static cache.
+    ///     Runs at most once every <see cref="CleanupInterval"/> (5 minutes).
+    ///     Forces an immediate full sweep if the cache exceeds <see cref="MaxCacheSize"/>.
+    /// </summary>
+    private static void CleanupExpiredEntries()
+    {
+        var now = DateTime.UtcNow;
+        var forceCleanup = _cache.Count > MaxCacheSize;
+
+        if (!forceCleanup && now - _lastCleanup < CleanupInterval)
+            return;
+
+        // Use a lock to prevent multiple threads from running cleanup concurrently.
+        // The lock is non-blocking: if another thread is already cleaning, we skip.
+        if (!Monitor.TryEnter(_cleanupLock))
+            return;
+
+        try
+        {
+            // Double-check after acquiring the lock (another thread may have just finished)
+            if (!forceCleanup && now - _lastCleanup < CleanupInterval)
+                return;
+
+            foreach (var kvp in _cache)
+            {
+                if (kvp.Value.Expires <= now)
+                    _cache.TryRemove(kvp.Key, out _);
+            }
+
+            _lastCleanup = now;
+        }
+        finally
+        {
+            Monitor.Exit(_cleanupLock);
         }
     }
 

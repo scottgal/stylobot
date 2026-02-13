@@ -20,7 +20,7 @@ namespace Mostlylucid.BotDetection.Detectors;
 ///     Uses a small language model (default: gemma3:1b) to analyze request patterns.
 ///     Prompt is optimized for minimal context usage (~500 tokens).
 /// </summary>
-public class LlmDetector : IDetector, IDisposable
+public partial class LlmDetector : IDetector, IDisposable
 {
     private static readonly TimeSpan ContextLengthCacheDuration = TimeSpan.FromHours(1);
     private readonly SemaphoreSlim _fileLock = new(1, 1);
@@ -159,7 +159,7 @@ public class LlmDetector : IDetector, IDisposable
             var json = await response.Content.ReadAsStringAsync(ct);
             // Look for num_ctx in modelfile or parameters
             // Format: "PARAMETER num_ctx 4096" or "num_ctx": 4096
-            var numCtxMatch = Regex.Match(json, @"num_ctx["":\s]+(\d+)");
+            var numCtxMatch = NumCtxRegex().Match(json);
             if (numCtxMatch.Success && int.TryParse(numCtxMatch.Groups[1].Value, out var ctx))
             {
                 _modelContextLength = ctx;
@@ -441,10 +441,7 @@ public class LlmDetector : IDetector, IDisposable
     private static LlmAnalysis? TryExtractPartialJson(string text)
     {
         // Look for isBot value with regex
-        var isBotMatch = Regex.Match(
-            text,
-            @"""?is_?bot""?\s*:\s*(true|false|""?(\d+)""?)",
-            RegexOptions.IgnoreCase);
+        var isBotMatch = IsBotRegex().Match(text);
 
         if (!isBotMatch.Success)
             return null;
@@ -457,20 +454,14 @@ public class LlmDetector : IDetector, IDisposable
             isBot = isBotMatch.Groups[1].Value.Equals("true", StringComparison.OrdinalIgnoreCase);
 
         // Try to extract confidence
-        var confidenceMatch = Regex.Match(
-            text,
-            @"""?confidence""?\s*:\s*""?(\d+\.?\d*)""?",
-            RegexOptions.IgnoreCase);
+        var confidenceMatch = ConfidenceRegex().Match(text);
 
         var confidence = isBot ? 0.7 : 0.3; // Default if not found
         if (confidenceMatch.Success && double.TryParse(confidenceMatch.Groups[1].Value, out var parsedConf))
             confidence = parsedConf > 1 ? parsedConf / 100.0 : parsedConf; // Handle percentage vs decimal
 
         // Try to extract reasoning
-        var reasoningMatch = Regex.Match(
-            text,
-            @"""?reasoning""?\s*:\s*""([^""]+)",
-            RegexOptions.IgnoreCase);
+        var reasoningMatch = ReasoningRegex().Match(text);
 
         var reasoning = reasoningMatch.Success
             ? reasoningMatch.Groups[1].Value + " (partial response)"
@@ -604,6 +595,18 @@ public class LlmDetector : IDetector, IDisposable
         public string? BotType { get; set; }
         public string? Pattern { get; set; }
     }
+
+    [GeneratedRegex(@"num_ctx["":\s]+(\d+)")]
+    private static partial Regex NumCtxRegex();
+
+    [GeneratedRegex(@"""?is_?bot""?\s*:\s*(true|false|""?(\d+)""?)", RegexOptions.IgnoreCase)]
+    private static partial Regex IsBotRegex();
+
+    [GeneratedRegex(@"""?confidence""?\s*:\s*""?(\d+\.?\d*)""?", RegexOptions.IgnoreCase)]
+    private static partial Regex ConfidenceRegex();
+
+    [GeneratedRegex(@"""?reasoning""?\s*:\s*""([^""]+)", RegexOptions.IgnoreCase)]
+    private static partial Regex ReasoningRegex();
 }
 
 /// <summary>

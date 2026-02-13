@@ -367,11 +367,23 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
                 isDirty = _dirty;
 
             if (isDirty)
-                SaveAsync().GetAwaiter().GetResult();
+                _ = SaveSafeAsync();
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Auto-save of HNSW index failed");
+        }
+    }
+
+    private async Task SaveSafeAsync()
+    {
+        try
+        {
+            await SaveAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Async auto-save of HNSW index failed");
         }
     }
 }

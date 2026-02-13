@@ -26,8 +26,9 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     Configuration loaded from: reputation.detector.yaml
 ///     Override via: appsettings.json → BotDetection:Detectors:ReputationBiasContributor:*
 /// </summary>
-public class ReputationBiasContributor : ConfiguredContributorBase
+public partial class ReputationBiasContributor : ConfiguredContributorBase
 {
+
     private readonly ILogger<ReputationBiasContributor> _logger;
     private readonly IPatternReputationCache _reputationCache;
 
@@ -346,16 +347,10 @@ public class ReputationBiasContributor : ConfiguredContributorBase
         var normalized = path.ToLowerInvariant();
 
         // Replace GUIDs
-        normalized = Regex.Replace(
-            normalized,
-            @"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
-            "{guid}");
+        normalized = GuidRegex().Replace(normalized, "{guid}");
 
         // Replace numeric IDs
-        normalized = Regex.Replace(
-            normalized,
-            @"/\d+(/|$)",
-            "/{id}$1");
+        normalized = NumericIdRegex().Replace(normalized, "/{id}$1");
 
         return normalized;
     }
@@ -368,4 +363,10 @@ public class ReputationBiasContributor : ConfiguredContributorBase
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
         return Convert.ToHexString(bytes)[..16].ToLowerInvariant();
     }
+
+    [GeneratedRegex(@"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")]
+    private static partial Regex GuidRegex();
+
+    [GeneratedRegex(@"/\d+(/|$)")]
+    private static partial Regex NumericIdRegex();
 }

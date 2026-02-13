@@ -79,7 +79,7 @@ public class SecurityToolPattern
 ///     Fetches bot lists from configurable authoritative sources with caching.
 ///     Fail-safe design: failures are logged but never crash the app.
 /// </summary>
-public class BotListFetcher : IBotListFetcher
+public partial class BotListFetcher : IBotListFetcher
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -735,7 +735,7 @@ public class BotListFetcher : IBotListFetcher
 
         // Check for potentially dangerous patterns (excessive nested quantifiers)
         // These can cause catastrophic backtracking (ReDoS)
-        if (Regex.IsMatch(pattern, @"\(\??\+\+|\*\+|\{\d+,\}\+"))
+        if (DangerousQuantifierRegex().IsMatch(pattern))
         {
             _logger.LogDebug("Rejected pattern with nested possessive quantifiers: {Pattern}", pattern);
             return false;
@@ -848,6 +848,9 @@ public class BotListFetcher : IBotListFetcher
             new() { Pattern = "hydra", Name = "Hydra", Category = "CredentialAttack", Source = "fallback" }
         };
     }
+
+    [GeneratedRegex(@"\(\??\+\+|\*\+|\{\d+,\}\+")]
+    private static partial Regex DangerousQuantifierRegex();
 
     // ==========================================
     // JSON models for parsing API responses

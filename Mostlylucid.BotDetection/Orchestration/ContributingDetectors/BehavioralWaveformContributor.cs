@@ -24,7 +24,7 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     - waveform.timing_regularity_score
 ///     - waveform.burst_detection
 /// </summary>
-public class BehavioralWaveformContributor : ContributingDetectorBase
+public partial class BehavioralWaveformContributor : ContributingDetectorBase
 {
     // Cache request history per signature for waveform analysis
     private const string CacheKeyPrefix = "waveform:";
@@ -360,8 +360,7 @@ public class BehavioralWaveformContributor : ContributingDetectorBase
     {
         if (paths.Count < 3) return false;
 
-        var numberPattern = new Regex(@"\d+");
-        var numbers = paths.Select(p => numberPattern.Match(p))
+        var numbers = paths.Select(p => NumberPattern().Match(p))
             .Where(m => m.Success)
             .Select(m => int.Parse(m.Value))
             .ToList();
@@ -418,4 +417,7 @@ public class BehavioralWaveformContributor : ContributingDetectorBase
         public string UserAgent { get; init; } = string.Empty;
         public string RefererHash { get; init; } = string.Empty;
     }
+
+    [GeneratedRegex(@"\d+")]
+    private static partial Regex NumberPattern();
 }
