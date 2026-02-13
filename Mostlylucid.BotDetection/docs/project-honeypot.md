@@ -266,7 +266,7 @@ Use the demo application's honeypot buttons:
 
 ```bash
 dotnet run --project Mostlylucid.BotDetection.Demo
-# Visit http://localhost:5000/bot-test
+# Visit http://localhost:5080/bot-test
 # Click "Honeypot: Harvester", "Honeypot: Spammer", or "Honeypot: Suspicious"
 ```
 
@@ -274,15 +274,15 @@ dotnet run --project Mostlylucid.BotDetection.Demo
 
 ```bash
 # Test harvester simulation
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "ml-bot-test-mode: honeypot-harvester"
 
 # Test spammer simulation
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "ml-bot-test-mode: honeypot-spammer"
 
 # Test suspicious simulation
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "ml-bot-test-mode: honeypot-suspicious"
 ```
 

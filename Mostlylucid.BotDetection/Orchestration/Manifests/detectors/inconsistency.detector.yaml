@@ -98,14 +98,14 @@ defaults:
   weights:
     base: 1.0           # Base contribution weight
     bot_signal: 1.5     # High weight - inconsistencies are strong signals
-    human_signal: 0.8   # Weight for consistent behavior
+    human_signal: 1.2   # Weight for consistent behavior (stronger to balance bot asymmetry)
     verified: 2.0       # Weight for verified mismatches
     early_exit: 0.0     # Does not trigger early exit alone
 
   confidence:
     neutral: 0.0        # No inconsistencies detected
     bot_detected: 0.4   # Single inconsistency detected
-    human_indicated: -0.05  # All signals consistent
+    human_indicated: -0.20  # All signals consistent (stronger human signal)
     strong_signal: 0.7  # Multiple inconsistencies
     high_threshold: 0.6 # Threshold for "likely bot"
     low_threshold: 0.2  # Threshold for "probably human"

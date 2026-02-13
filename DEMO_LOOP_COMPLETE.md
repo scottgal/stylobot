@@ -53,11 +53,11 @@ Added:
 # Terminal 1: Start backend
 cd Mostlylucid.BotDetection.Demo
 dotnet run
-# Listening on http://localhost:5000
+# Listening on http://localhost:5080
 
 # Terminal 2: Start gateway
 cd Mostlylucid.BotDetection.Console
-dotnet run -- --upstream http://localhost:5000 --port 5100 --mode demo
+dotnet run -- --upstream http://localhost:5080 --port 5100 --mode demo
 # Listening on http://localhost:5100
 
 # Browser: Open demo page
@@ -103,7 +103,7 @@ This script:
    - Analyzes request (zero-PII)
    - Writes results to blackboard (SignalSink)
    - Serializes results to `X-Bot-Detection-*` headers
-3. **YARP** forwards request + headers to backend (port 5000)
+3. **YARP** forwards request + headers to backend (port 5080)
 4. **Backend** receives request with headers
    - ViewComponent reads headers
    - Displays results on page

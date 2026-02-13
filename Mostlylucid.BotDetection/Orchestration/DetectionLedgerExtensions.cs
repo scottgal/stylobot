@@ -22,10 +22,12 @@ public static class DetectionLedgerExtensions
         var botProbability = ledger.BotProbability;
         var confidence = ledger.Confidence;
 
-        // Clamp probability when AI hasn't run
+        // Clamp probability when AI hasn't run.
+        // Floor of 0.05 allows strong human evidence to express near-zero scores;
+        // ceiling of 0.80 prevents high-confidence bot verdicts without AI confirmation.
         if (!aiRan)
         {
-            botProbability = Math.Clamp(botProbability, 0.20, 0.80);
+            botProbability = Math.Clamp(botProbability, 0.05, 0.80);
         }
 
         // Compute coverage-based confidence
@@ -147,7 +149,8 @@ public static class DetectionLedgerExtensions
 
         return botProbability switch
         {
-            < 0.25 => RiskBand.Low,
+            < 0.15 => RiskBand.VeryLow,
+            < 0.35 => RiskBand.Low,
             < 0.55 => RiskBand.Medium,
             < 0.75 => RiskBand.High,
             _ => RiskBand.VeryHigh

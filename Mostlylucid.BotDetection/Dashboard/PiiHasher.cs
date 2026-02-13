@@ -162,6 +162,8 @@ public sealed class PiiHasher
     ///     Enables correlation within a time window, but not across periods.
     ///     Example: Daily rotation prevents long-term tracking even with master key.
     /// </summary>
+    private static readonly byte[] HkdfSalt = "stylobot-hkdf-salt-v1"u8.ToArray();
+
     public static PiiHasher WithDailyRotation(byte[] masterKey, DateTime date)
     {
         var info = $"stylobot:pii:v1:{date:yyyy-MM-dd}";
@@ -170,7 +172,7 @@ public sealed class PiiHasher
             masterKey,
             32,
             info: Encoding.UTF8.GetBytes(info),
-            salt: null);
+            salt: HkdfSalt);
 
         return new PiiHasher(dailyKey);
     }
@@ -187,7 +189,7 @@ public sealed class PiiHasher
             masterKey,
             32,
             info: Encoding.UTF8.GetBytes(info),
-            salt: null);
+            salt: HkdfSalt);
 
         return new PiiHasher(tenantKey);
     }

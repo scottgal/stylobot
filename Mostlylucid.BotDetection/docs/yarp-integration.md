@@ -122,12 +122,12 @@ app.Run();
     "Clusters": {
       "api-cluster": {
         "Destinations": {
-          "api-server": { "Address": "http://api-backend:5000" }
+          "api-server": { "Address": "http://api-backend:8080" }
         }
       },
       "crawler-cluster": {
         "Destinations": {
-          "crawler-server": { "Address": "http://crawler-backend:5000" }
+          "crawler-server": { "Address": "http://crawler-backend:8080" }
         }
       }
     }

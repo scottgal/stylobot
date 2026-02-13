@@ -6,7 +6,7 @@
 .DESCRIPTION
     This script:
     1. Starts the test site (localhost:7240)
-    2. Starts the gateway (localhost:5000)
+    2. Starts the gateway (localhost:5080)
     3. Converts signatures to k6 script
     4. Runs the load test
     5. Cleans up when done
@@ -97,18 +97,18 @@ try {
     }
 
     # Step 2: Start gateway
-    Write-Host "[2/5] Starting gateway on http://localhost:5000..." -ForegroundColor Yellow
+    Write-Host "[2/5] Starting gateway on http://localhost:5080..." -ForegroundColor Yellow
     $gatewayJob = Start-Job -ScriptBlock {
         Set-Location $using:PWD
         Set-Location Mostlylucid.BotDetection.Console
-        dotnet run -- --mode $using:Mode --upstream http://localhost:7240 --port 5000
+        dotnet run -- --mode $using:Mode --upstream http://localhost:7240 --port 5080
     }
     $jobs += $gatewayJob
     Start-Sleep -Seconds 5
 
     # Check if gateway started
     try {
-        $response = Invoke-WebRequest -Uri "http://localhost:5000/health" -TimeoutSec 2 -ErrorAction Stop
+        $response = Invoke-WebRequest -Uri "http://localhost:5080/health" -TimeoutSec 2 -ErrorAction Stop
         Write-Host "  ✓ Gateway running" -ForegroundColor Green
     } catch {
         Write-Error "Gateway failed to start. Check console app."

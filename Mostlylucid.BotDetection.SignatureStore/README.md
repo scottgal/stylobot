@@ -118,7 +118,7 @@ Get recent signatures ordered by timestamp.
 
 **Example:**
 ```bash
-curl http://localhost:5000/api/signatures/recent?count=50
+curl http://localhost:5080/api/signatures/recent?count=50
 ```
 
 ### GET /api/signatures/top
@@ -129,7 +129,7 @@ Get top signatures ordered by bot probability.
 
 **Example:**
 ```bash
-curl http://localhost:5000/api/signatures/top?count=100
+curl http://localhost:5080/api/signatures/top?count=100
 ```
 
 ### GET /api/signatures/{id}
@@ -137,7 +137,7 @@ Get a single signature by ID (includes full JSON).
 
 **Example:**
 ```bash
-curl http://localhost:5000/api/signatures/sig_abc123
+curl http://localhost:5080/api/signatures/sig_abc123
 ```
 
 ### GET /api/signatures/stats
@@ -145,7 +145,7 @@ Get signature statistics (count by risk band, averages, etc.)
 
 **Example:**
 ```bash
-curl http://localhost:5000/api/signatures/stats
+curl http://localhost:5080/api/signatures/stats
 ```
 
 ### GET /api/signatures/filter
@@ -160,13 +160,13 @@ Filter signatures by signal path and optional value.
 **Examples:**
 ```bash
 # Find all signatures with headless browser detection
-curl "http://localhost:5000/api/signatures/filter?signalPath=signals.ua.headless_detected&signalValue=true"
+curl "http://localhost:5080/api/signatures/filter?signalPath=signals.ua.headless_detected&signalValue=true"
 
 # Find all datacenter IPs
-curl "http://localhost:5000/api/signatures/filter?signalPath=signals.ip.datacenter"
+curl "http://localhost:5080/api/signatures/filter?signalPath=signals.ip.datacenter"
 
 # Find signatures with high UA bot probability
-curl "http://localhost:5000/api/signatures/filter?signalPath=signals.ua.bot_probability&signalValue=0.9"
+curl "http://localhost:5080/api/signatures/filter?signalPath=signals.ua.bot_probability&signalValue=0.9"
 ```
 
 ### GET /api/signatures/by-risk-band/{riskBand}
@@ -178,7 +178,7 @@ Get signatures by risk band (VeryLow, Low, Elevated, Medium, High, VeryHigh).
 
 **Example:**
 ```bash
-curl http://localhost:5000/api/signatures/by-risk-band/VeryHigh?count=50
+curl http://localhost:5080/api/signatures/by-risk-band/VeryHigh?count=50
 ```
 
 ## SignalR Hub Methods

@@ -34,7 +34,7 @@ const puppeteer = require('puppeteer');
 
   try {
     console.log('\n=== Step 1: Navigate to bot-test page ===');
-    await page.goto('http://localhost:5000/bot-test', {
+    await page.goto('http://localhost:5080/bot-test', {
       waitUntil: 'networkidle2',
       timeout: 10000
     });

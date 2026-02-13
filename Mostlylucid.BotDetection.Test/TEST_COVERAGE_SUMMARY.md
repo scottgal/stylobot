@@ -238,7 +238,7 @@ Tests for security scanner detection:
 ### To Fix Failing Tests
 
 1. **Learning Feedback Loop**: Investigate why WeightStore is not persisting observations
-2. **Integration Tests**: Run with demo server running on localhost:5000
+2. **Integration Tests**: Run with demo server running on localhost:5080
 
 ### Future Test Coverage
 

@@ -114,7 +114,7 @@ defaults:
   confidence:
     neutral: 0.0        # No reputation data
     bot_detected: 0.3   # Suspect pattern match
-    human_indicated: -0.2  # Neutral/good pattern match
+    human_indicated: -0.35  # Neutral/good pattern match (stronger human signal)
     strong_signal: 0.5  # High-support pattern match
     high_threshold: 0.6 # Threshold for strong bias
     low_threshold: 0.2  # Threshold for weak bias

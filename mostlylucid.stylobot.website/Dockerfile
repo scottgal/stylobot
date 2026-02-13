@@ -4,8 +4,8 @@ WORKDIR /app
 EXPOSE 8080
 EXPOSE 8443
 
-# Create data directory for bot detection storage
-RUN mkdir -p /app/data && chmod 777 /app/data
+# Install curl for healthchecks
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 # Build image with SDK
 FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
@@ -48,8 +48,20 @@ RUN dotnet publish "Stylobot.Website.csproj" -c $BUILD_CONFIGURATION -o /app/pub
 
 # Final runtime image
 FROM base AS final
+
+# Create non-root user for security
+RUN groupadd -g 1000 website && \
+    useradd -u 1000 -g website -s /bin/bash -M website
+
 WORKDIR /app
 COPY --from=publish /app/publish .
+
+# Create data directory with correct permissions
+RUN mkdir -p /app/data /app/logs && \
+    chown -R website:website /app
+
+# Switch to non-root user
+USER website
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

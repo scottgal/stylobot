@@ -49,11 +49,13 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
         BlackboardState state,
         CancellationToken cancellationToken = default)
     {
-        // Check for test mode simulation via User-Agent
-        // Read directly from request headers since this may run before UserAgentContributor sets the signal
-        var userAgent = state.HttpContext?.Request.Headers["User-Agent"].FirstOrDefault() ?? "";
-        var testResult = CheckTestModeSimulation(userAgent);
-        if (testResult != null) return testResult;
+        // Check for test mode simulation via User-Agent (only when test mode is enabled)
+        if (_options.EnableTestMode)
+        {
+            var userAgent = state.HttpContext?.Request.Headers["User-Agent"].FirstOrDefault() ?? "";
+            var testResult = CheckTestModeSimulation(userAgent);
+            if (testResult != null) return testResult;
+        }
 
         // Check if Project Honeypot is enabled and configured
         if (!_options.ProjectHoneypot.Enabled ||
@@ -78,7 +80,7 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
         // Only IPv4 is supported by HTTP:BL
         if (ipAddress.AddressFamily != AddressFamily.InterNetwork)
         {
-            _logger.LogDebug("Skipping Project Honeypot lookup for IPv6 address: {Ip}", clientIp);
+            _logger.LogDebug("Skipping Project Honeypot lookup for IPv6 address: {Ip}", MaskIp(clientIp));
             return None();
         }
 
@@ -113,7 +115,7 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
             // Search engines get a pass (type 0)
             if (result.VisitorType == HoneypotVisitorType.SearchEngine)
             {
-                _logger.LogDebug("IP {Ip} identified as search engine by Project Honeypot", clientIp);
+                _logger.LogDebug("IP {Ip} identified as search engine by Project Honeypot", MaskIp(clientIp));
                 contributions.Add(DetectionContribution.VerifiedGoodBot(
                         Name,
                         "IP verified as search engine by Project Honeypot",
@@ -132,7 +134,7 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
 
             _logger.LogWarning(
                 "IP {Ip} listed in Project Honeypot: Type={Type}, ThreatScore={Score}, DaysAgo={Days}",
-                clientIp, result.VisitorType, result.ThreatScore, result.DaysSinceLastActivity);
+                MaskIp(clientIp), result.VisitorType, result.ThreatScore, result.DaysSinceLastActivity);
 
             // High threat scores trigger early exit
             if (result.ThreatScore >= _options.ProjectHoneypot.HighThreatThreshold)
@@ -409,6 +411,14 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
                 });
 
         return contributions;
+    }
+
+    private static string MaskIp(string ip)
+    {
+        var parts = ip.Split('.');
+        if (parts.Length == 4)
+            return $"{parts[0]}.{parts[1]}.{parts[2]}.xxx";
+        return ip.Length > 10 ? ip[..10] + "..." : ip;
     }
 }
 

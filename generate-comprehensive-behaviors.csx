@@ -251,7 +251,7 @@ Each scenario file (e.g., `natural-browsing.json`, `rapid-scraper.json`) contain
 
 Use `stylobot.bdfreplay.cli` to replay these signatures:
 ```
-stylobot.bdfreplay.cli --signature natural-browsing.json --target http://localhost:5000
+stylobot.bdfreplay.cli --signature natural-browsing.json --target http://localhost:5080
 ```
 
 ## License
@@ -359,7 +359,7 @@ Console.WriteLine($"📊 Categories covered: {behaviorCategories.Count}");
 Console.WriteLine($"🎭 Scenarios per category: {scenariosPerCategory} human + {scenariosPerCategory} bot");
 Console.WriteLine();
 Console.WriteLine("Use these signatures for training and testing:");
-Console.WriteLine("  stylobot.bdfreplay.cli --signature <scenario-name>.json --target http://localhost:5000");
+Console.WriteLine("  stylobot.bdfreplay.cli --signature <scenario-name>.json --target http://localhost:5080");
 Console.WriteLine("=".PadRight(80, '='));
 
 async Task<string> GenerateScenario(OllamaApiClient client, string category, string[] signals, bool isBot)

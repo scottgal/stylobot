@@ -166,14 +166,14 @@ jobs:
         ------------
 
         # Demo mode (verbose logging)
-        ./minigw${{ matrix.file-ext }} --upstream http://localhost:8080 --port 5000 --mode demo
+        ./minigw${{ matrix.file-ext }} --upstream http://localhost:8080 --port 5080 --mode demo
 
         # Production mode (structured logging, blocking)
         ./minigw${{ matrix.file-ext }} --upstream http://backend:8080 --port 80 --mode production
 
         # Using environment variables
         export UPSTREAM=http://backend:8080
-        export PORT=5000
+        export PORT=5080
         export MODE=production
         ./minigw${{ matrix.file-ext }}
 
@@ -283,10 +283,10 @@ jobs:
         ```bash
         # Linux/macOS - make executable first
         chmod +x minigw
-        ./minigw --upstream http://localhost:8080 --port 5000
+        ./minigw --upstream http://localhost:8080 --port 5080
 
         # Windows
-        minigw.exe --upstream http://localhost:8080 --port 5000
+        minigw.exe --upstream http://localhost:8080 --port 5080
         ```
 
         ### Features
@@ -309,12 +309,12 @@ jobs:
         ```bash
         # Command-line arguments
         --upstream <url>    # Upstream backend URL (default: http://localhost:8080)
-        --port <port>       # Listen port (default: 5000)
+        --port <port>       # Listen port (default: 5080)
         --mode <mode>       # demo or production (default: demo)
 
         # Environment variables
         export UPSTREAM=http://backend:8080
-        export PORT=5000
+        export PORT=5080
         export MODE=production
         ./minigw
         ```
@@ -324,7 +324,7 @@ jobs:
         See the complete YARP → Backend demo:
 
         1. Start backend: `cd demo && dotnet run`
-        2. Start gateway: `./minigw --upstream http://localhost:5000 --port 5100 --mode demo`
+        2. Start gateway: `./minigw --upstream http://localhost:5080 --port 5100 --mode demo`
         3. Open: `http://localhost:5100/YarpProxyDemo`
 
         ### Documentation
@@ -349,7 +349,7 @@ jobs:
         cat SHA256SUMS.txt
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
       with:
         name: Console Gateway v${{ steps.get_version.outputs.VERSION }}
         tag_name: ${{ steps.get_version.outputs.TAG_NAME }}

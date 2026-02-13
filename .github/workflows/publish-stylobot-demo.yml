@@ -121,13 +121,13 @@ jobs:
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "# Pull and run" >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "docker run -p 5000:5000 ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -p 5080:5080 ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Or use docker-compose" >> $GITHUB_STEP_SUMMARY
           echo "docker-compose up -d" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Access" >> $GITHUB_STEP_SUMMARY
-          echo "- Demo UI: http://localhost:5000" >> $GITHUB_STEP_SUMMARY
-          echo "- Bot Test: http://localhost:5000/bot-test" >> $GITHUB_STEP_SUMMARY
-          echo "- Health: http://localhost:5000/health" >> $GITHUB_STEP_SUMMARY
+          echo "- Demo UI: http://localhost:5080" >> $GITHUB_STEP_SUMMARY
+          echo "- Bot Test: http://localhost:5080/bot-test" >> $GITHUB_STEP_SUMMARY
+          echo "- Health: http://localhost:5080/health" >> $GITHUB_STEP_SUMMARY

@@ -101,14 +101,14 @@ defaults:
   weights:
     base: 1.0           # Base contribution weight
     bot_signal: 1.2     # Version age is a strong signal
-    human_signal: 0.8   # Weight for current versions
+    human_signal: 1.0   # Weight for current versions (balanced with bot signal)
     verified: 1.5       # Weight for impossible version combos
     early_exit: 0.0     # Does not trigger early exit alone
 
   confidence:
     neutral: 0.0        # Versions appear current
     bot_detected: 0.25  # Outdated versions
-    human_indicated: -0.05  # Very current versions
+    human_indicated: -0.15  # Very current versions (stronger human signal)
     strong_signal: 0.6  # Impossible version combination
     high_threshold: 0.5 # Threshold for "likely bot"
     low_threshold: 0.15 # Threshold for "probably human"

@@ -114,7 +114,7 @@ defaults:
   confidence:
     neutral: 0.0        # TLS appears normal
     bot_detected: 0.4   # Bot-like TLS fingerprint
-    human_indicated: -0.15  # Known browser fingerprint
+    human_indicated: -0.30  # Known browser fingerprint (strong human signal)
     strong_signal: 0.85 # Known bot fingerprint match
     high_threshold: 0.8 # Threshold for "definitely bot"
     low_threshold: 0.2  # Threshold for "definitely browser"

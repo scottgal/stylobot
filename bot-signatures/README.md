@@ -22,7 +22,7 @@ Each scenario file (e.g., `natural-browsing.json`, `rapid-scraper.json`) contain
 
 Use `stylobot.bdfreplay.cli` to replay these signatures:
 ```
-stylobot.bdfreplay.cli --signature natural-browsing.json --target http://localhost:5000
+stylobot.bdfreplay.cli --signature natural-browsing.json --target http://localhost:5080
 ```
 
 ## License

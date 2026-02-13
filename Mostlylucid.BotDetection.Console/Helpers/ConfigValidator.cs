@@ -34,9 +34,9 @@ public static class ConfigValidator
 
             Log.Warning("   Demo mode: Continuing with default key (NOT SECURE FOR PRODUCTION)");
         }
-        else if (config.SignatureHashKey.Length < 16)
+        else if (config.SignatureHashKey.Length < 32)
         {
-            Log.Warning("⚠️  SHORT HMAC KEY DETECTED - Key should be at least 32 characters");
+            Log.Warning("⚠️  SHORT HMAC KEY DETECTED - Key should be at least 32 characters for HMAC-SHA256");
             Log.Warning("   Generate a secure key with: openssl rand -base64 32");
         }
         else

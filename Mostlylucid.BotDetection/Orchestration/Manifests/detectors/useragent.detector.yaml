@@ -105,14 +105,14 @@ defaults:
   weights:
     base: 1.0           # Base contribution weight
     bot_signal: 1.5     # Weight when bot pattern detected
-    human_signal: 0.8   # Weight for human indicators
+    human_signal: 1.3   # Weight for human indicators (stronger to balance bot asymmetry)
     verified: 2.0       # Weight for verified bot patterns (Googlebot, etc.)
     early_exit: 3.0     # Weight for early-exit triggering patterns
 
   confidence:
     neutral: 0.0        # No signal detected
     bot_detected: 0.3   # Generic bot UA pattern match
-    human_indicated: -0.1  # Normal browser UA
+    human_indicated: -0.25  # Normal browser UA (stronger human signal)
     strong_signal: 0.85 # High-confidence known bot
     high_threshold: 0.9 # Threshold for "verified bot" signal
     low_threshold: 0.2  # Threshold for "probably human"

@@ -107,7 +107,7 @@ jobs:
         retention-days: 7
 
     - name: Test Report
-      uses: dorny/test-reporter@v1
+      uses: dorny/test-reporter@d61b558e8df85cb60d09ca3e5b09653b4477cea7 # v1
       if: always() && github.event_name != 'pull_request'
       with:
         name: BotDetection Test Results

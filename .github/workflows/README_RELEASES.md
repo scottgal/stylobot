@@ -94,7 +94,7 @@ dotnet publish Mostlylucid.BotDetection.Console/Mostlylucid.BotDetection.Console
 
 # Test the binary
 cd bin/Release/net9.0/linux-x64/publish
-./minigw --upstream http://localhost:8080 --port 5000
+./minigw --upstream http://localhost:8080 --port 5080
 ```
 
 ### Troubleshooting

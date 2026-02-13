@@ -21,7 +21,7 @@ Demo mode enables **comprehensive bot detection with ALL headers** passed to dow
 ```bash
 docker run -d \
   -e GATEWAY_DEMO_MODE=true \
-  -e DEFAULT_UPSTREAM=http://your-backend:5000 \
+  -e DEFAULT_UPSTREAM=http://your-backend:8080 \
   -p 8080:8080 \
   mostlylucid-yarp-gateway
 ```
@@ -44,7 +44,7 @@ services:
     image: mostlylucid-yarp-gateway
     environment:
       - GATEWAY_DEMO_MODE=true
-      - DEFAULT_UPSTREAM=http://backend:5000
+      - DEFAULT_UPSTREAM=http://backend:8080
     ports:
       - "8080:8080"
 ```
@@ -145,7 +145,7 @@ X-Signature-ID: sig-abc123def456
 #### YARP Routing Info
 ```
 X-Bot-Detection-Cluster: backend-cluster
-X-Bot-Detection-Destination: http://backend-01:5000
+X-Bot-Detection-Destination: http://backend-01:8080
 ```
 
 #### Request Metadata

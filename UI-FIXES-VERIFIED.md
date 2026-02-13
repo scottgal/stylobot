@@ -92,7 +92,7 @@ function createLoadingModal() {
 ## Build Status
 
 ✅ Build succeeded: 0 Warnings, 0 Errors
-✅ Demo app running on http://localhost:5000
+✅ Demo app running on http://localhost:5080
 ✅ All fixes compiled and deployed
 
 ## User Experience Improvements

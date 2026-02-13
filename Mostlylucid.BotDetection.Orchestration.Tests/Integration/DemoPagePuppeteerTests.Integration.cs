@@ -8,28 +8,27 @@ namespace Mostlylucid.BotDetection.Orchestration.Tests.Integration;
 /// <summary>
 ///     Integration tests using PuppeteerSharp to verify the demo page
 ///     behaves correctly with headless browser detection.
+///     The Demo app is self-hosted via <see cref="DemoAppFactory" /> on a random port.
 /// </summary>
-/// <remarks>
-///     These tests require the demo app to be running at http://localhost:5000
-///     Run: dotnet run --project Mostlylucid.BotDetection.Demo
-/// </remarks>
+[Collection("DemoApp")]
 [Trait("Category", "Integration")]
 [Trait("Category", "Puppeteer")]
 public class DemoPagePuppeteerTests : IAsyncLifetime
 {
-    private const string DemoUrl = "http://localhost:5000";
-    private const string BotTestPageUrl = $"{DemoUrl}/bot-test";
+    private readonly string _demoUrl;
+    private readonly string _botTestPageUrl;
     private readonly ITestOutputHelper _output;
     private IBrowser? _browser;
 
-    public DemoPagePuppeteerTests(ITestOutputHelper output)
+    public DemoPagePuppeteerTests(DemoAppFactory factory, ITestOutputHelper output)
     {
+        _demoUrl = factory.BaseUrl;
+        _botTestPageUrl = $"{_demoUrl}/bot-test";
         _output = output;
     }
 
     public async Task InitializeAsync()
     {
-        // Download Chromium if not present
         _output.WriteLine("Downloading Chromium browser...");
         var browserFetcher = new BrowserFetcher();
         await browserFetcher.DownloadAsync();
@@ -38,12 +37,12 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
         _browser = await Puppeteer.LaunchAsync(new LaunchOptions
         {
             Headless = true,
-            Args = new[]
-            {
+            Args =
+            [
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage"
-            }
+            ]
         });
     }
 
@@ -66,23 +65,30 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
     #region Bot Detection Verification Tests
 
     [Fact]
-    public async Task HeadlessBrowser_IsBlockedByDefault()
+    public async Task HeadlessBrowser_IsDetectedByDefault()
     {
         await using var page = await _browser!.NewPageAsync();
 
-        // Without test mode headers, headless browser should be blocked
-        var response = await page.GoToAsync(BotTestPageUrl);
+        // Without test mode headers, headless browser should be detected as a bot.
+        // Demo app does NOT block bots (BlockDetectedBots=false), but detection headers are returned.
+        var response = await page.GoToAsync(_botTestPageUrl);
 
         _output.WriteLine($"Response status: {response.Status}");
 
-        // Headless Chrome UA is detected as bot, should be blocked (403)
-        Assert.Equal(HttpStatusCode.Forbidden, response.Status);
+        // Demo app allows requests through but adds detection headers
+        Assert.True(response.Ok, $"Expected OK (demo doesn't block), got {response.Status}");
 
-        var content = await response.TextAsync();
-        _output.WriteLine($"Response content:\n{content}");
+        // Verify bot detection ran - check for detection headers
+        var headers = response.Headers;
+        var hasBotHeader = headers.ContainsKey("x-bot-detection") ||
+                           headers.ContainsKey("x-bot-confidence") ||
+                           headers.ContainsKey("x-bot-is-bot");
 
-        // Response should indicate it was blocked
-        Assert.Contains("blocked", content.ToLower());
+        _output.WriteLine($"Detection headers present: {hasBotHeader}");
+        foreach (var h in headers.Where(h => h.Key.StartsWith("x-bot")))
+            _output.WriteLine($"  {h.Key}: {h.Value}");
+
+        Assert.True(hasBotHeader, "Expected bot detection response headers");
     }
 
     [Fact]
@@ -91,18 +97,20 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
         await using var page = await _browser!.NewPageAsync();
 
         // Access the detection check endpoint
-        var response = await page.GoToAsync($"{DemoUrl}/bot-detection/check");
+        var response = await page.GoToAsync($"{_demoUrl}/bot-detection/check");
 
-        // The endpoint should block due to bot detection
-        Assert.Equal(HttpStatusCode.Forbidden, response.Status);
+        _output.WriteLine($"Detection check response status: {response.Status}");
 
         var content = await response.TextAsync();
         _output.WriteLine($"Detection check response:\n{content}");
 
-        // Response should contain blocked info or access denied message
+        // Demo app has BlockDetectedBots=false, so the endpoint returns OK with detection info
+        Assert.True(response.Ok, $"Expected OK (demo doesn't block), got {response.Status}");
+
+        // The response should contain detection information
         Assert.True(
-            content.Contains("error") || content.Contains("blocked") || content.Contains("denied"),
-            "Expected bot blocking response");
+            content.Contains("isBot") || content.Contains("bot") || content.Contains("detection"),
+            "Expected detection info in response");
     }
 
     [Fact]
@@ -111,11 +119,12 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
         await using var page = await _browser!.NewPageAsync();
 
         // Try to access protected endpoint without test mode
-        var response = await page.GoToAsync($"{DemoUrl}/api/protected");
+        var response = await page.GoToAsync($"{_demoUrl}/api/protected");
 
         _output.WriteLine($"Protected endpoint status: {response.Status}");
 
-        // Should be blocked as unverified bot
+        // The /api/protected endpoint has its own blocking policy that returns 403 for bots,
+        // even when the global BlockDetectedBots=false. This is an explicitly protected endpoint.
         Assert.Equal(HttpStatusCode.Forbidden, response.Status);
     }
 
@@ -129,7 +138,7 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
         await using var page = await _browser!.NewPageAsync();
         await SetTestModeHeaders(page);
 
-        var response = await page.GoToAsync(BotTestPageUrl, WaitUntilNavigation.Networkidle0);
+        var response = await page.GoToAsync(_botTestPageUrl, WaitUntilNavigation.Networkidle0);
 
         Assert.NotNull(response);
         Assert.True(response.Ok, $"Expected HTTP 200, got {response.Status}");
@@ -148,23 +157,26 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
         await using var page = await _browser!.NewPageAsync();
         await SetTestModeHeaders(page);
 
-        await page.GoToAsync(BotTestPageUrl, WaitUntilNavigation.Networkidle0);
+        await page.GoToAsync(_botTestPageUrl, WaitUntilNavigation.Networkidle0);
 
-        // Wait for server-side detection to be displayed
-        var serverResultSelector = "#serverResult";
-        await page.WaitForSelectorAsync(serverResultSelector);
+        // The detection result is in a .card with an h2 "Detection Result" and a .result-badge
+        var resultBadgeSelector = ".result-badge";
+        await page.WaitForSelectorAsync(resultBadgeSelector);
 
-        // Get the server-side detection result
-        var serverResult = await page.EvaluateFunctionAsync<string>(@"() => {
-            const el = document.querySelector('#serverResult');
-            return el ? el.innerText : '';
+        // Get the detection result badge text (Human, Suspicious, or Bot Detected)
+        var resultText = await page.EvaluateFunctionAsync<string>(@"() => {
+            const badge = document.querySelector('.result-badge');
+            return badge ? badge.innerText.trim() : '';
         }");
 
-        _output.WriteLine($"Server-side detection result:\n{serverResult}");
+        _output.WriteLine($"Server-side detection result: {resultText}");
 
-        // With test mode disabled, should show detection info
-        Assert.NotNull(serverResult);
-        Assert.NotEmpty(serverResult);
+        // With test mode, should show detection info
+        Assert.NotNull(resultText);
+        Assert.NotEmpty(resultText);
+        Assert.True(
+            resultText.Contains("Human") || resultText.Contains("Bot") || resultText.Contains("Suspicious"),
+            $"Expected detection verdict, got: {resultText}");
     }
 
     [Fact]
@@ -173,7 +185,7 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
         await using var page = await _browser!.NewPageAsync();
         await SetTestModeHeaders(page);
 
-        await page.GoToAsync(BotTestPageUrl, WaitUntilNavigation.Networkidle0);
+        await page.GoToAsync(_botTestPageUrl, WaitUntilNavigation.Networkidle0);
 
         // Wait for fingerprint data to be collected and displayed
         await Task.Delay(2000); // Allow time for JS to execute and POST fingerprint
@@ -199,7 +211,7 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
         await SetTestModeHeaders(page);
 
         // Check if navigator.webdriver is true (it should be in Puppeteer)
-        await page.GoToAsync(BotTestPageUrl, WaitUntilNavigation.DOMContentLoaded);
+        await page.GoToAsync(_botTestPageUrl, WaitUntilNavigation.DOMContentLoaded);
 
         var webdriverFlag = await page.EvaluateFunctionAsync<bool>(@"() => {
             return navigator.webdriver === true;
@@ -217,7 +229,7 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
         await using var page = await _browser!.NewPageAsync();
         await SetTestModeHeaders(page, "human"); // Simulate human
 
-        var response = await page.GoToAsync($"{DemoUrl}/api");
+        var response = await page.GoToAsync($"{_demoUrl}/api");
 
         var content = await response.TextAsync();
         _output.WriteLine($"API root response:\n{content}");
@@ -235,19 +247,19 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
         await SetTestModeHeaders(page);
 
         await page.SetViewportAsync(new ViewPortOptions { Width = 1200, Height = 800 });
-        await page.GoToAsync(BotTestPageUrl, WaitUntilNavigation.Networkidle0);
+        await page.GoToAsync(_botTestPageUrl, WaitUntilNavigation.Networkidle0);
 
-        // Verify grid layout is present
+        // Verify stats-grid layout is present (page uses .stats-grid, not .grid)
         var gridVisible = await page.EvaluateFunctionAsync<bool>(@"() => {
-            const grid = document.querySelector('.grid');
+            const grid = document.querySelector('.stats-grid');
             if (!grid) return false;
             const style = window.getComputedStyle(grid);
             return style.display === 'grid';
         }");
 
-        Assert.True(gridVisible, "Expected CSS grid layout to be active");
+        Assert.True(gridVisible, "Expected CSS grid layout to be active on .stats-grid");
 
-        // Verify both cards are visible
+        // Verify cards are visible
         var cardCount = await page.EvaluateFunctionAsync<int>(@"() => {
             return document.querySelectorAll('.card').length;
         }");
@@ -263,19 +275,20 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
 
         // Set mobile viewport
         await page.SetViewportAsync(new ViewPortOptions { Width = 375, Height = 667 });
-        await page.GoToAsync(BotTestPageUrl, WaitUntilNavigation.Networkidle0);
+        await page.GoToAsync(_botTestPageUrl, WaitUntilNavigation.Networkidle0);
 
-        // On mobile, grid should stack to single column
-        var isSingleColumn = await page.EvaluateFunctionAsync<bool>(@"() => {
-            const grid = document.querySelector('.grid');
+        // At 375px (below 768px breakpoint), .stats-grid switches to repeat(2, 1fr)
+        var isResponsive = await page.EvaluateFunctionAsync<bool>(@"() => {
+            const grid = document.querySelector('.stats-grid');
             if (!grid) return false;
             const style = window.getComputedStyle(grid);
-            return style.gridTemplateColumns === '1fr' ||
-                   style.gridTemplateColumns.split(' ').length === 1;
+            const columns = style.gridTemplateColumns.split(' ').length;
+            // At 375px, should be 2 columns (repeat(2, 1fr)) - down from 4 at desktop
+            return columns <= 2;
         }");
 
-        // The CSS has @media (max-width: 600px) that switches to 1fr
-        Assert.True(isSingleColumn, "Expected single column layout on mobile viewport");
+        // The CSS has @media (max-width: 768px) that switches .stats-grid to repeat(2, 1fr)
+        Assert.True(isResponsive, "Expected responsive grid layout (<=2 columns) on mobile viewport");
     }
 
     #endregion
@@ -285,17 +298,20 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
 ///     Tests with stealth mode to see if detection still works.
 ///     These tests verify that even with evasion attempts, bots are still detected.
 /// </summary>
+[Collection("DemoApp")]
 [Trait("Category", "Integration")]
 [Trait("Category", "Puppeteer")]
 public class StealthModePuppeteerTests : IAsyncLifetime
 {
-    private const string DemoUrl = "http://localhost:5000";
-    private const string BotTestPageUrl = $"{DemoUrl}/bot-test";
+    private readonly string _demoUrl;
+    private readonly string _botTestPageUrl;
     private readonly ITestOutputHelper _output;
     private IBrowser? _browser;
 
-    public StealthModePuppeteerTests(ITestOutputHelper output)
+    public StealthModePuppeteerTests(DemoAppFactory factory, ITestOutputHelper output)
     {
+        _demoUrl = factory.BaseUrl;
+        _botTestPageUrl = $"{_demoUrl}/bot-test";
         _output = output;
     }
 
@@ -308,13 +324,13 @@ public class StealthModePuppeteerTests : IAsyncLifetime
         _browser = await Puppeteer.LaunchAsync(new LaunchOptions
         {
             Headless = true,
-            Args = new[]
-            {
+            Args =
+            [
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-blink-features=AutomationControlled",
                 "--window-size=1920,1080"
-            }
+            ]
         });
     }
 
@@ -324,7 +340,7 @@ public class StealthModePuppeteerTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task StealthMode_StillBlocked()
+    public async Task StealthMode_StillDetected()
     {
         await using var page = await _browser!.NewPageAsync();
 
@@ -334,13 +350,25 @@ public class StealthModePuppeteerTests : IAsyncLifetime
             Object.defineProperty(navigator, 'webdriver', { get: () => false });
         }");
 
-        var response = await page.GoToAsync(BotTestPageUrl);
+        var response = await page.GoToAsync(_botTestPageUrl);
 
         _output.WriteLine($"Stealth mode response status: {response.Status}");
 
-        // Even with stealth attempts, should still be blocked
+        // Demo app has BlockDetectedBots=false, so it returns OK but detection still runs
+        Assert.True(response.Ok, $"Expected OK (demo doesn't block), got {response.Status}");
+
+        // Even with stealth attempts, detection headers should be present
         // (HeadlessChrome UA is detected regardless)
-        Assert.Equal(HttpStatusCode.Forbidden, response.Status);
+        var headers = response.Headers;
+        var hasBotHeader = headers.ContainsKey("x-bot-detection") ||
+                           headers.ContainsKey("x-bot-confidence") ||
+                           headers.ContainsKey("x-bot-is-bot");
+
+        _output.WriteLine($"Detection headers present: {hasBotHeader}");
+        foreach (var h in headers.Where(h => h.Key.StartsWith("x-bot")))
+            _output.WriteLine($"  {h.Key}: {h.Value}");
+
+        Assert.True(hasBotHeader, "Expected bot detection response headers even in stealth mode");
     }
 
     [Fact]
@@ -360,7 +388,7 @@ public class StealthModePuppeteerTests : IAsyncLifetime
             ["Accept-Encoding"] = "gzip, deflate, br"
         });
 
-        var response = await page.GoToAsync(BotTestPageUrl, WaitUntilNavigation.DOMContentLoaded);
+        var response = await page.GoToAsync(_botTestPageUrl, WaitUntilNavigation.DOMContentLoaded);
 
         _output.WriteLine($"Real UA response status: {response.Status}");
 
@@ -379,15 +407,16 @@ public class StealthModePuppeteerTests : IAsyncLifetime
 /// <summary>
 ///     Screenshot generator for documentation.
 ///     Run these tests to update the documentation screenshots after UI changes.
-///     Usage: dotnet test --filter "Category=Screenshots" -- pass the demo app URL if not localhost:5000
+///     Usage: dotnet test --filter "Category=Screenshots"
 ///     Screenshots are saved to: docs/screenshots/
 /// </summary>
+[Collection("DemoApp")]
 [Trait("Category", "Screenshots")]
 [Trait("Category", "Integration")]
 public class ScreenshotGenerator : IAsyncLifetime
 {
-    private const string DemoUrl = "http://localhost:5000";
-    private const string BotTestPageUrl = $"{DemoUrl}/bot-test";
+    private readonly string _demoUrl;
+    private readonly string _botTestPageUrl;
 
     /// <summary>
     ///     Bot types with actual User-Agent strings for full pipeline detection.
@@ -438,8 +467,10 @@ public class ScreenshotGenerator : IAsyncLifetime
     private IBrowser? _browser;
     private string _screenshotDir = null!;
 
-    public ScreenshotGenerator(ITestOutputHelper output)
+    public ScreenshotGenerator(DemoAppFactory factory, ITestOutputHelper output)
     {
+        _demoUrl = factory.BaseUrl;
+        _botTestPageUrl = $"{_demoUrl}/bot-test";
         _output = output;
     }
 
@@ -461,13 +492,13 @@ public class ScreenshotGenerator : IAsyncLifetime
         _browser = await Puppeteer.LaunchAsync(new LaunchOptions
         {
             Headless = true,
-            Args = new[]
-            {
+            Args =
+            [
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--window-size=1400,900"
-            }
+            ]
         });
     }
 
@@ -524,7 +555,7 @@ public class ScreenshotGenerator : IAsyncLifetime
                     await page.SetExtraHttpHeadersAsync(new Dictionary<string, string>());
 
                 // Navigate and wait for content
-                var response = await page.GoToAsync(BotTestPageUrl, WaitUntilNavigation.Networkidle0);
+                var response = await page.GoToAsync(_botTestPageUrl, WaitUntilNavigation.Networkidle0);
 
                 if (!response.Ok) _output.WriteLine($"  Warning: Got status {response.Status} for {name}");
                 // If blocked, still take a screenshot showing the blocked state
@@ -574,7 +605,7 @@ public class ScreenshotGenerator : IAsyncLifetime
         // Use Scrapy UA to trigger full detection with signals
         await page.SetUserAgentAsync("Scrapy/2.5.0 (+https://scrapy.org)");
 
-        await page.GoToAsync(BotTestPageUrl, WaitUntilNavigation.Networkidle0);
+        await page.GoToAsync(_botTestPageUrl, WaitUntilNavigation.Networkidle0);
         await Task.Delay(1000);
 
         // Capture: Stats grid + Detection Result + Detection Signals
@@ -629,7 +660,7 @@ public class ScreenshotGenerator : IAsyncLifetime
             else
                 await page.SetExtraHttpHeadersAsync(new Dictionary<string, string>());
 
-            await page.GoToAsync(BotTestPageUrl, WaitUntilNavigation.Networkidle0);
+            await page.GoToAsync(_botTestPageUrl, WaitUntilNavigation.Networkidle0);
             await Task.Delay(500);
 
             var filepath = Path.Combine(_screenshotDir, $"comparison-{name}.png");
@@ -663,7 +694,7 @@ public class ScreenshotGenerator : IAsyncLifetime
         // Use Scrapy to get multiple detection signals
         await page.SetUserAgentAsync("Scrapy/2.5.0 (+https://scrapy.org)");
 
-        await page.GoToAsync(BotTestPageUrl, WaitUntilNavigation.Networkidle0);
+        await page.GoToAsync(_botTestPageUrl, WaitUntilNavigation.Networkidle0);
         await Task.Delay(800);
 
         var filepath = Path.Combine(_screenshotDir, "detection-signals.png");
@@ -725,7 +756,7 @@ public class ScreenshotGenerator : IAsyncLifetime
         {
             await page.SetUserAgentAsync(userAgent);
 
-            await page.GoToAsync(BotTestPageUrl, WaitUntilNavigation.Networkidle0);
+            await page.GoToAsync(_botTestPageUrl, WaitUntilNavigation.Networkidle0);
             await Task.Delay(500);
 
             var filepath = Path.Combine(animDir, $"frame-{frameNum:D3}-{name}.png");

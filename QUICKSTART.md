@@ -18,7 +18,7 @@ You should see:
 ```
 info: Microsoft.Hosting.Lifetime[14]
       Now listening on: https://localhost:5001
-      Now listening on: http://localhost:5000
+      Now listening on: http://localhost:5080
 ```
 
 ## Step 2: Open the Signature Demo

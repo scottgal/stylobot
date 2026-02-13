@@ -111,7 +111,7 @@ defaults:
   confidence:
     neutral: 0.0        # HTTP/2 appears normal or not HTTP/2
     bot_detected: 0.35  # Bot-like HTTP/2 fingerprint
-    human_indicated: -0.1  # Known browser fingerprint
+    human_indicated: -0.25  # Known browser fingerprint (stronger human signal)
     strong_signal: 0.75 # Known bot framework fingerprint
     high_threshold: 0.7 # Threshold for "likely automation"
     low_threshold: 0.2  # Threshold for "likely browser"

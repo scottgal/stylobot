@@ -21,7 +21,7 @@ export const options = {
 };
 
 // Gateway URL (bot detection proxy)
-const GATEWAY_URL = 'http://localhost:5000';
+const GATEWAY_URL = 'http://localhost:5080';
 
 // Bot patterns from signatures
 const botPatterns = [

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Hashing;
+using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -158,9 +159,9 @@ public class ClientSideDetector : IDetector
 
     private static string HashIp(string ip)
     {
-        // Fast XxHash64 - MUST match BrowserTokenService.HashIp
-        var ipBytes = Encoding.UTF8.GetBytes(ip + ":MLBotD-IP-Salt");
-        var hash = XxHash64.Hash(ipBytes);
+        // SHA256 - MUST match BrowserTokenService.HashIp
+        var ipBytes = Encoding.UTF8.GetBytes(ip + ":MLBotD-IP-Salt-v2");
+        var hash = SHA256.HashData(ipBytes);
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 

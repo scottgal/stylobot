@@ -165,19 +165,19 @@ foreach (var reason in result.Reasons)
 # Human browser (should get low bot score)
 curl -H "Accept: text/html" -H "Accept-Language: en-US" \
   -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0" \
-  http://localhost:5000/bot-detection/check
+  http://localhost:5080/bot-detection/check
 
 # Known bot (should get high bot score)
-curl -A "Googlebot/2.1" http://localhost:5000/bot-detection/check
+curl -A "Googlebot/2.1" http://localhost:5080/bot-detection/check
 
 # Scraper (should get blocked on .BlockBots() endpoints)
-curl -A "Scrapy/2.5.0" http://localhost:5000/api/data
+curl -A "Scrapy/2.5.0" http://localhost:5080/api/data
 
 # Test mode simulation
-curl -H "ml-bot-test-mode: malicious" http://localhost:5000/bot-detection/check
+curl -H "ml-bot-test-mode: malicious" http://localhost:5080/bot-detection/check
 
 # Statistics
-curl http://localhost:5000/bot-detection/stats
+curl http://localhost:5080/bot-detection/stats
 ```
 
 ---
@@ -414,7 +414,7 @@ services:
       ConnectionStrings__BotDetection: "Host=timescaledb;Port=5432;Database=stylobot;Username=stylobot;Password=${DB_PASSWORD}"
       BotDetection__SignatureHashKey: ${SIGNATURE_HASH_KEY}
     ports:
-      - "5000:5000"
+      - "5080:5080"
     depends_on:
       timescaledb:
         condition: service_healthy

@@ -754,7 +754,7 @@ dotnet run --project BotDetection.CLI -- train \
 
 # Simulate training traffic
 dotnet run --project BotDetection.CLI -- simulate-training \
-  --target http://localhost:5000 \
+  --target http://localhost:5080 \
   --sessions 1000 \
   --bot-ratio 0.3 \
   --adaptive

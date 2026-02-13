@@ -69,10 +69,10 @@ services:
       - Gateway__DemoMode__Enabled=true
       - Gateway__DemoMode__PassAllHeaders=true
       - Gateway__DemoMode__UseVerboseLogging=true
-      - ADMIN_SECRET=demo-admin-secret-change-me
+      - ADMIN_SECRET=${ADMIN_SECRET:?Set ADMIN_SECRET in .env}
       # Database (TimescaleDB)
       - Database__Provider=Postgres
-      - Database__ConnectionString=Host=timescaledb;Database=stylobot;Username=stylobot;Password=stylobot_demo_password
+      - Database__ConnectionString=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       # Bot detection
       - BotDetection__BotThreshold=0.7
       - BotDetection__BlockDetectedBots=false
@@ -152,7 +152,7 @@ services:
       - STYLOBOT_DASHBOARD_MAX_EVENTS=${STYLOBOT_DASHBOARD_MAX_EVENTS:-1000}
       # Database (PostgreSQL/TimescaleDB)
       - DATABASE_PROVIDER=${DATABASE_PROVIDER:-InMemory}
-      - DATABASE_CONNECTION_STRING=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD:-stylobot_demo_password}
+      - DATABASE_CONNECTION_STRING=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       - DATABASE_TIMESCALEDB_ENABLED=${DATABASE_TIMESCALEDB_ENABLED:-true}
       - DATABASE_AUTO_INIT_SCHEMA=${DATABASE_AUTO_INIT_SCHEMA:-true}
       - DATABASE_RETENTION_DAYS=${DATABASE_RETENTION_DAYS:-30}
@@ -184,7 +184,7 @@ services:
     environment:
       - POSTGRES_DB=stylobot
       - POSTGRES_USER=stylobot
-      - POSTGRES_PASSWORD=stylobot_demo_password
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       - TIMESCALEDB_TELEMETRY=off
     volumes:
       - timescale-data:/var/lib/postgresql/data
@@ -281,7 +281,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 3
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme}
 
 # ===========================================
 # Networks

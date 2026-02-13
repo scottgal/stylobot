@@ -137,13 +137,13 @@ Test it:
 # Human browser
 curl -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0" \
   -H "Accept: text/html" -H "Accept-Language: en-US" \
-  http://localhost:5000/bot-detection/check
+  http://localhost:5080/bot-detection/check
 
 # Bot
-curl -A "Scrapy/2.5.0" http://localhost:5000/bot-detection/check
+curl -A "Scrapy/2.5.0" http://localhost:5080/bot-detection/check
 
 # Test mode
-curl -H "ml-bot-test-mode: googlebot" http://localhost:5000/bot-detection/check
+curl -H "ml-bot-test-mode: googlebot" http://localhost:5080/bot-detection/check
 ```
 
 ## Service Registration

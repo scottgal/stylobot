@@ -32,24 +32,35 @@ RUN dotnet publish "Mostlylucid.BotDetection.Demo.csproj" -c Release -o /app/pub
 
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+
+# Create non-root user for security
+RUN groupadd -g 1000 demo && \
+    useradd -u 1000 -g demo -s /bin/bash -M demo
+
 WORKDIR /app
 
 # Install curl for healthchecks
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 # Copy published app
 COPY --from=publish /app/publish .
 
-# Expose ports
-EXPOSE 5000
-EXPOSE 5001
+# Create data directories with correct permissions
+RUN mkdir -p /app/data /app/logs && \
+    chown -R demo:demo /app
+
+# Switch to non-root user
+USER demo
+
+# Expose port
+EXPOSE 8080
 
 # Environment variables
-ENV ASPNETCORE_URLS=http://+:5000
+ENV ASPNETCORE_URLS=http://+:8080
 ENV ASPNETCORE_ENVIRONMENT=Production
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:5000/health || exit 1
+  CMD curl -f http://localhost:8080/health || exit 1
 
 ENTRYPOINT ["dotnet", "Mostlylucid.BotDetection.Demo.dll"]

@@ -21,7 +21,7 @@ Batteries.Init();
 var cmdArgs = Environment.GetCommandLineArgs();
 var upstream = GetArg(cmdArgs, "--upstream") ??
                Environment.GetEnvironmentVariable("UPSTREAM") ?? "http://localhost:8080";
-var port = GetArg(cmdArgs, "--port") ?? Environment.GetEnvironmentVariable("PORT") ?? "5000";
+var port = GetArg(cmdArgs, "--port") ?? Environment.GetEnvironmentVariable("PORT") ?? "5080";
 var mode = GetArg(cmdArgs, "--mode") ?? Environment.GetEnvironmentVariable("MODE") ?? "demo";
 
 // Configure Serilog (console + file logging for errors/warnings only)

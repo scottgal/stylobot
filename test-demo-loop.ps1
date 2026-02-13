@@ -5,7 +5,7 @@ Write-Host "=== Bot Detection Demo Loop Test ===" -ForegroundColor Cyan
 Write-Host ""
 
 # Check if ports are available
-$demoPort = 5000
+$demoPort = 5080
 $gatewayPort = 5100
 
 Write-Host "Checking port availability..." -ForegroundColor Yellow
@@ -151,6 +151,6 @@ Write-Host "=== Test Complete ===" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "To manually test:" -ForegroundColor Yellow
 Write-Host "1. Terminal 1: cd Mostlylucid.BotDetection.Demo && dotnet run" -ForegroundColor White
-Write-Host "2. Terminal 2: cd Mostlylucid.BotDetection.Console && dotnet run -- --upstream http://localhost:5000 --port 5100 --mode demo" -ForegroundColor White
+Write-Host "2. Terminal 2: cd Mostlylucid.BotDetection.Console && dotnet run -- --upstream http://localhost:5080 --port 5100 --mode demo" -ForegroundColor White
 Write-Host "3. Browser: http://localhost:5100/YarpProxyDemo" -ForegroundColor White
 Write-Host ""

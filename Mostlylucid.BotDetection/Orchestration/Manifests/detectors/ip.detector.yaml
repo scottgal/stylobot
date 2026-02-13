@@ -105,7 +105,7 @@ defaults:
   confidence:
     neutral: 0.0        # IP appears normal
     bot_detected: 0.6   # Datacenter IP detected
-    human_indicated: -0.1  # Residential IP
+    human_indicated: -0.25  # Residential IP (stronger human signal)
     strong_signal: 0.8  # Known bad IP
     high_threshold: 0.7 # Threshold for "likely bot"
     low_threshold: 0.2  # Threshold for "probably human"

@@ -519,7 +519,7 @@ Mostlylucid.BotDetection.Test/
 ### Example 1: Test Signature Coordinator Matching
 
 ```bash
-curl -X POST http://localhost:5000/api/test \
+curl -X POST http://localhost:5080/api/test \
   -H "X-Bot-Sim-Mode: signature" \
   -H "X-Bot-Sim-Signatures: {
     \"ipSignature\": \"dc_aws_us-east-1\",
@@ -535,7 +535,7 @@ curl -X POST http://localhost:5000/api/test \
 ### Example 2: Train IP Detector
 
 ```bash
-curl -X POST http://localhost:5000/api/test \
+curl -X POST http://localhost:5080/api/test \
   -H "X-Bot-Sim-Mode: learning" \
   -H "X-Bot-Sim-IP: 203.0.113.42" \
   -H "X-Bot-Sim-IP-Range: AS15169" \
@@ -546,7 +546,7 @@ curl -X POST http://localhost:5000/api/test \
 ### Example 3: Test Custom Pipeline
 
 ```bash
-curl -X POST http://localhost:5000/api/test \
+curl -X POST http://localhost:5080/api/test \
   -H "X-Bot-Sim-Mode: policy" \
   -H "X-Bot-Sim-Pipeline: {
     \"name\": \"ua-only\",
@@ -562,7 +562,7 @@ curl -X POST http://localhost:5000/api/test \
 ### Example 4: Test Policy Transitions
 
 ```bash
-curl -X POST http://localhost:5000/api/test \
+curl -X POST http://localhost:5080/api/test \
   -H "X-Bot-Sim-Mode: policy" \
   -H "X-Bot-Sim-Policy: {
     \"name\": \"test\",

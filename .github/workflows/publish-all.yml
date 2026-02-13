@@ -20,7 +20,6 @@ permissions:
   contents: write
   packages: write
   id-token: write
-  actions: write
 
 jobs:
   # Publish BotDetection NuGet package
@@ -235,8 +234,8 @@ jobs:
     - name: Login to Docker Hub
       uses: docker/login-action@v3
       with:
-        username: ${{ secrets.DOCKER_HUB_USERNAME }}
-        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
 
     - name: Build and push
       uses: docker/build-push-action@v6
@@ -384,7 +383,7 @@ jobs:
         cat SHA256SUMS.txt
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
       with:
         name: Console Gateway v${{ inputs.version }}
         tag_name: console-v${{ inputs.version }}

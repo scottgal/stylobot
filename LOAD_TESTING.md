@@ -5,7 +5,7 @@ This guide shows how to replay bot signatures through the gateway using k6.
 ## Architecture
 
 ```
-k6 (bot/human traffic) → Gateway :5000 → Test Site :7240
+k6 (bot/human traffic) → Gateway :5080 → Test Site :7240
 ```
 
 ## Setup
@@ -23,7 +23,7 @@ This starts a minimal ASP.NET site on `http://localhost:7240`.
 
 ```powershell
 cd Mostlylucid.BotDetection.Console
-dotnet run --mode production --upstream http://localhost:7240 --port 5000
+dotnet run --mode production --upstream http://localhost:7240 --port 5080
 ```
 
 The gateway runs in production mode (only logs bot detections) and proxies to the test site.

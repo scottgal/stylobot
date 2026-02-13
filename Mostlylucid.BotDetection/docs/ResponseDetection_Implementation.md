@@ -538,11 +538,11 @@ Console.WriteLine($"Response score: {behavior.ResponseScore:F2}");
 
 ```bash
 # Simulate WordPress scan
-curl http://localhost:5000/wp-admin/
-curl http://localhost:5000/wp-content/
-curl http://localhost:5000/wp-includes/
-curl http://localhost:5000/wp-config.php
-curl http://localhost:5000/wp-login.php
+curl http://localhost:5080/wp-admin/
+curl http://localhost:5080/wp-content/
+curl http://localhost:5080/wp-includes/
+curl http://localhost:5080/wp-config.php
+curl http://localhost:5080/wp-login.php
 ```
 
 **Expected**: High 404 scan score, honeypot hits
@@ -550,9 +550,9 @@ curl http://localhost:5000/wp-login.php
 ### 2. Normal User with Typo
 
 ```bash
-curl http://localhost:5000/home       # 200 OK
-curl http://localhost:5000/abuot      # 404 (typo)
-curl http://localhost:5000/about      # 200 OK
+curl http://localhost:5080/home       # 200 OK
+curl http://localhost:5080/abuot      # 404 (typo)
+curl http://localhost:5080/about      # 200 OK
 ```
 
 **Expected**: Low score (single 404 is normal)
@@ -561,7 +561,7 @@ curl http://localhost:5000/about      # 200 OK
 
 ```bash
 for i in {1..20}; do
-  curl -X POST http://localhost:5000/login \
+  curl -X POST http://localhost:5080/login \
     -d "username=admin&password=wrong$i"
 done
 ```
@@ -571,7 +571,7 @@ done
 ### 4. Honeypot Hit
 
 ```bash
-curl http://localhost:5000/__test-hp
+curl http://localhost:5080/__test-hp
 ```
 
 **Expected**: Immediate high score (0.8+), client flagged

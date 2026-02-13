@@ -2,7 +2,7 @@
 ### Use with VS Code REST Client extension or JetBrains HTTP Client
 ### Start the demo: dotnet run --project Mostlylucid.BotDetection.Demo
 
-@baseUrl = http://localhost:5000
+@baseUrl = http://localhost:5080
 
 ### ============================================
 ### BASELINE / DISCOVERY

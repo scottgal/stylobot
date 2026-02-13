@@ -30,10 +30,10 @@ maximum performance and minimal footprint.
 
 ```bash
 # Windows
-minigw.exe --upstream http://localhost:8080 --port 5000
+minigw.exe --upstream http://localhost:8080 --port 5080
 
 # Linux
-./minigw --upstream http://localhost:8080 --port 5000
+./minigw --upstream http://localhost:8080 --port 5080
 ```
 
 ### Production Mode
@@ -50,7 +50,7 @@ minigw.exe --mode production --upstream http://backend:8080 --port 80
 
 ```bash
 export UPSTREAM=http://backend:8080
-export PORT=5000
+export PORT=5080
 export MODE=production
 
 ./minigw
@@ -198,7 +198,7 @@ Example output (always zero-PII in production):
 | Option       | Environment Variable | Default                 | Description                  |
 |--------------|----------------------|-------------------------|------------------------------|
 | `--upstream` | `UPSTREAM`           | `http://localhost:8080` | Upstream server URL          |
-| `--port`     | `PORT`               | `5000`                  | Port to listen on            |
+| `--port`     | `PORT`               | `5080`                  | Port to listen on            |
 | `--mode`     | `MODE`               | `demo`                  | Mode: `demo` or `production` |
 
 ## Configuration
@@ -560,7 +560,7 @@ export OPENAI_API_KEY=sk-...
 # Enable LLM in config (set Enabled: true)
 
 # Test with bot traffic
-curl -A "HeadlessChrome/120.0.0.0" http://localhost:5000/
+curl -A "HeadlessChrome/120.0.0.0" http://localhost:5080/
 
 # Check logs for LLM reasoning
 # Look for "LLM classified as bot: ..." in detection reasons
@@ -588,7 +588,7 @@ website to perform additional bot checks and report results back to the gateway.
 Access the built-in test page:
 
 ```
-http://localhost:5000/test-client-side.html
+http://localhost:5080/test-client-side.html
 ```
 
 This interactive test page demonstrates:
@@ -1060,13 +1060,13 @@ gateway instance shares the same SQLite signature database via network storage.
 
 ```bash
 # Server 1 (10.0.0.10)
-./minigw --mode production --upstream http://backend:8080 --port 5000
+./minigw --mode production --upstream http://backend:8080 --port 5080
 
 # Server 2 (10.0.0.11)
-./minigw --mode production --upstream http://backend:8080 --port 5000
+./minigw --mode production --upstream http://backend:8080 --port 5080
 
 # Server 3 (10.0.0.12)
-./minigw --mode production --upstream http://backend:8080 --port 5000
+./minigw --mode production --upstream http://backend:8080 --port 5080
 ```
 
 **2. Mount shared storage on all gateway servers:**
@@ -1091,7 +1091,7 @@ ln -s /mnt/botdetection/botdetection.db ./botdetection.db
 
 # Or run gateway with shared working directory
 cd /mnt/botdetection
-/opt/minigw/minigw --mode production --upstream http://backend:8080 --port 5000
+/opt/minigw/minigw --mode production --upstream http://backend:8080 --port 5080
 ```
 
 **4. Configure nginx load balancer:**
@@ -1101,9 +1101,9 @@ upstream bot_gateways {
     # IP hash ensures same client goes to same gateway (sticky sessions)
     ip_hash;
 
-    server 10.0.0.10:5000 weight=1 max_fails=3 fail_timeout=30s;
-    server 10.0.0.11:5000 weight=1 max_fails=3 fail_timeout=30s;
-    server 10.0.0.12:5000 weight=1 max_fails=3 fail_timeout=30s;
+    server 10.0.0.10:5080 weight=1 max_fails=3 fail_timeout=30s;
+    server 10.0.0.11:5080 weight=1 max_fails=3 fail_timeout=30s;
+    server 10.0.0.12:5080 weight=1 max_fails=3 fail_timeout=30s;
 }
 
 server {
@@ -1165,9 +1165,9 @@ backend bot_gateways
     # Preserve client IP
     option forwardfor header X-Forwarded-For
 
-    server gateway1 10.0.0.10:5000 check inter 2000ms rise 2 fall 3
-    server gateway2 10.0.0.11:5000 check inter 2000ms rise 2 fall 3
-    server gateway3 10.0.0.12:5000 check inter 2000ms rise 2 fall 3
+    server gateway1 10.0.0.10:5080 check inter 2000ms rise 2 fall 3
+    server gateway2 10.0.0.11:5080 check inter 2000ms rise 2 fall 3
+    server gateway3 10.0.0.12:5080 check inter 2000ms rise 2 fall 3
 ```
 
 #### Kubernetes Deployment
@@ -1191,27 +1191,27 @@ spec:
       - name: minigw
         image: your-registry/minigw:latest
         ports:
-        - containerPort: 5000
+        - containerPort: 5080
         env:
         - name: MODE
           value: "production"
         - name: UPSTREAM
           value: "http://backend-service:8080"
         - name: PORT
-          value: "5000"
+          value: "5080"
         volumeMounts:
         - name: botdetection-db
           mountPath: /app/data
         livenessProbe:
           httpGet:
             path: /health
-            port: 5000
+            port: 5080
           initialDelaySeconds: 5
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /health
-            port: 5000
+            port: 5080
           initialDelaySeconds: 3
           periodSeconds: 5
       volumes:
@@ -1230,7 +1230,7 @@ spec:
   ports:
   - protocol: TCP
     port: 80
-    targetPort: 5000
+    targetPort: 5080
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -1410,7 +1410,7 @@ ENTRYPOINT ["./minigw"]
 
 ```bash
 docker build -t minigw:latest .
-docker run -p 5000:5000 -e UPSTREAM=http://backend:8080 -e MODE=production minigw:latest
+docker run -p 5080:5080 -e UPSTREAM=http://backend:8080 -e MODE=production minigw:latest
 ```
 
 ### Systemd Service (Linux)
@@ -1494,14 +1494,14 @@ This demonstrates the complete flow from gateway through to backend with visual 
 ```bash
 cd ../Mostlylucid.BotDetection.Demo
 dotnet run
-# Runs on http://localhost:5000
+# Runs on http://localhost:5080
 ```
 
 2. **Start Gateway**:
 
 ```bash
 # From Mostlylucid.BotDetection.Console directory
-dotnet run -- --upstream http://localhost:5000 --port 5100 --mode demo
+dotnet run -- --upstream http://localhost:5080 --port 5100 --mode demo
 # Gateway runs on http://localhost:5100
 ```
 
@@ -1512,7 +1512,7 @@ dotnet run -- --upstream http://localhost:5000 --port 5100 --mode demo
 open http://localhost:5100/YarpProxyDemo
 
 # Or directly (fallback to inline middleware)
-open http://localhost:5000/YarpProxyDemo
+open http://localhost:5080/YarpProxyDemo
 ```
 
 ### What You'll See

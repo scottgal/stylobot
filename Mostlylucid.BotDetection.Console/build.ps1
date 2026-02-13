@@ -122,6 +122,6 @@ Write-Host ""
 Write-Host "Executables are in bin/$Configuration/net9.0/{runtime}/publish/" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Example usage:" -ForegroundColor Yellow
-Write-Host "  Windows:      .\minigw.exe --upstream http://backend:8080 --port 5000" -ForegroundColor Gray
-Write-Host "  Linux/macOS:  ./minigw --upstream http://backend:8080 --port 5000" -ForegroundColor Gray
+Write-Host "  Windows:      .\minigw.exe --upstream http://backend:8080 --port 5080" -ForegroundColor Gray
+Write-Host "  Linux/macOS:  ./minigw --upstream http://backend:8080 --port 5080" -ForegroundColor Gray
 Write-Host ""

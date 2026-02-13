@@ -216,7 +216,7 @@ Use the demo application's security scanner buttons to test detection:
 
 ```bash
 dotnet run --project Mostlylucid.BotDetection.Demo
-# Visit http://localhost:5000/bot-test
+# Visit http://localhost:5080/bot-test
 # Click "Nikto", "Nessus", "Nmap", "Burp Suite", or "Acunetix" buttons
 ```
 
@@ -226,15 +226,15 @@ Test detection using the `ml-bot-test-mode` header:
 
 ```bash
 # Test Nikto detection
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "ml-bot-test-mode: nikto"
 
 # Test Nmap detection
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "ml-bot-test-mode: nmap"
 
 # Test Burp Suite detection
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "ml-bot-test-mode: burpsuite"
 ```
 
@@ -242,10 +242,10 @@ curl http://localhost:5000/bot-detection/check \
 
 ```bash
 # Test with custom User-Agent
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "User-Agent: sqlmap/1.7 (http://sqlmap.org)"
 
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "User-Agent: Mozilla/5.00 (Nikto/2.1.6)"
 ```
 

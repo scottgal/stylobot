@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Mvc.ApplicationParts;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.ApiHolodeck.Extensions;
 using Mostlylucid.BotDetection.ClientSide;
@@ -44,11 +45,22 @@ builder.Services.AddApiHolodeck();
 builder.Services.AddLLMockApi(builder.Configuration);
 builder.Services.AddLLMockOpenApi(builder.Configuration); // Also needed for OpenApiContextManager
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .ConfigureApplicationPartManager(manager =>
+    {
+        // Remove assemblies compiled against Microsoft.OpenApi 1.x (mockllmapi uses
+        // Microsoft.AspNetCore.OpenApi 8.0.0 which references types removed in OpenApi 2.x).
+        // These assemblies don't contain controllers so removing them is safe.
+        var incompatible = manager.ApplicationParts
+            .Where(p => p.Name.Contains("mockllmapi", StringComparison.OrdinalIgnoreCase)
+                     || p.Name.Contains("Holodeck", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        foreach (var part in incompatible)
+            manager.ApplicationParts.Remove(part);
+    });
 builder.Services.AddRazorPages(); // For TagHelper support
 builder.Services.AddHttpContextAccessor(); // Required for TagHelpers
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddOpenApi();
 
 // Add signature capture and streaming services
 builder.Services.AddSingleton<SignatureStore>();
@@ -61,9 +73,8 @@ builder.Services.AddReverseProxy()
 
 var app = builder.Build();
 
-// Enable Swagger for testing
-app.UseSwagger();
-app.UseSwaggerUI();
+// Enable OpenAPI document endpoint
+app.MapOpenApi();
 
 // HTTPS redirection first
 app.UseHttpsRedirection();
@@ -234,7 +245,7 @@ app.MapGet("/api/test-modes", () =>
             ["social"] = "Simulate social media bot",
             ["monitor"] = "Simulate monitoring bot"
         },
-        example = "curl -H 'ml-bot-test-mode: googlebot' http://localhost:5000/"
+        example = "curl -H 'ml-bot-test-mode: googlebot' http://localhost:5080/"
     });
 });
 
@@ -243,7 +254,7 @@ app.MapGet("/api/test-modes", () =>
 // ==========================================
 app.MapGet("/api/sample-user-agents", () =>
 {
-    var baseUrl = "http://localhost:5000";
+    var baseUrl = "http://localhost:5080";
 
     return Results.Ok(new
     {
@@ -789,7 +800,7 @@ app.MapGet("/api/test-script", () =>
     var script = @"# Bot Detection Demo - PowerShell Test Script
 # Save this and run: powershell -ExecutionPolicy Bypass -File test-bots.ps1
 
-$baseUrl = 'http://localhost:5000'
+$baseUrl = 'http://localhost:5080'
 
 Write-Host '=== BOT DETECTION DEMO TESTS ===' -ForegroundColor Cyan
 
@@ -842,6 +853,9 @@ Write-Host ""n=== TESTS COMPLETE ==="" -ForegroundColor Cyan
 app.MapReverseProxy();
 
 app.Run();
+
+// Make Program accessible to WebApplicationFactory in test projects
+public partial class Program;
 
 // Request models
 public record BatchCheckRequest(string[]? UserAgents);

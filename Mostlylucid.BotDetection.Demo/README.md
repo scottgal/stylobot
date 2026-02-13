@@ -7,13 +7,13 @@ signature analysis**.
 
 ```bash
 dotnet run
-# Visit http://localhost:5000/bot-test (Original demo)
-# Visit http://localhost:5000/SignatureDemo (NEW - Real-time signature streaming)
+# Visit http://localhost:5080/bot-test (Original demo)
+# Visit http://localhost:5080/SignatureDemo (NEW - Real-time signature streaming)
 ```
 
 ## NEW: Real-Time Signature Demo
 
-Visit **http://localhost:5000/SignatureDemo** for advanced signature analysis:
+Visit **http://localhost:5080/SignatureDemo** for advanced signature analysis:
 
 ### Features
 
@@ -63,7 +63,7 @@ The demo showcases a multi-layered detection system:
 
 ## Interactive Demo UI
 
-Visit **http://localhost:5000/bot-test** for the full interactive demo:
+Visit **http://localhost:5080/bot-test** for the full interactive demo:
 
 ### Bot Simulator Buttons
 
@@ -180,26 +180,26 @@ Policies can escalate uncertain results:
 
 ```bash
 # Basic detection
-curl http://localhost:5000/bot-detection/check
+curl http://localhost:5080/bot-detection/check
 
 # Test as Googlebot
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "ml-bot-test-mode: googlebot"
 
 # Test custom UA
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "ml-bot-test-ua: MyBot/1.0"
 
 # Test with specific policy
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "X-Bot-Policy: uaonly"
 
 # Test security scanner
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "ml-bot-test-mode: nikto"
 
 # Test honeypot response (harvester)
-curl http://localhost:5000/bot-detection/check \
+curl http://localhost:5080/bot-detection/check \
   -H "ml-bot-test-mode: honeypot-harvester"
 ```
 

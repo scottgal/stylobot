@@ -108,7 +108,7 @@ Behaviour:
     * If `DEFAULT_UPSTREAM` env var **not** set:
 
         * All non-`/admin` requests → JSON “no routes configured”.
-    * If `DEFAULT_UPSTREAM` env var set (e.g. `http://host.docker.internal:5000`):
+    * If `DEFAULT_UPSTREAM` env var set (e.g. `http://host.docker.internal:8080`):
 
         * Adds a single default catch-all route:
 
@@ -204,7 +204,7 @@ Logical mappings:
     "Clusters": {
       "api-cluster": {
         "Destinations": {
-          "d1": { "Address": "http://api:5000" }
+          "d1": { "Address": "http://api:8080" }
         }
       }
     }

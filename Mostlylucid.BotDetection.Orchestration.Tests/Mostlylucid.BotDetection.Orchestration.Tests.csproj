@@ -26,23 +26,23 @@
         <PackageReference Include="NSubstitute" Version="5.3.0" />
 
         <!-- Verify for snapshot testing -->
-        <PackageReference Include="Verify.Xunit" Version="26.6.0" />
+        <PackageReference Include="Verify.Xunit" Version="31.12.5" />
 
-        <!-- ASP.NET Core test infrastructure -->
-        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.2" />
-        <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.2" />
+        <!-- ASP.NET Core test infrastructure (kept for non-Puppeteer integration tests) -->
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.3" />
+        <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.3" />
 
         <!-- Extensions -->
-        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.2" />
-        <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" Version="10.2.0" />
-        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.2" />
-        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.2" />
-        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.2" />
-        <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.2" />
-        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.2.0" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" />
+        <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" Version="10.3.0" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />
+        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.3" />
+        <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.3" />
+        <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
+        <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.3.0" />
 
         <!-- Browser automation for integration testing -->
-        <PackageReference Include="PuppeteerSharp" Version="20.2.6" />
+        <PackageReference Include="PuppeteerSharp" Version="21.0.1" />
 
         <!-- PostgreSQL testing -->
         <PackageReference Include="Npgsql" Version="10.0.1" />

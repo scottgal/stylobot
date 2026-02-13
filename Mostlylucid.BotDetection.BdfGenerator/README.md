@@ -271,7 +271,7 @@ The generator automatically searches these locations:
 ```bash
 cd ../Mostlylucid.BotDetection.Demo
 dotnet run
-# Visit http://localhost:5000 to trigger list download
+# Visit http://localhost:5080 to trigger list download
 ```
 
 **Solution 2:** Copy the database manually:

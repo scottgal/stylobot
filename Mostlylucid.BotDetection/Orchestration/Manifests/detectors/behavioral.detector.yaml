@@ -114,7 +114,7 @@ defaults:
   confidence:
     neutral: 0.0        # Request patterns appear normal
     bot_detected: 0.4   # Bot-like behavior detected
-    human_indicated: -0.1  # Normal human-like patterns
+    human_indicated: -0.30  # Normal human-like patterns (strong human signal)
     strong_signal: 0.7  # Very suspicious behavior
     high_threshold: 0.6 # Threshold for "likely bot"
     low_threshold: 0.2  # Threshold for "probably human"

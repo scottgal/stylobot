@@ -72,7 +72,7 @@ public class IpDetector : IDetector
                     reasons.Add(new DetectionReason
                     {
                         Category = "IP",
-                        Detail = $"IP {ipAddress} matched cloud provider range: {provider ?? matchedRange}",
+                        Detail = $"IP {MaskIp(ipAddress)} matched cloud provider range: {provider ?? matchedRange}",
                         ConfidenceImpact = 0.5
                     });
                 }
@@ -84,7 +84,7 @@ public class IpDetector : IDetector
                 reasons.Add(new DetectionReason
                 {
                     Category = "IP",
-                    Detail = $"IP {ipAddress} is in datacenter range ({datacenterRange})",
+                    Detail = $"IP {MaskIp(ipAddress)} is in datacenter range ({datacenterRange})",
                     ConfidenceImpact = 0.4
                 });
             }
@@ -206,5 +206,15 @@ public class IpDetector : IDetector
         // This is a placeholder - in production, you'd maintain a list of Tor exit nodes
         // You can get this from https://check.torproject.org/exit-addresses
         return false;
+    }
+
+    private static string MaskIp(IPAddress ip)
+    {
+        var s = ip.ToString();
+        var parts = s.Split('.');
+        if (parts.Length == 4)
+            return $"{parts[0]}.{parts[1]}.{parts[2]}.xxx";
+        // IPv6: truncate
+        return s.Length > 10 ? s[..10] + "..." : s;
     }
 }

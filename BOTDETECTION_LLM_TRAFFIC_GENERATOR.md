@@ -202,7 +202,7 @@ public class TrafficGeneratorOptions
     public string Model { get; set; } = "qwen2.5:14b";
 
     /// <summary>Target URL for generated traffic</summary>
-    public string TargetUrl { get; set; } = "http://localhost:5000";
+    public string TargetUrl { get; set; } = "http://localhost:5080";
 
     /// <summary>Concurrent request limit</summary>
     public int MaxConcurrency { get; set; } = 10;
@@ -632,21 +632,21 @@ dotnet run --project BotDetection.TrafficGen -- generate \
   --type StealthyScraper \
   --goal ShouldDetect \
   --count 20 \
-  --target http://localhost:5000 \
+  --target http://localhost:5080 \
   --execute
 
 # Adaptive training mode
 dotnet run --project BotDetection.TrafficGen -- adaptive \
   --type HybridTraffic \
   --rounds 5 \
-  --target http://localhost:5000 \
+  --target http://localhost:5080 \
   --report adaptive-results.json
 
 # Stress test
 dotnet run --project BotDetection.TrafficGen -- stress \
   --mix "human:60,goodbot:30,scraper:10" \
   --duration 5m \
-  --target http://localhost:5000 \
+  --target http://localhost:5080 \
   --concurrency 50
 ```
 

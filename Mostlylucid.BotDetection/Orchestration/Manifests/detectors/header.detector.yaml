@@ -99,14 +99,14 @@ defaults:
   weights:
     base: 1.0           # Base contribution weight
     bot_signal: 1.2     # Weight when bot pattern detected
-    human_signal: 0.9   # Weight for human indicators
+    human_signal: 1.2   # Weight for human indicators (stronger to balance bot asymmetry)
     verified: 1.5       # Weight for verified patterns
     early_exit: 2.0     # Weight for early-exit triggering patterns
 
   confidence:
     neutral: 0.0        # Headers appear normal
     bot_detected: 0.2   # Missing expected headers
-    human_indicated: -0.05  # All expected headers present
+    human_indicated: -0.15  # All expected headers present (stronger human signal)
     strong_signal: 0.5  # Multiple header anomalies
     high_threshold: 0.7 # Threshold for "likely bot"
     low_threshold: 0.2  # Threshold for "probably human"

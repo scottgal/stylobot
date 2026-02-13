@@ -1,7 +1,7 @@
 ### Bot Detection Demo - HTTP Request File
 ### Use this file with Visual Studio, VS Code REST Client, or JetBrains HTTP Client
 
-@baseUrl = http://localhost:5000
+@baseUrl = http://localhost:5080
 
 ### ==========================================
 ### Root & Test Page

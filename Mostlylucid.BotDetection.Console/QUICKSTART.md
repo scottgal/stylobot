@@ -9,7 +9,7 @@ Get the minimal YARP gateway with bot detection running in 5 minutes.
 cd Mostlylucid.BotDetection.Console
 
 # Run in demo mode (default)
-dotnet run -- --upstream http://localhost:8080 --port 5000
+dotnet run -- --upstream http://localhost:8080 --port 5080
 
 # Run in production mode
 dotnet run -- --mode production --upstream http://localhost:8080 --port 80
@@ -25,7 +25,7 @@ cd Mostlylucid.BotDetection.Console
 .\build.ps1 -Target win-x64
 
 # Run
-.\bin\Release\net9.0\win-x64\publish\minigw.exe --upstream http://localhost:8080 --port 5000
+.\bin\Release\net9.0\win-x64\publish\minigw.exe --upstream http://localhost:8080 --port 5080
 ```
 
 ### Linux / macOS (Bash)
@@ -37,7 +37,7 @@ cd Mostlylucid.BotDetection.Console
 
 # Run
 chmod +x bin/Release/net9.0/linux-x64/publish/minigw
-./bin/Release/net9.0/linux-x64/publish/minigw --upstream http://localhost:8080 --port 5000
+./bin/Release/net9.0/linux-x64/publish/minigw --upstream http://localhost:8080 --port 5080
 ```
 
 ## Build All Platforms
@@ -62,15 +62,15 @@ This builds:
 
 ```bash
 # Health check
-curl http://localhost:5000/health
+curl http://localhost:5080/health
 
 # Test with human browser (should pass)
 curl -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0" \
-  http://localhost:5000/
+  http://localhost:5080/
 
 # Test with bot (should detect)
 curl -H "User-Agent: curl/8.4.0" \
-  http://localhost:5000/
+  http://localhost:5080/
 ```
 
 ## Configuration
@@ -78,14 +78,14 @@ curl -H "User-Agent: curl/8.4.0" \
 ### Command-Line
 
 ```bash
-minigw --upstream http://backend:8080 --port 5000 --mode demo
+minigw --upstream http://backend:8080 --port 5080 --mode demo
 ```
 
 ### Environment Variables
 
 ```bash
 export UPSTREAM=http://backend:8080
-export PORT=5000
+export PORT=5080
 export MODE=production
 
 ./minigw
@@ -118,7 +118,7 @@ scp appsettings*.json pi@raspberrypi.local:~/
 # Run on Pi
 ssh pi@raspberrypi.local
 chmod +x minigw
-./minigw --upstream http://localhost:8080 --port 5000
+./minigw --upstream http://localhost:8080 --port 5080
 ```
 
 ## Troubleshoot
