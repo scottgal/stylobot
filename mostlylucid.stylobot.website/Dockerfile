@@ -1,5 +1,5 @@
 # Base image for runtime
-FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview AS base
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 WORKDIR /app
 EXPOSE 8080
 EXPOSE 8443
@@ -8,7 +8,7 @@ EXPOSE 8443
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 # Build image with SDK
-FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG BUILD_CONFIGURATION=Release
 
 # Install Node.js v22.x

@@ -17,12 +17,12 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       with:
         fetch-depth: 0
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
       with:
         dotnet-version: '10.0.x'
 
@@ -66,7 +66,7 @@ jobs:
 
     - name: Login to NuGet (OIDC)
       id: nuget_login
-      uses: NuGet/login@v1
+      uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544 # v1
       with:
         user: 'mostlylucid'
 
@@ -78,7 +78,7 @@ jobs:
           --skip-duplicate
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: nuget-package
         path: ./artifacts/*.nupkg

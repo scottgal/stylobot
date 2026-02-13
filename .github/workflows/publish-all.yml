@@ -22,18 +22,31 @@ permissions:
   id-token: write
 
 jobs:
+  # Validate version input format
+  validate-version:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Validate version input
+      run: |
+        VERSION="${{ inputs.version }}"
+        if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+          echo "::error::Invalid version format: '$VERSION'. Expected semver (e.g., 1.0.0 or 1.0.0-alpha1)"
+          exit 1
+        fi
+
   # Publish BotDetection NuGet package
   publish-botdetection:
+    needs: validate-version
     if: inputs.components == 'all' || inputs.components == 'nuget-only'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       with:
         fetch-depth: 0
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
       with:
         dotnet-version: '10.0.x'
 
@@ -61,7 +74,7 @@ jobs:
 
     - name: Login to NuGet (OIDC)
       id: nuget_login
-      uses: NuGet/login@v1
+      uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544 # v1
       with:
         user: 'mostlylucid'
 
@@ -74,16 +87,17 @@ jobs:
 
   # Publish Common NuGet package
   publish-common:
+    needs: validate-version
     if: inputs.components == 'all' || inputs.components == 'nuget-only'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       with:
         fetch-depth: 0
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
       with:
         dotnet-version: '10.0.x'
 
@@ -95,7 +109,7 @@ jobs:
 
     - name: Login to NuGet (OIDC)
       id: nuget_login
-      uses: NuGet/login@v1
+      uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544 # v1
       with:
         user: 'mostlylucid'
 
@@ -108,16 +122,17 @@ jobs:
 
   # Publish GeoDetection NuGet package
   publish-geodetection:
+    needs: validate-version
     if: inputs.components == 'all' || inputs.components == 'nuget-only'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       with:
         fetch-depth: 0
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
       with:
         dotnet-version: '10.0.x'
 
@@ -130,7 +145,7 @@ jobs:
 
     - name: Login to NuGet (OIDC)
       id: nuget_login
-      uses: NuGet/login@v1
+      uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544 # v1
       with:
         user: 'mostlylucid'
 
@@ -143,16 +158,17 @@ jobs:
 
   # Publish Stylobot.Gateway Docker image
   publish-gateway:
+    needs: validate-version
     if: inputs.components == 'all' || inputs.components == 'docker-only'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       with:
         fetch-depth: 0
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
       with:
         dotnet-version: '10.0.x'
 
@@ -165,16 +181,16 @@ jobs:
         dotnet test Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-build --verbosity normal
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
     - name: Login to Docker Hub
-      uses: docker/login-action@v3
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
     - name: Build and push
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
       with:
         context: .
         file: ./Stylobot.Gateway/Dockerfile
@@ -188,25 +204,26 @@ jobs:
 
   # Publish Stylobot Demo Docker image
   publish-demo:
+    needs: validate-version
     if: inputs.components == 'all' || inputs.components == 'docker-only'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       with:
         fetch-depth: 0
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
     - name: Login to Docker Hub
-      uses: docker/login-action@v3
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
     - name: Build and push
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
       with:
         context: .
         file: ./Mostlylucid.BotDetection.Demo/Dockerfile
@@ -222,23 +239,24 @@ jobs:
 
   # Publish Stylobot Website Docker image
   publish-website:
+    needs: validate-version
     if: inputs.components == 'all' || inputs.components == 'docker-only'
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
     - name: Login to Docker Hub
-      uses: docker/login-action@v3
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
     - name: Build and push
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
       with:
         context: .
         file: ./mostlylucid.stylobot.website/Dockerfile
@@ -252,6 +270,7 @@ jobs:
 
   # Publish Console Gateway cross-platform binaries
   publish-console:
+    needs: validate-version
     if: inputs.components == 'all' || inputs.components == 'console-only'
     runs-on: ${{ matrix.os }}
     strategy:
@@ -284,12 +303,12 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       with:
         fetch-depth: 0
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
       with:
         dotnet-version: '10.0.x'
 
@@ -347,7 +366,7 @@ jobs:
         fi
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: ${{ matrix.artifact-name }}
         path: |
@@ -363,10 +382,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       with:
         path: artifacts
 
@@ -411,7 +430,7 @@ jobs:
   # Summary
   summary:
     if: always()
-    needs: [publish-botdetection, publish-common, publish-geodetection, publish-gateway, publish-demo, publish-website, publish-console, create-console-release]
+    needs: [validate-version, publish-botdetection, publish-common, publish-geodetection, publish-gateway, publish-demo, publish-website, publish-console, create-console-release]
     runs-on: ubuntu-latest
     steps:
     - name: Create summary

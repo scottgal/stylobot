@@ -60,12 +60,12 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       with:
         fetch-depth: 0
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
       with:
         dotnet-version: '10.0.x'
 
@@ -74,6 +74,16 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y clang zlib1g-dev gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
+
+    - name: Validate version input
+      if: github.event_name == 'workflow_dispatch'
+      shell: bash
+      run: |
+        VERSION="${{ github.event.inputs.version }}"
+        if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+          echo "::error::Invalid version format: '$VERSION'. Expected semver (e.g., 1.0.0 or 1.0.0-alpha1)"
+          exit 1
+        fi
 
     - name: Extract version
       id: get_version
@@ -201,7 +211,7 @@ jobs:
         fi
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: ${{ matrix.artifact-name }}
         path: |
@@ -217,7 +227,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
     - name: Extract version
       id: get_version
@@ -244,7 +254,7 @@ jobs:
         echo "TAG_NAME=console-v${VERSION}" >> $GITHUB_OUTPUT
 
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       with:
         path: artifacts
 

@@ -20,7 +20,7 @@ build_target() {
 
     echo "Building for $PLATFORM_NAME ($RUNTIME_ID)..."
 
-    OUTPUT_PATH="bin/$CONFIGURATION/net9.0/$RUNTIME_ID/publish"
+    OUTPUT_PATH="bin/$CONFIGURATION/net10.0/$RUNTIME_ID/publish"
 
     # Clean previous build
     if [ -d "$OUTPUT_PATH" ]; then
@@ -98,7 +98,7 @@ echo "════════════════════════�
 echo "Build complete!"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
-echo "Executables are in bin/$CONFIGURATION/net9.0/{runtime}/publish/"
+echo "Executables are in bin/$CONFIGURATION/net10.0/{runtime}/publish/"
 echo ""
 echo "Example usage:"
 echo "  Linux/macOS:  ./minigw --upstream http://backend:8080 --port 5080"

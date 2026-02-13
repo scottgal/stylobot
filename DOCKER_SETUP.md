@@ -31,7 +31,7 @@ docker compose up -d
 docker compose logs -f
 
 # 5. Access dashboard
-#    http://localhost:5080/stylobot
+#    http://localhost:5080/SignatureDemo
 ```
 
 ## Deployment Options
@@ -42,7 +42,7 @@ Simple stack: TimescaleDB + Stylobot Demo app with dashboard.
 
 ```bash
 docker compose up -d
-# Dashboard: http://localhost:5080/stylobot
+# Dashboard: http://localhost:5080/SignatureDemo
 ```
 
 ### Option B: Full Demo Stack (`docker-compose.demo.yml`)
@@ -107,7 +107,7 @@ sudo usermod -aG docker $USER
 
 ```bash
 # Clone the repository
-git clone https://github.com/scottgal/mostlylucid.nugetpackages.git /opt/stylobot
+git clone https://github.com/scottgal/mostlylucid.stylobot.git /opt/stylobot
 cd /opt/stylobot
 
 # Create environment file
@@ -271,7 +271,7 @@ curl -v -H "User-Agent: curl/8.0" http://localhost:8080/
 
 ### Stylobot Demo
 - **Port**: `5080` (HTTP)
-- **Dashboard**: `http://localhost:5080/stylobot`
+- **Dashboard**: `http://localhost:5080/SignatureDemo`
 - **Storage**: Automatically uses TimescaleDB
 - **Auto-initialization**: Schema creates on first run
 
@@ -618,3 +618,4 @@ See [PGVECTOR_GUIDE.md](Mostlylucid.BotDetection.UI.PostgreSQL/PGVECTOR_GUIDE.md
 - [Gateway Demo Mode](Stylobot.Gateway/docs/DEMO_MODE.md)
 - [TLS Fingerprinting Setup](Stylobot.Gateway/docs/TLS_FINGERPRINTING_SETUP.md)
 - [YARP Integration](Mostlylucid.BotDetection/docs/yarp-integration.md)
+

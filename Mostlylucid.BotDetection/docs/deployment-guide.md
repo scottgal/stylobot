@@ -63,7 +63,7 @@ app.Run();
 ```xml
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Mostlylucid.BotDetection" Version="*" />
@@ -270,7 +270,7 @@ All of this persists to SQLite by default:
 ### Docker deployment
 
 ```dockerfile
-FROM mcr.microsoft.com/dotnet/aspnet:9.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY publish/ .
 
@@ -994,3 +994,4 @@ var key = Mostlylucid.BotDetection.PiiHasher.GenerateKey();
 Console.WriteLine(Convert.ToBase64String(key));
 // Store this in Azure Key Vault / AWS Secrets Manager / env var
 ```
+

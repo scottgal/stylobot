@@ -190,7 +190,7 @@ services:
       - timescale-data:/var/lib/postgresql/data
       - ./demo/init-db:/docker-entrypoint-initdb.d:ro
     ports:
-      - "5432:5432"  # Exposed for debugging
+      - "127.0.0.1:5432:5432"  # Localhost only - for debugging
     networks:
       - stylobot-demo
     restart: unless-stopped
@@ -222,8 +222,8 @@ services:
     volumes:
       - qdrant-data:/qdrant/storage
     ports:
-      - "6333:6333"  # REST API + Dashboard
-      - "6334:6334"  # gRPC
+      - "127.0.0.1:6333:6333"  # REST API + Dashboard (localhost only)
+      - "127.0.0.1:6334:6334"  # gRPC (localhost only)
     networks:
       - stylobot-demo
     restart: unless-stopped
@@ -242,7 +242,7 @@ services:
     volumes:
       - ollama-data:/root/.ollama
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"  # Localhost only
     networks:
       - stylobot-demo
     restart: unless-stopped
@@ -272,7 +272,7 @@ services:
     volumes:
       - redis-data:/data
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"  # Localhost only
     networks:
       - stylobot-demo
     restart: unless-stopped

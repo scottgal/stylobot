@@ -4,7 +4,7 @@ services:
     image: timescale/timescaledb:latest-pg16
     container_name: stylobot-timescale
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"  # Bind to localhost only
     environment:
       - POSTGRES_DB=stylobot
       - POSTGRES_USER=stylobot
