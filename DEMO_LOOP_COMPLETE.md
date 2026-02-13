@@ -1,5 +1,11 @@
 # Demo Loop Complete ✅
 
+## Document Status
+- Status: Historical/implementation note kept for engineering context.
+- Canonical docs to use first: `docs/README.md`, `QUICKSTART.md`, `DOCKER_SETUP.md`.
+- Website-friendly docs: `mostlylucid.stylobot.website/src/Stylobot.Website/Docs/`.
+
+
 The YARP Gateway → Backend App demo loop is now fully functional!
 
 ## What Was Built

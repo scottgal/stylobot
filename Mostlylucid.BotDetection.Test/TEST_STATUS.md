@@ -1,5 +1,11 @@
 # Test Status - Bot Detection
 
+## Document Status
+- Status: Historical/implementation note kept for engineering context.
+- Canonical docs to use first: `docs/README.md`, `QUICKSTART.md`, `DOCKER_SETUP.md`.
+- Website-friendly docs: `mostlylucid.stylobot.website/src/Stylobot.Website/Docs/`.
+
+
 ## Summary
 
 The bot detection codebase has undergone significant architectural changes. Many tests require updates to match the new

@@ -127,7 +127,7 @@ public class SeoService
             description = "Advanced bot detection using heuristics and analytics with a zero-PII approach",
             sameAs = new[]
             {
-                "https://github.com/scottgal/mostlylucid.nugetpackages",
+                "https://github.com/scottgal/mostlylucid.stylobot",
                 "https://www.mostlylucid.net"
             },
             contactPoint = new
@@ -204,3 +204,4 @@ public class SeoService
         });
     }
 }
+

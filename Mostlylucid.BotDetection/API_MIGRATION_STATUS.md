@@ -1,5 +1,11 @@
 # Ephemeral 1.6.8 API Migration Status
 
+## Document Status
+- Status: Historical/implementation note kept for engineering context.
+- Canonical docs to use first: `docs/README.md`, `QUICKSTART.md`, `DOCKER_SETUP.md`.
+- Website-friendly docs: `mostlylucid.stylobot.website/src/Stylobot.Website/Docs/`.
+
+
 **Date**: 2025-01-10
 **Package**: mostlylucid.ephemeral.complete 1.6.0 → 1.6.8
 

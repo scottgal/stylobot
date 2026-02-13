@@ -48,3 +48,5 @@ Canonical entry points for this repository.
 
 - Some historical design notes and session summaries in the repo are intentionally kept for context but are not the primary operational references.
 - For runtime behavior, trust `Program.cs`, appsettings files, and compose files first, then docs.
+- `LEGACY_TECHNICAL_NOTES.md`: How to read historical notes and implementation summaries.
+

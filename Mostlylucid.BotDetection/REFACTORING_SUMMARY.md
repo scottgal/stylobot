@@ -1,5 +1,11 @@
 # Refactoring Summary
 
+## Document Status
+- Status: Historical/implementation note kept for engineering context.
+- Canonical docs to use first: `docs/README.md`, `QUICKSTART.md`, `DOCKER_SETUP.md`.
+- Website-friendly docs: `mostlylucid.stylobot.website/src/Stylobot.Website/Docs/`.
+
+
 ## Completed Refactoring (2025-01-10)
 
 ### Overview
