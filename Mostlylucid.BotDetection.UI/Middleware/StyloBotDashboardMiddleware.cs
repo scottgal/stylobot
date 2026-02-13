@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
@@ -115,7 +116,41 @@ public class StyloBotDashboardMiddleware
     private async Task ServeDashboardPageAsync(HttpContext context)
     {
         context.Response.ContentType = "text/html";
-        var html = DashboardHtmlTemplate.GetHtml(_options);
+
+        // Extract visitor's own detection evidence (set by BotDetection middleware)
+        string yourDetectionJson = "null";
+        if (context.Items.TryGetValue("BotDetection.AggregatedEvidence", out var evidenceObj)
+            && evidenceObj is AggregatedEvidence evidence)
+        {
+            var contributions = evidence.Contributions
+                .GroupBy(c => c.DetectorName)
+                .Select(g => new {
+                    detector = g.Key,
+                    impact = g.Sum(c => c.ConfidenceDelta * c.Weight),
+                    reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r)))
+                })
+                .OrderByDescending(c => Math.Abs(c.impact))
+                .ToList();
+
+            var signals = evidence.Signals != null
+                ? new Dictionary<string, object>(evidence.Signals)
+                : new Dictionary<string, object>();
+
+            var yourDetection = new {
+                isBot = evidence.BotProbability > 0.5,
+                botProbability = Math.Round(evidence.BotProbability, 4),
+                confidence = Math.Round(evidence.Confidence, 4),
+                riskBand = evidence.RiskBand.ToString(),
+                processingTimeMs = evidence.TotalProcessingTimeMs,
+                detectorCount = evidence.Contributions.Select(c => c.DetectorName).Distinct().Count(),
+                contributions = contributions,
+                signals = signals
+            };
+            yourDetectionJson = JsonSerializer.Serialize(yourDetection,
+                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        }
+
+        var html = DashboardHtmlTemplate.GetHtml(_options, yourDetectionJson);
         await context.Response.WriteAsync(html);
     }
 
@@ -254,7 +289,7 @@ public class StyloBotDashboardMiddleware
 /// </summary>
 internal static class DashboardHtmlTemplate
 {
-    public static string GetHtml(StyloBotDashboardOptions options)
+    public static string GetHtml(StyloBotDashboardOptions options, string yourDetectionJson = "null")
     {
         return $@"<!DOCTYPE html>
 <html lang=""en"" data-theme=""dark"">
@@ -411,6 +446,72 @@ internal static class DashboardHtmlTemplate
 
         <div class=""container mx-auto px-4 pb-8"">
 
+        <!-- Your Detection (visitor's own) -->
+        <template x-if=""yourData"">
+            <div class=""card bg-base-200 shadow-lg mb-6 border-l-4"" style=""border-left-color: #5BA3A3;"">
+                <div class=""card-body py-3"">
+                    <div class=""flex flex-wrap items-center gap-4"">
+                        <h2 class=""text-sm font-bold uppercase tracking-wider text-base-content/50"">
+                            <i class=""bx bx-user-check mr-1""></i> Your Detection
+                        </h2>
+                        <span class=""badge font-bold text-white""
+                              :class=""yourData.isBot ? 'badge-error' : 'badge-success'""
+                              x-text=""yourData.isBot ? 'BOT' : 'HUMAN'""></span>
+                        <span class=""text-lg font-bold"" :style=""'color:' + (yourData.botProbability >= 0.7 ? '#ef4444' : yourData.botProbability >= 0.4 ? '#DAA564' : '#86B59C')""
+                              x-text=""Math.round(yourData.botProbability * 100) + '% bot'""></span>
+                        <span class=""badge badge-sm badge-ghost"" x-text=""'Confidence ' + Math.round(yourData.confidence * 100) + '%'""></span>
+                        <span class=""badge badge-sm badge-ghost"" x-text=""yourData.detectorCount + ' detectors'""></span>
+                        <span class=""badge badge-sm"" :style=""'background-color:' + riskColor(yourData.riskBand) + '22; color:' + riskColor(yourData.riskBand)"" x-text=""yourData.riskBand""></span>
+                        <span class=""text-xs text-base-content/40"" x-text=""yourData.processingTimeMs?.toFixed(0) + 'ms'""></span>
+                        <button class=""btn btn-ghost btn-xs ml-auto"" x-on:click=""showYourDetail = !showYourDetail"">
+                            <i class=""bx"" :class=""showYourDetail ? 'bx-chevron-up' : 'bx-chevron-down'""></i>
+                            <span x-text=""showYourDetail ? 'Less' : 'Details'""></span>
+                        </button>
+                    </div>
+                    <div x-show=""showYourDetail"" x-transition class=""mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4"">
+                        <!-- Detector breakdown -->
+                        <div>
+                            <h3 class=""text-xs font-bold uppercase tracking-wider text-base-content/40 mb-2"">
+                                <i class=""bx bx-bar-chart-alt-2 mr-1""></i> Detector Breakdown
+                            </h3>
+                            <div class=""space-y-1"">
+                                <template x-for=""c in yourData.contributions?.slice(0, 10) || []"" :key=""c.detector"">
+                                    <div class=""flex items-center gap-2"">
+                                        <span class=""text-xs w-20 truncate"" x-text=""c.detector""></span>
+                                        <div class=""flex-1 bg-base-300 rounded-full h-2.5 overflow-hidden"">
+                                            <div class=""h-full rounded-full""
+                                                 :style=""'width:' + Math.max(Math.min(Math.abs(c.impact) * 1000, 100), 3) + '%; background-color:' + (c.impact > 0 ? '#ef444488' : '#86B59C88')""></div>
+                                        </div>
+                                        <span class=""w-12 text-right text-[10px] font-mono""
+                                              :style=""'color:' + (c.impact > 0 ? '#ef4444' : '#86B59C')""
+                                              x-text=""(c.impact > 0 ? '+' : '') + (c.impact * 100).toFixed(1) + '%'""></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                        <!-- Signals -->
+                        <div>
+                            <h3 class=""text-xs font-bold uppercase tracking-wider text-base-content/40 mb-2"">
+                                <i class=""bx bx-broadcast mr-1""></i> Signals
+                                <span class=""badge badge-xs badge-ghost ml-1"" x-text=""Object.keys(yourData.signals || {{}}).length""></span>
+                            </h3>
+                            <div class=""space-y-0.5 max-h-40 overflow-y-auto"">
+                                <template x-for=""[key, val] in Object.entries(yourData.signals || {{}})"" :key=""key"">
+                                    <div class=""flex items-center gap-1 text-[11px]"">
+                                        <code class=""font-mono opacity-50 truncate flex-1"" x-text=""key""></code>
+                                        <span class=""font-medium""
+                                              :style=""'color:' + (val === true ? '#86B59C' : val === false ? '#ef4444' : '#6b7280')""
+                                              x-text=""String(val)""></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </template>
+        <script type=""application/json"" id=""your-detection-data"">{yourDetectionJson}</script>
+
         <!-- Summary Cards -->
         <div class=""grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6"">
             <div class=""stat bg-base-200 rounded-lg shadow"">
@@ -511,24 +612,61 @@ internal static class DashboardHtmlTemplate
                     </h2>
                     <div class=""scrolling-signatures"">
                         <template x-for=""(sig, idx) in signatures"" :key=""sig.signatureId || sig.primarySignature || idx"">
-                            <div class=""signature-item flex items-center gap-3 px-3 py-2 mb-1 rounded-lg bg-base-300/50 hover:bg-base-300 transition-colors"">
-                                <span class=""font-mono text-xs opacity-70"" x-text=""(sig.primarySignature || sig.signatureId || '-').substring(0, 12) + '...'""></span>
-                                <span class=""badge badge-xs""
-                                      :class=""{{
-                                          'badge-error': sig.riskBand === 'VeryHigh' || sig.riskBand === 'High',
-                                          'badge-warning': sig.riskBand === 'Medium',
-                                          'badge-info': sig.riskBand === 'Low',
-                                          'badge-success': sig.riskBand === 'VeryLow'
-                                      }}""
-                                      x-text=""sig.riskBand || 'Unknown'""></span>
-                                <template x-if=""sig.botName"">
-                                    <span class=""badge badge-ghost badge-xs"" x-text=""sig.botName""></span>
-                                </template>
-                                <template x-if=""sig.isKnownBot && !sig.botName"">
-                                    <span class=""badge badge-ghost badge-xs"">Known Bot</span>
-                                </template>
-                                <span class=""text-xs opacity-60 ml-auto"" x-text=""'hits: ' + (sig.hitCount || 0)""></span>
-                                <span class=""text-xs opacity-60"" x-text=""sig.factorCount ? (sig.factorCount + ' factors') : ''""></span>
+                            <div class=""signature-item mb-1 rounded-lg bg-base-300/50 hover:bg-base-300 transition-colors"">
+                                <div class=""flex items-center gap-3 px-3 py-2 cursor-pointer"" x-on:click=""sig._expanded = !sig._expanded"">
+                                    <i class=""bx text-xs opacity-40"" :class=""sig._expanded ? 'bx-chevron-down' : 'bx-chevron-right'""></i>
+                                    <span class=""font-mono text-xs"" :style=""'color:' + sigColor(sig.primarySignature || sig.signatureId)"" x-text=""(sig.primarySignature || sig.signatureId || '-').substring(0, 12)""></span>
+                                    <span class=""badge badge-xs""
+                                          :class=""{{
+                                              'badge-error': sig.riskBand === 'VeryHigh' || sig.riskBand === 'High',
+                                              'badge-warning': sig.riskBand === 'Medium',
+                                              'badge-info': sig.riskBand === 'Low',
+                                              'badge-success': sig.riskBand === 'VeryLow'
+                                          }}""
+                                          x-text=""sig.riskBand || 'Unknown'""></span>
+                                    <template x-if=""sig.botName"">
+                                        <span class=""badge badge-ghost badge-xs"" x-text=""sig.botName""></span>
+                                    </template>
+                                    <template x-if=""sig.isKnownBot && !sig.botName"">
+                                        <span class=""badge badge-ghost badge-xs"">Known Bot</span>
+                                    </template>
+                                    <span class=""text-xs font-bold ml-auto"" x-text=""sig.hitCount || 0""></span>
+                                    <span class=""text-[10px] opacity-40"">hits</span>
+                                    <span class=""text-xs opacity-60"" x-show=""sig.factorCount"" x-text=""sig.factorCount + ' vectors'""></span>
+                                </div>
+                                <!-- Expanded detail -->
+                                <div x-show=""sig._expanded"" x-transition class=""px-3 pb-3 pt-1 border-t border-base-300/50"">
+                                    <div class=""grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] mb-2"">
+                                        <div><span class=""opacity-40"">Probability:</span> <span class=""font-bold"" :style=""'color:' + ((sig.botProbability || 0) >= 0.5 ? '#ef4444' : '#86B59C')"" x-text=""((sig.botProbability || 0) * 100).toFixed(0) + '%'""></span></div>
+                                        <div><span class=""opacity-40"">Confidence:</span> <span class=""font-bold"" x-text=""((sig.confidence || 0) * 100).toFixed(0) + '%'""></span></div>
+                                        <div><span class=""opacity-40"">Bot Type:</span> <span x-text=""sig.botType || '-'""></span></div>
+                                        <div><span class=""opacity-40"">Action:</span> <span x-text=""sig.action || 'Allow'""></span></div>
+                                        <div x-show=""sig.lastPath""><span class=""opacity-40"">Last Path:</span> <code class=""font-mono"" x-text=""sig.lastPath""></code></div>
+                                        <div x-show=""sig.firstSeen""><span class=""opacity-40"">First Seen:</span> <span x-text=""new Date(sig.firstSeen).toLocaleTimeString()""></span></div>
+                                    </div>
+                                    <!-- Factors/Reasons -->
+                                    <template x-if=""sig.topReasons && sig.topReasons.length > 0"">
+                                        <div>
+                                            <h4 class=""text-[10px] font-bold uppercase tracking-wider opacity-40 mb-1""><i class=""bx bx-analyse mr-1""></i>Detection Reasons</h4>
+                                            <div class=""space-y-0.5"">
+                                                <template x-for=""reason in sig.topReasons.slice(0, 5)"" :key=""reason"">
+                                                    <div class=""text-[11px] opacity-70 pl-2 border-l-2"" style=""border-left-color: #5BA3A3;"" x-text=""reason""></div>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </template>
+                                    <!-- Factor breakdown (multi-vector) -->
+                                    <template x-if=""sig.factors && Object.keys(sig.factors).length > 0"">
+                                        <div class=""mt-2"">
+                                            <h4 class=""text-[10px] font-bold uppercase tracking-wider opacity-40 mb-1""><i class=""bx bx-layer mr-1""></i>Multi-Vector Signals</h4>
+                                            <div class=""flex flex-wrap gap-1"">
+                                                <template x-for=""[factor, val] in Object.entries(sig.factors)"" :key=""factor"">
+                                                    <span class=""badge badge-xs badge-ghost"" x-text=""factor""></span>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
                             </div>
                         </template>
                         <template x-if=""signatures.length === 0"">
@@ -605,6 +743,8 @@ internal static class DashboardHtmlTemplate
             return {{
                 connection: null,
                 signalrConnected: false,
+                yourData: null,
+                showYourDetail: false,
                 summary: {{
                     totalRequests: 0,
                     botRequests: 0,
@@ -626,7 +766,17 @@ internal static class DashboardHtmlTemplate
                 riskChart: null,
                 classificationChart: null,
 
+                riskColor(band) {{
+                    return {{ 'VeryLow': '#86B59C', 'Low': '#86B59C', 'Elevated': '#DAA564', 'Medium': '#DAA564', 'High': '#ef4444', 'VeryHigh': '#dc2626' }}[band] || '#6b7280';
+                }},
+
                 init() {{
+                    // Load visitor's own detection from inline JSON
+                    try {{
+                        const el = document.getElementById('your-detection-data');
+                        if (el) {{ const d = JSON.parse(el.textContent); if (d) this.yourData = d; }}
+                    }} catch(e) {{}}
+
                     this.initSignalR();
                     this.initCharts();
                     this.initTable();
