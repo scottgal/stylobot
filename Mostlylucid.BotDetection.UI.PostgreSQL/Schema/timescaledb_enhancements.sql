@@ -10,6 +10,30 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 -- CONVERT TABLES TO HYPERTABLES
 -- ============================================================================
 
+-- TimescaleDB requires that ALL unique indexes/constraints include the
+-- partitioning column. The base schema creates dashboard_detections with
+-- PRIMARY KEY (id) which doesn't include created_at. We must fix that first.
+DO $$
+BEGIN
+    -- Only alter if the table exists and is NOT already a hypertable
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'dashboard_detections')
+       AND NOT EXISTS (
+           SELECT 1 FROM timescaledb_information.hypertables
+           WHERE hypertable_name = 'dashboard_detections'
+       )
+    THEN
+        -- Drop existing primary key (id alone) so we can include created_at
+        IF EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conrelid = 'dashboard_detections'::regclass AND contype = 'p'
+        ) THEN
+            ALTER TABLE dashboard_detections DROP CONSTRAINT dashboard_detections_pkey;
+            -- Recreate as composite PK including the partitioning column
+            ALTER TABLE dashboard_detections ADD PRIMARY KEY (id, created_at);
+        END IF;
+    END IF;
+END $$;
+
 -- Convert dashboard_detections to hypertable (partitioned by time)
 SELECT create_hypertable(
     'dashboard_detections',
@@ -19,14 +43,33 @@ SELECT create_hypertable(
     migrate_data => TRUE  -- Migrate existing data if any
 );
 
--- Convert signature_audit_log to hypertable
-SELECT create_hypertable(
-    'signature_audit_log',
-    'changed_at',
-    if_not_exists => TRUE,
-    chunk_time_interval => INTERVAL '7 days',  -- Weekly chunks
-    migrate_data => TRUE
-);
+-- Convert signature_audit_log to hypertable (only if table exists)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'signature_audit_log') THEN
+        -- Fix PK to include partitioning column if not already a hypertable
+        IF NOT EXISTS (
+            SELECT 1 FROM timescaledb_information.hypertables
+            WHERE hypertable_name = 'signature_audit_log'
+        ) THEN
+            IF EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conrelid = 'signature_audit_log'::regclass AND contype = 'p'
+            ) THEN
+                ALTER TABLE signature_audit_log DROP CONSTRAINT signature_audit_log_pkey;
+                ALTER TABLE signature_audit_log ADD PRIMARY KEY (id, changed_at);
+            END IF;
+        END IF;
+
+        PERFORM create_hypertable(
+            'signature_audit_log',
+            'changed_at',
+            if_not_exists => TRUE,
+            chunk_time_interval => INTERVAL '7 days',
+            migrate_data => TRUE
+        );
+    END IF;
+END $$;
 
 -- ============================================================================
 -- COMPRESSION POLICIES (Automatic data compression)
@@ -45,18 +88,23 @@ SELECT add_compression_policy(
     if_not_exists => TRUE
 );
 
--- Compress audit log older than 30 days
-ALTER TABLE signature_audit_log SET (
-    timescaledb.compress,
-    timescaledb.compress_segmentby = 'change_type',
-    timescaledb.compress_orderby = 'changed_at DESC'
-);
+-- Compress audit log older than 30 days (only if table exists)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'signature_audit_log') THEN
+        ALTER TABLE signature_audit_log SET (
+            timescaledb.compress,
+            timescaledb.compress_segmentby = 'change_type',
+            timescaledb.compress_orderby = 'changed_at DESC'
+        );
 
-SELECT add_compression_policy(
-    'signature_audit_log',
-    compress_after => INTERVAL '30 days',
-    if_not_exists => TRUE
-);
+        PERFORM add_compression_policy(
+            'signature_audit_log',
+            compress_after => INTERVAL '30 days',
+            if_not_exists => TRUE
+        );
+    END IF;
+END $$;
 
 -- ============================================================================
 -- RETENTION POLICIES (Automatic data deletion)
@@ -72,12 +120,17 @@ SELECT add_retention_policy(
     if_not_exists => TRUE
 );
 
--- Keep audit log for 1 year
-SELECT add_retention_policy(
-    'signature_audit_log',
-    drop_after => INTERVAL '1 year',
-    if_not_exists => TRUE
-);
+-- Keep audit log for 1 year (only if table exists)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_tables WHERE tablename = 'signature_audit_log') THEN
+        PERFORM add_retention_policy(
+            'signature_audit_log',
+            drop_after => INTERVAL '1 year',
+            if_not_exists => TRUE
+        );
+    END IF;
+END $$;
 
 -- ============================================================================
 -- CONTINUOUS AGGREGATES (Pre-computed summaries for fast dashboards)

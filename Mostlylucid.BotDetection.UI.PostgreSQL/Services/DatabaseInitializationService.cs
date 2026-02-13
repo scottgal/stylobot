@@ -57,7 +57,7 @@ public class DatabaseInitializationService : IHostedService
 
             _logger.LogInformation("PostgreSQL database schema initialized successfully");
 
-            // Apply TimescaleDB enhancements if enabled
+            // Apply TimescaleDB enhancements if enabled (non-fatal — app works without them)
             if (_options.EnableTimescaleDB)
             {
                 await ApplyTimescaleDBEnhancementsAsync(connection, cancellationToken);
@@ -66,7 +66,7 @@ public class DatabaseInitializationService : IHostedService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to initialize PostgreSQL database schema");
-            throw;
+            throw; // Base schema is required — crash if it fails
         }
     }
 
@@ -104,8 +104,12 @@ public class DatabaseInitializationService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to apply TimescaleDB enhancements. Ensure TimescaleDB extension is installed.");
-            throw;
+            // Non-fatal: TimescaleDB enhancements are optional optimizations.
+            // The app works fine with plain PostgreSQL tables if these fail.
+            _logger.LogWarning(ex,
+                "TimescaleDB enhancements could not be applied. " +
+                "The app will continue with standard PostgreSQL tables. " +
+                "Ensure TimescaleDB extension is installed for optimal performance.");
         }
     }
 }
