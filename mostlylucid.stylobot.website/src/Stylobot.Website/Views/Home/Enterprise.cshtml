@@ -3,19 +3,26 @@
 }
 
 <!-- Hero Section -->
-<section class="relative bg-gradient-to-br from-primary/5 via-base-100 to-secondary/5 py-8 lg:py-12 overflow-hidden">
-    <div class="max-w-7xl mx-auto px-4 relative z-10">
+<section class="marketing-hero">
+    <div class="marketing-container relative z-10">
         <div class="text-center max-w-4xl mx-auto mb-8">
-            <div class="badge badge-primary mb-4">Enterprise Solutions</div>
-            <h1 class="text-2xl lg:text-3xl font-extrabold mb-3 leading-tight">
-                Enterprise-Grade <span class="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Bot Protection</span>
+            <div class="marketing-eyebrow">Enterprise</div>
+            <div class="brand-chip">
+                <img src="/img/stylowall.svg" alt="stylo bot mark" class="logo-adaptive" />
+                <span class="brand-chip-label"><span class="stylo-text brand-italic">stylo</span><span class="bot-text">bot</span></span>
+            </div>
+            <h1 class="marketing-title">
+                Enterprise-Grade <span class="hero-accent-text">Bot Defense</span>
             </h1>
-            <p class="text-base text-base-content/70 mb-6 leading-relaxed">
-                Advanced security for organizations that demand the highest level of protection. Scale with confidence using our zero-PII forensic semantic firewall.
+            <p class="marketing-lead mb-6">
+                Operational bot defense for high-traffic platforms that need explainable decisions, strict privacy posture, and predictable performance at scale.
+            </p>
+            <p class="text-sm text-base-content/70 mb-6">
+                Start with the open-source core and free feature set today, then layer enterprise controls, support, and governance as your risk profile grows.
             </p>
             <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                <a href="#contact" class="btn btn-primary btn-lg px-8">Contact Sales</a>
-                <a href="#features" class="btn btn-outline btn-lg px-8">View Features</a>
+                <a href="#contact" class="btn btn-primary btn-lg px-8">Start With Us</a>
+                <a href="#features" class="btn btn-outline btn-lg px-8">Explore Capabilities</a>
             </div>
         </div>
 
@@ -40,6 +47,8 @@
         </div>
     </div>
 </section>
+
+@await Html.PartialAsync("_TrustStrip")
 
 <!-- Enterprise Features -->
 <section id="features" class="py-12 bg-base-100">
@@ -289,7 +298,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
                         </svg>
-                        Contact Sales
+                        Schedule Intro
                     </button>
                     <p class="text-sm text-base-content/60">
                         We'll respond within 24 hours
@@ -299,3 +308,4 @@
         </div>
     </div>
 </section>
+

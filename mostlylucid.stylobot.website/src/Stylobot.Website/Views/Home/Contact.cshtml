@@ -4,149 +4,136 @@
     var web3FormsKey = Configuration["Web3Forms:AccessKey"];
 }
 
-<!-- Contact Hero -->
-<section class="relative bg-gradient-to-br from-base-100 via-base-200 to-base-100 py-8 overflow-hidden">
-    <!-- Animated Background Pattern -->
+<section class="marketing-hero">
     <div class="absolute inset-0 opacity-5">
-        <div class="absolute inset-0" style="background-image: radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0); background-size: 40px 40px;"></div>
+        <div class="absolute inset-0 hero-grid"></div>
     </div>
 
-    <div class="max-w-4xl mx-auto px-4 relative z-10">
-        <div class="text-center mb-8">
-            <h1 class="text-2xl lg:text-3xl font-bold mb-2">
-                Get in <span class="text-primary">Touch</span>
+    <div class="marketing-container relative z-10">
+        <div class="marketing-center mb-5">
+            <div class="brand-chip">
+                <img src="/img/stylowall.svg" alt="stylo bot mark" class="logo-adaptive" />
+                <span class="brand-chip-label"><span class="stylo-text brand-italic">stylo</span><span class="bot-text">bot</span></span>
+            </div>
+            <h1 class="marketing-title mb-2">
+                Talk With <span class="hero-accent-text">The Team</span>
             </h1>
-            <p class="text-base text-base-content/70">
-                Have questions about <span style="font-family: 'Raleway', sans-serif; font-style: italic;" class="stylo-text">stylo</span><span style="font-family: 'Raleway', sans-serif;" class="bot-text">bot</span>? We'd love to hear from you.
+            <p class="marketing-lead max-w-3xl mx-auto">
+                Need rollout guidance, architecture review, or policy tuning? We help teams get StyloBot live quickly with clear detection outcomes.
             </p>
         </div>
 
-        <!-- Contact Form Card -->
-        <div class="card bg-base-100 shadow-2xl border-2 border-primary/20">
-            <div class="card-body p-8">
-                <form action="https://api.web3forms.com/submit" method="POST" class="space-y-6">
-                    <!-- Hidden fields -->
-                    <input type="hidden" name="access_key" value="@web3FormsKey">
-                    <input type="hidden" name="subject" value="New Contact Form Submission - stylobot">
-                    <input type="hidden" name="redirect" value="https://stylobot.net/contact?success=true">
-                    <input type="hidden" name="from_name" value="stylobot Contact Form">
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start max-w-6xl mx-auto">
+            <div class="lg:col-span-3">
+                <div class="marketing-card bg-base-100 shadow-lg">
+                    <div class="p-6 lg:p-8">
+                        <div class="flex flex-wrap items-center justify-between gap-3 mb-5 pb-4 border-b border-base-300/70">
+                            <h2 class="text-lg font-semibold text-base-content">Contact StyloBot</h2>
+                            <div class="inline-flex items-center gap-2 text-xs text-base-content/70">
+                                <span class="w-2 h-2 rounded-full live-dot"></span>
+                                Typical first response in 24h
+                            </div>
+                        </div>
 
-                    <!-- Name Field -->
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text font-semibold">Name <span class="text-error">*</span></span>
-                        </label>
-                        <input type="text"
-                               name="name"
-                               placeholder="Your name"
-                               class="input input-bordered input-lg w-full focus:input-primary"
-                               required />
-                    </div>
+                        <div class="alert alert-success mb-5 hidden" id="success-message">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-5 w-5" fill="none" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div>
+                                <h3 class="font-semibold text-sm">Message sent</h3>
+                                <div class="text-xs">Thanks, we’ll reply as soon as possible.</div>
+                            </div>
+                        </div>
 
-                    <!-- Email Field -->
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text font-semibold">Email <span class="text-error">*</span></span>
-                        </label>
-                        <input type="email"
-                               name="email"
-                               placeholder="your@email.com"
-                               class="input input-bordered input-lg w-full focus:input-primary"
-                               required />
-                    </div>
+                        <form action="https://api.web3forms.com/submit" method="POST" class="space-y-5">
+                            <input type="hidden" name="access_key" value="@web3FormsKey">
+                            <input type="hidden" name="subject" value="New Contact Form Submission - stylobot">
+                            <input type="hidden" name="redirect" value="https://stylobot.net/contact?success=true">
+                            <input type="hidden" name="from_name" value="stylobot Contact Form">
+                            <input type="checkbox" name="botcheck" class="hidden">
 
-                    <!-- Company Field -->
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text font-semibold">Company</span>
-                            <span class="label-text-alt text-base-content/60">Optional</span>
-                        </label>
-                        <input type="text"
-                               name="company"
-                               placeholder="Your company name"
-                               class="input input-bordered w-full focus:input-primary" />
-                    </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <label class="form-control">
+                                    <span class="label-text text-sm font-semibold mb-1">Name <span class="text-error">*</span></span>
+                                    <input type="text" name="name" placeholder="Jane Doe" class="input input-bordered w-full focus:input-primary" required />
+                                </label>
+                                <label class="form-control">
+                                    <span class="label-text text-sm font-semibold mb-1">Email <span class="text-error">*</span></span>
+                                    <input type="email" name="email" placeholder="jane@company.com" class="input input-bordered w-full focus:input-primary" required />
+                                </label>
+                            </div>
 
-                    <!-- Subject Field -->
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text font-semibold">Subject <span class="text-error">*</span></span>
-                        </label>
-                        <input type="text"
-                               name="subject_line"
-                               placeholder="What is this regarding?"
-                               class="input input-bordered w-full focus:input-primary"
-                               required />
-                    </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <label class="form-control">
+                                    <span class="label-text text-sm font-semibold mb-1">Company</span>
+                                    <input type="text" name="company" placeholder="Company name" class="input input-bordered w-full focus:input-primary" />
+                                </label>
+                                <label class="form-control">
+                                    <span class="label-text text-sm font-semibold mb-1">Subject <span class="text-error">*</span></span>
+                                    <input type="text" name="subject_line" placeholder="What do you need help with?" class="input input-bordered w-full focus:input-primary" required />
+                                </label>
+                            </div>
 
-                    <!-- Message Field -->
-                    <div class="form-control">
-                        <label class="label">
-                            <span class="label-text font-semibold">Message <span class="text-error">*</span></span>
-                        </label>
-                        <textarea name="message"
-                                  placeholder="Tell us how we can help..."
-                                  class="textarea textarea-bordered h-32 w-full focus:textarea-primary"
-                                  required></textarea>
-                        <label class="label">
-                            <span class="label-text-alt text-base-content/60">Please provide as much detail as possible</span>
-                        </label>
-                    </div>
+                            <label class="form-control">
+                                <span class="label-text text-sm font-semibold mb-1">Message <span class="text-error">*</span></span>
+                                <textarea name="message" placeholder="Share your stack, traffic profile, and goals. We’ll suggest a practical rollout path." class="textarea textarea-bordered h-36 w-full focus:textarea-primary" required></textarea>
+                                <span class="label-text-alt text-base-content/60 mt-1">The more detail you provide, the more specific our recommendations can be.</span>
+                            </label>
 
-                    <!-- Honeypot (spam prevention) -->
-                    <input type="checkbox" name="botcheck" class="hidden" style="display: none;">
-
-                    <!-- Submit Button -->
-                    <button type="submit" class="btn btn-primary btn-lg btn-block gap-2 shadow-lg hover:shadow-xl transition-all">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-                        </svg>
-                        Send Message
-                    </button>
-
-                    <p class="text-sm text-center text-base-content/60">
-                        We typically respond within 24 hours
-                    </p>
-                </form>
-
-                <!-- Success Message (shown when ?success=true) -->
-                <div class="alert alert-success mt-6 hidden" id="success-message">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div>
-                        <h3 class="font-bold">Message sent successfully!</h3>
-                        <div class="text-sm">We'll get back to you as soon as possible.</div>
+                            <div class="flex flex-col sm:flex-row sm:items-center gap-3 pt-2">
+                                <button type="submit" class="btn gap-2 sm:min-w-[180px] shadow-md bg-primary border-primary text-primary-content hover:bg-primary hover:border-primary">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                                    </svg>
+                                    Send Message
+                                </button>
+                                <p class="text-xs text-base-content/60">No spam, no mailing list auto-subscribe.</p>
+                            </div>
+                        </form>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Additional Contact Info -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-12">
-            <div class="card bg-base-200 shadow-lg">
-                <div class="card-body">
-                    <h3 class="card-title text-primary">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                        </svg>
-                        GitHub
+            <div class="lg:col-span-2 space-y-4">
+                <div class="marketing-card p-5 shadow-sm">
+                    <h3 class="text-sm font-semibold mb-2 text-base-content flex items-center gap-2">
+                        <i class="bx bx-bullseye hero-accent-text text-base"></i>
+                        Best use of this form
                     </h3>
-                    <p class="text-base-content/70">Open source and transparent</p>
-                    <a href="https://github.com/scottgal/mostlylucid.stylobot" target="_blank" class="link link-primary">View on GitHub →</a>
+                    <ul class="text-xs text-base-content/70 space-y-2">
+                        <li>Deployment planning for ASP.NET middleware, YARP, or gateway mode.</li>
+                        <li>Policy design for block, challenge, throttle, and shadow mode rollout.</li>
+                        <li>Enterprise evaluation and team onboarding support.</li>
+                    </ul>
                 </div>
-            </div>
 
-            <div class="card bg-base-200 shadow-lg">
-                <div class="card-body">
-                    <h3 class="card-title text-accent">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-                        </svg>
-                        Documentation
+                <div class="marketing-card p-5 shadow-sm">
+                    <h3 class="text-sm font-semibold mb-2 text-base-content flex items-center gap-2">
+                        <i class="bx bx-list-check hero-accent-text text-base"></i>
+                        Useful context to include
                     </h3>
-                    <p class="text-base-content/70">Get started quickly</p>
-                    <a href="/docs" target="_blank" class="link link-accent">Read the docs →</a>
+                    <ul class="text-xs text-base-content/70 space-y-2">
+                        <li>Approximate monthly request volume.</li>
+                        <li>Main abuse patterns you are seeing.</li>
+                        <li>Current stack and decision points you need to automate.</li>
+                    </ul>
+                </div>
+
+                <div class="grid grid-cols-1 gap-3">
+                    <a href="https://github.com/scottgal/stylobot" target="_blank" class="marketing-card p-4 shadow-sm block hover:border-primary transition-colors">
+                        <div class="text-sm font-semibold hero-accent-text mb-1 flex items-center gap-2">
+                            <i class="bx bxl-github text-base"></i>
+                            GitHub
+                        </div>
+                        <p class="text-xs text-base-content/70">Review source, issues, and implementation docs.</p>
+                    </a>
+                    <a href="/docs" class="marketing-card p-4 shadow-sm block hover:border-primary transition-colors">
+                        <div class="text-sm font-semibold hero-accent-text mb-1 flex items-center gap-2">
+                            <i class="bx bx-book-open text-base"></i>
+                            Documentation
+                        </div>
+                        <p class="text-xs text-base-content/70">Integration guides, detector docs, and configuration reference.</p>
+                    </a>
                 </div>
             </div>
         </div>
@@ -156,9 +143,12 @@
 <script>
     // Show success message if redirected with ?success=true
     if (window.location.search.includes('success=true')) {
-        document.getElementById('success-message').classList.remove('hidden');
-        // Scroll to success message
-        document.getElementById('success-message').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const successMessage = document.getElementById('success-message');
+        if (!successMessage) return;
+        successMessage.classList.remove('hidden');
+        successMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 </script>
+
+
 

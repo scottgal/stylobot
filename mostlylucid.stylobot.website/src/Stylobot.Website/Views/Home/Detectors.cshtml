@@ -3,23 +3,32 @@
 }
 
 <!-- Hero Section -->
-<section class="bg-gradient-to-br from-primary/5 via-base-100 to-secondary/5 py-8 lg:py-12">
-    <div class="max-w-7xl mx-auto px-4">
-        <div class="text-center max-w-4xl mx-auto">
-            <div class="badge badge-primary mb-4">Detection Arsenal</div>
-            <h1 class="text-2xl lg:text-3xl font-extrabold mb-3">
-                Multi-Signal <span class="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Detection</span>
+<section class="marketing-hero">
+    <div class="marketing-container">
+        <div class="marketing-center">
+            <div class="marketing-eyebrow">Detection Engine</div>
+            <div class="brand-chip">
+                <img src="/img/stylowall.svg" alt="stylo bot mark" class="logo-adaptive" />
+                <span class="brand-chip-label"><span class="stylo-text brand-italic">stylo</span><span class="bot-text">bot</span></span>
+            </div>
+            <h1 class="marketing-title">
+                Multi-Signal <span class="hero-accent-text">Detection</span>
             </h1>
-            <p class="text-base text-base-content/70 leading-relaxed">
-                Our sophisticated detection system combines 11 specialized methods to identify bots with precision. From lightning-fast pattern matching to advanced AI analysis, each detector contributes unique insights.
+            <p class="marketing-lead">
+                Layered detectors combine fast protocol checks, behavioral analysis, and AI escalation so every decision is explainable and actionable.
+            </p>
+            <p class="text-sm text-base-content/70 mt-3 max-w-3xl mx-auto">
+                This detector stack ships in the open-source edition, free at present, so teams can evaluate production behavior before committing to enterprise rollout.
             </p>
         </div>
     </div>
 </section>
 
+@await Html.PartialAsync("_TrustStrip")
+
 <!-- Detectors Grid -->
 <section class="py-12 bg-base-100">
-    <div class="max-w-7xl mx-auto px-4">
+    <div class="marketing-container">
         <!-- Fast Detectors -->
         <div class="mb-20">
             <div class="flex items-center gap-3 mb-8">
@@ -448,7 +457,7 @@
 
 <!-- Detection Pipeline -->
 <section class="py-12 bg-base-200">
-    <div class="max-w-7xl mx-auto px-4">
+    <div class="marketing-container">
         <div class="text-center mb-16">
             <h2 class="text-xl font-bold mb-4">How It All Works Together</h2>
             <p class="text-sm text-base-content/70">Multi-layer defense with intelligent orchestration</p>
@@ -542,9 +551,9 @@
 
 <!-- Product Family -->
 <section class="py-12 bg-base-200">
-    <div class="max-w-7xl mx-auto px-4">
+    <div class="marketing-container">
         <div class="text-center mb-16">
-            <div class="badge mb-4" style="background-color: rgba(168, 85, 247, 0.2); color: rgb(192, 132, 252);">Product Family</div>
+            <div class="badge badge-accent mb-4">Product Family</div>
             <h2 class="text-xl font-bold mb-4">Built on a Common Core</h2>
             <p class="text-sm text-base-content/70 max-w-3xl mx-auto">
                 StyloBot and StyloWall share the same powerful detection engine. Choose the package that fits your needs—or use both together.
@@ -601,40 +610,40 @@
             </div>
 
             <!-- StyloWall (Related Product) -->
-            <div class="card bg-gradient-to-br from-purple-500/10 to-pink-500/10 border-2 border-purple-500/30 shadow-xl">
+            <div class="card bg-gradient-to-br from-secondary/10 to-accent/10 border-2 border-secondary/30 shadow-xl">
                 <div class="card-body">
                     <div class="flex items-center gap-3 mb-4">
-                        <img src="/img/stylowall.png" alt="StyloWall Logo" class="w-16 h-16 drop-shadow-[0_0_12px_rgba(0,0,0,0.9)]" style="filter: drop-shadow(0 0 12px rgba(0,0,0,0.9));" />
+                        <img src="/img/stylowall.png" alt="StyloWall Logo" class="w-16 h-16 drop-shadow-lg" />
                         <div>
                             <h3 class="text-lg font-bold">StyloWall</h3>
                             <p class="text-sm text-base-content/70">Universal Firewall Pack</p>
                         </div>
                     </div>
-                    <div class="badge badge-sm" style="background-color: rgba(168, 85, 247, 0.2); color: rgb(192, 132, 252);">Coming Soon</div>
+                    <div class="badge badge-accent badge-sm">Coming Soon</div>
                     <p class="text-base-content/70 mb-6 mt-4">
                         Protect any port, any protocol, any endpoint. Advanced semantic firewall with AI honeypot, intrusion detection, and real-time threat characterization for hacking attempts.
                     </p>
                     <div class="space-y-2 mb-6">
                         <div class="flex items-start gap-2">
-                            <svg class="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-5 h-5 hero-accent-alt flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                             </svg>
                             <span class="text-sm"><strong>Any port/protocol protection</strong> (SSH, FTP, SMTP, etc.)</span>
                         </div>
                         <div class="flex items-start gap-2">
-                            <svg class="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-5 h-5 hero-accent-alt flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                             </svg>
                             <span class="text-sm"><strong>AI-powered honeypot</strong> to characterize attacks</span>
                         </div>
                         <div class="flex items-start gap-2">
-                            <svg class="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-5 h-5 hero-accent-alt flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                             </svg>
                             <span class="text-sm"><strong>Semantic content filtering</strong> (PII, sentiment, policy)</span>
                         </div>
                         <div class="flex items-start gap-2">
-                            <svg class="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg class="w-5 h-5 hero-accent-alt flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                             </svg>
                             <span class="text-sm"><strong>Edge content manipulation</strong> before backend</span>
@@ -678,3 +687,4 @@
         </div>
     </div>
 </section>
+

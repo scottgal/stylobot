@@ -145,6 +145,16 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
 
             if (!isHttp2)
             {
+                // HTTP/3 connections are handled by Http3FingerprintContributor — skip with neutral signal
+                if (protocol.StartsWith("HTTP/3", StringComparison.OrdinalIgnoreCase))
+                {
+                    signals.Add("h2.is_http3", true);
+                    contributions.Add(DetectionContribution.Info(Name, "HTTP/2",
+                        "Connection uses HTTP/3 (analyzed by Http3FingerprintContributor)")
+                        with { Signals = signals.ToImmutable() });
+                    return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
+                }
+
                 // HTTP/1.x usage could be legitimate or suspicious depending on context
                 // Modern browsers support HTTP/2, but some automation tools don't
                 if (protocol.StartsWith("HTTP/1"))

@@ -60,6 +60,13 @@ public class DetectionBroadcastMiddleware
                 var sigValue = primarySignature ?? GenerateFallbackSignature(context);
 
                 // Build detection event
+                var topReasons = evidence.Contributions
+                    .Where(c => !string.IsNullOrEmpty(c.Reason))
+                    .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
+                    .Take(5)
+                    .Select(c => c.Reason!)
+                    .ToList();
+
                 var detection = new DashboardDetectionEvent
                 {
                     RequestId = context.TraceIdentifier,
@@ -77,13 +84,11 @@ public class DetectionBroadcastMiddleware
                     StatusCode = context.Response.StatusCode,
                     ProcessingTimeMs = evidence.TotalProcessingTimeMs,
                     PrimarySignature = sigValue,
-                    TopReasons = evidence.Contributions
-                        .Where(c => !string.IsNullOrEmpty(c.Reason))
-                        .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
-                        .Take(5)
-                        .Select(c => c.Reason!)
-                        .ToList()
+                    TopReasons = topReasons
                 };
+
+                // Build instant marketing-friendly narrative (no LLM, every request)
+                detection = detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };
 
                 // Store detection event in event store
                 await eventStore.AddDetectionAsync(detection);

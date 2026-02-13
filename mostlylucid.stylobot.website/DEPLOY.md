@@ -212,6 +212,47 @@ docker-compose down -v
     └── bot-detection/    # Bot detection patterns
 ```
 
+## Content Security Policy (CSP)
+
+The Caddyfile includes a full CSP header. Here's what each source allows and why:
+
+| Directive | Sources | Why |
+|-----------|---------|-----|
+| `script-src` | `'self' 'unsafe-inline'` | Local JS + inline theme-switcher script |
+| | `cdn.jsdelivr.net` | SignalR client library on LiveDemo page |
+| | `unpkg.com` | Boxicons |
+| | `umami.mostlylucid.net` | Umami analytics tracker |
+| `style-src` | `'self' 'unsafe-inline'` | Local CSS + Alpine.js `:style` bindings |
+| | `fonts.googleapis.com` | Google Fonts CSS |
+| | `unpkg.com` | Boxicons CSS |
+| `font-src` | `'self'` | Local fonts |
+| | `fonts.gstatic.com` | Google Fonts WOFF2 files |
+| | `unpkg.com` | Boxicons WOFF files |
+| `img-src` | `'self' data: blob: https:` | Local images, inline SVGs, external images |
+| `connect-src` | `'self' wss: ws:` | API calls + SignalR WebSocket connections |
+| | `api.web3forms.com` | Contact form submission |
+| | `umami.mostlylucid.net` | Analytics beacons |
+| `frame-ancestors` | `'self'` | Prevent embedding in iframes |
+| `form-action` | `'self' api.web3forms.com` | Form submissions |
+
+### If you add a new external resource
+
+1. Identify which CSP directive it needs (script, style, font, connect, img)
+2. Add the domain to the appropriate directive in the Caddyfile
+3. Restart Caddy: `docker-compose restart caddy`
+4. Check browser console for CSP violations (they show the blocked domain and directive)
+
+### Troubleshooting CSP issues
+
+```bash
+# Check Caddy is serving the CSP header
+curl -sI https://stylobot.net | grep -i content-security
+
+# Check browser console for violations (they look like):
+# Refused to load the script 'https://example.com/foo.js' because it violates
+# the following Content Security Policy directive: "script-src 'self' ..."
+```
+
 ## Security Notes
 
 1. **SSL/TLS**: Caddy handles automatic HTTPS with Let's Encrypt
@@ -222,6 +263,7 @@ docker-compose down -v
 
 ## Support
 
-- GitHub: https://github.com/scottgal/mostlylucid.stylobot
-- Documentation: https://github.com/scottgal/mostlylucid.stylobot/blob/main/Mostlylucid.BotDetection/README.md
-- Issues: https://github.com/scottgal/mostlylucid.stylobot/issues
+- GitHub: https://github.com/scottgal/stylobot
+- Documentation: https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/README.md
+- Issues: https://github.com/scottgal/stylobot/issues
+

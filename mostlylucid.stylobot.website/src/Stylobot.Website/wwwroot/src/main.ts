@@ -2,32 +2,59 @@
 import Alpine from 'alpinejs';
 import htmx from 'htmx.org';
 
+const THEME_KEY = 'sb-theme';
+const DARK_THEME = 'dark';
+const LIGHT_THEME = 'light';
+
+function systemPrefersDark(): boolean {
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+function resolveInitialTheme(): 'dark' | 'light' {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === 'dark' || saved === 'light') {
+    return saved;
+  }
+
+  return systemPrefersDark() ? 'dark' : 'light';
+}
+
+function applyTheme(mode: 'dark' | 'light'): void {
+  const html = document.documentElement;
+  const isDark = mode === 'dark';
+  html.classList.toggle('dark', isDark);
+  html.setAttribute('data-theme', isDark ? DARK_THEME : LIGHT_THEME);
+}
+
 // Initialize Alpine.js
 (window as any).Alpine = Alpine;
 
-// Theme store - always dark mode
+const initialTheme = resolveInitialTheme();
+applyTheme(initialTheme);
+
+// Theme store
 Alpine.store('theme', {
-  current: 'dark',
+  current: initialTheme,
   toggle() {
-    // Do nothing - dark mode only
+    this.current = this.current === 'dark' ? 'light' : 'dark';
+    localStorage.setItem(THEME_KEY, this.current);
+    applyTheme(this.current);
   }
 });
 
-// Theme switcher component - always dark mode
+// Theme switcher component
 Alpine.data('themeSwitcher', () => ({
-  isDark: true,
+  isDark: initialTheme === 'dark',
   init() {
-    // Always dark mode
-    this.isDark = true;
+    this.isDark = Alpine.store('theme').current === 'dark';
     this.apply();
   },
   toggle() {
-    // Do nothing - dark mode only
+    Alpine.store('theme').toggle();
+    this.isDark = Alpine.store('theme').current === 'dark';
   },
   apply() {
-    const html = document.documentElement;
-    html.classList.add('dark');
-    html.setAttribute('data-theme', 'dark');
+    applyTheme(this.isDark ? 'dark' : 'light');
   }
 }));
 

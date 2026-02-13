@@ -353,6 +353,23 @@ public static class SignalKeys
     public const string H2ClientType = "h2.client_type";
 
     // ==========================================
+    // HTTP/3 (QUIC) fingerprinting signals
+    // Set by Http3FingerprintContributor
+    // ==========================================
+
+    /// <summary>String: HTTP/3 protocol version</summary>
+    public const string H3Protocol = "h3.protocol";
+
+    /// <summary>String: Client type inferred from QUIC transport parameters</summary>
+    public const string H3ClientType = "h3.client_type";
+
+    /// <summary>Boolean: Whether QUIC 0-RTT resumption was used (returning visitor)</summary>
+    public const string H3ZeroRtt = "h3.zero_rtt";
+
+    /// <summary>Boolean: Whether QUIC connection migration occurred (mobile user)</summary>
+    public const string H3ConnectionMigrated = "h3.connection_migrated";
+
+    // ==========================================
     // User-Agent parsed signals
     // Used by MultiLayerCorrelationContributor
     // ==========================================
@@ -421,4 +438,21 @@ public static class SignalKeys
 
     /// <summary>Boolean: Whether the most similar signature was a known bot</summary>
     public const string SimilarityKnownBot = "similarity.known_bot";
+
+    // ==========================================
+    // AI scraper detection signals
+    // Set by AiScraperContributor
+    // ==========================================
+
+    /// <summary>Boolean: true if a known AI scraper/crawler was detected</summary>
+    public const string AiScraperDetected = "aiscraper.detected";
+
+    /// <summary>String: Name of the detected AI bot (e.g., "GPTBot", "ClaudeBot")</summary>
+    public const string AiScraperName = "aiscraper.name";
+
+    /// <summary>String: Operator of the AI bot (e.g., "OpenAI", "Anthropic")</summary>
+    public const string AiScraperOperator = "aiscraper.operator";
+
+    /// <summary>String: Category of the AI bot (Training, Search, Assistant, ScrapingService)</summary>
+    public const string AiScraperCategory = "aiscraper.category";
 }

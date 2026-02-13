@@ -1,13 +1,25 @@
-﻿@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
+@inject Microsoft.AspNetCore.Hosting.IWebHostEnvironment Env
 @using Stylobot.Website.Models
 @{
     var seoMetadata = ViewData["SeoMetadata"] as SeoMetadata ?? new SeoMetadata();
 }
 <!DOCTYPE html>
-<html lang="en" class="dark" data-theme="dark" x-data="themeSwitcher()" x-init="init()">
+<html lang="en" data-theme="light" x-data="themeSwitcher()" x-init="init()">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+        (function() {
+            try {
+                const saved = localStorage.getItem('sb-theme');
+                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const mode = saved === 'light' || saved === 'dark' ? saved : (prefersDark ? 'dark' : 'light');
+                const root = document.documentElement;
+                root.classList.toggle('dark', mode === 'dark');
+                root.setAttribute('data-theme', mode === 'dark' ? 'dark' : 'light');
+            } catch (_) {}
+        })();
+    </script>
 
     <!-- SEO Meta Tags -->
     @await Html.PartialAsync("_SeoMetaTags", seoMetadata)
@@ -33,36 +45,54 @@
     <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/bot-detection-details.css" />
 </head>
 <body class="min-h-screen flex flex-col">
-    <header class="sticky top-0 z-[9999] bg-base-100/95 backdrop-blur-md border-b border-base-300/30">
-        <nav class="max-w-7xl mx-auto px-4 py-2" x-data="{ mobileMenuOpen: false }">
-            <div class="flex items-center justify-between gap-4">
+    <header class="fixed top-0 left-0 right-0 z-[9999] bg-base-100/95 backdrop-blur-md border-b border-base-300/70 transition-transform duration-200"
+            x-data="{
+                mobileMenuOpen: false,
+                showNav: false,
+                init() {
+                    this.showNav = window.scrollY > 80;
+                    window.addEventListener('scroll', () => {
+                        this.showNav = window.scrollY > 80;
+                    }, { passive: true });
+                }
+            }"
+            :class="showNav ? 'translate-y-0' : '-translate-y-full'">
+        <nav class="max-w-7xl mx-auto px-4 py-1.5">
+            <div class="flex items-center justify-between gap-3">
                 <!-- Logo + Brand -->
-                <a asp-area="" asp-controller="Home" asp-action="Index" class="flex items-center gap-3 flex-shrink-0">
-                    <img src="/img/stylowall.svg" alt="stylobot Logo" class="h-9 w-auto logo-adaptive" />
-                    <span class="text-lg font-semibold hidden sm:inline" style="font-family: 'Raleway', sans-serif;">
-                        <span class="stylo-text" style="font-style: italic;">stylo</span><span class="bot-text">bot</span>
+                <a asp-area="" asp-controller="Home" asp-action="Index" class="flex items-center gap-2.5 flex-shrink-0">
+                    <img src="/img/stylowall.svg" alt="stylobot Logo" class="h-8 w-auto logo-adaptive" />
+                    <span class="text-base hidden sm:inline brand-wordmark">
+                        <span class="stylo-text brand-italic">stylo</span><span class="bot-text">bot</span>
                     </span>
                 </a>
 
                 <!-- Desktop Navigation -->
-                <div class="hidden lg:flex items-center gap-6">
-                    <ul class="flex items-center gap-6">
-                        <li><a asp-area="" asp-controller="Home" asp-action="Index" class="font-medium hover:text-primary transition-colors">Home</a></li>
-                        <li><a asp-area="" asp-controller="Home" asp-action="Features" class="font-medium hover:text-primary transition-colors">Features</a></li>
-                        <li><a asp-area="" asp-controller="Home" asp-action="Detectors" class="font-medium hover:text-primary transition-colors">Detectors</a></li>
-                        <li><a asp-area="" asp-controller="Home" asp-action="Enterprise" class="font-medium hover:text-primary transition-colors">Enterprise</a></li>
-                        <li><a href="#pricing" class="font-medium hover:text-primary transition-colors">Pricing</a></li>
-                        <li><a asp-area="" asp-controller="Docs" asp-action="Index" class="font-medium hover:text-primary transition-colors">Docs</a></li>
+                <div class="hidden lg:flex items-center gap-5">
+                    <ul class="flex items-center gap-5">
+                        <li><a asp-area="" asp-controller="Home" asp-action="Index" class="nav-link">Home</a></li>
+                        <li><a asp-area="" asp-controller="Home" asp-action="Features" class="nav-link">Features</a></li>
+                        <li><a asp-area="" asp-controller="Home" asp-action="Detectors" class="nav-link">Detectors</a></li>
+                        <li><a asp-area="" asp-controller="Home" asp-action="Enterprise" class="nav-link">Enterprise</a></li>
+                        <li><a href="#pricing" class="nav-link">Pricing</a></li>
+                        <li><a asp-area="" asp-controller="Docs" asp-action="Index" class="nav-link">Docs</a></li>
                     </ul>
                     <div class="flex items-center gap-3">
+                        <button type="button" class="theme-toggle" @@click="toggle()" :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'" aria-label="Toggle color theme">
+                            <svg x-show="isDark" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-9H19.5m-15 0H3.34m14.02 6.36l-.7-.7m-9.32 0l-.7.7m10.02-10.02l-.7.7m-9.32 0l-.7-.7M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                            <svg x-show="!isDark" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                            </svg>
+                        </button>
                         <a asp-area="" asp-controller="Home" asp-action="LiveDemo"
-                           class="btn btn-sm border-2 gap-1.5 font-semibold"
-                           style="border-color: #5BA3A3; color: #5BA3A3; background: rgba(91,163,163,0.1);">
+                           class="btn btn-sm border-2 gap-1.5 font-semibold btn-live-demo">
                             <span class="relative flex h-2 w-2">
-                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background-color: #5BA3A3;"></span>
-                                <span class="relative inline-flex rounded-full h-2 w-2" style="background-color: #5BA3A3;"></span>
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
+                                <span class="relative inline-flex rounded-full h-2 w-2 live-dot"></span>
                             </span>
-                            Live Demo
+                            Start Live Demo
                         </a>
                     </div>
                 </div>
@@ -84,19 +114,24 @@
                  class="absolute top-full left-0 right-0 bg-base-100 border-b border-base-300 shadow-lg lg:hidden">
                 <ul class="menu p-4">
                     <li><a asp-area="" asp-controller="Home" asp-action="Index">Home</a></li>
+                    <li><a asp-area="" asp-controller="Home" asp-action="Features">Features</a></li>
                     <li><a asp-area="" asp-controller="Home" asp-action="Detectors">Detectors</a></li>
                     <li><a asp-area="" asp-controller="Home" asp-action="Enterprise">Enterprise</a></li>
                     <li><a href="#pricing">Pricing</a></li>
                     <li><a asp-area="" asp-controller="Docs" asp-action="Index">Docs</a></li>
                     <li class="mt-2">
+                        <button type="button" class="theme-toggle w-full justify-center" @@click="toggle()">
+                            <span x-text="isDark ? 'Light Mode' : 'Dark Mode'"></span>
+                        </button>
+                    </li>
+                    <li class="mt-2">
                         <a asp-area="" asp-controller="Home" asp-action="LiveDemo"
-                           class="btn w-full border-2 gap-1.5 font-semibold"
-                           style="border-color: #5BA3A3; color: #5BA3A3; background: rgba(91,163,163,0.1);">
+                           class="btn w-full border-2 gap-1.5 font-semibold btn-live-demo">
                             <span class="relative flex h-2 w-2">
-                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background-color: #5BA3A3;"></span>
-                                <span class="relative inline-flex rounded-full h-2 w-2" style="background-color: #5BA3A3;"></span>
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
+                                <span class="relative inline-flex rounded-full h-2 w-2 live-dot"></span>
                             </span>
-                            Live Demo
+                            Start Live Demo
                         </a>
                     </li>
                 </ul>
@@ -104,8 +139,12 @@
         </nav>
     </header>
 
-    <!-- Unified Bot Detection Header - detection status + live ticker in one slim bar -->
-    <bot-detection-header />
+    <!-- Unified Bot Detection Header - shown only after scrolling -->
+    <div x-data="{ showDetect: false, init() { this.showDetect = window.scrollY > 80; window.addEventListener('scroll', () => { this.showDetect = window.scrollY > 80; }, { passive: true }); } }"
+         x-show="showDetect"
+         x-transition.opacity.duration.150ms>
+        <bot-detection-header />
+    </div>
 
     <!-- Client-side fingerprinting for enhanced detection -->
     <bot-detection-script />
@@ -120,8 +159,8 @@
                 <div class="col-span-1 md:col-span-2">
                     <div class="flex items-center gap-3 mb-4">
                         <img src="/img/stylowall.svg" alt="stylobot Logo" class="h-10 w-auto logo-adaptive" />
-                        <span class="text-2xl font-semibold" style="font-family: 'Raleway', sans-serif;">
-                            <span class="stylo-text" style="font-style: italic;">stylo</span><span class="bot-text">bot</span>
+                        <span class="text-2xl brand-wordmark">
+                            <span class="stylo-text brand-italic">stylo</span><span class="bot-text">bot</span>
                         </span>
                     </div>
                     <p class="text-base-content/70 max-w-md">
@@ -136,7 +175,7 @@
                         <li><a asp-area="" asp-controller="Home" asp-action="Detectors" class="hover:text-primary transition-colors" hx-get="/Home/Detectors" hx-target="main" hx-push-url="true">Detectors</a></li>
                         <li><a asp-area="" asp-controller="Home" asp-action="Enterprise" class="hover:text-primary transition-colors" hx-get="/Home/Enterprise" hx-target="main" hx-push-url="true">Enterprise</a></li>
                         <li><a asp-area="" asp-controller="Docs" asp-action="Index" class="hover:text-primary transition-colors">Documentation</a></li>
-                        <li><a href="https://github.com/scottgal/mostlylucid.stylobot/tree/main/Mostlylucid.BotDetection" target="_blank" class="hover:text-primary transition-colors">Developer Docs</a></li>
+                        <li><a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection" target="_blank" class="hover:text-primary transition-colors">Developer Docs</a></li>
                     </ul>
                 </div>
 
@@ -165,3 +204,4 @@
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
+

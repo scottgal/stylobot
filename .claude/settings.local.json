@@ -111,7 +111,15 @@
       "Bash(\"done\")",
       "mcp__plugin_playwright_playwright__browser_select_option",
       "Bash(ping:*)",
-      "Bash(Start-Sleep -Seconds 8)"
+      "Bash(Start-Sleep -Seconds 8)",
+      "mcp__plugin_playwright_playwright__browser_network_requests",
+      "Bash(Select-String -Pattern \"error|Build succeeded|failed\")",
+      "WebFetch(domain:developers.cloudflare.com)",
+      "WebFetch(domain:blog.cloudflare.com)",
+      "WebFetch(domain:momenticmarketing.com)",
+      "WebFetch(domain:llmscentral.com)",
+      "WebFetch(domain:pageradar.io)",
+      "WebFetch(domain:webdecoy.com)"
     ]
   }
 }

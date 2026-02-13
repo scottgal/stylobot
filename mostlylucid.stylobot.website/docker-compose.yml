@@ -1,42 +1,89 @@
+# ============================================================
+# Stylobot Website - Production Docker Compose
+# ============================================================
+#
+# Architecture:
+#   Internet → Caddy (TLS, :443) → Gateway (YARP bot detection) → Website
+#                                 → Website (direct for SignalR hub)
+#
+# Usage:
+#   1. Copy .env.example to .env and fill in values
+#   2. docker compose up -d
+#   3. Visit https://stylobot.net
+#
+# The Caddyfile routes:
+#   /_stylobot/hub*  → website:8080  (SignalR, bypasses YARP)
+#   everything else  → gateway:8080  (bot detection layer)
+# ============================================================
+
 services:
-  # Caddy - SSL/TLS termination and reverse proxy
+  # ----------------------------------------------------------
+  # Caddy - TLS termination + reverse proxy
+  # ----------------------------------------------------------
   caddy:
     image: caddy:latest
     container_name: stylobot-caddy
     ports:
       - "80:80"
       - "443:443"
-      - "443:443/udp" # HTTP/3
+      - "443:443/udp"   # HTTP/3 (QUIC)
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+      - caddy-logs:/var/log/caddy
     depends_on:
+      - gateway
       - website
     networks:
       - stylobot-network
     restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
 
-  # YARP Gateway - Bot detection layer (disabled - gateway image not available yet)
-  # gateway:
-  #   image: scottgal/stylobot-gateway:latest
-  #   container_name: stylobot-gateway
-  #   environment:
-  #     - ASPNETCORE_ENVIRONMENT=Production
-  #     - ASPNETCORE_URLS=http://+:8080
-  #     # Simple catch-all routing to website backend
-  #     - DEFAULT_UPSTREAM=http://website:8080
-  #   expose:
-  #     - "8080"
-  #   depends_on:
-  #     - website
-  #   networks:
-  #     - stylobot-network
-  #   restart: unless-stopped
-  #   labels:
-  #     - "com.centurylinklabs.watchtower.enable=true"
+  # ----------------------------------------------------------
+  # YARP Gateway - Bot detection layer
+  # All non-SignalR traffic goes through here
+  # ----------------------------------------------------------
+  gateway:
+    image: scottgal/stylobot-gateway:latest
+    container_name: stylobot-gateway
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      # Route all traffic to the website backend
+      - DEFAULT_UPSTREAM=http://website:8080
+      # PostgreSQL for dashboard persistence
+      - StyloBotDashboard__PostgreSQL__ConnectionString=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      - StyloBotDashboard__PostgreSQL__EnableTimescaleDB=true
+      - StyloBotDashboard__PostgreSQL__AutoInitializeSchema=true
+      - StyloBotDashboard__PostgreSQL__RetentionDays=90
+      - StyloBotDashboard__PostgreSQL__CompressionAfterDays=7
+    expose:
+      - "8080"
+    volumes:
+      - bot-detection-data:/app/data
+      - gateway-learning:/app/yarp-learning-data
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      website:
+        condition: service_started
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
 
-  # Stylobot Website - ASP.NET Core 10 backend
+  # ----------------------------------------------------------
+  # Website - ASP.NET Core 10 application
+  # ----------------------------------------------------------
   website:
     image: scottgal/stylobot-site:latest
     container_name: stylobot-website
@@ -47,16 +94,41 @@ services:
       - ASPNETCORE_URLS=http://+:8080
     expose:
       - "8080"
+    volumes:
+      - bot-detection-data:/app/data
     networks:
       - stylobot-network
     restart: unless-stopped
-    volumes:
-      # Persist learned bot detection patterns
-      - bot-detection-data:/app/data
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
-  # Watchtower - Automatic container updates
+  # ----------------------------------------------------------
+  # TimescaleDB - Dashboard event persistence
+  # ----------------------------------------------------------
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: stylobot-timescale
+    environment:
+      - POSTGRES_DB=stylobot
+      - POSTGRES_USER=stylobot
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      - TIMESCALEDB_TELEMETRY=off
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stylobot -d stylobot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+    # No external port - only accessible from other containers
+
+  # ----------------------------------------------------------
+  # Watchtower - Auto-update containers from Docker Hub
+  # ----------------------------------------------------------
   watchtower:
     image: containrrr/watchtower:latest
     container_name: stylobot-watchtower
@@ -66,7 +138,7 @@ services:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_INCLUDE_RESTARTING=true
       - WATCHTOWER_LABEL_ENABLE=true
-      - WATCHTOWER_POLL_INTERVAL=300 # Check every 5 minutes
+      - WATCHTOWER_POLL_INTERVAL=300
     networks:
       - stylobot-network
     restart: unless-stopped
@@ -76,9 +148,15 @@ networks:
     driver: bridge
 
 volumes:
-  bot-detection-data:
-    driver: local
   caddy-data:
     driver: local
   caddy-config:
+    driver: local
+  caddy-logs:
+    driver: local
+  bot-detection-data:
+    driver: local
+  gateway-learning:
+    driver: local
+  timescale-data:
     driver: local

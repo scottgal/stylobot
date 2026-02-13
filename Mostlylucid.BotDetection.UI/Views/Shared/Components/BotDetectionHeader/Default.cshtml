@@ -44,12 +44,8 @@
                    :href="'/_stylobot?signature=' + (item.primarySignature || '')"
                    :class="{ 'is-bot': item.isBot, 'ticker-new': item._isNew }">
                     <span class="ticker-icon-sm" x-text="item.isBot ? 'R' : 'H'"></span>
-                    <span class="ticker-risk-sm" :class="'risk-' + (item.riskBand || '').toLowerCase()"
-                          x-text="(item.riskBand || '-').substring(0, 4)"></span>
-                    <template x-if="item.botName">
-                        <span class="ticker-name-sm" x-text="item.botName"></span>
-                    </template>
-                    <span class="ticker-prob-sm" x-text="Math.round((item.botProbability || 0) * 100) + '%'"></span>
+                    <span class="ticker-narrative-sm"
+                          x-text="item.narrative || item.botName || ((item.isBot ? 'Bot' : 'Human') + ' ' + Math.round((item.botProbability || 0) * 100) + '%')"></span>
                 </a>
             </template>
         </div>
@@ -188,6 +184,12 @@ document.addEventListener('alpine:init', () => {
                     if (sig.primarySignature === this.signature) {
                         this.hitCount = sig.hitCount;
                     }
+                });
+
+                // LLM description update (arrives async after detection)
+                this.connection.on('BroadcastDescriptionUpdate', (requestId, description) => {
+                    const item = this.tickerItems.find(i => i.requestId === requestId);
+                    if (item) item.description = description;
                 });
 
                 this.connection.onclose(() => { this.connected = false; });
@@ -436,6 +438,20 @@ document.addEventListener('alpine:init', () => {
     text-overflow: ellipsis;
 }
 
+.ticker-narrative-sm {
+    color: #adb5bd;
+    font-weight: 400;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px;
+}
+
+.stylobot-header-ticker-item.is-bot .ticker-narrative-sm {
+    color: #ff9b9b;
+}
+
 .ticker-prob-sm {
     color: #6c757d;
 }
@@ -570,4 +586,127 @@ document.addEventListener('alpine:init', () => {
         grid-template-columns: 1fr;
     }
 }
+/* Theme-aware overrides aligned with site tokens */
+.stylobot-header {
+    background: color-mix(in oklab, var(--color-base-200) 92%, var(--color-base-100));
+    border-bottom-color: var(--sb-card-divider);
+}
+
+.stylobot-header-you:hover {
+    background: color-mix(in oklab, var(--color-base-content) 6%, transparent);
+}
+
+.stylobot-header-icon { background: var(--sb-signal-pos); }
+.stylobot-header-icon.is-bot { background: var(--sb-signal-danger); }
+
+.stylobot-header-label {
+    color: color-mix(in oklab, var(--sb-card-subtle) 82%, var(--sb-card-text));
+}
+
+.stylobot-header-label.is-bot { color: var(--sb-signal-danger); }
+.stylobot-header-label.is-human { color: var(--sb-signal-pos); }
+.stylobot-header-prob { color: var(--sb-card-text); }
+
+.stylobot-header-risk.risk-verylow,
+.stylobot-header-risk.risk-low {
+    background: color-mix(in oklab, var(--sb-signal-pos) 18%, transparent);
+    color: var(--sb-signal-pos);
+}
+
+.stylobot-header-risk.risk-medium,
+.stylobot-header-risk.risk-elevated {
+    background: color-mix(in oklab, var(--sb-signal-warn) 18%, transparent);
+    color: var(--sb-signal-warn);
+}
+
+.stylobot-header-risk.risk-high,
+.stylobot-header-risk.risk-veryhigh {
+    background: color-mix(in oklab, var(--sb-signal-danger) 16%, transparent);
+    color: var(--sb-signal-danger);
+}
+
+.stylobot-header-risk.risk-verified {
+    background: color-mix(in oklab, var(--sb-accent) 18%, transparent);
+    color: var(--sb-accent);
+}
+
+.stylobot-header-time,
+.stylobot-header-expand,
+.ticker-prob-sm,
+.stylobot-header-ticker-empty,
+.stylobot-header-section .section-label,
+.stylobot-header-section .section-note {
+    color: var(--sb-card-subtle);
+}
+
+.stylobot-header-hits,
+.stylobot-header-dashboard,
+.stylobot-header-details-footer .dashboard-link {
+    color: var(--sb-accent);
+}
+
+.stylobot-header-dashboard:hover,
+.stylobot-header-details-footer .dashboard-link:hover {
+    color: var(--sb-accent-strong);
+}
+
+.stylobot-header-divider { background: var(--sb-card-divider); }
+
+.stylobot-header-ticker-item {
+    background: color-mix(in oklab, var(--color-base-content) 4%, transparent);
+    color: color-mix(in oklab, var(--sb-card-subtle) 78%, var(--sb-card-text));
+}
+
+.stylobot-header-ticker-item:hover {
+    background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+    color: var(--sb-card-text);
+}
+
+.stylobot-header-ticker-item.is-bot {
+    background: color-mix(in oklab, var(--sb-signal-danger) 14%, transparent);
+}
+
+.ticker-icon-sm {
+    background: color-mix(in oklab, var(--color-base-content) 12%, transparent);
+}
+
+.stylobot-header-ticker-item.is-bot .ticker-icon-sm {
+    background: color-mix(in oklab, var(--sb-signal-danger) 35%, transparent);
+    color: var(--sb-signal-danger);
+}
+
+.ticker-risk-sm.risk-low,
+.ticker-risk-sm.risk-verylow { color: var(--sb-signal-pos); }
+.ticker-risk-sm.risk-medium,
+.ticker-risk-sm.risk-elevated { color: var(--sb-signal-warn); }
+.ticker-risk-sm.risk-high,
+.ticker-risk-sm.risk-veryhigh { color: var(--sb-signal-danger); }
+.ticker-risk-sm.risk-verified { color: var(--sb-accent); }
+
+.ticker-name-sm { color: var(--sb-card-text); }
+.ticker-narrative-sm { color: var(--sb-card-subtle); }
+.stylobot-header-ticker-item.is-bot .ticker-narrative-sm { color: var(--sb-signal-danger); }
+
+.stylobot-header-live {
+    color: var(--sb-accent-strong);
+    background: color-mix(in oklab, var(--sb-accent-strong) 18%, transparent);
+}
+
+.stylobot-header-details {
+    background: color-mix(in oklab, var(--color-base-200) 96%, var(--color-base-100));
+    border-top-color: var(--sb-card-divider);
+}
+
+.stylobot-header-section .section-title { color: var(--sb-accent); }
+.stylobot-header-section .section-content {
+    color: color-mix(in oklab, var(--sb-card-subtle) 72%, var(--sb-card-text));
+}
+
+.stylobot-header-section code {
+    color: var(--sb-card-text);
+    background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+}
+
+.stylobot-header-details-footer { border-top-color: var(--sb-card-divider); }
+
 </style>

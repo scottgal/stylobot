@@ -46,7 +46,8 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
             {
                 new SignalExistsTrigger(SignalKeys.TcpOsHint),
                 new SignalExistsTrigger(SignalKeys.TlsProtocol),
-                new SignalExistsTrigger(SignalKeys.H2Protocol)
+                new SignalExistsTrigger(SignalKeys.H2Protocol),
+                new SignalExistsTrigger(SignalKeys.H3Protocol)
             })
         })
     };
@@ -68,7 +69,8 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
             var tcpWindowOsHint = GetSignal<string>(state, SignalKeys.TcpOsHintWindow);
             var userAgentOs = GetSignal<string>(state, SignalKeys.UserAgentOs);
             var userAgentBrowser = GetSignal<string>(state, SignalKeys.UserAgentBrowser);
-            var h2ClientType = GetSignal<string>(state, SignalKeys.H2ClientType);
+            var h2ClientType = GetSignal<string>(state, SignalKeys.H2ClientType)
+                               ?? GetSignal<string>(state, SignalKeys.H3ClientType);
             var tlsProtocol = GetSignal<string>(state, SignalKeys.TlsProtocol);
             var ipIsDatacenter = GetSignal<bool>(state, SignalKeys.IpIsDatacenter);
 

@@ -3,17 +3,24 @@
 }
 
 <!-- Hero Section -->
-<section class="bg-gradient-to-br from-primary/10 via-base-100 to-secondary/10 py-8 lg:py-12">
-    <div class="max-w-7xl mx-auto px-4">
-        <div class="text-center max-w-4xl mx-auto">
-            <div class="badge badge-primary mb-4">Zero-Configuration Bot Protection</div>
-            <h1 class="text-2xl lg:text-3xl font-extrabold mb-3">
-                Bot Protection That <span class="bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">Just Works</span>
+<section class="marketing-hero">
+    <div class="marketing-container">
+        <div class="marketing-center">
+            <div class="marketing-eyebrow">Product Capabilities</div>
+            <div class="brand-chip">
+                <img src="/img/stylowall.svg" alt="stylo bot mark" class="logo-adaptive" />
+                <span class="brand-chip-label"><span class="stylo-text brand-italic">stylo</span><span class="bot-text">bot</span></span>
+            </div>
+            <h1 class="marketing-title">
+                Bot Detection That Ships <span class="hero-accent-text">Fast</span>
             </h1>
-            <p class="text-base text-base-content/70 leading-relaxed mb-6">
-                No machine learning expertise required. No complex rules to configure. No maintenance headaches.
-                Just drop it in and watch it adapt to your traffic in real-time. <span class="font-semibold text-primary">Every endpoint learns automatically.</span>
+            <p class="marketing-lead mb-6">
+                Deploy quickly without maintaining fragile rule sets.
+                Add it to your gateway or middleware, then get transparent scoring, detector evidence, and policy control from day one. <span class="font-semibold hero-accent-text">Every endpoint gets continuous learning.</span>
             </p>
+            <div class="text-sm text-base-content/70 mb-4">
+                <span class="font-semibold text-base-content">Open source and free (at present).</span> Start with the full core feature set, then scale to enterprise workflows when you need them.
+            </div>
             <div class="flex flex-col gap-3 items-center mb-4">
                 <div class="inline-flex items-center gap-3 px-6 py-3 bg-base-200 rounded-full">
                     <svg class="w-5 h-5 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -32,9 +39,11 @@
     </div>
 </section>
 
+@await Html.PartialAsync("_TrustStrip")
+
 <!-- Key Differentiators -->
 <section class="py-12 bg-base-100">
-    <div class="max-w-7xl mx-auto px-4">
+    <div class="marketing-container">
         <div class="text-center mb-16">
             <h2 class="text-xl font-bold mb-4">Why StyloBot is Different</h2>
             <p class="text-sm text-base-content/70">The features that make bot detection actually work</p>
@@ -200,9 +209,9 @@ app.UseBotDetection();</code></pre>
             </div>
 
             <!-- Adaptive Scaling -->
-            <div class="card bg-gradient-to-br from-purple-500/5 to-purple-500/10 border-2 border-purple-500/20 hover:border-purple-500 transition-all">
+            <div class="card bg-gradient-to-br from-secondary/5 to-secondary/10 border-2 border-secondary/20 hover:border-secondary transition-all">
                 <div class="card-body">
-                    <div class="w-14 h-14 bg-purple-500 rounded-xl flex items-center justify-center mb-4">
+                    <div class="w-14 h-14 bg-secondary rounded-xl flex items-center justify-center mb-4">
                         <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
@@ -213,19 +222,19 @@ app.UseBotDetection();</code></pre>
                     </p>
                     <ul class="space-y-2 text-sm">
                         <li class="flex items-center gap-2">
-                            <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                            <div class="w-2 h-2 bg-secondary rounded-full"></div>
                             <span>Bounded concurrency prevents overload</span>
                         </li>
                         <li class="flex items-center gap-2">
-                            <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                            <div class="w-2 h-2 bg-secondary rounded-full"></div>
                             <span>Auto memory cleanup prevents leaks</span>
                         </li>
                         <li class="flex items-center gap-2">
-                            <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                            <div class="w-2 h-2 bg-secondary rounded-full"></div>
                             <span>Signal-based coordination</span>
                         </li>
                         <li class="flex items-center gap-2">
-                            <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                            <div class="w-2 h-2 bg-secondary rounded-full"></div>
                             <span>Observable async operations</span>
                         </li>
                     </ul>
@@ -243,9 +252,9 @@ app.UseBotDetection();</code></pre>
             </div>
 
             <!-- Edge Deployment -->
-            <div class="card bg-gradient-to-br from-teal-500/5 to-teal-500/10 border-2 border-teal-500/20 hover:border-teal-500 transition-all">
+            <div class="card bg-gradient-to-br from-accent/5 to-accent/10 border-2 border-accent/20 hover:border-accent transition-all">
                 <div class="card-body">
-                    <div class="w-14 h-14 bg-teal-500 rounded-xl flex items-center justify-center mb-4">
+                    <div class="w-14 h-14 bg-accent rounded-xl flex items-center justify-center mb-4">
                         <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
@@ -257,12 +266,12 @@ app.UseBotDetection();</code></pre>
                     <div class="stats stats-vertical bg-base-200 shadow w-full text-xs">
                         <div class="stat py-2 px-3">
                             <div class="stat-title text-xs">Minimum</div>
-                            <div class="stat-value text-sm text-teal-500">Pi Zero</div>
+                            <div class="stat-value text-sm text-accent">Pi Zero</div>
                             <div class="stat-desc">512MB RAM</div>
                         </div>
                         <div class="stat py-2 px-3">
                             <div class="stat-title text-xs">Maximum</div>
-                            <div class="stat-value text-sm text-teal-500">Unlimited</div>
+                            <div class="stat-value text-sm text-accent">Unlimited</div>
                             <div class="stat-desc">Horizontal scaling</div>
                         </div>
                     </div>
@@ -274,7 +283,7 @@ app.UseBotDetection();</code></pre>
 
 <!-- Zero Config / Infinite Control Paradox -->
 <section class="py-12 bg-gradient-to-br from-success/5 to-info/5">
-    <div class="max-w-7xl mx-auto px-4">
+    <div class="marketing-container">
         <div class="text-center mb-16">
             <div class="badge badge-success mb-4">The Paradox</div>
             <h2 class="text-xl font-bold mb-4">Zero Config. Infinite Control.</h2>
@@ -423,9 +432,40 @@ app.UseBotDetection();
     </div>
 </section>
 
+<!-- Positive Comparison -->
+<section class="py-12 bg-base-100">
+    <div class="marketing-container">
+        <div class="text-center mb-10">
+            <h2 class="text-xl font-bold mb-3">What makes StyloBot a strong choice</h2>
+            <p class="text-sm text-base-content/70 max-w-3xl mx-auto">
+                Teams evaluating bot protection often care about speed, explainability, control, and long-term flexibility. StyloBot is designed to deliver all four.
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="p-4 rounded-lg border border-base-content/10 bg-base-200">
+                <div class="text-sm font-semibold mb-2">Evidence-first outputs</div>
+                <div class="text-xs text-base-content/70">Detector-level reasons, confidence, and risk bands on every request.</div>
+            </div>
+            <div class="p-4 rounded-lg border border-base-content/10 bg-base-200">
+                <div class="text-sm font-semibold mb-2">Performance-aware design</div>
+                <div class="text-xs text-base-content/70">Fast-path reputation and bounded workflows keep latency predictable.</div>
+            </div>
+            <div class="p-4 rounded-lg border border-base-content/10 bg-base-200">
+                <div class="text-sm font-semibold mb-2">Control without complexity</div>
+                <div class="text-xs text-base-content/70">Start zero-config, then add per-path policies and custom detectors only where needed.</div>
+            </div>
+            <div class="p-4 rounded-lg border border-base-content/10 bg-base-200">
+                <div class="text-sm font-semibold mb-2">Open-source flexibility</div>
+                <div class="text-xs text-base-content/70">Self-hosted core, transparent roadmap, and no forced platform lock-in.</div>
+            </div>
+        </div>
+    </div>
+</section>
+
 <!-- The Magic: How It Actually Works -->
 <section class="py-12 bg-base-200">
-    <div class="max-w-7xl mx-auto px-4">
+    <div class="marketing-container">
         <div class="text-center mb-16">
             <h2 class="text-xl font-bold mb-4">The Intelligence Behind It</h2>
             <p class="text-sm text-base-content/70">Multi-layered AI that adapts to your traffic</p>
@@ -562,7 +602,7 @@ app.UseBotDetection();
 
 <!-- Action Policies -->
 <section class="py-12 bg-base-100">
-    <div class="max-w-7xl mx-auto px-4">
+    <div class="marketing-container">
         <div class="text-center mb-16">
             <h2 class="text-xl font-bold mb-4">Flexible Response Actions</h2>
             <p class="text-sm text-base-content/70">Not all bots deserve the same treatment</p>
@@ -733,7 +773,7 @@ app.UseBotDetection();
 
 <!-- Integration & Deployment -->
 <section class="py-12 bg-base-100">
-    <div class="max-w-7xl mx-auto px-4">
+    <div class="marketing-container">
         <div class="text-center mb-16">
             <h2 class="text-xl font-bold mb-4">Fits Your Stack</h2>
             <p class="text-sm text-base-content/70">Works with what you already have</p>
@@ -768,20 +808,20 @@ app.UseBotDetection();
 <section class="py-12 bg-gradient-to-br from-primary/10 via-base-100 to-secondary/10">
     <div class="max-w-4xl mx-auto px-4 text-center">
         <h2 class="text-xl lg:text-2xl font-bold mb-6">
-            Stop Configuring. Start Protecting.
+            Start Fast. Keep Full Control.
         </h2>
         <p class="text-sm text-base-content/70 mb-8">
-            Bot protection that just works, learns automatically, and improves continuously.
+            Open source, free at present, and ready for production traffic.
         </p>
         <div class="flex flex-col sm:flex-row gap-4 justify-center mb-8">
-            <a href="https://github.com/scottgal/mostlylucid.stylobot" class="btn btn-primary btn-lg px-8">
+            <a href="https://github.com/scottgal/stylobot" class="btn btn-primary btn-lg px-8">
                 <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
                 </svg>
-                View on GitHub
+                Explore Source
             </a>
             <a href="https://www.nuget.org/packages/mostlylucid.botdetection" class="btn btn-outline btn-lg px-8">
-                Install from NuGet
+                Start with NuGet
             </a>
         </div>
         <div class="text-base-content/60">
@@ -789,4 +829,6 @@ app.UseBotDetection();
         </div>
     </div>
 </section>
+
+
 

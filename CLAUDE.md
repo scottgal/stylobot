@@ -139,6 +139,40 @@ context.GetBotConfidence()
 context.GetBotType()
 ```
 
+## Adding a New Detector
+
+Every detector touches exactly 5 files. Use `Http3FingerprintContributor` as a reference implementation.
+
+### 5-File Checklist
+
+1. **C# class** — `Orchestration/ContributingDetectors/{Name}Contributor.cs`
+   - Inherit `ConfiguredContributorBase` (for YAML config) or `ContributingDetectorBase` (for no-config detectors)
+   - Constructor takes `ILogger<T>` + `IDetectorConfigProvider` and calls `base(configProvider)`
+   - Override `Name` (string), `Priority` (int), `TriggerConditions` (empty array for Wave 0, or signal triggers for later waves)
+   - Implement `ContributeAsync(BlackboardState state, CancellationToken)` returning `IReadOnlyList<DetectionContribution>`
+   - Use `GetParam<T>(name, default)` for all tunable values — no magic numbers in code
+
+2. **YAML manifest** — `Orchestration/Manifests/detectors/{name}.detector.yaml`
+   - Follows the schema: `name`, `priority`, `enabled`, `scope`, `taxonomy`, `input`, `output`, `triggers`, `emits`, `defaults` (weights, confidence, timing, features, parameters)
+   - The `*.yaml` glob in `.csproj` auto-includes it as an embedded resource
+
+3. **SignalKeys** — `Models/DetectionContext.cs`
+   - Add constants in the `SignalKeys` class grouped with a section header comment
+   - Use hierarchical naming: `h3.protocol`, `h3.client_type`, etc.
+
+4. **DI registration** — `Extensions/ServiceCollectionExtensions.cs`
+   - Add `services.AddSingleton<IContributingDetector, {Name}Contributor>();` in the appropriate wave section
+
+5. **Narrative builder** — `Mostlylucid.BotDetection.UI/Services/DetectionNarrativeBuilder.cs`
+   - Add entries to both `DetectorFriendlyNames` and `DetectorCategories` dictionaries
+
+### Key Rules
+
+- **No magic numbers** — all confidence, weight, and threshold values come from YAML `defaults.parameters` via `GetParam<T>()`
+- **Always add signals to the last contribution** — the orchestrator reads signals from contributions; ensure the final contribution carries the full `signals.ToImmutable()` dictionary
+- **Cross-detector communication** — use `TriggerConditions` (e.g., `SignalExistsTrigger`, `AnyOfTrigger`, `AllOfTrigger`) to declare dependencies, and `GetSignal<T>(state, key)` to read signals from earlier detectors
+- **Use helper methods** — `BotContribution()`, `HumanContribution()`, `NeutralContribution()`, `StrongBotContribution()` from `ConfiguredContributorBase`
+
 ## Versioning
 
 Uses MinVer with tag prefix `botdetection-v{version}`. NuGet packages auto-version from git tags.

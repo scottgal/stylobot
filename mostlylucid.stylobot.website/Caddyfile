@@ -1,58 +1,115 @@
-# Caddyfile for stylobot
-# Automatic HTTPS with Let's Encrypt
+# ============================================================
+# Caddyfile for stylobot.net
+# Automatic HTTPS via Let's Encrypt
+# ============================================================
+#
+# Architecture:
+#   Internet → Caddy (TLS) → YARP Gateway (bot detection) → Website
+#                           → Website (direct for SignalR hub)
+#
+# CSP Note:
+#   The site uses: Alpine.js, DaisyUI/Tailwind, boxicons (unpkg),
+#   Google Fonts (Raleway), SignalR (cdn.jsdelivr.net),
+#   Umami analytics, Web3Forms contact API.
+#   Alpine's :style bindings require 'unsafe-inline' for styles.
+#   The theme-switcher inline <script> requires 'unsafe-inline' for scripts.
+# ============================================================
 
 {
-    # Global options
-    email scott.galloway+sb@gmail.com
-    # Uncomment for production
-    # acme_ca https://acme-v02.api.letsencrypt.org/directory
+	email scott.galloway+sb@gmail.com
 }
 
-# Main site
+# ============================================================
+# Production: stylobot.net
+# ============================================================
 stylobot.net, www.stylobot.net {
-    # Reverse proxy directly to website
-    reverse_proxy gateway:8080 {
-        # Health check
-        health_uri /health
-        health_interval 10s
-        health_timeout 5s
 
-        # Forward real client IP
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-        header_up X-Forwarded-Host {host}
-    }
+	# ----------------------------------------------------------
+	# SignalR hub: route directly to website container
+	# (WebSocket upgrades fail through YARP reverse proxy)
+	# ----------------------------------------------------------
+	handle /_stylobot/hub* {
+		reverse_proxy website:8080 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
 
-    # Security headers
-    header {
-        # Enable HSTS
-        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        # Prevent MIME sniffing
-        X-Content-Type-Options "nosniff"
-        # Enable XSS protection
-        X-Frame-Options "SAMEORIGIN"
-        # CSP
-        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdn.tailwindcss.com https://unpkg.com https://umami.mostlylucid.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://unpkg.com; img-src 'self' data: blob: https:; connect-src 'self' wss: https://api.web3forms.com https://umami.mostlylucid.net"
-        # Remove server header
-        -Server
-    }
+	# ----------------------------------------------------------
+	# Everything else → YARP gateway (bot detection layer)
+	# ----------------------------------------------------------
+	handle {
+		reverse_proxy gateway:8080 {
+			health_uri /health
+			health_interval 10s
+			health_timeout 5s
 
-    # Compress responses
-    encode gzip zstd
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Forwarded-Host {host}
+		}
+	}
 
-    # Logging
-    log {
-        output file /var/log/caddy/access.log
-        format json
-    }
+	# ----------------------------------------------------------
+	# Security Headers
+	# ----------------------------------------------------------
+	header {
+		# HSTS (1 year, subdomains, preload-ready)
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+		# Prevent MIME type sniffing
+		X-Content-Type-Options "nosniff"
+
+		# Clickjacking protection
+		X-Frame-Options "SAMEORIGIN"
+
+		# Referrer policy
+		Referrer-Policy "strict-origin-when-cross-origin"
+
+		# Permissions policy (disable unused browser features)
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+
+		# ----------------------------------------------------------
+		# Content Security Policy
+		#
+		# What each source is for:
+		#   'self'                         - local scripts/styles/fonts/images
+		#   'unsafe-inline'                - Alpine.js :style bindings + theme <script>
+		#   cdn.jsdelivr.net               - SignalR client library (LiveDemo page)
+		#   unpkg.com                      - boxicons (CSS + fonts)
+		#   fonts.googleapis.com           - Google Fonts CSS (Raleway)
+		#   fonts.gstatic.com              - Google Fonts WOFF2 files
+		#   umami.mostlylucid.net          - Umami analytics script + beacons
+		#   api.web3forms.com              - Contact form submission API
+		#   wss: ws:                       - SignalR WebSocket connections
+		#   data: blob:                    - inline SVGs, canvas blobs
+		# ----------------------------------------------------------
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com https://umami.mostlylucid.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://unpkg.com; img-src 'self' data: blob: https:; connect-src 'self' wss: ws: https://api.web3forms.com https://umami.mostlylucid.net; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://api.web3forms.com"
+
+		# Remove server identity header
+		-Server
+	}
+
+	# Compression
+	encode gzip zstd
+
+	# Access log
+	log {
+		output file /var/log/caddy/access.log
+		format json
+	}
 }
 
-# Development/localhost (no HTTPS)
+# ============================================================
+# Development / localhost fallback (no TLS)
+# ============================================================
 :80 {
-    reverse_proxy website:8080 {
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-    }
+	reverse_proxy website:8080 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
 }

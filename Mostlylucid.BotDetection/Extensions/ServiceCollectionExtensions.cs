@@ -410,6 +410,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, ClientSideContributor>();
         // Security tool detection - runs early with UA analysis
         services.AddSingleton<IContributingDetector, SecurityToolContributor>();
+        // AI scraper detection - known AI bots, Cloudflare signals, Web Bot Auth
+        services.AddSingleton<IContributingDetector, AiScraperContributor>();
         // Cache behavior analysis - runs early alongside behavioral
         services.AddSingleton<IContributingDetector, CacheBehaviorContributor>();
         // Advanced behavioral pattern detection - runs after basic behavioral
@@ -418,6 +420,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, TlsFingerprintContributor>();
         services.AddSingleton<IContributingDetector, TcpIpFingerprintContributor>();
         services.AddSingleton<IContributingDetector, Http2FingerprintContributor>();
+        services.AddSingleton<IContributingDetector, Http3FingerprintContributor>();
         // Response behavior feedback - runs early to provide historical feedback
         services.AddSingleton<IContributingDetector, ResponseBehaviorContributor>();
         // Wave 1+ detectors (triggered by signals from Wave 0)

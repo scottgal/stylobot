@@ -1,0 +1,181 @@
+# HTTP/3 (QUIC) Fingerprint Detector - QUIC transport parameter fingerprinting
+name: Http3FingerprintContributor
+priority: 14  # Runs after HTTP/2 (priority 13)
+enabled: true
+description: Analyzes QUIC transport parameters, version negotiation, 0-RTT resumption, and connection migration for automation detection
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: http3
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with HTTP/3 (QUIC) context
+      signal_pattern: request.http3.*
+
+  required_signals: []  # HTTP/3 data may not be available
+
+  optional_signals:
+    - request.http3.transport_params
+    - request.http3.version
+    - request.http3.zero_rtt
+    - request.http3.connection_migrated
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: HTTP/3 fingerprint analysis contribution
+
+  signals:
+    - key: detection.http3.confidence
+      entity_type: number
+      salience: 0.75
+      description: Bot confidence from HTTP/3 fingerprint
+    - key: detection.http3.is_http3
+      entity_type: boolean
+      salience: 0.6
+      description: Whether connection uses HTTP/3
+    - key: detection.http3.client_type
+      entity_type: string
+      salience: 0.9
+      description: Matched known QUIC client fingerprint name
+
+triggers:
+  requires: []  # No dependencies - runs first wave
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.http3.started
+
+  on_complete:
+    - key: detection.http3.confidence
+      type: double
+      description: Bot confidence from HTTP/3 fingerprint analysis
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.http3.transport_params
+      type: string
+      description: QUIC transport parameter fingerprint
+
+    - key: detection.http3.quic_version
+      type: string
+      description: QUIC version (v1, v2, draft)
+
+    - key: detection.http3.is_http3
+      type: bool
+      description: Whether connection uses HTTP/3
+
+    - key: detection.http3.client_type
+      type: string
+      description: Matched known QUIC client fingerprint name if any
+
+    - key: detection.http3.zero_rtt
+      type: bool
+      description: Whether 0-RTT resumption was used
+
+    - key: detection.http3.connection_migrated
+      type: bool
+      description: Whether QUIC connection migration occurred
+
+  on_failure:
+    - detector.http3.failed
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 100
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:Http3FingerprintContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0           # Base contribution weight
+    bot_signal: 1.6     # QUIC fingerprints are fairly reliable
+    human_signal: 1.4   # Weight for known browser QUIC fingerprints
+    verified: 1.8       # Weight for known automation QUIC fingerprints
+    early_exit: 0.0     # Does not trigger early exit alone
+
+  confidence:
+    neutral: 0.0        # HTTP/3 appears normal or not HTTP/3
+    bot_detected: 0.35  # Bot-like QUIC fingerprint
+    human_indicated: -0.25  # Known browser QUIC fingerprint (stronger human signal)
+    strong_signal: 0.75 # Known bot QUIC framework fingerprint
+    high_threshold: 0.7 # Threshold for "likely automation"
+    low_threshold: 0.2  # Threshold for "likely browser"
+    escalation_threshold: 0.5
+
+  timing:
+    timeout_ms: 25      # Very fast - header analysis
+    cache_refresh_sec: 0  # No caching needed
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  # HTTP/3-specific parameters
+  parameters:
+    # QUIC transport parameter fingerprint confidence values
+    quic_bot_confidence: 0.6
+    quic_browser_confidence: -0.2
+    # 0-RTT resumption (returning visitor = human signal)
+    zero_rtt_human_bonus: -0.15
+    # Connection migration (mobile user = human signal)
+    connection_migration_human_bonus: -0.1
+    # Draft QUIC version (old/custom tooling = suspicious)
+    draft_version_penalty: 0.3
+    # Alt-Svc upgrade (HTTP/2 -> HTTP/3 negotiation = strong human signal)
+    alt_svc_upgrade_bonus: -0.2
+    # Known browser QUIC transport parameter patterns
+    browser_transport_patterns:
+      - name: "Chrome_QUIC"
+        pattern: "initial_max_data=15728640"
+      - name: "Firefox_QUIC"
+        pattern: "initial_max_data=10485760"
+      - name: "Safari_QUIC"
+        pattern: "initial_max_data=8388608"
+    # Known bot QUIC transport parameter patterns
+    bot_transport_patterns:
+      - name: "Go_QuicGo"
+        pattern: "initial_max_data=1048576"
+        confidence: 0.6
+      - name: "Python_Aioquic"
+        pattern: "initial_max_data=2097152"
+        confidence: 0.5
+      - name: "Curl_Quiche"
+        pattern: "initial_max_data=10000000"
+        confidence: 0.7
+    # Headers to check for QUIC data (from reverse proxy)
+    h3_headers:
+      - "X-QUIC-Transport-Params"
+      - "X-QUIC-Version"
+      - "X-QUIC-0RTT"
+      - "X-QUIC-Connection-Migrated"
+      - "X-QUIC-Spin-Bit"
+      - "X-QUIC-Alt-Svc-Used"
+
+tags:
+  - fast-path
+  - fingerprinting
+  - http3
+  - quic
+  - stage-0

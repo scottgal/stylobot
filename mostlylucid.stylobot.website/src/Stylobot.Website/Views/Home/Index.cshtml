@@ -111,173 +111,174 @@
 }
 
 <!-- Hero -->
-<section class="py-4 lg:py-4 bg-gradient-to-br from-base-100 via-base-200 to-base-100 relative overflow-hidden">
+<section class="marketing-hero relative">
     <div class="absolute inset-0 opacity-5">
-        <div class="absolute inset-0" style="background-image: radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0); background-size: 40px 40px;"></div>
+        <div class="absolute inset-0 hero-grid"></div>
     </div>
-    <div class="max-w-4xl mx-auto px-4 relative z-10">
-        <!-- Brand -->
-        <div class="text-center mb-6">
-            <h1 class="text-4xl lg:text-5xl leading-none mb-1" style="font-family: 'Raleway', sans-serif; font-weight: 900;">
-                <span style="color: #6b7280; font-style: italic;">stylo</span><span class="text-base-content">bot</span>
-            </h1>
-            <p class="text-base lg:text-lg text-base-content/80 uppercase tracking-widest mb-0" style="font-family: 'Raleway', sans-serif; font-weight: 600;">
-                Open Source, State of the Art
-            </p>
-            <p class="text-sm lg:text-base text-primary uppercase tracking-wider" style="font-family: 'Raleway', sans-serif; font-weight: 600;">
-                Bot &amp; Scraper Detection
-            </p>
-        </div>
+    <div class="max-w-6xl mx-auto px-4 relative z-10">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8 items-start">
+            <div class="space-y-4">
+                <div class="brand-chip brand-chip-lg">
+                    <img src="/img/stylowall.svg" alt="stylo bot mark" class="logo-adaptive" />
+                    <span class="brand-chip-label"><span class="stylo-text brand-italic">stylo</span><span class="bot-text">bot</span></span>
+                </div>
+                <p class="text-xs uppercase tracking-widest text-base-content/60 brand-wordmark-sub">Open source, production-ready bot defense</p>
+                <h1 class="text-3xl lg:text-5xl font-extrabold leading-tight text-base-content">
+                    Stop bot abuse with <span class="hero-accent-text">explainable decisions</span>.
+                </h1>
+                <p class="text-base lg:text-lg text-base-content/80 max-w-xl">
+                    StyloBot scores every request with detector-level evidence so your team can block, challenge, throttle, or allow traffic with confidence.
+                </p>
+                <div class="grid grid-cols-3 gap-3 max-w-xl">
+                    <div class="marketing-card p-3">
+                        <div class="text-xs text-base-content/60">Detection latency</div>
+                        <div class="text-sm font-semibold hero-accent-text">&lt;1ms fast path</div>
+                    </div>
+                    <div class="marketing-card p-3">
+                        <div class="text-xs text-base-content/60">Privacy posture</div>
+                        <div class="text-sm font-semibold hero-zero-pii">Zero PII stored</div>
+                    </div>
+                    <div class="marketing-card p-3">
+                        <div class="text-xs text-base-content/60">Adoption</div>
+                        <div class="text-sm font-semibold text-base-content">Free at present</div>
+                    </div>
+                </div>
+                <div class="space-y-2 text-sm max-w-xl">
+                    <div class="flex items-start gap-2"><span class="signal-positive">•</span><span>Layered signals: browser, network, behavioral, fingerprinting, and optional AI escalation.</span></div>
+                    <div class="flex items-start gap-2"><span class="signal-positive">•</span><span>Transparent outputs: probability, confidence, risk band, detector contributions, and narrative reasons.</span></div>
+                    <div class="flex items-start gap-2"><span class="signal-positive">•</span><span>No lock-in: open source core, self-hosted options, and enterprise controls when you need them.</span></div>
+                </div>
+                <div class="flex flex-col sm:flex-row gap-3 items-start">
+                    <a href="/Home/LiveDemo" class="btn gap-2 px-6 btn-live-demo">
+                        <span class="relative flex h-2 w-2">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 live-dot"></span>
+                        </span>
+                        See Live Detection
+                    </a>
+                    <a href="/docs" class="btn btn-primary gap-2 px-6">
+                        Explore Docs
+                    </a>
+                </div>
+                <p class="text-xs text-base-content/50">
+                    <span class="hero-zero-pii">Open source and free (at present)</span> with full policy control from day one.
+                </p>
+            </div>
 
-        <!-- Pitch -->
-        <div class="text-center mb-6 space-y-3">
-            <p class="text-base lg:text-lg font-semibold text-base-content">
-                Detect and stop scrapers, bots, and API abuse.
-            </p>
-            <p class="text-sm" style="color: #5BA3A3;">
-                You get all the data. You make the decisions. No black boxes.
-            </p>
-            <p class="text-xs text-base-content/50">
-                <span style="color: #86B59C;">Zero PII by design</span> — nothing stored, GDPR compliant without trying.
-            </p>
-        </div>
-
-        <!-- Live Detection Card: "We just analysed you" -->
-        <div class="max-w-2xl mx-auto mb-6" x-data="homeDetection()" x-init="init()">
-            <div class="rounded-lg border border-base-content/10 overflow-hidden" style="background: #1a1a2e;">
+            <!-- Live Detection Card: "We just analysed you" -->
+            <div class="w-full" x-data="homeDetection()" x-init="init()">
+            <div class="rounded-xl border overflow-hidden marketing-live-card">
                 <!-- Card Header -->
-                <div class="flex items-center justify-between px-4 py-2 border-b" style="border-color: rgba(91,163,163,0.2);">
+                <div class="flex items-center justify-between px-4 py-2.5 border-b marketing-live-card-border">
                     <div class="flex items-center gap-2">
                         <span class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-bold text-white"
-                              :class="isBot ? 'bg-red-500' : 'bg-green-500'"
+                              :class="isBot ? 'status-chip-bot' : 'status-chip-human'"
                               x-text="isBot ? 'R' : 'H'"></span>
-                        <span class="text-xs font-semibold" :class="isBot ? 'text-red-400' : 'text-green-400'"
+                        <span class="text-xs font-semibold" :class="isBot ? 'status-text-bot' : 'status-text-human'"
                               x-text="isBot ? 'Bot Detected' : 'Human Verified'"></span>
                     </div>
-                    <div class="flex items-center gap-2 text-[10px]" style="color: #6c757d;">
+                    <div class="flex items-center gap-2 text-[10px] marketing-live-subtle">
                         <span x-text="detectorCount + ' detectors'"></span>
                         <span>|</span>
                         <span x-text="processingTimeMs.toFixed(0) + 'ms'"></span>
-                        <span x-show="connected" class="text-green-400 font-bold ml-1">LIVE</span>
+                        <span x-show="connected" class="status-label-live font-bold ml-1">LIVE</span>
                     </div>
                 </div>
 
                 <!-- Main Stats Row -->
-                <div class="grid grid-cols-3 divide-x" style="divide-color: rgba(255,255,255,0.06);">
+                <div class="grid grid-cols-3 divide-x marketing-live-divider">
                     <div class="p-3 text-center">
-                        <div class="text-[10px] uppercase tracking-wider mb-1" style="color: #5BA3A3;">Bot Probability</div>
-                        <div class="text-xl font-bold" :class="{ 'pulse-update': justUpdated }"
-                             :style="'color: ' + (botProbability > 0.5 ? '#ff6b6b' : '#51cf66')"
+                        <div class="text-[10px] uppercase tracking-wider mb-1 hero-accent-text">Bot Probability</div>
+                        <div class="text-xl font-bold" :class="{ 'pulse-update': justUpdated, 'signal-danger': botProbability > 0.5, 'signal-positive': botProbability <= 0.5 }"
                              x-text="Math.round(botProbability * 100) + '%'"></div>
                     </div>
                     <div class="p-3 text-center">
-                        <div class="text-[10px] uppercase tracking-wider mb-1" style="color: #5BA3A3;">Confidence</div>
-                        <div class="text-xl font-bold" style="color: #e9ecef;"
+                        <div class="text-[10px] uppercase tracking-wider mb-1 hero-accent-text">Confidence</div>
+                        <div class="text-xl font-bold marketing-live-text"
                              x-text="Math.round(confidence * 100) + '%'"></div>
                     </div>
                     <div class="p-3 text-center">
-                        <div class="text-[10px] uppercase tracking-wider mb-1" style="color: #5BA3A3;">Risk Band</div>
+                        <div class="text-[10px] uppercase tracking-wider mb-1 hero-accent-text">Risk Band</div>
                         <div class="text-xl font-bold" :class="'risk-text-' + (riskBand || 'unknown').toLowerCase()"
                              x-text="riskBand"></div>
                     </div>
                 </div>
 
                 <!-- Detail Grid -->
-                <div class="grid grid-cols-2 lg:grid-cols-4 gap-px" style="background: rgba(255,255,255,0.04);">
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-px marketing-live-divider-bg">
                     <!-- Country -->
-                    <div class="p-2.5" style="background: #1a1a2e;">
-                        <div class="text-[9px] uppercase tracking-wider mb-1" style="color: #6c757d;">Location</div>
-                        <div class="text-xs font-semibold" style="color: #e9ecef;">
+                    <div class="p-2.5 marketing-live-item-bg">
+                        <div class="text-[9px] uppercase tracking-wider mb-1 marketing-live-subtle">Location</div>
+                        <div class="text-xs font-semibold marketing-live-text">
                             <span x-text="countryFlag"></span>
                             <span x-text="countryName || 'Detecting...'"></span>
                         </div>
                         <template x-if="city">
-                            <div class="text-[10px]" style="color: #6c757d;" x-text="city"></div>
+                            <div class="text-[10px] marketing-live-subtle" x-text="city"></div>
                         </template>
                     </div>
 
                     <!-- Fingerprint -->
-                    <div class="p-2.5" style="background: #1a1a2e;">
-                        <div class="text-[9px] uppercase tracking-wider mb-1" style="color: #6c757d;">Client Fingerprint</div>
+                    <div class="p-2.5 marketing-live-item-bg">
+                        <div class="text-[9px] uppercase tracking-wider mb-1 marketing-live-subtle">Client Fingerprint</div>
                         <div class="flex items-center gap-1.5">
                             <span class="inline-flex items-center justify-center w-4 h-4 rounded-full text-[8px] font-bold"
-                                  :class="hasClientFp ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'"
+                                  :class="hasClientFp ? 'status-badge-human' : 'status-badge-warn'"
                                   x-text="hasClientFp ? sigFactorCount : '?'"></span>
-                            <span class="text-xs font-semibold" style="color: #e9ecef;"
+                            <span class="text-xs font-semibold marketing-live-text"
                                   x-text="hasClientFp ? sigFactorCount + '-factor' : 'Collecting...'"></span>
                         </div>
-                        <div class="text-[10px]" :style="hasClientFp ? 'color: #51cf66;' : 'color: #ffc107;'"
+                        <div class="text-[10px]" :class="hasClientFp ? 'signal-positive' : 'signal-warning'"
                              x-text="hasClientFp ? 'Browser verified' : 'Awaiting browser signal'"></div>
                     </div>
 
                     <!-- Network Info -->
-                    <div class="p-2.5" style="background: #1a1a2e;">
-                        <div class="text-[9px] uppercase tracking-wider mb-1" style="color: #6c757d;">Network</div>
-                        <div class="text-xs font-semibold" style="color: #e9ecef;" x-text="tlsProtocol || 'TLS'"></div>
-                        <div class="text-[10px]" style="color: #6c757d;">
+                    <div class="p-2.5 marketing-live-item-bg">
+                        <div class="text-[9px] uppercase tracking-wider mb-1 marketing-live-subtle">Network</div>
+                        <div class="text-xs font-semibold marketing-live-text" x-text="tlsProtocol || 'TLS'"></div>
+                        <div class="text-[10px] marketing-live-subtle">
                             <span x-text="httpProtocol || 'HTTP'"></span>
                             <template x-if="isVpn">
-                                <span class="ml-1 px-1 rounded text-[8px] font-bold" style="background: rgba(255,193,7,0.2); color: #ffc107;">VPN</span>
+                                <span class="ml-1 px-1 rounded text-[8px] font-bold status-pill-vpn">VPN</span>
                             </template>
                             <template x-if="isHosting">
-                                <span class="ml-1 px-1 rounded text-[8px] font-bold" style="background: rgba(253,126,20,0.2); color: #fd7e14;">DC</span>
+                                <span class="ml-1 px-1 rounded text-[8px] font-bold status-pill-dc">DC</span>
                             </template>
                         </div>
                     </div>
 
                     <!-- Signature -->
-                    <div class="p-2.5" style="background: #1a1a2e;">
-                        <div class="text-[9px] uppercase tracking-wider mb-1" style="color: #6c757d;">Your Signature</div>
-                        <div class="text-xs font-mono font-semibold" style="color: #e9ecef;"
+                    <div class="p-2.5 marketing-live-item-bg">
+                        <div class="text-[9px] uppercase tracking-wider mb-1 marketing-live-subtle">Your Signature</div>
+                        <div class="text-xs font-mono font-semibold marketing-live-text"
                              x-text="signature ? signature.substring(0, 12) + '...' : 'Generating...'"></div>
-                        <div class="text-[10px]" style="color: #6c757d;">
-                            Hits: <span :class="{ 'pulse-update': justUpdated }" style="color: #5BA3A3;" x-text="hitCount"></span>
+                        <div class="text-[10px] marketing-live-subtle">
+                            Hits: <span :class="{ 'pulse-update': justUpdated }" class="hero-accent-text" x-text="hitCount"></span>
                         </div>
                     </div>
                 </div>
 
                 <!-- Top Reason -->
                 <template x-if="topReason">
-                    <div class="px-4 py-1.5 text-[10px] border-t" style="border-color: rgba(255,255,255,0.06); color: #6c757d;">
-                        Top signal: <span style="color: #adb5bd;" x-text="topReason"></span>
+                    <div class="px-4 py-1.5 text-[10px] border-t marketing-live-card-border marketing-live-subtle">
+                        Top signal: <span class="marketing-live-text-soft" x-text="topReason"></span>
                     </div>
                 </template>
 
                 <!-- Footer -->
-                <div class="flex items-center justify-between px-4 py-1.5 border-t" style="border-color: rgba(255,255,255,0.06);">
-                    <div class="text-[9px]" style="color: #495057;">
-                        All data from <span class="font-semibold" style="color: #5BA3A3;">this page load</span> — zero PII stored
+                <div class="flex items-center justify-between px-4 py-1.5 border-t marketing-live-card-border">
+                    <div class="text-[9px] marketing-live-muted">
+                        All data from <span class="font-semibold hero-accent-text">this page load</span> — zero PII stored
                     </div>
-                    <a href="/Home/LiveDemo" class="text-[10px] font-semibold" style="color: #5BA3A3;">See full dashboard &rarr;</a>
+                    <a href="/Home/LiveDemo" class="text-[10px] font-semibold hero-accent-text">See full dashboard &rarr;</a>
                 </div>
             </div>
-        </div>
-
-        <!-- CTA -->
-        <div class="flex flex-col sm:flex-row gap-3 justify-center items-center mb-6">
-            <a href="/docs"
-               class="btn btn-primary gap-2 px-6">
-                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                Read Docs
-            </a>
-            <a href="/Home/LiveDemo" class="btn btn-outline gap-2 px-6" style="border-color: #5BA3A3; color: #5BA3A3;">
-                <span class="relative flex h-2 w-2">
-                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background-color: #5BA3A3;"></span>
-                    <span class="relative inline-flex rounded-full h-2 w-2" style="background-color: #5BA3A3;"></span>
-                </span>
-                Live Demo
-            </a>
-        </div>
-
-        <!-- by mostlylucid -->
-        <div class="flex items-center justify-center gap-2">
-            <span class="text-xs text-base-content/40">by</span>
-            <a href="https://www.mostlylucid.net" target="_blank" class="inline-flex items-center hover:opacity-80 transition-opacity">
-                <img src="https://www.mostlylucid.net/img/logo.svg" alt="mostlylucid" class="h-5 w-auto mostlylucid-logo" />
-            </a>
+            </div>
         </div>
     </div>
 </section>
+
+@await Html.PartialAsync("_TrustStrip")
 
 <!-- Docs Home -->
 <section class="py-8 bg-base-100 border-y border-base-content/10">
@@ -292,7 +293,7 @@
             </div>
             <div class="flex gap-3">
                 <a href="/docs" class="btn btn-primary btn-sm">Friendly Docs</a>
-                <a href="https://github.com/scottgal/mostlylucid.stylobot/tree/main/docs" target="_blank" class="btn btn-outline btn-sm">Developer Docs</a>
+                <a href="https://github.com/scottgal/stylobot/tree/main/docs" target="_blank" class="btn btn-outline btn-sm">Developer Docs</a>
             </div>
         </div>
     </div>
@@ -302,30 +303,40 @@
 <section class="py-10 bg-base-100">
     <div class="max-w-4xl mx-auto px-4">
         <h2 class="text-base font-semibold text-base-content mb-4">
-            13+ detectors analyse every request. <span style="color: #5BA3A3;">You get the full picture.</span>
+            13+ detectors analyse every request. <span class="hero-accent-text">You get the full picture.</span>
         </h2>
         <p class="text-sm text-base-content/70 mb-6 max-w-2xl">
-            Heuristics, behavioural analysis, fingerprinting, and optional LLM detection. You get probability scores, confidence levels, risk bands, detector breakdowns, signals, and reasoning. Block, log, challenge, or build custom workflows. All <a href="https://github.com/scottgal/mostlylucid.stylobot/tree/main/Mostlylucid.BotDetection" target="_blank" class="link link-primary">open source</a>.
+            Heuristics, behavioural analysis, fingerprinting, fast-path reputation caching, and optional LLM escalation. You get probability, confidence, risk bands, detector breakdowns, and reasoned outputs. Block, log, challenge, throttle, or run shadow mode. All <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection" target="_blank" class="link link-primary">open source</a>.
         </p>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <div class="p-4 bg-base-200 rounded-lg border border-base-content/10">
-                <div class="text-sm font-semibold mb-1" style="color: #5BA3A3;">Drop-in integration</div>
+                <div class="text-sm font-semibold mb-1 hero-accent-text">Drop-in integration</div>
                 <div class="text-xs text-base-content/60">YARP proxy or ASP.NET Middleware adds bot intelligence as HTTP headers. Or use the JSON API.</div>
             </div>
             <div class="p-4 bg-base-200 rounded-lg border border-base-content/10">
-                <div class="text-sm font-semibold mb-1" style="color: #6b7280;">Full transparency</div>
+                <div class="text-sm font-semibold mb-1 stylo-text">Full transparency</div>
                 <div class="text-xs text-base-content/60">Every request returns scores, confidence, signals, detector breakdowns, and reasoning.</div>
             </div>
             <div class="p-4 bg-base-200 rounded-lg border border-base-content/10">
-                <div class="text-sm font-semibold mb-1" style="color: #86B59C;">Zero PII</div>
+                <div class="text-sm font-semibold mb-1 hero-zero-pii">Zero PII</div>
                 <div class="text-xs text-base-content/60">Nothing stored. No IP addresses, no fingerprints, no cookies. GDPR compliant by design.</div>
+            </div>
+        </div>
+
+        <div class="p-4 bg-base-200 rounded-lg border border-base-content/10 mb-8">
+            <div class="text-sm font-semibold mb-3">Why teams choose StyloBot</div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-base-content/70">
+                <div><span class="font-semibold text-base-content">Transparent by default:</span> no black-box verdicts, just detector-level evidence.</div>
+                <div><span class="font-semibold text-base-content">Built for real traffic:</span> fast-path detection keeps latency low under attack.</div>
+                <div><span class="font-semibold text-base-content">Flexible response model:</span> allow, throttle, challenge, block, or honeypot redirects.</div>
+                <div><span class="font-semibold text-base-content">No lock-in:</span> open source core, self-hosted, and free to adopt today.</div>
             </div>
         </div>
 
         <!-- Prototypes -->
         <div class="p-4 bg-base-200 rounded-lg border border-base-content/10 mb-8">
-            <div class="text-sm font-semibold mb-2" style="color: #5BA3A3;">Available now</div>
+            <div class="text-sm font-semibold mb-2 hero-accent-text">Available now</div>
             <div class="flex flex-wrap items-center gap-2">
                 <a href="https://www.nuget.org/packages/mostlylucid.botdetection" target="_blank" class="inline-flex">
                     <img src="https://img.shields.io/nuget/v/mostlylucid.botdetection.svg?label=ASP.NET%20Bot%20Detection" alt="NuGet" />
@@ -333,8 +344,8 @@
                 <a href="https://hub.docker.com/r/scottgal/stylobot-gateway" target="_blank" class="inline-flex">
                     <img src="https://img.shields.io/docker/pulls/scottgal/stylobot-gateway?label=YARP%20Gateway" alt="Docker" />
                 </a>
-                <a href="https://github.com/scottgal/mostlylucid.stylobot/releases/latest" target="_blank" class="inline-flex">
-                    <img src="https://img.shields.io/github/v/release/scottgal/mostlylucid.stylobot?label=Tiny%20Gateway" alt="Release" />
+                <a href="https://github.com/scottgal/stylobot/releases/latest" target="_blank" class="inline-flex">
+                    <img src="https://img.shields.io/github/v/release/scottgal/stylobot?label=Tiny%20Gateway" alt="Release" />
                 </a>
             </div>
         </div>
@@ -350,19 +361,19 @@
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
             <div class="p-3 bg-base-100 rounded border border-base-content/10">
                 <div class="text-xs font-mono text-base-content/40 mb-1">humanProb</div>
-                <div class="text-lg font-bold" style="color: #86B59C;">99.6%</div>
+                <div class="text-lg font-bold signal-positive">99.6%</div>
             </div>
             <div class="p-3 bg-base-100 rounded border border-base-content/10">
                 <div class="text-xs font-mono text-base-content/40 mb-1">confidence</div>
-                <div class="text-lg font-bold" style="color: #5BA3A3;">90.6%</div>
+                <div class="text-lg font-bold hero-accent-text">90.6%</div>
             </div>
             <div class="p-3 bg-base-100 rounded border border-base-content/10">
                 <div class="text-xs font-mono text-base-content/40 mb-1">riskBand</div>
-                <div class="text-lg font-bold" style="color: #86B59C;">VeryLow</div>
+                <div class="text-lg font-bold signal-positive">VeryLow</div>
             </div>
             <div class="p-3 bg-base-100 rounded border border-base-content/10">
                 <div class="text-xs font-mono text-base-content/40 mb-1">action</div>
-                <div class="text-lg font-bold" style="color: #86B59C;">Allow</div>
+                <div class="text-lg font-bold signal-positive">Allow</div>
             </div>
             <div class="p-3 bg-base-100 rounded border border-base-content/10">
                 <div class="text-xs font-mono text-base-content/40 mb-1">detectors</div>
@@ -370,7 +381,7 @@
             </div>
             <div class="p-3 bg-base-100 rounded border border-base-content/10">
                 <div class="text-xs font-mono text-base-content/40 mb-1">aiRan</div>
-                <div class="text-lg font-bold" style="color: #5BA3A3;">true</div>
+                <div class="text-lg font-bold hero-accent-text">true</div>
             </div>
         </div>
 
@@ -383,19 +394,19 @@
                 <div class="space-y-2 text-xs">
                     <div class="flex justify-between items-center py-1 border-b border-base-content/5">
                         <div><span class="font-semibold">HeuristicEarly</span> <span class="text-base-content/50 ml-2">92% human likelihood</span></div>
-                        <span class="font-mono" style="color: #86B59C;">-84%</span>
+                        <span class="font-mono signal-positive">-84%</span>
                     </div>
                     <div class="flex justify-between items-center py-1 border-b border-base-content/5">
                         <div><span class="font-semibold">UserAgent</span> <span class="text-base-content/50 ml-2">Appears normal</span></div>
-                        <span class="font-mono" style="color: #86B59C;">-20%</span>
+                        <span class="font-mono signal-positive">-20%</span>
                     </div>
                     <div class="flex justify-between items-center py-1 border-b border-base-content/5">
                         <div><span class="font-semibold">Waveform</span> <span class="text-base-content/50 ml-2">Natural timing (CV=0.957)</span></div>
-                        <span class="font-mono" style="color: #86B59C;">-15%</span>
+                        <span class="font-mono signal-positive">-15%</span>
                     </div>
                     <div class="flex justify-between items-center py-1 border-b border-base-content/5">
                         <div><span class="font-semibold">TCP/IP</span> <span class="text-base-content/50 ml-2">Missing Connection header</span></div>
-                        <span class="font-mono" style="color: #DAA564;">+20%</span>
+                        <span class="font-mono signal-warning">+20%</span>
                     </div>
                     <div class="text-base-content/40 italic pt-1">...and 13 more signals</div>
                 </div>
@@ -479,6 +490,78 @@
     </div>
 </section>
 
+<!-- Outcomes -->
+<section class="py-10 bg-base-100">
+    <div class="max-w-4xl mx-auto px-4">
+        <h2 class="text-base font-semibold text-base-content mb-2">Outcomes teams care about</h2>
+        <p class="text-sm text-base-content/60 mb-6">
+            Beyond blocking bots, StyloBot is designed to improve operational confidence and reduce abuse handling overhead.
+        </p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="p-4 bg-base-200 rounded-lg border border-base-content/10">
+                <div class="text-sm font-semibold mb-1">Lower abuse cost</div>
+                <div class="text-xs text-base-content/60">Fast-path handling and risk-based actions reduce wasted compute and support churn.</div>
+            </div>
+            <div class="p-4 bg-base-200 rounded-lg border border-base-content/10">
+                <div class="text-sm font-semibold mb-1">Fewer blind spots</div>
+                <div class="text-xs text-base-content/60">Detector-level evidence makes decisions auditable for engineering, security, and ops.</div>
+            </div>
+            <div class="p-4 bg-base-200 rounded-lg border border-base-content/10">
+                <div class="text-sm font-semibold mb-1">Safer iteration</div>
+                <div class="text-xs text-base-content/60">Shadow mode and gradual policy rollout let you tune protection without risky cutovers.</div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Capability Matrix -->
+<section class="py-10 bg-base-200">
+    <div class="max-w-4xl mx-auto px-4">
+        <h2 class="text-base font-semibold text-base-content mb-2">What to look for in modern bot defense</h2>
+        <p class="text-sm text-base-content/60 mb-6">
+            A practical evaluation checklist for teams comparing approaches.
+        </p>
+        <div class="overflow-x-auto rounded-lg border border-base-content/10 bg-base-100">
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Capability</th>
+                        <th>Why it matters</th>
+                        <th>StyloBot</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Explainable verdicts</td>
+                        <td>Helps teams trust and tune production decisions.</td>
+                        <td><span class="badge badge-success badge-sm">Included</span></td>
+                    </tr>
+                    <tr>
+                        <td>Open-source core</td>
+                        <td>Improves flexibility, reviewability, and adoption speed.</td>
+                        <td><span class="badge badge-success badge-sm">Included</span></td>
+                    </tr>
+                    <tr>
+                        <td>Zero-PII design</td>
+                        <td>Simplifies privacy posture and compliance discussion.</td>
+                        <td><span class="badge badge-success badge-sm">Included</span></td>
+                    </tr>
+                    <tr>
+                        <td>Adaptive learning</td>
+                        <td>Reduces manual rule maintenance over time.</td>
+                        <td><span class="badge badge-success badge-sm">Included</span></td>
+                    </tr>
+                    <tr>
+                        <td>Risk-based action policies</td>
+                        <td>Supports nuanced responses beyond block/allow.</td>
+                        <td><span class="badge badge-success badge-sm">Included</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
 <!-- Pricing -->
 <section id="pricing" class="py-10 bg-base-100">
     <div class="max-w-4xl mx-auto px-4">
@@ -488,7 +571,7 @@
             <!-- Free -->
             <div class="p-6 bg-base-200 rounded-lg">
                 <div class="text-sm font-semibold mb-1">Open Source</div>
-                <div class="text-lg font-bold mb-4">Free <span class="text-xs font-normal text-base-content/50">everything included</span></div>
+                <div class="text-lg font-bold mb-4">Free <span class="text-xs font-normal text-base-content/50">at present, everything included</span></div>
                 <ul class="space-y-2 text-sm text-base-content/70 mb-6">
                     <li>Unlimited requests</li>
                     <li>All 13+ detectors</li>
@@ -501,7 +584,7 @@
                 <a href="/docs"
                    class="btn btn-primary btn-sm btn-block gap-2">
                     <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-                    Get Started
+                    Start Free
                 </a>
             </div>
 
@@ -556,7 +639,7 @@
                 <label class="label"><span class="label-text text-xs">Message <span class="text-base-content/40">(optional)</span></span></label>
                 <textarea name="message" placeholder="Tell us what you're interested in..." class="textarea textarea-bordered textarea-sm h-24 w-full"></textarea>
             </div>
-            <input type="checkbox" name="botcheck" class="hidden" style="display: none;">
+            <input type="checkbox" name="botcheck" class="hidden">
             <button type="submit" class="btn btn-primary btn-sm gap-2">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
@@ -566,23 +649,6 @@
         </form>
     </div>
 </section>
-
-<style>
-    [data-theme="light"] .mostlylucid-logo {
-        filter: invert(1);
-    }
-    .risk-text-verylow, .risk-text-low { color: #51cf66; }
-    .risk-text-medium { color: #ffc107; }
-    .risk-text-high { color: #fd7e14; }
-    .risk-text-veryhigh { color: #ff6b6b; }
-    .risk-text-verified { color: #5BA3A3; }
-    .risk-text-unknown { color: #6c757d; }
-    .pulse-update { animation: pulse-val 0.5s ease-out; }
-    @@keyframes pulse-val {
-        0% { transform: scale(1.15); color: #51cf66; }
-        100% { transform: scale(1); }
-    }
-</style>
 
 <script>
 document.addEventListener('alpine:init', () => {
@@ -709,3 +775,4 @@ document.addEventListener('alpine:init', () => {
     }));
 });
 </script>
+
