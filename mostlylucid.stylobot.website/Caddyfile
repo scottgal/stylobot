@@ -10,7 +10,7 @@
 
 # Main site
 stylobot.net, www.stylobot.net {
-    # Reverse proxy directly to website (gateway disabled temporarily)
+    # Reverse proxy directly to website
     reverse_proxy gateway:8080 {
         # Health check
         health_uri /health

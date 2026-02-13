@@ -19,8 +19,9 @@
             .ToList();
 
         var signals = new Dictionary<string, object>();
-        if (Context.Items.TryGetValue("BotDetection.Signals", out var sigObj) && sigObj is IDictionary<string, object> sigDict)
-            signals = new Dictionary<string, object>(sigDict);
+        // Signals live inside AggregatedEvidence, not as a separate HttpContext.Items key
+        if (evidence.Signals != null)
+            signals = new Dictionary<string, object>(evidence.Signals);
 
         var yourDetection = new {
             isBot = evidence.BotProbability > 0.5,

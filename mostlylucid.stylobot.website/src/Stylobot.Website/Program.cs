@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.ClientSide;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
@@ -16,6 +17,17 @@ var builder = WebApplication.CreateBuilder(args);
 // - User secrets (Development only)
 // - Environment variables
 var config = builder.Configuration;
+
+// Forward headers from reverse proxy (Caddy) so ASP.NET sees the real client IP.
+// Without this, token IP-binding fails because page render sees container IP
+// while fingerprint POST sees the real client IP from X-Forwarded-For.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // Clear defaults to trust any proxy in Docker network
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 builder.Services.AddHealthChecks();
 
@@ -177,6 +189,10 @@ if (app.Environment.IsDevelopment())
         app.Logger.LogWarning(ex, "Failed to start Vite watch mode. Run 'npm run watch' manually.");
     }
 }
+
+// Must be first — rewrites RemoteIpAddress from X-Forwarded-For before
+// any middleware (GeoRouting, BotDetection) reads the client IP.
+app.UseForwardedHeaders();
 
 app.UseHealthChecks("/health");
 

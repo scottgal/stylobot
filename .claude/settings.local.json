@@ -105,7 +105,10 @@
       "Bash(python -m json.tool:*)",
       "Bash(pushd:*)",
       "mcp__plugin_playwright_playwright__browser_snapshot",
-      "mcp__plugin_playwright_playwright__browser_press_key"
+      "mcp__plugin_playwright_playwright__browser_press_key",
+      "Bash(Get-Process -Name \"Stylobot.Website\" -ErrorAction SilentlyContinue)",
+      "Bash(Stop-Process -Force)",
+      "Bash(\"done\")"
     ]
   }
 }
