@@ -97,7 +97,9 @@
       "Bash(git add:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nFix Dockerfiles: use built-in ''app'' user instead of groupadd/useradd\n\n.NET 8+ aspnet images already include an ''app'' user \\(UID 1654\\).\nThe Debian-slim base images don''t ship groupadd/useradd, causing\nDocker builds to fail with exit code 4. Also fix port mapping in\ndemo publish workflow summary \\(5080:5080 → 5080:8080\\).\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git commit:*)",
-      "Bash(gh run watch:*)"
+      "Bash(gh run watch:*)",
+      "Bash(docker push:*)",
+      "Bash(docker volume ls:*)"
     ]
   }
 }

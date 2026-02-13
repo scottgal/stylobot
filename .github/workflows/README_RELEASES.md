@@ -93,7 +93,7 @@ dotnet publish Mostlylucid.BotDetection.Console/Mostlylucid.BotDetection.Console
   -p:PublishSingleFile=true
 
 # Test the binary
-cd bin/Release/net9.0/linux-x64/publish
+cd bin/Release/net10.0/linux-x64/publish
 ./stylobot --upstream http://localhost:8080 --port 5080
 ```
 
@@ -101,7 +101,7 @@ cd bin/Release/net9.0/linux-x64/publish
 
 **Build fails on specific platform:**
 - Check GitHub Actions logs for errors
-- Ensure .NET 9.0 SDK is properly configured
+- Ensure .NET 10.0 SDK is properly configured
 - Verify AOT compiler toolchain is available (may require OS-specific tools)
 
 **Release not created:**

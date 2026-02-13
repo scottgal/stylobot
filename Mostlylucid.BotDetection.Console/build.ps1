@@ -29,7 +29,7 @@ function Build-Target
 
     Write-Host "Building for $PlatformName ($RuntimeId)..." -ForegroundColor Yellow
 
-    $outputPath = "bin/$Configuration/net9.0/$RuntimeId/publish"
+    $outputPath = "bin/$Configuration/net10.0/$RuntimeId/publish"
 
     # Clean previous build
     if (Test-Path $outputPath)
@@ -119,7 +119,7 @@ Write-Host "══════════════════════�
 Write-Host "Build complete!" -ForegroundColor Green
 Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Green
 Write-Host ""
-Write-Host "Executables are in bin/$Configuration/net9.0/{runtime}/publish/" -ForegroundColor Cyan
+Write-Host "Executables are in bin/$Configuration/net10.0/{runtime}/publish/" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Example usage:" -ForegroundColor Yellow
 Write-Host "  Windows:      .\stylobot.exe --upstream http://backend:8080 --port 5080" -ForegroundColor Gray

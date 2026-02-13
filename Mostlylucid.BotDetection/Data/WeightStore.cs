@@ -808,15 +808,9 @@ public class SqliteWeightStore : IWeightStore, IAsyncDisposable, IDisposable
             // Stop the timer first
             _flushTimer.Dispose();
 
-            // Flush any remaining pending writes synchronously
-            try
-            {
-                Task.Run(() => FlushPendingWritesAsync(CancellationToken.None)).GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to flush pending writes during dispose");
-            }
+            // Note: Pending writes are flushed in DisposeAsync (the preferred disposal path).
+            // DI containers call IAsyncDisposable.DisposeAsync() which handles the flush.
+            // Sync dispose just releases resources - no sync-over-async.
 
             _cache.Dispose();
             _flushLock.Dispose();

@@ -66,13 +66,13 @@ services:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
       # Gateway configuration
-      - Gateway__DemoMode__Enabled=true
+      - GATEWAY_DEMO_MODE=true
       - Gateway__DemoMode__PassAllHeaders=true
       - Gateway__DemoMode__UseVerboseLogging=true
       - ADMIN_SECRET=${ADMIN_SECRET:?Set ADMIN_SECRET in .env}
-      # Database (TimescaleDB)
-      - Database__Provider=Postgres
-      - Database__ConnectionString=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      # Database (TimescaleDB) - uses gateway's direct env var names
+      - DB_PROVIDER=Postgres
+      - DB_CONNECTION_STRING=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       # Bot detection
       - BotDetection__BotThreshold=0.7
       - BotDetection__BlockDetectedBots=false
@@ -108,11 +108,12 @@ services:
     networks:
       - stylobot-demo
     restart: unless-stopped
+    stop_grace_period: 10s
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/admin/health"]
       interval: 30s
       timeout: 5s
-      start_period: 15s
+      start_period: 30s
       retries: 3
 
   # ===========================================
@@ -120,8 +121,8 @@ services:
   # ===========================================
   website:
     build:
-      context: ./mostlylucid.stylobot.website
-      dockerfile: src/Stylobot.Website/Dockerfile
+      context: .
+      dockerfile: mostlylucid.stylobot.website/Dockerfile
     image: stylobot-website:latest
     container_name: stylobot-website
     env_file:

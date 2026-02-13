@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Serilog;
 using Stylobot.Gateway.Data;
 using Stylobot.Gateway.Services;
 using Stylobot.Gateway.Transforms;
@@ -215,6 +216,7 @@ public static class ServiceCollectionExtensions
 
     /// <summary>
     /// Apply database migrations if enabled.
+    /// Will not crash the gateway if the database is unreachable.
     /// </summary>
     public static async Task ApplyMigrationsAsync(this WebApplication app)
     {
@@ -224,11 +226,25 @@ public static class ServiceCollectionExtensions
             return;
         }
 
-        using var scope = app.Services.CreateScope();
-        var context = scope.ServiceProvider.GetService<GatewayDbContext>();
-        if (context != null)
+        try
         {
-            await context.Database.MigrateAsync();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var scope = app.Services.CreateScope();
+            var context = scope.ServiceProvider.GetService<GatewayDbContext>();
+            if (context != null)
+            {
+                await context.Database.MigrateAsync(cts.Token);
+                Log.Information("Database migrations applied successfully");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Log.Warning("Database migration timed out after 30s - gateway will continue without database");
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Database migration failed - gateway will continue without database. " +
+                            "Check DB_CONNECTION_STRING and ensure the database is reachable");
         }
     }
 

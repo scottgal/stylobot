@@ -58,6 +58,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "solution", "solution", "{5F
 		.github\workflows\README_RELEASES.md = .github\workflows\README_RELEASES.md
 		README.md = README.md
 		docker-compose.yml = docker-compose.yml
+		docker-compose.demo.yml = docker-compose.demo.yml
+		.env.example = .env.example
+		.env = .env
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Stylobot.Website", "mostlylucid.stylobot.website\src\Stylobot.Website\Stylobot.Website.csproj", "{7FB9F33D-846A-46FA-B63B-2E7E670AA7ED}"
