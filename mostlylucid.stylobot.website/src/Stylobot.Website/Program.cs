@@ -4,6 +4,8 @@ using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.UI.PostgreSQL.Extensions;
+using Mostlylucid.GeoDetection.Extensions;
+using Mostlylucid.GeoDetection.Models;
 using Stylobot.Website.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,6 +18,32 @@ var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
 
 builder.Services.AddHealthChecks();
+
+// Add GeoDetection services (full pipeline)
+var geoProviderConfig = config.GetValue<string>("GeoLite2:Provider") ?? "IpApi";
+var geoProvider = Enum.TryParse<GeoProvider>(geoProviderConfig, true, out var parsedProvider)
+    ? parsedProvider
+    : GeoProvider.IpApi;
+
+builder.Services.AddGeoRouting(
+    configureRouting: options =>
+    {
+        options.Enabled = true;
+        options.AddCountryHeader = true;
+        options.StoreInContext = true;
+        options.EnableTestMode = builder.Environment.IsDevelopment();
+    },
+    configureProvider: options =>
+    {
+        options.Provider = geoProvider;
+        options.DatabasePath = config["GeoLite2:DatabasePath"] ?? "data/GeoLite2-City.mmdb";
+        options.FallbackToSimple = true;
+        options.EnableAutoUpdate = config.GetValue("GeoLite2:EnableAutoUpdate", true);
+        options.DownloadOnStartup = config.GetValue("GeoLite2:DownloadOnStartup", true);
+        options.LicenseKey = config["GeoLite2:LicenseKey"];
+        if (int.TryParse(config["GeoLite2:AccountId"], out var accountId))
+            options.AccountId = accountId;
+    });
 
 // HttpContextAccessor for tag helpers
 builder.Services.AddHttpContextAccessor();
@@ -162,6 +190,9 @@ if (!app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseRouting();
+
+// GeoDetection middleware
+app.UseGeoRouting();
 
 // Bot Detection middleware - analyzes all requests
 app.UseBotDetection();

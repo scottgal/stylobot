@@ -39,6 +39,12 @@ public sealed class DetectionDisplayModel
     /// <summary>Per-detector contributions</summary>
     public List<DetectorContributionDisplay> DetectorContributions { get; set; } = new();
 
+    /// <summary>All non-PII detection signals available for this request</summary>
+    public Dictionary<string, object> RawSignals { get; set; } = new();
+
+    /// <summary>Client fingerprint hash when available</summary>
+    public string? FingerprintHash { get; init; }
+
     /// <summary>Request ID for correlation</summary>
     public string? RequestId { get; init; }
 

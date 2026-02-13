@@ -23,9 +23,9 @@
                   x-text="isBot ? 'Bot' : 'Human'"></span>
             <span class="stylobot-header-prob" :class="{ 'pulse-update': justUpdated }"
                   x-text="Math.round(botProbability * 100) + '%'"></span>
-            <span class="stylobot-header-risk" :class="'risk-' + riskBand.toLowerCase()"
-                  x-text="riskBand"></span>
-            <span class="stylobot-header-time" x-text="processingTimeMs.toFixed(0) + 'ms'"></span>
+            <span class="stylobot-header-risk" :class="'risk-' + (riskBand || 'unknown').toLowerCase()"
+                  x-text="riskBand || 'Unknown'"></span>
+            <span class="stylobot-header-time" x-text="(processingTimeMs || 0).toFixed(0) + 'ms'"></span>
             <span class="stylobot-header-hits" x-show="hitCount > 1" :class="{ 'pulse-update': justUpdated }"
                   x-text="'x' + hitCount"></span>
             <span class="stylobot-header-expand" x-text="expanded ? '[-]' : '[+]'"></span>
@@ -62,13 +62,13 @@
     </div>
 
     <!-- Expanded Details Panel -->
-    <div x-show="expanded" x-collapse class="stylobot-header-details">
+    <div x-show="expanded" x-transition class="stylobot-header-details">
         <div class="stylobot-header-details-grid">
             <!-- Your Signature -->
             <div class="stylobot-header-section">
                 <div class="section-title">Your Signature</div>
                 <div class="section-content">
-                    <div><span class="section-label">ID:</span> <code x-text="signature.substring(0, 12) + '...'"></code></div>
+                    <div><span class="section-label">ID:</span> <code x-text="(signature || '').substring(0, 12) + '...'"></code></div>
                     <div><span class="section-label">Hits:</span> <span x-text="hitCount"></span></div>
                     <div class="section-note">HMAC-SHA256 hashed, zero PII</div>
                 </div>
@@ -78,9 +78,9 @@
             <div class="stylobot-header-section">
                 <div class="section-title">Detection</div>
                 <div class="section-content">
-                    <div><span class="section-label">Probability:</span> <span x-text="(botProbability * 100).toFixed(1) + '%'"></span></div>
-                    <div><span class="section-label">Confidence:</span> <span x-text="(confidence * 100).toFixed(1) + '%'"></span></div>
-                    <div><span class="section-label">Processing:</span> <span x-text="processingTimeMs.toFixed(1) + 'ms'"></span></div>
+                    <div><span class="section-label">Probability:</span> <span x-text="((botProbability || 0) * 100).toFixed(1) + '%'"></span></div>
+                    <div><span class="section-label">Confidence:</span> <span x-text="((confidence || 0) * 100).toFixed(1) + '%'"></span></div>
+                    <div><span class="section-label">Processing:</span> <span x-text="(processingTimeMs || 0).toFixed(1) + 'ms'"></span></div>
                 </div>
             </div>
 
@@ -88,7 +88,7 @@
             <div class="stylobot-header-section">
                 <div class="section-title">Top Signal</div>
                 <div class="section-content">
-                    <div x-text="topSignal"></div>
+                    <div x-text="topSignal || 'No signals'"></div>
                 </div>
             </div>
 
@@ -105,7 +105,7 @@
         </div>
 
         <div class="stylobot-header-details-footer">
-            <a :href="'/_stylobot?signature=' + signature" class="dashboard-link">
+            <a :href="'/_stylobot?signature=' + (signature || '')" class="dashboard-link">
                 View Full Dashboard & All Signals &rarr;
             </a>
         </div>
@@ -204,10 +204,10 @@ document.addEventListener('alpine:init', () => {
 
         updateYourDetection(d) {
             this.isBot = d.isBot;
-            this.botProbability = d.botProbability;
-            this.confidence = d.confidence;
-            this.riskBand = d.riskBand;
-            this.processingTimeMs = d.processingTimeMs;
+            this.botProbability = d.botProbability || 0;
+            this.confidence = d.confidence || 0;
+            this.riskBand = d.riskBand || 'Unknown';
+            this.processingTimeMs = d.processingTimeMs || 0;
             if (d.topReasons && d.topReasons.length > 0) {
                 this.topSignal = d.topReasons[0];
             }
@@ -217,10 +217,7 @@ document.addEventListener('alpine:init', () => {
         },
 
         addToTicker(d) {
-            const dominated = d.isBot ||
-                (d.botProbability || 0) >= 0.4 ||
-                ['Medium', 'High', 'VeryHigh'].includes(d.riskBand);
-            if (!dominated) return;
+            // Show all detections in the ticker so the feed is always active
 
             this.tickerItems.unshift({
                 ...d,

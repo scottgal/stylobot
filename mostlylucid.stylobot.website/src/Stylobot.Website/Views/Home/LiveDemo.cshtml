@@ -1,302 +1,253 @@
+@using Mostlylucid.BotDetection.Orchestration
+@using System.Text.Json
 @{
-    ViewData["Title"] = "Live Demo - We're Detecting You Right Now";
+    ViewData["Title"] = "Live Demo - Real-Time Bot Detection";
+
+    // Read detection data from the SAME request that rendered the header bar
+    var evidence = Context.Items["BotDetection.AggregatedEvidence"] as AggregatedEvidence;
+    var yourDetectionJson = "null";
+    if (evidence != null)
+    {
+        var contributions = evidence.Contributions
+            .GroupBy(c => c.DetectorName)
+            .Select(g => new {
+                detector = g.Key,
+                impact = g.Sum(c => c.ConfidenceDelta * c.Weight),
+                reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r)))
+            })
+            .OrderByDescending(c => Math.Abs(c.impact))
+            .ToList();
+
+        var signals = new Dictionary<string, object>();
+        if (Context.Items.TryGetValue("BotDetection.Signals", out var sigObj) && sigObj is IDictionary<string, object> sigDict)
+            signals = new Dictionary<string, object>(sigDict);
+
+        var yourDetection = new {
+            isBot = evidence.BotProbability > 0.5,
+            botProbability = Math.Round(evidence.BotProbability, 4),
+            confidence = Math.Round(evidence.Confidence, 4),
+            riskBand = evidence.RiskBand.ToString(),
+            processingTimeMs = evidence.TotalProcessingTimeMs,
+            detectorCount = evidence.Contributions.Select(c => c.DetectorName).Distinct().Count(),
+            aiRan = evidence.Contributions.Any(c => c.DetectorName.Contains("Heuristic") || c.DetectorName.Contains("Llm")),
+            recommendedAction = new { action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName ?? "Allow" },
+            contributions = contributions,
+            signals = signals
+        };
+        yourDetectionJson = JsonSerializer.Serialize(yourDetection, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    }
 }
 
 <!-- Hero -->
-<section class="py-6 lg:py-8 bg-gradient-to-br from-base-100 via-base-200 to-base-100 relative overflow-hidden">
+<section class="py-5 lg:py-6 bg-gradient-to-br from-base-100 via-base-200 to-base-100 relative overflow-hidden">
     <div class="absolute inset-0 opacity-5">
         <div class="absolute inset-0" style="background-image: radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0); background-size: 40px 40px;"></div>
     </div>
-    <div class="max-w-4xl mx-auto px-4 text-center relative z-10">
+    <div class="max-w-6xl mx-auto px-4 text-center relative z-10">
         <h1 class="text-2xl lg:text-3xl font-bold mb-2">
-            We're detecting <span style="color: #5BA3A3;">you</span> right now.
+            Watch Bot Detection <span style="color: #5BA3A3;">Live</span>
         </h1>
         <p class="text-sm text-base-content/60 max-w-xl mx-auto">
-            We analyse your request in real time — but we never save your IP, location, or cookies. Every metric below is real. Zero PII stored.
+            Real traffic hitting this site right now. Every row is a real request analysed by 21 detectors in under 50ms. Zero PII stored.
         </p>
     </div>
 </section>
 
-<!-- Detection Card -->
-<section class="py-8 bg-base-100">
-    <div class="max-w-4xl mx-auto px-4"
-         x-data="{
-            data: null,
-            loading: true,
-            error: null,
-            connected: false,
-            connection: null,
-            hitCount: 1,
-            justUpdated: false,
-            showAllContributions: false,
-            showSignals: false,
-            signature: '',
+<!-- Inline detection data (same request as header bar - consistent numbers) -->
+<script type="application/json" id="your-detection-data">@Html.Raw(yourDetectionJson)</script>
 
-            get gaugeColor() {
-                if (!this.data) return '#86B59C';
-                const p = this.data.botProbability;
-                if (p >= 0.7) return '#ef4444';
-                if (p >= 0.4) return '#DAA564';
-                return '#86B59C';
-            },
+<!-- Main Content -->
+<section class="py-4 bg-base-100"
+     x-data="{
+        connection: null, connected: false, summary: null, summaryLoading: true,
+        detections: [], maxDetections: 50, feedLoading: true, feedPaused: false,
+        yourData: null, yourLoading: true, yourError: null, signature: '', hitCount: 1,
+        justUpdated: false, showAllContributions: false, showSignals: false,
+        endpointStats: {},
 
-            get gaugeDash() {
-                if (!this.data) return '0 251.3';
-                const arcLen = 251.3;
-                const fill = this.data.botProbability * arcLen;
-                return fill + ' ' + arcLen;
-            },
+        get feedItems() { return [...this.detections].reverse().slice(0, 30); },
+        get botCount() { return this.summary?.botRequests || 0; },
+        get humanCount() { return this.summary?.humanRequests || 0; },
+        get totalCount() { return this.summary?.totalRequests || 0; },
+        get botPct() { return this.summary?.botPercentage?.toFixed(1) || '0.0'; },
+        get avgMs() { return this.summary?.averageProcessingTimeMs?.toFixed(0) || '0'; },
+        get uniqueSigs() { return this.summary?.uniqueSignatures || 0; },
+        get topEndpoints() {
+            return Object.entries(this.endpointStats)
+                .map(([path, s]) => ({ path, total: s.total, bots: s.bots, botPct: s.total > 0 ? ((s.bots / s.total) * 100).toFixed(0) : '0' }))
+                .sort((a, b) => b.total - a.total)
+                .slice(0, 8);
+        },
+        get gaugeColor() { if (!this.yourData) return '#86B59C'; const p = this.yourData.botProbability; return p >= 0.7 ? '#ef4444' : p >= 0.4 ? '#DAA564' : '#86B59C'; },
+        get gaugeDash() { if (!this.yourData) return '0 251.3'; return (this.yourData.botProbability * 251.3) + ' 251.3'; },
+        get topContributions() { if (!this.yourData?.contributions) return []; const s = [...this.yourData.contributions].sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact)); return this.showAllContributions ? s : s.slice(0, 5); },
+        get signalEntries() { if (!this.yourData?.signals) return []; return Object.entries(this.yourData.signals); },
 
-            get topContributions() {
-                if (!this.data || !this.data.contributions) return [];
-                const sorted = [...this.data.contributions].sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact));
-                return this.showAllContributions ? sorted : sorted.slice(0, 5);
-            },
+        toCamel(obj) { if (Array.isArray(obj)) return obj.map(o => this.toCamel(o)); if (obj !== null && typeof obj === 'object') { return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k.charAt(0).toLowerCase() + k.slice(1), this.toCamel(v)])); } return obj; },
+        riskColor(band) { return { 'VeryLow': '#86B59C', 'Low': '#86B59C', 'Elevated': '#DAA564', 'Medium': '#DAA564', 'High': '#ef4444', 'VeryHigh': '#dc2626' }[band] || '#6b7280'; },
+        timeAgo(ts) { if (!ts) return ''; const d = Math.floor((Date.now() - new Date(ts).getTime()) / 1000); if (d < 5) return 'now'; if (d < 60) return d + 's'; if (d < 3600) return Math.floor(d / 60) + 'm'; return Math.floor(d / 3600) + 'h'; },
+        truncPath(p) { if (!p) return '/'; return p.length > 30 ? p.substring(0, 27) + '...' : p; },
 
-            get signalEntries() {
-                if (!this.data || !this.data.signals) return [];
-                return Object.entries(this.data.signals);
-            },
+        async init() { this.fetchYourDetection(); await Promise.all([this.fetchSummary(), this.fetchDetections()]); this.connectSignalR(); },
+        async fetchSummary() { try { const r = await fetch('/_stylobot/api/summary'); if (r.ok) this.summary = this.toCamel(await r.json()); } catch(e) {} this.summaryLoading = false; },
+        async fetchDetections() { try { const r = await fetch('/_stylobot/api/detections?limit=30'); if (r.ok) { this.detections = (this.toCamel(await r.json()) || []).reverse(); this.detections.forEach(d => this.trackEndpoint(d)); } } catch(e) {} this.feedLoading = false; },
+        trackEndpoint(d) { const p = d.path || '/'; if (!this.endpointStats[p]) this.endpointStats[p] = { total: 0, bots: 0 }; this.endpointStats[p].total++; if (d.isBot) this.endpointStats[p].bots++; },
+        fetchYourDetection() { try { const el = document.getElementById('your-detection-data'); if (el) { const d = JSON.parse(el.textContent); if (d) { this.yourData = d; this.yourLoading = false; return; } } } catch(e) {} this.yourError = 'Detection unavailable'; this.yourLoading = false; },
+        async connectSignalR() {
+            try {
+                if (typeof signalR === 'undefined') { await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/@@microsoft/signalr@@8.0.0/dist/browser/signalr.min.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+                this.connection = new signalR.HubConnectionBuilder().withUrl('/_stylobot/hub').withAutomaticReconnect([0,2000,5000,10000,30000]).configureLogging(signalR.LogLevel.Warning).build();
+                this.connection.on('BroadcastDetection', (raw) => { const d = this.toCamel(raw); this.trackEndpoint(d); if (!this.feedPaused) { this.detections.push(d); if (this.detections.length > this.maxDetections) this.detections.splice(0, this.detections.length - this.maxDetections); } if (this.signature && d.primarySignature === this.signature && this.yourData) { Object.assign(this.yourData, { isBot: d.isBot, botProbability: d.botProbability, confidence: d.confidence, riskBand: d.riskBand, processingTimeMs: d.processingTimeMs }); this.justUpdated = true; setTimeout(() => this.justUpdated = false, 600); } });
+                this.connection.on('BroadcastSignature', (raw) => { const sig = this.toCamel(raw); if (this.signature && sig.primarySignature === this.signature) this.hitCount = sig.hitCount; });
+                this.connection.on('BroadcastSummary', (raw) => { this.summary = this.toCamel(raw); });
+                this.connection.onclose(() => this.connected = false); this.connection.onreconnecting(() => this.connected = false); this.connection.onreconnected(() => this.connected = true);
+                await this.connection.start(); this.connected = true;
+                const barEl = document.querySelector('.stylobot-detection-bar-container'); if (barEl && barEl._x_dataStack) this.signature = barEl._x_dataStack[0].signature || '';
+            } catch(e) { console.warn('[LiveDemo] SignalR failed:', e); }
+        }
+     }"
+     x-init="init()"
 
-            riskColor(band) {
-                const colors = {
-                    'VeryLow': '#86B59C', 'Low': '#86B59C', 'Elevated': '#DAA564',
-                    'Medium': '#DAA564', 'High': '#ef4444', 'VeryHigh': '#dc2626'
-                };
-                return colors[band] || '#6b7280';
-            },
+    <div class="max-w-7xl mx-auto px-4">
 
-            async init() {
-                await this.fetchDetection();
-                this.connectSignalR();
-            },
+        <!-- Summary Stats (inline, compact) -->
+        <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 mb-4 py-2 bg-base-200 rounded-lg px-4">
+            <span class="text-xs"><span class="text-base-content/40">Requests</span> <span class="font-bold" style="color: #5BA3A3;" x-text="totalCount.toLocaleString()">0</span></span>
+            <span class="text-base-content/20">|</span>
+            <span class="text-xs"><span class="text-base-content/40">Bots</span> <span class="font-bold text-error" x-text="botCount.toLocaleString()">0</span></span>
+            <span class="text-base-content/20">|</span>
+            <span class="text-xs"><span class="text-base-content/40">Humans</span> <span class="font-bold" style="color: #86B59C;" x-text="humanCount.toLocaleString()">0</span></span>
+            <span class="text-base-content/20">|</span>
+            <span class="text-xs"><span class="text-base-content/40">Bot %</span> <span class="font-bold" :style="'color:' + (parseFloat(botPct) > 30 ? '#ef4444' : '#DAA564')" x-text="botPct + '%'">0%</span></span>
+            <span class="text-base-content/20">|</span>
+            <span class="text-xs"><span class="text-base-content/40">Avg</span> <span class="font-bold" style="color: #5BA3A3;" x-text="avgMs + 'ms'">0ms</span></span>
+            <span class="text-base-content/20">|</span>
+            <span class="text-xs"><span class="text-base-content/40">Visitors</span> <span class="font-bold" x-text="uniqueSigs.toLocaleString()">0</span></span>
+        </div>
 
-            async fetchDetection() {
-                try {
-                    const resp = await fetch('/bot-detection/check');
-                    if (!resp.ok) throw new Error('Detection endpoint returned ' + resp.status);
-                    this.data = await resp.json();
-                    this.loading = false;
-                } catch (e) {
-                    this.error = 'Failed to load detection results: ' + e.message;
-                    this.loading = false;
-                }
-            },
+        <!-- Two-Column Layout -->
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
 
-            async connectSignalR() {
-                try {
-                    if (typeof signalR === 'undefined') {
-                        await new Promise((resolve, reject) => {
-                            const s = document.createElement('script');
-                            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js';
-                            s.onload = resolve;
-                            s.onerror = reject;
-                            document.head.appendChild(s);
-                        });
-                    }
-
-                    this.connection = new signalR.HubConnectionBuilder()
-                        .withUrl('/_stylobot/hub')
-                        .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
-                        .configureLogging(signalR.LogLevel.Warning)
-                        .build();
-
-                    this.connection.on('BroadcastDetection', (detection) => {
-                        if (this.signature && detection.primarySignature === this.signature) {
-                            this.data.isBot = detection.isBot;
-                            this.data.botProbability = detection.botProbability;
-                            this.data.confidence = detection.confidence;
-                            this.data.riskBand = detection.riskBand;
-                            this.data.processingTimeMs = detection.processingTimeMs;
-                            this.justUpdated = true;
-                            setTimeout(() => this.justUpdated = false, 600);
-                        }
-                    });
-
-                    this.connection.on('BroadcastSignature', (sig) => {
-                        if (this.signature && sig.primarySignature === this.signature) {
-                            this.hitCount = sig.hitCount;
-                        }
-                    });
-
-                    this.connection.onclose(() => this.connected = false);
-                    this.connection.onreconnecting(() => this.connected = false);
-                    this.connection.onreconnected(() => this.connected = true);
-
-                    await this.connection.start();
-                    this.connected = true;
-
-                    // Extract signature from the detection bar component
-                    const barEl = document.querySelector('.stylobot-detection-bar-container');
-                    if (barEl && barEl._x_dataStack) {
-                        this.signature = barEl._x_dataStack[0].signature || '';
-                    }
-                } catch (e) {
-                    console.warn('[LiveDemo] SignalR connection failed:', e);
-                }
-            }
-         }"
-         x-init="init()">
-
-        <!-- Loading State -->
-        <template x-if="loading">
-            <div class="card bg-base-200 shadow-xl">
-                <div class="card-body items-center text-center py-16">
-                    <span class="loading loading-spinner loading-lg" style="color: #5BA3A3;"></span>
-                    <p class="text-base-content/60 mt-4">Running detection pipeline...</p>
+            <!-- ======== LEFT COLUMN: Your Detection (2/5) ======== -->
+            <div class="lg:col-span-2 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-sm font-bold uppercase tracking-wider text-base-content/50">Your Detection</h2>
+                    <div class="flex items-center gap-1.5" x-show="connected">
+                        <span class="relative flex h-2 w-2">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                        </span>
+                        <span class="text-[10px] font-semibold text-green-500">LIVE</span>
+                    </div>
                 </div>
-            </div>
-        </template>
 
-        <!-- Detection Results -->
-        <template x-if="!loading && data">
-            <div>
-                <!-- Main Detection Card -->
-                <div class="card bg-base-200 shadow-xl mb-6">
-                    <div class="card-body">
-                        <div class="flex flex-col lg:flex-row gap-8 items-center">
+                <!-- Loading -->
+                <div x-show="yourLoading" class="card bg-base-200">
+                    <div class="card-body items-center py-10">
+                        <span class="loading loading-spinner loading-md" style="color: #5BA3A3;"></span>
+                        <p class="text-xs text-base-content/50 mt-2">Analysing your request...</p>
+                    </div>
+                </div>
 
-                            <!-- SVG Semi-circular Gauge -->
-                            <div class="flex-shrink-0">
-                                <svg viewBox="0 0 200 130" class="w-56 h-36">
-                                    <!-- Background Arc -->
+                <!-- Your Detection Card -->
+                <div x-show="!yourLoading && yourData" x-cloak>
+                    <!-- Gauge + Classification -->
+                    <div class="card bg-base-200">
+                        <div class="card-body p-4">
+                            <div class="flex items-center gap-4">
+                                <!-- Mini gauge -->
+                                <svg viewBox="0 0 200 130" class="w-28 h-20 flex-shrink-0">
                                     <path d="M 20 110 A 80 80 0 0 1 180 110"
                                           fill="none" stroke="currentColor" stroke-opacity="0.1" stroke-width="14"
                                           stroke-linecap="round" />
-                                    <!-- Value Arc -->
                                     <path d="M 20 110 A 80 80 0 0 1 180 110"
-                                          fill="none"
-                                          :stroke="gaugeColor"
-                                          stroke-width="14"
-                                          stroke-linecap="round"
-                                          :stroke-dasharray="gaugeDash"
+                                          fill="none" :stroke="gaugeColor" stroke-width="14"
+                                          stroke-linecap="round" :stroke-dasharray="gaugeDash"
                                           style="transition: stroke-dasharray 1s ease-out, stroke 0.5s ease;" />
-                                    <!-- Center Text -->
                                     <text x="100" y="85" text-anchor="middle" class="fill-current"
                                           style="font-size: 32px; font-weight: 700;"
-                                          x-text="Math.round(data.botProbability * 100) + '%'"></text>
-                                    <text x="100" y="108" text-anchor="middle" class="fill-current opacity-60"
-                                          style="font-size: 12px;">Bot Probability</text>
+                                          x-text="Math.round((yourData?.botProbability || 0) * 100) + '%'"></text>
+                                    <text x="100" y="108" text-anchor="middle" class="fill-current opacity-50"
+                                          style="font-size: 11px;">Bot Prob.</text>
                                 </svg>
-                            </div>
-
-                            <!-- Metrics -->
-                            <div class="flex-1 w-full">
-                                <div class="flex flex-wrap items-center gap-3 mb-4">
-                                    <!-- Classification Badge -->
-                                    <div class="badge badge-lg gap-1 py-3 px-4 font-bold text-white"
-                                         :class="data.isBot ? 'badge-error' : 'badge-success'">
-                                        <span x-text="data.isBot ? 'BOT' : 'HUMAN'"></span>
+                                <!-- Badges -->
+                                <div class="flex-1">
+                                    <div class="flex flex-wrap gap-2 mb-2">
+                                        <span class="badge badge-sm font-bold text-white"
+                                              :class="yourData?.isBot ? 'badge-error' : 'badge-success'"
+                                              x-text="yourData?.isBot ? 'BOT' : 'HUMAN'"></span>
+                                        <span class="badge badge-sm font-semibold"
+                                              :style="'background-color:' + riskColor(yourData?.riskBand) + '22; color:' + riskColor(yourData?.riskBand)"
+                                              x-text="yourData?.riskBand"></span>
+                                        <span class="badge badge-sm badge-ghost" x-text="(yourData?.processingTimeMs || 0).toFixed(0) + 'ms'"></span>
                                     </div>
-
-                                    <!-- Risk Band Badge -->
-                                    <div class="badge badge-lg py-3 px-4 font-semibold"
-                                         :style="'background-color:' + riskColor(data.riskBand) + '22; color:' + riskColor(data.riskBand) + '; border-color:' + riskColor(data.riskBand) + '44'"
-                                         x-text="data.riskBand"></div>
-
-                                    <!-- Processing Time -->
-                                    <div class="badge badge-lg badge-ghost py-3 px-4">
-                                        <span x-text="data.processingTimeMs?.toFixed(0) + 'ms'"></span>
-                                    </div>
-
-                                    <!-- Hit Counter -->
-                                    <div class="badge badge-lg badge-ghost py-3 px-4" :class="{ 'animate-pulse': justUpdated }">
-                                        x<span x-text="hitCount"></span>
-                                    </div>
-
-                                    <!-- LIVE indicator -->
-                                    <div class="flex items-center gap-1.5 ml-auto" x-show="connected">
-                                        <span class="relative flex h-2.5 w-2.5">
-                                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                            <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
-                                        </span>
-                                        <span class="text-xs font-semibold text-green-500">LIVE</span>
-                                    </div>
-                                </div>
-
-                                <!-- Key Stats Grid -->
-                                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                                    <div class="bg-base-300/50 rounded-lg p-3">
-                                        <div class="text-xs text-base-content/60 mb-1">Human Prob.</div>
-                                        <div class="text-xl font-bold" style="color: #86B59C;" x-text="((1 - data.botProbability) * 100).toFixed(1) + '%'"></div>
-                                    </div>
-                                    <div class="bg-base-300/50 rounded-lg p-3">
-                                        <div class="text-xs text-base-content/60 mb-1">Confidence</div>
-                                        <div class="text-xl font-bold" style="color: #5BA3A3;" x-text="(data.confidence * 100).toFixed(1) + '%'"></div>
-                                    </div>
-                                    <div class="bg-base-300/50 rounded-lg p-3">
-                                        <div class="text-xs text-base-content/60 mb-1">Detectors</div>
-                                        <div class="text-xl font-bold" x-text="data.detectorCount || 0"></div>
-                                    </div>
-                                    <div class="bg-base-300/50 rounded-lg p-3">
-                                        <div class="text-xs text-base-content/60 mb-1">AI Ran</div>
-                                        <div class="text-xl font-bold" x-text="data.aiRan ? 'Yes' : 'No'"
-                                             :style="'color:' + (data.aiRan ? '#5BA3A3' : '#6b7280')"></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Detector Contributions -->
-                <div class="card bg-base-200 shadow-xl mb-6">
-                    <div class="card-body">
-                        <h2 class="card-title text-lg mb-4">
-                            Detector Breakdown
-                            <span class="badge badge-ghost" x-text="(data.contributions?.length || 0) + ' detectors'"></span>
-                        </h2>
-                        <div class="space-y-2">
-                            <template x-for="(c, i) in topContributions" :key="i">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-28 text-sm font-medium truncate" x-text="c.detector"></div>
-                                    <div class="flex-1 bg-base-300 rounded-full h-5 relative overflow-hidden">
-                                        <div class="h-full rounded-full transition-all duration-700 flex items-center justify-end pr-2"
-                                             :style="'width:' + Math.max(Math.min(Math.abs(c.impact) * 1000, 100), 4) + '%; background-color:' + (c.impact > 0 ? '#ef444488' : '#86B59C88')">
-                                            <span class="text-xs font-semibold text-white drop-shadow"
-                                                  x-show="Math.abs(c.impact * 100) > 3"
-                                                  x-text="(c.impact > 0 ? '+' : '') + (c.impact * 100).toFixed(1) + '%'"></span>
+                                    <div class="grid grid-cols-2 gap-2 text-xs">
+                                        <div>
+                                            <span class="text-base-content/40">Confidence</span>
+                                            <span class="font-bold ml-1" style="color: #5BA3A3;" x-text="((yourData?.confidence || 0) * 100).toFixed(0) + '%'"></span>
+                                        </div>
+                                        <div>
+                                            <span class="text-base-content/40">Detectors</span>
+                                            <span class="font-bold ml-1" x-text="yourData?.detectorCount || 0"></span>
+                                        </div>
+                                        <div>
+                                            <span class="text-base-content/40">AI</span>
+                                            <span class="font-bold ml-1" :style="'color:' + (yourData?.aiRan ? '#5BA3A3' : '#6b7280')" x-text="yourData?.aiRan ? 'Yes' : 'No'"></span>
+                                        </div>
+                                        <div>
+                                            <span class="text-base-content/40">Action</span>
+                                            <span class="font-bold ml-1" x-text="yourData?.recommendedAction?.action || 'Allow'"></span>
                                         </div>
                                     </div>
-                                    <div class="w-16 text-right text-xs font-mono"
-                                         :style="'color:' + (c.impact > 0 ? '#ef4444' : '#86B59C')"
-                                         x-text="(c.impact > 0 ? '+' : '') + (c.impact * 100).toFixed(1) + '%'"></div>
                                 </div>
-                            </template>
-
-                            <!-- Zero-impact detectors note -->
-                            <template x-if="data.contributions?.filter(c => c.impact === 0).length > 0">
-                                <div class="text-xs text-base-content/50 mt-2 italic"
-                                     x-text="data.contributions.filter(c => c.impact === 0).length + ' detectors returned neutral (0% impact)'"></div>
-                            </template>
-                        </div>
-
-                        <!-- Show more toggle -->
-                        <template x-if="data.contributions?.length > 5">
-                            <div class="mt-3">
-                                <button class="btn btn-ghost btn-sm" @@click="showAllContributions = !showAllContributions"
-                                        x-text="showAllContributions ? 'Show top 5' : 'Show all ' + data.contributions.length + ' detectors'"></button>
                             </div>
-                        </template>
+                        </div>
                     </div>
-                </div>
 
-                <!-- Signals -->
-                <div class="card bg-base-200 shadow-xl mb-6">
-                    <div class="card-body">
-                        <h2 class="card-title text-lg cursor-pointer" @@click="showSignals = !showSignals">
-                            <span>Collected Signals</span>
-                            <span class="badge badge-ghost" x-text="signalEntries.length + ' signals'"></span>
-                            <svg class="w-4 h-4 ml-auto transition-transform duration-200" :class="{ 'rotate-180': showSignals }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                            </svg>
-                        </h2>
-                        <div x-show="showSignals" x-transition>
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
+                    <!-- Detector Breakdown -->
+                    <div class="card bg-base-200 mt-3">
+                        <div class="card-body p-4">
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-base-content/50 mb-3">
+                                Detector Breakdown
+                                <span class="badge badge-xs badge-ghost ml-1" x-text="(yourData?.contributions?.length || 0)"></span>
+                            </h3>
+                            <div class="space-y-1.5">
+                                <template x-for="(c, i) in topContributions" :key="i">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-20 text-xs truncate" x-text="c.detector"></div>
+                                        <div class="flex-1 bg-base-300 rounded-full h-3 overflow-hidden">
+                                            <div class="h-full rounded-full transition-all duration-500"
+                                                 :style="'width:' + Math.max(Math.min(Math.abs(c.impact) * 1000, 100), 3) + '%; background-color:' + (c.impact > 0 ? '#ef444488' : '#86B59C88')"></div>
+                                        </div>
+                                        <div class="w-12 text-right text-[10px] font-mono"
+                                             :style="'color:' + (c.impact > 0 ? '#ef4444' : '#86B59C')"
+                                             x-text="(c.impact > 0 ? '+' : '') + (c.impact * 100).toFixed(1) + '%'"></div>
+                                    </div>
+                                </template>
+                            </div>
+                            <button x-show="yourData?.contributions?.length > 5"
+                                    class="btn btn-ghost btn-xs mt-2"
+                                    @@click="showAllContributions = !showAllContributions"
+                                    x-text="showAllContributions ? 'Show top 5' : 'Show all ' + (yourData?.contributions?.length || 0)"></button>
+                        </div>
+                    </div>
+
+                    <!-- Signals (collapsed) -->
+                    <div class="card bg-base-200 mt-3">
+                        <div class="card-body p-4">
+                            <h3 class="text-xs font-bold uppercase tracking-wider text-base-content/50 cursor-pointer flex items-center"
+                                @@click="showSignals = !showSignals">
+                                Signals
+                                <span class="badge badge-xs badge-ghost ml-1" x-text="signalEntries.length"></span>
+                                <svg class="w-3 h-3 ml-auto transition-transform" :class="{ 'rotate-180': showSignals }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </h3>
+                            <div x-show="showSignals" x-transition class="mt-2 space-y-1 max-h-48 overflow-y-auto">
                                 <template x-for="[key, val] in signalEntries" :key="key">
-                                    <div class="flex items-center gap-2 bg-base-300/50 rounded px-3 py-1.5 text-sm">
-                                        <code class="text-xs font-mono opacity-70" x-text="key"></code>
-                                        <span class="ml-auto font-medium text-xs"
+                                    <div class="flex items-center gap-1 text-[11px]">
+                                        <code class="font-mono opacity-60 truncate flex-1" x-text="key"></code>
+                                        <span class="font-medium"
                                               :style="'color:' + (val === true ? '#86B59C' : val === false ? '#ef4444' : '#6b7280')"
                                               x-text="String(val)"></span>
                                     </div>
@@ -306,116 +257,208 @@
                     </div>
                 </div>
 
-                <!-- Recommended Action -->
-                <div class="card bg-base-200 shadow-xl mb-6">
-                    <div class="card-body">
-                        <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                            <div>
-                                <div class="text-xs text-base-content/60 mb-1">Recommended Action</div>
-                                <div class="text-xl font-bold"
-                                     :style="'color:' + riskColor(data.riskBand)"
-                                     x-text="data.recommendedAction?.action || 'Allow'"></div>
-                            </div>
-                            <div class="flex-1">
-                                <div class="text-xs text-base-content/60 mb-1">Reason</div>
-                                <div class="text-sm text-base-content/80" x-text="data.recommendedAction?.reason || ''"></div>
-                            </div>
-                            <div>
-                                <div class="text-xs text-base-content/60 mb-1">Policy</div>
-                                <div class="badge badge-ghost" x-text="data.policy || 'default'"></div>
-                            </div>
-                        </div>
+                <!-- Error -->
+                <div x-show="yourError" class="alert alert-warning text-sm" x-text="yourError"></div>
+            </div>
+
+            <!-- ======== RIGHT COLUMN: Live Feed (3/5) ======== -->
+            <div class="lg:col-span-3 space-y-3">
+                <div class="flex items-center justify-between">
+                    <h2 class="text-sm font-bold uppercase tracking-wider text-base-content/50">
+                        Live Traffic Feed
+                        <span class="text-[10px] font-normal normal-case text-base-content/30 ml-1" x-text="detections.length + ' events'"></span>
+                    </h2>
+                    <div class="flex items-center gap-2">
+                        <button x-show="connected" class="btn btn-xs btn-ghost gap-1" @@click="feedPaused = !feedPaused">
+                            <svg x-show="!feedPaused" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                            <svg x-show="feedPaused" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                            <span x-text="feedPaused ? 'Resume' : 'Pause'" class="text-[10px]"></span>
+                        </button>
                     </div>
                 </div>
 
-                <!-- Detectors List -->
-                <div class="card bg-base-200 shadow-xl mb-6">
-                    <div class="card-body">
-                        <h2 class="card-title text-lg mb-2">Detectors Ran</h2>
-                        <div class="flex flex-wrap gap-2">
-                            <template x-for="name in (data.detectorsRan || [])" :key="name">
-                                <div class="badge badge-outline badge-sm py-2 px-3" x-text="name"></div>
-                            </template>
-                        </div>
-                        <template x-if="data.failedDetectors?.length > 0">
-                            <div class="mt-3">
-                                <div class="text-xs text-error mb-1">Failed Detectors</div>
-                                <div class="flex flex-wrap gap-2">
-                                    <template x-for="name in data.failedDetectors" :key="name">
-                                        <div class="badge badge-error badge-outline badge-sm" x-text="name"></div>
-                                    </template>
+                <!-- Feed Loading -->
+                <div x-show="feedLoading" class="card bg-base-200">
+                    <div class="card-body items-center py-10">
+                        <span class="loading loading-spinner loading-md" style="color: #5BA3A3;"></span>
+                        <p class="text-xs text-base-content/50 mt-2">Loading recent detections...</p>
+                    </div>
+                </div>
+
+                <!-- Feed -->
+                <div x-show="!feedLoading" x-cloak class="card bg-base-200 shadow-xl overflow-hidden">
+                    <div class="max-h-[600px] overflow-y-auto divide-y divide-base-300/50" x-ref="feedScroll">
+                        <template x-for="(d, i) in feedItems" :key="d.requestId || i">
+                            <div class="px-3 py-2 transition-colors duration-300"
+                                 :style="'background-color:' + (d.isBot ? 'rgba(239,68,68,0.06)' : 'transparent')">
+                                <!-- Row 1: badge, path, time -->
+                                <div class="flex items-center gap-2 mb-1">
+                                    <span class="badge badge-xs font-bold text-white flex-shrink-0"
+                                          :class="d.isBot ? 'badge-error' : 'badge-success'"
+                                          x-text="d.isBot ? 'BOT' : 'OK'"></span>
+                                    <span class="text-xs font-semibold flex-shrink-0"
+                                          :style="'color:' + riskColor(d.riskBand)"
+                                          x-text="d.riskBand || 'Unknown'"></span>
+                                    <code class="text-xs opacity-60 truncate flex-1" x-text="truncPath(d.path)"></code>
+                                    <span class="text-[10px] opacity-30 flex-shrink-0" x-text="timeAgo(d.timestamp)"></span>
+                                </div>
+                                <!-- Row 2: probability, confidence, processing time, reason -->
+                                <div class="flex items-center gap-3 text-[11px]">
+                                    <span class="font-mono" :style="'color:' + ((d.botProbability || 0) >= 0.5 ? '#ef4444' : '#86B59C')">
+                                        <span class="opacity-40">prob </span><span x-text="((d.botProbability || 0) * 100).toFixed(0) + '%'"></span>
+                                    </span>
+                                    <span class="font-mono">
+                                        <span class="opacity-40">conf </span><span x-text="((d.confidence || 0) * 100).toFixed(0) + '%'"></span>
+                                    </span>
+                                    <span class="font-mono">
+                                        <span class="opacity-40">in </span><span x-text="(d.processingTimeMs || 0).toFixed(0) + 'ms'"></span>
+                                    </span>
+                                    <span class="badge badge-xs badge-ghost" x-show="d.action && d.action !== 'Allow'" x-text="d.action"></span>
+                                    <span class="opacity-40 truncate flex-1 text-right"
+                                          x-text="(d.topReasons && d.topReasons[0]) || d.botName || ''"></span>
                                 </div>
                             </div>
                         </template>
                     </div>
+
+                    <!-- Empty state -->
+                    <div x-show="detections.length === 0" class="p-8 text-center text-base-content/30 text-sm">
+                        No detections yet. Traffic will appear here in real time.
+                    </div>
+                </div>
+
+                <!-- Risk + Bot Types (compact, side by side) -->
+                <div x-show="summary?.riskBandCounts" x-cloak class="grid grid-cols-2 gap-3">
+                    <div class="card bg-base-200">
+                        <div class="card-body p-3">
+                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">Risk Distribution</h3>
+                            <template x-for="band in ['VeryLow','Low','Medium','High','VeryHigh']" :key="band">
+                                <div x-show="summary?.riskBandCounts?.[band] > 0" class="flex items-center gap-1.5 mb-1">
+                                    <span class="text-[10px] w-12 font-medium" :style="'color:' + riskColor(band)" x-text="band"></span>
+                                    <div class="flex-1 bg-base-300 rounded-full h-2 overflow-hidden">
+                                        <div class="h-full rounded-full" :style="'width:' + Math.max(((summary?.riskBandCounts?.[band] || 0) / (totalCount || 1)) * 100, 3) + '%; background-color:' + riskColor(band) + '66'"></div>
+                                    </div>
+                                    <span class="text-[10px] font-mono w-6 text-right" x-text="summary?.riskBandCounts?.[band] || 0"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="card bg-base-200">
+                        <div class="card-body p-3">
+                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
+                                <span x-text="summary?.topBotTypes && Object.keys(summary.topBotTypes).length > 0 ? 'Top Bot Types' : 'Actions Taken'"></span>
+                            </h3>
+                            <!-- Bot types -->
+                            <template x-if="summary?.topBotTypes && Object.keys(summary.topBotTypes).length > 0">
+                                <div>
+                                    <template x-for="[type, count] in Object.entries(summary.topBotTypes).sort((a,b) => b[1] - a[1]).slice(0, 5)" :key="type">
+                                        <div class="flex items-center justify-between mb-1 text-[11px]">
+                                            <span x-text="type"></span>
+                                            <span class="font-mono opacity-50" x-text="count"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                            <!-- Fallback: Actions -->
+                            <template x-if="!summary?.topBotTypes || Object.keys(summary.topBotTypes).length === 0">
+                                <div>
+                                    <template x-for="[action, count] in Object.entries(summary?.topActions || {}).sort((a,b) => b[1] - a[1])" :key="action">
+                                        <div class="flex items-center justify-between mb-1 text-[11px]">
+                                            <span x-text="action"></span>
+                                            <span class="font-mono opacity-50" x-text="count"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hot Endpoints: which paths get the most bot traffic -->
+                <div x-show="topEndpoints.length > 0" x-cloak class="card bg-base-200">
+                    <div class="card-body p-3">
+                        <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
+                            Hot Endpoints
+                            <span class="text-[9px] font-normal normal-case text-base-content/30 ml-1">(by traffic volume)</span>
+                        </h3>
+                        <div class="space-y-1">
+                            <template x-for="ep in topEndpoints" :key="ep.path">
+                                <div class="flex items-center gap-2">
+                                    <code class="text-[11px] font-mono truncate flex-1 opacity-70" x-text="ep.path"></code>
+                                    <div class="flex items-center gap-2 flex-shrink-0">
+                                        <span class="text-[10px] font-mono" x-text="ep.total"></span>
+                                        <div class="w-16 bg-base-300 rounded-full h-2 overflow-hidden">
+                                            <div class="h-full rounded-full" :style="'width:' + Math.max(ep.botPct, 3) + '%; background-color:' + (ep.botPct > 50 ? '#ef444488' : ep.botPct > 20 ? '#DAA56488' : '#86B59C88')"></div>
+                                        </div>
+                                        <span class="text-[10px] font-mono w-8 text-right"
+                                              :style="'color:' + (ep.botPct > 50 ? '#ef4444' : ep.botPct > 20 ? '#DAA564' : '#86B59C')"
+                                              x-text="ep.botPct + '%'"></span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                        <div class="text-[9px] text-base-content/30 mt-2">Bot % per endpoint from observed traffic</div>
+                    </div>
                 </div>
             </div>
-        </template>
+        </div>
 
-        <!-- Error State -->
-        <template x-if="error">
-            <div class="alert alert-warning mb-6">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-                </svg>
-                <span x-text="error"></span>
-            </div>
-        </template>
-
-        <!-- Privacy Note -->
-        <div class="text-center py-8">
-            <div class="inline-flex items-center gap-2 bg-base-200 rounded-full px-5 py-2.5 text-sm text-base-content/70">
-                <svg class="w-4 h-4" style="color: #86B59C;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <!-- Privacy -->
+        <div class="text-center py-5">
+            <div class="inline-flex items-center gap-2 bg-base-200 rounded-full px-4 py-2 text-xs text-base-content/60">
+                <svg class="w-3.5 h-3.5" style="color: #86B59C;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
-                <span><strong>Zero PII collected.</strong> All detection uses privacy-safe signals. No IP addresses or personal data are stored.</span>
+                <strong>Zero PII collected.</strong> All detection uses privacy-safe signals. No IP addresses or personal data are stored.
             </div>
         </div>
     </div>
 </section>
 
 <!-- What the Metrics Mean -->
-<section class="py-8 bg-base-200">
-    <div class="max-w-4xl mx-auto px-4">
-        <h2 class="text-lg font-bold mb-6 text-center">What These Metrics Mean</h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="bg-base-100 rounded-lg p-5">
-                <h3 class="font-bold mb-2" style="color: #5BA3A3;">Bot Probability</h3>
-                <p class="text-sm text-base-content/70">How likely this request came from a bot (0-100%). Aggregated from all detectors using weighted voting.</p>
+<section class="py-6 bg-base-200">
+    <div class="max-w-5xl mx-auto px-4">
+        <h2 class="text-lg font-bold mb-4 text-center">What These Metrics Mean</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div class="bg-base-100 rounded-lg p-4">
+                <h3 class="font-bold text-sm mb-1" style="color: #5BA3A3;">Bot Probability</h3>
+                <p class="text-xs text-base-content/60">How likely this request came from a bot (0-100%). Aggregated from all detectors using weighted voting.</p>
             </div>
-            <div class="bg-base-100 rounded-lg p-5">
-                <h3 class="font-bold mb-2" style="color: #5BA3A3;">Confidence</h3>
-                <p class="text-sm text-base-content/70">How certain we are about the classification. High confidence means strong agreement between detectors.</p>
+            <div class="bg-base-100 rounded-lg p-4">
+                <h3 class="font-bold text-sm mb-1" style="color: #5BA3A3;">Confidence</h3>
+                <p class="text-xs text-base-content/60">How certain we are about the classification. High confidence means strong agreement between detectors.</p>
             </div>
-            <div class="bg-base-100 rounded-lg p-5">
-                <h3 class="font-bold mb-2" style="color: #5BA3A3;">Risk Band</h3>
-                <p class="text-sm text-base-content/70">Categorized risk level from VeryLow to VeryHigh. Determines the recommended response action.</p>
+            <div class="bg-base-100 rounded-lg p-4">
+                <h3 class="font-bold text-sm mb-1" style="color: #5BA3A3;">Risk Band</h3>
+                <p class="text-xs text-base-content/60">Categorized risk level from VeryLow to VeryHigh. Determines the recommended response action.</p>
             </div>
-            <div class="bg-base-100 rounded-lg p-5">
-                <h3 class="font-bold mb-2" style="color: #5BA3A3;">Detector Breakdown</h3>
-                <p class="text-sm text-base-content/70">Each detector's individual contribution. Green bars push toward human, red bars push toward bot.</p>
+            <div class="bg-base-100 rounded-lg p-4">
+                <h3 class="font-bold text-sm mb-1" style="color: #5BA3A3;">Processing Time</h3>
+                <p class="text-xs text-base-content/60">Time to run the full detection pipeline. Fast-path detectors complete in under 1ms, with optional LLM escalation for complex cases.</p>
+            </div>
+            <div class="bg-base-100 rounded-lg p-4">
+                <h3 class="font-bold text-sm mb-1" style="color: #5BA3A3;">Action Policy</h3>
+                <p class="text-xs text-base-content/60">What StyloBot recommends: allow, throttle-stealth (silent delay), challenge (CAPTCHA), block (403), or redirect to a honeypot.</p>
+            </div>
+            <div class="bg-base-100 rounded-lg p-4">
+                <h3 class="font-bold text-sm mb-1" style="color: #5BA3A3;">Detector Breakdown</h3>
+                <p class="text-xs text-base-content/60">Each detector's individual contribution. Green bars push toward human, red bars push toward bot. 21 detectors run in parallel.</p>
             </div>
         </div>
     </div>
 </section>
 
 <!-- CTA -->
-<section class="py-8 bg-base-100">
+<section class="py-6 bg-base-100">
     <div class="max-w-4xl mx-auto px-4 text-center">
-        <h2 class="text-lg font-bold mb-3">Add This To Your App</h2>
-        <p class="text-sm text-base-content/70 mb-5 max-w-2xl mx-auto">
-            Get the same detection intelligence on your own site. Drop-in ASP.NET middleware, YARP gateway, or standalone npm widget.
+        <h2 class="text-lg font-bold mb-2">Add This To Your App</h2>
+        <p class="text-xs text-base-content/60 mb-4 max-w-xl mx-auto">
+            Get the same detection intelligence on your own site. Drop-in ASP.NET middleware, YARP gateway, or standalone Docker image.
         </p>
-        <div class="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href="https://www.nuget.org/packages/mostlylucid.botdetection" target="_blank" class="btn btn-primary gap-2">
-                NuGet Package
-            </a>
-            <a href="https://hub.docker.com/r/scottgal/stylobot-gateway" target="_blank" class="btn btn-outline gap-2">
-                Docker Image
-            </a>
-            <a href="/docs" target="_blank" class="btn btn-outline gap-2">
-                Documentation
-            </a>
+        <div class="flex flex-col sm:flex-row gap-3 justify-center">
+            <a href="https://www.nuget.org/packages/mostlylucid.botdetection" target="_blank" class="btn btn-sm btn-primary">NuGet Package</a>
+            <a href="https://hub.docker.com/r/scottgal/stylobot-gateway" target="_blank" class="btn btn-sm btn-outline">Docker Image</a>
+            <a href="/docs" target="_blank" class="btn btn-sm btn-outline">Documentation</a>
         </div>
     </div>
 </section>

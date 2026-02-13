@@ -35,8 +35,8 @@
             <div class="flex items-center justify-between gap-4">
                 <!-- Logo + Brand -->
                 <a asp-area="" asp-controller="Home" asp-action="Index" class="flex items-center gap-3 flex-shrink-0">
-                    <img src="/img/stylowall.svg" alt="stylobot Logo" class="h-14 w-auto logo-adaptive" />
-                    <span class="text-2xl font-semibold hidden sm:inline" style="font-family: 'Raleway', sans-serif;">
+                    <img src="/img/stylowall.svg" alt="stylobot Logo" class="h-9 w-auto logo-adaptive" />
+                    <span class="text-lg font-semibold hidden sm:inline" style="font-family: 'Raleway', sans-serif;">
                         <span class="stylo-text" style="font-style: italic;">stylo</span><span class="bot-text">bot</span>
                     </span>
                 </a>
@@ -151,7 +151,7 @@
             <div class="divider"></div>
 
             <div class="text-center text-base-content/60 text-sm">
-                &copy; 2025 Stylobot. All rights reserved.
+                &copy; @DateTime.Now.Year Stylobot. All rights reserved.
             </div>
         </div>
     </footer>

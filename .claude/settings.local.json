@@ -99,7 +99,13 @@
       "Bash(git commit:*)",
       "Bash(gh run watch:*)",
       "Bash(docker push:*)",
-      "Bash(docker volume ls:*)"
+      "Bash(docker volume ls:*)",
+      "Bash(powershell.exe:*)",
+      "mcp__plugin_playwright_playwright__browser_click",
+      "Bash(python -m json.tool:*)",
+      "Bash(pushd:*)",
+      "mcp__plugin_playwright_playwright__browser_snapshot",
+      "mcp__plugin_playwright_playwright__browser_press_key"
     ]
   }
 }

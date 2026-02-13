@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Orchestration;
@@ -57,6 +59,10 @@ public class DetectionDataExtractor
                     })
                     .OrderByDescending(d => Math.Abs(d.Contribution))
                     .ToList(),
+                RawSignals = evidence.Signals?.ToDictionary(kvp => kvp.Key, kvp => kvp.Value) ?? new Dictionary<string, object>(),
+                FingerprintHash = context.Items.TryGetValue("BotDetection.FingerprintHash", out var fpHashObj) && fpHashObj != null
+                    ? fpHashObj.ToString()
+                    : null,
                 RequestId = context.TraceIdentifier,
                 Timestamp = DateTime.UtcNow,
                 YarpCluster = context.Items.TryGetValue("Yarp.Cluster", out var cluster) && cluster != null
@@ -89,6 +95,7 @@ public class DetectionDataExtractor
                 PolicyName = GetHeaderValue(headers, "X-Bot-Detection-Policy"),
                 Action = GetHeaderValue(headers, "X-Bot-Detection-Action"),
                 ProcessingTimeMs = ParseDoubleHeader(headers, "X-Bot-Detection-ProcessingMs"),
+                FingerprintHash = GetHeaderValue(headers, "X-Bot-Detection-FingerprintHash"),
                 RequestId = GetHeaderValue(headers, "X-Bot-Detection-RequestId"),
                 Timestamp = DateTime.UtcNow,
                 YarpCluster = GetHeaderValue(headers, "X-Bot-Detection-Cluster"),
@@ -104,6 +111,11 @@ public class DetectionDataExtractor
             var contributionsJson = GetHeaderValue(headers, "X-Bot-Detection-Contributions");
             if (!string.IsNullOrEmpty(contributionsJson))
                 try { model.DetectorContributions = JsonSerializer.Deserialize<List<DetectorContributionDisplay>>(contributionsJson) ?? []; }
+                catch { /* ignore */ }
+
+            var signalsJson = GetHeaderValue(headers, "X-Bot-Detection-Signals");
+            if (!string.IsNullOrEmpty(signalsJson))
+                try { model.RawSignals = JsonSerializer.Deserialize<Dictionary<string, object>>(signalsJson) ?? []; }
                 catch { /* ignore */ }
 
             return model;
@@ -131,7 +143,28 @@ public class DetectionDataExtractor
             }
             catch { /* ignore */ }
 
+        // Generate a fallback signature from IP+UA so the header bar and
+        // SignalR tracking always have a value to work with.
+        var fallback = GenerateFallbackSignature(context);
+        if (fallback != null)
+        {
+            // Also write it back so DetectionBroadcastMiddleware uses the same value
+            var fallbackDict = new Dictionary<string, string> { ["primary"] = fallback };
+            context.Items["BotDetection.Signatures"] = JsonSerializer.Serialize(fallbackDict);
+            return BuildSignatureDisplay(fallbackDict, context);
+        }
+
         return null;
+    }
+
+    private static string? GenerateFallbackSignature(HttpContext context)
+    {
+        var ip = context.Connection.RemoteIpAddress?.ToString();
+        var ua = context.Request.Headers.UserAgent.ToString();
+        if (string.IsNullOrEmpty(ip) && string.IsNullOrEmpty(ua)) return null;
+        var combined = $"{ip}:{ua}";
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(combined));
+        return Convert.ToHexString(hash)[..16].ToLowerInvariant();
     }
 
     private static MultiFactorSignatureDisplay BuildSignatureDisplay(Dictionary<string, string> signatures, HttpContext? context = null)

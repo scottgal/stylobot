@@ -1,9 +1,113 @@
 @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
 @using Microsoft.AspNetCore.Http
+@using Mostlylucid.BotDetection.Orchestration
+@using Mostlylucid.GeoDetection.Middleware
+@using Mostlylucid.GeoDetection.Models
+@using System.Text.Json
+@using System.Security.Cryptography
+@using System.Text
 @inject IHttpContextAccessor HttpContextAccessor
 @{
     ViewData["Title"] = "Bot Detection Intelligence - All the Data, Your Decision";
     var web3FormsKey = Configuration["Web3Forms:AccessKey"];
+
+    // Extract detection data from this page request
+    var evidence = Context.Items["BotDetection.AggregatedEvidence"] as AggregatedEvidence;
+    var botProb = evidence?.BotProbability ?? 0;
+    var confidence = evidence?.Confidence ?? 0;
+    var riskBand = evidence?.RiskBand.ToString() ?? "Unknown";
+    var procTime = evidence?.TotalProcessingTimeMs ?? 0;
+    var detectorCount = evidence?.Contributions.Select(c => c.DetectorName).Distinct().Count() ?? 0;
+    var topReason = evidence?.Contributions
+        .Where(c => !string.IsNullOrWhiteSpace(c.Reason))
+        .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
+        .FirstOrDefault()?.Reason ?? "";
+
+    // Extract geo data from signals
+    var countryCode = "";
+    var countryName = "";
+    var city = "";
+    var timezone = "";
+    var isVpn = false;
+    var isHosting = false;
+    if (evidence?.Signals != null)
+    {
+        if (evidence.Signals.TryGetValue("geo.country_code", out var cc)) countryCode = cc?.ToString() ?? "";
+        if (evidence.Signals.TryGetValue("geo.country_name", out var cn)) countryName = cn?.ToString() ?? "";
+        if (evidence.Signals.TryGetValue("geo.city", out var ci)) city = ci?.ToString() ?? "";
+        if (evidence.Signals.TryGetValue("geo.timezone", out var tz)) timezone = tz?.ToString() ?? "";
+        if (evidence.Signals.TryGetValue("geo.is_vpn", out var vpn)) isVpn = vpn is true || vpn?.ToString() == "True";
+        if (evidence.Signals.TryGetValue("geo.is_hosting", out var host)) isHosting = host is true || host?.ToString() == "True";
+    }
+
+    // Fallback: try the GeoLocation from context
+    if (string.IsNullOrEmpty(countryCode))
+    {
+        var geoLoc = Context.Items["GeoLocation"] as GeoLocation;
+        if (geoLoc != null)
+        {
+            countryCode = geoLoc.CountryCode ?? "";
+            countryName = geoLoc.CountryName ?? "";
+            city = geoLoc.City ?? "";
+            timezone = geoLoc.TimeZone ?? "";
+            isVpn = geoLoc.IsVpn;
+            isHosting = geoLoc.IsHosting;
+        }
+    }
+
+    // Extract signature data
+    var primarySig = "";
+    var sigFactorCount = 0;
+    var hasClientFingerprint = false;
+    if (Context.Items.TryGetValue("BotDetection.Signatures", out var sigObj) && sigObj is string sigJson)
+    {
+        try
+        {
+            var sigs = JsonSerializer.Deserialize<Dictionary<string, string>>(sigJson);
+            if (sigs != null)
+            {
+                primarySig = sigs.GetValueOrDefault("primary") ?? "";
+                sigFactorCount = sigs.Count(s => !string.IsNullOrEmpty(s.Value) && s.Key != "primary");
+                hasClientFingerprint = !string.IsNullOrEmpty(sigs.GetValueOrDefault("clientSide"));
+            }
+        }
+        catch { }
+    }
+
+    // Fallback: generate signature from IP+UA (same as DetectionDataExtractor)
+    if (string.IsNullOrEmpty(primarySig))
+    {
+        var ip = Context.Connection.RemoteIpAddress?.ToString() ?? "";
+        var ua = Context.Request.Headers.UserAgent.ToString();
+        if (!string.IsNullOrEmpty(ip) || !string.IsNullOrEmpty(ua))
+        {
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes($"{ip}:{ua}"));
+            primarySig = Convert.ToHexString(hash)[..16].ToLowerInvariant();
+        }
+    }
+
+    // Country display: handle private/local networks
+    var isPrivateNetwork = string.IsNullOrEmpty(countryCode) ||
+                           countryCode.Equals("XX", StringComparison.OrdinalIgnoreCase) ||
+                           countryName.Contains("Private", StringComparison.OrdinalIgnoreCase) ||
+                           countryName.Contains("Reserved", StringComparison.OrdinalIgnoreCase);
+    if (isPrivateNetwork && string.IsNullOrEmpty(countryName))
+    {
+        countryName = "Local Network";
+    }
+
+    // TLS / HTTP protocol info from signals
+    var tlsProtocol = "";
+    var httpProtocol = "";
+    var h2ClientType = "";
+    var osHint = "";
+    if (evidence?.Signals != null)
+    {
+        if (evidence.Signals.TryGetValue("tls.protocol", out var tp)) tlsProtocol = tp?.ToString() ?? "";
+        if (evidence.Signals.TryGetValue("h2.protocol", out var hp)) httpProtocol = hp?.ToString() ?? "";
+        if (evidence.Signals.TryGetValue("h2.client_type", out var ct)) h2ClientType = ct?.ToString() ?? "";
+        if (evidence.Signals.TryGetValue("tcp.os_hint", out var os)) osHint = os?.ToString() ?? "";
+    }
 }
 
 <!-- Hero -->
@@ -11,19 +115,22 @@
     <div class="absolute inset-0 opacity-5">
         <div class="absolute inset-0" style="background-image: radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0); background-size: 40px 40px;"></div>
     </div>
-    <div class="max-w-3xl mx-auto px-4 relative z-10">
+    <div class="max-w-4xl mx-auto px-4 relative z-10">
         <!-- Brand -->
         <div class="text-center mb-6">
-            <h1 class="text-4xl lg:text-5xl leading-none mb-3" style="font-family: 'Raleway', sans-serif; font-weight: 900;">
+            <h1 class="text-4xl lg:text-5xl leading-none mb-1" style="font-family: 'Raleway', sans-serif; font-weight: 900;">
                 <span style="color: #6b7280; font-style: italic;">stylo</span><span class="text-base-content">bot</span>
             </h1>
-            <p class="text-sm text-base-content/40 uppercase tracking-widest" style="font-family: 'Raleway', sans-serif; font-weight: 600;">
-                open source bot detection
+            <p class="text-base lg:text-lg text-base-content/80 uppercase tracking-widest mb-0" style="font-family: 'Raleway', sans-serif; font-weight: 600;">
+                Open Source, State of the Art
+            </p>
+            <p class="text-sm lg:text-base text-primary uppercase tracking-wider" style="font-family: 'Raleway', sans-serif; font-weight: 600;">
+                Bot &amp; Scraper Detection
             </p>
         </div>
 
         <!-- Pitch -->
-        <div class="text-center mb-8 space-y-3">
+        <div class="text-center mb-6 space-y-3">
             <p class="text-base lg:text-lg font-semibold text-base-content">
                 Detect and stop scrapers, bots, and API abuse.
             </p>
@@ -33,6 +140,117 @@
             <p class="text-xs text-base-content/50">
                 <span style="color: #86B59C;">Zero PII by design</span> — nothing stored, GDPR compliant without trying.
             </p>
+        </div>
+
+        <!-- Live Detection Card: "We just analysed you" -->
+        <div class="max-w-2xl mx-auto mb-6" x-data="homeDetection()" x-init="init()">
+            <div class="rounded-lg border border-base-content/10 overflow-hidden" style="background: #1a1a2e;">
+                <!-- Card Header -->
+                <div class="flex items-center justify-between px-4 py-2 border-b" style="border-color: rgba(91,163,163,0.2);">
+                    <div class="flex items-center gap-2">
+                        <span class="inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-bold text-white"
+                              :class="isBot ? 'bg-red-500' : 'bg-green-500'"
+                              x-text="isBot ? 'R' : 'H'"></span>
+                        <span class="text-xs font-semibold" :class="isBot ? 'text-red-400' : 'text-green-400'"
+                              x-text="isBot ? 'Bot Detected' : 'Human Verified'"></span>
+                    </div>
+                    <div class="flex items-center gap-2 text-[10px]" style="color: #6c757d;">
+                        <span x-text="detectorCount + ' detectors'"></span>
+                        <span>|</span>
+                        <span x-text="processingTimeMs.toFixed(0) + 'ms'"></span>
+                        <span x-show="connected" class="text-green-400 font-bold ml-1">LIVE</span>
+                    </div>
+                </div>
+
+                <!-- Main Stats Row -->
+                <div class="grid grid-cols-3 divide-x" style="divide-color: rgba(255,255,255,0.06);">
+                    <div class="p-3 text-center">
+                        <div class="text-[10px] uppercase tracking-wider mb-1" style="color: #5BA3A3;">Bot Probability</div>
+                        <div class="text-xl font-bold" :class="{ 'pulse-update': justUpdated }"
+                             :style="'color: ' + (botProbability > 0.5 ? '#ff6b6b' : '#51cf66')"
+                             x-text="Math.round(botProbability * 100) + '%'"></div>
+                    </div>
+                    <div class="p-3 text-center">
+                        <div class="text-[10px] uppercase tracking-wider mb-1" style="color: #5BA3A3;">Confidence</div>
+                        <div class="text-xl font-bold" style="color: #e9ecef;"
+                             x-text="Math.round(confidence * 100) + '%'"></div>
+                    </div>
+                    <div class="p-3 text-center">
+                        <div class="text-[10px] uppercase tracking-wider mb-1" style="color: #5BA3A3;">Risk Band</div>
+                        <div class="text-xl font-bold" :class="'risk-text-' + (riskBand || 'unknown').toLowerCase()"
+                             x-text="riskBand"></div>
+                    </div>
+                </div>
+
+                <!-- Detail Grid -->
+                <div class="grid grid-cols-2 lg:grid-cols-4 gap-px" style="background: rgba(255,255,255,0.04);">
+                    <!-- Country -->
+                    <div class="p-2.5" style="background: #1a1a2e;">
+                        <div class="text-[9px] uppercase tracking-wider mb-1" style="color: #6c757d;">Location</div>
+                        <div class="text-xs font-semibold" style="color: #e9ecef;">
+                            <span x-text="countryFlag"></span>
+                            <span x-text="countryName || 'Detecting...'"></span>
+                        </div>
+                        <template x-if="city">
+                            <div class="text-[10px]" style="color: #6c757d;" x-text="city"></div>
+                        </template>
+                    </div>
+
+                    <!-- Fingerprint -->
+                    <div class="p-2.5" style="background: #1a1a2e;">
+                        <div class="text-[9px] uppercase tracking-wider mb-1" style="color: #6c757d;">Client Fingerprint</div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="inline-flex items-center justify-center w-4 h-4 rounded-full text-[8px] font-bold"
+                                  :class="hasClientFp ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'"
+                                  x-text="hasClientFp ? sigFactorCount : '?'"></span>
+                            <span class="text-xs font-semibold" style="color: #e9ecef;"
+                                  x-text="hasClientFp ? sigFactorCount + '-factor' : 'Collecting...'"></span>
+                        </div>
+                        <div class="text-[10px]" :style="hasClientFp ? 'color: #51cf66;' : 'color: #ffc107;'"
+                             x-text="hasClientFp ? 'Browser verified' : 'Awaiting browser signal'"></div>
+                    </div>
+
+                    <!-- Network Info -->
+                    <div class="p-2.5" style="background: #1a1a2e;">
+                        <div class="text-[9px] uppercase tracking-wider mb-1" style="color: #6c757d;">Network</div>
+                        <div class="text-xs font-semibold" style="color: #e9ecef;" x-text="tlsProtocol || 'TLS'"></div>
+                        <div class="text-[10px]" style="color: #6c757d;">
+                            <span x-text="httpProtocol || 'HTTP'"></span>
+                            <template x-if="isVpn">
+                                <span class="ml-1 px-1 rounded text-[8px] font-bold" style="background: rgba(255,193,7,0.2); color: #ffc107;">VPN</span>
+                            </template>
+                            <template x-if="isHosting">
+                                <span class="ml-1 px-1 rounded text-[8px] font-bold" style="background: rgba(253,126,20,0.2); color: #fd7e14;">DC</span>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Signature -->
+                    <div class="p-2.5" style="background: #1a1a2e;">
+                        <div class="text-[9px] uppercase tracking-wider mb-1" style="color: #6c757d;">Your Signature</div>
+                        <div class="text-xs font-mono font-semibold" style="color: #e9ecef;"
+                             x-text="signature ? signature.substring(0, 12) + '...' : 'Generating...'"></div>
+                        <div class="text-[10px]" style="color: #6c757d;">
+                            Hits: <span :class="{ 'pulse-update': justUpdated }" style="color: #5BA3A3;" x-text="hitCount"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top Reason -->
+                <template x-if="topReason">
+                    <div class="px-4 py-1.5 text-[10px] border-t" style="border-color: rgba(255,255,255,0.06); color: #6c757d;">
+                        Top signal: <span style="color: #adb5bd;" x-text="topReason"></span>
+                    </div>
+                </template>
+
+                <!-- Footer -->
+                <div class="flex items-center justify-between px-4 py-1.5 border-t" style="border-color: rgba(255,255,255,0.06);">
+                    <div class="text-[9px]" style="color: #495057;">
+                        All data from <span class="font-semibold" style="color: #5BA3A3;">this page load</span> — zero PII stored
+                    </div>
+                    <a href="/Home/LiveDemo" class="text-[10px] font-semibold" style="color: #5BA3A3;">See full dashboard &rarr;</a>
+                </div>
+            </div>
         </div>
 
         <!-- CTA -->
@@ -49,12 +267,6 @@
                 </span>
                 Live Demo
             </a>
-        </div>
-
-        <div class="text-center mb-6">
-            <p class="text-xs text-base-content/60">
-                <span class="font-semibold">Live detection currently in alpha on the site...coming soon!</span>
-            </p>
         </div>
 
         <!-- by mostlylucid -->
@@ -252,12 +464,12 @@
                 <div class="text-xs text-base-content/60">Monitor threats with real-time analytics and actionable insights.</div>
             </div>
             <div class="p-4 bg-base-100 rounded-lg">
-                <div class="text-sm font-semibold mb-1">Live config editing</div>
-                <div class="text-xs text-base-content/60">Adjust rules on-the-fly without downtime.</div>
+                <div class="text-sm font-semibold mb-1">Multi-vector signatures</div>
+                <div class="text-xs text-base-content/60">Same visitor, different IP? We correlate UA, TLS, behavioral, and client-side signals to track identity across network changes.</div>
             </div>
             <div class="p-4 bg-base-100 rounded-lg">
-                <div class="text-sm font-semibold mb-1">Semantic analysis</div>
-                <div class="text-xs text-base-content/60">NLP and behavior modeling to understand intent, not just patterns.</div>
+                <div class="text-sm font-semibold mb-1">Time-travel detection</div>
+                <div class="text-xs text-base-content/60">When a visitor crosses a threshold, past requests are re-evaluated with richer cross-request signals — catching what single-request analysis missed.</div>
             </div>
             <div class="p-4 bg-base-100 rounded-lg">
                 <div class="text-sm font-semibold mb-1">Continuous learning</div>
@@ -356,15 +568,134 @@
 </section>
 
 <style>
-    @@keyframes gradient {
-        0% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
-    }
-    .animate-gradient {
-        animation: gradient 3s ease infinite;
-    }
     [data-theme="light"] .mostlylucid-logo {
         filter: invert(1);
     }
+    .risk-text-verylow, .risk-text-low { color: #51cf66; }
+    .risk-text-medium { color: #ffc107; }
+    .risk-text-high { color: #fd7e14; }
+    .risk-text-veryhigh { color: #ff6b6b; }
+    .risk-text-verified { color: #5BA3A3; }
+    .risk-text-unknown { color: #6c757d; }
+    .pulse-update { animation: pulse-val 0.5s ease-out; }
+    @@keyframes pulse-val {
+        0% { transform: scale(1.15); color: #51cf66; }
+        100% { transform: scale(1); }
+    }
 </style>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    function toCamel(obj) {
+        if (Array.isArray(obj)) return obj.map(toCamel);
+        if (obj !== null && typeof obj === 'object') {
+            return Object.fromEntries(
+                Object.entries(obj).map(([k, v]) => [k.charAt(0).toLowerCase() + k.slice(1), toCamel(v)])
+            );
+        }
+        return obj;
+    }
+
+    function countryFlag(code, isPrivate) {
+        if (isPrivate || !code || code.length !== 2 || code.toUpperCase() === 'XX') return '\uD83C\uDF10'; // globe emoji
+        return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+    }
+
+    Alpine.data('homeDetection', () => ({
+        // Server-rendered detection state
+        isBot: @(botProb > 0.5 ? "true" : "false"),
+        botProbability: @botProb.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        confidence: @confidence.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        riskBand: '@riskBand',
+        processingTimeMs: @procTime.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        detectorCount: @detectorCount,
+        topReason: '@topReason.Replace("'", "\\'")',
+
+        // Geo data
+        countryCode: '@countryCode',
+        countryName: '@countryName',
+        city: '@city',
+        countryFlag: countryFlag('@countryCode', @(isPrivateNetwork ? "true" : "false")),
+        isVpn: @(isVpn ? "true" : "false"),
+        isHosting: @(isHosting ? "true" : "false"),
+
+        // Signature / fingerprint
+        signature: '@primarySig',
+        sigFactorCount: @sigFactorCount,
+        hasClientFp: @(hasClientFingerprint ? "true" : "false"),
+        hitCount: 1,
+
+        // Network
+        tlsProtocol: '@tlsProtocol',
+        httpProtocol: '@httpProtocol',
+
+        // Dynamic state
+        connected: false,
+        justUpdated: false,
+        connection: null,
+
+        async init() {
+            await this.connect();
+        },
+
+        async connect() {
+            try {
+                if (typeof signalR === 'undefined') {
+                    await new Promise((resolve, reject) => {
+                        const s = document.createElement('script');
+                        s.src = 'https://cdn.jsdelivr.net/npm/@@microsoft/signalr@@8.0.0/dist/browser/signalr.min.js';
+                        s.onload = resolve;
+                        s.onerror = reject;
+                        document.head.appendChild(s);
+                    });
+                }
+
+                this.connection = new signalR.HubConnectionBuilder()
+                    .withUrl('/_stylobot/hub')
+                    .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+                    .configureLogging(signalR.LogLevel.Warning)
+                    .build();
+
+                // Detection events for YOUR signature
+                this.connection.on('BroadcastDetection', (raw) => {
+                    const d = toCamel(raw);
+                    if (d.primarySignature === this.signature) {
+                        this.isBot = d.isBot;
+                        this.botProbability = d.botProbability || 0;
+                        this.confidence = d.confidence || 0;
+                        this.riskBand = d.riskBand || 'Unknown';
+                        this.processingTimeMs = d.processingTimeMs || 0;
+                        if (d.topReasons && d.topReasons.length > 0) this.topReason = d.topReasons[0];
+                        this.justUpdated = true;
+                        setTimeout(() => { this.justUpdated = false; }, 500);
+                    }
+                });
+
+                // Signature events: client fingerprint updates arrive here
+                this.connection.on('BroadcastSignature', (raw) => {
+                    const sig = toCamel(raw);
+                    if (sig.primarySignature === this.signature) {
+                        this.hitCount = sig.hitCount || this.hitCount;
+                        this.sigFactorCount = sig.factorCount || this.sigFactorCount;
+                        if (sig.clientSideSignature) {
+                            this.hasClientFp = true;
+                        }
+                        this.justUpdated = true;
+                        setTimeout(() => { this.justUpdated = false; }, 500);
+                    }
+                });
+
+                this.connection.onclose(() => { this.connected = false; });
+                this.connection.onreconnecting(() => { this.connected = false; });
+                this.connection.onreconnected(() => { this.connected = true; });
+
+                await this.connection.start();
+                this.connected = true;
+            } catch (err) {
+                console.warn('[StyloBot Home] SignalR failed:', err);
+                this.connected = false;
+            }
+        }
+    }));
+});
+</script>
