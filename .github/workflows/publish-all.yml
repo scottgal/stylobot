@@ -278,27 +278,27 @@ jobs:
         include:
           - os: ubuntu-latest
             runtime: linux-x64
-            artifact-name: minigw-linux-x64
+            artifact-name: stylobot-linux-x64
             file-ext: ''
           - os: ubuntu-latest
             runtime: linux-arm64
-            artifact-name: minigw-linux-arm64
+            artifact-name: stylobot-linux-arm64
             file-ext: ''
           - os: windows-latest
             runtime: win-x64
-            artifact-name: minigw-win-x64
+            artifact-name: stylobot-win-x64
             file-ext: '.exe'
           - os: windows-latest
             runtime: win-arm64
-            artifact-name: minigw-win-arm64
+            artifact-name: stylobot-win-arm64
             file-ext: '.exe'
           - os: macos-latest
             runtime: osx-x64
-            artifact-name: minigw-osx-x64
+            artifact-name: stylobot-osx-x64
             file-ext: ''
           - os: macos-latest
             runtime: osx-arm64
-            artifact-name: minigw-osx-arm64
+            artifact-name: stylobot-osx-arm64
             file-ext: ''
 
     steps:
@@ -348,7 +348,7 @@ jobs:
       run: |
         mkdir -p ./dist
         cd ./publish/${{ matrix.runtime }}
-        cp minigw${{ matrix.file-ext }} ../../dist/
+        cp stylobot${{ matrix.file-ext }} ../../dist/
         cp *.dll ../../dist/ 2>/dev/null || true
         cp *.so ../../dist/ 2>/dev/null || true
         cp *.dylib ../../dist/ 2>/dev/null || true
@@ -413,12 +413,12 @@ jobs:
 
           ### Downloads
 
-          - **Linux x64**: `minigw-linux-x64.tar.gz`
-          - **Linux ARM64**: `minigw-linux-arm64.tar.gz`
-          - **Windows x64**: `minigw-win-x64.zip`
-          - **Windows ARM64**: `minigw-win-arm64.zip`
-          - **macOS Intel**: `minigw-osx-x64.tar.gz`
-          - **macOS Apple Silicon**: `minigw-osx-arm64.tar.gz`
+          - **Linux x64**: `stylobot-linux-x64.tar.gz`
+          - **Linux ARM64**: `stylobot-linux-arm64.tar.gz`
+          - **Windows x64**: `stylobot-win-x64.zip`
+          - **Windows ARM64**: `stylobot-win-arm64.zip`
+          - **macOS Intel**: `stylobot-osx-x64.tar.gz`
+          - **macOS Apple Silicon**: `stylobot-osx-arm64.tar.gz`
         draft: false
         prerelease: false
         files: |

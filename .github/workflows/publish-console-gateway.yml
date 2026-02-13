@@ -25,37 +25,37 @@ jobs:
           # Linux x64
           - os: ubuntu-latest
             runtime: linux-x64
-            artifact-name: minigw-linux-x64
+            artifact-name: stylobot-linux-x64
             file-ext: ''
 
           # Linux ARM64 (Raspberry Pi 4/5)
           - os: ubuntu-latest
             runtime: linux-arm64
-            artifact-name: minigw-linux-arm64
+            artifact-name: stylobot-linux-arm64
             file-ext: ''
 
           # Windows x64
           - os: windows-latest
             runtime: win-x64
-            artifact-name: minigw-win-x64
+            artifact-name: stylobot-win-x64
             file-ext: '.exe'
 
           # Windows ARM64 (Surface Pro X, Windows on ARM)
           - os: windows-latest
             runtime: win-arm64
-            artifact-name: minigw-win-arm64
+            artifact-name: stylobot-win-arm64
             file-ext: '.exe'
 
           # macOS x64 (Intel)
           - os: macos-latest
             runtime: osx-x64
-            artifact-name: minigw-osx-x64
+            artifact-name: stylobot-osx-x64
             file-ext: ''
 
           # macOS ARM64 (Apple Silicon M1/M2)
           - os: macos-latest
             runtime: osx-arm64
-            artifact-name: minigw-osx-arm64
+            artifact-name: stylobot-osx-arm64
             file-ext: ''
 
     steps:
@@ -144,7 +144,7 @@ jobs:
         cd ./publish/${{ matrix.runtime }}
 
         # Copy binary
-        cp minigw${{ matrix.file-ext }} ../../dist/
+        cp stylobot${{ matrix.file-ext }} ../../dist/
 
         # Copy all DLL files (including SQLite native libraries)
         cp *.dll ../../dist/ 2>/dev/null || true
@@ -175,17 +175,23 @@ jobs:
         Quick Start:
         ------------
 
+        # macOS: Remove quarantine first
+        xattr -d com.apple.quarantine stylobot
+
+        # Linux/macOS: Make executable
+        chmod +x stylobot
+
         # Demo mode (verbose logging)
-        ./minigw${{ matrix.file-ext }} --upstream http://localhost:8080 --port 5080 --mode demo
+        ./stylobot${{ matrix.file-ext }} --upstream http://localhost:8080 --port 5080 --mode demo
 
         # Production mode (structured logging, blocking)
-        ./minigw${{ matrix.file-ext }} --upstream http://backend:8080 --port 80 --mode production
+        ./stylobot${{ matrix.file-ext }} --upstream http://backend:8080 --port 80 --mode production
 
         # Using environment variables
         export UPSTREAM=http://backend:8080
         export PORT=5080
         export MODE=production
-        ./minigw${{ matrix.file-ext }}
+        ./stylobot${{ matrix.file-ext }}
 
         Documentation:
         --------------
@@ -279,24 +285,29 @@ jobs:
 
         Download the binary for your platform:
 
-        - **Linux x64**: `minigw-linux-x64.tar.gz` (~12MB)
-        - **Linux ARM64**: `minigw-linux-arm64.tar.gz` (~11MB) - For Raspberry Pi 4/5
-        - **Windows x64**: `minigw-win-x64.zip` (~10MB)
-        - **Windows ARM64**: `minigw-win-arm64.zip` (~10MB) - For Surface Pro X, Windows on ARM
-        - **macOS Intel**: `minigw-osx-x64.tar.gz` (~13MB)
-        - **macOS Apple Silicon**: `minigw-osx-arm64.tar.gz` (~11MB)
+        - **Linux x64**: `stylobot-linux-x64.tar.gz` (~12MB)
+        - **Linux ARM64**: `stylobot-linux-arm64.tar.gz` (~11MB) - For Raspberry Pi 4/5
+        - **Windows x64**: `stylobot-win-x64.zip` (~10MB)
+        - **Windows ARM64**: `stylobot-win-arm64.zip` (~10MB) - For Surface Pro X, Windows on ARM
+        - **macOS Intel**: `stylobot-osx-x64.tar.gz` (~13MB)
+        - **macOS Apple Silicon**: `stylobot-osx-arm64.tar.gz` (~11MB)
 
         ### Quick Start
 
         Extract the archive and run:
 
         ```bash
-        # Linux/macOS - make executable first
-        chmod +x minigw
-        ./minigw --upstream http://localhost:8080 --port 5080
+        # Linux - make executable first
+        chmod +x stylobot
+        ./stylobot --upstream http://localhost:8080 --port 5080
+
+        # macOS - remove quarantine then make executable
+        xattr -d com.apple.quarantine stylobot
+        chmod +x stylobot
+        ./stylobot --upstream http://localhost:8080 --port 5080
 
         # Windows
-        minigw.exe --upstream http://localhost:8080 --port 5080
+        stylobot.exe --upstream http://localhost:8080 --port 5080
         ```
 
         ### Features
@@ -326,7 +337,7 @@ jobs:
         export UPSTREAM=http://backend:8080
         export PORT=5080
         export MODE=production
-        ./minigw
+        ./stylobot
         ```
 
         ### Demo Loop
@@ -334,7 +345,7 @@ jobs:
         See the complete YARP → Backend demo:
 
         1. Start backend: `cd demo && dotnet run`
-        2. Start gateway: `./minigw --upstream http://localhost:5080 --port 5100 --mode demo`
+        2. Start gateway: `./stylobot --upstream http://localhost:5080 --port 5100 --mode demo`
         3. Open: `http://localhost:5100/YarpProxyDemo`
 
         ### Documentation

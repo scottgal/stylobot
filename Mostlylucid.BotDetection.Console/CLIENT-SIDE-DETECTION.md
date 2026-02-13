@@ -162,7 +162,7 @@ dotnet run -c Release
 
 # Terminal 2: Start gateway
 cd Mostlylucid.BotDetection.Console/bin/Release/net10.0
-./minigw.exe --upstream http://localhost:5080 --port 5200 --mode demo
+./stylobot.exe --upstream http://localhost:5080 --port 5200 --mode demo
 ```
 
 ### 2. Test Headers

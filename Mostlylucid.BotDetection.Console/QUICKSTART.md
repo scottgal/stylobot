@@ -25,7 +25,7 @@ cd Mostlylucid.BotDetection.Console
 .\build.ps1 -Target win-x64
 
 # Run
-.\bin\Release\net10.0\win-x64\publish\minigw.exe --upstream http://localhost:8080 --port 5080
+.\bin\Release\net10.0\win-x64\publish\stylobot.exe --upstream http://localhost:8080 --port 5080
 ```
 
 ### Linux / macOS (Bash)
@@ -36,8 +36,8 @@ cd Mostlylucid.BotDetection.Console
 ./build.sh linux-x64  # or linux-arm64 for Raspberry Pi
 
 # Run
-chmod +x bin/Release/net10.0/linux-x64/publish/minigw
-./bin/Release/net10.0/linux-x64/publish/minigw --upstream http://localhost:8080 --port 5080
+chmod +x bin/Release/net10.0/linux-x64/publish/stylobot
+./bin/Release/net10.0/linux-x64/publish/stylobot --upstream http://localhost:8080 --port 5080
 ```
 
 ## Build All Platforms
@@ -78,7 +78,7 @@ curl -H "User-Agent: curl/8.4.0" \
 ### Command-Line
 
 ```bash
-minigw --upstream http://backend:8080 --port 5080 --mode demo
+stylobot --upstream http://backend:8080 --port 5080 --mode demo
 ```
 
 ### Environment Variables
@@ -88,7 +88,7 @@ export UPSTREAM=http://backend:8080
 export PORT=5080
 export MODE=production
 
-./minigw
+./stylobot
 ```
 
 ### Config Files
@@ -112,21 +112,28 @@ Edit `appsettings.json` (demo mode) or `appsettings.production.json` (production
 ./build.sh linux-arm64
 
 # Copy to Pi
-scp bin/Release/net10.0/linux-arm64/publish/minigw pi@raspberrypi.local:~/
+scp bin/Release/net10.0/linux-arm64/publish/stylobot pi@raspberrypi.local:~/
 scp appsettings*.json pi@raspberrypi.local:~/
 
 # Run on Pi
 ssh pi@raspberrypi.local
-chmod +x minigw
-./minigw --upstream http://localhost:8080 --port 5080
+chmod +x stylobot
+./stylobot --upstream http://localhost:8080 --port 5080
 ```
 
 ## Troubleshoot
 
+### macOS Gatekeeper
+
+```bash
+xattr -d com.apple.quarantine stylobot
+chmod +x stylobot
+```
+
 ### "Permission denied"
 
 ```bash
-chmod +x minigw
+chmod +x stylobot
 ```
 
 ### "Cannot execute binary file"

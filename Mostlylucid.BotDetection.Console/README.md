@@ -30,20 +30,20 @@ maximum performance and minimal footprint.
 
 ```bash
 # Windows
-minigw.exe --upstream http://localhost:8080 --port 5080
+stylobot.exe --upstream http://localhost:8080 --port 5080
 
 # Linux
-./minigw --upstream http://localhost:8080 --port 5080
+./stylobot --upstream http://localhost:8080 --port 5080
 ```
 
 ### Production Mode
 
 ```bash
 # Windows
-minigw.exe --mode production --upstream http://backend:8080 --port 80
+stylobot.exe --mode production --upstream http://backend:8080 --port 80
 
 # Linux
-./minigw --mode production --upstream http://backend:8080 --port 80
+./stylobot --mode production --upstream http://backend:8080 --port 80
 ```
 
 ### Using Environment Variables
@@ -53,14 +53,14 @@ export UPSTREAM=http://backend:8080
 export PORT=5080
 export MODE=production
 
-./minigw
+./stylobot
 ```
 
 ## File Structure & Portability
 
 **Core files** (required):
 
-- `minigw.exe` (or `minigw` on Linux/macOS) - Single-file executable with all dependencies and static files embedded
+- `stylobot.exe` (or `stylobot` on Linux/macOS) - Single-file executable with all dependencies and static files embedded
 - `appsettings.json` - Configuration file (optional - uses defaults if missing)
 
 **Auto-created files** (all paths relative to executable directory):
@@ -111,12 +111,12 @@ are created automatically in configurable locations.
 
 ```bash
 # Copy to production server
-scp minigw appsettings.json user@server:/opt/stylobot/
+scp stylobot appsettings.json user@server:/opt/stylobot/
 
 # Run it
 ssh user@server
 cd /opt/stylobot
-./minigw --upstream http://backend:8080 --port 80 --mode production
+./stylobot --upstream http://backend:8080 --port 80 --mode production
 
 # Logs appear in /opt/stylobot/logs/
 ```
@@ -214,14 +214,14 @@ The gateway uses two configuration files:
 
 ```bash
 # Demo mode (uses appsettings.json)
-./minigw --mode demo
+./stylobot --mode demo
 
 # Production mode (uses appsettings.production.json)
-./minigw --mode production
+./stylobot --mode production
 
 # Using environment variable
 export MODE=production
-./minigw
+./stylobot
 ```
 
 The `--mode` flag determines which configuration file is loaded. This allows you to maintain separate configurations for
@@ -1037,7 +1037,7 @@ gateway instance shares the same SQLite signature database via network storage.
               │                │                │
         ┌─────▼─────┐    ┌────▼─────┐    ┌────▼─────┐
         │ Gateway 1 │    │Gateway 2 │    │Gateway 3 │
-        │ (minigw)  │    │(minigw)  │    │(minigw)  │
+        │ (stylobot)  │    │(stylobot)  │    │(stylobot)  │
         └─────┬─────┘    └────┬─────┘    └────┬─────┘
               │               │               │
               └───────────────┼───────────────┘
@@ -1060,13 +1060,13 @@ gateway instance shares the same SQLite signature database via network storage.
 
 ```bash
 # Server 1 (10.0.0.10)
-./minigw --mode production --upstream http://backend:8080 --port 5080
+./stylobot --mode production --upstream http://backend:8080 --port 5080
 
 # Server 2 (10.0.0.11)
-./minigw --mode production --upstream http://backend:8080 --port 5080
+./stylobot --mode production --upstream http://backend:8080 --port 5080
 
 # Server 3 (10.0.0.12)
-./minigw --mode production --upstream http://backend:8080 --port 5080
+./stylobot --mode production --upstream http://backend:8080 --port 5080
 ```
 
 **2. Mount shared storage on all gateway servers:**
@@ -1086,12 +1086,12 @@ sudo mount -t efs fs-12345678:/ /mnt/botdetection
 
 ```bash
 # Create symlink to shared database
-cd /opt/minigw
+cd /opt/stylobot
 ln -s /mnt/botdetection/botdetection.db ./botdetection.db
 
 # Or run gateway with shared working directory
 cd /mnt/botdetection
-/opt/minigw/minigw --mode production --upstream http://backend:8080 --port 5080
+/opt/stylobot/stylobot --mode production --upstream http://backend:8080 --port 5080
 ```
 
 **4. Configure nginx load balancer:**
@@ -1188,8 +1188,8 @@ spec:
         app: bot-gateway
     spec:
       containers:
-      - name: minigw
-        image: your-registry/minigw:latest
+      - name: stylobot
+        image: your-registry/stylobot:latest
         ports:
         - containerPort: 5080
         env:
@@ -1325,7 +1325,7 @@ Test cases included:
 dotnet publish -c Release
 ```
 
-Output: `bin/Release/net10.0/{platform}/publish/minigw` or `minigw.exe`
+Output: `bin/Release/net10.0/{platform}/publish/stylobot` or `stylobot.exe`
 
 ### Cross-Platform Builds
 
@@ -1375,22 +1375,22 @@ Typical sizes with .NET 10:
 
 **⚠️ IMPORTANT**: Always deploy the executable alongside its native library:
 
-- **Windows**: `minigw.exe` + `e_sqlite3.dll`
-- **Linux**: `minigw` + `libe_sqlite3.so`
-- **macOS**: `minigw` + `libe_sqlite3.dylib`
+- **Windows**: `stylobot.exe` + `e_sqlite3.dll`
+- **Linux**: `stylobot` + `libe_sqlite3.so`
+- **macOS**: `stylobot` + `libe_sqlite3.dylib`
 
 ```bash
 # Copy executable AND native library to target system
-scp bin/Release/net10.0/linux-x64/publish/minigw user@server:/usr/local/bin/
+scp bin/Release/net10.0/linux-x64/publish/stylobot user@server:/usr/local/bin/
 scp bin/Release/net10.0/linux-x64/publish/libe_sqlite3.so user@server:/usr/local/bin/
 
 # Copy configuration
-scp appsettings*.json user@server:/etc/minigw/
+scp appsettings*.json user@server:/etc/stylobot/
 
 # Run
 ssh user@server
-cd /etc/minigw
-/usr/local/bin/minigw --mode production --upstream http://backend:8080 --port 80
+cd /etc/stylobot
+/usr/local/bin/stylobot --mode production --upstream http://backend:8080 --port 80
 ```
 
 ### Docker
@@ -1399,18 +1399,18 @@ cd /etc/minigw
 FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-alpine
 
 # Copy executable and native dependencies
-COPY bin/Release/net10.0/linux-x64/publish/minigw /app/minigw
+COPY bin/Release/net10.0/linux-x64/publish/stylobot /app/stylobot
 COPY bin/Release/net10.0/linux-x64/publish/*.so /app/
 COPY appsettings*.json /app/
 
 WORKDIR /app
 
-ENTRYPOINT ["./minigw"]
+ENTRYPOINT ["./stylobot"]
 ```
 
 ```bash
-docker build -t minigw:latest .
-docker run -p 5080:5080 -e UPSTREAM=http://backend:8080 -e MODE=production minigw:latest
+docker build -t stylobot:latest .
+docker run -p 5080:5080 -e UPSTREAM=http://backend:8080 -e MODE=production stylobot:latest
 ```
 
 ### Systemd Service (Linux)
@@ -1423,8 +1423,8 @@ After=network.target
 [Service]
 Type=simple
 User=gateway
-WorkingDirectory=/etc/minigw
-ExecStart=/usr/local/bin/minigw --mode production --upstream http://backend:8080 --port 80
+WorkingDirectory=/etc/stylobot
+ExecStart=/usr/local/bin/stylobot --mode production --upstream http://backend:8080 --port 80
 Restart=on-failure
 RestartSec=5
 Environment="DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false"
@@ -1434,9 +1434,9 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable minigw
-sudo systemctl start minigw
-sudo systemctl status minigw
+sudo systemctl enable stylobot
+sudo systemctl start stylobot
+sudo systemctl status stylobot
 ```
 
 ## Performance
@@ -1474,13 +1474,13 @@ Deploy:
 
 ```bash
 # Copy executable and SQLite native library
-scp bin/Release/net10.0/linux-arm64/publish/minigw pi@raspberrypi.local:~/
+scp bin/Release/net10.0/linux-arm64/publish/stylobot pi@raspberrypi.local:~/
 scp bin/Release/net10.0/linux-arm64/publish/libe_sqlite3.so pi@raspberrypi.local:~/
 scp appsettings*.json pi@raspberrypi.local:~/
 
 ssh pi@raspberrypi.local
-chmod +x minigw
-./minigw --upstream http://localhost:8080
+chmod +x stylobot
+./stylobot --upstream http://localhost:8080
 ```
 
 ## Demo Loop: YARP → Backend with Detection Display
@@ -1530,7 +1530,7 @@ The `/YarpProxyDemo` page displays:
 
 ```
 ┌──────┐     ┌─────────────────┐     ┌──────────────────┐
-│Client│────▶│minigw (Gateway) │────▶│Demo App (Backend)│
+│Client│────▶│stylobot (Gateway) │────▶│Demo App (Backend)│
 └──────┘     │ Bot Detection   │     │ Display Results  │
              │ + Headers       │     └──────────────────┘
              └─────────────────┘
@@ -1620,12 +1620,30 @@ The SQLite native library is missing. Make sure to copy it alongside the executa
 - **Linux**: `libe_sqlite3.so`
 - **macOS**: `libe_sqlite3.dylib`
 
-These files are in the publish output directory and must be deployed together with the `minigw` executable.
+These files are in the publish output directory and must be deployed together with the `stylobot` executable.
+
+### macOS Gatekeeper Block
+
+On macOS, unsigned binaries downloaded from the internet are quarantined by Gatekeeper. You'll see a message like
+_"stylobot" cannot be opened because it is from an unidentified developer._
+
+**Fix:**
+
+```bash
+# Remove quarantine attribute from downloaded binary
+xattr -d com.apple.quarantine stylobot
+
+# Make executable
+chmod +x stylobot
+```
+
+> **Note**: The console gateway is distributed as a bare native binary, not a signed `.app` bundle. Code signing and
+> notarization are not currently applied. This is standard for server-side CLI tools distributed via GitHub Releases.
 
 ### "Permission denied" on Linux
 
 ```bash
-chmod +x minigw
+chmod +x stylobot
 ```
 
 ### "Cannot execute binary file"

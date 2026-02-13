@@ -42,9 +42,9 @@ build_target() {
 
     # Get file size
     if [[ "$RUNTIME_ID" == win-* ]]; then
-        EXE_NAME="minigw.exe"
+        EXE_NAME="stylobot.exe"
     else
-        EXE_NAME="minigw"
+        EXE_NAME="stylobot"
     fi
 
     EXE_PATH="$OUTPUT_PATH/$EXE_NAME"
@@ -101,6 +101,6 @@ echo ""
 echo "Executables are in bin/$CONFIGURATION/net10.0/{runtime}/publish/"
 echo ""
 echo "Example usage:"
-echo "  Linux/macOS:  ./minigw --upstream http://backend:8080 --port 5080"
-echo "  Windows:      ./minigw.exe --upstream http://backend:8080 --port 5080"
+echo "  Linux/macOS:  ./stylobot --upstream http://backend:8080 --port 5080"
+echo "  Windows:      ./stylobot.exe --upstream http://backend:8080 --port 5080"
 echo ""

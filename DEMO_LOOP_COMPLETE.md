@@ -91,7 +91,7 @@ This script:
 
 ```
 ┌─────────┐     ┌───────────────────────┐     ┌─────────────────────┐
-│ Client  │────▶│ minigw (Gateway)      │────▶│ Demo App (Backend)  │
+│ Client  │────▶│ stylobot (Gateway)      │────▶│ Demo App (Backend)  │
 └─────────┘     │ - Bot Detection       │     │ - Read Headers      │
                 │ - Write Headers       │     │ - Display Results   │
                 │ - YARP Proxy          │     └─────────────────────┘

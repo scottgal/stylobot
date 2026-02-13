@@ -41,15 +41,15 @@ You can also trigger releases manually from GitHub Actions UI:
 
 Each release includes:
 
-- **Linux x64**: `minigw-linux-x64.tar.gz` (~12MB)
-- **Linux ARM64**: `minigw-linux-arm64.tar.gz` (~11MB) - For Raspberry Pi 4/5
-- **Windows x64**: `minigw-win-x64.zip` (~10MB)
-- **macOS Intel**: `minigw-osx-x64.tar.gz` (~13MB)
-- **macOS Apple Silicon**: `minigw-osx-arm64.tar.gz` (~11MB)
+- **Linux x64**: `stylobot-linux-x64.tar.gz` (~12MB)
+- **Linux ARM64**: `stylobot-linux-arm64.tar.gz` (~11MB) - For Raspberry Pi 4/5
+- **Windows x64**: `stylobot-win-x64.zip` (~10MB)
+- **macOS Intel**: `stylobot-osx-x64.tar.gz` (~13MB)
+- **macOS Apple Silicon**: `stylobot-osx-arm64.tar.gz` (~11MB)
 - **Checksums**: `SHA256SUMS.txt`
 
 Each archive contains:
-- `minigw` or `minigw.exe` - The native executable
+- `stylobot` or `stylobot.exe` - The native executable
 - `appsettings.json` - Default configuration
 - `appsettings.production.json` - Production configuration
 - `README.txt` - Quick start instructions
@@ -94,7 +94,7 @@ dotnet publish Mostlylucid.BotDetection.Console/Mostlylucid.BotDetection.Console
 
 # Test the binary
 cd bin/Release/net9.0/linux-x64/publish
-./minigw --upstream http://localhost:8080 --port 5080
+./stylobot --upstream http://localhost:8080 --port 5080
 ```
 
 ### Troubleshooting
@@ -112,7 +112,7 @@ cd bin/Release/net9.0/linux-x64/publish
 **Binary doesn't run:**
 - Verify correct architecture (x64 vs ARM64)
 - Check for missing native dependencies on target platform
-- Ensure executable permissions on Linux/macOS: `chmod +x minigw`
+- Ensure executable permissions on Linux/macOS: `chmod +x stylobot`
 
 ### All-in-One Release (All Bot Projects)
 
