@@ -12,6 +12,7 @@
 **/logs
 **/data
 **/*.md
+!**/Docs/**/*.md
 .github/
 .claude/
 nul

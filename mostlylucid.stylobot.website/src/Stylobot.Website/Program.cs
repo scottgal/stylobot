@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Mostlylucid.BotDetection.ClientSide;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.UI.Extensions;
@@ -173,6 +174,7 @@ app.UseAuthorization();
 app.MapStaticAssets();
 
 app.MapBotDetectionEndpoints("/bot-detection");
+app.MapBotDetectionFingerprintEndpoint();
 
 app.MapControllerRoute(
     name: "default",

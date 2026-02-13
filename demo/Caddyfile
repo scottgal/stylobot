@@ -1,0 +1,39 @@
+# Demo Caddyfile - routes all traffic through the Stylobot Gateway
+# The gateway handles bot detection and proxies to the demo website.
+
+{
+    # Use internal CA for local demo (no Let's Encrypt)
+    local_certs
+}
+
+# HTTPS entry point - all traffic goes through the gateway
+:443 {
+    reverse_proxy gateway:8080 {
+        health_uri /admin/alive
+        health_interval 10s
+        health_timeout 5s
+
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "SAMEORIGIN"
+        -Server
+    }
+
+    encode gzip zstd
+}
+
+# HTTP fallback (redirects to HTTPS or serves directly for local dev)
+:80 {
+    reverse_proxy gateway:8080 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
