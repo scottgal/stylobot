@@ -48,20 +48,15 @@ RUN dotnet publish "Stylobot.Website.csproj" -c $BUILD_CONFIGURATION -o /app/pub
 
 # Final runtime image
 FROM base AS final
-
-# Create non-root user for security
-RUN groupadd -g 1000 website && \
-    useradd -u 1000 -g website -s /bin/bash -M website
-
 WORKDIR /app
 COPY --from=publish /app/publish .
 
-# Create data directory with correct permissions
+# Create data directories with correct permissions for built-in app user
 RUN mkdir -p /app/data /app/logs && \
-    chown -R website:website /app
+    chown -R app:app /app
 
-# Switch to non-root user
-USER website
+# Switch to built-in non-root user (.NET 8+ images include 'app' user)
+USER app
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

@@ -121,7 +121,7 @@ jobs:
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "# Pull and run" >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.IMAGE_NAME }}:${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "docker run -p 5080:5080 ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker run -p 5080:8080 ${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "# Or use docker-compose" >> $GITHUB_STEP_SUMMARY
           echo "docker-compose up -d" >> $GITHUB_STEP_SUMMARY

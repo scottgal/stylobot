@@ -32,11 +32,6 @@ RUN dotnet publish "Mostlylucid.BotDetection.Demo.csproj" -c Release -o /app/pub
 
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
-
-# Create non-root user for security
-RUN groupadd -g 1000 demo && \
-    useradd -u 1000 -g demo -s /bin/bash -M demo
-
 WORKDIR /app
 
 # Install curl for healthchecks
@@ -45,12 +40,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 # Copy published app
 COPY --from=publish /app/publish .
 
-# Create data directories with correct permissions
+# Create data directories with correct permissions for built-in app user
 RUN mkdir -p /app/data /app/logs && \
-    chown -R demo:demo /app
+    chown -R app:app /app
 
-# Switch to non-root user
-USER demo
+# Switch to built-in non-root user (.NET 8+ images include 'app' user)
+USER app
 
 # Expose port
 EXPOSE 8080
