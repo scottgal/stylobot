@@ -34,6 +34,15 @@ public class DashboardSummaryBroadcaster : BackgroundService
             "Dashboard summary broadcaster started (interval: {Interval}s)",
             _options.SummaryBroadcastIntervalSeconds);
 
+        // Wait briefly for database schema initialization to complete before querying.
+        // The DatabaseInitializationService runs as a hosted service and may not have
+        // finished creating tables yet. This avoids "relation does not exist" errors.
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
+        }
+        catch (OperationCanceledException) { return; }
+
         while (!stoppingToken.IsCancellationRequested)
             try
             {
