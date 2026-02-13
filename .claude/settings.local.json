@@ -108,7 +108,8 @@
       "mcp__plugin_playwright_playwright__browser_press_key",
       "Bash(Get-Process -Name \"Stylobot.Website\" -ErrorAction SilentlyContinue)",
       "Bash(Stop-Process -Force)",
-      "Bash(\"done\")"
+      "Bash(\"done\")",
+      "mcp__plugin_playwright_playwright__browser_select_option"
     ]
   }
 }

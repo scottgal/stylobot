@@ -280,6 +280,9 @@ internal static class DashboardHtmlTemplate
     <link href=""https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator_midnight.min.css"" rel=""stylesheet"">
     <script src=""https://unpkg.com/tabulator-tables@6.2.1/dist/js/tabulator.min.js""></script>
 
+    <!-- Boxicons -->
+    <link href=""https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css"" rel=""stylesheet"">
+
     <!-- Google Fonts -->
     <link rel=""preconnect"" href=""https://fonts.googleapis.com"">
     <link href=""https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Raleway:wght@800;900&display=swap"" rel=""stylesheet"">
@@ -318,6 +321,66 @@ internal static class DashboardHtmlTemplate
         .bot-pct-bar {{
             height: 6px; border-radius: 3px; transition: width 0.5s ease;
         }}
+
+        /* Tabulator dark mode overrides to match DaisyUI dark theme */
+        .tabulator {{
+            background-color: oklch(var(--b2, 0.232 0.013 285.75)) !important;
+            border: 1px solid oklch(var(--b3, 0.211 0.012 285.75)) !important;
+            border-radius: 0.5rem;
+            font-size: 0.8rem;
+        }}
+        .tabulator .tabulator-header {{
+            background-color: oklch(var(--b3, 0.211 0.012 285.75)) !important;
+            border-bottom: 2px solid #5BA3A3 !important;
+        }}
+        .tabulator .tabulator-header .tabulator-col {{
+            background-color: transparent !important;
+            border-right-color: oklch(var(--b1, 0.253 0.015 285.75)) !important;
+        }}
+        .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-title {{
+            color: oklch(var(--bc, 0.841 0.02 285.75)) !important;
+            font-weight: 600;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }}
+        .tabulator .tabulator-tableholder .tabulator-table .tabulator-row {{
+            background-color: transparent !important;
+            border-bottom: 1px solid oklch(var(--b3, 0.211 0.012 285.75) / 0.5) !important;
+        }}
+        .tabulator .tabulator-tableholder .tabulator-table .tabulator-row:hover {{
+            background-color: oklch(var(--b3, 0.211 0.012 285.75) / 0.6) !important;
+        }}
+        .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell {{
+            border-right-color: transparent !important;
+            color: oklch(var(--bc, 0.841 0.02 285.75) / 0.85) !important;
+            padding: 6px 8px;
+        }}
+        .tabulator .tabulator-footer {{
+            background-color: oklch(var(--b3, 0.211 0.012 285.75)) !important;
+            border-top: 1px solid oklch(var(--b3, 0.211 0.012 285.75)) !important;
+        }}
+        .tabulator .tabulator-footer .tabulator-page {{
+            color: oklch(var(--bc, 0.841 0.02 285.75) / 0.7) !important;
+            border-color: oklch(var(--b3, 0.211 0.012 285.75)) !important;
+            background-color: transparent !important;
+            border-radius: 0.25rem;
+            margin: 0 2px;
+        }}
+        .tabulator .tabulator-footer .tabulator-page.active {{
+            background-color: #5BA3A3 !important;
+            color: white !important;
+            border-color: #5BA3A3 !important;
+        }}
+        .tabulator .tabulator-footer .tabulator-page:hover:not(.active) {{
+            background-color: oklch(var(--b2, 0.232 0.013 285.75)) !important;
+        }}
+        .tabulator .tabulator-footer .tabulator-page-size {{
+            background-color: oklch(var(--b2, 0.232 0.013 285.75)) !important;
+            color: oklch(var(--bc, 0.841 0.02 285.75) / 0.7) !important;
+            border-color: oklch(var(--b3, 0.211 0.012 285.75)) !important;
+            border-radius: 0.25rem;
+        }}
     </style>
 </head>
 <body class=""bg-base-100"">
@@ -339,7 +402,9 @@ internal static class DashboardHtmlTemplate
                     <span class=""live-dot""></span>
                     <span class=""text-sm font-medium"" :class=""signalrConnected ? 'text-green-400' : 'text-red-400'""
                           x-text=""signalrConnected ? 'Connected' : 'Reconnecting...'""></span>
-                    <a href=""https://github.com/scottgal/stylobot"" target=""_blank"" class=""btn btn-ghost btn-sm text-white/70"">GitHub</a>
+                    <a href=""/"" class=""btn btn-ghost btn-sm text-white/70 gap-1""><i class=""bx bx-home""></i> Home</a>
+                    <a href=""/Home/LiveDemo"" class=""btn btn-sm text-white/90 gap-1"" style=""border-color: #5BA3A3; background: rgba(91,163,163,0.15);""><i class=""bx bx-broadcast""></i> Live Demo</a>
+                    <a href=""https://github.com/scottgal/mostlylucid.stylobot"" target=""_blank"" class=""btn btn-ghost btn-sm text-white/70 gap-1""><i class=""bx bxl-github""></i> GitHub</a>
                 </div>
             </div>
         </div>
@@ -384,15 +449,17 @@ internal static class DashboardHtmlTemplate
                 <div class=""flex flex-wrap items-end gap-4"">
                     <div class=""form-control"">
                         <label class=""label py-0""><span class=""label-text text-xs"">Time Range</span></label>
-                        <select x-model=""filters.timeRange"" class=""select select-bordered select-sm"" @change=""applyFilters()"">
+                        <select x-model=""filters.timeRange"" class=""select select-bordered select-sm"" x-on:change=""applyFilters()"">
                             <option value=""5m"">Last 5 min</option>
+                            <option value=""15m"">Last 15 min</option>
                             <option value=""1h"">Last hour</option>
+                            <option value=""6h"">Last 6 hours</option>
                             <option value=""24h"" selected>Last 24h</option>
                         </select>
                     </div>
                     <div class=""form-control"">
                         <label class=""label py-0""><span class=""label-text text-xs"">Risk Band</span></label>
-                        <select x-model=""filters.riskBand"" class=""select select-bordered select-sm"" @change=""applyFilters()"">
+                        <select x-model=""filters.riskBand"" class=""select select-bordered select-sm"" x-on:change=""applyFilters()"">
                             <option value="""">All</option>
                             <option value=""VeryLow"">Very Low</option>
                             <option value=""Low"">Low</option>
@@ -403,7 +470,7 @@ internal static class DashboardHtmlTemplate
                     </div>
                     <div class=""form-control"">
                         <label class=""label py-0""><span class=""label-text text-xs"">Classification</span></label>
-                        <select x-model=""filters.classification"" class=""select select-bordered select-sm"" @change=""applyFilters()"">
+                        <select x-model=""filters.classification"" class=""select select-bordered select-sm"" x-on:change=""applyFilters()"">
                             <option value="""">All</option>
                             <option value=""bot"">Bots</option>
                             <option value=""human"">Humans</option>
@@ -472,15 +539,26 @@ internal static class DashboardHtmlTemplate
             </div>
 
             <!-- Top Bots Leaderboard (1 col) -->
-            <div class=""card bg-base-200 shadow-lg"">
+            <div class=""card bg-base-200 shadow-lg border-l-4"" style=""border-left-color: #ef4444;"">
                 <div class=""card-body"">
-                    <h2 class=""card-title text-base"">Top Bot Types</h2>
-                    <div class=""space-y-2"">
+                    <h2 class=""card-title text-base"">
+                        Top Bot Types
+                        <span class=""badge badge-error badge-sm"" x-text=""topBots.reduce((s, b) => s + b.count, 0)""></span>
+                    </h2>
+                    <div class=""space-y-3"">
                         <template x-for=""(bot, i) in topBots"" :key=""i"">
-                            <div class=""flex items-center gap-2"">
-                                <span class=""text-xs font-bold w-5 text-center opacity-50"" x-text=""i + 1""></span>
-                                <span class=""text-sm flex-1 truncate"" x-text=""bot.name || 'Unknown'""></span>
-                                <span class=""badge badge-sm badge-error"" x-text=""bot.count""></span>
+                            <div class=""bg-base-300/50 rounded-lg p-2"">
+                                <div class=""flex items-center gap-2 mb-1"">
+                                    <span class=""text-xs font-bold w-5 text-center"" :style=""'color:' + (i < 3 ? '#ef4444' : '#6b7280')"" x-text=""'#' + (i + 1)""></span>
+                                    <span class=""text-sm font-semibold flex-1 truncate"" x-text=""bot.name || 'Unknown'""></span>
+                                    <span class=""badge badge-sm badge-error font-bold"" x-text=""bot.count""></span>
+                                </div>
+                                <div class=""ml-7"">
+                                    <div class=""bg-base-300 rounded-full"" style=""height:4px"">
+                                        <div class=""rounded-full"" style=""height:4px; background-color: #ef444488;""
+                                             :style=""'width:' + Math.max((bot.count / (topBots[0]?.count || 1)) * 100, 5) + '%'""></div>
+                                    </div>
+                                </div>
                             </div>
                         </template>
                         <template x-if=""topBots.length === 0"">
@@ -666,9 +744,17 @@ internal static class DashboardHtmlTemplate
                             {{ title: 'Action', field: 'action', width: 90, formatter: (cell) => cell.getValue() || '' }},
                             {{ title: 'Prob', field: 'botProbability', width: 70, hozAlign: 'right', formatter: (cell) => {{
                                 const v = cell.getValue();
-                                return (v != null && !isNaN(v)) ? (v * 100).toFixed(0) + '%' : '-';
+                                if (v == null || isNaN(v)) return '-';
+                                const pct = (v * 100).toFixed(0);
+                                const color = v >= 0.7 ? '#ef4444' : v >= 0.4 ? '#DAA564' : '#86B59C';
+                                return `<span style=""color:${{color}};font-weight:600"">${{pct}}%</span>`;
                             }} }},
-                            {{ title: 'Time (ms)', field: 'processingTimeMs', width: 80, hozAlign: 'right', formatter: (cell) => {{
+                            {{ title: 'Top Reason', field: 'topReasons', minWidth: 140, formatter: (cell) => {{
+                                const v = cell.getValue();
+                                if (!v || !v.length) return '<span style=""color:#6b7280"">-</span>';
+                                return `<span style=""font-size:0.7rem;opacity:0.8"">${{v[0]}}</span>`;
+                            }} }},
+                            {{ title: 'ms', field: 'processingTimeMs', width: 60, hozAlign: 'right', formatter: (cell) => {{
                                 const v = cell.getValue();
                                 return (v != null && !isNaN(v)) ? v.toFixed(0) : '0';
                             }} }}
@@ -678,11 +764,15 @@ internal static class DashboardHtmlTemplate
 
                 async loadInitialData() {{
                     try {{
+                        const start = this.timeRangeToStart().toISOString();
+                        const end = new Date().toISOString();
+                        const bucket = this.timeRangeToBucket();
+
                         const [summaryRaw, detectionsRaw, signaturesRaw, timeseriesRaw] = await Promise.all([
                             fetch('{options.BasePath}/api/summary').then(r => r.json()),
-                            fetch('{options.BasePath}/api/detections?limit=100').then(r => r.json()),
+                            fetch(`{options.BasePath}/api/detections?limit=100&start=${{start}}&end=${{end}}`).then(r => r.json()),
                             fetch('{options.BasePath}/api/signatures?limit=50').then(r => r.json()),
-                            fetch('{options.BasePath}/api/timeseries?bucket=60').then(r => r.json()).catch(() => [])
+                            fetch(`{options.BasePath}/api/timeseries?bucket=${{bucket}}&start=${{start}}&end=${{end}}`).then(r => r.json()).catch(() => [])
                         ]);
 
                         const summary = toCamel(summaryRaw);
@@ -736,17 +826,56 @@ internal static class DashboardHtmlTemplate
                     }});
                 }},
 
-                applyFilters() {{
-                    let url = '{options.BasePath}/api/detections?limit=100';
-                    if (this.filters.riskBand) url += `&riskBands=${{this.filters.riskBand}}`;
-                    if (this.filters.classification === 'bot') url += '&isBot=true';
-                    if (this.filters.classification === 'human') url += '&isBot=false';
+                timeRangeToStart() {{
+                    const now = new Date();
+                    switch (this.filters.timeRange) {{
+                        case '5m': return new Date(now - 5 * 60 * 1000);
+                        case '15m': return new Date(now - 15 * 60 * 1000);
+                        case '1h': return new Date(now - 60 * 60 * 1000);
+                        case '6h': return new Date(now - 6 * 60 * 60 * 1000);
+                        case '24h': return new Date(now - 24 * 60 * 60 * 1000);
+                        default: return new Date(now - 24 * 60 * 60 * 1000);
+                    }}
+                }},
 
-                    fetch(url).then(r => r.json()).then(raw => {{
-                        const data = toCamel(raw);
-                        this.detections = data;
-                        this.tabulatorTable.setData(data);
-                    }});
+                timeRangeToBucket() {{
+                    switch (this.filters.timeRange) {{
+                        case '5m': return 10;
+                        case '15m': return 30;
+                        case '1h': return 60;
+                        case '6h': return 300;
+                        case '24h': return 600;
+                        default: return 60;
+                    }}
+                }},
+
+                async applyFilters() {{
+                    const start = this.timeRangeToStart().toISOString();
+                    const end = new Date().toISOString();
+                    const bucket = this.timeRangeToBucket();
+
+                    let detUrl = `{options.BasePath}/api/detections?limit=100&start=${{start}}&end=${{end}}`;
+                    if (this.filters.riskBand) detUrl += `&riskBands=${{this.filters.riskBand}}`;
+                    if (this.filters.classification === 'bot') detUrl += '&isBot=true';
+                    if (this.filters.classification === 'human') detUrl += '&isBot=false';
+
+                    const tsUrl = `{options.BasePath}/api/timeseries?bucket=${{bucket}}&start=${{start}}&end=${{end}}`;
+
+                    const [detRaw, tsRaw] = await Promise.all([
+                        fetch(detUrl).then(r => r.json()).catch(() => []),
+                        fetch(tsUrl).then(r => r.json()).catch(() => [])
+                    ]);
+
+                    const data = toCamel(detRaw);
+                    const timeseries = toCamel(tsRaw);
+                    this.detections = data;
+                    this.tabulatorTable?.setData(data);
+                    this.updateTimeline(timeseries);
+
+                    // Recompute local summary from filtered data
+                    const bots = data.filter(d => d.isBot).length;
+                    const humans = data.length - bots;
+                    this.updateCharts();
                 }},
 
                 exportData(format) {{
