@@ -21,6 +21,16 @@ try
 
     var builder = WebApplication.CreateBuilder(args);
 
+    // Configure Kestrel shutdown timeout so keep-alive connections drain before SIGKILL
+    builder.WebHost.ConfigureKestrel(options =>
+    {
+        options.Limits.KeepAliveTimeout = TimeSpan.FromSeconds(5);
+    });
+    builder.Host.ConfigureHostOptions(options =>
+    {
+        options.ShutdownTimeout = TimeSpan.FromSeconds(30);
+    });
+
     // Configure Serilog from configuration
     builder.Host.UseSerilog((context, services, configuration) =>
     {
@@ -94,6 +104,17 @@ try
             status = "no-routes",
             message = "No YARP routes configured. See /admin/config for details."
         });
+    });
+
+    // Register graceful shutdown handlers to drain connections cleanly
+    var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+    lifetime.ApplicationStopping.Register(() =>
+    {
+        Log.Information("Gateway shutting down - draining active connections...");
+    });
+    lifetime.ApplicationStopped.Register(() =>
+    {
+        Log.Information("Gateway stopped - all connections drained");
     });
 
     Log.Information("Gateway started on port {Port}", builder.Configuration.GetValue("GATEWAY_HTTP_PORT", 8080));

@@ -36,10 +36,15 @@ public static class AdminEndpoints
         var group = app.MapGroup(adminPath)
             .WithTags("Admin");
 
-        // Health check
+        // Liveness probe - lightweight, no DB hit (use for Docker HEALTHCHECK)
+        group.MapGet("/alive", () => Results.Ok(new { status = "alive" }))
+            .WithName("GetAlive")
+            .WithSummary("Lightweight liveness probe (no database check)");
+
+        // Readiness/health check (hits database)
         group.MapGet("/health", GetHealth)
             .WithName("GetHealth")
-            .WithSummary("Health check endpoint");
+            .WithSummary("Full health check endpoint (includes database)");
 
         // Configuration
         group.MapGet("/config/effective", GetEffectiveConfig)

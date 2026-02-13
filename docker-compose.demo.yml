@@ -108,12 +108,12 @@ services:
     networks:
       - stylobot-demo
     restart: unless-stopped
-    stop_grace_period: 10s
+    stop_grace_period: 60s
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/admin/health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/admin/alive"]
       interval: 30s
       timeout: 5s
-      start_period: 30s
+      start_period: 60s
       retries: 3
 
   # ===========================================
