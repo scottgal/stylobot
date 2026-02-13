@@ -55,17 +55,41 @@ public class ClientSideDetector : IDetector
 
             if (fingerprint == null)
             {
-                // No fingerprint available - might be first request, JS not executed,
-                // privacy tool, or API call. This is NOT suspicious by itself.
-                // Missing data ≠ malicious - treat as neutral.
-                if (_options.ClientSide.Enabled)
+                // Determine if this looks like a browser page load.
+                // If a request claims to be a browser and accepts HTML but never
+                // provided a client-side fingerprint, that's a weak bot signal.
+                // API calls, static assets, and non-browser UAs stay neutral.
+                var accept = context.Request.Headers.Accept.ToString();
+                var ua = context.Request.Headers.UserAgent.ToString();
+                var isBrowserPageLoad = accept.Contains("text/html", StringComparison.OrdinalIgnoreCase)
+                                        && !string.IsNullOrEmpty(ua)
+                                        && (ua.Contains("Mozilla/", StringComparison.OrdinalIgnoreCase)
+                                            || ua.Contains("Chrome/", StringComparison.OrdinalIgnoreCase));
+
+                if (isBrowserPageLoad)
+                {
+                    // Browser claims to render HTML but never ran our JS fingerprint.
+                    // Could be: first load (JS pending), headless bot, script blocker.
+                    // Weak positive signal — enough to contribute alongside other detectors.
+                    var impact = 0.15;
+                    result.Confidence += impact;
                     result.Reasons.Add(new DetectionReason
                     {
                         Category = "ClientSide",
-                        Detail = "No browser fingerprint available (awaiting JS execution)",
-                        ConfidenceImpact = 0 // Neutral - absence of data is not evidence
+                        Detail = "Browser request with no client-side fingerprint (JS not executed or blocked)",
+                        ConfidenceImpact = impact
                     });
-                // No confidence adjustment - neutral signal
+                }
+                else
+                {
+                    result.Reasons.Add(new DetectionReason
+                    {
+                        Category = "ClientSide",
+                        Detail = "No browser fingerprint available (non-browser request)",
+                        ConfidenceImpact = 0
+                    });
+                }
+
                 stopwatch.Stop();
                 return Task.FromResult(result);
             }
