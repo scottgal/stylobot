@@ -25,10 +25,11 @@
 stylobot.net, www.stylobot.net {
 
 	# ----------------------------------------------------------
-	# SignalR hub: route directly to website container
-	# (WebSocket upgrades fail through YARP reverse proxy)
+	# Dashboard: route /_stylobot* directly to website container
+	# (SignalR WebSocket upgrades fail through YARP, and
+	# dashboard API/UI must bypass the gateway proxy)
 	# ----------------------------------------------------------
-	handle /_stylobot/hub* {
+	handle /_stylobot* {
 		reverse_proxy website:8080 {
 			header_up X-Real-IP {remote_host}
 			header_up X-Forwarded-For {remote_host}

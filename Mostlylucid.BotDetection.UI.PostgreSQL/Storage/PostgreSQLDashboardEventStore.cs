@@ -390,11 +390,17 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         try
         {
             await using var connection = new NpgsqlConnection(_options.ConnectionString);
-            var results = await connection.QueryAsync<DashboardTimeSeriesPoint>(sql,
+            var rows = await connection.QueryAsync<TimeSeriesRow>(sql,
                 new { StartTime = startTime, EndTime = endTime },
                 commandTimeout: _options.CommandTimeoutSeconds);
 
-            return results.ToList();
+            return rows.Select(r => new DashboardTimeSeriesPoint
+            {
+                Timestamp = r.Timestamp,
+                BotCount = r.BotCount,
+                HumanCount = r.HumanCount,
+                TotalCount = r.TotalCount
+            }).ToList();
         }
         catch (Exception ex)
         {
@@ -501,6 +507,14 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         public int HitCount { get; set; }
         public bool IsKnownBot { get; set; }
         public string? BotName { get; set; }
+    }
+
+    private class TimeSeriesRow
+    {
+        public DateTime Timestamp { get; set; }
+        public int BotCount { get; set; }
+        public int HumanCount { get; set; }
+        public int TotalCount { get; set; }
     }
 
     private class SummaryRow
