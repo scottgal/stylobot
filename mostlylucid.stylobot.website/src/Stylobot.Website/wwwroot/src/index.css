@@ -108,15 +108,15 @@ body {
 }
 
 .brand-chip-lg {
-  @apply px-3.5 py-1.5 gap-2;
+  @apply px-5 py-2.5 gap-3;
 }
 
 .brand-chip-lg img {
-  @apply h-6;
+  @apply h-10;
 }
 
 .brand-chip-lg .brand-chip-label {
-  @apply text-base;
+  @apply text-2xl;
 }
 
 .logo-adaptive {

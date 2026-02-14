@@ -78,7 +78,9 @@ stylobot.net, www.stylobot.net {
 		# What each source is for:
 		#   'self'                         - local scripts/styles/fonts/images
 		#   'unsafe-inline'                - Alpine.js :style bindings + theme <script>
-		#   cdn.jsdelivr.net               - SignalR client library (LiveDemo page)
+		#   'unsafe-eval'                  - Alpine.js uses new Function() for x-data/x-text/x-show expressions
+		#   cdn.jsdelivr.net               - SignalR client library + DaisyUI CSS (dashboard)
+		#   cdn.tailwindcss.com            - Tailwind CSS CDN (dashboard)
 		#   unpkg.com                      - boxicons (CSS + fonts)
 		#   fonts.googleapis.com           - Google Fonts CSS (Raleway)
 		#   fonts.gstatic.com              - Google Fonts WOFF2 files
@@ -87,7 +89,7 @@ stylobot.net, www.stylobot.net {
 		#   wss: ws:                       - SignalR WebSocket connections
 		#   data: blob:                    - inline SVGs, canvas blobs
 		# ----------------------------------------------------------
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com https://umami.mostlylucid.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://unpkg.com; img-src 'self' data: blob: https:; connect-src 'self' wss: ws: https://api.web3forms.com https://umami.mostlylucid.net; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://api.web3forms.com"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.tailwindcss.com https://unpkg.com https://umami.mostlylucid.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://unpkg.com; img-src 'self' data: blob: https:; connect-src 'self' wss: ws: https://api.web3forms.com https://umami.mostlylucid.net; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://api.web3forms.com"
 
 		# Remove server identity header
 		-Server

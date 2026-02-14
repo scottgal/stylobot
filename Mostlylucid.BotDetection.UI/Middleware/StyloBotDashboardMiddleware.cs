@@ -425,14 +425,14 @@ internal static class DashboardHtmlTemplate
         <!-- Header -->
         <div class=""brand-header p-6 mb-6"">
             <div class=""container mx-auto flex items-center justify-between"">
-                <div class=""flex items-center gap-4"">
+                <a href=""/"" class=""flex items-center gap-4 no-underline hover:opacity-80 transition-opacity"">
                     <div>
                         <h1 class=""text-3xl font-bold text-white"" style=""font-family: 'Raleway', sans-serif;"">
                             <span style=""color: #6b7280; font-style: italic;"">stylo</span><span>bot</span>
                         </h1>
                         <p class=""text-sm text-white/60 mt-1"">Real-time bot detection dashboard</p>
                     </div>
-                </div>
+                </a>
                 <div class=""flex items-center gap-3"">
                     <span class=""live-dot""></span>
                     <span class=""text-sm font-medium"" :class=""signalrConnected ? 'text-green-400' : 'text-red-400'""
@@ -615,7 +615,13 @@ internal static class DashboardHtmlTemplate
                             <div class=""signature-item mb-1 rounded-lg bg-base-300/50 hover:bg-base-300 transition-colors"">
                                 <div class=""flex items-center gap-3 px-3 py-2 cursor-pointer"" x-on:click=""sig._expanded = !sig._expanded"">
                                     <i class=""bx text-xs opacity-40"" :class=""sig._expanded ? 'bx-chevron-down' : 'bx-chevron-right'""></i>
-                                    <span class=""font-mono text-xs"" :style=""'color:' + sigColor(sig.primarySignature || sig.signatureId)"" x-text=""(sig.primarySignature || sig.signatureId || '-').substring(0, 12)""></span>
+                                    <template x-if=""sig.botName"">
+                                        <span class=""text-xs font-bold"" :style=""'color:' + sigColor(sig.primarySignature || sig.signatureId)"" x-text=""sig.botName""></span>
+                                    </template>
+                                    <template x-if=""!sig.botName && sig.isKnownBot"">
+                                        <span class=""text-xs font-semibold opacity-70"">Known Bot</span>
+                                    </template>
+                                    <span class=""font-mono text-[10px] opacity-40"" x-text=""(sig.primarySignature || sig.signatureId || '-').substring(0, 8)""></span>
                                     <span class=""badge badge-xs""
                                           :class=""{{
                                               'badge-error': sig.riskBand === 'VeryHigh' || sig.riskBand === 'High',
@@ -624,12 +630,6 @@ internal static class DashboardHtmlTemplate
                                               'badge-success': sig.riskBand === 'VeryLow'
                                           }}""
                                           x-text=""sig.riskBand || 'Unknown'""></span>
-                                    <template x-if=""sig.botName"">
-                                        <span class=""badge badge-ghost badge-xs"" x-text=""sig.botName""></span>
-                                    </template>
-                                    <template x-if=""sig.isKnownBot && !sig.botName"">
-                                        <span class=""badge badge-ghost badge-xs"">Known Bot</span>
-                                    </template>
                                     <span class=""text-xs font-bold ml-auto"" x-text=""sig.hitCount || 0""></span>
                                     <span class=""text-[10px] opacity-40"">hits</span>
                                     <span class=""text-xs opacity-60"" x-show=""sig.factorCount"" x-text=""sig.factorCount + ' vectors'""></span>
@@ -710,7 +710,10 @@ internal static class DashboardHtmlTemplate
         <!-- Detections Grid -->
         <div class=""card bg-base-200 shadow-lg"">
             <div class=""card-body"">
-                <h2 class=""card-title text-base"">Detections Grid</h2>
+                <div class=""flex items-center justify-between mb-2"">
+                    <h2 class=""card-title text-base"">Recent Requests</h2>
+                    <span class=""text-xs text-base-content/40"">Every request analysed by the detection pipeline. Named bots shown when identified.</span>
+                </div>
                 <div id=""detectionsTable""></div>
             </div>
         </div>
@@ -878,16 +881,23 @@ internal static class DashboardHtmlTemplate
                                 const d = new Date(v);
                                 return isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
                             }} }},
-                            {{ title: 'Signature', field: 'primarySignature', width: 105, formatter: (cell) => {{
+                            {{ title: 'Visitor', field: 'primarySignature', width: 160, formatter: (cell) => {{
+                                const row = cell.getRow().getData();
                                 const sig = cell.getValue();
-                                if (!sig) return '<span style=""color:#6b7280"">-</span>';
-                                const color = sigColor(sig);
-                                const short = sig.substring(0, 8);
-                                return `<span style=""display:inline-flex;align-items:center;gap:4px""><span style=""width:8px;height:8px;border-radius:50%;background:${{color}};display:inline-block""></span><code style=""color:${{color}};font-size:0.75rem"">${{short}}</code></span>`;
+                                const name = row.botName;
+                                const color = sig ? sigColor(sig) : '#6b7280';
+                                const short = sig ? sig.substring(0, 8) : '-';
+                                const dot = `<span style=""width:8px;height:8px;border-radius:50%;background:${{color}};display:inline-block;flex-shrink:0""></span>`;
+                                if (name) {{
+                                    return `<span style=""display:inline-flex;align-items:center;gap:4px"">${{dot}}<span style=""font-weight:600;font-size:0.75rem"">${{name}}</span><code style=""color:${{color}};font-size:0.6rem;opacity:0.5"">${{short}}</code></span>`;
+                                }}
+                                return `<span style=""display:inline-flex;align-items:center;gap:4px"">${{dot}}<code style=""color:${{color}};font-size:0.75rem"">${{short}}</code></span>`;
                             }},
                             tooltip: (e, cell) => {{
+                                const row = cell.getRow().getData();
                                 const sig = cell.getValue();
-                                return sig ? `Client Signature: ${{sig}}` : '';
+                                const name = row.botName;
+                                return name ? `${{name}} (${{sig}})` : sig ? `Client Signature: ${{sig}}` : '';
                             }} }},
                             {{ title: 'Type', field: 'isBot', width: 80, formatter: (cell) => {{
                                 const isBot = cell.getValue();
