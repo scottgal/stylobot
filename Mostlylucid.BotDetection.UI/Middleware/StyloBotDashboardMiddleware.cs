@@ -323,8 +323,21 @@ internal static class DashboardHtmlTemplate
     <!-- ECharts -->
     <script src=""https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js""></script>
 
-    <!-- Tabulator -->
-    <link href=""https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator.min.css"" rel=""stylesheet"">
+    <!-- Tabulator (native themes) -->
+    <link id=""tabulator-light-css"" href=""https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator.min.css"" rel=""stylesheet"">
+    <link id=""tabulator-dark-css"" href=""https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator_midnight.min.css"" rel=""stylesheet"">
+    <script>
+        (function() {{
+            const mode = document.documentElement.getAttribute('data-theme') || 'light';
+            const light = document.getElementById('tabulator-light-css');
+            const dark = document.getElementById('tabulator-dark-css');
+            if (light && dark) {{
+                const darkOn = mode === 'dark';
+                dark.disabled = !darkOn;
+                light.disabled = darkOn;
+            }}
+        }})();
+    </script>
     <script src=""https://unpkg.com/tabulator-tables@6.2.1/dist/js/tabulator.min.js""></script>
 
     <!-- Boxicons -->
@@ -432,48 +445,26 @@ internal static class DashboardHtmlTemplate
             background: color-mix(in oklab, var(--sb-accent) 12%, transparent) !important;
         }}
 
-        /* Tabulator overrides with theme-aware accents */
+        /* Minimal Tabulator polish; base theme comes from Tabulator CSS */
         .tabulator {{
-            background-color: oklch(var(--b2, 0.232 0.013 285.75)) !important;
-            border: 1px solid oklch(var(--b3, 0.211 0.012 285.75)) !important;
+            border: 1px solid var(--sb-card-divider) !important;
             border-radius: 0.5rem;
             font-size: 0.8rem;
+            overflow: hidden;
         }}
         .tabulator .tabulator-header {{
-            background-color: oklch(var(--b3, 0.211 0.012 285.75)) !important;
             border-bottom: 2px solid var(--sb-accent) !important;
         }}
-        .tabulator .tabulator-header .tabulator-col {{
-            background-color: transparent !important;
-            border-right-color: oklch(var(--b1, 0.253 0.015 285.75)) !important;
-        }}
         .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-title {{
-            color: oklch(var(--bc, 0.841 0.02 285.75)) !important;
             font-weight: 600;
             font-size: 0.7rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }}
-        .tabulator .tabulator-tableholder .tabulator-table .tabulator-row {{
-            background-color: transparent !important;
-            border-bottom: 1px solid oklch(var(--b3, 0.211 0.012 285.75) / 0.5) !important;
-        }}
-        .tabulator .tabulator-tableholder .tabulator-table .tabulator-row:hover {{
-            background-color: oklch(var(--b3, 0.211 0.012 285.75) / 0.6) !important;
-        }}
         .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell {{
-            border-right-color: transparent !important;
-            color: oklch(var(--bc, 0.841 0.02 285.75) / 0.85) !important;
             padding: 6px 8px;
         }}
-        .tabulator .tabulator-footer {{
-            background-color: oklch(var(--b3, 0.211 0.012 285.75)) !important;
-            border-top: 1px solid oklch(var(--b3, 0.211 0.012 285.75)) !important;
-        }}
         .tabulator .tabulator-footer .tabulator-page {{
-            color: oklch(var(--bc, 0.841 0.02 285.75) / 0.7) !important;
-            border-color: oklch(var(--b3, 0.211 0.012 285.75)) !important;
-            background-color: transparent !important;
             border-radius: 0.25rem;
             margin: 0 2px;
         }}
@@ -483,13 +474,7 @@ internal static class DashboardHtmlTemplate
             border-color: var(--sb-accent) !important;
         }}
         .tabulator .tabulator-footer .tabulator-page:hover:not(.active) {{
-            background-color: oklch(var(--b2, 0.232 0.013 285.75)) !important;
-        }}
-        .tabulator .tabulator-footer .tabulator-page-size {{
-            background-color: oklch(var(--b2, 0.232 0.013 285.75)) !important;
-            color: oklch(var(--bc, 0.841 0.02 285.75) / 0.7) !important;
-            border-color: oklch(var(--b3, 0.211 0.012 285.75)) !important;
-            border-radius: 0.25rem;
+            filter: brightness(1.06);
         }}
     </style>
 </head>
@@ -864,7 +849,17 @@ internal static class DashboardHtmlTemplate
                     const next = this.isDark ? 'dark' : 'light';
                     document.documentElement.setAttribute('data-theme', next);
                     try {{ localStorage.setItem('sb-theme', next); }} catch (_) {{}}
+                    this.syncTabulatorTheme();
                     this.applyChartTheme();
+                }},
+
+                syncTabulatorTheme() {{
+                    const light = document.getElementById('tabulator-light-css');
+                    const dark = document.getElementById('tabulator-dark-css');
+                    if (!light || !dark) return;
+                    const darkOn = this.isDark;
+                    dark.disabled = !darkOn;
+                    light.disabled = darkOn;
                 }},
 
                 chartThemeColors() {{
@@ -886,6 +881,7 @@ internal static class DashboardHtmlTemplate
 
                 init() {{
                     this.initTheme();
+                    this.syncTabulatorTheme();
                     // Load visitor's own detection from inline JSON
                     try {{
                         const el = document.getElementById('your-detection-data');

@@ -99,7 +99,7 @@
 <section class="py-4 bg-base-100"
      x-data="{
         connection: null, connected: false, summary: null, summaryLoading: true,
-        visitorMap: {}, maxVisitors: 100, feedLoading: true, feedPaused: false,
+        visitorMap: {}, maxVisitors: 100, feedLoading: true, feedPaused: false, initialLoadComplete: false,
         yourData: null, yourLoading: true, yourError: null, signature: '', hitCount: 1,
         justUpdated: false, showAllContributions: false, showSignals: false, probabilityHistory: [],
         endpointStats: {}, expandedItem: null,
@@ -192,14 +192,36 @@
         selectEndpoint(path) { this.filterEndpoint = this.filterEndpoint === path ? null : path; this.selectedVisitor = null; },
         clearFilters() { this.filterEndpoint = null; this.selectedVisitor = null; },
 
-        async init() { this.fetchYourDetection(); await Promise.all([this.fetchSummary(), this.fetchDetections()]); this.connectSignalR(); setInterval(() => this.$forceUpdate?.(), 10000); },
+        async init() { this.fetchYourDetection(); await Promise.all([this.fetchSummary(), this.fetchSignatures(), this.fetchDetections()]); this.feedLoading = false; this.initialLoadComplete = true; this.connectSignalR(); setInterval(() => this.$forceUpdate?.(), 10000); },
         async fetchSummary() { try { const r = await fetch('/_stylobot/api/summary'); if (r.ok) this.summary = this.toCamel(await r.json()); } catch(e) {} this.summaryLoading = false; },
-        async fetchDetections() { try { const r = await fetch('/_stylobot/api/detections?limit=50'); if (r.ok) { const items = (this.toCamel(await r.json()) || []).reverse(); items.forEach(d => { this.trackEndpoint(d); this.upsertVisitor(d); }); } } catch(e) {} this.feedLoading = false; },
+        async fetchSignatures() {
+            try {
+                const r = await fetch('/_stylobot/api/signatures?limit=50');
+                if (r.ok) {
+                    const sigs = this.toCamel(await r.json()) || [];
+                    sigs.forEach(s => {
+                        const sig = s.primarySignature;
+                        if (!sig || this.visitorMap[sig]) return;
+                        const isBot = s.isKnownBot || s.riskBand === 'High' || s.riskBand === 'VeryHigh';
+                        this.visitorMap[sig] = {
+                            sig, hits: s.hitCount || 1,
+                            firstSeen: s.timestamp, lastSeen: s.timestamp,
+                            isBot, botProbability: isBot ? 0.75 : 0.25, confidence: 0.5,
+                            riskBand: s.riskBand || 'Medium', lastPath: null, paths: [],
+                            action: 'Allow', botName: s.botName || null, botType: null,
+                            narrative: null, description: null, topReasons: [],
+                            processingTimeMs: 0, lastRequestId: null
+                        };
+                    });
+                }
+            } catch(e) {}
+        },
+        async fetchDetections() { try { const r = await fetch('/_stylobot/api/detections?limit=200'); if (r.ok) { const items = (this.toCamel(await r.json()) || []).reverse(); items.forEach(d => { this.trackEndpoint(d); this.upsertVisitor(d); }); } } catch(e) {} },
         upsertVisitor(d) {
             const sig = d.primarySignature || d.requestId || ('anon-' + Math.random().toString(36).slice(2, 8));
             const existing = this.visitorMap[sig];
             if (existing) {
-                existing.hits++;
+                if (this.initialLoadComplete) existing.hits++;
                 existing.lastSeen = d.timestamp || new Date().toISOString();
                 existing.isBot = d.isBot;
                 existing.botProbability = d.botProbability;
@@ -570,7 +592,8 @@
                                         <i class="bx text-xs" :class="v.isBot ? 'bx-bot' : 'bx-user'"></i>
                                     </span>
                                     <span class="text-xs font-semibold flex-1 min-w-0 truncate"
-                                          x-text="(v.botName || (v.isBot ? 'Bot' : 'Human')) + ' \u2022 ' + v.sig.substring(0, 8)"></span>
+                                          x-text="v.botName || v.botType || (v.isBot ? 'Unknown Bot' : 'Visitor')"></span>
+                                    <code class="text-[9px] opacity-25 font-mono flex-shrink-0" x-text="v.sig.substring(0, 8)"></code>
                                     <span class="badge badge-xs badge-ghost font-mono" x-text="v.hits + 'x'"></span>
                                     <span class="text-[10px] opacity-30 flex-shrink-0" x-text="timeAgo(v.lastSeen)"></span>
                                 </div>
