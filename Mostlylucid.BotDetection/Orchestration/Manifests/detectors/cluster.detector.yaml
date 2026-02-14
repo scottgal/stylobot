@@ -1,0 +1,147 @@
+﻿# Bot Cluster Detection - Cross-request cluster analysis and country reputation
+name: ClusterContributor
+priority: 850  # Wave 2 - after GeoContributor and BehavioralWaveform
+enabled: true
+description: Detects bot product clusters (same software, different IPs) and bot networks (coordinated campaigns) via label propagation, plus country-level bot rate reputation
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: cluster
+
+taxonomy:
+  kind: aggregator
+  determinism: probabilistic
+  persistence: ephemeral
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with waveform signature and geo signals
+
+  required_signals:
+    - waveform.signature
+
+  optional_signals:
+    - geo.country_code
+    - geo.country_name
+    - request.ip.asn
+    - request.ip.is_datacenter
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Cluster membership and country reputation contributions
+
+  signals:
+    - key: cluster.type
+      entity_type: string
+      salience: 0.9
+      description: Cluster type (product, network)
+    - key: cluster.id
+      entity_type: string
+      salience: 0.7
+      description: Cluster identifier hash
+    - key: cluster.member_count
+      entity_type: number
+      salience: 0.8
+      description: Number of signatures in the cluster
+    - key: cluster.label
+      entity_type: string
+      salience: 0.6
+      description: Auto-generated cluster behavior label
+    - key: cluster.avg_bot_probability
+      entity_type: number
+      salience: 0.8
+      description: Average bot probability across cluster members
+    - key: cluster.avg_similarity
+      entity_type: number
+      salience: 0.7
+      description: Average intra-cluster behavioral similarity
+    - key: cluster.temporal_density
+      entity_type: number
+      salience: 0.7
+      description: Temporal activity density of cluster members
+    - key: cluster.spectral_entropy
+      entity_type: number
+      salience: 0.7
+      description: Shannon entropy of timing spectrum (0=bot-like, 1=human-like)
+    - key: cluster.dominant_frequency
+      entity_type: number
+      salience: 0.6
+      description: Dominant frequency in timing spectrum (fraction of Nyquist)
+    - key: cluster.harmonic_ratio
+      entity_type: number
+      salience: 0.7
+      description: Energy ratio at harmonic frequencies of dominant timing
+    - key: cluster.peak_to_avg
+      entity_type: number
+      salience: 0.7
+      description: Peak-to-average magnitude ratio in timing spectrum
+    - key: cluster.temporal_correlation
+      entity_type: number
+      salience: 0.8
+      description: Temporal correlation with other cluster members (shared C2 timing)
+    - key: geo.country_bot_rate
+      entity_type: number
+      salience: 0.6
+      description: Decayed bot rate for the visitor's country
+    - key: geo.country_bot_rank
+      entity_type: number
+      salience: 0.5
+      description: Country rank by bot rate (1-based)
+    - key: convergence.family_id
+      entity_type: string
+      salience: 0.7
+      description: Family identifier for converged signatures
+    - key: convergence.family_size
+      entity_type: number
+      salience: 0.8
+      description: Number of signatures in the converged family
+    - key: convergence.formation_reason
+      entity_type: string
+      salience: 0.6
+      description: Reason the family was formed
+    - key: convergence.merge_confidence
+      entity_type: number
+      salience: 0.7
+      description: Confidence score of the merge decision
+
+# Trigger conditions - when this detector runs
+triggers:
+  requires:
+    - type: signal_exists
+      signal: waveform.signature
+
+  skip_when:
+    - detection.early_exit
+
+# Configurable defaults
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.5
+    human_signal: 1.0
+    verified: 1.8
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.3
+    human_indicated: -0.1
+    strong_signal: 0.6
+
+  timing:
+    timeout_ms: 50
+
+  parameters:
+    product_confidence_delta: 0.4
+    network_confidence_delta: 0.25
+    community_affinity_delta: 0.08
+    country_high_rate_threshold: 0.7
+    country_very_high_rate_threshold: 0.9
+    country_high_delta: 0.1
+    country_very_high_delta: 0.2
+    convergence_family_boost: 0.05

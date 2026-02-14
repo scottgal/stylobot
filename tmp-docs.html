@@ -1,0 +1,1179 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" x-data="themeSwitcher()" x-init="init()">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script nonce="lA&#x2B;Y5O891xWkd6Q&#x2B;Kb9XUA==">
+        (function() {
+            try {
+                const saved = localStorage.getItem('sb-theme');
+                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const mode = saved === 'light' || saved === 'dark' ? saved : (prefersDark ? 'dark' : 'light');
+                const root = document.documentElement;
+                root.classList.toggle('dark', mode === 'dark');
+                root.setAttribute('data-theme', mode === 'dark' ? 'dark' : 'light');
+            } catch (_) {}
+        })();
+    </script>
+
+    <!-- SEO Meta Tags -->
+    
+
+<!-- Primary Meta Tags -->
+<title>Start Here | Stylobot Docs</title>
+<meta name="title" content="Start Here | Stylobot Docs" />
+<meta name="description" content="Advanced bot detection using heuristics and analytics with a zero-PII approach. Protect your platform without compromising user privacy." />
+<meta name="keywords" content="bot detection, zero-PII, privacy-first, web analytics, heuristics, security, anti-bot, web protection" />
+<meta name="author" content="Stylobot" />
+<meta name="robots" content="index, follow" />
+<link rel="canonical" href="https://stylobot.net" />
+
+<!-- Open Graph / Facebook -->
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://stylobot.net" />
+<meta property="og:title" content="Start Here | Stylobot Docs" />
+<meta property="og:description" content="Advanced bot detection using heuristics and analytics with a zero-PII approach. Protect your platform without compromising user privacy." />
+<meta property="og:image" content="https://stylobot.net/img/card.png" />
+<meta property="og:image:alt" content="Stylobot - Zero-PII Bot Detection &amp; Analytics" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:site_name" content="Stylobot" />
+<meta property="og:locale" content="en_US" />
+
+
+
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:url" content="https://stylobot.net" />
+<meta name="twitter:title" content="Start Here | Stylobot Docs" />
+<meta name="twitter:description" content="Advanced bot detection using heuristics and analytics with a zero-PII approach. Protect your platform without compromising user privacy." />
+<meta name="twitter:image" content="https://stylobot.net/img/card.png" />
+<meta name="twitter:image:alt" content="Stylobot - Zero-PII Bot Detection &amp; Analytics" />
+<meta name="twitter:site" content="@stylobot" />
+<meta name="twitter:creator" content="@stylobot" />
+
+<!-- Additional SEO -->
+<meta name="language" content="en" />
+<meta name="theme-color" content="#0066ff" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+
+
+    <!-- Favicons -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+    <link rel="manifest" href="/site.webmanifest">
+
+    <!-- Boxicons -->
+    <link href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+
+    <!-- Google Fonts: Raleway -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@800;900&display=swap" rel="stylesheet">
+
+    <!-- Built CSS (watch mode rebuilds on changes) -->
+    <link rel="stylesheet" href="/dist/assets/index.css?v=hXLbthgDEMMLi6iQVJEhJJ30Iy1BlL2foI2uH08cV6Q" />
+
+    <!-- Bot Detection UI CSS -->
+    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/bot-detection-details.css" />
+</head>
+<body class="min-h-screen flex flex-col">
+    <div b-0fsh2e4g7k x-data="{
+            mobileMenuOpen: false,
+            hoverReveal: false,
+            navHover: false,
+            lastScrollY: 0,
+            showChrome: false,
+            updateChrome() {
+                const y = window.scrollY || 0;
+                const scrollingDown = y > this.lastScrollY + 4;
+                const scrollingUp = y < this.lastScrollY - 4;
+
+                if (this.hoverReveal || this.navHover || this.mobileMenuOpen) {
+                    this.showChrome = true;
+                } else if (y < 24) {
+                    this.showChrome = false;
+                } else if (scrollingUp && y > 80) {
+                    this.showChrome = true;
+                } else if (scrollingDown) {
+                    this.showChrome = false;
+                }
+
+                this.lastScrollY = y;
+            },
+            init() {
+                this.lastScrollY = window.scrollY || 0;
+                this.updateChrome();
+                window.addEventListener('scroll', () => this.updateChrome(), { passive: true });
+            }
+        }">
+    <div b-0fsh2e4g7k class="fixed top-0 left-0 right-0 h-5 z-[9998]"
+         @mouseenter="hoverReveal = true; updateChrome()"
+         @mouseleave="hoverReveal = false; updateChrome()"></div>
+
+    <div b-0fsh2e4g7k x-show="showChrome"
+         x-transition.opacity.duration.150ms
+         @mouseenter="navHover = true; updateChrome()"
+         @mouseleave="navHover = false; updateChrome()"
+         class="relative z-[9999]">
+    <header b-0fsh2e4g7k class="bg-base-100/95 backdrop-blur-md border-b border-base-300/70">
+        <nav b-0fsh2e4g7k class="max-w-7xl mx-auto px-4 py-1.5">
+            <div b-0fsh2e4g7k class="flex items-center justify-between gap-3">
+                <!-- Logo + Brand -->
+                <a class="flex items-center gap-2.5 flex-shrink-0" href="/">
+                    <img b-0fsh2e4g7k src="/img/stylowall.svg" alt="stylobot Logo" class="h-8 w-auto logo-adaptive" />
+                    <span b-0fsh2e4g7k class="text-base hidden sm:inline brand-wordmark">
+                        <span b-0fsh2e4g7k class="stylo-text brand-italic">stylo</span><span b-0fsh2e4g7k class="bot-text">bot</span>
+                    </span>
+                </a>
+
+                <!-- Desktop Navigation -->
+                <div b-0fsh2e4g7k class="hidden lg:flex items-center gap-5">
+                    <ul b-0fsh2e4g7k class="flex items-center gap-5">
+                        <li b-0fsh2e4g7k><a class="nav-link" href="/">Home</a></li>
+                        <li b-0fsh2e4g7k><a class="nav-link" href="/Home/Features">Features</a></li>
+                        <li b-0fsh2e4g7k><a class="nav-link" href="/Home/Detectors">Detectors</a></li>
+                        <li b-0fsh2e4g7k><a class="nav-link" href="/Home/Enterprise">Enterprise</a></li>
+                        <li b-0fsh2e4g7k><a b-0fsh2e4g7k href="#pricing" class="nav-link">Pricing</a></li>
+                        <li b-0fsh2e4g7k><a class="nav-link" href="/docs">Docs</a></li>
+                    </ul>
+                    <div b-0fsh2e4g7k class="flex items-center gap-3">
+                        <a b-0fsh2e4g7k href="https://github.com/scottgal/stylobot" target="_blank" class="btn btn-ghost btn-sm btn-square" aria-label="GitHub" title="View on GitHub">
+                            <svg b-0fsh2e4g7k class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path b-0fsh2e4g7k d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                        </a>
+                        <button b-0fsh2e4g7k type="button" class="theme-toggle" @click="toggle()" :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'" aria-label="Toggle color theme">
+                            <svg b-0fsh2e4g7k x-show="isDark" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path b-0fsh2e4g7k stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-9H19.5m-15 0H3.34m14.02 6.36l-.7-.7m-9.32 0l-.7.7m10.02-10.02l-.7.7m-9.32 0l-.7-.7M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                            <svg b-0fsh2e4g7k x-show="!isDark" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path b-0fsh2e4g7k stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                            </svg>
+                        </button>
+                        <a class="btn btn-sm border-2 gap-1.5 font-semibold btn-live-demo" href="/Home/LiveDemo">
+                            <span b-0fsh2e4g7k class="relative flex h-2 w-2">
+                                <span b-0fsh2e4g7k class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
+                                <span b-0fsh2e4g7k class="relative inline-flex rounded-full h-2 w-2 live-dot"></span>
+                            </span>
+                            Start Live Demo
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Mobile Menu Button -->
+                <div b-0fsh2e4g7k class="lg:hidden">
+                    <button b-0fsh2e4g7k @click="mobileMenuOpen = !mobileMenuOpen; updateChrome()" class="btn btn-ghost btn-square">
+                        <svg b-0fsh2e4g7k xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="inline-block w-6 h-6 stroke-current">
+                            <path b-0fsh2e4g7k stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mobile Navigation Dropdown -->
+            <div b-0fsh2e4g7k x-show="mobileMenuOpen"
+                 x-transition
+                 @click.away="mobileMenuOpen = false"
+                 class="absolute top-full left-0 right-0 bg-base-100 border-b border-base-300 shadow-lg lg:hidden">
+                <ul b-0fsh2e4g7k class="menu p-4">
+                    <li b-0fsh2e4g7k><a href="/">Home</a></li>
+                    <li b-0fsh2e4g7k><a href="/Home/Features">Features</a></li>
+                    <li b-0fsh2e4g7k><a href="/Home/Detectors">Detectors</a></li>
+                    <li b-0fsh2e4g7k><a href="/Home/Enterprise">Enterprise</a></li>
+                    <li b-0fsh2e4g7k><a b-0fsh2e4g7k href="#pricing">Pricing</a></li>
+                    <li b-0fsh2e4g7k><a href="/docs">Docs</a></li>
+                    <li b-0fsh2e4g7k><a b-0fsh2e4g7k href="https://github.com/scottgal/stylobot" target="_blank">GitHub</a></li>
+                    <li b-0fsh2e4g7k class="mt-2">
+                        <button b-0fsh2e4g7k type="button" class="theme-toggle w-full justify-center" @click="toggle()">
+                            <span b-0fsh2e4g7k x-text="isDark ? 'Light Mode' : 'Dark Mode'"></span>
+                        </button>
+                    </li>
+                    <li b-0fsh2e4g7k class="mt-2">
+                        <a class="btn w-full border-2 gap-1.5 font-semibold btn-live-demo" href="/Home/LiveDemo">
+                            <span b-0fsh2e4g7k class="relative flex h-2 w-2">
+                                <span b-0fsh2e4g7k class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
+                                <span b-0fsh2e4g7k class="relative inline-flex rounded-full h-2 w-2 live-dot"></span>
+                            </span>
+                            Start Live Demo
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+    </div>
+
+    
+
+<div class="stylobot-header"
+     x-data="styloBotHeader()"
+     x-init="init()"
+     x-cloak>
+
+    <!-- Single Slim Bar -->
+    <div class="stylobot-header-bar">
+        <!-- Left: Your Detection Status -->
+        <div class="stylobot-header-you" @click="expanded = !expanded" title="Click to expand details">
+            <span class="stylobot-header-icon" :class="{ 'is-bot': isBot }">
+                <span x-text="isBot ? 'R' : 'H'"></span>
+            </span>
+            <span class="stylobot-header-label" :class="isBot ? 'is-bot' : 'is-human'"
+                  x-text="isBot ? 'Bot' : 'Human'"></span>
+            <span class="stylobot-header-prob" :class="{ 'pulse-update': justUpdated }"
+                  x-text="Math.round(botProbability * 100) + '%'"></span>
+            <span class="stylobot-header-risk" :class="'risk-' + (riskBand || 'unknown').toLowerCase()"
+                  x-text="riskBand || 'Unknown'"></span>
+            <span class="stylobot-header-time" x-text="(processingTimeMs || 0).toFixed(0) + 'ms'"></span>
+            <span class="stylobot-header-hits" x-show="hitCount > 1" :class="{ 'pulse-update': justUpdated }"
+                  x-text="'x' + hitCount"></span>
+            <span class="stylobot-header-expand" x-text="expanded ? '[-]' : '[+]'"></span>
+        </div>
+
+        <!-- Divider -->
+        <span class="stylobot-header-divider"></span>
+
+        <!-- Center: Compact Ticker (recent detections scroll) -->
+        <div class="stylobot-header-ticker">
+            <template x-if="!connected && tickerItems.length === 0">
+                <span class="stylobot-header-ticker-empty">Connecting...</span>
+            </template>
+            <template x-for="(item, idx) in tickerItems" :key="item._id || idx">
+                <a class="stylobot-header-ticker-item"
+                   :href="'/_stylobot?signature=' + (item.primarySignature || '')"
+                   :class="{ 'is-bot': item.isBot, 'ticker-new': item._isNew }">
+                    <span class="ticker-icon-sm" x-text="item.isBot ? 'R' : 'H'"></span>
+                    <span class="ticker-narrative-sm"
+                          x-text="item.narrative || item.botName || ((item.isBot ? 'Bot' : 'Human') + ' ' + Math.round((item.botProbability || 0) * 100) + '%')"></span>
+                </a>
+            </template>
+        </div>
+
+        <!-- Right: Live indicator + Dashboard link -->
+        <div class="stylobot-header-right">
+            <span class="stylobot-header-live" x-show="connected">LIVE</span>
+            <a href="/_stylobot" class="stylobot-header-dashboard" title="Open Dashboard">Dashboard</a>
+        </div>
+    </div>
+
+    <!-- Expanded Details Panel -->
+    <div x-show="expanded" x-transition class="stylobot-header-details">
+        <div class="stylobot-header-details-grid">
+            <!-- Your Signature -->
+            <div class="stylobot-header-section">
+                <div class="section-title">Your Signature</div>
+                <div class="section-content">
+                    <div><span class="section-label">ID:</span> <code x-text="(signature || '').substring(0, 12) + '...'"></code></div>
+                    <div><span class="section-label">Hits:</span> <span x-text="hitCount"></span></div>
+                    <div class="section-note">HMAC-SHA256 hashed, zero PII</div>
+                </div>
+            </div>
+
+            <!-- Detection Stats -->
+            <div class="stylobot-header-section">
+                <div class="section-title">Detection</div>
+                <div class="section-content">
+                    <div><span class="section-label">Probability:</span> <span x-text="((botProbability || 0) * 100).toFixed(1) + '%'"></span></div>
+                    <div><span class="section-label">Confidence:</span> <span x-text="((confidence || 0) * 100).toFixed(1) + '%'"></span></div>
+                    <div><span class="section-label">Processing:</span> <span x-text="(processingTimeMs || 0).toFixed(1) + 'ms'"></span></div>
+                </div>
+            </div>
+
+            <!-- Top Signal -->
+            <div class="stylobot-header-section">
+                <div class="section-title">Top Signal</div>
+                <div class="section-content">
+                    <div x-text="topSignal || 'No signals'"></div>
+                </div>
+            </div>
+
+            <!-- Live Stats -->
+            <div class="stylobot-header-section">
+                <div class="section-title">Live Feed</div>
+                <div class="section-content">
+                    <div x-show="connected" style="color: #51cf66;">SignalR Connected</div>
+                    <div x-show="!connected" style="color: #ff6b6b;">Connecting...</div>
+                    <div>Updates: <span x-text="updateCount"></span></div>
+                    <div>Ticker items: <span x-text="tickerItems.length"></span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="stylobot-header-details-footer">
+            <a :href="'/_stylobot?signature=' + (signature || '')" class="dashboard-link">
+                View Full Dashboard & All Signals &rarr;
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('alpine:init', () => {
+    // PascalCase to camelCase helper
+    function toCamel(obj) {
+        if (Array.isArray(obj)) return obj.map(toCamel);
+        if (obj !== null && typeof obj === 'object') {
+            return Object.fromEntries(
+                Object.entries(obj).map(([k, v]) => [k.charAt(0).toLowerCase() + k.slice(1), toCamel(v)])
+            );
+        }
+        return obj;
+    }
+
+    let tickerId = 0;
+
+    Alpine.data('styloBotHeader', () => ({
+        // Your detection state (from server)
+        signature: 'e3ec3765c5ba...',
+        isBot: false,
+        botProbability: 0.37168381170463377,
+        confidence: 0.6296296296296297,
+        riskBand: 'Medium',
+        processingTimeMs: 102.6618,
+        topSignal: 'User-Agent appears normal',
+
+        // Dynamic state
+        hitCount: 1,
+        expanded: false,
+        connected: false,
+        connection: null,
+        updateCount: 0,
+        justUpdated: false,
+        tickerItems: [],
+        maxTickerItems: 8,
+
+        async init() {
+            await this.connect();
+        },
+
+        async connect() {
+            try {
+                if (typeof signalR === 'undefined') {
+                    await new Promise((resolve, reject) => {
+                        const s = document.createElement('script');
+                        s.src = 'https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js';
+                        s.onload = resolve;
+                        s.onerror = reject;
+                        document.head.appendChild(s);
+                    });
+                }
+
+                this.connection = new signalR.HubConnectionBuilder()
+                    .withUrl('/_stylobot/hub')
+                    .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
+                    .configureLogging(signalR.LogLevel.Warning)
+                    .build();
+
+                // Detection events: update YOUR bar + add to ticker
+                this.connection.on('BroadcastDetection', (raw) => {
+                    const detection = toCamel(raw);
+
+                    // Update YOUR detection if it matches your signature
+                    if (detection.primarySignature === this.signature) {
+                        this.updateYourDetection(detection);
+                    }
+
+                    // Add to ticker (bots and medium+ risk only)
+                    this.addToTicker(detection);
+                });
+
+                // Signature events: accurate hit count from DB
+                this.connection.on('BroadcastSignature', (raw) => {
+                    const sig = toCamel(raw);
+                    if (sig.primarySignature === this.signature) {
+                        this.hitCount = sig.hitCount;
+                    }
+                });
+
+                // LLM description update (arrives async after detection)
+                this.connection.on('BroadcastDescriptionUpdate', (requestId, description) => {
+                    const item = this.tickerItems.find(i => i.requestId === requestId);
+                    if (item) item.description = description;
+                });
+
+                this.connection.onclose(() => { this.connected = false; });
+                this.connection.onreconnecting(() => { this.connected = false; });
+                this.connection.onreconnected(() => { this.connected = true; });
+
+                await this.connection.start();
+                this.connected = true;
+            } catch (error) {
+                console.error('[StyloBot] Connection failed:', error);
+                this.connected = false;
+            }
+        },
+
+        updateYourDetection(d) {
+            this.isBot = d.isBot;
+            this.botProbability = d.botProbability || 0;
+            this.confidence = d.confidence || 0;
+            this.riskBand = d.riskBand || 'Unknown';
+            this.processingTimeMs = d.processingTimeMs || 0;
+            if (d.topReasons && d.topReasons.length > 0) {
+                this.topSignal = d.topReasons[0];
+            }
+            this.updateCount++;
+            this.justUpdated = true;
+            setTimeout(() => { this.justUpdated = false; }, 500);
+        },
+
+        addToTicker(d) {
+            // Deduplicate by signature - update existing entries, only add genuinely new signatures
+            const sig = d.primarySignature;
+            if (sig) {
+                const existing = this.tickerItems.find(i => i.primarySignature === sig);
+                if (existing) {
+                    // Update in-place: certainty may have changed
+                    existing.isBot = d.isBot;
+                    existing.botProbability = d.botProbability;
+                    existing.riskBand = d.riskBand;
+                    existing.botName = d.botName;
+                    existing._isNew = true;
+                    setTimeout(() => { existing._isNew = false; }, 600);
+                    return;
+                }
+            }
+
+            // New unique signature
+            this.tickerItems.unshift({
+                ...d,
+                _id: ++tickerId,
+                _isNew: true
+            });
+
+            const currentId = tickerId;
+            setTimeout(() => {
+                const item = this.tickerItems.find(i => i._id === currentId);
+                if (item) item._isNew = false;
+            }, 600);
+
+            if (this.tickerItems.length > this.maxTickerItems) {
+                this.tickerItems = this.tickerItems.slice(0, this.maxTickerItems);
+            }
+        }
+    }));
+});
+</script>
+
+<style>
+/* === Unified StyloBot Header Bar === */
+.stylobot-header {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 11px;
+    line-height: 1;
+    background: #1a1a2e;
+    border-bottom: 1px solid rgba(91, 163, 163, 0.2);
+}
+
+.stylobot-header-bar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 4px 12px;
+    min-height: 28px;
+    overflow: hidden;
+}
+
+/* Left: Your detection status */
+.stylobot-header-you {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    flex-shrink: 0;
+    padding: 2px 8px 2px 0;
+    user-select: none;
+}
+
+.stylobot-header-you:hover {
+    background: rgba(255,255,255,0.03);
+    border-radius: 3px;
+}
+
+.stylobot-header-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    background: #28a745;
+    color: white;
+}
+
+.stylobot-header-icon.is-bot {
+    background: #dc3545;
+}
+
+.stylobot-header-label {
+    font-weight: 600;
+    color: #adb5bd;
+}
+
+.stylobot-header-label.is-bot { color: #ff6b6b; }
+.stylobot-header-label.is-human { color: #51cf66; }
+
+.stylobot-header-prob {
+    color: #e9ecef;
+    font-weight: 600;
+}
+
+.stylobot-header-risk {
+    padding: 1px 5px;
+    border-radius: 2px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.stylobot-header-risk.risk-verylow,
+.stylobot-header-risk.risk-low { background: rgba(40, 167, 69, 0.2); color: #51cf66; }
+.stylobot-header-risk.risk-medium { background: rgba(255, 193, 7, 0.2); color: #ffc107; }
+.stylobot-header-risk.risk-high { background: rgba(253, 126, 20, 0.2); color: #fd7e14; }
+.stylobot-header-risk.risk-veryhigh { background: rgba(220, 53, 69, 0.2); color: #ff6b6b; }
+.stylobot-header-risk.risk-verified { background: rgba(91, 163, 163, 0.2); color: #5BA3A3; }
+
+.stylobot-header-time {
+    color: #6c757d;
+}
+
+.stylobot-header-hits {
+    color: #5BA3A3;
+    font-weight: 600;
+}
+
+.stylobot-header-expand {
+    color: #6c757d;
+    font-size: 10px;
+}
+
+/* Divider */
+.stylobot-header-divider {
+    width: 1px;
+    height: 16px;
+    background: rgba(255,255,255,0.1);
+    flex-shrink: 0;
+    margin: 0 8px;
+}
+
+/* Center: Compact ticker */
+.stylobot-header-ticker {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.stylobot-header-ticker-empty {
+    color: #6c757d;
+    font-style: italic;
+}
+
+.stylobot-header-ticker-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 5px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.03);
+    text-decoration: none;
+    color: #adb5bd;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: background 0.15s, opacity 0.3s;
+}
+
+.stylobot-header-ticker-item:hover {
+    background: rgba(255,255,255,0.08);
+    color: #e9ecef;
+}
+
+.stylobot-header-ticker-item.is-bot {
+    background: rgba(220, 53, 69, 0.08);
+}
+
+.stylobot-header-ticker-item.ticker-new {
+    animation: ticker-flash 0.6s ease-out;
+}
+
+.ticker-icon-sm {
+    font-size: 8px;
+    font-weight: 700;
+    width: 12px;
+    height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.1);
+}
+
+.stylobot-header-ticker-item.is-bot .ticker-icon-sm {
+    background: rgba(220, 53, 69, 0.3);
+    color: #ff6b6b;
+}
+
+.ticker-risk-sm {
+    font-size: 8px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.ticker-risk-sm.risk-low { color: #51cf66; }
+.ticker-risk-sm.risk-medium { color: #ffc107; }
+.ticker-risk-sm.risk-high { color: #fd7e14; }
+.ticker-risk-sm.risk-veryhigh { color: #ff6b6b; }
+.ticker-risk-sm.risk-verified { color: #5BA3A3; }
+
+.ticker-name-sm {
+    color: #e9ecef;
+    font-weight: 500;
+    max-width: 80px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ticker-narrative-sm {
+    color: #adb5bd;
+    font-weight: 400;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 10px;
+}
+
+.stylobot-header-ticker-item.is-bot .ticker-narrative-sm {
+    color: #ff9b9b;
+}
+
+.ticker-prob-sm {
+    color: #6c757d;
+}
+
+/* Right: Live + Dashboard */
+.stylobot-header-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    margin-left: 8px;
+}
+
+.stylobot-header-live {
+    color: #51cf66;
+    font-size: 8px;
+    font-weight: 700;
+    background: rgba(81, 207, 102, 0.15);
+    padding: 1px 4px;
+    border-radius: 2px;
+    animation: pulse-live 2s infinite;
+}
+
+.stylobot-header-dashboard {
+    color: #5BA3A3;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 10px;
+}
+
+.stylobot-header-dashboard:hover {
+    color: #7dc4c4;
+    text-decoration: underline;
+}
+
+/* Expanded details panel */
+.stylobot-header-details {
+    background: #16162a;
+    border-top: 1px solid rgba(91, 163, 163, 0.15);
+    padding: 10px 12px;
+}
+
+.stylobot-header-details-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+.stylobot-header-section .section-title {
+    color: #5BA3A3;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.stylobot-header-section .section-content {
+    color: #adb5bd;
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+.stylobot-header-section .section-label {
+    color: #6c757d;
+}
+
+.stylobot-header-section .section-note {
+    color: #495057;
+    font-size: 9px;
+    margin-top: 2px;
+}
+
+.stylobot-header-section code {
+    font-family: inherit;
+    color: #e9ecef;
+    background: rgba(255,255,255,0.05);
+    padding: 0 3px;
+    border-radius: 2px;
+}
+
+.stylobot-header-details-footer {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.stylobot-header-details-footer .dashboard-link {
+    color: #5BA3A3;
+    text-decoration: none;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.stylobot-header-details-footer .dashboard-link:hover {
+    color: #7dc4c4;
+    text-decoration: underline;
+}
+
+/* Animations */
+.pulse-update {
+    animation: pulse-val 0.5s ease-out;
+}
+
+@keyframes pulse-live {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+@keyframes pulse-val {
+    0% { transform: scale(1.15); color: #51cf66; }
+    100% { transform: scale(1); }
+}
+
+@keyframes ticker-flash {
+    0% { background: rgba(91, 163, 163, 0.3); }
+    100% { background: rgba(255,255,255,0.03); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .stylobot-header-ticker { display: none; }
+    .stylobot-header-divider { display: none; }
+    .stylobot-header-details-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 480px) {
+    .stylobot-header-time { display: none; }
+    .stylobot-header-details-grid {
+        grid-template-columns: 1fr;
+    }
+}
+/* Theme-aware overrides aligned with site tokens */
+.stylobot-header {
+    background: color-mix(in oklab, var(--color-base-200) 92%, var(--color-base-100));
+    border-bottom-color: var(--sb-card-divider);
+}
+
+.stylobot-header-you:hover {
+    background: color-mix(in oklab, var(--color-base-content) 6%, transparent);
+}
+
+.stylobot-header-icon { background: var(--sb-signal-pos); }
+.stylobot-header-icon.is-bot { background: var(--sb-signal-danger); }
+
+.stylobot-header-label {
+    color: color-mix(in oklab, var(--sb-card-subtle) 82%, var(--sb-card-text));
+}
+
+.stylobot-header-label.is-bot { color: var(--sb-signal-danger); }
+.stylobot-header-label.is-human { color: var(--sb-signal-pos); }
+.stylobot-header-prob { color: var(--sb-card-text); }
+
+.stylobot-header-risk.risk-verylow,
+.stylobot-header-risk.risk-low {
+    background: color-mix(in oklab, var(--sb-signal-pos) 18%, transparent);
+    color: var(--sb-signal-pos);
+}
+
+.stylobot-header-risk.risk-medium,
+.stylobot-header-risk.risk-elevated {
+    background: color-mix(in oklab, var(--sb-signal-warn) 18%, transparent);
+    color: var(--sb-signal-warn);
+}
+
+.stylobot-header-risk.risk-high,
+.stylobot-header-risk.risk-veryhigh {
+    background: color-mix(in oklab, var(--sb-signal-danger) 16%, transparent);
+    color: var(--sb-signal-danger);
+}
+
+.stylobot-header-risk.risk-verified {
+    background: color-mix(in oklab, var(--sb-accent) 18%, transparent);
+    color: var(--sb-accent);
+}
+
+.stylobot-header-time,
+.stylobot-header-expand,
+.ticker-prob-sm,
+.stylobot-header-ticker-empty,
+.stylobot-header-section .section-label,
+.stylobot-header-section .section-note {
+    color: var(--sb-card-subtle);
+}
+
+.stylobot-header-hits,
+.stylobot-header-dashboard,
+.stylobot-header-details-footer .dashboard-link {
+    color: var(--sb-accent);
+}
+
+.stylobot-header-dashboard:hover,
+.stylobot-header-details-footer .dashboard-link:hover {
+    color: var(--sb-accent-strong);
+}
+
+.stylobot-header-divider { background: var(--sb-card-divider); }
+
+.stylobot-header-ticker-item {
+    background: color-mix(in oklab, var(--color-base-content) 4%, transparent);
+    color: color-mix(in oklab, var(--sb-card-subtle) 78%, var(--sb-card-text));
+}
+
+.stylobot-header-ticker-item:hover {
+    background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+    color: var(--sb-card-text);
+}
+
+.stylobot-header-ticker-item.is-bot {
+    background: color-mix(in oklab, var(--sb-signal-danger) 14%, transparent);
+}
+
+.ticker-icon-sm {
+    background: color-mix(in oklab, var(--color-base-content) 12%, transparent);
+}
+
+.stylobot-header-ticker-item.is-bot .ticker-icon-sm {
+    background: color-mix(in oklab, var(--sb-signal-danger) 35%, transparent);
+    color: var(--sb-signal-danger);
+}
+
+.ticker-risk-sm.risk-low,
+.ticker-risk-sm.risk-verylow { color: var(--sb-signal-pos); }
+.ticker-risk-sm.risk-medium,
+.ticker-risk-sm.risk-elevated { color: var(--sb-signal-warn); }
+.ticker-risk-sm.risk-high,
+.ticker-risk-sm.risk-veryhigh { color: var(--sb-signal-danger); }
+.ticker-risk-sm.risk-verified { color: var(--sb-accent); }
+
+.ticker-name-sm { color: var(--sb-card-text); }
+.ticker-narrative-sm { color: var(--sb-card-subtle); }
+.stylobot-header-ticker-item.is-bot .ticker-narrative-sm { color: var(--sb-signal-danger); }
+
+.stylobot-header-live {
+    color: var(--sb-accent-strong);
+    background: color-mix(in oklab, var(--sb-accent-strong) 18%, transparent);
+}
+
+.stylobot-header-details {
+    background: color-mix(in oklab, var(--color-base-200) 96%, var(--color-base-100));
+    border-top-color: var(--sb-card-divider);
+}
+
+.stylobot-header-section .section-title { color: var(--sb-accent); }
+.stylobot-header-section .section-content {
+    color: color-mix(in oklab, var(--sb-card-subtle) 72%, var(--sb-card-text));
+}
+
+.stylobot-header-section code {
+    color: var(--sb-card-text);
+    background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+}
+
+.stylobot-header-details-footer { border-top-color: var(--sb-card-divider); }
+
+</style>
+
+    </div>
+
+    <!-- Client-side fingerprinting for enhanced detection -->
+    <script defer="">(function(){
+'use strict';
+var MLBotD={
+  v:'1.0.0',
+  t:'eyJSZXF1ZXN0SWQiOiJkN2I2YmY1MzNiOTc0YmJmIiwiSXBIYXNoIjoiN2EwODI1NzZjYzNlNTAzNWM1NjU2Yjc0OTIxZjEzYWIyZmIxM2NmNmEzNDI5YmFhZDUyMGM0YmEyNGU2MmY0YiIsIklzc3VlZEF0IjoxNzcxMDkwOTY5LCJFeHBpcmVzQXQiOjE3NzEwOTEyNjl9.9wzU342FNelaNGkW00DN9cUeo87d04RonzKFpKLc2/w=',
+  e:'/bot-detection/fingerprint',
+  cfg:{
+    collectWebGL:true,
+    collectCanvas:true,
+    collectAudio:true,
+    timeout:5000
+  },
+  h:function(s){var h=0;for(var i=0;i<s.length;i++){h=((h<<5)-h)+s.charCodeAt(i);h|=0;}return h.toString(16);},
+  collect:function(){
+    var d={},n=navigator,w=window,s=screen;
+    d.tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'';
+    d.lang=n.language||'';
+    d.langs=(n.languages||[]).slice(0,3).join(',');
+    d.platform=n.platform||'';
+    d.cores=n.hardwareConcurrency||0;
+    d.mem=n.deviceMemory||0;
+    d.touch='ontouchstart' in w?1:0;
+    d.screen=s.width+'x'+s.height+'x'+s.colorDepth;
+    d.avail=s.availWidth+'x'+s.availHeight;
+    d.dpr=w.devicePixelRatio||1;
+    d.pdf=this.hasPdf()?1:0;
+    d.webdriver=n.webdriver?1:0;
+    d.phantom=w.phantom||w._phantom||w.callPhantom?1:0;
+    d.nightmare=!!w.__nightmare;
+    d.selenium=!!w.document.__selenium_unwrapped||!!w.document.__webdriver_evaluate||!!w.document.__driver_evaluate;
+    d.cdc=this.hasCdc();
+    d.plugins=n.plugins?n.plugins.length:0;
+    d.chrome=!!w.chrome;
+    d.permissions=this.checkPerms();
+    d.outerW=w.outerWidth||0;
+    d.outerH=w.outerHeight||0;
+    d.innerW=w.innerWidth||0;
+    d.innerH=w.innerHeight||0;
+    d.evalLen=(function(){try{return eval.toString().length;}catch(e){return 0;}})();
+    d.bindNative=Function.prototype.bind.toString().indexOf('[native code]')>-1?1:0;
+    if(this.cfg.collectWebGL){var gl=this.getWebGL();if(gl){d.glVendor=gl.vendor||'';d.glRenderer=gl.renderer||'';}}
+    if(this.cfg.collectCanvas){d.canvasHash=this.getCanvasHash();}
+    d.score=this.calcScore(d);
+    return d;
+  },
+  hasPdf:function(){try{var p=navigator.plugins;for(var i=0;i<p.length;i++){if(p[i].name.toLowerCase().indexOf('pdf')>-1)return true;}}catch(e){}return false;},
+  hasCdc:function(){try{for(var k in window){if(k.match(/^cdc_|^__$|^\$cdc_/))return 1;}}catch(e){}return 0;},
+  checkPerms:function(){try{if(Notification&&Notification.permission==='denied'&&navigator.plugins.length===0)return 'suspicious';return Notification?Notification.permission:'unavailable';}catch(e){return 'error';}},
+  getWebGL:function(){try{var c=document.createElement('canvas');var gl=c.getContext('webgl')||c.getContext('experimental-webgl');if(!gl)return null;var d=gl.getExtension('WEBGL_debug_renderer_info');return{vendor:d?gl.getParameter(d.UNMASKED_VENDOR_WEBGL):'',renderer:d?gl.getParameter(d.UNMASKED_RENDERER_WEBGL):''};}catch(e){return null;}},
+  getCanvasHash:function(){try{var c=document.createElement('canvas');c.width=200;c.height=50;var ctx=c.getContext('2d');ctx.textBaseline='top';ctx.font='14px Arial';ctx.fillStyle='#f60';ctx.fillRect(125,1,62,20);ctx.fillStyle='#069';ctx.fillText('BotD',2,15);return this.h(c.toDataURL());}catch(e){return '';}},
+  calcScore:function(d){var score=100;if(d.webdriver)score-=50;if(d.phantom)score-=50;if(d.nightmare)score-=50;if(d.selenium)score-=50;if(d.cdc)score-=40;if(d.plugins===0&&d.chrome)score-=20;if(d.outerW===0||d.outerH===0)score-=30;if(d.innerW===d.outerW&&d.innerH===d.outerH)score-=10;if(!d.bindNative)score-=20;if(d.evalLen<30||d.evalLen>50)score-=15;if(d.permissions==='suspicious')score-=25;return Math.max(0,score);},
+  send:function(data){var xhr=new XMLHttpRequest();xhr.open('POST',this.e,true);xhr.setRequestHeader('Content-Type','application/json');xhr.setRequestHeader('X-ML-BotD-Token',this.t);xhr.onload=function(){if(xhr.status>=200&&xhr.status<300){window.__mlbotd_done=true;try{document.dispatchEvent(new CustomEvent('mlbotd:fingerprint',{detail:JSON.parse(xhr.responseText)}));}catch(e){}}};xhr.send(JSON.stringify(data));},
+  run:function(){var self=this;setTimeout(function(){try{var d=self.collect();d.ts=Date.now();self.send(d);}catch(e){self.send({error:e.message,ts:Date.now()});}},100);}
+};
+if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',function(){MLBotD.run();});}else{MLBotD.run();}
+})();</script>
+
+    <main b-0fsh2e4g7k class="flex-1">
+        
+
+<style>
+    .docs-markdown h1, .docs-markdown h2, .docs-markdown h3 { margin-top: 1.25rem; margin-bottom: 0.5rem; font-weight: 700; }
+    .docs-markdown p, .docs-markdown ul, .docs-markdown ol, .docs-markdown pre { margin-bottom: 0.9rem; }
+    .docs-markdown pre { padding: 0.9rem; border-radius: 0.75rem; overflow-x: auto; }
+    .docs-markdown code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .docs-markdown a { text-decoration: underline; }
+    .docs-markdown blockquote { border-left: 4px solid color-mix(in oklab, currentColor 35%, transparent); padding-left: 0.8rem; opacity: 0.9; }
+</style>
+
+<section class="max-w-7xl mx-auto px-4 py-10">
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <aside class="lg:col-span-1">
+            <div class="sticky top-24 rounded-xl border border-base-300 bg-base-200 p-4">
+                <h2 class="text-lg font-bold mb-3">Docs</h2>
+                <nav class="space-y-2">
+                        <a class="block rounded px-3 py-2 text-sm bg-primary text-primary-content"
+                           href="/docs/start-here">
+                            Start Here
+                        </a>
+                        <a class="block rounded px-3 py-2 text-sm hover:bg-base-300"
+                           href="/docs/how-stylobot-works">
+                            How StyloBot Works
+                        </a>
+                        <a class="block rounded px-3 py-2 text-sm hover:bg-base-300"
+                           href="/docs/detectors-in-depth">
+                            Detectors In Depth
+                        </a>
+                        <a class="block rounded px-3 py-2 text-sm hover:bg-base-300"
+                           href="/docs/running-locally">
+                            Running Locally
+                        </a>
+                        <a class="block rounded px-3 py-2 text-sm hover:bg-base-300"
+                           href="/docs/live-demo">
+                            Live Demo Guide
+                        </a>
+                        <a class="block rounded px-3 py-2 text-sm hover:bg-base-300"
+                           href="/docs/deploy-on-server">
+                            Deploy on Server
+                        </a>
+                        <a class="block rounded px-3 py-2 text-sm hover:bg-base-300"
+                           href="/docs/frequently-asked-questions">
+                            Frequently Asked Questions
+                        </a>
+                        <a class="block rounded px-3 py-2 text-sm hover:bg-base-300"
+                           href="/docs/glossary">
+                            Glossary
+                        </a>
+                        <a class="block rounded px-3 py-2 text-sm hover:bg-base-300"
+                           href="/docs/github-docs-map">
+                            GitHub Docs Map
+                        </a>
+                </nav>
+            </div>
+        </aside>
+
+        <article class="lg:col-span-3 rounded-2xl border border-base-300 bg-base-100 p-6 lg:p-10">
+            <div class="mb-6 text-sm text-base-content/60">
+                Last updated: 2026-02-14 15:49 UTC
+            </div>
+            <div id="markdown-content" class="docs-markdown">
+                <h1 id="start-here">Start Here</h1>
+<p>This is the operator-focused path for understanding and launching StyloBot.</p>
+<h2 id="what-stylobot-does">What StyloBot does</h2>
+<p>StyloBot analyzes each request across multiple detectors, combines those detector contributions into:</p>
+<ul>
+<li>Bot probability (<code>0.0</code> to <code>1.0</code>)</li>
+<li>Confidence (<code>0.0</code> to <code>1.0</code>)</li>
+<li>Risk band (<code>VeryLow</code>, <code>Low</code>, <code>Elevated</code>, <code>Medium</code>, <code>High</code>, <code>VeryHigh</code>)</li>
+<li>Recommended action (<code>Allow</code>, <code>Throttle</code>, <code>Challenge</code>, <code>Block</code>)</li>
+</ul>
+<p>You keep policy control. StyloBot gives evidence, not black-box decisions.</p>
+<h2 id="why-teams-choose-stylobot">Why teams choose StyloBot</h2>
+<ul>
+<li>Speed with intelligence: low-latency request decisions with explainable evidence.</li>
+<li>Signature-first identity: a visitor is represented as a zero-PII signature, not raw IP, UA, or location.</li>
+<li>Time-aware detection: behavior is evaluated across request history, not just single snapshots.</li>
+<li>Higher resolution outcomes: multi-vector fuzzy matching across time improves confidence on evasive traffic.</li>
+<li>Operator control: policy remains yours, including allow/challenge/throttle/block strategy.</li>
+</ul>
+<h2 id="minute-quick-path">5-minute quick path</h2>
+<ol>
+<li>Open <code>/Home/LiveDemo</code></li>
+<li>Open <code>/_stylobot</code> in a second tab</li>
+<li>Call <code>/bot-detection/check</code> with a normal browser User-Agent and then a scraper-like User-Agent</li>
+<li>Compare probability, risk, top reasons, and suggested action</li>
+<li>Review detector contribution trends in the dashboard</li>
+</ol>
+<h2 id="how-request-evaluation-works">How request evaluation works</h2>
+<div class="mermaid">flowchart LR
+  A[Request] --> B[Fast-path detectors]
+  B --> C[Derived / correlation detectors]
+  C --> D[Aggregation + risk band]
+  D --> E[Policy mapping]
+  E --> F[Allow/Throttle/Challenge/Block]
+  D --> G[Dashboard + telemetry]
+</div>
+<p>For a detailed walkthrough of this pipeline, read <a href="/docs/how-stylobot-works">How StyloBot Works</a>.</p>
+<h2 id="read-next">Read next</h2>
+<ul>
+<li><a href="/docs/running-locally">Running Locally</a>: local setup and smoke tests</li>
+<li><a href="/docs/how-stylobot-works">How StyloBot Works</a>: scoring, risk bands, policy flow</li>
+<li><a href="/docs/detectors-in-depth">Detectors In Depth</a>: what each detector checks and how to tune it</li>
+<li><a href="/docs/live-demo">Live Demo Guide</a>: how to present and interpret live output</li>
+<li><a href="/docs/deploy-on-server">Deploy on Server</a>: practical production rollout</li>
+<li><a href="/docs/github-docs-map">GitHub Docs Map</a>: deeper technical docs in the GitHub repo</li>
+</ul>
+<h2 id="safe-rollout-defaults">Safe rollout defaults</h2>
+<ul>
+<li>Start in observe mode before taking blocking actions</li>
+<li>Tune on real traffic for at least one full traffic cycle</li>
+<li>Use path/policy-specific thresholds instead of one global aggressive threshold</li>
+<li>Keep secrets managed outside source control</li>
+</ul>
+
+            </div>
+        </article>
+    </div>
+</section>
+
+
+    </main>
+
+    <footer b-0fsh2e4g7k class="bg-base-200 mt-auto">
+        <div b-0fsh2e4g7k class="max-w-7xl mx-auto px-4 py-12">
+            <div b-0fsh2e4g7k class="grid grid-cols-1 md:grid-cols-4 gap-8">
+                <div b-0fsh2e4g7k class="col-span-1 md:col-span-2">
+                    <a b-0fsh2e4g7k href="/" class="flex items-center gap-3 mb-4 no-underline hover:opacity-80 transition-opacity">
+                        <img b-0fsh2e4g7k src="/img/stylowall.svg" alt="stylobot Logo" class="h-10 w-auto logo-adaptive" />
+                        <span b-0fsh2e4g7k class="text-2xl brand-wordmark">
+                            <span b-0fsh2e4g7k class="stylo-text brand-italic">stylo</span><span b-0fsh2e4g7k class="bot-text">bot</span>
+                        </span>
+                    </a>
+                    <p b-0fsh2e4g7k class="text-base-content/70 max-w-md">
+                        Heuristics and advanced analytics for bot detection using a zero-PII approach. Protect your platform without compromising user privacy.
+                    </p>
+                </div>
+
+                <div b-0fsh2e4g7k>
+                    <h3 b-0fsh2e4g7k class="font-semibold mb-4">Product</h3>
+                    <ul b-0fsh2e4g7k class="space-y-2 text-base-content/70">
+                        <li b-0fsh2e4g7k><a class="hover:text-primary transition-colors" hx-get="/Home/Features" hx-target="main" hx-push-url="true" href="/Home/Features">Features</a></li>
+                        <li b-0fsh2e4g7k><a class="hover:text-primary transition-colors" hx-get="/Home/Detectors" hx-target="main" hx-push-url="true" href="/Home/Detectors">Detectors</a></li>
+                        <li b-0fsh2e4g7k><a class="hover:text-primary transition-colors" hx-get="/Home/Enterprise" hx-target="main" hx-push-url="true" href="/Home/Enterprise">Enterprise</a></li>
+                        <li b-0fsh2e4g7k><a class="hover:text-primary transition-colors" href="/docs">Documentation</a></li>
+                        <li b-0fsh2e4g7k><a b-0fsh2e4g7k href="https://github.com/scottgal/stylobot/blob/main/docs/README.md" target="_blank" class="hover:text-primary transition-colors">Developer Docs</a></li>
+                    </ul>
+                </div>
+
+                <div b-0fsh2e4g7k>
+                    <h3 b-0fsh2e4g7k class="font-semibold mb-4">Company</h3>
+                    <ul b-0fsh2e4g7k class="space-y-2 text-base-content/70">
+                        <li b-0fsh2e4g7k><a b-0fsh2e4g7k href="https://www.mostlylucid.net" target="_blank" class="hover:text-primary transition-colors">About</a></li>
+                        <li b-0fsh2e4g7k><a b-0fsh2e4g7k href="https://www.mostlylucid.net" target="_blank" class="hover:text-primary transition-colors">Blog</a></li>
+                        <li b-0fsh2e4g7k><a class="hover:text-primary transition-colors" hx-get="/Home/Privacy" hx-target="main" hx-push-url="true" href="/Home/Privacy">Privacy</a></li>
+                        <li b-0fsh2e4g7k><a class="hover:text-primary transition-colors" hx-get="/Home/Contact" hx-target="main" hx-push-url="true" href="/Home/Contact">Contact</a></li>
+                    </ul>
+                </div>
+            </div>
+
+            <div b-0fsh2e4g7k class="divider"></div>
+
+            <div b-0fsh2e4g7k class="text-center text-base-content/60 text-sm">
+                &copy; 2026 Stylobot. All rights reserved.
+            </div>
+        </div>
+    </footer>
+
+    <!-- Built JS (watch mode rebuilds on changes) -->
+    <script type="module" src="/dist/assets/index.js?v=k7vViUTbNeV-B7uW9glTPnxRs9uMttTrPqCFUAqo-5A"></script>
+    <script defer src="https://umami.mostlylucid.net/getinfo" data-website-id="553967ea-c3de-4212-9b07-6d756c0f58b7"></script>
+    
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <script nonce="lA&#x2B;Y5O891xWkd6Q&#x2B;Kb9XUA==">
+        document.addEventListener("DOMContentLoaded", function () {
+            document.querySelectorAll("pre code.language-mermaid").forEach(function (codeBlock) {
+                const pre = codeBlock.closest("pre");
+                if (!pre) {
+                    return;
+                }
+                const div = document.createElement("div");
+                div.className = "mermaid";
+                div.textContent = codeBlock.textContent || "";
+                pre.replaceWith(div);
+            });
+
+            document.querySelectorAll("pre code").forEach(function (el) {
+                if (!el.classList.contains("language-mermaid")) {
+                    hljs.highlightElement(el);
+                }
+            });
+
+            mermaid.initialize({ startOnLoad: false, theme: "default" });
+            mermaid.run({ querySelector: ".mermaid" });
+        });
+    </script>
+
+</body>
+</html>
+

@@ -26,6 +26,7 @@ public static class ServiceCollectionExtensions
             opts.DefaultUpstream = Environment.GetEnvironmentVariable("DEFAULT_UPSTREAM");
             opts.AdminBasePath = Environment.GetEnvironmentVariable("ADMIN_BASE_PATH") ?? "/admin";
             opts.AdminSecret = Environment.GetEnvironmentVariable("ADMIN_SECRET");
+            opts.AllowInsecureAdminAccess = GetEnvBool("ADMIN_ALLOW_INSECURE", false);
             opts.LogLevel = Environment.GetEnvironmentVariable("LOG_LEVEL") ?? "Information";
 
             // Demo mode can be enabled via environment variable

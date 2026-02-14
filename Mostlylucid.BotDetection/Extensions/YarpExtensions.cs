@@ -97,7 +97,7 @@ public static class YarpExtensions
         httpContext.AddBotDetectionHeaders(addHeader);
 
         // Get aggregated evidence from context if available
-        if (httpContext.Items.TryGetValue("BotDetection.Evidence", out var evidenceObj) &&
+        if (httpContext.Items.TryGetValue(Middleware.BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
             evidenceObj is AggregatedEvidence evidence)
         {
             // Core detection results

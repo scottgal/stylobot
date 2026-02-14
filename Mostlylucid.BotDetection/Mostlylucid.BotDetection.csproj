@@ -27,6 +27,9 @@
     <PropertyGroup>
         <MinVerTagPrefix>botdetection-v</MinVerTagPrefix>
     </PropertyGroup>
+    <ItemGroup>
+        <InternalsVisibleTo Include="Mostlylucid.BotDetection.Test" />
+    </ItemGroup>
     <PropertyGroup>
         <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
     </PropertyGroup>

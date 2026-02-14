@@ -481,4 +481,87 @@ public static class SignalKeys
 
     /// <summary>String: Category of the AI bot (Training, Search, Assistant, ScrapingService)</summary>
     public const string AiScraperCategory = "aiscraper.category";
+
+    // ==========================================
+    // Cluster detection signals
+    // Set by ClusterContributor when signature belongs to a discovered cluster
+    // ==========================================
+
+    /// <summary>String: Cluster type ("product" or "network")</summary>
+    public const string ClusterType = "cluster.type";
+
+    /// <summary>String: Cluster identifier hash</summary>
+    public const string ClusterId = "cluster.id";
+
+    /// <summary>Int: Number of signatures in the cluster</summary>
+    public const string ClusterMemberCount = "cluster.member_count";
+
+    /// <summary>String: Auto-generated cluster behavior label (e.g., "Rapid-Scraper")</summary>
+    public const string ClusterLabel = "cluster.label";
+
+    /// <summary>Double: Average bot probability across cluster members</summary>
+    public const string ClusterAvgBotProbability = "cluster.avg_bot_probability";
+
+    /// <summary>Double: Average intra-cluster behavioral similarity</summary>
+    public const string ClusterAvgSimilarity = "cluster.avg_similarity";
+
+    /// <summary>Double: Temporal activity density of cluster members</summary>
+    public const string ClusterTemporalDensity = "cluster.temporal_density";
+
+    // ==========================================
+    // Spectral analysis signals
+    // Set by ClusterContributor from FFT-based spectral feature extraction
+    // ==========================================
+
+    /// <summary>Double: Shannon entropy of timing spectrum [0,1]. Low = bot-like, high = human-like</summary>
+    public const string ClusterSpectralEntropy = "cluster.spectral_entropy";
+
+    /// <summary>Double: Dominant frequency in timing spectrum (fraction of Nyquist)</summary>
+    public const string ClusterDominantFrequency = "cluster.dominant_frequency";
+
+    /// <summary>Double: Energy ratio at harmonic frequencies of dominant. High = timer with harmonics</summary>
+    public const string ClusterHarmonicRatio = "cluster.harmonic_ratio";
+
+    /// <summary>Double: Peak-to-average magnitude ratio [0,1]. High = sharp spectral line (bot)</summary>
+    public const string ClusterPeakToAvg = "cluster.peak_to_avg";
+
+    /// <summary>Double: Temporal correlation with other cluster members [0,1]. High = shared C2 timing</summary>
+    public const string ClusterTemporalCorrelation = "cluster.temporal_correlation";
+
+    // ==========================================
+    // Country reputation signals
+    // Set by ClusterContributor from CountryReputationTracker
+    // ==========================================
+
+    /// <summary>Double: Decayed bot rate for the visitor's country (0.0 to 1.0)</summary>
+    public const string GeoCountryBotRate = "geo.country_bot_rate";
+
+    /// <summary>Int: Country rank by bot rate (1-based, lower = more bots)</summary>
+    public const string GeoCountryBotRank = "geo.country_bot_rank";
+
+    // ==========================================
+    // Signature convergence signals
+    // Set by ClusterContributor when signature belongs to a converged family
+    // ==========================================
+
+    /// <summary>String: Family identifier for converged signatures</summary>
+    public const string ConvergenceFamilyId = "convergence.family_id";
+
+    /// <summary>Int: Number of signatures in the converged family</summary>
+    public const string ConvergenceFamilySize = "convergence.family_size";
+
+    /// <summary>String: Reason the family was formed (TemporalProximity, BehavioralSimilarity, HighBotProbabilityCluster)</summary>
+    public const string ConvergenceFormationReason = "convergence.formation_reason";
+
+    /// <summary>Double: Confidence score of the merge decision</summary>
+    public const string ConvergenceMergeConfidence = "convergence.merge_confidence";
+
+    /// <summary>Boolean: Whether family members are coherent (no split candidates)</summary>
+    public const string ConvergenceIsCoherent = "convergence.is_coherent";
+
+    /// <summary>Double: Average bot probability across all family members</summary>
+    public const string ConvergenceFamilyBotProbability = "convergence.family_bot_probability";
+
+    /// <summary>Int: Total request count across all family members</summary>
+    public const string ConvergenceFamilyRequestCount = "convergence.family_request_count";
 }

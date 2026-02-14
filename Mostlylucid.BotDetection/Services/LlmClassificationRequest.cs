@@ -27,6 +27,14 @@ public sealed record LlmClassificationRequest
     /// </summary>
     public bool IsNewSignature { get; init; }
 
+    /// <summary>
+    ///     Multi-vector signature dictionary for churn-resistant identity correlation.
+    ///     Keys: "primary" (IP+UA), "ip", "ua", "subnet" (IP/24).
+    ///     LLM results update reputation for ALL vectors so that
+    ///     IP changes (dynamic ISP) or UA changes (browser update) don't lose history.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? SignatureVectors { get; init; }
+
     /// <summary>Whether this is a drift-detection sample (low-risk sampled for verification)</summary>
     public bool IsDriftSample { get; init; }
 

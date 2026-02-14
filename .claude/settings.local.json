@@ -130,7 +130,21 @@
       "Bash(export StyloBotDashboard__PostgreSQL__AutoInitializeSchema=true)",
       "Bash(docker rm:*)",
       "Bash(Stop-Process -Id 416904 -Force)",
-      "Bash(Select-String -Pattern \"ollama\" -CaseSensitive:$false)"
+      "Bash(Select-String -Pattern \"ollama\" -CaseSensitive:$false)",
+      "WebFetch(domain:en.wikipedia.org)",
+      "Bash(gh repo view:*)",
+      "Bash(Select-String \"Passed|Failed|Skipped|Total\")",
+      "Bash(k6 version:*)",
+      "Bash(docker:*)",
+      "Bash(k6 run:*)",
+      "Bash(jb:*)",
+      "Bash(\"%USERPROFILE%\\\\.dotnet\\\\tools\\\\jb.exe\" --help)",
+      "Bash(\"C:/Users/scott/.dotnet/tools/jb.exe\" --help)",
+      "Bash(\"C:/Users/scott/.dotnet/tools/jb.exe\")",
+      "Bash(\"C:/Users/scott/.dotnet/tools/jb.exe\" help)",
+      "Bash(set \"StyloBotDashboard__PostgreSQL__ConnectionString=\")",
+      "Bash(set \"DATABASE_CONNECTION_STRING=\")",
+      "mcp__plugin_playwright_playwright__browser_run_code"
     ]
   }
 }

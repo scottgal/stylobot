@@ -343,6 +343,84 @@
             </div>
         </div>
 
+        <!-- Cross-Request Detectors -->
+        <div class="mb-20">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="badge badge-secondary badge-lg">Cross-Request</div>
+                <h2 class="text-xl lg:text-2xl font-bold">Network & Cluster Analysis</h2>
+                <div class="badge badge-success">Free Tier Included</div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Cluster Detection -->
+                <div class="card bg-base-200 hover:shadow-xl transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 bg-secondary/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-secondary">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-sm badge-outline">Background</div>
+                        </div>
+                        <h3 class="card-title text-xl mb-2">Bot Cluster Detection</h3>
+                        <p class="text-base-content/70 text-sm mb-4">
+                            Discovers coordinated bot networks by clustering confirmed bot signatures using label propagation and FFT spectral analysis. Identifies bot product families and botnet campaigns.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm">Label Propagation</div>
+                            <div class="badge badge-sm">FFT Analysis</div>
+                            <div class="badge badge-sm">Zero False Positives</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Country Reputation -->
+                <div class="card bg-base-200 hover:shadow-xl transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 bg-secondary/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-secondary">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-sm badge-outline">Real-Time</div>
+                        </div>
+                        <h3 class="card-title text-xl mb-2">Country Reputation</h3>
+                        <p class="text-base-content/70 text-sm mb-4">
+                            Tracks per-country bot detection rates with time decay. Countries naturally recover reputation when bot traffic stops. Provides supporting evidence for borderline decisions.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm">Time Decay</div>
+                            <div class="badge badge-sm">EMA Tracking</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Community Affinity -->
+                <div class="card bg-base-200 hover:shadow-xl transition-all">
+                    <div class="card-body">
+                        <div class="flex items-start justify-between mb-3">
+                            <div class="w-12 h-12 bg-secondary/20 rounded-lg flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-secondary">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+                                </svg>
+                            </div>
+                            <div class="badge badge-sm badge-outline">Background</div>
+                        </div>
+                        <h3 class="card-title text-xl mb-2">Community Affinity</h3>
+                        <p class="text-base-content/70 text-sm mb-4">
+                            When a signature shares infrastructure (ASN, country, datacenter) with known bot clusters, applies a proportional confidence boost. Increases resolution on borderline calls.
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <div class="badge badge-sm">Infrastructure Match</div>
+                            <div class="badge badge-sm">Proportional Boost</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Enterprise Detectors -->
         <div class="mb-20">
             <div class="flex items-center gap-3 mb-8">

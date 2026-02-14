@@ -66,3 +66,4 @@ Alpine.start();
 
 // Initialize HTMX
 (window as any).htmx = htmx;
+htmx.config.allowEval = false;

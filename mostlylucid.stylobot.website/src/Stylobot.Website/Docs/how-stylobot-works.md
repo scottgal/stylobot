@@ -70,6 +70,16 @@ This enables temporal pattern memory for:
 
 This is the core reason StyloBot can keep low-latency decisions while improving behavioral resolution over time.
 
+## Cross-request cluster detection
+
+Beyond per-signature behavioral analysis, StyloBot discovers coordinated bot activity across multiple signatures:
+
+- **Bot Product clusters**: Multiple signatures exhibiting the same behavioral fingerprint (same bot software running from different IPs)
+- **Bot Network clusters**: Temporally correlated signatures with moderate similarity (coordinated campaigns, botnets)
+- **Country reputation**: Per-country bot detection rates with time-decay, so a country's reputation recovers when bot traffic stops
+
+Cluster detection uses label propagation on a similarity graph with FFT-based spectral analysis to detect shared timing patterns (C2 heartbeats, cron schedules). Only confirmed bot signatures enter clustering, ensuring zero false positives on human traffic.
+
 ## Confidence vs probability
 
 - High probability + high confidence: strong basis for challenge/block.

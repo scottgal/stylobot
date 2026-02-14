@@ -30,6 +30,8 @@ Recommended deep dives:
 - [Client-Side Fingerprinting](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/client-side-fingerprinting.md)
 - [Version Age Detection](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/version-age-detection.md)
 - [AI Detection](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/ai-detection.md)
+- [Cluster Detection & Country Reputation](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/cluster-detection.md)
+- [Training Data API](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/training-data-api.md)
 
 ## Gateway docs
 

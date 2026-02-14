@@ -234,6 +234,8 @@ public class BlackboardOrchestrator
 
     // Circuit breaker state per detector
     private readonly ConcurrentDictionary<string, CircuitState> _circuitStates = new();
+    private readonly BotClusterService? _clusterService;
+    private readonly CountryReputationTracker? _countryTracker;
     private readonly IEnumerable<IContributingDetector> _detectors;
     private readonly ILearningEventBus? _learningBus;
     private readonly LlmClassificationCoordinator? _llmCoordinator;
@@ -256,7 +258,9 @@ public class BlackboardOrchestrator
         IPolicyRegistry? policyRegistry = null,
         IPolicyEvaluator? policyEvaluator = null,
         SignatureCoordinator? signatureCoordinator = null,
-        LlmClassificationCoordinator? llmCoordinator = null)
+        LlmClassificationCoordinator? llmCoordinator = null,
+        CountryReputationTracker? countryTracker = null,
+        BotClusterService? clusterService = null)
     {
         _logger = logger;
         _fullOptions = options.Value;
@@ -268,6 +272,8 @@ public class BlackboardOrchestrator
         _policyEvaluator = policyEvaluator;
         _signatureCoordinator = signatureCoordinator;
         _llmCoordinator = llmCoordinator;
+        _countryTracker = countryTracker;
+        _clusterService = clusterService;
     }
 
     /// <summary>
@@ -559,6 +565,26 @@ public class BlackboardOrchestrator
             // Publish learning event
             PublishLearningEvent(result, requestId, stopwatch.Elapsed);
 
+            // Extract geo data from signals for country tracking and cluster analysis
+            var geoCountryCode = signals.TryGetValue("geo.country_code", out var ccVal) ? ccVal as string : null;
+            var geoCountryName = signals.TryGetValue("geo.country_name", out var cnVal) ? cnVal as string : null;
+            var geoAsn = signals.TryGetValue("request.ip.asn", out var asnVal) ? asnVal as string : null;
+            var geoIsDatacenter = signals.TryGetValue("request.ip.is_datacenter", out var dcVal) && dcVal is true;
+
+            // Feed country reputation tracker
+            if (_countryTracker != null && !string.IsNullOrEmpty(geoCountryCode))
+            {
+                _countryTracker.RecordDetection(
+                    geoCountryCode,
+                    geoCountryName ?? geoCountryCode,
+                    result.BotProbability > 0.5,
+                    result.BotProbability);
+            }
+
+            // Notify cluster service of bot detections to trigger early clustering
+            if (_clusterService != null && result.BotProbability > 0.5)
+                _clusterService.NotifyBotDetected();
+
             // Record request in cross-request signature coordinator
             if (_signatureCoordinator != null)
                 try
@@ -566,7 +592,12 @@ public class BlackboardOrchestrator
                     var signature = ComputeSignatureHash(httpContext);
                     var path = httpContext.Request.Path.ToString();
 
+                    // Compute IP hash for convergence analysis (detects UA rotation from same IP)
+                    var clientIp = httpContext.Connection.RemoteIpAddress?.ToString();
+                    var ipHash = !string.IsNullOrEmpty(clientIp) ? _piiHasher.HashIp(clientIp) : null;
+
                     // Fire-and-forget (don't await to avoid blocking request)
+                    // Pass geo data for cluster analysis
                     _ = _signatureCoordinator.RecordRequestAsync(
                         signature,
                         requestId,
@@ -574,7 +605,11 @@ public class BlackboardOrchestrator
                         result.BotProbability,
                         signals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
                         result.ContributingDetectors.ToHashSet(),
-                        cancellationToken);
+                        cancellationToken,
+                        countryCode: geoCountryCode,
+                        asn: geoAsn,
+                        isDatacenter: geoIsDatacenter,
+                        ipHash: ipHash);
                 }
                 catch (Exception ex)
                 {
@@ -956,10 +991,21 @@ public class BlackboardOrchestrator
             if (enqueueReason == null)
                 return;
 
-            // Compute signature for the request
-            var signature = ComputeSignatureHash(httpContext);
+            // Compute multi-vector signatures for churn-resistant identity
+            var clientIp = httpContext.Connection.RemoteIpAddress?.ToString();
+            var userAgent = httpContext.Request.Headers.UserAgent.ToString();
+            var signature = _piiHasher.ComputeSignature(clientIp, userAgent);
             if (string.IsNullOrEmpty(signature))
                 return;
+
+            var signatureVectors = new Dictionary<string, string> { ["primary"] = signature };
+            if (!string.IsNullOrEmpty(clientIp))
+            {
+                signatureVectors["ip"] = _piiHasher.HashIp(clientIp);
+                signatureVectors["subnet"] = _piiHasher.HashIpSubnet(clientIp);
+            }
+            if (!string.IsNullOrEmpty(userAgent))
+                signatureVectors["ua"] = _piiHasher.HashUserAgent(userAgent);
 
             // Build compact request info snapshot
             var requestInfo = BuildSnapshotRequestInfo(httpContext, result);
@@ -988,6 +1034,7 @@ public class BlackboardOrchestrator
                 RiskBand = result.RiskBand.ToString(),
                 Action = result.PolicyAction?.ToString() ?? result.TriggeredActionPolicyName ?? "Allow",
                 IsNewSignature = isNew,
+                SignatureVectors = signatureVectors,
                 IsDriftSample = isDriftSample,
                 IsConfirmationSample = isConfirmationSample,
                 EnqueueReason = enqueueReason

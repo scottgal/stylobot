@@ -2,6 +2,7 @@
 
 @{
     ViewData["Title"] = Model.Title;
+    var cspNonce = Context.Items["CspNonce"]?.ToString() ?? string.Empty;
 }
 
 <style>
@@ -46,7 +47,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
-    <script>
+    <script nonce="@cspNonce">
         document.addEventListener("DOMContentLoaded", function () {
             document.querySelectorAll("pre code.language-mermaid").forEach(function (codeBlock) {
                 const pre = codeBlock.closest("pre");

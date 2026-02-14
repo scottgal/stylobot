@@ -1,0 +1,40 @@
+﻿@using Mostlylucid.BotDetection.Services
+@model IReadOnlyList<CountryReputation>
+
+@if (Model.Count > 0)
+{
+    <div class="space-y-1">
+        @foreach (var country in Model)
+        {
+            var pct = (int)(country.BotRate * 100);
+            var barColor = pct >= 70 ? "bg-error" : pct >= 40 ? "bg-warning" : "bg-info";
+            <div class="flex items-center gap-2 text-xs">
+                <span class="w-6 text-center" title="@country.CountryName">@CountryCodeToFlag(country.CountryCode)</span>
+                <span class="w-8 font-mono text-base-content/70">@country.CountryCode</span>
+                <div class="flex-1 bg-base-200 rounded-full h-2 overflow-hidden">
+                    <div class="h-full rounded-full @barColor transition-all duration-500"
+                         style="width: @(pct)%"></div>
+                </div>
+                <span class="w-10 text-right font-mono font-bold text-base-content/80">@(pct)%</span>
+                <span class="w-12 text-right text-base-content/50">@country.RawTotalCount</span>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="text-xs text-base-content/30 italic">No country data yet</div>
+}
+
+@functions {
+    static string CountryCodeToFlag(string code)
+    {
+        if (string.IsNullOrEmpty(code) || code.Length != 2) return code;
+        // Convert country code to flag emoji using regional indicator symbols
+        var upper = code.ToUpperInvariant();
+        return string.Concat(
+            char.ConvertFromUtf32(0x1F1E6 + (upper[0] - 'A')),
+            char.ConvertFromUtf32(0x1F1E6 + (upper[1] - 'A'))
+        );
+    }
+}

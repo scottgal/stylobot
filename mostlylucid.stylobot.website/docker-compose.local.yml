@@ -1,0 +1,222 @@
+# ============================================================
+# Stylobot Website - Local Variant with Cloudflare Tunnel
+# ============================================================
+#
+# Architecture:
+#   Internet → Cloudflare Tunnel → Caddy → Gateway (YARP bot detection) → Website
+#                                        → Website (direct for SignalR hub)
+#
+# Usage:
+#   1. Copy .env.example to .env and fill in values
+#   2. Set CLOUDFLARE_TUNNEL_TOKEN in .env
+#   3. docker compose -f docker-compose.local.yml up -d
+#   4. Visit your Cloudflare Tunnel hostname
+#
+# The Caddyfile routes:
+#   /_stylobot/hub*  → website:8080  (SignalR, bypasses YARP)
+#   everything else  → gateway:8080  (bot detection layer)
+# ============================================================
+
+services:
+  # ----------------------------------------------------------
+  # Cloudflare Tunnel - public entrypoint before Caddy
+  # ----------------------------------------------------------
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: stylobot-cloudflared
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    depends_on:
+      - caddy
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # ----------------------------------------------------------
+  # Caddy - TLS termination + reverse proxy
+  # ----------------------------------------------------------
+  caddy:
+    image: caddy:latest
+    container_name: stylobot-caddy
+    expose:
+      - "80"
+      - "443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      - caddy-logs:/var/log/caddy
+    depends_on:
+      - gateway
+      - website
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # ----------------------------------------------------------
+  # YARP Gateway - Bot detection layer
+  # All non-SignalR traffic goes through here
+  # ----------------------------------------------------------
+  gateway:
+    image: scottgal/stylobot-gateway:latest
+    container_name: stylobot-gateway
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      # Route all traffic to the website backend
+      - DEFAULT_UPSTREAM=http://website:8080
+      # PostgreSQL for dashboard persistence
+      - StyloBotDashboard__PostgreSQL__ConnectionString=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      - StyloBotDashboard__PostgreSQL__EnableTimescaleDB=true
+      - StyloBotDashboard__PostgreSQL__AutoInitializeSchema=true
+      - StyloBotDashboard__PostgreSQL__RetentionDays=90
+      - StyloBotDashboard__PostgreSQL__CompressionAfterDays=7
+      # Ollama LLM escalation for uncertain bot classifications
+      - BotDetection__EnableLlmDetection=true
+      - BotDetection__AiDetection__Provider=Ollama
+      - BotDetection__AiDetection__Ollama__Endpoint=http://ollama:11434
+      - BotDetection__AiDetection__Ollama__Model=gemma3:1b
+      - BotDetection__AiDetection__TimeoutMs=30000
+    expose:
+      - "8080"
+    volumes:
+      - bot-detection-data:/app/data
+      - gateway-learning:/app/yarp-learning-data
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      website:
+        condition: service_started
+      ollama:
+        condition: service_healthy
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # ----------------------------------------------------------
+  # Website - ASP.NET Core 10 application
+  # ----------------------------------------------------------
+  website:
+    image: scottgal/stylobot-site:latest
+    container_name: stylobot-website
+    env_file:
+      - .env
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      # Trust upstream detection from YARP gateway (skip re-running detectors)
+      - BOTDETECTION_TRUST_UPSTREAM=true
+      # PostgreSQL for dashboard persistence (MUST match gateway config)
+      - StyloBotDashboard__PostgreSQL__ConnectionString=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      - StyloBotDashboard__PostgreSQL__EnableTimescaleDB=true
+      - StyloBotDashboard__PostgreSQL__AutoInitializeSchema=true
+      - StyloBotDashboard__PostgreSQL__RetentionDays=90
+    expose:
+      - "8080"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    volumes:
+      - bot-detection-data:/app/data
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  # ----------------------------------------------------------
+  # Ollama - Local LLM for AI bot classification
+  # ----------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: stylobot-ollama
+    volumes:
+      - ollama-models:/root/.ollama
+    expose:
+      - "11434"
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull gemma3:1b && wait"]
+
+  # ----------------------------------------------------------
+  # TimescaleDB - Dashboard event persistence
+  # ----------------------------------------------------------
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: stylobot-timescale
+    environment:
+      - POSTGRES_DB=stylobot
+      - POSTGRES_USER=stylobot
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      - TIMESCALEDB_TELEMETRY=off
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stylobot -d stylobot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+    # No external port - only accessible from other containers
+
+  # ----------------------------------------------------------
+  # Watchtower - Auto-update containers from Docker Hub
+  # ----------------------------------------------------------
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: stylobot-watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_LABEL_ENABLE=true
+      - WATCHTOWER_POLL_INTERVAL=21600
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+
+networks:
+  stylobot-network:
+    driver: bridge
+
+volumes:
+  caddy-data:
+    driver: local
+  caddy-config:
+    driver: local
+  caddy-logs:
+    driver: local
+  bot-detection-data:
+    driver: local
+  gateway-learning:
+    driver: local
+  ollama-models:
+    driver: local
+  timescale-data:
+    driver: local

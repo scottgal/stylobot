@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Stylobot.Gateway.Configuration;
 using Stylobot.Gateway.Services;
@@ -31,7 +32,10 @@ public static class AdminEndpoints
 
     private static void MapAdminEndpointsInternal(IEndpointRouteBuilder app)
     {
-        var adminPath = Environment.GetEnvironmentVariable("ADMIN_BASE_PATH") ?? "/admin";
+        var gatewayOptions = app.ServiceProvider.GetService<IOptions<GatewayOptions>>()?.Value;
+        var adminPath = gatewayOptions?.AdminBasePath
+                        ?? Environment.GetEnvironmentVariable("ADMIN_BASE_PATH")
+                        ?? "/admin";
 
         var group = app.MapGroup(adminPath)
             .WithTags("Admin");

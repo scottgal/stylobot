@@ -11,6 +11,7 @@ public class AdminSecretMiddleware
     private readonly RequestDelegate _next;
     private readonly string _adminBasePath;
     private readonly string? _adminSecret;
+    private readonly bool _allowInsecureAdminAccess;
     private readonly ILogger<AdminSecretMiddleware> _logger;
 
     public AdminSecretMiddleware(
@@ -21,6 +22,7 @@ public class AdminSecretMiddleware
         _next = next;
         _adminBasePath = options.Value.AdminBasePath;
         _adminSecret = options.Value.AdminSecret;
+        _allowInsecureAdminAccess = options.Value.AllowInsecureAdminAccess;
         _logger = logger;
     }
 
@@ -33,10 +35,28 @@ public class AdminSecretMiddleware
             return;
         }
 
-        // No secret configured = allow all admin access
+        // No secret configured = deny by default (fail closed)
         if (string.IsNullOrEmpty(_adminSecret))
         {
-            await _next(context);
+            if (_allowInsecureAdminAccess)
+            {
+                _logger.LogWarning(
+                    "Admin endpoints are running without ADMIN_SECRET because ADMIN_ALLOW_INSECURE=true. " +
+                    "Do not use this mode in production.");
+                await _next(context);
+                return;
+            }
+
+            _logger.LogError(
+                "Admin endpoint access denied: ADMIN_SECRET is not configured. " +
+                "Set ADMIN_SECRET or explicitly set ADMIN_ALLOW_INSECURE=true for non-production environments.");
+            context.Response.StatusCode = 503;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                error = "admin_unavailable",
+                message = "Admin API is disabled until ADMIN_SECRET is configured"
+            });
             return;
         }
 

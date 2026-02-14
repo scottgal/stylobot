@@ -5,6 +5,7 @@
     var currentUrl = siteUrl + Context.Request.Path;
     var canonicalUrl = !string.IsNullOrWhiteSpace(Model.Canonical) ? Model.Canonical : currentUrl;
     var ogUrl = !string.IsNullOrWhiteSpace(Model.OgUrl) ? Model.OgUrl : currentUrl;
+    var cspNonce = Context.Items["CspNonce"]?.ToString() ?? string.Empty;
 
     // Ensure absolute URLs for images
     var ogImage = Model.OgImage.StartsWith("http") ? Model.OgImage : siteUrl + Model.OgImage;
@@ -67,7 +68,7 @@
 @if (!string.IsNullOrWhiteSpace(Model.JsonLd))
 {
     <!-- Structured Data (JSON-LD) -->
-    <script type="application/ld+json">
+    <script type="application/ld+json" nonce="@cspNonce">
     @Html.Raw(Model.JsonLd)
     </script>
 }

@@ -1,0 +1,27 @@
+﻿@using Mostlylucid.BotDetection.Services
+@model IReadOnlyList<BotCluster>
+
+@if (Model.Count > 0)
+{
+    <div class="space-y-2">
+        @foreach (var cluster in Model.OrderByDescending(c => c.AverageBotProbability))
+        {
+            var typeBadge = cluster.Type switch
+            {
+                BotClusterType.BotProduct => ("badge-error", "Product"),
+                BotClusterType.BotNetwork => ("badge-warning", "Network"),
+                _ => ("badge-ghost", "Unknown")
+            };
+            <div class="flex items-center gap-2 text-xs p-1.5 bg-base-200 rounded">
+                <span class="badge @typeBadge.Item1 badge-xs">@typeBadge.Item2</span>
+                <span class="font-medium truncate flex-1" title="@cluster.ClusterId">@(cluster.Label ?? cluster.ClusterId[..Math.Min(16, cluster.ClusterId.Length)])</span>
+                <span class="badge badge-ghost badge-xs">@cluster.MemberCount members</span>
+                <span class="font-mono text-base-content/50">@((int)(cluster.AverageBotProbability * 100))%</span>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <div class="text-xs text-base-content/30 italic">No clusters detected yet</div>
+}

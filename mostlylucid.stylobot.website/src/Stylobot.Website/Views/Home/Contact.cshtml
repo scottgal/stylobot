@@ -2,6 +2,7 @@
 @{
     ViewData["Title"] = "Contact Us";
     var web3FormsKey = Configuration["Web3Forms:AccessKey"];
+    var cspNonce = Context.Items["CspNonce"]?.ToString() ?? string.Empty;
 }
 
 <section class="marketing-hero">
@@ -140,7 +141,7 @@
     </div>
 </section>
 
-<script>
+<script nonce="@cspNonce">
     // Show success message if redirected with ?success=true
     if (window.location.search.includes('success=true')) {
         const successMessage = document.getElementById('success-message');
@@ -149,6 +150,5 @@
         successMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 </script>
-
 
 

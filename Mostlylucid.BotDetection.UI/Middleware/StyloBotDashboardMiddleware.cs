@@ -116,6 +116,9 @@ public class StyloBotDashboardMiddleware
     private async Task ServeDashboardPageAsync(HttpContext context)
     {
         context.Response.ContentType = "text/html";
+        var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj)
+            ? nonceObj?.ToString() ?? string.Empty
+            : string.Empty;
 
         // Extract visitor's own detection evidence (set by BotDetection middleware)
         string yourDetectionJson = "null";
@@ -150,7 +153,7 @@ public class StyloBotDashboardMiddleware
                 new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
         }
 
-        var html = DashboardHtmlTemplate.GetHtml(_options, yourDetectionJson);
+        var html = DashboardHtmlTemplate.GetHtml(_options, yourDetectionJson, cspNonce);
         await context.Response.WriteAsync(html);
     }
 
@@ -166,7 +169,7 @@ public class StyloBotDashboardMiddleware
     private async Task ServeSignaturesApiAsync(HttpContext context)
     {
         var limitStr = context.Request.Query["limit"].FirstOrDefault();
-        var limit = int.TryParse(limitStr, out var l) ? l : 100;
+        var limit = int.TryParse(limitStr, out var l) ? Math.Clamp(l, 1, 1000) : 100;
 
         var signatures = await _eventStore.GetSignaturesAsync(limit);
 
@@ -208,10 +211,15 @@ public class StyloBotDashboardMiddleware
         }
         catch (Exception ex)
         {
+            _ = ex; // Preserve no exception detail leakage to clients.
             context.Response.StatusCode = 500;
             context.Response.ContentType = "application/json";
             await JsonSerializer.SerializeAsync(context.Response.Body,
-                new { error = ex.Message, type = ex.GetType().Name, inner = ex.InnerException?.Message });
+                new
+                {
+                    error = "Failed to retrieve time series data",
+                    requestId = context.TraceIdentifier
+                });
         }
     }
 
@@ -260,10 +268,10 @@ public class StyloBotDashboardMiddleware
             filter = filter with { HighRiskOnly = highRisk };
 
         if (int.TryParse(query["limit"].FirstOrDefault(), out var limit))
-            filter = filter with { Limit = limit };
+            filter = filter with { Limit = Math.Clamp(limit, 1, 1000) };
 
         if (int.TryParse(query["offset"].FirstOrDefault(), out var offset))
-            filter = filter with { Offset = offset };
+            filter = filter with { Offset = Math.Max(0, offset) };
 
         return filter;
     }
@@ -299,7 +307,7 @@ public class StyloBotDashboardMiddleware
 /// </summary>
 internal static class DashboardHtmlTemplate
 {
-    public static string GetHtml(StyloBotDashboardOptions options, string yourDetectionJson = "null")
+    public static string GetHtml(StyloBotDashboardOptions options, string yourDetectionJson = "null", string cspNonce = "")
     {
         return $@"<!DOCTYPE html>
 <html lang=""en"" data-theme=""light"">
@@ -307,7 +315,7 @@ internal static class DashboardHtmlTemplate
     <meta charset=""UTF-8"">
     <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
     <title>StyloBot Detection Dashboard</title>
-    <script>
+    <script nonce=""{cspNonce}"">
         (function() {{
             try {{
                 const saved = localStorage.getItem('sb-theme');
@@ -322,7 +330,6 @@ internal static class DashboardHtmlTemplate
 
     <!-- Tailwind + DaisyUI -->
     <link href=""https://cdn.jsdelivr.net/npm/daisyui@4.6.0/dist/full.min.css"" rel=""stylesheet"" type=""text/css"" />
-    <script src=""https://cdn.tailwindcss.com""></script>
 
     <!-- Alpine.js -->
     <script defer src=""https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js""></script>
@@ -336,7 +343,7 @@ internal static class DashboardHtmlTemplate
     <!-- Tabulator (native themes) -->
     <link id=""tabulator-light-css"" href=""https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator.min.css"" rel=""stylesheet"">
     <link id=""tabulator-dark-css"" href=""https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator_midnight.min.css"" rel=""stylesheet"">
-    <script>
+    <script nonce=""{cspNonce}"">
         (function() {{
             const mode = document.documentElement.getAttribute('data-theme') || 'light';
             const light = document.getElementById('tabulator-light-css');
@@ -585,7 +592,7 @@ internal static class DashboardHtmlTemplate
                 </div>
             </div>
         </template>
-        <script type=""application/json"" id=""your-detection-data"">{yourDetectionJson}</script>
+        <script type=""application/json"" id=""your-detection-data"" nonce=""{cspNonce}"">{yourDetectionJson}</script>
 
         <!-- Summary Cards -->
         <div class=""grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6"">
@@ -802,7 +809,7 @@ internal static class DashboardHtmlTemplate
         </div>
     </div>
 
-    <script>
+    <script nonce=""{cspNonce}"">
         // Generate a consistent HSL color from a signature hash for visual correlation
         function sigColor(sig) {{
             if (!sig) return '#6b7280';

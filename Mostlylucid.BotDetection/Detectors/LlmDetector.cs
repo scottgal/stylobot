@@ -350,7 +350,13 @@ public partial class LlmDetector : IDetector, IDisposable
             // Replace placeholder with actual request info
             var prompt = promptTemplate.Replace("{REQUEST_INFO}", requestInfo);
 
-            var chat = new Chat(ollama);
+            var chat = new Chat(ollama)
+            {
+                Options = new OllamaSharp.Models.RequestOptions
+                {
+                    NumThread = _options.AiDetection.Ollama.NumThreads
+                }
+            };
             var responseBuilder = new StringBuilder();
 
             await foreach (var token in chat.SendAsync(prompt, cts.Token))

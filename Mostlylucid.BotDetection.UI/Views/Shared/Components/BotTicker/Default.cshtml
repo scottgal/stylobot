@@ -1,6 +1,7 @@
 @* Bot Ticker - Real-time detection feed using SignalR + Alpine.js + HTMX *@
 @{
     var hubPath = "/_stylobot/hub";
+    var cspNonce = ViewContext.HttpContext.Items["CspNonce"]?.ToString() ?? string.Empty;
 }
 
 <div class="stylobot-ticker"
@@ -71,7 +72,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="@cspNonce">
 document.addEventListener('alpine:init', () => {
     // Normalize PascalCase API keys to camelCase
     function toCamel(obj) {

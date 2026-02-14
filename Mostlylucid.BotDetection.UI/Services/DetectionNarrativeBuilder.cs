@@ -36,7 +36,9 @@ public static class DetectionNarrativeBuilder
         ["Llm"] = "LLM analysis",
         ["AI"] = "AI classification",
         ["AiScraper"] = "AI scraper detection",
-        ["TimescaleReputation"] = "historical reputation"
+        ["TimescaleReputation"] = "historical reputation",
+        ["ClusterContributor"] = "bot cluster detection",
+        ["ConvergedFamily"] = "signature convergence"
     };
 
     private static readonly Dictionary<string, string> DetectorCategories = new(StringComparer.OrdinalIgnoreCase)
@@ -67,7 +69,9 @@ public static class DetectionNarrativeBuilder
         ["Llm"] = "AI",
         ["AI"] = "AI",
         ["AiScraper"] = "AI",
-        ["TimescaleReputation"] = "Reputation"
+        ["TimescaleReputation"] = "Reputation",
+        ["ClusterContributor"] = "Cross-Request",
+        ["ConvergedFamily"] = "Cross-Request"
     };
 
     private static readonly Dictionary<string, string> BotTypeFriendlyNames = new(StringComparer.OrdinalIgnoreCase)

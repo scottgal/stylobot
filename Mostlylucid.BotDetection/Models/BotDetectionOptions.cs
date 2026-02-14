@@ -369,6 +369,22 @@ public class BotDetectionOptions
     /// </summary>
     public ResponseCoordinatorOptions ResponseCoordinator { get; set; } = new();
 
+    /// <summary>
+    ///     Configuration for bot cluster detection (label propagation clustering).
+    /// </summary>
+    public ClusterOptions Cluster { get; set; } = new();
+
+    /// <summary>
+    ///     Configuration for per-country bot rate tracking with decay.
+    /// </summary>
+    public CountryReputationOptions CountryReputation { get; set; } = new();
+
+    /// <summary>
+    ///     Configuration for signature convergence (merge/split families).
+    ///     Detects IP-level relationships across signatures and groups them.
+    /// </summary>
+    public SignatureConvergenceOptions SignatureConvergence { get; set; } = new();
+
     // ==========================================
     // Pattern Learning Settings (Legacy - use Reputation instead)
     // ==========================================
@@ -547,6 +563,14 @@ public class BotDetectionOptions
     ///     Default: true
     /// </summary>
     public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    ///     When true, trust upstream detection headers (X-Bot-Detected, X-Bot-Confidence, etc.)
+    ///     from a reverse proxy like YARP. Skips re-running the full detector pipeline.
+    ///     Background learning (signature tracking, LLM enqueue) still runs using forwarded results.
+    ///     Default: false (gateway keeps this off; downstream website sets it to true).
+    /// </summary>
+    public bool TrustUpstreamDetection { get; set; }
 
     // ==========================================
     // Response Headers Configuration
@@ -2829,6 +2853,48 @@ public class DataSourceConfig
     ///     </para>
     /// </remarks>
     public ListUpdateScheduleOptions? UpdateSchedule { get; set; }
+}
+
+/// <summary>
+///     Configuration for bot cluster detection via label propagation.
+/// </summary>
+public class ClusterOptions
+{
+    /// <summary>How often to re-run clustering (seconds). Default: 30</summary>
+    public int ClusterIntervalSeconds { get; set; } = 30;
+
+    /// <summary>Minimum pairwise similarity to create an edge. Default: 0.75</summary>
+    public double SimilarityThreshold { get; set; } = 0.75;
+
+    /// <summary>Minimum cluster size to report. Default: 3</summary>
+    public int MinClusterSize { get; set; } = 3;
+
+    /// <summary>Max label propagation iterations. Default: 10</summary>
+    public int MaxIterations { get; set; } = 10;
+
+    /// <summary>Behavioral similarity threshold for "Bot Product" classification. Default: 0.85</summary>
+    public double ProductSimilarityThreshold { get; set; } = 0.85;
+
+    /// <summary>Temporal density threshold for "Bot Network" classification. Default: 0.6</summary>
+    public double NetworkTemporalDensityThreshold { get; set; } = 0.6;
+
+    /// <summary>Minimum avg bot probability for a signature to enter clustering. Default: 0.5</summary>
+    public double MinBotProbabilityForClustering { get; set; } = 0.5;
+
+    /// <summary>Number of new bot detections that trigger an early clustering run. Default: 20</summary>
+    public int MinBotDetectionsToTrigger { get; set; } = 20;
+}
+
+/// <summary>
+///     Configuration for per-country bot rate tracking with exponential decay.
+/// </summary>
+public class CountryReputationOptions
+{
+    /// <summary>Decay time constant in hours. Default: 24 (halves in ~17h)</summary>
+    public double DecayTauHours { get; set; } = 24;
+
+    /// <summary>Minimum total detections before country rate is meaningful. Default: 10</summary>
+    public int MinSampleSize { get; set; } = 10;
 }
 
 /// <summary>

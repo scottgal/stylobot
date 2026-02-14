@@ -5,6 +5,7 @@
 @{
     var hubPath = "/_stylobot/hub";
     var initialSignature = Model.Signatures?.PrimarySignature ?? "";
+    var cspNonce = ViewContext.HttpContext.Items["CspNonce"]?.ToString() ?? string.Empty;
 }
 
 <div class="stylobot-header"
@@ -108,7 +109,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="@cspNonce">
 document.addEventListener('alpine:init', () => {
     // PascalCase to camelCase helper
     function toCamel(obj) {

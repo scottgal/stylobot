@@ -440,6 +440,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, MultiLayerCorrelationContributor>();
         // Behavioral waveform analysis - analyzes patterns across multiple requests
         services.AddSingleton<IContributingDetector, BehavioralWaveformContributor>();
+        // Bot cluster detection - discovers bot products and coordinated campaigns
+        services.TryAddSingleton<CountryReputationTracker>();
+        services.TryAddSingleton<BotClusterService>();
+        services.AddHostedService(sp => sp.GetRequiredService<BotClusterService>());
+        // Signature convergence - merges/splits related signatures (same IP, rotating UAs)
+        services.TryAddSingleton<SignatureConvergenceService>();
+        services.AddHostedService(sp => sp.GetRequiredService<SignatureConvergenceService>());
+        services.AddSingleton<IContributingDetector, ClusterContributor>();
         // Similarity search - runs after Heuristic (priority 60) to leverage feature extraction
         services.AddSingleton<IContributingDetector, SimilarityContributor>();
         // AI/LLM detectors (run when escalation triggered or in demo mode)

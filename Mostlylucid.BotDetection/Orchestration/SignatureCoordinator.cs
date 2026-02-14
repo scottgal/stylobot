@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
@@ -108,6 +109,11 @@ public record SignatureBehavior
     public required double AverageBotProbability { get; init; }
     public required double AberrationScore { get; init; }
     public required bool IsAberrant { get; init; }
+
+    // Geo context for cluster analysis
+    public string? CountryCode { get; init; }
+    public string? Asn { get; init; }
+    public bool IsDatacenter { get; init; }
 }
 
 /// <summary>
@@ -139,6 +145,16 @@ public readonly record struct SignatureErrorSignal(
     DateTime Timestamp);
 
 /// <summary>
+///     Geo context for a signature, used by cluster analysis.
+/// </summary>
+internal record SignatureGeoContext
+{
+    public string? CountryCode { get; init; }
+    public string? Asn { get; init; }
+    public bool IsDatacenter { get; init; }
+}
+
+/// <summary>
 ///     Request to update a signature with a new request.
 ///     Processed sequentially per signature via KeyedSequentialAtom.
 /// </summary>
@@ -146,6 +162,9 @@ internal record SignatureUpdateRequest
 {
     public required string Signature { get; init; }
     public required SignatureRequest Request { get; init; }
+    public string? CountryCode { get; init; }
+    public string? Asn { get; init; }
+    public bool IsDatacenter { get; init; }
 }
 
 /// <summary>
@@ -165,6 +184,18 @@ public class SignatureCoordinator : IAsyncDisposable
 
     // Per-signature sequential updates (ephemeral.complete pattern)
     private readonly KeyedSequentialAtom<SignatureUpdateRequest, string> _updateAtom;
+
+    // Tracks known signatures for enumeration (SlidingCacheAtom doesn't expose keys)
+    private readonly ConcurrentDictionary<string, SignatureGeoContext> _knownSignatures = new();
+
+    // IP hash -> set of primary signatures (for convergence analysis)
+    private readonly ConcurrentDictionary<string, ConcurrentDictionary<string, byte>> _ipIndex = new();
+
+    // Signature -> FamilyId reverse lookup
+    private readonly ConcurrentDictionary<string, string> _signatureToFamily = new();
+
+    // FamilyId -> SignatureFamily
+    private readonly ConcurrentDictionary<string, SignatureFamily> _families = new();
 
     public SignatureCoordinator(
         ILogger<SignatureCoordinator> logger,
@@ -235,7 +266,11 @@ public class SignatureCoordinator : IAsyncDisposable
         double botProbability,
         IReadOnlyDictionary<string, object> signals,
         HashSet<string> detectorsRan,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string? countryCode = null,
+        string? asn = null,
+        bool isDatacenter = false,
+        string? ipHash = null)
     {
         // Create request record
         var request = new SignatureRequest
@@ -249,10 +284,35 @@ public class SignatureCoordinator : IAsyncDisposable
             Escalated = false
         };
 
+        // Track geo context for cluster analysis
+        _knownSignatures.AddOrUpdate(
+            signature,
+            _ => new SignatureGeoContext { CountryCode = countryCode, Asn = asn, IsDatacenter = isDatacenter },
+            (_, existing) => new SignatureGeoContext
+            {
+                CountryCode = countryCode ?? existing.CountryCode,
+                Asn = asn ?? existing.Asn,
+                IsDatacenter = isDatacenter || existing.IsDatacenter
+            });
+
+        // Index IP hash -> signature for convergence analysis
+        if (!string.IsNullOrEmpty(ipHash))
+        {
+            var set = _ipIndex.GetOrAdd(ipHash, _ => new ConcurrentDictionary<string, byte>());
+            set.TryAdd(signature, 0);
+        }
+
         // Enqueue sequential update via KeyedSequentialAtom
         // This ensures updates to the same signature are processed in order
         await _updateAtom.EnqueueAsync(
-            new SignatureUpdateRequest { Signature = signature, Request = request },
+            new SignatureUpdateRequest
+            {
+                Signature = signature,
+                Request = request,
+                CountryCode = countryCode,
+                Asn = asn,
+                IsDatacenter = isDatacenter
+            },
             cancellationToken);
     }
 
@@ -334,6 +394,220 @@ public class SignatureCoordinator : IAsyncDisposable
     public IReadOnlyList<SignalEvent> GetAberrationSignals()
     {
         return _signals.Sense(e => e.Signal.StartsWith("signature.aberration."));
+    }
+
+    /// <summary>
+    ///     Get the IP hash index for convergence analysis.
+    ///     Returns IP hash -> list of signatures sharing that IP.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> GetIpIndex()
+    {
+        var result = new Dictionary<string, IReadOnlyList<string>>();
+        foreach (var (ipHash, sigSet) in _ipIndex)
+        {
+            var sigs = sigSet.Keys.ToList();
+            if (sigs.Count > 0)
+                result[ipHash] = sigs;
+        }
+        return result;
+    }
+
+    /// <summary>
+    ///     Register a signature family atomically.
+    /// </summary>
+    public void RegisterFamily(SignatureFamily family)
+    {
+        _families[family.FamilyId] = family;
+        foreach (var sig in family.MemberSignatures.Keys)
+            _signatureToFamily[sig] = family.FamilyId;
+    }
+
+    /// <summary>
+    ///     Remove a family and clean up reverse index.
+    /// </summary>
+    public void RemoveFamily(string familyId)
+    {
+        if (_families.TryRemove(familyId, out var family))
+        {
+            foreach (var sig in family.MemberSignatures.Keys)
+                _signatureToFamily.TryRemove(sig, out _);
+        }
+    }
+
+    /// <summary>
+    ///     Remove a single signature from the family reverse index.
+    ///     Called after a signature is split from a family.
+    /// </summary>
+    public void RemoveSignatureFromFamilyIndex(string signature)
+    {
+        _signatureToFamily.TryRemove(signature, out _);
+    }
+
+    /// <summary>
+    ///     O(1) family lookup via reverse index.
+    /// </summary>
+    public SignatureFamily? GetFamily(string signature)
+    {
+        if (_signatureToFamily.TryGetValue(signature, out var familyId) &&
+            _families.TryGetValue(familyId, out var family))
+            return family;
+        return null;
+    }
+
+    /// <summary>
+    ///     Get a snapshot of all families.
+    /// </summary>
+    public IReadOnlyList<SignatureFamily> GetAllFamilies()
+    {
+        return _families.Values.ToList();
+    }
+
+    /// <summary>
+    ///     Get behaviors with family-level aggregation.
+    ///     Family members are merged into single entries using the canonical signature.
+    ///     Standalone signatures are returned as-is.
+    /// </summary>
+    public IReadOnlyList<SignatureBehavior> GetFamilyAwareBehaviors()
+    {
+        var allBehaviors = GetAllBehaviors();
+        if (_families.IsEmpty)
+            return allBehaviors;
+
+        var result = new List<SignatureBehavior>();
+        var consumed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Process families: aggregate members into single behaviors
+        foreach (var family in _families.Values)
+        {
+            var memberBehaviors = new List<SignatureBehavior>();
+            foreach (var sig in family.MemberSignatures.Keys)
+            {
+                consumed.Add(sig);
+                var behavior = allBehaviors.FirstOrDefault(b =>
+                    string.Equals(b.Signature, sig, StringComparison.OrdinalIgnoreCase));
+                if (behavior != null && behavior.RequestCount > 0)
+                    memberBehaviors.Add(behavior);
+            }
+
+            if (memberBehaviors.Count == 0)
+                continue;
+
+            // Merge all requests from family members
+            var allRequests = memberBehaviors.SelectMany(b => b.Requests).OrderBy(r => r.Timestamp).ToList();
+            var firstSeen = memberBehaviors.Min(b => b.FirstSeen);
+            var lastSeen = memberBehaviors.Max(b => b.LastSeen);
+
+            // Recompute metrics from combined pool
+            var intervals = new List<double>();
+            for (var i = 1; i < allRequests.Count; i++)
+                intervals.Add((allRequests[i].Timestamp - allRequests[i - 1].Timestamp).TotalSeconds);
+
+            var avgInterval = intervals.Count > 0 ? intervals.Average() : 0;
+            var timingCV = 0.0;
+            if (intervals.Count > 1)
+            {
+                var stdDev = Math.Sqrt(intervals.Average(v => Math.Pow(v - avgInterval, 2)));
+                timingCV = avgInterval > 0 ? stdDev / avgInterval : 0;
+            }
+
+            var pathCounts = allRequests.GroupBy(r => r.Path).ToDictionary(g => g.Key, g => g.Count());
+            var pathEntropy = 0.0;
+            if (pathCounts.Count > 1)
+            {
+                var total = allRequests.Count;
+                foreach (var count in pathCounts.Values)
+                {
+                    var p = (double)count / total;
+                    if (p > 0) pathEntropy -= p * Math.Log2(p);
+                }
+            }
+
+            var avgBotProb = allRequests.Average(r => r.BotProbability);
+
+            // Use canonical signature's geo context
+            var geo = _knownSignatures.TryGetValue(family.CanonicalSignature, out var ctx)
+                ? ctx
+                : memberBehaviors.FirstOrDefault()?.CountryCode != null
+                    ? new SignatureGeoContext
+                    {
+                        CountryCode = memberBehaviors.First().CountryCode,
+                        Asn = memberBehaviors.First().Asn,
+                        IsDatacenter = memberBehaviors.First().IsDatacenter
+                    }
+                    : new SignatureGeoContext();
+
+            result.Add(new SignatureBehavior
+            {
+                Signature = family.CanonicalSignature,
+                Requests = allRequests,
+                FirstSeen = firstSeen,
+                LastSeen = lastSeen,
+                RequestCount = allRequests.Count,
+                AverageInterval = avgInterval,
+                PathEntropy = pathEntropy,
+                TimingCoefficient = timingCV,
+                AverageBotProbability = avgBotProb,
+                AberrationScore = memberBehaviors.Max(b => b.AberrationScore),
+                IsAberrant = memberBehaviors.Any(b => b.IsAberrant),
+                CountryCode = geo.CountryCode,
+                Asn = geo.Asn,
+                IsDatacenter = geo.IsDatacenter
+            });
+        }
+
+        // Add standalone signatures (not in any family)
+        foreach (var behavior in allBehaviors)
+        {
+            if (!consumed.Contains(behavior.Signature))
+                result.Add(behavior);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Get a snapshot of all current SignatureBehavior records from the sliding window.
+    ///     Used by BotClusterService for periodic cluster analysis.
+    /// </summary>
+    public IReadOnlyList<SignatureBehavior> GetAllBehaviors()
+    {
+        var behaviors = new List<SignatureBehavior>();
+        foreach (var (key, geoContext) in _knownSignatures)
+        {
+            if (_signatureCache.TryGet(key, out var atom) && atom != null)
+            {
+                var behavior = atom.GetBehaviorAsync(CancellationToken.None).GetAwaiter().GetResult();
+                if (behavior.RequestCount > 0)
+                {
+                    // Enrich with geo context from tracked signatures
+                    behaviors.Add(behavior with
+                    {
+                        CountryCode = geoContext.CountryCode,
+                        Asn = geoContext.Asn,
+                        IsDatacenter = geoContext.IsDatacenter
+                    });
+                }
+            }
+            else
+            {
+                // Signature has been evicted from cache, remove from tracking
+                _knownSignatures.TryRemove(key, out _);
+
+                // Clean up IP index entries for evicted signatures
+                foreach (var (_, sigSet) in _ipIndex)
+                    sigSet.TryRemove(key, out _);
+
+                // Clean up family membership for evicted signatures
+                if (_signatureToFamily.TryRemove(key, out var familyId) &&
+                    _families.TryGetValue(familyId, out var family))
+                {
+                    family.MemberSignatures.TryRemove(key, out _);
+                    if (family.MemberSignatures.Count <= 1)
+                        RemoveFamily(familyId);
+                }
+            }
+        }
+        return behaviors;
     }
 
     /// <summary>

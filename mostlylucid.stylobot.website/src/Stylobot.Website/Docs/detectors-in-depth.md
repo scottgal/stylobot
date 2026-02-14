@@ -73,6 +73,20 @@ That is why detector output should be interpreted as part of a temporal profile,
 - Typical signals: feature-vector interpretation over aggregated request evidence.
 - Operator note: keep explainability and fallback behavior explicit in policy.
 
+## Cross-request detectors
+
+## Cluster Detection
+- Purpose: discover coordinated bot networks and bot product families across multiple signatures using label propagation and FFT spectral analysis.
+- Typical signals: cluster membership type (BotProduct or BotNetwork), cluster label (e.g., "Rapid-Scraper", "Burst-Campaign"), spectral entropy, harmonic ratio, community affinity score.
+- How it works: A background service periodically clusters confirmed bot signatures (probability >= 0.5) using a 12-dimensional feature vector with weighted similarity. Label propagation discovers groups; FFT cross-correlation detects shared C2 timing patterns. Only bot traffic is clustered, so there are zero false positives on human traffic.
+- Operator note: cluster results update every 60 seconds or when 20 new bots are detected. Tune `SimilarityThreshold` (default: 0.7) and `MinClusterSize` (default: 3) for your traffic profile.
+
+## Country Reputation
+- Purpose: track per-country bot detection rates with time decay so countries recover reputation when bot traffic stops.
+- Typical signals: `geo.country_bot_rate` (0-1), `geo.country_bot_rank` (ordinal position).
+- How it works: Uses exponential moving average with a configurable time constant (default: 168 hours / 1 week). Countries need a minimum sample size (default: 10) before rates are reported, preventing noisy signals from low-traffic origins.
+- Operator note: country reputation is a supporting signal, not a blocking signal. It increases resolution on borderline calls.
+
 ## What to do with detector output
 
 Use detector reasons to answer:
@@ -100,4 +114,6 @@ Use detector reasons to answer:
 - [Client-Side Fingerprinting](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/client-side-fingerprinting.md)
 - [Version Age Detection](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/version-age-detection.md)
 - [AI Detection](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/ai-detection.md)
+- [Cluster Detection & Country Reputation](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/cluster-detection.md)
+- [Training Data API](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/training-data-api.md)
 - [Action Policies](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/action-policies.md)

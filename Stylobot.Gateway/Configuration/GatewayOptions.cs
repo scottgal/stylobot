@@ -29,6 +29,12 @@ public class GatewayOptions
     public string? AdminSecret { get; set; }
 
     /// <summary>
+    /// Allow admin API access without a secret.
+    /// Default: false (fail closed).
+    /// </summary>
+    public bool AllowInsecureAdminAccess { get; set; }
+
+    /// <summary>
     /// Log level. Default: Information
     /// </summary>
     public string LogLevel { get; set; } = "Information";

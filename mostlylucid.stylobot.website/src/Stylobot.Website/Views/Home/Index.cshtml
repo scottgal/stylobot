@@ -9,6 +9,7 @@
 @inject IHttpContextAccessor HttpContextAccessor
 @{
     ViewData["Title"] = "Bot Detection Intelligence - All the Data, Your Decision";
+    var cspNonce = Context.Items["CspNonce"]?.ToString() ?? string.Empty;
     var web3FormsKey = Configuration["Web3Forms:AccessKey"];
 
     // Extract detection data from this page request
@@ -670,7 +671,7 @@
     </div>
 </section>
 
-<script type="application/json" id="home-detection-data">@Html.Raw(JsonSerializer.Serialize(new {
+<script type="application/json" id="home-detection-data" nonce="@cspNonce">@Html.Raw(JsonSerializer.Serialize(new {
     isBot = botProb > 0.5,
     botProbability = Math.Round(botProb, 4),
     confidence = Math.Round(confidence, 4),

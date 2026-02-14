@@ -146,16 +146,37 @@ public class LlmClassificationCoordinator : BackgroundService
         var reason = result.Reasons.First();
         var description = reason.Detail;
 
-        // Update ephemeral reputation cache with LLM result
-        var patternId = $"ua:{request.PrimarySignature}";
-        var existing = _reputationCache.GetOrCreate(patternId, "UserAgent", request.PrimarySignature);
-        var updated = existing with
+        // Update ephemeral reputation cache with LLM result for ALL signature vectors.
+        // This ensures churn-resistant identity: if IP changes but UA stays the same,
+        // the UA vector still carries the LLM result forward.
+        if (request.SignatureVectors is { Count: > 0 })
         {
-            BotScore = result.Confidence,
-            Support = existing.Support + 1,
-            LastSeen = DateTimeOffset.UtcNow
-        };
-        _reputationCache.Update(updated);
+            foreach (var (vectorType, vectorHash) in request.SignatureVectors)
+            {
+                var patternId = $"{vectorType}:{vectorHash}";
+                var existing = _reputationCache.GetOrCreate(patternId, vectorType, vectorHash);
+                var updated = existing with
+                {
+                    BotScore = result.Confidence,
+                    Support = existing.Support + 1,
+                    LastSeen = DateTimeOffset.UtcNow
+                };
+                _reputationCache.Update(updated);
+            }
+        }
+        else
+        {
+            // Fallback: single primary signature
+            var patternId = $"ua:{request.PrimarySignature}";
+            var existing = _reputationCache.GetOrCreate(patternId, "UserAgent", request.PrimarySignature);
+            var updated = existing with
+            {
+                BotScore = result.Confidence,
+                Support = existing.Support + 1,
+                LastSeen = DateTimeOffset.UtcNow
+            };
+            _reputationCache.Update(updated);
+        }
 
         // Publish drift event if this was a drift/confirmation sample
         if ((request.IsDriftSample || request.IsConfirmationSample) && _learningBus != null)

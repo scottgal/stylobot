@@ -115,6 +115,35 @@ public class BotDetectionMiddleware(
             return;
         }
 
+        // Fast path: trust upstream detection from gateway proxy
+        if (_options.TrustUpstreamDetection && TryHydrateFromUpstream(context))
+        {
+            if (_options.ResponseHeaders.Enabled)
+            {
+                var headerConfig = _options.ResponseHeaders;
+                var prefix = headerConfig.HeaderPrefix;
+                var confidence = (double)context.Items[BotConfidenceKey]!;
+                var isBot = (bool)context.Items[IsBotKey]!;
+
+                context.Response.Headers.TryAdd($"{prefix}Risk-Score", confidence.ToString("F3"));
+                context.Response.Headers.TryAdd($"{prefix}Upstream-Trust", "true");
+                context.Response.Headers.TryAdd($"{prefix}Processing-Ms", "0.0");
+
+                if (headerConfig.IncludeConfidence)
+                    context.Response.Headers.TryAdd($"{prefix}Confidence", confidence.ToString("F3"));
+
+                if (isBot)
+                {
+                    var botName = context.Items[BotNameKey] as string;
+                    if (headerConfig.IncludeBotName && !string.IsNullOrEmpty(botName))
+                        context.Response.Headers.TryAdd($"{prefix}Bot-Name", botName);
+                }
+            }
+
+            await _next(context);
+            return;
+        }
+
         // Test mode: Allow overriding bot detection via header
         // In test mode, we still run the real pipeline but with a simulated User-Agent
         if (_options.EnableTestMode)
@@ -832,6 +861,68 @@ public class BotDetectionMiddleware(
                 }
             ]
         };
+    }
+
+    #endregion
+
+    #region Upstream Trust
+
+    /// <summary>
+    ///     Attempts to hydrate HttpContext.Items from upstream gateway detection headers.
+    ///     Returns true if upstream headers were found and context was populated, false to fall through.
+    /// </summary>
+    private bool TryHydrateFromUpstream(HttpContext context)
+    {
+        // Gateway must have sent X-Bot-Detected header
+        if (!context.Request.Headers.TryGetValue("X-Bot-Detected", out var detectedHeader))
+            return false;
+
+        var isBot = string.Equals(detectedHeader.ToString(), "true", StringComparison.OrdinalIgnoreCase);
+
+        // Parse confidence (required)
+        if (!context.Request.Headers.TryGetValue("X-Bot-Confidence", out var confHeader) ||
+            !double.TryParse(confHeader.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var confidence))
+            return false;
+
+        // Clamp to valid range
+        confidence = Math.Clamp(confidence, 0.0, 1.0);
+
+        // Parse optional fields
+        BotType? botType = null;
+        if (context.Request.Headers.TryGetValue("X-Bot-Type", out var typeHeader) &&
+            Enum.TryParse<BotType>(typeHeader.ToString(), true, out var parsedType))
+            botType = parsedType;
+
+        var botName = context.Request.Headers["X-Bot-Name"].FirstOrDefault();
+        var category = context.Request.Headers["X-Bot-Category"].FirstOrDefault();
+
+        // Populate HttpContext.Items (same keys as PopulateContextFromAggregated)
+        context.Items[IsBotKey] = isBot;
+        context.Items[BotConfidenceKey] = confidence;
+        context.Items[BotTypeKey] = botType;
+        context.Items[BotNameKey] = botName;
+        context.Items[PolicyNameKey] = "upstream";
+        context.Items[DetectionReasonsKey] = new List<DetectionReason>();
+        if (!string.IsNullOrEmpty(category))
+            context.Items[BotCategoryKey] = category;
+
+        // Create legacy result for compatibility with views/TagHelpers/extension methods
+        var legacyResult = new BotDetectionResult
+        {
+            IsBot = isBot,
+            ConfidenceScore = confidence,
+            BotType = isBot ? botType : null,
+            BotName = isBot ? botName : null,
+            Reasons = []
+        };
+        context.Items[BotDetectionResultKey] = legacyResult;
+
+        _logger.LogDebug(
+            "Trusted upstream detection for {Path}: isBot={IsBot}, confidence={Confidence:F2}",
+            context.Request.Path, isBot, confidence);
+
+        return true;
     }
 
     #endregion

@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.ClientSide;
 using Mostlylucid.BotDetection.Extensions;
@@ -24,9 +27,41 @@ var config = builder.Configuration;
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    // Clear defaults to trust any proxy in Docker network
+    var trustAllProxies = builder.Environment.IsDevelopment() ||
+                          config.GetValue("Network:TrustAllForwardedProxies", false) ||
+                          bool.TryParse(Environment.GetEnvironmentVariable("TRUST_ALL_FORWARDED_PROXIES"), out var trustAllFromEnv) &&
+                          trustAllFromEnv;
+
+    if (trustAllProxies)
+    {
+        // Development convenience only: trust all forwarded headers.
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+        return;
+    }
+
+    // Production-safe defaults: trust only explicitly configured proxies/networks.
     options.KnownIPNetworks.Clear();
     options.KnownProxies.Clear();
+
+    var knownProxyList = config["Network:KnownProxies"] ??
+                         Environment.GetEnvironmentVariable("KNOWN_PROXIES") ??
+                         string.Empty;
+    foreach (var proxy in knownProxyList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        if (IPAddress.TryParse(proxy, out var ip))
+            options.KnownProxies.Add(ip);
+
+    var knownNetworkList = config["Network:KnownNetworks"] ??
+                           Environment.GetEnvironmentVariable("KNOWN_NETWORKS") ??
+                           string.Empty;
+    foreach (var network in knownNetworkList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+    {
+        var parts = network.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2) continue;
+        if (!IPAddress.TryParse(parts[0], out var prefix)) continue;
+        if (!int.TryParse(parts[1], out var prefixLength)) continue;
+        options.KnownIPNetworks.Add(new System.Net.IPNetwork(prefix, prefixLength));
+    }
 });
 
 builder.Services.AddHealthChecks();
@@ -73,6 +108,9 @@ int GetConfigInt(string configKey, string? envKey, int defaultValue) =>
 // Add Bot Detection services with configuration (user secrets / appsettings / env vars)
 builder.Services.AddBotDetection(options =>
 {
+    // Trust upstream detection from YARP gateway (skip re-running the full pipeline)
+    options.TrustUpstreamDetection = GetConfigBool("BotDetection:TrustUpstreamDetection", "BOTDETECTION_TRUST_UPSTREAM", false);
+
     // Detection thresholds
     options.BotThreshold = GetConfigDouble("BotDetection:Threshold", "BOTDETECTION_THRESHOLD", 0.7);
     options.BlockDetectedBots = GetConfigBool("BotDetection:BlockDetectedBots", "BOTDETECTION_BLOCK_BOTS", false);
@@ -129,6 +167,33 @@ builder.Services.AddStyloBotDashboard(options =>
     options.HubPath = GetConfig("StyloBotDashboard:BasePath", "STYLOBOT_DASHBOARD_PATH", "/_stylobot") + "/hub"; // SignalR hub path
     options.MaxEventsInMemory = GetConfigInt("StyloBotDashboard:MaxEventsInMemory", "STYLOBOT_DASHBOARD_MAX_EVENTS", 1000);
     options.EnableSimulator = false; // REAL detections only - no simulator
+
+    var dashboardPublic = GetConfigBool("StyloBotDashboard:Public", "STYLOBOT_DASHBOARD_PUBLIC", builder.Environment.IsDevelopment());
+    var dashboardSecret = GetConfig("StyloBotDashboard:AccessSecret", "STYLOBOT_DASHBOARD_SECRET", "");
+
+    if (!dashboardPublic && string.IsNullOrWhiteSpace(dashboardSecret) && !builder.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException(
+            "Dashboard access is locked by default in Production. " +
+            "Set STYLOBOT_DASHBOARD_SECRET (preferred) or STYLOBOT_DASHBOARD_PUBLIC=true.");
+    }
+
+    options.AuthorizationFilter = context =>
+    {
+        if (dashboardPublic) return Task.FromResult(true);
+
+        if (!string.IsNullOrWhiteSpace(dashboardSecret) &&
+            context.Request.Headers.TryGetValue("X-StyloBot-Secret", out var providedSecret) &&
+            SecureEquals(providedSecret.ToString(), dashboardSecret))
+            return Task.FromResult(true);
+
+        if (builder.Environment.IsDevelopment() &&
+            context.Connection.RemoteIpAddress is { } remoteIp &&
+            IPAddress.IsLoopback(remoteIp))
+            return Task.FromResult(true);
+
+        return Task.FromResult(false);
+    };
 });
 
 // Add PostgreSQL/TimescaleDB storage for signature ledger and detection events
@@ -219,6 +284,39 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.Use(async (context, next) =>
+{
+    var nonceBytes = RandomNumberGenerator.GetBytes(16);
+    var cspNonce = Convert.ToBase64String(nonceBytes);
+    context.Items["CspNonce"] = cspNonce;
+
+    var scriptSrc = $"'self' 'nonce-{cspNonce}' 'unsafe-eval' https://umami.mostlylucid.net https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com";
+    var styleSrc = "'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com";
+    var csp = string.Join("; ", new[]
+    {
+        "default-src 'self'",
+        "base-uri 'self'",
+        "frame-ancestors 'none'",
+        "object-src 'none'",
+        "img-src 'self' data: https:",
+        "font-src 'self' data: https://fonts.gstatic.com https://unpkg.com",
+        $"style-src {styleSrc}",
+        $"script-src {scriptSrc}",
+        "connect-src 'self' https://umami.mostlylucid.net ws: wss:",
+        "form-action 'self' https://api.web3forms.com"
+    });
+
+    context.Response.Headers.TryAdd("Content-Security-Policy", csp);
+    context.Response.Headers.TryAdd("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.TryAdd("X-Frame-Options", "DENY");
+    context.Response.Headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
+    context.Response.Headers.TryAdd("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+    context.Response.Headers.TryAdd("Cross-Origin-Opener-Policy", "same-origin");
+    context.Response.Headers.TryAdd("Cross-Origin-Resource-Policy", "same-origin");
+    await next();
+});
+
 app.UseRouting();
 
 // GeoDetection middleware
@@ -234,8 +332,13 @@ app.UseAuthorization();
 
 app.MapStaticAssets();
 
-app.MapBotDetectionEndpoints("/bot-detection");
 app.MapBotDetectionFingerprintEndpoint();
+
+var exposeDiagnostics = GetConfigBool("StyloBot:ExposeDiagnostics", "STYLOBOT_EXPOSE_DIAGNOSTICS", builder.Environment.IsDevelopment());
+if (exposeDiagnostics)
+{
+    app.MapBotDetectionEndpoints("/bot-detection");
+}
 
 app.MapControllerRoute(
     name: "default",
@@ -244,3 +347,10 @@ app.MapControllerRoute(
 
 
 app.Run();
+
+static bool SecureEquals(string left, string right)
+{
+    var leftBytes = Encoding.UTF8.GetBytes(left);
+    var rightBytes = Encoding.UTF8.GetBytes(right);
+    return CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
+}

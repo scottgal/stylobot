@@ -1,0 +1,85 @@
+# Override for k6 testing - remaps ports to avoid conflicts
+# Usage: docker compose -f docker-compose.demo.yml -f docker-compose.k6-override.yml up -d
+
+services:
+  # Skip Caddy - k6 hits gateway directly
+  caddy:
+    profiles: ["disabled"]
+
+  # Expose gateway directly on host port 8090 for k6
+  gateway:
+    ports:
+      - "8090:8080"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      website:
+        condition: service_healthy
+      # Don't wait for ollama - it's slow to start
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - GATEWAY_DEMO_MODE=true
+      - Gateway__DemoMode__PassAllHeaders=true
+      - Gateway__DemoMode__UseVerboseLogging=false
+      - ADMIN_SECRET=${ADMIN_SECRET}
+      - DB_PROVIDER=Postgres
+      - DB_CONNECTION_STRING=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD}
+      - BotDetection__BotThreshold=0.7
+      - BotDetection__BlockDetectedBots=false
+      - BotDetection__LogDetailedReasons=true
+      - BotDetection__LogAllRequests=false
+      - BotDetection__AiDetection__Provider=Ollama
+      - BotDetection__AiDetection__Ollama__Endpoint=http://ollama:11434
+      - BotDetection__AiDetection__Ollama__Model=llama3.2:1b
+      - BotDetection__AiDetection__TimeoutMs=5000
+      - BotDetection__ResponseHeaders__Enabled=true
+      - BotDetection__ResponseHeaders__IncludeConfidence=true
+      - BotDetection__ResponseHeaders__IncludeDetectors=true
+      - BotDetection__ResponseHeaders__IncludeProcessingTime=true
+      - BotDetection__PathPolicies__/*=demo
+      - DEFAULT_UPSTREAM=http://website:8080
+
+  # Website needs dashboard secret in production
+  website:
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - STYLOBOT_DASHBOARD_PUBLIC=true
+      - BOTDETECTION_THRESHOLD=0.7
+      - BOTDETECTION_BLOCK_BOTS=false
+      - BOTDETECTION_LOG_DETAILED=true
+      - BOTDETECTION_LOG_ALL_REQUESTS=true
+      - BOTDETECTION_AI_PROVIDER=Heuristic
+      - BOTDETECTION_OLLAMA_ENDPOINT=http://ollama:11434
+      - BOTDETECTION_OLLAMA_MODEL=llama3.2:1b
+      - BOTDETECTION_OLLAMA_TIMEOUT_MS=5000
+      - BOTDETECTION_SIGNATURE_HASH_KEY=${BOTDETECTION_SIGNATURE_HASH_KEY}
+      - BOTDETECTION_CLIENTSIDE_TOKEN_SECRET=${BOTDETECTION_CLIENTSIDE_TOKEN_SECRET}
+      - STYLOBOT_DASHBOARD_PATH=/_stylobot
+      - STYLOBOT_DASHBOARD_MAX_EVENTS=1000
+      - DATABASE_PROVIDER=PostgreSQL
+      - DATABASE_CONNECTION_STRING=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD}
+      - DATABASE_TIMESCALEDB_ENABLED=true
+      - DATABASE_AUTO_INIT_SCHEMA=true
+      - DATABASE_RETENTION_DAYS=30
+
+  # Remap TimescaleDB host port
+  timescaledb:
+    ports:
+      - "127.0.0.1:15432:5432"
+
+  # Remap Qdrant host ports
+  qdrant:
+    ports:
+      - "127.0.0.1:6335:6333"
+      - "127.0.0.1:6336:6334"
+
+  # Ollama without GPU requirement (CPU mode)
+  ollama:
+    deploy: {}
+
+  # Remap Redis host port
+  redis:
+    ports:
+      - "127.0.0.1:6380:6379"

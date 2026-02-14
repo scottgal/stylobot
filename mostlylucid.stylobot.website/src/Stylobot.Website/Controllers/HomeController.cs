@@ -1,12 +1,14 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.GeoDetection.Middleware;
 using Mostlylucid.GeoDetection.Models;
 using Mostlylucid.GeoDetection.Services;
 using Stylobot.Website.Models;
 using Stylobot.Website.Services;
+using Microsoft.Extensions.Configuration;
 
 namespace Stylobot.Website.Controllers;
 
@@ -15,12 +17,28 @@ public class HomeController : Controller
     private readonly SeoService _seoService;
     private readonly IGeoLocationService _geoService;
     private readonly VisitorListCache _visitorListCache;
+    private readonly CountryReputationTracker? _countryTracker;
+    private readonly BotClusterService? _clusterService;
+    private readonly bool _exposeDiagnostics;
 
-    public HomeController(SeoService seoService, IGeoLocationService geoService, VisitorListCache visitorListCache)
+    public HomeController(
+        SeoService seoService,
+        IGeoLocationService geoService,
+        VisitorListCache visitorListCache,
+        IConfiguration configuration,
+        IWebHostEnvironment environment,
+        CountryReputationTracker? countryTracker = null,
+        BotClusterService? clusterService = null)
     {
         _seoService = seoService;
         _geoService = geoService;
         _visitorListCache = visitorListCache;
+        _countryTracker = countryTracker;
+        _clusterService = clusterService;
+        _exposeDiagnostics = environment.IsDevelopment() ||
+                             configuration.GetValue("StyloBot:ExposeDiagnostics", false) ||
+                             bool.TryParse(Environment.GetEnvironmentVariable("STYLOBOT_EXPOSE_DIAGNOSTICS"), out var fromEnv) &&
+                             fromEnv;
     }
 
     public IActionResult Index()
@@ -68,6 +86,7 @@ public class HomeController : Controller
     [HttpGet]
     public IActionResult Time()
     {
+        if (!_exposeDiagnostics) return NotFound();
         var html = $"<div class=\"p-4 bg-base-200 rounded\">Server time: {DateTime.Now:O}</div>";
         return Content(html, "text/html");
     }
@@ -105,6 +124,8 @@ public class HomeController : Controller
     [HttpGet]
     public IActionResult SystemFingerprint()
     {
+        if (!_exposeDiagnostics) return NotFound();
+
         var fingerprintHash = HttpContext.Items.TryGetValue("BotDetection.FingerprintHash", out var hashObj)
             ? hashObj?.ToString()
             : null;
@@ -175,6 +196,26 @@ public class HomeController : Controller
     {
         var bots = _visitorListCache.GetTopBots(count);
         return PartialView("_TopBots", bots);
+    }
+
+    [HttpGet("Home/TopCountries")]
+    public IActionResult TopCountries(int count = 10)
+    {
+        if (_countryTracker == null)
+            return Content("<div class='text-base-content/50 text-sm p-4'>Country tracking not available</div>", "text/html");
+
+        var countries = _countryTracker.GetTopBotCountries(count);
+        return PartialView("_TopCountries", countries);
+    }
+
+    [HttpGet("Home/Clusters")]
+    public IActionResult Clusters()
+    {
+        if (_clusterService == null)
+            return Content("<div class='text-base-content/50 text-sm p-4'>Cluster detection not available</div>", "text/html");
+
+        var clusters = _clusterService.GetClusters();
+        return PartialView("_Clusters", clusters);
     }
 
     [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]

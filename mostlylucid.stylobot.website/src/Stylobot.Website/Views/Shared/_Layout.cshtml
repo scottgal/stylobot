@@ -2,13 +2,14 @@
 @using Stylobot.Website.Models
 @{
     var seoMetadata = ViewData["SeoMetadata"] as SeoMetadata ?? new SeoMetadata();
+    var cspNonce = Context.Items["CspNonce"]?.ToString() ?? string.Empty;
 }
 <!DOCTYPE html>
 <html lang="en" data-theme="light" x-data="themeSwitcher()" x-init="init()">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>
+    <script nonce="@cspNonce">
         (function() {
             try {
                 const saved = localStorage.getItem('sb-theme');
@@ -175,7 +176,7 @@
     </div>
 
     <!-- Client-side fingerprinting for enhanced detection -->
-    <bot-detection-script />
+    <bot-detection-script nonce="@cspNonce" />
 
     <main class="flex-1">
         @RenderBody()

@@ -5,6 +5,7 @@
 @{
     var hubPath = "/_stylobot/hub";
     var initialSignature = Model.Signatures?.PrimarySignature ?? "";
+    var cspNonce = ViewContext.HttpContext.Items["CspNonce"]?.ToString() ?? string.Empty;
     var initialData = new {
         isBot = Model.IsBot,
         botProbability = Model.BotProbability,
@@ -132,7 +133,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="@cspNonce">
 document.addEventListener('alpine:init', () => {
     Alpine.data('detectionBar', () => ({
         // State from server

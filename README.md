@@ -63,9 +63,28 @@ The default policy runs fast contributors first and can escalate based on policy
 - ClientSide, Inconsistency, VersionAge, ReputationBias
 - FastPathReputation, ProjectHoneypot, HoneypotLink
 - TLS/TCP/HTTP2 fingerprinting and cross-layer correlation
+- Cluster detection (label propagation + FFT spectral analysis)
+- Country reputation tracking (time-decayed bot rates)
 - Heuristic scoring (and optional LLM path when configured)
 
 Real contributor lists are controlled by `BotDetection:Policies` in each app config.
+
+### Training Data API
+
+Export detection data for ML training:
+
+```bash
+# JSONL streaming export with labels
+curl http://localhost:5080/bot-detection/training/export > training-data.jsonl
+
+# Cluster data
+curl http://localhost:5080/bot-detection/training/clusters
+
+# Country reputation
+curl http://localhost:5080/bot-detection/training/countries
+```
+
+Register with `app.MapBotTrainingEndpoints()`. See [Training Data API docs](Mostlylucid.BotDetection/docs/training-data-api.md).
 
 ## Core Product Differentiators
 
@@ -132,6 +151,8 @@ Detector docs:
 - [`Mostlylucid.BotDetection/docs/version-age-detection.md`](Mostlylucid.BotDetection/docs/version-age-detection.md)
 - [`Mostlylucid.BotDetection/docs/security-tools-detection.md`](Mostlylucid.BotDetection/docs/security-tools-detection.md)
 - [`Mostlylucid.BotDetection/docs/ai-detection.md`](Mostlylucid.BotDetection/docs/ai-detection.md)
+- [`Mostlylucid.BotDetection/docs/cluster-detection.md`](Mostlylucid.BotDetection/docs/cluster-detection.md)
+- [`Mostlylucid.BotDetection/docs/training-data-api.md`](Mostlylucid.BotDetection/docs/training-data-api.md)
 
 ## Notes on Existing Docs
 

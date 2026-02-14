@@ -60,7 +60,7 @@ public class BotDetectionMiddlewareTests
 
     private static Mock<BlackboardOrchestrator> CreateMockOrchestrator(AggregatedEvidence? result = null)
     {
-        // Constructor: logger, options, detectors, piiHasher, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?
+        // Constructor: logger, options, detectors, piiHasher, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?, llmCoordinator?, countryTracker?
         var mock = new Mock<BlackboardOrchestrator>(
             Mock.Of<ILogger<BlackboardOrchestrator>>(),
             Options.Create(new BotDetectionOptions()),
@@ -69,7 +69,10 @@ public class BotDetectionMiddlewareTests
             null, // learningBus
             null, // policyRegistry
             null, // policyEvaluator
-            null // signatureCoordinator
+            null, // signatureCoordinator
+            null, // llmCoordinator
+            null, // countryTracker
+            null // clusterService
         );
 
         var evidence = result ?? CreateEvidence();
@@ -463,6 +466,245 @@ public class BotDetectionMiddlewareTests
 
     #endregion
 
+    #region Upstream Trust Tests
+
+    [Fact]
+    public async Task InvokeAsync_WithUpstreamHeaders_SkipsDetection()
+    {
+        // Arrange
+        var nextCalled = false;
+        RequestDelegate next = _ =>
+        {
+            nextCalled = true;
+            return Task.CompletedTask;
+        };
+
+        var mockOrchestrator = CreateMockOrchestrator();
+        var mockPolicyRegistry = CreateMockPolicyRegistry();
+        var mockActionPolicyRegistry = CreateMockActionPolicyRegistry();
+
+        var options = new BotDetectionOptions { TrustUpstreamDetection = true };
+        var middleware = CreateMiddleware(next, options);
+        var context = MockHttpContext.CreateWithHeaders(new Dictionary<string, string>
+        {
+            { "X-Bot-Detected", "true" },
+            { "X-Bot-Confidence", "0.95" },
+            { "X-Bot-Type", "Scraper" },
+            { "X-Bot-Name", "TestBot" },
+            { "X-Bot-Category", "UserAgent" }
+        });
+
+        // Act
+        await middleware.InvokeAsync(context, mockOrchestrator.Object, mockPolicyRegistry.Object,
+            mockActionPolicyRegistry.Object, null);
+
+        // Assert - orchestrator should NOT be called (upstream trusted)
+        mockOrchestrator.Verify(
+            o => o.DetectWithPolicyAsync(It.IsAny<HttpContext>(), It.IsAny<DetectionPolicy>(),
+                It.IsAny<CancellationToken>()), Times.Never);
+        Assert.True(nextCalled, "Next middleware should be called");
+
+        // Assert - HttpContext.Items should be populated from headers
+        Assert.True((bool)context.Items[BotDetectionMiddleware.IsBotKey]!);
+        Assert.Equal(0.95, (double)context.Items[BotDetectionMiddleware.BotConfidenceKey]!);
+        Assert.Equal(BotType.Scraper, context.Items[BotDetectionMiddleware.BotTypeKey]);
+        Assert.Equal("TestBot", context.Items[BotDetectionMiddleware.BotNameKey]);
+        Assert.Equal("UserAgent", context.Items[BotDetectionMiddleware.BotCategoryKey]);
+
+        // Assert - legacy result should be created
+        var result = context.Items[BotDetectionMiddleware.BotDetectionResultKey] as BotDetectionResult;
+        Assert.NotNull(result);
+        Assert.True(result.IsBot);
+        Assert.Equal(0.95, result.ConfidenceScore);
+        Assert.Equal(BotType.Scraper, result.BotType);
+        Assert.Equal("TestBot", result.BotName);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_WithUpstreamHeaders_Disabled_RunsNormally()
+    {
+        // Arrange
+        RequestDelegate next = _ => Task.CompletedTask;
+
+        var mockOrchestrator = CreateMockOrchestrator(CreateEvidence(
+            0.1, 0.9, RiskBand.Low));
+        var mockPolicyRegistry = CreateMockPolicyRegistry();
+        var mockActionPolicyRegistry = CreateMockActionPolicyRegistry();
+
+        // TrustUpstreamDetection is false (default)
+        var options = new BotDetectionOptions { TrustUpstreamDetection = false };
+        var middleware = CreateMiddleware(next, options);
+        var context = MockHttpContext.CreateWithHeaders(new Dictionary<string, string>
+        {
+            { "X-Bot-Detected", "true" },
+            { "X-Bot-Confidence", "0.95" }
+        });
+
+        // Act
+        await middleware.InvokeAsync(context, mockOrchestrator.Object, mockPolicyRegistry.Object,
+            mockActionPolicyRegistry.Object, null);
+
+        // Assert - orchestrator SHOULD be called (upstream trust disabled)
+        mockOrchestrator.Verify(
+            o => o.DetectWithPolicyAsync(context, It.IsAny<DetectionPolicy>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_WithoutUpstreamHeaders_RunsNormally()
+    {
+        // Arrange
+        RequestDelegate next = _ => Task.CompletedTask;
+
+        var mockOrchestrator = CreateMockOrchestrator(CreateEvidence(
+            0.1, 0.9, RiskBand.Low));
+        var mockPolicyRegistry = CreateMockPolicyRegistry();
+        var mockActionPolicyRegistry = CreateMockActionPolicyRegistry();
+
+        // TrustUpstreamDetection is true, but NO upstream headers
+        var options = new BotDetectionOptions { TrustUpstreamDetection = true };
+        var middleware = CreateMiddleware(next, options);
+        var context = MockHttpContext.CreateRealisticBrowser();
+
+        // Act
+        await middleware.InvokeAsync(context, mockOrchestrator.Object, mockPolicyRegistry.Object,
+            mockActionPolicyRegistry.Object, null);
+
+        // Assert - orchestrator SHOULD be called (no upstream headers, falls through)
+        mockOrchestrator.Verify(
+            o => o.DetectWithPolicyAsync(context, It.IsAny<DetectionPolicy>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_WithUpstreamHeaders_ClampsOutOfRangeConfidence()
+    {
+        // Arrange
+        RequestDelegate next = _ => Task.CompletedTask;
+        var mockOrchestrator = CreateMockOrchestrator();
+        var mockPolicyRegistry = CreateMockPolicyRegistry();
+        var mockActionPolicyRegistry = CreateMockActionPolicyRegistry();
+
+        var options = new BotDetectionOptions { TrustUpstreamDetection = true };
+        var middleware = CreateMiddleware(next, options);
+        var context = MockHttpContext.CreateWithHeaders(new Dictionary<string, string>
+        {
+            { "X-Bot-Detected", "true" },
+            { "X-Bot-Confidence", "5.5" } // Out of range
+        });
+
+        // Act
+        await middleware.InvokeAsync(context, mockOrchestrator.Object, mockPolicyRegistry.Object,
+            mockActionPolicyRegistry.Object, null);
+
+        // Assert - confidence should be clamped to 1.0
+        Assert.Equal(1.0, (double)context.Items[BotDetectionMiddleware.BotConfidenceKey]!);
+        var result = context.Items[BotDetectionMiddleware.BotDetectionResultKey] as BotDetectionResult;
+        Assert.NotNull(result);
+        Assert.Equal(1.0, result.ConfidenceScore);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_WithUpstreamHeaders_MissingConfidence_FallsThrough()
+    {
+        // Arrange
+        RequestDelegate next = _ => Task.CompletedTask;
+        var mockOrchestrator = CreateMockOrchestrator(CreateEvidence(
+            0.1, 0.9, RiskBand.Low));
+        var mockPolicyRegistry = CreateMockPolicyRegistry();
+        var mockActionPolicyRegistry = CreateMockActionPolicyRegistry();
+
+        var options = new BotDetectionOptions { TrustUpstreamDetection = true };
+        var middleware = CreateMiddleware(next, options);
+        // Has X-Bot-Detected but missing X-Bot-Confidence
+        var context = MockHttpContext.CreateWithHeaders(new Dictionary<string, string>
+        {
+            { "X-Bot-Detected", "true" }
+        });
+
+        // Act
+        await middleware.InvokeAsync(context, mockOrchestrator.Object, mockPolicyRegistry.Object,
+            mockActionPolicyRegistry.Object, null);
+
+        // Assert - should fall through to full detection
+        mockOrchestrator.Verify(
+            o => o.DetectWithPolicyAsync(context, It.IsAny<DetectionPolicy>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_WithUpstreamHeaders_HumanDetected_PopulatesCorrectly()
+    {
+        // Arrange
+        RequestDelegate next = _ => Task.CompletedTask;
+        var mockOrchestrator = CreateMockOrchestrator();
+        var mockPolicyRegistry = CreateMockPolicyRegistry();
+        var mockActionPolicyRegistry = CreateMockActionPolicyRegistry();
+
+        var options = new BotDetectionOptions { TrustUpstreamDetection = true };
+        var middleware = CreateMiddleware(next, options);
+        var context = MockHttpContext.CreateWithHeaders(new Dictionary<string, string>
+        {
+            { "X-Bot-Detected", "false" },
+            { "X-Bot-Confidence", "0.10" }
+        });
+
+        // Act
+        await middleware.InvokeAsync(context, mockOrchestrator.Object, mockPolicyRegistry.Object,
+            mockActionPolicyRegistry.Object, null);
+
+        // Assert - should be treated as human
+        Assert.False((bool)context.Items[BotDetectionMiddleware.IsBotKey]!);
+        Assert.Equal(0.10, (double)context.Items[BotDetectionMiddleware.BotConfidenceKey]!, 2);
+
+        var result = context.Items[BotDetectionMiddleware.BotDetectionResultKey] as BotDetectionResult;
+        Assert.NotNull(result);
+        Assert.False(result.IsBot);
+        Assert.Null(result.BotType); // Not a bot, so type should be null
+        Assert.Null(result.BotName);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_WithUpstreamHeaders_ResponseHeadersEnabled_EmitsHeaders()
+    {
+        // Arrange
+        RequestDelegate next = _ => Task.CompletedTask;
+        var mockOrchestrator = CreateMockOrchestrator();
+        var mockPolicyRegistry = CreateMockPolicyRegistry();
+        var mockActionPolicyRegistry = CreateMockActionPolicyRegistry();
+
+        var options = new BotDetectionOptions
+        {
+            TrustUpstreamDetection = true,
+            ResponseHeaders = new ResponseHeadersOptions
+            {
+                Enabled = true,
+                IncludeConfidence = true,
+                IncludeBotName = true
+            }
+        };
+        var middleware = CreateMiddleware(next, options);
+        var context = MockHttpContext.CreateWithHeaders(new Dictionary<string, string>
+        {
+            { "X-Bot-Detected", "true" },
+            { "X-Bot-Confidence", "0.85" },
+            { "X-Bot-Name", "TestBot" }
+        });
+
+        // Act
+        await middleware.InvokeAsync(context, mockOrchestrator.Object, mockPolicyRegistry.Object,
+            mockActionPolicyRegistry.Object, null);
+
+        // Assert - response headers should be emitted
+        Assert.True(context.Response.Headers.ContainsKey("X-Bot-Risk-Score"));
+        Assert.True(context.Response.Headers.ContainsKey("X-Bot-Upstream-Trust"));
+        Assert.True(context.Response.Headers.ContainsKey("X-Bot-Confidence"));
+        Assert.True(context.Response.Headers.ContainsKey("X-Bot-Bot-Name"));
+        Assert.Equal("0.0", context.Response.Headers["X-Bot-Processing-Ms"]);
+    }
+
+    #endregion
+
     #region Pipeline Tests
 
     [Fact]
@@ -534,7 +776,7 @@ public class BotDetectionMiddlewareTests
         RequestDelegate next = _ => Task.CompletedTask;
         CancellationToken capturedToken = default;
 
-        // Constructor: logger, options, detectors, piiHasher, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?
+        // Constructor: logger, options, detectors, piiHasher, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?, llmCoordinator?, countryTracker?
         var mockOrchestrator = new Mock<BlackboardOrchestrator>(
             Mock.Of<ILogger<BlackboardOrchestrator>>(),
             Options.Create(new BotDetectionOptions()),
@@ -543,7 +785,10 @@ public class BotDetectionMiddlewareTests
             Mock.Of<ILearningEventBus>(), // learningBus
             Mock.Of<IPolicyRegistry>(), // policyRegistry
             Mock.Of<IPolicyEvaluator>(), // policyEvaluator
-            null // signatureCoordinator (optional)
+            null, // signatureCoordinator
+            null, // llmCoordinator
+            null, // countryTracker
+            null // clusterService
         );
 
         mockOrchestrator.Setup(o => o.DetectWithPolicyAsync(
