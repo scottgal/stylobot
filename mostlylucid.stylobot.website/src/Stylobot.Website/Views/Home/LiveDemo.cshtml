@@ -147,15 +147,15 @@
 
         detectorDocUrl(name) {
             const docMap = {
-                'UserAgent': 'user-agent-detection', 'Header': 'header-analysis', 'Ip': 'ip-detection',
-                'ClientSide': 'client-side-fingerprinting', 'Behavioral': 'behavioral-detection',
-                'TlsFingerprint': 'tls-fingerprinting', 'Http2Fingerprint': 'http2-fingerprinting', 'Http3Fingerprint': 'http3-fingerprinting',
-                'TcpIpFingerprint': 'tcp-ip-fingerprinting', 'Heuristic': 'ai-detection',
+                'UserAgent': 'user-agent-detection', 'Header': 'header-detection', 'Ip': 'ip-detection',
+                'ClientSide': 'client-side-fingerprinting', 'Behavioral': 'behavioral-analysis',
+                'TlsFingerprint': 'AdvancedFingerprintingDetectors', 'Http2Fingerprint': 'AdvancedFingerprintingDetectors', 'Http3Fingerprint': 'http3-fingerprinting',
+                'TcpIpFingerprint': 'AdvancedFingerprintingDetectors', 'Heuristic': 'ai-detection',
                 'HeuristicLate': 'ai-detection', 'Llm': 'ai-detection',
-                'BehavioralWaveform': 'behavioral-detection', 'MultiLayerCorrelation': 'multi-layer-correlation'
+                'BehavioralWaveform': 'advanced-behavioral-detection', 'MultiLayerCorrelation': 'AdvancedFingerprintingDetectors'
             };
             const slug = docMap[name] || 'configuration';
-            return 'https://github.com/scottgal/stylobot/tree/main/docs/' + slug + '.md';
+            return 'https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/' + slug + '.md';
         },
         categoryIcon(cat) {
             return { 'Browser': 'bx-globe', 'Network': 'bx-cloud', 'Behavioral': 'bx-pulse', 'Fingerprint': 'bx-fingerprint', 'AI': 'bx-brain', 'Reputation': 'bx-shield' }[cat] || 'bx-analyse';
@@ -482,7 +482,7 @@
                             <h3 class="text-xs font-bold uppercase tracking-wider text-base-content/50 mb-3 flex items-center">
                                 Detector Breakdown
                                 <span class="badge badge-xs badge-ghost ml-1" x-text="(yourData?.contributions?.length || 0)"></span>
-                                <a href="https://github.com/scottgal/stylobot/tree/main/docs" target="_blank"
+                                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs" target="_blank"
                                    class="ml-auto text-[10px] font-normal normal-case hero-accent-text">How detectors work</a>
                             </h3>
                             <div class="space-y-1.5">
@@ -719,7 +719,7 @@
                     <h3 class="font-bold text-sm hero-accent-text">Browser Analysis</h3>
                 </div>
                 <p class="text-xs text-base-content/60">User-agent parsing, version age checking, and inconsistency detection between claimed and actual browser capabilities.</p>
-                <a href="https://github.com/scottgal/stylobot/tree/main/docs/user-agent-detection.md" target="_blank" class="text-[10px] mt-1 inline-block hero-accent-text">Learn more</a>
+                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/user-agent-detection.md" target="_blank" class="text-[10px] mt-1 inline-block hero-accent-text">Learn more</a>
             </div>
             <div class="bg-base-100 rounded-lg p-4">
                 <div class="flex items-center gap-2 mb-2">
@@ -727,7 +727,7 @@
                     <h3 class="font-bold text-sm hero-accent-alt">Fingerprinting</h3>
                 </div>
                 <p class="text-xs text-base-content/60">TLS (JA3/JA4), TCP/IP (p0f), HTTP/2 (AKAMAI), and client-side browser fingerprints create a unique signature for each visitor.</p>
-                <a href="https://github.com/scottgal/stylobot/tree/main/docs/tls-fingerprinting.md" target="_blank" class="text-[10px] mt-1 inline-block hero-accent-alt">Learn more</a>
+                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/AdvancedFingerprintingDetectors.md" target="_blank" class="text-[10px] mt-1 inline-block hero-accent-alt">Learn more</a>
             </div>
             <div class="bg-base-100 rounded-lg p-4">
                 <div class="flex items-center gap-2 mb-2">
@@ -735,7 +735,7 @@
                     <h3 class="font-bold text-sm signal-positive">Behavioral Analysis</h3>
                 </div>
                 <p class="text-xs text-base-content/60">Request timing, waveform analysis, and browsing patterns distinguish natural human behavior from automated scripts.</p>
-                <a href="https://github.com/scottgal/stylobot/tree/main/docs/behavioral-detection.md" target="_blank" class="text-[10px] mt-1 inline-block signal-positive">Learn more</a>
+                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/behavioral-analysis.md" target="_blank" class="text-[10px] mt-1 inline-block signal-positive">Learn more</a>
             </div>
             <div class="bg-base-100 rounded-lg p-4">
                 <div class="flex items-center gap-2 mb-2">
@@ -743,7 +743,7 @@
                     <h3 class="font-bold text-sm signal-warning">Network Intelligence</h3>
                 </div>
                 <p class="text-xs text-base-content/60">IP reputation, datacenter detection, header analysis, and security tool identification reveal the true source of traffic.</p>
-                <a href="https://github.com/scottgal/stylobot/tree/main/docs/ip-detection.md" target="_blank" class="text-[10px] mt-1 inline-block signal-warning">Learn more</a>
+                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/ip-detection.md" target="_blank" class="text-[10px] mt-1 inline-block signal-warning">Learn more</a>
             </div>
             <div class="bg-base-100 rounded-lg p-4">
                 <div class="flex items-center gap-2 mb-2">
@@ -751,7 +751,7 @@
                     <h3 class="font-bold text-sm signal-danger">AI Classification</h3>
                 </div>
                 <p class="text-xs text-base-content/60">Heuristic AI model runs on every request. Optional LLM escalation via Ollama provides natural-language explanations for complex cases.</p>
-                <a href="https://github.com/scottgal/stylobot/tree/main/docs/ai-detection.md" target="_blank" class="text-[10px] mt-1 inline-block signal-danger">Learn more</a>
+                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/ai-detection.md" target="_blank" class="text-[10px] mt-1 inline-block signal-danger">Learn more</a>
             </div>
             <div class="bg-base-100 rounded-lg p-4">
                 <div class="flex items-center gap-2 mb-2">
@@ -759,7 +759,7 @@
                     <h3 class="font-bold text-sm signal-muted">Action Policies</h3>
                 </div>
                 <p class="text-xs text-base-content/60">You decide what happens: allow, throttle silently, challenge with CAPTCHA, block outright, or redirect to a honeypot. Detection is separate from response.</p>
-                <a href="https://github.com/scottgal/stylobot/tree/main/docs/action-policies.md" target="_blank" class="text-[10px] mt-1 inline-block signal-muted">Learn more</a>
+                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/action-policies.md" target="_blank" class="text-[10px] mt-1 inline-block signal-muted">Learn more</a>
             </div>
         </div>
     </div>
