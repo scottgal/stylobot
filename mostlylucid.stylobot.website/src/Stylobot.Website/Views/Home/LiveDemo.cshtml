@@ -206,11 +206,12 @@
                         this.visitorMap[sig] = {
                             sig, hits: s.hitCount || 1,
                             firstSeen: s.timestamp, lastSeen: s.timestamp,
-                            isBot, botProbability: isBot ? 0.75 : 0.25, confidence: 0.5,
+                            isBot, botProbability: null, confidence: null,
                             riskBand: s.riskBand || 'Medium', lastPath: null, paths: [],
                             action: 'Allow', botName: s.botName || null, botType: null,
                             narrative: null, description: null, topReasons: [],
-                            processingTimeMs: 0, lastRequestId: null
+                            processingTimeMs: null, lastRequestId: null,
+                            hasFullData: false
                         };
                     });
                 }
@@ -236,6 +237,7 @@
                 if (d.botType) existing.botType = d.botType;
                 existing.processingTimeMs = d.processingTimeMs;
                 existing.lastRequestId = d.requestId;
+                existing.hasFullData = true;
                 if (!existing.paths.includes(d.path)) existing.paths.push(d.path);
                 if (existing.paths.length > 5) existing.paths.splice(0, existing.paths.length - 5);
             } else {
@@ -248,7 +250,7 @@
                     action: d.action, botName: d.botName, botType: d.botType,
                     narrative: d.narrative, description: d.description,
                     topReasons: d.topReasons || [], processingTimeMs: d.processingTimeMs,
-                    lastRequestId: d.requestId
+                    lastRequestId: d.requestId, hasFullData: true
                 };
                 // Evict oldest if too many visitors
                 const keys = Object.keys(this.visitorMap);
@@ -365,12 +367,21 @@
 
                             <!-- Stats grid -->
                             <div class="grid grid-cols-2 gap-2 text-[11px] mb-3">
-                                <div><span class="text-base-content/40">Probability:</span> <span class="font-bold" :class="(activeDetail?.botProbability || 0) >= 0.5 ? 'signal-danger' : 'signal-positive'" x-text="((activeDetail?.botProbability || 0) * 100).toFixed(1) + '%'"></span></div>
-                                <div><span class="text-base-content/40">Confidence:</span> <span class="font-bold" x-text="((activeDetail?.confidence || 0) * 100).toFixed(1) + '%'"></span></div>
+                                <template x-if="activeDetail?.hasFullData">
+                                    <div><span class="text-base-content/40">Probability:</span> <span class="font-bold" :class="(activeDetail?.botProbability || 0) >= 0.5 ? 'signal-danger' : 'signal-positive'" x-text="((activeDetail?.botProbability || 0) * 100).toFixed(1) + '%'"></span></div>
+                                </template>
+                                <template x-if="activeDetail?.hasFullData">
+                                    <div><span class="text-base-content/40">Confidence:</span> <span class="font-bold" x-text="((activeDetail?.confidence || 0) * 100).toFixed(1) + '%'"></span></div>
+                                </template>
                                 <div><span class="text-base-content/40">Risk:</span> <span class="font-bold" :class="riskLabelClass(activeDetail?.riskBand)" x-text="activeDetail?.riskBand"></span></div>
                                 <div><span class="text-base-content/40">Action:</span> <span class="font-bold" x-text="activeDetail?.action || 'Allow'"></span></div>
                                 <div x-show="activeDetail?.botType"><span class="text-base-content/40">Type:</span> <span class="font-bold" x-text="activeDetail?.botType"></span></div>
-                                <div><span class="text-base-content/40">Processing:</span> <span class="font-bold" x-text="(activeDetail?.processingTimeMs || 0).toFixed(0) + 'ms'"></span></div>
+                                <template x-if="activeDetail?.hasFullData">
+                                    <div><span class="text-base-content/40">Processing:</span> <span class="font-bold" x-text="(activeDetail?.processingTimeMs || 0).toFixed(0) + 'ms'"></span></div>
+                                </template>
+                                <template x-if="!activeDetail?.hasFullData">
+                                    <div class="col-span-2 text-base-content/30 italic">Detailed stats available on next request</div>
+                                </template>
                             </div>
 
                             <!-- Pages visited -->
@@ -600,13 +611,17 @@
 
                                 <!-- Row 2: Narrative or latest path -->
                                 <div class="text-[11px] text-base-content/60 mb-1 truncate"
-                                     x-text="v.narrative || ('Last: ' + truncPath(v.lastPath, 30))"></div>
+                                     x-text="v.narrative || (v.lastPath ? 'Last: ' + truncPath(v.lastPath, 30) : (v.hits + ' request' + (v.hits !== 1 ? 's' : '') + ' detected'))"></div>
 
                                 <!-- Row 3: Compact stats -->
                                 <div class="flex items-center gap-3 text-[10px] text-base-content/40">
                                     <span :class="riskLabelClass(v.riskBand)" x-text="v.riskBand"></span>
-                                    <span x-text="((v.botProbability || 0) * 100).toFixed(0) + '% prob'"></span>
-                                    <span x-text="(v.processingTimeMs || 0).toFixed(0) + 'ms'"></span>
+                                    <template x-if="v.hasFullData">
+                                        <span x-text="((v.botProbability || 0) * 100).toFixed(0) + '% prob'"></span>
+                                    </template>
+                                    <template x-if="v.hasFullData">
+                                        <span x-text="(v.processingTimeMs || 0).toFixed(0) + 'ms'"></span>
+                                    </template>
                                     <span class="badge badge-xs badge-ghost" x-show="v.action && v.action !== 'Allow'" x-text="v.action"></span>
                                     <span x-show="v.paths && v.paths.length > 1" class="text-[9px]" x-text="v.paths.length + ' pages'"></span>
                                 </div>
