@@ -48,6 +48,7 @@
     <div x-data="{
             mobileMenuOpen: false,
             hoverReveal: false,
+            navHover: false,
             lastScrollY: 0,
             showChrome: false,
             updateChrome() {
@@ -55,7 +56,7 @@
                 const scrollingDown = y > this.lastScrollY + 4;
                 const scrollingUp = y < this.lastScrollY - 4;
 
-                if (this.hoverReveal || this.mobileMenuOpen) {
+                if (this.hoverReveal || this.navHover || this.mobileMenuOpen) {
                     this.showChrome = true;
                 } else if (y < 24) {
                     this.showChrome = false;
@@ -80,6 +81,8 @@
 
     <div x-show="showChrome"
          x-transition.opacity.duration.150ms
+         @@mouseenter="navHover = true; updateChrome()"
+         @@mouseleave="navHover = false; updateChrome()"
          class="relative z-[9999]">
     <header class="bg-base-100/95 backdrop-blur-md border-b border-base-300/70">
         <nav class="max-w-7xl mx-auto px-4 py-1.5">

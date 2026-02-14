@@ -92,8 +92,16 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
+      # PostgreSQL for dashboard persistence (MUST match gateway config)
+      - StyloBotDashboard__PostgreSQL__ConnectionString=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      - StyloBotDashboard__PostgreSQL__EnableTimescaleDB=true
+      - StyloBotDashboard__PostgreSQL__AutoInitializeSchema=true
+      - StyloBotDashboard__PostgreSQL__RetentionDays=90
     expose:
       - "8080"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
     volumes:
       - bot-detection-data:/app/data
     networks:
@@ -138,7 +146,7 @@ services:
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_INCLUDE_RESTARTING=true
       - WATCHTOWER_LABEL_ENABLE=true
-      - WATCHTOWER_POLL_INTERVAL=300
+      - WATCHTOWER_POLL_INTERVAL=21600
     networks:
       - stylobot-network
     restart: unless-stopped

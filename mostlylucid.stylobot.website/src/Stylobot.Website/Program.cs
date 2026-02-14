@@ -136,6 +136,15 @@ builder.Services.AddStyloBotDashboard(options =>
 var pgConnectionString = GetConfig("StyloBotDashboard:PostgreSQL:ConnectionString", "STYLOBOT_POSTGRESQL_CONNECTION", "");
 if (string.IsNullOrEmpty(pgConnectionString))
     pgConnectionString = Environment.GetEnvironmentVariable("DATABASE_CONNECTION_STRING") ?? "";
+
+if (string.IsNullOrEmpty(pgConnectionString) && !builder.Environment.IsDevelopment())
+{
+    throw new InvalidOperationException(
+        "PostgreSQL connection string is required in Production. " +
+        "Set StyloBotDashboard__PostgreSQL__ConnectionString or DATABASE_CONNECTION_STRING. " +
+        "In-memory storage is only allowed in Development.");
+}
+
 if (!string.IsNullOrEmpty(pgConnectionString))
 {
     builder.Services.AddStyloBotPostgreSQL(pgConnectionString, options =>
