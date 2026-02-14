@@ -101,6 +101,18 @@ public class BotDetectionOptions
     /// </summary>
     public AiDetectionOptions AiDetection { get; set; } = new();
 
+    /// <summary>
+    ///     Configuration for the background LLM classification coordinator.
+    /// </summary>
+    public LlmCoordinatorOptions LlmCoordinator { get; set; } = new();
+
+    /// <summary>
+    ///     When true, detections from local/private IPs are excluded from SignalR broadcasts
+    ///     and the live feed. Prevents self-detection from contaminating production data.
+    ///     Default: true (set to false for local development/testing).
+    /// </summary>
+    public bool ExcludeLocalIpFromBroadcast { get; set; } = true;
+
     // ==========================================
     // Blocking Policy Settings
     // ==========================================
@@ -2231,6 +2243,43 @@ public class AiDetectionOptions
 }
 
 /// <summary>
+///     Configuration for the background LLM classification coordinator.
+///     Controls the bounded channel that queues detection snapshots for async LLM analysis.
+/// </summary>
+public class LlmCoordinatorOptions
+{
+    /// <summary>
+    ///     Maximum number of pending LLM classification requests.
+    ///     When full, oldest requests are dropped (BoundedChannelFullMode.DropOldest).
+    ///     Default: 20
+    /// </summary>
+    public int ChannelCapacity { get; set; } = 20;
+
+    /// <summary>
+    ///     Minimum heuristic bot probability to enqueue for LLM analysis.
+    ///     Detections below this threshold are considered clearly human and skipped.
+    ///     Default: 0.3
+    /// </summary>
+    public double MinProbabilityToEnqueue { get; set; } = 0.3;
+
+    /// <summary>
+    ///     Maximum heuristic bot probability to enqueue for LLM analysis.
+    ///     Detections above this threshold are considered clearly bot and don't need LLM confirmation.
+    ///     Default: 0.85
+    /// </summary>
+    public double MaxProbabilityToEnqueue { get; set; } = 0.85;
+
+    /// <summary>Base sampling rate for drift detection (low-risk approvals). Default: 0.05 (5%)</summary>
+    public double BaseSampleRate { get; set; } = 0.05;
+
+    /// <summary>Sampling rate for high-risk confirmation. Default: 0.1 (10%)</summary>
+    public double HighRiskConfirmationRate { get; set; } = 0.1;
+
+    /// <summary>Skip enqueue if TimescaleDB says conclusive AND last LLM run was within this window. Default: 1 hour</summary>
+    public TimeSpan ConclusiveSkipWindow { get; set; } = TimeSpan.FromHours(1);
+}
+
+/// <summary>
 ///     Ollama-specific configuration for AI detection.
 /// </summary>
 public class OllamaOptions
@@ -2295,6 +2344,9 @@ TYPE:scraper|searchengine|monitor|malicious|social|good|unknown
     ///     Default prompt (~350 tokens) is designed for 8K context models like gemma3:1b.
     /// </summary>
     public string? CustomPrompt { get; set; }
+
+    /// <summary>Number of CPU threads for Ollama inference. Default: 4</summary>
+    public int NumThreads { get; set; } = 4;
 }
 
 /// <summary>

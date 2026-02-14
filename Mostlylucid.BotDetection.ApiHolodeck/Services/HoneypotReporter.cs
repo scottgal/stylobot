@@ -254,17 +254,41 @@ public class HoneypotReporter : BackgroundService
         if (IPAddress.IsLoopback(ip))
             return true;
 
-        var bytes = ip.GetAddressBytes();
-        if (bytes.Length != 4)
-            return false; // IPv6 handling could be added
+        // IPv6 link-local (fe80::/10)
+        if (ip.IsIPv6LinkLocal)
+            return true;
 
-        return bytes[0] switch
+        // IPv6 site-local (fec0::/10 — deprecated but still used)
+        if (ip.IsIPv6SiteLocal)
+            return true;
+
+        // IPv6 unique local address (fc00::/7 — ULA, equivalent to RFC 1918)
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
         {
-            10 => true, // 10.0.0.0/8
-            172 when bytes[1] >= 16 && bytes[1] <= 31 => true, // 172.16.0.0/12
-            192 when bytes[1] == 168 => true, // 192.168.0.0/16
-            _ => false
-        };
+            var bytes = ip.GetAddressBytes();
+            if ((bytes[0] & 0xFE) == 0xFC) return true;
+        }
+
+        // IPv4-mapped IPv6 (::ffff:10.x.x.x etc.)
+        if (ip.IsIPv4MappedToIPv6)
+            ip = ip.MapToIPv4();
+
+        // IPv4 private ranges
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            var bytes = ip.GetAddressBytes();
+            return bytes[0] switch
+            {
+                10 => true,                                    // 10.0.0.0/8
+                172 => bytes[1] >= 16 && bytes[1] <= 31,       // 172.16.0.0/12
+                192 => bytes[1] == 168,                        // 192.168.0.0/16
+                169 => bytes[1] == 254,                        // 169.254.0.0/16 (link-local)
+                127 => true,                                   // 127.0.0.0/8
+                _ => false
+            };
+        }
+
+        return false;
     }
 
     /// <summary>

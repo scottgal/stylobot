@@ -664,13 +664,19 @@ internal static class DashboardHtmlTemplate
         <div class=""grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6"">
             <div class=""card bg-base-200 shadow-lg"">
                 <div class=""card-body"">
-                    <h2 class=""card-title text-base"">Detection Timeline</h2>
+                    <div class=""flex items-center justify-between mb-1"">
+                        <h2 class=""card-title text-base"">Detection Timeline</h2>
+                        <a href=""/docs/how-stylobot-works#temporal-intelligence-mostlylucidephemeral"" class=""text-xs dashboard-subtle hover:underline"">How this works</a>
+                    </div>
                     <div id=""riskTimelineChart"" style=""height: 280px;""></div>
                 </div>
             </div>
             <div class=""card bg-base-200 shadow-lg"">
                 <div class=""card-body"">
-                    <h2 class=""card-title text-base"">Classification Distribution</h2>
+                    <div class=""flex items-center justify-between mb-1"">
+                        <h2 class=""card-title text-base"">Classification Distribution</h2>
+                        <a href=""/docs/detectors-in-depth"" class=""text-xs dashboard-subtle hover:underline"">Detector guide</a>
+                    </div>
                     <div id=""classificationChart"" style=""height: 280px;""></div>
                 </div>
             </div>

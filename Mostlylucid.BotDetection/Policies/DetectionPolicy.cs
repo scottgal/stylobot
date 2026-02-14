@@ -125,7 +125,7 @@ public sealed record DetectionPolicy
         // All static/fast detectors - includes reputation for instant allow/block
         FastPathDetectors =
         [
-            "FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Behavioral", "ClientSide",
+            "FastPathReputation", "TimescaleReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Behavioral", "ClientSide",
             "Inconsistency", "VersionAge"
         ],
         SlowPathDetectors = [],

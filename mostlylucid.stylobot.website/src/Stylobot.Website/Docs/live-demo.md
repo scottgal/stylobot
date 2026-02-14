@@ -1,30 +1,47 @@
 # Live Demo Guide
 
-Use this page when presenting Stylobot or validating behavior.
+Use this page to validate behavior or run a product walkthrough.
 
-## What to watch
+## Surfaces to keep open
 
-- Bot probability
-- Risk band
-- Detector reasons
-- Recommended action
-- Processing time
+- `/Home/LiveDemo`: curated explanation UI
+- `/_stylobot`: real-time dashboard feed
+- `/bot-detection/check`: raw request check endpoint
 
-## Suggested demo sequence
+## What to watch first
 
-1. Send a standard browser User-Agent
-2. Send a scraper/scanner User-Agent
-3. Show score and reasons change in real time
-4. Show dashboard event stream
+- `botProbability`: how likely traffic is automated
+- `confidence`: how strong/consistent the evidence is
+- `riskBand`: operator-facing severity bucket
+- `topReasons`: why the score moved
+- `recommendedAction`: policy output
+- `processingTimeMs`: latency profile
 
-## Demo endpoints
+## Recommended walkthrough sequence
+
+1. Baseline request using a normal browser UA.
+2. Bot-like request with obvious scanner/scraper UA.
+3. Replay with repeated cadence to trigger behavioral shifts.
+4. Compare reason stacks between events in dashboard.
+5. Explain action mapping by risk band.
+
+## Useful endpoints
 
 - `/bot-detection/check`
 - `/bot-detection/stats`
 - `/bot-detection/health`
+- `/_stylobot/api/summary`
+- `/_stylobot/api/detections?limit=50`
 
-## Interpreting results
+## Interpretation tips
 
-- Low score does not always mean human certainty
-- High score should be combined with policy context
-- Start with monitoring before hard blocking
+- Do not treat one detector hit as final truth.
+- High probability with low confidence is often a challenge/throttle candidate, not immediate block.
+- Watch trends over a request cluster, not single events.
+- Validate policy behavior on real traffic before enforcement.
+
+## Related docs
+
+- `how-stylobot-works`
+- `detectors-in-depth`
+- `frequently-asked-questions`

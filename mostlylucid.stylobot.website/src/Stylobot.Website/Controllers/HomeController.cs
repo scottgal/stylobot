@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.GeoDetection.Middleware;
 using Mostlylucid.GeoDetection.Models;
 using Mostlylucid.GeoDetection.Services;
@@ -13,11 +14,13 @@ public class HomeController : Controller
 {
     private readonly SeoService _seoService;
     private readonly IGeoLocationService _geoService;
+    private readonly VisitorListCache _visitorListCache;
 
-    public HomeController(SeoService seoService, IGeoLocationService geoService)
+    public HomeController(SeoService seoService, IGeoLocationService geoService, VisitorListCache visitorListCache)
     {
         _seoService = seoService;
         _geoService = geoService;
+        _visitorListCache = visitorListCache;
     }
 
     public IActionResult Index()
@@ -142,6 +145,36 @@ public class HomeController : Controller
             signals = signals ?? new Dictionary<string, object>(),
             topReasons
         });
+    }
+
+    // ===== HTMX Endpoints for LiveDemo =====
+
+    [HttpGet("Home/LiveDemo/Visitors")]
+    public IActionResult LiveDemoVisitors(string? filter, string sort = "lastSeen", string dir = "desc")
+    {
+        var visitors = _visitorListCache.GetFiltered(filter, sort, dir);
+        return PartialView("_VisitorList", visitors);
+    }
+
+    [HttpGet("Home/LiveDemo/Visitor/{signature}")]
+    public IActionResult LiveDemoVisitor(string signature)
+    {
+        var visitor = _visitorListCache.Get(signature);
+        if (visitor == null) return NotFound();
+        return PartialView("_VisitorRow", visitor);
+    }
+
+    [HttpGet("Home/LiveDemo/FilterCounts")]
+    public IActionResult LiveDemoFilterCounts()
+    {
+        return Json(_visitorListCache.GetCounts());
+    }
+
+    [HttpGet("Home/TopBots")]
+    public IActionResult TopBots(int count = 5)
+    {
+        var bots = _visitorListCache.GetTopBots(count);
+        return PartialView("_TopBots", bots);
     }
 
     [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]

@@ -410,28 +410,50 @@ public class GeoContributor : ContributingDetectorBase
         if (string.IsNullOrEmpty(ip))
             return true;
 
-        return ip.StartsWith("127.") ||
-               ip.StartsWith("10.") ||
-               ip.StartsWith("192.168.") ||
-               ip.StartsWith("172.16.") ||
-               ip.StartsWith("172.17.") ||
-               ip.StartsWith("172.18.") ||
-               ip.StartsWith("172.19.") ||
-               ip.StartsWith("172.20.") ||
-               ip.StartsWith("172.21.") ||
-               ip.StartsWith("172.22.") ||
-               ip.StartsWith("172.23.") ||
-               ip.StartsWith("172.24.") ||
-               ip.StartsWith("172.25.") ||
-               ip.StartsWith("172.26.") ||
-               ip.StartsWith("172.27.") ||
-               ip.StartsWith("172.28.") ||
-               ip.StartsWith("172.29.") ||
-               ip.StartsWith("172.30.") ||
-               ip.StartsWith("172.31.") ||
-               ip == "::1" ||
-               ip.StartsWith("fe80:") ||
-               ip.Equals("localhost", StringComparison.OrdinalIgnoreCase);
+        if (ip.Equals("localhost", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (!System.Net.IPAddress.TryParse(ip, out var addr))
+            return false;
+
+        if (System.Net.IPAddress.IsLoopback(addr))
+            return true;
+
+        // IPv6 link-local (fe80::/10)
+        if (addr.IsIPv6LinkLocal)
+            return true;
+
+        // IPv6 site-local (fec0::/10 — deprecated but still used)
+        if (addr.IsIPv6SiteLocal)
+            return true;
+
+        // IPv6 unique local address (fc00::/7 — ULA, equivalent to RFC 1918)
+        if (addr.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            var bytes = addr.GetAddressBytes();
+            if ((bytes[0] & 0xFE) == 0xFC) return true;
+        }
+
+        // IPv4-mapped IPv6 (::ffff:10.x.x.x etc.)
+        if (addr.IsIPv4MappedToIPv6)
+            addr = addr.MapToIPv4();
+
+        // IPv4 private ranges
+        if (addr.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            var bytes = addr.GetAddressBytes();
+            return bytes[0] switch
+            {
+                10 => true,                                    // 10.0.0.0/8
+                172 => bytes[1] >= 16 && bytes[1] <= 31,       // 172.16.0.0/12
+                192 => bytes[1] == 168,                        // 192.168.0.0/16
+                169 => bytes[1] == 254,                        // 169.254.0.0/16 (link-local)
+                127 => true,                                   // 127.0.0.0/8
+                _ => false
+            };
+        }
+
+        return false;
     }
 
     private static string MaskIp(string ip)

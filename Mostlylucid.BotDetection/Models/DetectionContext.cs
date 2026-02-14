@@ -303,6 +303,32 @@ public static class SignalKeys
     public const string ReputationFastPathHit = "reputation.fastpath_hit";
 
     // ==========================================
+    // TimescaleDB historical reputation signals
+    // Set by TimescaleReputationContributor when querying 90-day history
+    // ==========================================
+
+    /// <summary>Double: historical bot-to-total ratio (0.0-1.0)</summary>
+    public const string TsBotRatio = "ts.bot_ratio";
+
+    /// <summary>Int: total historical hit count</summary>
+    public const string TsHitCount = "ts.hit_count";
+
+    /// <summary>Int: number of distinct days the signature has been active</summary>
+    public const string TsDaysActive = "ts.days_active";
+
+    /// <summary>Int: number of requests in the last hour (velocity)</summary>
+    public const string TsVelocity = "ts.velocity";
+
+    /// <summary>Boolean: true if no historical data exists for this signature</summary>
+    public const string TsIsNew = "ts.is_new";
+
+    /// <summary>Boolean: true if historical data is conclusive enough to skip LLM</summary>
+    public const string TsIsConclusive = "ts.is_conclusive";
+
+    /// <summary>Double: average bot probability across all historical observations</summary>
+    public const string TsAvgBotProb = "ts.avg_bot_prob";
+
+    // ==========================================
     // Cache behavior signals
     // Set by CacheBehaviorContributor when analyzing caching patterns
     // ==========================================

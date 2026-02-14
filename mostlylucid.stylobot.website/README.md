@@ -62,6 +62,6 @@ Optional database settings can be enabled later.
 
 ## Where to find deeper technical docs
 
-- Repo docs: `../docs/README.md`
-- Bot detection technical docs: `../Mostlylucid.BotDetection/docs/`
-- Gateway technical docs: `../Stylobot.Gateway/docs/`
+- Repo docs: [`../docs/README.md`](../docs/README.md)
+- Bot detection technical docs: [`../Mostlylucid.BotDetection/docs/`](../Mostlylucid.BotDetection/docs/)
+- Gateway technical docs: [`../Stylobot.Gateway/docs/`](../Stylobot.Gateway/docs/)

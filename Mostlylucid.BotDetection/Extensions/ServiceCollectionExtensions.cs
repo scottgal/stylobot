@@ -401,6 +401,9 @@ public static class ServiceCollectionExtensions
         // PRE-Wave 0 - Fast path reputation check (can short-circuit ALL processing)
         // Checks for ConfirmedBad/ManuallyBlocked patterns before any analysis
         services.AddSingleton<IContributingDetector, FastPathReputationContributor>();
+        // TimescaleDB historical reputation - runs early (priority 15)
+        // Gracefully no-ops if ITimescaleReputationProvider is not registered
+        services.AddSingleton<IContributingDetector, TimescaleReputationContributor>();
         //
         // Wave 0 detectors (no dependencies - run first)
         services.AddSingleton<IContributingDetector, UserAgentContributor>();
@@ -443,6 +446,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, LlmContributor>();
         // Heuristic late - runs AFTER AI (or after all static if no AI), consumes all evidence
         services.AddSingleton<IContributingDetector, HeuristicLateContributor>();
+
+        // ==========================================
+        // Background LLM Classification Coordinator
+        // ==========================================
+        services.AddSingleton<LlmClassificationCoordinator>();
+        services.AddHostedService(sp => sp.GetRequiredService<LlmClassificationCoordinator>());
 
         // ==========================================
         // Similarity Search (HNSW approximate nearest neighbor)

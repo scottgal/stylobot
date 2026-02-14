@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.PostgreSQL.Configuration;
 using Mostlylucid.BotDetection.UI.PostgreSQL.Storage;
 using Mostlylucid.BotDetection.UI.Services;
@@ -48,6 +50,13 @@ public static class PostgreSQLStorageServiceExtensions
 
         services.RemoveAll<IWeightStore>();
         services.AddSingleton<IWeightStore, PostgreSQLWeightStore>();
+
+        // Register TimescaleDB historical reputation provider
+        services.Configure<PostgreSQLStorageOptions>(o =>
+        {
+            o.ConnectionString = options.ConnectionString;
+        });
+        services.TryAddSingleton<ITimescaleReputationProvider, TimescaleReputationProvider>();
 
         // Add schema initialization service
         services.AddHostedService<DatabaseInitializationService>();

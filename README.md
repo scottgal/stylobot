@@ -67,6 +67,13 @@ The default policy runs fast contributors first and can escalate based on policy
 
 Real contributor lists are controlled by `BotDetection:Policies` in each app config.
 
+## Core Product Differentiators
+
+- Speed with intelligence: low-latency request handling with explainable detector evidence.
+- Temporal behavior resolution: cross-request, windowed signal correlation for stronger bot/human discrimination.
+- Powered by `mostlylucid.ephemeral`: efficient ephemeral state and coordinator patterns that enable across-time analysis without heavy per-request latency.
+- Operator-first control: you decide policy actions and rollout strategy.
+
 ## Common Dev Commands
 
 ```bash
@@ -100,17 +107,31 @@ docker compose up -d
 
 Start here for canonical docs:
 
-- `docs/README.md` (entry index)
-- `QUICKSTART.md` (hands-on local runbook)
-- `DOCKER_SETUP.md` (compose and deployment workflows)
+- [`docs/README.md`](docs/README.md) (entry index)
+- [`QUICKSTART.md`](QUICKSTART.md) (hands-on local runbook)
+- [`DOCKER_SETUP.md`](DOCKER_SETUP.md) (compose and deployment workflows)
 
 Library and component docs:
 
-- `Mostlylucid.BotDetection/README.md`
-- `Mostlylucid.BotDetection/docs/`
-- `Stylobot.Gateway/README.md`
-- `Mostlylucid.BotDetection.UI/README.md`
-- `Mostlylucid.BotDetection.UI.PostgreSQL/README.md`
+- [`Mostlylucid.BotDetection/README.md`](Mostlylucid.BotDetection/README.md)
+- [`Mostlylucid.BotDetection/docs/`](Mostlylucid.BotDetection/docs/)
+- [`Stylobot.Gateway/README.md`](Stylobot.Gateway/README.md)
+- [`Mostlylucid.BotDetection.UI/README.md`](Mostlylucid.BotDetection.UI/README.md)
+- [`Mostlylucid.BotDetection.UI.PostgreSQL/README.md`](Mostlylucid.BotDetection.UI.PostgreSQL/README.md)
+- [`Mostlylucid.BotDetection/docs/detection-strategies.md`](Mostlylucid.BotDetection/docs/detection-strategies.md)
+- [`Mostlylucid.BotDetection/docs/action-policies.md`](Mostlylucid.BotDetection/docs/action-policies.md)
+
+Detector docs:
+
+- [`Mostlylucid.BotDetection/docs/user-agent-detection.md`](Mostlylucid.BotDetection/docs/user-agent-detection.md)
+- [`Mostlylucid.BotDetection/docs/header-detection.md`](Mostlylucid.BotDetection/docs/header-detection.md)
+- [`Mostlylucid.BotDetection/docs/ip-detection.md`](Mostlylucid.BotDetection/docs/ip-detection.md)
+- [`Mostlylucid.BotDetection/docs/behavioral-analysis.md`](Mostlylucid.BotDetection/docs/behavioral-analysis.md)
+- [`Mostlylucid.BotDetection/docs/advanced-behavioral-detection.md`](Mostlylucid.BotDetection/docs/advanced-behavioral-detection.md)
+- [`Mostlylucid.BotDetection/docs/client-side-fingerprinting.md`](Mostlylucid.BotDetection/docs/client-side-fingerprinting.md)
+- [`Mostlylucid.BotDetection/docs/version-age-detection.md`](Mostlylucid.BotDetection/docs/version-age-detection.md)
+- [`Mostlylucid.BotDetection/docs/security-tools-detection.md`](Mostlylucid.BotDetection/docs/security-tools-detection.md)
+- [`Mostlylucid.BotDetection/docs/ai-detection.md`](Mostlylucid.BotDetection/docs/ai-detection.md)
 
 ## Notes on Existing Docs
 

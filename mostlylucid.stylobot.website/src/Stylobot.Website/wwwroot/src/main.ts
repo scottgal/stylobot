@@ -1,6 +1,7 @@
 // CSS is built separately by Tailwind CLI - don't import here
 import Alpine from 'alpinejs';
 import htmx from 'htmx.org';
+import { registerLiveDemo } from './live-demo';
 
 const THEME_KEY = 'sb-theme';
 const DARK_THEME = 'dark';
@@ -57,6 +58,9 @@ Alpine.data('themeSwitcher', () => ({
     applyTheme(this.isDark ? 'dark' : 'light');
   }
 }));
+
+// Register page-specific Alpine components
+registerLiveDemo();
 
 Alpine.start();
 

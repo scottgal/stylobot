@@ -35,7 +35,8 @@ public static class DetectionNarrativeBuilder
         ["Similarity"] = "similarity analysis",
         ["Llm"] = "LLM analysis",
         ["AI"] = "AI classification",
-        ["AiScraper"] = "AI scraper detection"
+        ["AiScraper"] = "AI scraper detection",
+        ["TimescaleReputation"] = "historical reputation"
     };
 
     private static readonly Dictionary<string, string> DetectorCategories = new(StringComparer.OrdinalIgnoreCase)
@@ -65,7 +66,8 @@ public static class DetectionNarrativeBuilder
         ["Similarity"] = "Fingerprint",
         ["Llm"] = "AI",
         ["AI"] = "AI",
-        ["AiScraper"] = "AI"
+        ["AiScraper"] = "AI",
+        ["TimescaleReputation"] = "Reputation"
     };
 
     private static readonly Dictionary<string, string> BotTypeFriendlyNames = new(StringComparer.OrdinalIgnoreCase)

@@ -268,7 +268,7 @@
                 <!-- Footer -->
                 <div class="flex items-center justify-between px-4 py-1.5 border-t marketing-live-card-border">
                     <div class="text-[9px] marketing-live-muted">
-                        All data from <span class="font-semibold hero-accent-text">this page load</span> — zero PII stored
+                        All data from <span class="font-semibold hero-accent-text">this page load</span>: zero PII stored
                     </div>
                     <a href="/Home/LiveDemo" class="text-[10px] font-semibold hero-accent-text">See full dashboard &rarr;</a>
                 </div>
@@ -296,6 +296,22 @@
 
 @await Html.PartialAsync("_TrustStrip")
 
+<!-- Live Bot Activity (HTMX refreshed) -->
+<section class="py-3 bg-base-100">
+    <div class="max-w-6xl mx-auto px-4">
+        <div class="flex items-center gap-2 mb-2">
+            <h3 class="text-xs uppercase tracking-wider text-base-content/50 font-semibold">Live Bot Activity</h3>
+            <span class="relative flex h-2 w-2">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
+                <span class="relative inline-flex rounded-full h-2 w-2 live-dot"></span>
+            </span>
+        </div>
+        <div hx-get="/Home/TopBots" hx-trigger="load, every 30s" hx-swap="innerHTML">
+            <div class="text-xs text-base-content/30 italic">Loading bot activity...</div>
+        </div>
+    </div>
+</section>
+
 <!-- Docs Home -->
 <section class="py-8 bg-base-100 border-y border-base-content/10">
     <div class="max-w-4xl mx-auto px-4">
@@ -303,13 +319,15 @@
             <div>
                 <h2 class="text-base font-semibold text-base-content mb-1">Choose your documentation path</h2>
                 <p class="text-sm text-base-content/60">
-                    Use <span class="font-semibold">Friendly Docs</span> for setup and operations, or jump to
-                    <span class="font-semibold">Developer Docs</span> for API-level integration details.
+                    Use <span class="font-semibold">Customer Docs</span> for setup and rollout playbooks, and
+                    <span class="font-semibold">GitHub Docs</span> for deep detector internals, architecture, and API references.
                 </p>
             </div>
-            <div class="flex gap-3">
-                <a href="/docs" class="btn btn-primary btn-sm">Friendly Docs</a>
-                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs" target="_blank" class="btn btn-outline btn-sm">Developer Docs</a>
+            <div class="flex flex-wrap gap-3">
+                <a href="/docs/start-here" class="btn btn-primary btn-sm">Customer Docs</a>
+                <a href="/docs/detectors-in-depth" class="btn btn-outline btn-sm">Detector Guide</a>
+                <a href="/docs/github-docs-map" class="btn btn-outline btn-sm">GitHub Docs Map</a>
+                <a href="https://github.com/scottgal/stylobot/blob/main/docs/README.md" target="_blank" class="btn btn-outline btn-sm">Repo Docs Index</a>
             </div>
         </div>
     </div>
@@ -322,7 +340,7 @@
             13+ detectors analyse every request. <span class="hero-accent-text">You get the full picture.</span>
         </h2>
         <p class="text-sm text-base-content/70 mb-6 max-w-2xl">
-            Heuristics, behavioural analysis, fingerprinting, fast-path reputation caching, and optional LLM escalation. You get probability, confidence, risk bands, detector breakdowns, and reasoned outputs. Block, log, challenge, throttle, or run shadow mode. All <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection" target="_blank" class="link link-primary">open source</a>.
+            Heuristics, behavioural analysis, fingerprinting, fast-path reputation caching, and optional LLM escalation. StyloBot treats a visitor as a multi-vector zero-PII signature, then matches that signature across time for higher-resolution decisions. You get probability, confidence, risk bands, detector breakdowns, and reasoned outputs. Block, log, challenge, throttle, or run shadow mode. All <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection" target="_blank" class="link link-primary">open source</a>.
         </p>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -345,6 +363,7 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-base-content/70">
                 <div><span class="font-semibold text-base-content">Transparent by default:</span> no black-box verdicts, just detector-level evidence.</div>
                 <div><span class="font-semibold text-base-content">Built for real traffic:</span> fast-path detection keeps latency low under attack.</div>
+                <div><span class="font-semibold text-base-content">Temporal resilience:</span> signature matching stays effective through IP, UA, and location churn.</div>
                 <div><span class="font-semibold text-base-content">Flexible response model:</span> allow, throttle, challenge, block, or honeypot redirects.</div>
                 <div><span class="font-semibold text-base-content">No lock-in:</span> open source core, self-hosted, and free to adopt today.</div>
             </div>
@@ -357,7 +376,7 @@
 <section class="py-10 bg-base-200">
     <div class="max-w-4xl mx-auto px-4">
         <h2 class="text-base font-semibold text-base-content mb-2">What you get back</h2>
-        <p class="text-xs text-base-content/50 mb-4">Real example — human detected with 99.6% confidence</p>
+        <p class="text-xs text-base-content/50 mb-4">Real example: human detected with 99.6% confidence</p>
 
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
             <div class="p-3 bg-base-100 rounded border border-base-content/10">
@@ -481,7 +500,7 @@
             </div>
             <div class="p-4 bg-base-100 rounded-lg">
                 <div class="text-sm font-semibold mb-1">Time-travel detection</div>
-                <div class="text-xs text-base-content/60">When a visitor crosses a threshold, past requests are re-evaluated with richer cross-request signals — catching what single-request analysis missed.</div>
+                <div class="text-xs text-base-content/60">When a visitor crosses a threshold, past requests are re-evaluated with richer cross-request signals, catching what single-request analysis missed.</div>
             </div>
             <div class="p-4 bg-base-100 rounded-lg">
                 <div class="text-sm font-semibold mb-1">Continuous learning</div>
@@ -651,129 +670,24 @@
     </div>
 </section>
 
-<script>
-document.addEventListener('alpine:init', () => {
-    function toCamel(obj) {
-        if (Array.isArray(obj)) return obj.map(toCamel);
-        if (obj !== null && typeof obj === 'object') {
-            return Object.fromEntries(
-                Object.entries(obj).map(([k, v]) => [k.charAt(0).toLowerCase() + k.slice(1), toCamel(v)])
-            );
-        }
-        return obj;
-    }
-
-    function countryFlag(code, isPrivate) {
-        if (isPrivate || !code || code.length !== 2 || code.toUpperCase() === 'XX') return '\uD83C\uDF10'; // globe emoji
-        return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
-    }
-
-    Alpine.data('homeDetection', () => ({
-        // Server-rendered detection state
-        isBot: @(botProb > 0.5 ? "true" : "false"),
-        botProbability: @botProb.ToString(System.Globalization.CultureInfo.InvariantCulture),
-        confidence: @confidence.ToString(System.Globalization.CultureInfo.InvariantCulture),
-        riskBand: '@riskBand',
-        processingTimeMs: @procTime.ToString(System.Globalization.CultureInfo.InvariantCulture),
-        detectorCount: @detectorCount,
-        topReason: '@topReason.Replace("'", "\\'")',
-
-        // Geo data
-        countryCode: '@countryCode',
-        countryName: '@countryName',
-        city: '@city',
-        countryFlag: countryFlag('@countryCode', @(isPrivateNetwork ? "true" : "false")),
-        isVpn: @(isVpn ? "true" : "false"),
-        isHosting: @(isHosting ? "true" : "false"),
-
-        // Signature / fingerprint
-        signature: '@primarySig',
-        sigFactorCount: @sigFactorCount,
-        hasClientFp: @(hasClientFingerprint ? "true" : "false"),
-        hitCount: 1,
-
-        // Network
-        tlsProtocol: '@tlsProtocol',
-        httpProtocol: '@httpProtocol',
-
-        // Dynamic state
-        connected: false,
-        justUpdated: false,
-        connection: null,
-
-        async init() {
-            // Check if fingerprint already completed before Alpine initialized
-            if (window.__mlbotd_done) {
-                this.hasClientFp = true;
-            }
-            // Also listen for the event in case it fires after init
-            document.addEventListener('mlbotd:fingerprint', () => {
-                this.hasClientFp = true;
-                this.justUpdated = true;
-                setTimeout(() => { this.justUpdated = false; }, 500);
-            });
-            await this.connect();
-        },
-
-        async connect() {
-            try {
-                if (typeof signalR === 'undefined') {
-                    await new Promise((resolve, reject) => {
-                        const s = document.createElement('script');
-                        s.src = 'https://cdn.jsdelivr.net/npm/@@microsoft/signalr@@8.0.0/dist/browser/signalr.min.js';
-                        s.onload = resolve;
-                        s.onerror = reject;
-                        document.head.appendChild(s);
-                    });
-                }
-
-                this.connection = new signalR.HubConnectionBuilder()
-                    .withUrl('/_stylobot/hub')
-                    .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
-                    .configureLogging(signalR.LogLevel.Warning)
-                    .build();
-
-                // Detection events for YOUR signature
-                this.connection.on('BroadcastDetection', (raw) => {
-                    const d = toCamel(raw);
-                    if (d.primarySignature === this.signature) {
-                        this.isBot = d.isBot;
-                        this.botProbability = d.botProbability || 0;
-                        this.confidence = d.confidence || 0;
-                        this.riskBand = d.riskBand || 'Unknown';
-                        this.processingTimeMs = d.processingTimeMs || 0;
-                        if (d.topReasons && d.topReasons.length > 0) this.topReason = d.topReasons[0];
-                        this.justUpdated = true;
-                        setTimeout(() => { this.justUpdated = false; }, 500);
-                    }
-                });
-
-                // Signature events: client fingerprint updates arrive here
-                this.connection.on('BroadcastSignature', (raw) => {
-                    const sig = toCamel(raw);
-                    if (sig.primarySignature === this.signature) {
-                        this.hitCount = sig.hitCount || this.hitCount;
-                        this.sigFactorCount = sig.factorCount || this.sigFactorCount;
-                        if (sig.clientSideSignature) {
-                            this.hasClientFp = true;
-                        }
-                        this.justUpdated = true;
-                        setTimeout(() => { this.justUpdated = false; }, 500);
-                    }
-                });
-
-                this.connection.onclose(() => { this.connected = false; });
-                this.connection.onreconnecting(() => { this.connected = false; });
-                this.connection.onreconnected(() => { this.connected = true; });
-
-                await this.connection.start();
-                this.connected = true;
-            } catch (err) {
-                console.warn('[StyloBot Home] SignalR failed:', err);
-                this.connected = false;
-            }
-        }
-    }));
-});
-</script>
+<script type="application/json" id="home-detection-data">@Html.Raw(JsonSerializer.Serialize(new {
+    isBot = botProb > 0.5,
+    botProbability = Math.Round(botProb, 4),
+    confidence = Math.Round(confidence, 4),
+    riskBand,
+    processingTimeMs = Math.Round(procTime, 1),
+    detectorCount,
+    topReason,
+    countryCode,
+    countryName,
+    city,
+    isPrivateNetwork,
+    isVpn,
+    isHosting,
+    signature = primarySig,
+    sigFactorCount,
+    hasClientFp = hasClientFingerprint,
+    tlsProtocol,
+    httpProtocol
+}, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }))</script>
 

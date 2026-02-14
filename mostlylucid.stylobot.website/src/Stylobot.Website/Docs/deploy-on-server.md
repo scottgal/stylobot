@@ -34,3 +34,18 @@ curl http://localhost/bot-detection/health
 2. Observe for at least 24 hours
 3. Tune thresholds and policies
 4. Enable stronger actions gradually
+
+## Production hardening checklist
+
+- Configure and rotate detection secrets
+- Restrict dashboard access (`/_stylobot`) by policy/network
+- Send logs/metrics to your observability platform
+- Backup persistence stores where used
+- Define incident response for false-positive spikes
+
+## Change-management pattern
+
+1. Create baseline metrics (bot %, challenge rate, block rate, false positives).
+2. Adjust one policy dimension at a time.
+3. Validate on a fixed time window before next change.
+4. Promote configuration by environment.

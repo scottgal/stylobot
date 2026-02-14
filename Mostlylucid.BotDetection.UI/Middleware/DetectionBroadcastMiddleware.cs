@@ -1,7 +1,10 @@
+using System.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Middleware;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Models;
@@ -30,7 +33,8 @@ public class DetectionBroadcastMiddleware
         HttpContext context,
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
         IDashboardEventStore eventStore,
-        DetectionDescriptionService descriptionService)
+        IOptions<BotDetectionOptions> optionsAccessor,
+        VisitorListCache visitorListCache)
     {
         // Call next middleware first (so detection runs)
         await _next(context);
@@ -41,6 +45,15 @@ public class DetectionBroadcastMiddleware
             if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
                 evidenceObj is AggregatedEvidence evidence)
             {
+                // Filter out local/private IP detections from broadcast if configured
+                var options = optionsAccessor.Value;
+                if (options.ExcludeLocalIpFromBroadcast && IsLocalIp(context.Connection.RemoteIpAddress))
+                {
+                    _logger.LogDebug("Skipping broadcast for local IP {Ip}", context.Connection.RemoteIpAddress);
+                    // Still store detection for analysis, just don't broadcast to live feed
+                    await StoreDetectionOnly(context, evidence, eventStore);
+                    return;
+                }
                 // Get signature from context
                 string? primarySignature = null;
                 if (context.Items.TryGetValue("BotDetection.Signatures", out var sigObj) &&
@@ -134,13 +147,14 @@ public class DetectionBroadcastMiddleware
 
                 var updatedSignature = await eventStore.AddSignatureAsync(signature);
 
+                // Update server-side visitor cache for HTMX rendering
+                visitorListCache.Upsert(detection);
+
                 // Broadcast detection and signature (with hit_count) to all connected clients
                 await hubContext.Clients.All.BroadcastDetection(detection);
                 await hubContext.Clients.All.BroadcastSignature(updatedSignature);
 
-                // Fire-and-forget: generate plain-english description via Ollama for bot detections
-                if (detection.IsBot)
-                    _ = descriptionService.GenerateAndBroadcastAsync(detection);
+                // LLM description generation is now handled by LlmClassificationCoordinator (background)
 
                 _logger.LogDebug(
                     "Broadcast detection: {Path} sig={Signature} prob={Probability:F2} hits={HitCount}",
@@ -153,6 +167,116 @@ public class DetectionBroadcastMiddleware
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to broadcast detection");
+        }
+    }
+
+    /// <summary>
+    ///     Check if an IP address is a local/private network address.
+    ///     Supports both IPv4 and IPv6.
+    /// </summary>
+    internal static bool IsLocalIp(IPAddress? ip)
+    {
+        if (ip == null) return false;
+        if (IPAddress.IsLoopback(ip)) return true;
+
+        // IPv6 link-local (fe80::/10)
+        if (ip.IsIPv6LinkLocal) return true;
+
+        // IPv6 site-local (fec0::/10 — deprecated but still used)
+        if (ip.IsIPv6SiteLocal) return true;
+
+        // IPv6 unique local address (fc00::/7 — ULA, equivalent to RFC 1918)
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            var bytes = ip.GetAddressBytes();
+            // fc00::/7 means first byte is 0xFC or 0xFD
+            if ((bytes[0] & 0xFE) == 0xFC) return true;
+        }
+
+        // Map IPv6-mapped IPv4 to IPv4 for private range checks
+        if (ip.IsIPv4MappedToIPv6)
+            ip = ip.MapToIPv4();
+
+        // IPv4 private ranges
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            var bytes = ip.GetAddressBytes();
+            return bytes[0] switch
+            {
+                10 => true,                                    // 10.0.0.0/8
+                172 => bytes[1] >= 16 && bytes[1] <= 31,       // 172.16.0.0/12
+                192 => bytes[1] == 168,                        // 192.168.0.0/16
+                169 => bytes[1] == 254,                        // 169.254.0.0/16 (link-local)
+                127 => true,                                   // 127.0.0.0/8
+                _ => false
+            };
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    ///     Store a detection event without broadcasting to SignalR (for local IP filtering).
+    /// </summary>
+    private async Task StoreDetectionOnly(HttpContext context, AggregatedEvidence evidence, IDashboardEventStore eventStore)
+    {
+        try
+        {
+            string? primarySignature = null;
+            if (context.Items.TryGetValue("BotDetection.Signatures", out var sigObj) &&
+                sigObj is string sigJson)
+            {
+                try
+                {
+                    var sigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(sigJson);
+                    primarySignature = sigs?.GetValueOrDefault("primary");
+                }
+                catch { }
+            }
+
+            var topReasons = evidence.Contributions
+                .Where(c => !string.IsNullOrEmpty(c.Reason))
+                .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
+                .Take(5)
+                .Select(c => c.Reason!)
+                .ToList();
+
+            var detection = new DashboardDetectionEvent
+            {
+                RequestId = context.TraceIdentifier,
+                Timestamp = DateTime.UtcNow,
+                IsBot = evidence.BotProbability > 0.5,
+                BotProbability = evidence.BotProbability,
+                Confidence = evidence.Confidence,
+                RiskBand = evidence.RiskBand.ToString(),
+                BotType = evidence.PrimaryBotType?.ToString(),
+                BotName = evidence.PrimaryBotName,
+                Action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName ?? "Allow",
+                Method = context.Request.Method,
+                Path = context.Request.Path.Value ?? "/",
+                StatusCode = context.Response.StatusCode,
+                ProcessingTimeMs = evidence.TotalProcessingTimeMs,
+                PrimarySignature = primarySignature ?? GenerateFallbackSignature(context),
+                TopReasons = topReasons,
+                Narrative = DetectionNarrativeBuilder.Build(new DashboardDetectionEvent
+                {
+                    RequestId = context.TraceIdentifier,
+                    Timestamp = DateTime.UtcNow,
+                    IsBot = evidence.BotProbability > 0.5,
+                    BotProbability = evidence.BotProbability,
+                    Confidence = evidence.Confidence,
+                    RiskBand = evidence.RiskBand.ToString(),
+                    Method = context.Request.Method,
+                    Path = context.Request.Path.Value ?? "/",
+                    TopReasons = topReasons
+                })
+            };
+
+            await eventStore.AddDetectionAsync(detection);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to store local detection");
         }
     }
 

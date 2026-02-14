@@ -1,0 +1,70 @@
+# TimescaleDB Historical Reputation Detector
+name: TimescaleReputationContributor
+priority: 15  # After FastPath (3), before ReputationBias (45)
+enabled: true
+description: Queries 90-day historical detection data from TimescaleDB for reputation scoring
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: timescale
+
+taxonomy:
+  kind: enricher
+  determinism: deterministic
+  persistence: external  # Uses TimescaleDB
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for historical reputation lookup
+      signal_pattern: request.*
+
+  required_signals: []  # Runs without dependencies (Wave 0)
+
+  optional_signals:
+    - request.ip
+    - request.headers.user-agent
+
+output:
+  emits:
+    - ts.bot_ratio         # Historical bot-to-total ratio (0.0-1.0)
+    - ts.hit_count         # Total historical hit count
+    - ts.days_active       # Number of distinct days seen
+    - ts.velocity          # Requests in last hour
+    - ts.is_new            # True if no historical data exists
+    - ts.is_conclusive     # True if enough data to skip LLM
+    - ts.avg_bot_prob      # Average bot probability across all observations
+
+# Lane configuration
+lane:
+  name: fast
+  max_concurrency: 16
+
+# Budget constraints
+budget:
+  timeout: 50ms  # Cached lookup should be <5ms, DB query <50ms
+  max_memory: 1MB
+
+defaults:
+  weights:
+    base: 0.5
+    bot_signal: 1.0
+    human_signal: -0.8
+    verified: 1.5
+
+  confidence:
+    bot_detected: 0.7
+    human_indicated: 0.3
+    strong_signal: 0.9
+    neutral: 0.0
+
+  timing:
+    timeout_ms: 50
+
+  parameters:
+    high_bot_ratio: 0.8      # Ratio above which signature is considered bot
+    low_bot_ratio: 0.2       # Ratio below which signature is considered human
+    min_hits_conclusive: 3   # Minimum observations for conclusive verdict
+    high_velocity_per_hour: 50  # Request count threshold for burst detection

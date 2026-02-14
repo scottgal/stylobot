@@ -1,0 +1,26 @@
+@using Mostlylucid.BotDetection.UI.Services
+@model IReadOnlyList<CachedVisitor>
+
+<table class="table table-xs w-full">
+    <thead>
+        <tr class="text-[9px] font-semibold uppercase tracking-wider text-base-content/40">
+            <th class="px-3 py-1.5">Name</th>
+            <th class="px-2 py-1.5 text-right w-12">Hits</th>
+            <th class="px-2 py-1.5 text-right w-14">Risk</th>
+            <th class="px-2 py-1.5 text-right w-12">Seen</th>
+        </tr>
+    </thead>
+    <tbody id="visitor-tbody">
+        @foreach (var visitor in Model)
+        {
+            await Html.RenderPartialAsync("_VisitorRow", visitor);
+        }
+    </tbody>
+</table>
+
+@if (Model.Count == 0)
+{
+    <div class="p-8 text-center text-base-content/30 text-sm">
+        No visitors yet. Traffic will appear here in real time.
+    </div>
+}

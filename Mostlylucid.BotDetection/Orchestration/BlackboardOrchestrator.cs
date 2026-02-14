@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.ObjectPool;
@@ -9,6 +10,7 @@ using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration;
@@ -234,12 +236,16 @@ public class BlackboardOrchestrator
     private readonly ConcurrentDictionary<string, CircuitState> _circuitStates = new();
     private readonly IEnumerable<IContributingDetector> _detectors;
     private readonly ILearningEventBus? _learningBus;
+    private readonly LlmClassificationCoordinator? _llmCoordinator;
     private readonly ILogger<BlackboardOrchestrator> _logger;
+    private readonly BotDetectionOptions _fullOptions;
     private readonly OrchestratorOptions _options;
     private readonly PiiHasher _piiHasher;
     private readonly IPolicyEvaluator? _policyEvaluator;
     private readonly IPolicyRegistry? _policyRegistry;
     private readonly SignatureCoordinator? _signatureCoordinator;
+
+    [ThreadStatic] private static Random? t_random;
 
     public BlackboardOrchestrator(
         ILogger<BlackboardOrchestrator> logger,
@@ -249,9 +255,11 @@ public class BlackboardOrchestrator
         ILearningEventBus? learningBus = null,
         IPolicyRegistry? policyRegistry = null,
         IPolicyEvaluator? policyEvaluator = null,
-        SignatureCoordinator? signatureCoordinator = null)
+        SignatureCoordinator? signatureCoordinator = null,
+        LlmClassificationCoordinator? llmCoordinator = null)
     {
         _logger = logger;
+        _fullOptions = options.Value;
         _options = options.Value.Orchestrator;
         _detectors = detectors;
         _piiHasher = piiHasher;
@@ -259,6 +267,7 @@ public class BlackboardOrchestrator
         _policyRegistry = policyRegistry;
         _policyEvaluator = policyEvaluator;
         _signatureCoordinator = signatureCoordinator;
+        _llmCoordinator = llmCoordinator;
     }
 
     /// <summary>
@@ -574,6 +583,10 @@ public class BlackboardOrchestrator
                         requestId);
                 }
 
+            // Enqueue for background LLM classification if appropriate
+            if (_llmCoordinator != null && _fullOptions.EnableLlmDetection)
+                TryEnqueueLlmClassification(httpContext, result, signals);
+
             _logger.LogDebug(
                 "Detection complete for {RequestId}: {RiskBand} (prob={Probability:F2}, conf={Confidence:F2}) in {Elapsed}ms, {Waves} waves, {Detectors} detectors",
                 requestId,
@@ -864,6 +877,179 @@ public class BlackboardOrchestrator
         // Use injected PiiHasher for HMAC-SHA256 (cryptographic, non-reversible)
         // Key is managed via DI configuration (from config/vault)
         return _piiHasher.ComputeSignature(clientIp, userAgent);
+    }
+
+    #endregion
+
+    #region Background LLM Enqueue
+
+    /// <summary>
+    ///     Decide whether to enqueue this detection for background LLM classification.
+    ///     Runs after detection completes so we have full AggregatedEvidence + signals.
+    ///     Fire-and-forget: never blocks the request pipeline.
+    /// </summary>
+    private void TryEnqueueLlmClassification(
+        HttpContext httpContext,
+        AggregatedEvidence result,
+        ConcurrentDictionary<string, object> signals)
+    {
+        try
+        {
+            var coordOptions = _fullOptions.LlmCoordinator;
+            var prob = result.BotProbability;
+
+            // Read TimescaleDB signals
+            var isNew = signals.TryGetValue("ts.is_new", out var newVal) && newVal is true;
+            var isConclusive = signals.TryGetValue("ts.is_conclusive", out var concVal) && concVal is true;
+
+            // Determine enqueue reason and sampling decision
+            string? enqueueReason = null;
+            var isDriftSample = false;
+            var isConfirmationSample = false;
+
+            if (isNew)
+            {
+                // New unknown signature — always enqueue for learning
+                enqueueReason = "new_signature";
+            }
+            else if (isConclusive)
+            {
+                // Already well-classified by TimescaleDB — skip
+                _logger.LogDebug("Skipping LLM enqueue: TimescaleDB reputation is conclusive");
+                return;
+            }
+            else if (prob >= coordOptions.MinProbabilityToEnqueue && prob <= coordOptions.MaxProbabilityToEnqueue)
+            {
+                // Ambiguous range — always enqueue
+                enqueueReason = "ambiguous";
+            }
+            else if (prob > coordOptions.MaxProbabilityToEnqueue)
+            {
+                // High-risk — sample at reduced rate for confirmation
+                var random = t_random ??= new Random();
+                if (random.NextDouble() < coordOptions.HighRiskConfirmationRate)
+                {
+                    enqueueReason = "confirmation";
+                    isConfirmationSample = true;
+                }
+                else
+                {
+                    return;
+                }
+            }
+            else if (prob < coordOptions.MinProbabilityToEnqueue)
+            {
+                // Low-risk — adaptive sampling for drift detection
+                var random = t_random ??= new Random();
+                var sampleRate = _llmCoordinator!.GetAdaptiveSampleRate();
+                if (random.NextDouble() < sampleRate)
+                {
+                    enqueueReason = "drift_sample";
+                    isDriftSample = true;
+                }
+                else
+                {
+                    return;
+                }
+            }
+
+            if (enqueueReason == null)
+                return;
+
+            // Compute signature for the request
+            var signature = ComputeSignatureHash(httpContext);
+            if (string.IsNullOrEmpty(signature))
+                return;
+
+            // Build compact request info snapshot
+            var requestInfo = BuildSnapshotRequestInfo(httpContext, result);
+
+            var topReasons = result.Contributions
+                .Where(c => !string.IsNullOrEmpty(c.Reason))
+                .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
+                .Take(5)
+                .Select(c => c.Reason!)
+                .ToList();
+
+            var request = new LlmClassificationRequest
+            {
+                RequestId = httpContext.TraceIdentifier,
+                PrimarySignature = signature,
+                UserAgent = httpContext.Request.Headers.UserAgent.ToString(),
+                PreBuiltRequestInfo = requestInfo,
+                HeuristicProbability = prob,
+                TopReasons = topReasons,
+                Signals = new Dictionary<string, object>(result.Signals),
+                BotType = result.PrimaryBotType?.ToString(),
+                BotName = result.PrimaryBotName,
+                Path = httpContext.Request.Path.Value,
+                Method = httpContext.Request.Method,
+                Confidence = result.Confidence,
+                RiskBand = result.RiskBand.ToString(),
+                Action = result.PolicyAction?.ToString() ?? result.TriggeredActionPolicyName ?? "Allow",
+                IsNewSignature = isNew,
+                IsDriftSample = isDriftSample,
+                IsConfirmationSample = isConfirmationSample,
+                EnqueueReason = enqueueReason
+            };
+
+            _llmCoordinator!.TryEnqueue(request);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to enqueue LLM classification for {RequestId}",
+                httpContext.TraceIdentifier);
+        }
+    }
+
+    /// <summary>
+    ///     Builds ultra-compact request info for background LLM analysis.
+    ///     Same format as LlmDetector.BuildRequestInfo but uses AggregatedEvidence
+    ///     instead of HttpContext.Items (which may not be populated yet).
+    /// </summary>
+    private static string BuildSnapshotRequestInfo(HttpContext httpContext, AggregatedEvidence evidence)
+    {
+        var sb = new StringBuilder();
+        sb.Append($"prob={evidence.BotProbability:F2}\n");
+
+        var ua = httpContext.Request.Headers.UserAgent.ToString();
+        sb.Append($"ua=\"{(ua.Length > 100 ? ua[..97] + "..." : ua)}\"\n");
+
+        var lang = httpContext.Request.Headers.AcceptLanguage.ToString();
+        if (!string.IsNullOrEmpty(lang))
+            sb.Append($"lang=\"{(lang.Length > 30 ? lang[..27] + "..." : lang)}\"\n");
+
+        var hasCookies = httpContext.Request.Cookies.Any();
+        if (hasCookies) sb.Append("cookies=1\n");
+        sb.Append($"hdrs={httpContext.Request.Headers.Count}\n");
+
+        // Top detector signals
+        var topHits = evidence.Contributions
+            .Where(c => Math.Abs(c.ConfidenceDelta) >= 0.1)
+            .OrderByDescending(c => Math.Abs(c.ConfidenceDelta) * c.Weight)
+            .Take(3)
+            .ToList();
+
+        if (topHits.Count != 0)
+        {
+            sb.Append("[top]\n");
+            foreach (var c in topHits)
+            {
+                var name = c.DetectorName switch
+                {
+                    "Heuristic" => "H", "UserAgent" => "UA", "Header" => "Hdr",
+                    "Ip" => "IP", "Behavioral" => "Beh", "SecurityTool" => "Sec",
+                    _ => c.DetectorName.Length > 3 ? c.DetectorName[..3] : c.DetectorName
+                };
+                var reason = c.Reason.Length > 20 ? c.Reason[..17] + "..." : c.Reason;
+                sb.Append($"{name}={c.ConfidenceDelta:+0.0;-0.0}|\"{reason}\"\n");
+            }
+        }
+
+        if (evidence.PrimaryBotType.HasValue && evidence.PrimaryBotType != BotType.Unknown)
+            sb.Append($"type={evidence.PrimaryBotType}\n");
+
+        return sb.ToString();
     }
 
     #endregion

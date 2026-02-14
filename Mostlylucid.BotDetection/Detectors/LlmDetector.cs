@@ -117,6 +117,54 @@ public partial class LlmDetector : IDetector, IDisposable
         return result;
     }
 
+    /// <summary>
+    ///     Detect from a pre-built request info string (no HttpContext needed).
+    ///     Used by the background LlmClassificationCoordinator.
+    /// </summary>
+    public async Task<DetectorResult> DetectFromSnapshotAsync(string preBuiltRequestInfo, CancellationToken cancellationToken = default)
+    {
+        var result = new DetectorResult();
+
+        if (!_options.AiDetection.Ollama.Enabled || string.IsNullOrEmpty(_options.AiDetection.Ollama.Endpoint))
+            return result;
+
+        try
+        {
+            var analysis = await AnalyzeWithLlm(preBuiltRequestInfo, cancellationToken);
+
+            if (analysis.Reasoning != "Analysis failed")
+            {
+                if (analysis.IsBot)
+                {
+                    result.Confidence = analysis.Confidence;
+                    result.Reasons.Add(new DetectionReason
+                    {
+                        Category = "LLM Analysis",
+                        Detail = analysis.Reasoning,
+                        ConfidenceImpact = analysis.Confidence
+                    });
+                    result.BotType = analysis.BotType;
+                }
+                else
+                {
+                    result.Confidence = 1.0 - analysis.Confidence;
+                    result.Reasons.Add(new DetectionReason
+                    {
+                        Category = "LLM Analysis",
+                        Detail = $"LLM classified as human: {analysis.Reasoning}",
+                        ConfidenceImpact = -analysis.Confidence
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "LLM snapshot detection failed");
+        }
+
+        return result;
+    }
+
     public void Dispose()
     {
         Dispose(true);

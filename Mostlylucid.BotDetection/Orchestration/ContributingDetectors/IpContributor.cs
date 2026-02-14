@@ -137,19 +137,38 @@ public class IpContributor : ConfiguredContributorBase
 
     private static bool IsLocalIp(string ip)
     {
+        // Prefix check for common IPv4 ranges (fast path)
         foreach (var prefix in LocalPrefixes)
             if (ip.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 return true;
 
-        // Also check with IPAddress parsing for accuracy
+        // Full IPAddress parsing for accurate IPv4/IPv6 checks
         if (IPAddress.TryParse(ip, out var addr))
         {
             if (IPAddress.IsLoopback(addr))
                 return true;
 
-            // Check for link-local IPv6
+            // IPv6 link-local (fe80::/10)
             if (addr.IsIPv6LinkLocal)
                 return true;
+
+            // IPv6 site-local (fec0::/10 — deprecated but still used)
+            if (addr.IsIPv6SiteLocal)
+                return true;
+
+            // IPv6 unique local address (fc00::/7 — ULA, equivalent to RFC 1918)
+            if (addr.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+            {
+                var bytes = addr.GetAddressBytes();
+                if ((bytes[0] & 0xFE) == 0xFC) return true;
+            }
+
+            // IPv4-mapped IPv6 (::ffff:10.x.x.x etc.)
+            if (addr.IsIPv4MappedToIPv6)
+            {
+                var mapped = addr.MapToIPv4();
+                return IsLocalIp(mapped.ToString());
+            }
         }
 
         return false;

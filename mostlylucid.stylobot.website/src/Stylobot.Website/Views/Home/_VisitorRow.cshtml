@@ -1,0 +1,29 @@
+@using Mostlylucid.BotDetection.UI.Services
+@model CachedVisitor
+
+<tr id="visitor-@Model.PrimarySignature" hx-swap-oob="true"
+    class="cursor-pointer hover:bg-base-300/30 transition-colors @(Model.IsBot ? "bg-error/5" : "")"
+    hx-get="/Home/LiveDemo/Visitor/@Model.PrimarySignature"
+    hx-target="#visitor-detail"
+    hx-swap="innerHTML">
+    <td class="px-3 py-2">
+        <div class="flex items-center gap-2">
+            <span class="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white @(Model.IsBot ? "bg-error" : "bg-success")">
+                <i class="bx text-xs @(Model.IsBot ? "bx-bot" : "bx-user")"></i>
+            </span>
+            <div class="min-w-0">
+                <div class="text-xs font-semibold truncate">@(Model.BotName ?? Model.BotType ?? (Model.IsBot ? "Unknown Bot" : "Visitor"))</div>
+                <code class="text-[9px] opacity-25 font-mono">@Model.PrimarySignature[..Math.Min(8, Model.PrimarySignature.Length)]</code>
+            </div>
+        </div>
+    </td>
+    <td class="px-2 py-2 text-right">
+        <span class="badge badge-xs badge-ghost font-mono">@(Model.Hits)x</span>
+    </td>
+    <td class="px-2 py-2 text-right">
+        <span class="text-[10px] font-medium risk-text-@(Model.RiskBand?.ToLowerInvariant() ?? "medium")">@Model.RiskBand</span>
+    </td>
+    <td class="px-2 py-2 text-right">
+        <span class="text-[10px] opacity-30">@Model.TimeAgo</span>
+    </td>
+</tr>

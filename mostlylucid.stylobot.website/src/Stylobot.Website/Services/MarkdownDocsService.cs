@@ -32,8 +32,9 @@ public sealed class MarkdownDocsService : IMarkdownDocsService
 
         return Directory
             .GetFiles(_docsPath, "*.md", SearchOption.TopDirectoryOnly)
-            .OrderBy(Path.GetFileName)
             .Select(ToNavItem)
+            .OrderBy(item => NavOrder(item.Slug))
+            .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
 
@@ -87,6 +88,23 @@ public sealed class MarkdownDocsService : IMarkdownDocsService
         }
 
         return new DocsNavItem(slug, title);
+    }
+
+    private static int NavOrder(string slug)
+    {
+        return slug switch
+        {
+            "start-here" => 0,
+            "how-stylobot-works" => 1,
+            "detectors-in-depth" => 2,
+            "running-locally" => 3,
+            "live-demo" => 4,
+            "deploy-on-server" => 5,
+            "frequently-asked-questions" => 6,
+            "glossary" => 7,
+            "github-docs-map" => 8,
+            _ => 100
+        };
     }
 
     private static string ExtractTitle(string markdown, string fallbackSlug)

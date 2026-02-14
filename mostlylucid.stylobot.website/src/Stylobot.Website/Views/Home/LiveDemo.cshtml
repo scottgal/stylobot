@@ -97,199 +97,7 @@
 
 <!-- Main Content -->
 <section class="py-4 bg-base-100"
-     x-data="{
-        connection: null, connected: false, summary: null, summaryLoading: true,
-        visitorMap: {}, maxVisitors: 100, feedLoading: true, feedPaused: false, initialLoadComplete: false,
-        yourData: null, yourLoading: true, yourError: null, signature: '', hitCount: 1,
-        justUpdated: false, showAllContributions: false, showSignals: false, probabilityHistory: [],
-        endpointStats: {}, expandedItem: null,
-        selectedVisitor: null, filterEndpoint: null, visitorFilter: 'all',
-
-        get feedItems() {
-            let items = Object.values(this.visitorMap);
-            if (this.filterEndpoint) items = items.filter(v => v.paths && v.paths.includes(this.filterEndpoint));
-            if (this.visitorFilter === 'humans') items = items.filter(v => !v.isBot);
-            else if (this.visitorFilter === 'bots') items = items.filter(v => v.isBot);
-            else if (this.visitorFilter === 'ai') items = items.filter(v => v.isBot && (v.botType === 'AiBot' || /ai|gpt|claude|llm|chatbot|copilot|gemini|bard/i.test(v.botName || '')));
-            else if (this.visitorFilter === 'tools') items = items.filter(v => v.isBot && ['Scraper', 'MonitoringBot', 'SearchEngine', 'SocialMediaBot', 'VerifiedBot', 'GoodBot'].includes(v.botType));
-            return items.sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen)).slice(0, 50);
-        },
-        get filterCounts() {
-            const all = Object.values(this.visitorMap);
-            return {
-                all: all.length,
-                humans: all.filter(v => !v.isBot).length,
-                bots: all.filter(v => v.isBot).length,
-                ai: all.filter(v => v.isBot && (v.botType === 'AiBot' || /ai|gpt|claude|llm|chatbot|copilot|gemini|bard/i.test(v.botName || ''))).length,
-                tools: all.filter(v => v.isBot && ['Scraper', 'MonitoringBot', 'SearchEngine', 'SocialMediaBot', 'VerifiedBot', 'GoodBot'].includes(v.botType)).length
-            };
-        },
-        get activeDetail() { return this.selectedVisitor ? this.visitorMap[this.selectedVisitor] : null; },
-        get botCount() { return this.summary?.botRequests || 0; },
-        get humanCount() { return this.summary?.humanRequests || 0; },
-        get totalCount() { return this.summary?.totalRequests || 0; },
-        get botPct() { return this.summary?.botPercentage?.toFixed(1) || '0.0'; },
-        get avgMs() { return this.summary?.averageProcessingTimeMs?.toFixed(0) || '0'; },
-        get uniqueSigs() { return this.summary?.uniqueSignatures || 0; },
-        get topEndpoints() {
-            return Object.entries(this.endpointStats)
-                .map(([path, s]) => ({ path, total: s.total, bots: s.bots, botPct: s.total > 0 ? ((s.bots / s.total) * 100).toFixed(0) : '0' }))
-                .sort((a, b) => b.total - a.total)
-                .slice(0, 8);
-        },
-        get sparklinePath() {
-            const h = this.probabilityHistory; if (h.length < 2) return '';
-            const w = 4, maxH = 40; return h.map((p, i) => (i === 0 ? 'M' : 'L') + (i * w) + ',' + ((1 - p) * maxH)).join(' ');
-        },
-        get sparklineWidth() { return Math.max((this.probabilityHistory.length - 1) * 4, 20); },
-        get sparklineColor() { const h = this.probabilityHistory; if (h.length === 0) return this.themeColor('positive'); const last = h[h.length - 1]; return last >= 0.7 ? this.themeColor('danger') : last >= 0.4 ? this.themeColor('warning') : this.themeColor('positive'); },
-        get gaugeColor() { if (!this.yourData) return this.themeColor('positive'); const p = this.yourData.botProbability; return p >= 0.7 ? this.themeColor('danger') : p >= 0.4 ? this.themeColor('warning') : this.themeColor('positive'); },
-        get gaugeDash() { if (!this.yourData) return '0 251.3'; return (this.yourData.botProbability * 251.3) + ' 251.3'; },
-        get topContributions() { if (!this.yourData?.contributions) return []; const s = [...this.yourData.contributions].sort((a, b) => Math.abs(b.impact) - Math.abs(a.impact)); return this.showAllContributions ? s : s.slice(0, 5); },
-        get signalEntries() { if (!this.yourData?.signals) return []; return Object.entries(this.yourData.signals); },
-        get confidenceWord() { if (!this.yourData) return ''; const c = this.yourData.confidence; return c >= 0.9 ? 'very confident' : c >= 0.7 ? 'confident' : c >= 0.5 ? 'fairly confident' : 'low confidence'; },
-        get categorizedContributions() {
-            if (!this.yourData?.contributions) return {};
-            const cats = {};
-            this.yourData.contributions.forEach(c => {
-                const cat = c.category || 'Other';
-                if (!cats[cat]) cats[cat] = [];
-                cats[cat].push(c);
-            });
-            return cats;
-        },
-
-        detectorDocUrl(name) {
-            const docMap = {
-                'UserAgent': 'user-agent-detection', 'Header': 'header-detection', 'Ip': 'ip-detection',
-                'ClientSide': 'client-side-fingerprinting', 'Behavioral': 'behavioral-analysis',
-                'TlsFingerprint': 'AdvancedFingerprintingDetectors', 'Http2Fingerprint': 'AdvancedFingerprintingDetectors', 'Http3Fingerprint': 'http3-fingerprinting',
-                'TcpIpFingerprint': 'AdvancedFingerprintingDetectors', 'Heuristic': 'ai-detection',
-                'HeuristicLate': 'ai-detection', 'Llm': 'ai-detection',
-                'BehavioralWaveform': 'advanced-behavioral-detection', 'MultiLayerCorrelation': 'AdvancedFingerprintingDetectors'
-            };
-            const slug = docMap[name] || 'configuration';
-            return 'https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/' + slug + '.md';
-        },
-        categoryIcon(cat) {
-            return { 'Browser': 'bx-globe', 'Network': 'bx-cloud', 'Behavioral': 'bx-pulse', 'Fingerprint': 'bx-fingerprint', 'AI': 'bx-brain', 'Reputation': 'bx-shield' }[cat] || 'bx-analyse';
-        },
-        categoryColor(cat) {
-            return { 'Browser': this.themeColor('accent'), 'Network': this.themeColor('warning'), 'Behavioral': this.themeColor('positive'), 'Fingerprint': this.themeColor('accentAlt'), 'AI': this.themeColor('danger'), 'Reputation': this.themeColor('muted') }[cat] || this.themeColor('muted');
-        },
-        themeColor(name) {
-            const styles = getComputedStyle(document.documentElement);
-            const map = {
-                positive: '--sb-signal-pos',
-                warning: '--sb-signal-warn',
-                danger: '--sb-signal-danger',
-                accent: '--sb-accent',
-                accentAlt: '--sb-accent-alt',
-                muted: '--sb-card-subtle'
-            };
-            const key = map[name] || '--sb-card-subtle';
-            return styles.getPropertyValue(key).trim() || '#6b7280';
-        },
-        alphaColor(color, amount) {
-            return `color-mix(in oklab, ${color} ${amount}%, transparent)`;
-        },
-        riskLabelClass(band) {
-            const normalized = (band || 'unknown').toLowerCase();
-            return `risk-text-${normalized}`;
-        },
-
-        toCamel(obj) { if (Array.isArray(obj)) return obj.map(o => this.toCamel(o)); if (obj !== null && typeof obj === 'object') { return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k.charAt(0).toLowerCase() + k.slice(1), this.toCamel(v)])); } return obj; },
-        riskColor(band) { return { 'VeryLow': this.themeColor('positive'), 'Low': this.themeColor('positive'), 'Elevated': this.themeColor('warning'), 'Medium': this.themeColor('warning'), 'High': this.themeColor('danger'), 'VeryHigh': this.themeColor('danger') }[band] || this.themeColor('muted'); },
-        timeAgo(ts) { if (!ts) return ''; const d = Math.floor((Date.now() - new Date(ts).getTime()) / 1000); if (d < 5) return 'now'; if (d < 60) return d + 's'; if (d < 3600) return Math.floor(d / 60) + 'm'; return Math.floor(d / 3600) + 'h'; },
-        truncPath(p, max) { max = max || 30; if (!p) return '/'; return p.length > max ? p.substring(0, max - 3) + '...' : p; },
-        selectVisitor(sig) { this.selectedVisitor = this.selectedVisitor === sig ? null : sig; },
-        selectEndpoint(path) { this.filterEndpoint = this.filterEndpoint === path ? null : path; this.selectedVisitor = null; },
-        clearFilters() { this.filterEndpoint = null; this.selectedVisitor = null; },
-
-        async init() { this.fetchYourDetection(); await Promise.all([this.fetchSummary(), this.fetchSignatures(), this.fetchDetections()]); this.feedLoading = false; this.initialLoadComplete = true; this.connectSignalR(); setInterval(() => this.$forceUpdate?.(), 10000); },
-        async fetchSummary() { try { const r = await fetch('/_stylobot/api/summary'); if (r.ok) this.summary = this.toCamel(await r.json()); } catch(e) {} this.summaryLoading = false; },
-        async fetchSignatures() {
-            try {
-                const r = await fetch('/_stylobot/api/signatures?limit=50');
-                if (r.ok) {
-                    const sigs = this.toCamel(await r.json()) || [];
-                    sigs.forEach(s => {
-                        const sig = s.primarySignature;
-                        if (!sig || this.visitorMap[sig]) return;
-                        const isBot = s.isKnownBot || s.riskBand === 'High' || s.riskBand === 'VeryHigh';
-                        this.visitorMap[sig] = {
-                            sig, hits: s.hitCount || 1,
-                            firstSeen: s.timestamp, lastSeen: s.timestamp,
-                            isBot, botProbability: null, confidence: null,
-                            riskBand: s.riskBand || 'Medium', lastPath: null, paths: [],
-                            action: 'Allow', botName: s.botName || null, botType: null,
-                            narrative: null, description: null, topReasons: [],
-                            processingTimeMs: null, lastRequestId: null,
-                            hasFullData: false
-                        };
-                    });
-                }
-            } catch(e) {}
-        },
-        async fetchDetections() { try { const r = await fetch('/_stylobot/api/detections?limit=200'); if (r.ok) { const items = (this.toCamel(await r.json()) || []).reverse(); items.forEach(d => { this.trackEndpoint(d); this.upsertVisitor(d); }); } } catch(e) {} },
-        upsertVisitor(d) {
-            const sig = d.primarySignature || d.requestId || ('anon-' + Math.random().toString(36).slice(2, 8));
-            const existing = this.visitorMap[sig];
-            if (existing) {
-                if (this.initialLoadComplete) existing.hits++;
-                existing.lastSeen = d.timestamp || new Date().toISOString();
-                existing.isBot = d.isBot;
-                existing.botProbability = d.botProbability;
-                existing.confidence = d.confidence;
-                existing.riskBand = d.riskBand;
-                existing.lastPath = d.path;
-                existing.action = d.action;
-                existing.narrative = d.narrative || existing.narrative;
-                existing.description = d.description || existing.description;
-                existing.topReasons = d.topReasons?.length ? d.topReasons : existing.topReasons;
-                if (d.botName) existing.botName = d.botName;
-                if (d.botType) existing.botType = d.botType;
-                existing.processingTimeMs = d.processingTimeMs;
-                existing.lastRequestId = d.requestId;
-                existing.hasFullData = true;
-                if (!existing.paths.includes(d.path)) existing.paths.push(d.path);
-                if (existing.paths.length > 5) existing.paths.splice(0, existing.paths.length - 5);
-            } else {
-                this.visitorMap[sig] = {
-                    sig, hits: 1,
-                    firstSeen: d.timestamp || new Date().toISOString(),
-                    lastSeen: d.timestamp || new Date().toISOString(),
-                    isBot: d.isBot, botProbability: d.botProbability, confidence: d.confidence,
-                    riskBand: d.riskBand, lastPath: d.path, paths: [d.path],
-                    action: d.action, botName: d.botName, botType: d.botType,
-                    narrative: d.narrative, description: d.description,
-                    topReasons: d.topReasons || [], processingTimeMs: d.processingTimeMs,
-                    lastRequestId: d.requestId, hasFullData: true
-                };
-                // Evict oldest if too many visitors
-                const keys = Object.keys(this.visitorMap);
-                if (keys.length > this.maxVisitors) {
-                    const sorted = keys.sort((a, b) => new Date(this.visitorMap[a].lastSeen) - new Date(this.visitorMap[b].lastSeen));
-                    sorted.slice(0, keys.length - this.maxVisitors).forEach(k => delete this.visitorMap[k]);
-                }
-            }
-        },
-        trackEndpoint(d) { const p = d.path || '/'; if (!this.endpointStats[p]) this.endpointStats[p] = { total: 0, bots: 0 }; this.endpointStats[p].total++; if (d.isBot) this.endpointStats[p].bots++; },
-        fetchYourDetection() { try { const el = document.getElementById('your-detection-data'); if (el) { const d = JSON.parse(el.textContent); if (d) { this.yourData = d; this.probabilityHistory = [d.botProbability]; this.yourLoading = false; return; } } } catch(e) {} this.yourError = 'Detection unavailable'; this.yourLoading = false; },
-        async connectSignalR() {
-            try {
-                if (typeof signalR === 'undefined') { await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/@@microsoft/signalr@@8.0.0/dist/browser/signalr.min.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
-                this.connection = new signalR.HubConnectionBuilder().withUrl('/_stylobot/hub').withAutomaticReconnect([0,2000,5000,10000,30000]).configureLogging(signalR.LogLevel.Warning).build();
-                this.connection.on('BroadcastDetection', (raw) => { const d = this.toCamel(raw); this.trackEndpoint(d); if (!this.feedPaused) { this.upsertVisitor(d); } if (this.signature && d.primarySignature === this.signature && this.yourData) { Object.assign(this.yourData, { isBot: d.isBot, botProbability: d.botProbability, confidence: d.confidence, riskBand: d.riskBand, processingTimeMs: d.processingTimeMs, narrative: d.narrative }); this.probabilityHistory.push(d.botProbability); if (this.probabilityHistory.length > 60) this.probabilityHistory.splice(0, this.probabilityHistory.length - 60); this.justUpdated = true; setTimeout(() => this.justUpdated = false, 600); } });
-                this.connection.on('BroadcastSignature', (raw) => { const sig = this.toCamel(raw); if (this.signature && sig.primarySignature === this.signature) this.hitCount = sig.hitCount; const visitor = this.visitorMap[sig.primarySignature]; if (visitor) { visitor.hits = sig.hitCount; if (sig.botName) visitor.botName = sig.botName; } });
-                this.connection.on('BroadcastSummary', (raw) => { this.summary = this.toCamel(raw); });
-                this.connection.on('BroadcastDescriptionUpdate', (requestId, description) => { const match = Object.values(this.visitorMap).find(v => v.lastRequestId === requestId); if (match) match.description = description; });
-                this.connection.onclose(() => this.connected = false); this.connection.onreconnecting(() => this.connected = false); this.connection.onreconnected(() => this.connected = true);
-                await this.connection.start(); this.connected = true;
-                const barEl = document.querySelector('.stylobot-header'); if (barEl && barEl._x_dataStack) this.signature = barEl._x_dataStack[0].signature || '';
-            } catch(e) { console.warn('[LiveDemo] SignalR failed:', e); }
-        }
-     }"
+     x-data="liveDetection()"
      x-init="init()">
 
     <div class="max-w-7xl mx-auto px-4">
@@ -507,7 +315,7 @@
                             <h3 class="text-xs font-bold uppercase tracking-wider text-base-content/50 mb-3 flex items-center">
                                 Detector Breakdown
                                 <span class="badge badge-xs badge-ghost ml-1" x-text="(yourData?.contributions?.length || 0)"></span>
-                                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs" target="_blank"
+                                <a href="https://github.com/scottgal/stylobot/blob/main/docs/README.md" target="_blank"
                                    class="ml-auto text-[10px] font-normal normal-case hero-accent-text">How detectors work</a>
                             </h3>
                             <div class="space-y-1.5">
@@ -631,6 +439,21 @@
 
                 <!-- Feed (Narrative-driven rows) -->
                 <div x-show="!feedLoading" x-cloak class="card bg-base-200 shadow-xl overflow-hidden">
+                    <!-- Sort header -->
+                    <div class="flex items-center gap-1 px-3 py-1.5 border-b border-base-300/50 text-[9px] font-semibold uppercase tracking-wider text-base-content/40">
+                        <button class="flex-1 min-w-0 text-left cursor-pointer hover:text-base-content/60 transition-colors" @@click="toggleSort('name')">
+                            Name <span x-text="sortIcon('name')"></span>
+                        </button>
+                        <button class="w-10 text-right cursor-pointer hover:text-base-content/60 transition-colors" @@click="toggleSort('hits')">
+                            Hits <span x-text="sortIcon('hits')"></span>
+                        </button>
+                        <button class="w-14 text-right cursor-pointer hover:text-base-content/60 transition-colors" @@click="toggleSort('risk')">
+                            Risk <span x-text="sortIcon('risk')"></span>
+                        </button>
+                        <button class="w-10 text-right cursor-pointer hover:text-base-content/60 transition-colors" @@click="toggleSort('lastSeen')">
+                            Seen <span x-text="sortIcon('lastSeen')"></span>
+                        </button>
+                    </div>
                     <div class="max-h-[600px] overflow-y-auto divide-y divide-base-300/50" x-ref="feedScroll">
                         <template x-for="(v, i) in feedItems" :key="v.sig">
                             <div class="px-3 py-2.5 transition-colors duration-300 cursor-pointer"
@@ -767,7 +590,13 @@
 <!-- How Detection Works -->
 <section class="py-6 bg-base-200">
     <div class="max-w-5xl mx-auto px-4">
-        <h2 class="text-lg font-bold mb-4 text-center">How StyloBot Detects Bots</h2>
+        <div class="text-center mb-4">
+            <h2 class="text-lg font-bold">How StyloBot Detects Bots</h2>
+            <div class="mt-1 text-xs text-base-content/60">
+                Start with <a href="/docs/detectors-in-depth" class="link link-primary">Detectors In Depth</a> and use
+                <a href="/docs/github-docs-map" class="link link-primary">GitHub Docs Map</a> for deeper technical references.
+            </div>
+        </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div class="bg-base-100 rounded-lg p-4">
                 <div class="flex items-center gap-2 mb-2">
@@ -775,7 +604,7 @@
                     <h3 class="font-bold text-sm hero-accent-text">Browser Analysis</h3>
                 </div>
                 <p class="text-xs text-base-content/60">User-agent parsing, version age checking, and inconsistency detection between claimed and actual browser capabilities.</p>
-                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/user-agent-detection.md" target="_blank" class="text-[10px] mt-1 inline-block hero-accent-text">Learn more</a>
+                <a href="/docs/detectors-in-depth#user-agent-detection" class="text-[10px] mt-1 inline-block hero-accent-text">Learn more</a>
             </div>
             <div class="bg-base-100 rounded-lg p-4">
                 <div class="flex items-center gap-2 mb-2">
@@ -783,7 +612,7 @@
                     <h3 class="font-bold text-sm hero-accent-alt">Fingerprinting</h3>
                 </div>
                 <p class="text-xs text-base-content/60">TLS (JA3/JA4), TCP/IP (p0f), HTTP/2 (AKAMAI), and client-side browser fingerprints create a unique signature for each visitor.</p>
-                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/AdvancedFingerprintingDetectors.md" target="_blank" class="text-[10px] mt-1 inline-block hero-accent-alt">Learn more</a>
+                <a href="/docs/detectors-in-depth#client-side-fingerprinting" class="text-[10px] mt-1 inline-block hero-accent-alt">Learn more</a>
             </div>
             <div class="bg-base-100 rounded-lg p-4">
                 <div class="flex items-center gap-2 mb-2">
@@ -791,7 +620,7 @@
                     <h3 class="font-bold text-sm signal-positive">Behavioral Analysis</h3>
                 </div>
                 <p class="text-xs text-base-content/60">Request timing, waveform analysis, and browsing patterns distinguish natural human behavior from automated scripts.</p>
-                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/behavioral-analysis.md" target="_blank" class="text-[10px] mt-1 inline-block signal-positive">Learn more</a>
+                <a href="/docs/detectors-in-depth#behavioral-detection" class="text-[10px] mt-1 inline-block signal-positive">Learn more</a>
             </div>
             <div class="bg-base-100 rounded-lg p-4">
                 <div class="flex items-center gap-2 mb-2">
@@ -799,7 +628,7 @@
                     <h3 class="font-bold text-sm signal-warning">Network Intelligence</h3>
                 </div>
                 <p class="text-xs text-base-content/60">IP reputation, datacenter detection, header analysis, and security tool identification reveal the true source of traffic.</p>
-                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/ip-detection.md" target="_blank" class="text-[10px] mt-1 inline-block signal-warning">Learn more</a>
+                <a href="/docs/detectors-in-depth#ip--network-detection" class="text-[10px] mt-1 inline-block signal-warning">Learn more</a>
             </div>
             <div class="bg-base-100 rounded-lg p-4">
                 <div class="flex items-center gap-2 mb-2">
@@ -807,7 +636,7 @@
                     <h3 class="font-bold text-sm signal-danger">AI Classification</h3>
                 </div>
                 <p class="text-xs text-base-content/60">Heuristic AI model runs on every request. Optional LLM escalation via Ollama provides natural-language explanations for complex cases.</p>
-                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/ai-detection.md" target="_blank" class="text-[10px] mt-1 inline-block signal-danger">Learn more</a>
+                <a href="/docs/detectors-in-depth#optional-ai--heuristic-classification" class="text-[10px] mt-1 inline-block signal-danger">Learn more</a>
             </div>
             <div class="bg-base-100 rounded-lg p-4">
                 <div class="flex items-center gap-2 mb-2">
@@ -815,7 +644,7 @@
                     <h3 class="font-bold text-sm signal-muted">Action Policies</h3>
                 </div>
                 <p class="text-xs text-base-content/60">You decide what happens: allow, throttle silently, challenge with CAPTCHA, block outright, or redirect to a honeypot. Detection is separate from response.</p>
-                <a href="https://github.com/scottgal/stylobot/tree/main/Mostlylucid.BotDetection/docs/action-policies.md" target="_blank" class="text-[10px] mt-1 inline-block signal-muted">Learn more</a>
+                <a href="/docs/how-stylobot-works#4-policy-maps-risk-to-action" class="text-[10px] mt-1 inline-block signal-muted">Learn more</a>
             </div>
         </div>
     </div>
@@ -831,7 +660,8 @@
         <div class="flex flex-col sm:flex-row gap-3 justify-center">
             <a href="https://www.nuget.org/packages/mostlylucid.botdetection" target="_blank" class="btn btn-sm btn-primary">Start with NuGet</a>
             <a href="https://hub.docker.com/r/scottgal/stylobot-gateway" target="_blank" class="btn btn-sm btn-outline">Docker Image</a>
-            <a href="/docs" target="_blank" class="btn btn-sm btn-outline">Read Docs</a>
+            <a href="/docs/start-here" target="_blank" class="btn btn-sm btn-outline">Customer Docs</a>
+            <a href="https://github.com/scottgal/stylobot/blob/main/docs/README.md" target="_blank" class="btn btn-sm btn-outline">GitHub Docs</a>
         </div>
     </div>
 </section>

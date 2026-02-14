@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Middleware;
@@ -40,6 +42,12 @@ public static class StyloBotDashboardServiceExtensions
 
         // LLM-powered description generation for bot detections
         services.AddSingleton<DetectionDescriptionService>();
+
+        // Server-side visitor cache for HTMX rendering
+        services.AddSingleton<VisitorListCache>();
+
+        // LLM result callback for background classification coordinator
+        services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();
 
         // Simulator if enabled
         if (options.EnableSimulator) services.AddHostedService<DashboardSimulatorService>();
