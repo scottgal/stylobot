@@ -184,25 +184,35 @@ public class StyloBotDashboardMiddleware
 
     private async Task ServeTimeSeriesApiAsync(HttpContext context)
     {
-        var startTimeStr = context.Request.Query["start"].FirstOrDefault();
-        var endTimeStr = context.Request.Query["end"].FirstOrDefault();
-        var bucketSizeStr = context.Request.Query["bucket"].FirstOrDefault() ?? "60";
+        try
+        {
+            var startTimeStr = context.Request.Query["start"].FirstOrDefault();
+            var endTimeStr = context.Request.Query["end"].FirstOrDefault();
+            var bucketSizeStr = context.Request.Query["bucket"].FirstOrDefault() ?? "60";
 
-        var startTime = DateTime.TryParse(startTimeStr, out var start)
-            ? start
-            : DateTime.UtcNow.AddHours(-1);
+            var startTime = DateTime.TryParse(startTimeStr, out var start)
+                ? start
+                : DateTime.UtcNow.AddHours(-1);
 
-        var endTime = DateTime.TryParse(endTimeStr, out var end)
-            ? end
-            : DateTime.UtcNow;
+            var endTime = DateTime.TryParse(endTimeStr, out var end)
+                ? end
+                : DateTime.UtcNow;
 
-        var bucketSize = TimeSpan.FromSeconds(
-            int.TryParse(bucketSizeStr, out var b) ? b : 60);
+            var bucketSize = TimeSpan.FromSeconds(
+                int.TryParse(bucketSizeStr, out var b) ? b : 60);
 
-        var timeSeries = await _eventStore.GetTimeSeriesAsync(startTime, endTime, bucketSize);
+            var timeSeries = await _eventStore.GetTimeSeriesAsync(startTime, endTime, bucketSize);
 
-        context.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(context.Response.Body, timeSeries);
+            context.Response.ContentType = "application/json";
+            await JsonSerializer.SerializeAsync(context.Response.Body, timeSeries);
+        }
+        catch (Exception ex)
+        {
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "application/json";
+            await JsonSerializer.SerializeAsync(context.Response.Body,
+                new { error = ex.Message, type = ex.GetType().Name, inner = ex.InnerException?.Message });
+        }
     }
 
     private async Task ServeExportApiAsync(HttpContext context)

@@ -346,7 +346,7 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
             sql = $@"
                 WITH time_buckets AS (
                     SELECT
-                        time_bucket('{bucketSize.TotalSeconds} seconds', timestamp) as bucket,
+                        time_bucket('{(int)bucketSize.TotalSeconds} seconds', timestamp) as bucket,
                         COUNT(*) FILTER (WHERE is_bot)::int as bot_count,
                         COUNT(*) FILTER (WHERE NOT is_bot)::int as human_count,
                         COUNT(*)::int as total_count
@@ -395,6 +395,44 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                 commandTimeout: _options.CommandTimeoutSeconds);
 
             return rows.Select(r => new DashboardTimeSeriesPoint
+            {
+                Timestamp = r.Timestamp,
+                BotCount = r.BotCount,
+                HumanCount = r.HumanCount,
+                TotalCount = r.TotalCount
+            }).ToList();
+        }
+        catch (Exception ex) when (_options.EnableTimescaleDB)
+        {
+            // time_bucket may not be available if TimescaleDB extension failed to load;
+            // fall back to standard date_trunc
+            _logger.LogWarning(ex, "TimescaleDB time_bucket query failed, falling back to date_trunc");
+            var truncUnit = GetDateTruncUnit(bucketSize);
+            var fallbackSql = $@"
+                WITH time_buckets AS (
+                    SELECT
+                        date_trunc('{truncUnit}', timestamp) as bucket,
+                        COUNT(*) FILTER (WHERE is_bot)::int as bot_count,
+                        COUNT(*) FILTER (WHERE NOT is_bot)::int as human_count,
+                        COUNT(*)::int as total_count
+                    FROM dashboard_detections
+                    WHERE timestamp >= @StartTime AND timestamp <= @EndTime
+                    GROUP BY bucket
+                    ORDER BY bucket
+                )
+                SELECT
+                    bucket as Timestamp,
+                    bot_count as BotCount,
+                    human_count as HumanCount,
+                    total_count as TotalCount
+                FROM time_buckets";
+
+            await using var fallbackConnection = new NpgsqlConnection(_options.ConnectionString);
+            var fallbackRows = await fallbackConnection.QueryAsync<TimeSeriesRow>(fallbackSql,
+                new { StartTime = startTime, EndTime = endTime },
+                commandTimeout: _options.CommandTimeoutSeconds);
+
+            return fallbackRows.Select(r => new DashboardTimeSeriesPoint
             {
                 Timestamp = r.Timestamp,
                 BotCount = r.BotCount,

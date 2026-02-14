@@ -103,12 +103,26 @@
         yourData: null, yourLoading: true, yourError: null, signature: '', hitCount: 1,
         justUpdated: false, showAllContributions: false, showSignals: false, probabilityHistory: [],
         endpointStats: {}, expandedItem: null,
-        selectedVisitor: null, filterEndpoint: null,
+        selectedVisitor: null, filterEndpoint: null, visitorFilter: 'all',
 
         get feedItems() {
             let items = Object.values(this.visitorMap);
             if (this.filterEndpoint) items = items.filter(v => v.paths && v.paths.includes(this.filterEndpoint));
+            if (this.visitorFilter === 'humans') items = items.filter(v => !v.isBot);
+            else if (this.visitorFilter === 'bots') items = items.filter(v => v.isBot);
+            else if (this.visitorFilter === 'ai') items = items.filter(v => v.isBot && (v.botType === 'AiBot' || /ai|gpt|claude|llm|chatbot|copilot|gemini|bard/i.test(v.botName || '')));
+            else if (this.visitorFilter === 'tools') items = items.filter(v => v.isBot && ['Scraper', 'MonitoringBot', 'SearchEngine', 'SocialMediaBot', 'VerifiedBot', 'GoodBot'].includes(v.botType));
             return items.sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen)).slice(0, 50);
+        },
+        get filterCounts() {
+            const all = Object.values(this.visitorMap);
+            return {
+                all: all.length,
+                humans: all.filter(v => !v.isBot).length,
+                bots: all.filter(v => v.isBot).length,
+                ai: all.filter(v => v.isBot && (v.botType === 'AiBot' || /ai|gpt|claude|llm|chatbot|copilot|gemini|bard/i.test(v.botName || ''))).length,
+                tools: all.filter(v => v.isBot && ['Scraper', 'MonitoringBot', 'SearchEngine', 'SocialMediaBot', 'VerifiedBot', 'GoodBot'].includes(v.botType)).length
+            };
         },
         get activeDetail() { return this.selectedVisitor ? this.visitorMap[this.selectedVisitor] : null; },
         get botCount() { return this.summary?.botRequests || 0; },
@@ -571,7 +585,34 @@
                         </span>
                         <span class="text-[10px] font-normal normal-case text-base-content/30 ml-1" x-text="feedItems.length + ' of ' + Object.keys(visitorMap).length"></span>
                     </h2>
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-1.5">
+                        <div class="flex items-center bg-base-300/50 rounded-lg p-0.5 gap-0.5">
+                            <button class="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
+                                    :class="visitorFilter === 'all' ? 'bg-base-100 shadow-sm text-base-content' : 'text-base-content/40 hover:text-base-content/60'"
+                                    @@click="visitorFilter = 'all'">
+                                All <span class="opacity-50" x-text="filterCounts.all"></span>
+                            </button>
+                            <button class="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
+                                    :class="visitorFilter === 'humans' ? 'bg-success/20 shadow-sm text-success' : 'text-base-content/40 hover:text-base-content/60'"
+                                    @@click="visitorFilter = 'humans'">
+                                <i class="bx bx-user text-[10px]"></i> Humans <span class="opacity-50" x-text="filterCounts.humans"></span>
+                            </button>
+                            <button class="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
+                                    :class="visitorFilter === 'bots' ? 'bg-error/20 shadow-sm text-error' : 'text-base-content/40 hover:text-base-content/60'"
+                                    @@click="visitorFilter = 'bots'">
+                                <i class="bx bx-bot text-[10px]"></i> Bots <span class="opacity-50" x-text="filterCounts.bots"></span>
+                            </button>
+                            <button x-show="filterCounts.ai > 0" class="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
+                                    :class="visitorFilter === 'ai' ? 'bg-warning/20 shadow-sm text-warning' : 'text-base-content/40 hover:text-base-content/60'"
+                                    @@click="visitorFilter = 'ai'">
+                                AI <span class="opacity-50" x-text="filterCounts.ai"></span>
+                            </button>
+                            <button x-show="filterCounts.tools > 0" class="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
+                                    :class="visitorFilter === 'tools' ? 'bg-info/20 shadow-sm text-info' : 'text-base-content/40 hover:text-base-content/60'"
+                                    @@click="visitorFilter = 'tools'">
+                                Tools <span class="opacity-50" x-text="filterCounts.tools"></span>
+                            </button>
+                        </div>
                         <button x-show="connected" class="btn btn-xs btn-ghost gap-1" @@click="feedPaused = !feedPaused">
                             <svg x-show="!feedPaused" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
                             <svg x-show="feedPaused" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
