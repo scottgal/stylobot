@@ -292,11 +292,23 @@ internal static class DashboardHtmlTemplate
     public static string GetHtml(StyloBotDashboardOptions options, string yourDetectionJson = "null")
     {
         return $@"<!DOCTYPE html>
-<html lang=""en"" data-theme=""dark"">
+<html lang=""en"" data-theme=""light"">
 <head>
     <meta charset=""UTF-8"">
     <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
-    <title>Stylobot Dashboard</title>
+    <title>StyloBot Detection Dashboard</title>
+    <script>
+        (function() {{
+            try {{
+                const saved = localStorage.getItem('sb-theme');
+                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const mode = saved === 'light' || saved === 'dark' ? saved : (prefersDark ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-theme', mode);
+            }} catch (_) {{
+                document.documentElement.setAttribute('data-theme', 'light');
+            }}
+        }})();
+    </script>
 
     <!-- Tailwind + DaisyUI -->
     <link href=""https://cdn.jsdelivr.net/npm/daisyui@4.6.0/dist/full.min.css"" rel=""stylesheet"" type=""text/css"" />
@@ -312,7 +324,7 @@ internal static class DashboardHtmlTemplate
     <script src=""https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js""></script>
 
     <!-- Tabulator -->
-    <link href=""https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator_midnight.min.css"" rel=""stylesheet"">
+    <link href=""https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator.min.css"" rel=""stylesheet"">
     <script src=""https://unpkg.com/tabulator-tables@6.2.1/dist/js/tabulator.min.js""></script>
 
     <!-- Boxicons -->
@@ -323,11 +335,57 @@ internal static class DashboardHtmlTemplate
     <link href=""https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Raleway:wght@800;900&display=swap"" rel=""stylesheet"">
 
     <style>
-        body {{ font-family: 'Inter', sans-serif; }}
-        .brand-header {{
-            background: linear-gradient(135deg, #2d3748 0%, #1a202c 50%, #2d3748 100%);
-            border-bottom: 3px solid #5BA3A3;
+        [data-theme=""dark""] {{
+            --sb-brand-muted: #6b7280;
+            --sb-brand-strong: #ffffff;
+            --sb-accent: #5ba3a3;
+            --sb-accent-alt: #0f4c81;
+            --sb-accent-strong: #86b59c;
+            --sb-surface: #0b1220;
+            --sb-card-bg: #141f33;
+            --sb-card-border: rgba(91, 163, 163, 0.28);
+            --sb-card-divider: rgba(148, 163, 184, 0.18);
         }}
+        [data-theme=""light""] {{
+            --sb-brand-muted: #475569;
+            --sb-brand-strong: #0f172a;
+            --sb-accent: #0f766e;
+            --sb-accent-alt: #0f4c81;
+            --sb-accent-strong: #059669;
+            --sb-surface: #f8fafc;
+            --sb-card-bg: #ffffff;
+            --sb-card-border: rgba(15, 118, 110, 0.18);
+            --sb-card-divider: rgba(15, 23, 42, 0.1);
+        }}
+        body {{
+            font-family: 'Inter', sans-serif;
+            background: var(--sb-surface);
+        }}
+        .brand-header {{
+            background: linear-gradient(120deg, color-mix(in oklab, var(--sb-surface) 78%, #0f172a), color-mix(in oklab, var(--sb-card-bg) 70%, #0f172a));
+            border-bottom: 1px solid var(--sb-card-divider);
+        }}
+        .brand-wordmark {{ font-family: 'Raleway', sans-serif; font-weight: 900; }}
+        .brand-chip {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            border: 1px solid var(--sb-card-divider);
+            border-radius: 9999px;
+            padding: 0.2rem 0.6rem;
+            background: color-mix(in oklab, var(--sb-card-bg) 88%, transparent);
+            color: color-mix(in oklab, var(--sb-brand-strong) 72%, var(--sb-brand-muted));
+            font-size: 0.7rem;
+            font-weight: 700;
+        }}
+        .logo-adaptive {{ filter: none; transition: filter 180ms ease; }}
+        [data-theme=""light""] .logo-adaptive {{
+            background: #000;
+            border-radius: 9999px;
+            padding: 2px;
+            filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.45)) drop-shadow(0 0 6px rgba(0, 0, 0, 0.35));
+        }}
+        .dashboard-shell {{ max-width: 84rem; margin: 0 auto; }}
         .scrolling-signatures {{
             max-height: 350px;
             overflow-y: auto;
@@ -344,7 +402,7 @@ internal static class DashboardHtmlTemplate
             50% {{ opacity: 0.4; }}
         }}
         .live-dot {{
-            width: 8px; height: 8px; border-radius: 50%; background: #5BA3A3;
+            width: 8px; height: 8px; border-radius: 50%; background: var(--sb-accent);
             display: inline-block; animation: pulse-dot 2s infinite;
         }}
         .risk-veryhigh {{ color: #dc2626; }}
@@ -357,7 +415,24 @@ internal static class DashboardHtmlTemplate
             height: 6px; border-radius: 3px; transition: width 0.5s ease;
         }}
 
-        /* Tabulator dark mode overrides to match DaisyUI dark theme */
+        .dashboard-card {{
+            border: 1px solid var(--sb-card-divider) !important;
+            background: color-mix(in oklab, var(--sb-card-bg) 94%, transparent) !important;
+        }}
+        .card.bg-base-200 {{
+            border: 1px solid var(--sb-card-divider) !important;
+            background: color-mix(in oklab, var(--sb-card-bg) 94%, transparent) !important;
+        }}
+        .dashboard-subtle {{
+            color: color-mix(in oklab, var(--sb-brand-strong) 62%, var(--sb-brand-muted));
+        }}
+        .dashboard-cta {{
+            border-color: var(--sb-accent) !important;
+            color: var(--sb-accent) !important;
+            background: color-mix(in oklab, var(--sb-accent) 12%, transparent) !important;
+        }}
+
+        /* Tabulator overrides with theme-aware accents */
         .tabulator {{
             background-color: oklch(var(--b2, 0.232 0.013 285.75)) !important;
             border: 1px solid oklch(var(--b3, 0.211 0.012 285.75)) !important;
@@ -366,7 +441,7 @@ internal static class DashboardHtmlTemplate
         }}
         .tabulator .tabulator-header {{
             background-color: oklch(var(--b3, 0.211 0.012 285.75)) !important;
-            border-bottom: 2px solid #5BA3A3 !important;
+            border-bottom: 2px solid var(--sb-accent) !important;
         }}
         .tabulator .tabulator-header .tabulator-col {{
             background-color: transparent !important;
@@ -403,9 +478,9 @@ internal static class DashboardHtmlTemplate
             margin: 0 2px;
         }}
         .tabulator .tabulator-footer .tabulator-page.active {{
-            background-color: #5BA3A3 !important;
+            background-color: var(--sb-accent) !important;
             color: white !important;
-            border-color: #5BA3A3 !important;
+            border-color: var(--sb-accent) !important;
         }}
         .tabulator .tabulator-footer .tabulator-page:hover:not(.active) {{
             background-color: oklch(var(--b2, 0.232 0.013 285.75)) !important;
@@ -423,28 +498,33 @@ internal static class DashboardHtmlTemplate
     <div x-data=""dashboardState()"" x-init=""init()"" class=""min-h-screen"">
 
         <!-- Header -->
-        <div class=""brand-header p-6 mb-6"">
-            <div class=""container mx-auto flex items-center justify-between"">
-                <a href=""/"" class=""flex items-center gap-4 no-underline hover:opacity-80 transition-opacity"">
+        <div class=""brand-header py-3 mb-4"">
+            <div class=""dashboard-shell px-4 flex flex-wrap items-center justify-between gap-3"">
+                <a href=""/"" class=""flex items-center gap-3 no-underline hover:opacity-90 transition-opacity"">
+                    <img src=""/img/stylowall.svg"" alt=""Stylobot logo"" class=""h-9 w-auto logo-adaptive"">
                     <div>
-                        <h1 class=""text-3xl font-bold text-white"" style=""font-family: 'Raleway', sans-serif;"">
-                            <span style=""color: #6b7280; font-style: italic;"">stylo</span><span>bot</span>
+                        <h1 class=""text-2xl font-bold brand-wordmark leading-none"">
+                            <span style=""color: var(--sb-brand-muted); font-style: italic;"">stylo</span><span style=""color: var(--sb-brand-strong);"">bot</span>
                         </h1>
-                        <p class=""text-sm text-white/60 mt-1"">Real-time bot detection dashboard</p>
+                        <p class=""text-xs dashboard-subtle mt-1"">Detection dashboard</p>
                     </div>
                 </a>
-                <div class=""flex items-center gap-3"">
+                <div class=""flex items-center gap-2 flex-wrap"">
+                    <span class=""brand-chip""><i class=""bx bx-shield-quarter text-[12px]""></i> Live telemetry</span>
                     <span class=""live-dot""></span>
-                    <span class=""text-sm font-medium"" :class=""signalrConnected ? 'text-green-400' : 'text-red-400'""
+                    <span class=""text-sm font-medium"" :class=""signalrConnected ? 'text-success' : 'text-error'""
                           x-text=""signalrConnected ? 'Connected' : 'Reconnecting...'""></span>
-                    <a href=""/"" class=""btn btn-ghost btn-sm text-white/70 gap-1""><i class=""bx bx-home""></i> Home</a>
-                    <a href=""/Home/LiveDemo"" class=""btn btn-sm text-white/90 gap-1"" style=""border-color: #5BA3A3; background: rgba(91,163,163,0.15);""><i class=""bx bx-broadcast""></i> Live Demo</a>
-                    <a href=""https://github.com/scottgal/mostlylucid.stylobot"" target=""_blank"" class=""btn btn-ghost btn-sm text-white/70 gap-1""><i class=""bx bxl-github""></i> GitHub</a>
+                    <button type=""button"" class=""btn btn-ghost btn-sm btn-square"" title=""Toggle theme"" @@click=""toggleTheme()"">
+                        <i class=""bx"" :class=""isDark ? 'bx-sun' : 'bx-moon'""></i>
+                    </button>
+                    <a href=""/"" class=""btn btn-ghost btn-sm gap-1""><i class=""bx bx-home""></i> Home</a>
+                    <a href=""/Home/LiveDemo"" class=""btn btn-sm gap-1 dashboard-cta""><i class=""bx bx-broadcast""></i> Live Demo</a>
+                    <a href=""https://github.com/scottgal/stylobot"" target=""_blank"" class=""btn btn-ghost btn-sm gap-1""><i class=""bx bxl-github""></i> GitHub</a>
                 </div>
             </div>
         </div>
 
-        <div class=""container mx-auto px-4 pb-8"">
+        <div class=""dashboard-shell px-4 pb-8"">
 
         <!-- Your Detection (visitor's own) -->
         <template x-if=""yourData"">
@@ -746,6 +826,7 @@ internal static class DashboardHtmlTemplate
             return {{
                 connection: null,
                 signalrConnected: false,
+                isDark: false,
                 yourData: null,
                 showYourDetail: false,
                 summary: {{
@@ -773,7 +854,38 @@ internal static class DashboardHtmlTemplate
                     return {{ 'VeryLow': '#86B59C', 'Low': '#86B59C', 'Elevated': '#DAA564', 'Medium': '#DAA564', 'High': '#ef4444', 'VeryHigh': '#dc2626' }}[band] || '#6b7280';
                 }},
 
+                initTheme() {{
+                    const current = document.documentElement.getAttribute('data-theme');
+                    this.isDark = current === 'dark';
+                }},
+
+                toggleTheme() {{
+                    this.isDark = !this.isDark;
+                    const next = this.isDark ? 'dark' : 'light';
+                    document.documentElement.setAttribute('data-theme', next);
+                    try {{ localStorage.setItem('sb-theme', next); }} catch (_) {{}}
+                    this.applyChartTheme();
+                }},
+
+                chartThemeColors() {{
+                    if (this.isDark) {{
+                        return {{
+                            text: '#a0aec0',
+                            line: '#4a5568',
+                            split: '#2d3748',
+                            axis: '#4a5568'
+                        }};
+                    }}
+                    return {{
+                        text: '#334155',
+                        line: '#cbd5e1',
+                        split: '#e2e8f0',
+                        axis: '#94a3b8'
+                    }};
+                }},
+
                 init() {{
+                    this.initTheme();
                     // Load visitor's own detection from inline JSON
                     try {{
                         const el = document.getElementById('your-detection-data');
@@ -784,6 +896,7 @@ internal static class DashboardHtmlTemplate
                     this.initCharts();
                     this.initTable();
                     this.loadInitialData();
+                    this.applyChartTheme();
                     window.addEventListener('resize', () => {{
                         this.riskChart?.resize();
                         this.classificationChart?.resize();
@@ -837,14 +950,14 @@ internal static class DashboardHtmlTemplate
                 }},
 
                 initCharts() {{
-                    const darkText = '#a0aec0';
+                    const colors = this.chartThemeColors();
                     this.riskChart = echarts.init(document.getElementById('riskTimelineChart'));
                     this.riskChart.setOption({{
                         tooltip: {{ trigger: 'axis' }},
-                        legend: {{ data: ['Bots', 'Humans'], textStyle: {{ color: darkText }} }},
+                        legend: {{ data: ['Bots', 'Humans'], textStyle: {{ color: colors.text }} }},
                         grid: {{ left: 40, right: 20, top: 40, bottom: 30 }},
-                        xAxis: {{ type: 'time', axisLabel: {{ color: darkText }}, axisLine: {{ lineStyle: {{ color: '#4a5568' }} }} }},
-                        yAxis: {{ type: 'value', axisLabel: {{ color: darkText }}, splitLine: {{ lineStyle: {{ color: '#2d3748' }} }} }},
+                        xAxis: {{ type: 'time', axisLabel: {{ color: colors.text }}, axisLine: {{ lineStyle: {{ color: colors.axis }} }} }},
+                        yAxis: {{ type: 'value', axisLabel: {{ color: colors.text }}, splitLine: {{ lineStyle: {{ color: colors.split }} }} }},
                         series: [
                             {{ name: 'Bots', type: 'line', data: [], smooth: true, areaStyle: {{ opacity: 0.15 }}, lineStyle: {{ width: 2 }}, color: '#ef4444' }},
                             {{ name: 'Humans', type: 'line', data: [], smooth: true, areaStyle: {{ opacity: 0.15 }}, lineStyle: {{ width: 2 }}, color: '#86B59C' }}
@@ -857,13 +970,25 @@ internal static class DashboardHtmlTemplate
                         series: [{{
                             type: 'pie',
                             radius: ['40%', '65%'],
-                            label: {{ color: darkText }},
+                            label: {{ color: colors.text }},
                             data: [
                                 {{ value: 0, name: 'Bots', itemStyle: {{ color: '#ef4444' }} }},
                                 {{ value: 0, name: 'Humans', itemStyle: {{ color: '#86B59C' }} }},
                                 {{ value: 0, name: 'Uncertain', itemStyle: {{ color: '#DAA564' }} }}
                             ]
                         }}]
+                    }});
+                }},
+
+                applyChartTheme() {{
+                    const colors = this.chartThemeColors();
+                    this.riskChart?.setOption({{
+                        legend: {{ textStyle: {{ color: colors.text }} }},
+                        xAxis: {{ axisLabel: {{ color: colors.text }}, axisLine: {{ lineStyle: {{ color: colors.axis }} }} }},
+                        yAxis: {{ axisLabel: {{ color: colors.text }}, splitLine: {{ lineStyle: {{ color: colors.split }} }} }}
+                    }});
+                    this.classificationChart?.setOption({{
+                        series: [{{ label: {{ color: colors.text }} }}]
                     }});
                 }},
 

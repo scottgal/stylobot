@@ -45,18 +45,43 @@
     <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/bot-detection-details.css" />
 </head>
 <body class="min-h-screen flex flex-col">
-    <header class="fixed top-0 left-0 right-0 z-[9999] bg-base-100/95 backdrop-blur-md border-b border-base-300/70 transition-transform duration-200"
-            x-data="{
-                mobileMenuOpen: false,
-                showNav: false,
-                init() {
-                    this.showNav = window.scrollY > 80;
-                    window.addEventListener('scroll', () => {
-                        this.showNav = window.scrollY > 80;
-                    }, { passive: true });
+    <div x-data="{
+            mobileMenuOpen: false,
+            hoverReveal: false,
+            lastScrollY: 0,
+            showChrome: false,
+            updateChrome() {
+                const y = window.scrollY || 0;
+                const scrollingDown = y > this.lastScrollY + 4;
+                const scrollingUp = y < this.lastScrollY - 4;
+
+                if (this.hoverReveal || this.mobileMenuOpen) {
+                    this.showChrome = true;
+                } else if (y < 24) {
+                    this.showChrome = false;
+                } else if (scrollingUp && y > 80) {
+                    this.showChrome = true;
+                } else if (scrollingDown) {
+                    this.showChrome = false;
                 }
-            }"
-            :class="showNav ? 'translate-y-0' : '-translate-y-full'">
+
+                this.lastScrollY = y;
+            },
+            init() {
+                this.lastScrollY = window.scrollY || 0;
+                this.updateChrome();
+                window.addEventListener('scroll', () => this.updateChrome(), { passive: true });
+            }
+        }">
+    <div class="fixed top-0 left-0 right-0 h-5 z-[9998]"
+         :class="showChrome ? 'pointer-events-none' : 'pointer-events-auto'"
+         @@mouseenter="hoverReveal = true; updateChrome()"
+         @@mouseleave="hoverReveal = false; updateChrome()"></div>
+
+    <div x-show="showChrome"
+         x-transition.opacity.duration.150ms
+         class="relative z-[9999]">
+    <header class="bg-base-100/95 backdrop-blur-md border-b border-base-300/70">
         <nav class="max-w-7xl mx-auto px-4 py-1.5">
             <div class="flex items-center justify-between gap-3">
                 <!-- Logo + Brand -->
@@ -99,7 +124,7 @@
 
                 <!-- Mobile Menu Button -->
                 <div class="lg:hidden">
-                    <button @@click="mobileMenuOpen = !mobileMenuOpen" class="btn btn-ghost btn-square">
+                    <button @@click="mobileMenuOpen = !mobileMenuOpen; updateChrome()" class="btn btn-ghost btn-square">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="inline-block w-6 h-6 stroke-current">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
                         </svg>
@@ -138,12 +163,9 @@
             </div>
         </nav>
     </header>
+    </div>
 
-    <!-- Unified Bot Detection Header - shown only after scrolling -->
-    <div x-data="{ showDetect: false, init() { this.showDetect = window.scrollY > 80; window.addEventListener('scroll', () => { this.showDetect = window.scrollY > 80; }, { passive: true }); } }"
-         x-show="showDetect"
-         x-transition.opacity.duration.150ms>
-        <bot-detection-header />
+    <bot-detection-header />
     </div>
 
     <!-- Client-side fingerprinting for enhanced detection -->
@@ -204,4 +226,3 @@
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>
-
