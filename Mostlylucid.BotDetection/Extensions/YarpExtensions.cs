@@ -39,7 +39,14 @@ public static class YarpExtensions
     public static void AddBotDetectionHeaders(this HttpContext httpContext, Action<string, string> addHeader)
     {
         var isBot = httpContext.IsBot();
-        var confidence = httpContext.GetBotConfidence();
+
+        // Get actual confidence from aggregated evidence if available, otherwise default to 0
+        var confidence = 0.0;
+        if (httpContext.Items.TryGetValue(Middleware.BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
+            evidenceObj is AggregatedEvidence evidence)
+        {
+            confidence = evidence.Confidence;
+        }
 
         addHeader("X-Bot-Detected", isBot.ToString().ToLowerInvariant());
         addHeader("X-Bot-Confidence", confidence.ToString("F2"));

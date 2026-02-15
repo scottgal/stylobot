@@ -882,21 +882,21 @@ public class BotDetectionMiddleware(
 
         var isBot = string.Equals(detectedHeader.ToString(), "true", StringComparison.OrdinalIgnoreCase);
 
-        // Parse confidence (required)
-        if (!context.Request.Headers.TryGetValue("X-Bot-Confidence", out var confHeader) ||
-            !double.TryParse(confHeader.ToString(), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var confidence))
+        // Parse bot probability (REQUIRED - what's the actual likelihood of being a bot?)
+        if (!context.Request.Headers.TryGetValue("X-Bot-Detection-Probability", out var probHeader) ||
+            !double.TryParse(probHeader.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var botProbability))
             return false;
 
         // Clamp to valid range
-        confidence = Math.Clamp(confidence, 0.0, 1.0);
+        botProbability = Math.Clamp(botProbability, 0.0, 1.0);
 
-        // Parse bot probability (prefer explicit probability header, fall back to confidence)
-        var botProbability = confidence;
-        if (context.Request.Headers.TryGetValue("X-Bot-Detection-Probability", out var probHeader) &&
-            double.TryParse(probHeader.ToString(), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var parsedProb))
-            botProbability = Math.Clamp(parsedProb, 0.0, 1.0);
+        // Parse confidence (OPTIONAL - how certain are we about this decision? defaults to bot probability if not provided)
+        var confidence = botProbability;
+        if (context.Request.Headers.TryGetValue("X-Bot-Confidence", out var confHeader) &&
+            double.TryParse(confHeader.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsedConf))
+            confidence = Math.Clamp(parsedConf, 0.0, 1.0);
 
         // Parse optional fields
         BotType? botType = null;
