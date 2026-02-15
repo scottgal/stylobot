@@ -144,7 +144,16 @@
       "Bash(\"C:/Users/scott/.dotnet/tools/jb.exe\" help)",
       "Bash(set \"StyloBotDashboard__PostgreSQL__ConnectionString=\")",
       "Bash(set \"DATABASE_CONNECTION_STRING=\")",
-      "mcp__plugin_playwright_playwright__browser_run_code"
+      "mcp__plugin_playwright_playwright__browser_run_code",
+      "Bash(Select-String \"Passed|Failed\")",
+      "Bash(set \"ASPNETCORE_ENVIRONMENT=Development\")",
+      "Bash(set \"STYLOBOT_POSTGRESQL_CONNECTION=\")",
+      "Bash(python3:*)",
+      "Bash(node -e:*)",
+      "Bash(DEFAULT_UPSTREAM=http://localhost:5062 dotnet run:*)",
+      "Bash(more:*)",
+      "Bash(cmd //c \"taskkill /PID 325884 /F\")",
+      "Bash(cmd //c \"taskkill /PID 466988 /F\")"
     ]
   }
 }

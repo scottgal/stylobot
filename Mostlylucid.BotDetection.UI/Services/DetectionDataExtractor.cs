@@ -74,6 +74,38 @@ public class DetectionDataExtractor
                 Signatures = ExtractSignatures(context)
             };
 
+        // Fallback: upstream trust sets lightweight BotDetectionResult (no AggregatedEvidence)
+        if (context.Items.TryGetValue("BotDetectionResult", out var resultObj) &&
+            resultObj is Mostlylucid.BotDetection.Models.BotDetectionResult result)
+        {
+            var confidence = result.ConfidenceScore;
+            var riskBand = confidence switch
+            {
+                >= 0.85 => "VeryHigh",
+                >= 0.7 => "High",
+                >= 0.4 => "Medium",
+                >= 0.2 => "Low",
+                _ => "VeryLow"
+            };
+
+            return new DetectionDisplayModel
+            {
+                IsBot = result.IsBot,
+                BotProbability = confidence,
+                Confidence = confidence,
+                RiskBand = riskBand,
+                BotType = result.BotType?.ToString(),
+                BotName = result.BotName,
+                PolicyName = context.Items.TryGetValue("BotDetection.PolicyName", out var pn) ? pn?.ToString() : "upstream",
+                ProcessingTimeMs = 0,
+                TopReasons = [],
+                DetectorContributions = [],
+                RequestId = context.TraceIdentifier,
+                Timestamp = DateTime.UtcNow,
+                Signatures = ExtractSignatures(context)
+            };
+        }
+
         return new DetectionDisplayModel();
     }
 

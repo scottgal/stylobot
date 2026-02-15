@@ -24,6 +24,16 @@
         .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
         .FirstOrDefault()?.Reason ?? "";
 
+    // Fallback: upstream trust sets lightweight BotDetectionResult (no AggregatedEvidence)
+    if (evidence == null && Context.Items.TryGetValue("BotDetectionResult", out var resultObj)
+        && resultObj is Mostlylucid.BotDetection.Models.BotDetectionResult upstreamResult)
+    {
+        botProb = upstreamResult.ConfidenceScore;
+        confidence = upstreamResult.ConfidenceScore;
+        riskBand = botProb switch { >= 0.85 => "VeryHigh", >= 0.7 => "High", >= 0.4 => "Medium", >= 0.2 => "Low", _ => "VeryLow" };
+        procTime = 0;
+    }
+
     // Extract geo data from signals
     var countryCode = "";
     var countryName = "";

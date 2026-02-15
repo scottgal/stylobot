@@ -58,7 +58,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
             // Check if ResponseCoordinator is available
             if (_coordinator == null)
             {
-                signals.Add("response.coordinator_available", false);
+                signals.Add(SignalKeys.ResponseCoordinatorAvailable, false);
                 contributions.Add(new DetectionContribution
                 {
                     DetectorName = Name,
@@ -71,19 +71,19 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 return contributions;
             }
 
-            signals.Add("response.coordinator_available", true);
+            signals.Add(SignalKeys.ResponseCoordinatorAvailable, true);
 
             // Get client signature (IP + UA hash)
             var clientSignature = GetClientSignature(state.HttpContext);
-            signals.Add("response.client_signature", clientSignature);
+            signals.Add(SignalKeys.ResponseClientSignature, clientSignature);
 
             // Fetch historical response behavior
             var behavior = await _coordinator.GetClientBehaviorAsync(clientSignature, cancellationToken);
 
             if (behavior == null || behavior.TotalResponses == 0)
             {
-                signals.Add("response.has_history", false);
-                signals.Add("response.total_responses", 0);
+                signals.Add(SignalKeys.ResponseHasHistory, false);
+                signals.Add(SignalKeys.ResponseTotalResponses, 0);
 
                 // No history - neutral contribution
                 contributions.Add(new DetectionContribution
@@ -98,9 +98,9 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 return contributions;
             }
 
-            signals.Add("response.has_history", true);
-            signals.Add("response.total_responses", behavior.TotalResponses);
-            signals.Add("response.historical_score", behavior.ResponseScore);
+            signals.Add(SignalKeys.ResponseHasHistory, true);
+            signals.Add(SignalKeys.ResponseTotalResponses, behavior.TotalResponses);
+            signals.Add(SignalKeys.ResponseHistoricalScore, behavior.ResponseScore);
 
             // Analyze historical behavior patterns
             AnalyzeHoneypotHits(behavior, contributions, signals);
@@ -113,7 +113,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error analyzing response behavior");
-            signals.Add("response.analysis_error", ex.Message);
+            signals.Add("response.analysis_error", ex.Message); // Not in SignalKeys — transient error info only
         }
 
         // Always add at least one contribution
@@ -150,7 +150,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
         if (behavior.HoneypotHits == 0)
             return;
 
-        signals.Add("response.honeypot_hits", behavior.HoneypotHits);
+        signals.Add(SignalKeys.ResponseHoneypotHits, behavior.HoneypotHits);
 
         // ANY honeypot hit is a very strong bot signal
         contributions.Add(DetectionContribution.Bot(
@@ -168,13 +168,13 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
         List<DetectionContribution> contributions,
         ImmutableDictionary<string, object>.Builder signals)
     {
-        signals.Add("response.count_404", behavior.Count404);
-        signals.Add("response.unique_404_paths", behavior.UniqueNotFoundPaths);
+        signals.Add(SignalKeys.ResponseCount404, behavior.Count404);
+        signals.Add(SignalKeys.ResponseUnique404Paths, behavior.UniqueNotFoundPaths);
 
         // Many 404s across unique paths = scanning behavior
         if (behavior.Count404 > 15 && behavior.UniqueNotFoundPaths > 10)
         {
-            signals.Add("response.scan_pattern_detected", true);
+            signals.Add(SignalKeys.ResponseScanPatternDetected, true);
 
             var scanIntensity = Math.Min(1.0, behavior.UniqueNotFoundPaths / 50.0);
             var confidence = 0.5 + scanIntensity * 0.4; // 0.5 to 0.9
@@ -208,11 +208,11 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
         List<DetectionContribution> contributions,
         ImmutableDictionary<string, object>.Builder signals)
     {
-        signals.Add("response.auth_failures", behavior.AuthFailures);
+        signals.Add(SignalKeys.ResponseAuthFailures, behavior.AuthFailures);
 
         if (behavior.AuthFailures > 20)
         {
-            signals.Add("response.auth_struggle", "severe");
+            signals.Add(SignalKeys.ResponseAuthStruggle, "severe");
 
             contributions.Add(DetectionContribution.Bot(
                 Name, "Response", 0.85,
@@ -222,7 +222,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
         }
         else if (behavior.AuthFailures > 10)
         {
-            signals.Add("response.auth_struggle", "moderate");
+            signals.Add(SignalKeys.ResponseAuthStruggle, "moderate");
 
             contributions.Add(new DetectionContribution
             {
@@ -236,7 +236,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
         }
         else if (behavior.AuthFailures > 5)
         {
-            signals.Add("response.auth_struggle", "mild");
+            signals.Add(SignalKeys.ResponseAuthStruggle, "mild");
 
             contributions.Add(new DetectionContribution
             {
@@ -264,11 +264,11 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                           kvp.Key.Contains("stack_trace", StringComparison.OrdinalIgnoreCase))
             .Sum(kvp => kvp.Value);
 
-        signals.Add("response.error_pattern_count", errorPatternCount);
+        signals.Add(SignalKeys.ResponseErrorPatternCount, errorPatternCount);
 
         if (errorPatternCount > 10)
         {
-            signals.Add("response.error_harvesting", true);
+            signals.Add(SignalKeys.ResponseErrorHarvesting, true);
 
             contributions.Add(DetectionContribution.Bot(
                 Name, "Response", 0.7,
@@ -303,7 +303,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                           kvp.Key.Contains("blocked", StringComparison.OrdinalIgnoreCase))
             .Sum(kvp => kvp.Value);
 
-        signals.Add("response.rate_limit_violations", rateLimitCount);
+        signals.Add(SignalKeys.ResponseRateLimitViolations, rateLimitCount);
 
         if (rateLimitCount > 5)
             contributions.Add(DetectionContribution.Bot(

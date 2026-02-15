@@ -118,26 +118,12 @@ public class BotDetectionMiddleware(
         // Fast path: trust upstream detection from gateway proxy
         if (_options.TrustUpstreamDetection && TryHydrateFromUpstream(context))
         {
+            // Only add the trust marker — the gateway already emits full X-Bot-* response headers
             if (_options.ResponseHeaders.Enabled)
             {
-                var headerConfig = _options.ResponseHeaders;
-                var prefix = headerConfig.HeaderPrefix;
-                var confidence = (double)context.Items[BotConfidenceKey]!;
-                var isBot = (bool)context.Items[IsBotKey]!;
-
-                context.Response.Headers.TryAdd($"{prefix}Risk-Score", confidence.ToString("F3"));
+                var prefix = _options.ResponseHeaders.HeaderPrefix;
                 context.Response.Headers.TryAdd($"{prefix}Upstream-Trust", "true");
                 context.Response.Headers.TryAdd($"{prefix}Processing-Ms", "0.0");
-
-                if (headerConfig.IncludeConfidence)
-                    context.Response.Headers.TryAdd($"{prefix}Confidence", confidence.ToString("F3"));
-
-                if (isBot)
-                {
-                    var botName = context.Items[BotNameKey] as string;
-                    if (headerConfig.IncludeBotName && !string.IsNullOrEmpty(botName))
-                        context.Response.Headers.TryAdd($"{prefix}Bot-Name", botName);
-                }
             }
 
             await _next(context);

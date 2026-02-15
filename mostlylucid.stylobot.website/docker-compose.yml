@@ -138,12 +138,12 @@ services:
         limits:
           cpus: '4'
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 60s
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull gemma3:1b && wait"]
+      retries: 5
+      start_period: 90s
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 10 && ollama pull gemma3:1b || true; wait"]
 
   # ----------------------------------------------------------
   # TimescaleDB - Dashboard event persistence

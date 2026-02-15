@@ -564,4 +564,51 @@ public static class SignalKeys
 
     /// <summary>Int: Total request count across all family members</summary>
     public const string ConvergenceFamilyRequestCount = "convergence.family_request_count";
+
+    // ==========================================
+    // Response behavior signals
+    // Set by ResponseBehaviorContributor from historical response analysis
+    // ==========================================
+
+    /// <summary>Boolean: true if ResponseCoordinator is registered and available</summary>
+    public const string ResponseCoordinatorAvailable = "response.coordinator_available";
+
+    /// <summary>String: Client signature (IP:UA hash) used for response history lookup</summary>
+    public const string ResponseClientSignature = "response.client_signature";
+
+    /// <summary>Boolean: true if historical response data exists for this client</summary>
+    public const string ResponseHasHistory = "response.has_history";
+
+    /// <summary>Int: Total number of recorded responses for this client</summary>
+    public const string ResponseTotalResponses = "response.total_responses";
+
+    /// <summary>Double: Aggregated response behavior score from ResponseCoordinator (0.0-1.0)</summary>
+    public const string ResponseHistoricalScore = "response.historical_score";
+
+    /// <summary>Int: Number of honeypot path hits (accessing trap paths that should never be accessed)</summary>
+    public const string ResponseHoneypotHits = "response.honeypot_hits";
+
+    /// <summary>Int: Number of 404 responses received</summary>
+    public const string ResponseCount404 = "response.count_404";
+
+    /// <summary>Int: Number of unique 404 paths probed (high = systematic scanning)</summary>
+    public const string ResponseUnique404Paths = "response.unique_404_paths";
+
+    /// <summary>Boolean: true if systematic vulnerability scanning pattern detected</summary>
+    public const string ResponseScanPatternDetected = "response.scan_pattern_detected";
+
+    /// <summary>Int: Number of authentication failures (401/403 responses)</summary>
+    public const string ResponseAuthFailures = "response.auth_failures";
+
+    /// <summary>String: Auth struggle severity level ("mild", "moderate", "severe")</summary>
+    public const string ResponseAuthStruggle = "response.auth_struggle";
+
+    /// <summary>Int: Number of error/stack trace response patterns triggered</summary>
+    public const string ResponseErrorPatternCount = "response.error_pattern_count";
+
+    /// <summary>Boolean: true if error template harvesting pattern detected</summary>
+    public const string ResponseErrorHarvesting = "response.error_harvesting";
+
+    /// <summary>Int: Number of rate limit (429) or block responses received</summary>
+    public const string ResponseRateLimitViolations = "response.rate_limit_violations";
 }

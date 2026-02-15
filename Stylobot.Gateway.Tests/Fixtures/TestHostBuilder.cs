@@ -18,6 +18,7 @@ public class TestHostBuilder
 {
     private string? _adminSecret;
     private string _adminBasePath = "/admin";
+    private bool _allowInsecureAdminAccess;
     private Action<IEndpointRouteBuilder>? _endpointConfig;
     private Action<IServiceCollection>? _serviceConfig;
     private bool _useAdminMiddleware = true;
@@ -33,6 +34,12 @@ public class TestHostBuilder
     public TestHostBuilder WithAdminPath(string path)
     {
         _adminBasePath = path;
+        return this;
+    }
+
+    public TestHostBuilder WithAllowInsecureAccess(bool allow = true)
+    {
+        _allowInsecureAdminAccess = allow;
         return this;
     }
 
@@ -66,6 +73,7 @@ public class TestHostBuilder
                     {
                         opts.AdminSecret = _adminSecret;
                         opts.AdminBasePath = _adminBasePath;
+                        opts.AllowInsecureAdminAccess = _allowInsecureAdminAccess;
                     });
                     _serviceConfig?.Invoke(services);
                 });

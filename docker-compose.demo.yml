@@ -247,13 +247,13 @@ services:
     networks:
       - stylobot-demo
     restart: unless-stopped
-    # Pull the model on first run
+    # Pull the model on first run (|| true ensures container stays alive if pull fails)
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         /bin/ollama serve &
-        sleep 5
-        /bin/ollama pull llama3.2:1b
+        sleep 10
+        /bin/ollama pull llama3.2:1b || true
         wait
     deploy:
       resources:

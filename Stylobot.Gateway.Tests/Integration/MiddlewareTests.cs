@@ -90,9 +90,36 @@ public class AdminSecretMiddlewareTests
     #region No Secret Configured Tests
 
     [Fact]
-    public async Task AdminPath_WithNoSecretConfigured_AllowsAccess()
+    public async Task AdminPath_WithNoSecretConfigured_ReturnsServiceUnavailable()
     {
+        // Fail-closed: no secret configured = admin endpoints unavailable
         var (host, client) = await CreateTestHostAsync(adminSecret: null);
+        try
+        {
+            var response = await client.GetAsync("/admin/test");
+
+            response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+            var content = await response.Content.ReadAsStringAsync();
+            content.Should().Contain("admin_unavailable");
+        }
+        finally
+        {
+            await CleanupAsync(host, client);
+        }
+    }
+
+    [Fact]
+    public async Task AdminPath_WithNoSecretConfigured_AllowsAccessWhenInsecureEnabled()
+    {
+        // Explicit opt-in: AllowInsecureAdminAccess bypasses secret requirement
+        var (host, client) = await TestHostBuilder.Create()
+            .WithAdminSecret(null)
+            .WithAllowInsecureAccess()
+            .WithEndpoints(endpoints =>
+            {
+                endpoints.MapGet("/admin/test", () => "admin content");
+            })
+            .BuildAndStartAsync();
         try
         {
             var response = await client.GetAsync("/admin/test");

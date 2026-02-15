@@ -17,6 +17,10 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
     private readonly PostgreSQLStorageOptions _options;
     private readonly ILogger<PostgreSQLDashboardEventStore> _logger;
 
+    // Circuit breaker: stop trying PostgreSQL for 60s after a connection failure
+    private DateTime _circuitOpenUntil = DateTime.MinValue;
+    private static readonly TimeSpan CircuitBreakDuration = TimeSpan.FromSeconds(60);
+
     public PostgreSQLDashboardEventStore(
         PostgreSQLStorageOptions options,
         ILogger<PostgreSQLDashboardEventStore> logger)
@@ -33,8 +37,29 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         DefaultTypeMap.MatchNamesWithUnderscores = true;
     }
 
+    private bool IsCircuitOpen
+    {
+        get
+        {
+            if (_circuitOpenUntil <= DateTime.UtcNow) return false;
+            return true;
+        }
+    }
+
+    private void TripCircuit()
+    {
+        var newExpiry = DateTime.UtcNow + CircuitBreakDuration;
+        if (_circuitOpenUntil < newExpiry)
+        {
+            _circuitOpenUntil = newExpiry;
+            _logger.LogWarning("PostgreSQL circuit breaker tripped — skipping DB calls for {Seconds}s", CircuitBreakDuration.TotalSeconds);
+        }
+    }
+
     public async Task AddDetectionAsync(DashboardDetectionEvent detection)
     {
+        if (IsCircuitOpen) return;
+
         const string sql = @"
             INSERT INTO dashboard_detections (
                 request_id, timestamp, is_bot, bot_probability, confidence,
@@ -73,6 +98,11 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                 detection.PrimarySignature
             }, commandTimeout: _options.CommandTimeoutSeconds);
         }
+        catch (Exception ex) when (ex is NpgsqlException or System.Net.Sockets.SocketException)
+        {
+            TripCircuit();
+            _logger.LogError(ex, "Failed to add detection to PostgreSQL: {RequestId}", detection.RequestId);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to add detection to PostgreSQL: {RequestId}", detection.RequestId);
@@ -82,6 +112,8 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
 
     public async Task<DashboardSignatureEvent> AddSignatureAsync(DashboardSignatureEvent signature)
     {
+        if (IsCircuitOpen) return signature;
+
         const string sql = @"
             INSERT INTO dashboard_signatures (
                 signature_id, timestamp, primary_signature, ip_signature,
@@ -124,6 +156,12 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
             // Return updated signature with actual hit count from database
             return signature with { HitCount = hitCount };
         }
+        catch (Exception ex) when (ex is NpgsqlException or System.Net.Sockets.SocketException)
+        {
+            TripCircuit();
+            _logger.LogError(ex, "Failed to add signature to PostgreSQL: {SignatureId}", signature.SignatureId);
+            return signature;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to add signature to PostgreSQL: {SignatureId}", signature.SignatureId);
@@ -133,6 +171,8 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
 
     public async Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null)
     {
+        if (IsCircuitOpen) return [];
+
         var sql = "SELECT * FROM dashboard_detections WHERE 1=1";
         var parameters = new DynamicParameters();
 
@@ -216,6 +256,8 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
 
     public async Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100)
     {
+        if (IsCircuitOpen) return [];
+
         const string sql = @"
             SELECT * FROM dashboard_signatures
             ORDER BY timestamp DESC
@@ -238,6 +280,19 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
 
     public async Task<DashboardSummary> GetSummaryAsync()
     {
+        if (IsCircuitOpen) return new DashboardSummary
+            {
+                Timestamp = DateTime.UtcNow,
+                TotalRequests = 0,
+                BotRequests = 0,
+                HumanRequests = 0,
+                UncertainRequests = 0,
+                RiskBandCounts = new(),
+                TopBotTypes = new(),
+                TopActions = new(),
+                UniqueSignatures = 0
+            };
+
         const string sql = @"
             WITH stats AS (
                 SELECT
@@ -327,6 +382,23 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                 UniqueSignatures = summary.UniqueSignatures
             };
         }
+        catch (Exception ex) when (ex is NpgsqlException or System.Net.Sockets.SocketException)
+        {
+            TripCircuit();
+            _logger.LogError(ex, "Failed to get summary from PostgreSQL");
+            return new DashboardSummary
+            {
+                Timestamp = DateTime.UtcNow,
+                TotalRequests = 0,
+                BotRequests = 0,
+                HumanRequests = 0,
+                UncertainRequests = 0,
+                RiskBandCounts = new(),
+                TopBotTypes = new(),
+                TopActions = new(),
+                UniqueSignatures = 0
+            };
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get summary from PostgreSQL");
@@ -339,6 +411,8 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         DateTime endTime,
         TimeSpan bucketSize)
     {
+        if (IsCircuitOpen) return [];
+
         // Use TimescaleDB time_bucket if enabled, otherwise use standard PostgreSQL date_trunc
         string sql;
         if (_options.EnableTimescaleDB)

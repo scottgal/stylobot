@@ -63,10 +63,17 @@ public class DatabaseInitializationService : IHostedService
                 await ApplyTimescaleDBEnhancementsAsync(connection, cancellationToken);
             }
         }
+        catch (Exception ex) when (ex is NpgsqlException or System.Net.Sockets.SocketException)
+        {
+            _logger.LogWarning(ex,
+                "Failed to connect to PostgreSQL — dashboard persistence disabled. " +
+                "The app will continue with in-memory storage. " +
+                "Set a valid connection string or start PostgreSQL to enable persistence.");
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to initialize PostgreSQL database schema");
-            throw; // Base schema is required — crash if it fails
+            throw; // Non-connectivity errors (e.g. bad SQL) should still crash
         }
     }
 

@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Middleware;
@@ -42,6 +43,15 @@ public class DetectionBroadcastMiddleware
         // After response, broadcast detection result if available
         try
         {
+            // Fast path: upstream-trusted lightweight result (no AggregatedEvidence)
+            if (!context.Items.ContainsKey(BotDetectionMiddleware.AggregatedEvidenceKey) &&
+                context.Items.TryGetValue(BotDetectionMiddleware.BotDetectionResultKey, out var upstreamObj) &&
+                upstreamObj is BotDetectionResult upstreamResult)
+            {
+                await BroadcastUpstreamResult(context, upstreamResult, hubContext, eventStore, visitorListCache);
+                return;
+            }
+
             if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
                 evidenceObj is AggregatedEvidence evidence)
             {
@@ -168,6 +178,79 @@ public class DetectionBroadcastMiddleware
         {
             _logger.LogWarning(ex, "Failed to broadcast detection");
         }
+    }
+
+    /// <summary>
+    ///     Broadcast a lightweight upstream-trusted detection result.
+    ///     Used when TrustUpstreamDetection is enabled and no AggregatedEvidence exists.
+    /// </summary>
+    private async Task BroadcastUpstreamResult(
+        HttpContext context,
+        BotDetectionResult result,
+        IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
+        IDashboardEventStore eventStore,
+        VisitorListCache visitorListCache)
+    {
+        var options = context.RequestServices.GetService<IOptions<BotDetectionOptions>>()?.Value;
+        if (options?.ExcludeLocalIpFromBroadcast == true && IsLocalIp(context.Connection.RemoteIpAddress))
+        {
+            _logger.LogDebug("Skipping upstream broadcast for local IP {Ip}", context.Connection.RemoteIpAddress);
+            return;
+        }
+
+        string? primarySignature = null;
+        if (context.Items.TryGetValue("BotDetection.Signatures", out var sigObj) && sigObj is string sigJson)
+        {
+            try
+            {
+                var sigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(sigJson);
+                primarySignature = sigs?.GetValueOrDefault("primary");
+            }
+            catch { /* ignore */ }
+        }
+
+        var sigValue = primarySignature ?? GenerateFallbackSignature(context);
+        var confidence = result.ConfidenceScore;
+        var riskBand = confidence switch
+        {
+            >= 0.85 => "VeryHigh",
+            >= 0.7 => "High",
+            >= 0.4 => "Medium",
+            >= 0.2 => "Low",
+            _ => "VeryLow"
+        };
+
+        var detection = new DashboardDetectionEvent
+        {
+            RequestId = context.TraceIdentifier,
+            Timestamp = DateTime.UtcNow,
+            IsBot = result.IsBot,
+            BotProbability = confidence,
+            Confidence = confidence,
+            RiskBand = riskBand,
+            BotType = result.BotType?.ToString(),
+            BotName = result.BotName,
+            Action = "Allow",
+            PolicyName = "upstream",
+            Method = context.Request.Method,
+            Path = context.Request.Path.Value ?? "/",
+            StatusCode = context.Response.StatusCode,
+            ProcessingTimeMs = 0,
+            PrimarySignature = sigValue,
+            TopReasons = []
+        };
+
+        detection = detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };
+
+        await eventStore.AddDetectionAsync(detection);
+        visitorListCache.Upsert(detection);
+        await hubContext.Clients.All.BroadcastDetection(detection);
+
+        _logger.LogDebug(
+            "Broadcast upstream detection: {Path} sig={Signature} prob={Probability:F2}",
+            detection.Path,
+            sigValue[..Math.Min(8, sigValue.Length)],
+            detection.BotProbability);
     }
 
     /// <summary>

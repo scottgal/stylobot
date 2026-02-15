@@ -1,0 +1,39 @@
+# ============================================================
+# Caddyfile.dev - Local development (no TLS, no domain)
+# ============================================================
+#
+# Routes:
+#   /_stylobot*  -> website:8080  (SignalR hub, dashboard)
+#   everything   -> gateway:8080  (bot detection layer)
+# ============================================================
+
+:80 {
+	# SignalR + dashboard: bypass gateway
+	handle /_stylobot* {
+		reverse_proxy website:8080 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# Everything else: through gateway for bot detection
+	handle {
+		reverse_proxy gateway:8080 {
+			health_uri /health
+			health_interval 10s
+			health_timeout 5s
+
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	encode gzip zstd
+
+	log {
+		output stdout
+		format console
+	}
+}

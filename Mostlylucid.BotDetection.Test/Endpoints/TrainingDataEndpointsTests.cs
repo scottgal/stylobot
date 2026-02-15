@@ -1,11 +1,12 @@
 using Mostlylucid.BotDetection.Endpoints;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.Test.Endpoints;
 
 /// <summary>
 ///     Tests for <see cref="TrainingDataEndpoints" />.
-///     Tests FilterPiiSignals, GeneralizePath, and validates the label derivation logic.
+///     Tests FilterPiiSignals, GeneralizePath, label derivation, derived features, and config options.
 /// </summary>
 public class TrainingDataEndpointsTests
 {
@@ -272,6 +273,133 @@ public class TrainingDataEndpointsTests
     public void DeriveLabel_MidProbability_Uncertain(double probability, string expectedLabel)
     {
         Assert.Equal(expectedLabel, TrainingDataEndpoints.DeriveLabel(probability));
+    }
+
+    #endregion
+
+    #region ComputeDerived
+
+    [Fact]
+    public void ComputeDerived_SingleRequest_ZeroDurationAndRate()
+    {
+        var now = DateTime.UtcNow;
+        var behavior = new SignatureBehavior
+        {
+            Signature = "test-sig",
+            Requests = [new SignatureRequest { RequestId = "r1", Timestamp = now, Path = "/", BotProbability = 0.5, Signals = new Dictionary<string, object>(), DetectorsRan = [] }],
+            FirstSeen = now,
+            LastSeen = now,
+            RequestCount = 1,
+            AverageInterval = 0,
+            PathEntropy = 0,
+            TimingCoefficient = 0,
+            AverageBotProbability = 0.5,
+            AberrationScore = 0,
+            IsAberrant = false
+        };
+
+        var d = TrainingDataEndpoints.ComputeDerived(behavior);
+
+        Assert.Equal(0, d.DurationSeconds);
+        Assert.Equal(0, d.RequestRate);
+        Assert.Equal(1.0, d.PathDiversity); // 1 unique path / 1 request
+        Assert.Equal(0, d.IntervalStdDev);
+    }
+
+    [Fact]
+    public void ComputeDerived_MultipleRequests_CorrectRateAndDiversity()
+    {
+        var start = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var requests = new List<SignatureRequest>();
+        for (var i = 0; i < 10; i++)
+        {
+            requests.Add(new SignatureRequest
+            {
+                RequestId = $"r{i}",
+                Timestamp = start.AddSeconds(i * 6), // 6s apart
+                Path = i % 2 == 0 ? "/page-a" : "/page-b",
+                BotProbability = 0.8,
+                Signals = new Dictionary<string, object>(),
+                DetectorsRan = []
+            });
+        }
+
+        var behavior = new SignatureBehavior
+        {
+            Signature = "multi-sig",
+            Requests = requests,
+            FirstSeen = start,
+            LastSeen = start.AddSeconds(54), // 9 intervals * 6s
+            RequestCount = 10,
+            AverageInterval = 6.0,
+            PathEntropy = 1.0,
+            TimingCoefficient = 0.0,
+            AverageBotProbability = 0.8,
+            AberrationScore = 0,
+            IsAberrant = false
+        };
+
+        var d = TrainingDataEndpoints.ComputeDerived(behavior);
+
+        Assert.Equal(54.0, d.DurationSeconds);
+        Assert.True(d.RequestRate > 0); // 10 requests in 54 seconds = ~11.1 rpm
+        Assert.Equal(0.2, d.PathDiversity); // 2 unique / 10 total
+        Assert.Equal(0, d.IntervalStdDev); // uniform intervals
+    }
+
+    [Fact]
+    public void ComputeDerived_IrregularIntervals_NonZeroStdDev()
+    {
+        var start = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var requests = new List<SignatureRequest>
+        {
+            new() { RequestId = "r1", Timestamp = start, Path = "/a", BotProbability = 0.5, Signals = new Dictionary<string, object>(), DetectorsRan = [] },
+            new() { RequestId = "r2", Timestamp = start.AddSeconds(1), Path = "/b", BotProbability = 0.5, Signals = new Dictionary<string, object>(), DetectorsRan = [] },
+            new() { RequestId = "r3", Timestamp = start.AddSeconds(2), Path = "/c", BotProbability = 0.5, Signals = new Dictionary<string, object>(), DetectorsRan = [] },
+            new() { RequestId = "r4", Timestamp = start.AddSeconds(100), Path = "/d", BotProbability = 0.5, Signals = new Dictionary<string, object>(), DetectorsRan = [] }
+        };
+
+        var behavior = new SignatureBehavior
+        {
+            Signature = "irregular-sig",
+            Requests = requests,
+            FirstSeen = start,
+            LastSeen = start.AddSeconds(100),
+            RequestCount = 4,
+            AverageInterval = 33.3,
+            PathEntropy = 2.0,
+            TimingCoefficient = 1.5,
+            AverageBotProbability = 0.5,
+            AberrationScore = 0,
+            IsAberrant = false
+        };
+
+        var d = TrainingDataEndpoints.ComputeDerived(behavior);
+
+        Assert.True(d.IntervalStdDev > 0, "Irregular intervals should produce non-zero std dev");
+    }
+
+    #endregion
+
+    #region TrainingEndpointsOptions Defaults
+
+    [Fact]
+    public void TrainingEndpointsOptions_DefaultValues()
+    {
+        var options = new TrainingEndpointsOptions();
+
+        Assert.True(options.Enabled);
+        Assert.False(options.RequireApiKey);
+        Assert.Empty(options.ApiKeys);
+        Assert.Equal(30, options.RateLimitPerMinute);
+        Assert.Equal(10_000, options.MaxExportRecords);
+    }
+
+    [Fact]
+    public void BotDetectionOptions_TrainingEndpointsProperty_IsNotNull()
+    {
+        var options = new BotDetectionOptions();
+        Assert.NotNull(options.TrainingEndpoints);
     }
 
     #endregion

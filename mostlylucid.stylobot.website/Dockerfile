@@ -28,6 +28,8 @@ COPY ["Mostlylucid.BotDetection/ReleaseNotes.txt", "Mostlylucid.BotDetection/"]
 COPY ["Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj", "Mostlylucid.BotDetection.UI/"]
 COPY ["Mostlylucid.BotDetection.UI.PostgreSQL/Mostlylucid.BotDetection.UI.PostgreSQL.csproj", "Mostlylucid.BotDetection.UI.PostgreSQL/"]
 COPY ["Mostlylucid.Common/Mostlylucid.Common.csproj", "Mostlylucid.Common/"]
+COPY ["Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj", "Mostlylucid.GeoDetection/"]
+COPY ["Mostlylucid.GeoDetection/ReleaseNotes.txt", "Mostlylucid.GeoDetection/"]
 RUN dotnet restore "mostlylucid.stylobot.website/src/Stylobot.Website/Stylobot.Website.csproj"
 
 # Copy entire source

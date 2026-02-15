@@ -695,12 +695,13 @@ public class BotDetectionMiddlewareTests
         await middleware.InvokeAsync(context, mockOrchestrator.Object, mockPolicyRegistry.Object,
             mockActionPolicyRegistry.Object, null);
 
-        // Assert - response headers should be emitted
-        Assert.True(context.Response.Headers.ContainsKey("X-Bot-Risk-Score"));
+        // Assert - only trust marker and processing time emitted (gateway handles full headers)
         Assert.True(context.Response.Headers.ContainsKey("X-Bot-Upstream-Trust"));
-        Assert.True(context.Response.Headers.ContainsKey("X-Bot-Confidence"));
-        Assert.True(context.Response.Headers.ContainsKey("X-Bot-Bot-Name"));
+        Assert.Equal("true", context.Response.Headers["X-Bot-Upstream-Trust"]);
         Assert.Equal("0.0", context.Response.Headers["X-Bot-Processing-Ms"]);
+        // Website should NOT duplicate detection headers when trusting upstream
+        Assert.False(context.Response.Headers.ContainsKey("X-Bot-Risk-Score"));
+        Assert.False(context.Response.Headers.ContainsKey("X-Bot-Confidence"));
     }
 
     #endregion

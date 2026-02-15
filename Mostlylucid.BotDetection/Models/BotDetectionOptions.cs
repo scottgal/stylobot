@@ -565,6 +565,12 @@ public class BotDetectionOptions
     public bool Enabled { get; set; } = true;
 
     /// <summary>
+    ///     Configuration for training data export endpoints.
+    ///     Controls access, rate limiting, and security for ML training data export.
+    /// </summary>
+    public TrainingEndpointsOptions TrainingEndpoints { get; set; } = new();
+
+    /// <summary>
     ///     When true, trust upstream detection headers (X-Bot-Detected, X-Bot-Confidence, etc.)
     ///     from a reverse proxy like YARP. Skips re-running the full detector pipeline.
     ///     Background learning (signature tracking, LLM enqueue) still runs using forwarded results.
@@ -2895,6 +2901,43 @@ public class CountryReputationOptions
 
     /// <summary>Minimum total detections before country rate is meaningful. Default: 10</summary>
     public int MinSampleSize { get; set; } = 10;
+}
+
+/// <summary>
+///     Configuration for training data export endpoints.
+///     Controls access, rate limiting, and security for ML training data export.
+/// </summary>
+public class TrainingEndpointsOptions
+{
+    /// <summary>
+    ///     Enable or disable training endpoints entirely. Default: true.
+    ///     When false, MapBotTrainingEndpoints() returns the group but all endpoints return 404.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    ///     Require an API key via X-Training-Api-Key header. Default: false.
+    ///     When true, requests without a valid key receive 401.
+    /// </summary>
+    public bool RequireApiKey { get; set; }
+
+    /// <summary>
+    ///     Allowed API keys for training endpoint access. Checked against X-Training-Api-Key header.
+    ///     Set via config or BOTDETECTION_TRAINING_API_KEYS (comma-separated).
+    /// </summary>
+    public List<string> ApiKeys { get; set; } = [];
+
+    /// <summary>
+    ///     Maximum requests per minute per client IP. Default: 30.
+    ///     Applies a sliding window rate limit. 0 = no limit.
+    /// </summary>
+    public int RateLimitPerMinute { get; set; } = 30;
+
+    /// <summary>
+    ///     Maximum number of signatures returned by /export endpoint. Default: 10000.
+    ///     Prevents runaway memory and bandwidth usage on large deployments.
+    /// </summary>
+    public int MaxExportRecords { get; set; } = 10_000;
 }
 
 /// <summary>

@@ -93,7 +93,8 @@ public class BotClusterService : BackgroundService
             _options.MinBotDetectionsToTrigger);
 
         // Wait a bit before first run to let the system warm up
-        await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+        try { await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken); }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
 
         while (!stoppingToken.IsCancellationRequested)
         {

@@ -54,7 +54,7 @@ jobs:
   # BotDetection tests (primary focus)
   bot-detection-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
 
     steps:
     - name: Checkout code
@@ -73,13 +73,15 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-nuget-
 
-    - name: Restore and build BotDetection test projects
+    - name: Restore and build test projects
       run: |
         dotnet restore Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
         dotnet restore Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj
         dotnet restore Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj
+        dotnet restore Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj
         dotnet build Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj --configuration Release --no-restore
         dotnet build Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj --configuration Release --no-restore
+        dotnet build Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-restore
 
     - name: Run BotDetection unit tests
       run: |
@@ -98,11 +100,20 @@ jobs:
           --results-directory ./test-results \
           --filter "Category!=Integration"
 
+    - name: Run Gateway tests
+      run: |
+        dotnet test Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj \
+          --configuration Release \
+          --no-build \
+          --verbosity normal \
+          --logger "trx;LogFileName=gateway-test-results.trx" \
+          --results-directory ./test-results
+
     - name: Upload test results
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       if: always()
       with:
-        name: bot-detection-test-results
+        name: test-results
         path: ./test-results
         retention-days: 7
 
@@ -110,7 +121,7 @@ jobs:
       uses: dorny/test-reporter@d61b558e8df85cb60d09ca3e5b09653b4477cea7 # v1
       if: always() && github.event_name != 'pull_request'
       with:
-        name: BotDetection Test Results
+        name: Test Results
         path: ./test-results/**/*.trx
         reporter: dotnet-trx
         fail-on-error: true

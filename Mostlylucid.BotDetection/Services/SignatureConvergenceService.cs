@@ -48,7 +48,8 @@ public class SignatureConvergenceService : BackgroundService
             _options.SplitDivergenceThreshold);
 
         // Let the system warm up before first evaluation
-        await Task.Delay(TimeSpan.FromSeconds(20), stoppingToken);
+        try { await Task.Delay(TimeSpan.FromSeconds(20), stoppingToken); }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
 
         while (!stoppingToken.IsCancellationRequested)
         {

@@ -107,25 +107,32 @@ public class LlmClassificationCoordinator : BackgroundService
         _logger.LogInformation("LlmClassificationCoordinator started (capacity={Capacity}, sequential processing)",
             _options.LlmCoordinator.ChannelCapacity);
 
-        await foreach (var request in _channel.Reader.ReadAllAsync(stoppingToken))
+        try
         {
-            try
+            await foreach (var request in _channel.Reader.ReadAllAsync(stoppingToken))
             {
-                await ProcessRequestAsync(request, stoppingToken);
+                try
+                {
+                    await ProcessRequestAsync(request, stoppingToken);
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "LLM classification failed for {RequestId}", request.RequestId);
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _queueDepth);
+                    Interlocked.Increment(ref _totalProcessed);
+                }
             }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "LLM classification failed for {RequestId}", request.RequestId);
-            }
-            finally
-            {
-                Interlocked.Decrement(ref _queueDepth);
-                Interlocked.Increment(ref _totalProcessed);
-            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Normal shutdown — ReadAllAsync throws when token is cancelled
         }
 
         _logger.LogInformation("LlmClassificationCoordinator stopped");

@@ -78,7 +78,7 @@ services:
       - BotDetection__EnableLlmDetection=true
       - BotDetection__AiDetection__Provider=Ollama
       - BotDetection__AiDetection__Ollama__Endpoint=http://ollama:11434
-      - BotDetection__AiDetection__Ollama__Model=gemma3:1b
+      - BotDetection__AiDetection__Ollama__Model=qwen3:0.6b
       - BotDetection__AiDetection__TimeoutMs=30000
     expose:
       - "8080"
@@ -153,12 +153,12 @@ services:
         limits:
           cpus: '4'
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 5s
-      retries: 3
-      start_period: 60s
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 5 && ollama pull gemma3:1b && wait"]
+      retries: 5
+      start_period: 90s
+    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 10 && ollama pull qwen3:0.6b || true; wait"]
 
   # ----------------------------------------------------------
   # TimescaleDB - Dashboard event persistence

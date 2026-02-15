@@ -1,8 +1,11 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Services;
@@ -12,6 +15,7 @@ namespace Mostlylucid.BotDetection.Endpoints;
 /// <summary>
 ///     Training data export endpoints for ML model training.
 ///     Exports signatures, clusters, and country reputation data in JSON and JSONL formats.
+///     Secured via optional API key and per-IP rate limiting.
 /// </summary>
 public static partial class TrainingDataEndpoints
 {
@@ -30,21 +34,24 @@ public static partial class TrainingDataEndpoints
     };
 
     // PII signal keys always excluded from training data
-    private static readonly HashSet<string> PiiKeys = new()
-    {
+    private static readonly HashSet<string> PiiKeys =
+    [
         SignalKeys.UserAgent,
         SignalKeys.ClientIp
-    };
+    ];
 
     // UA classification keys - only included for bot-detected signatures
-    private static readonly HashSet<string> UaClassificationKeys = new()
-    {
+    private static readonly HashSet<string> UaClassificationKeys =
+    [
         SignalKeys.UserAgentIsBot,
         SignalKeys.UserAgentBotType,
         SignalKeys.UserAgentBotName,
         SignalKeys.UserAgentOs,
         SignalKeys.UserAgentBrowser
-    };
+    ];
+
+    // Sliding window rate limiter: IP -> list of request timestamps
+    private static readonly ConcurrentDictionary<string, List<DateTime>> RateLimitWindow = new();
 
     [System.Text.RegularExpressions.GeneratedRegex(
         @"^[0-9a-f\-]{8,}$|^\d{4,}$|^[A-Za-z0-9+/]{20,}={0,2}$",
@@ -53,6 +60,7 @@ public static partial class TrainingDataEndpoints
 
     /// <summary>
     ///     Maps training data export endpoints to the specified route prefix.
+    ///     Applies API key validation and rate limiting based on <see cref="TrainingEndpointsOptions" />.
     /// </summary>
     public static RouteGroupBuilder MapBotTrainingEndpoints(
         this IEndpointRouteBuilder endpoints,
@@ -62,8 +70,43 @@ public static partial class TrainingDataEndpoints
             .WithTags("Bot Detection Training Data")
             .AddEndpointFilter(async (context, next) =>
             {
+                var options = context.HttpContext.RequestServices
+                    .GetService(typeof(IOptions<BotDetectionOptions>)) as IOptions<BotDetectionOptions>;
+                var config = options?.Value.TrainingEndpoints ?? new TrainingEndpointsOptions();
+
+                // Gate: endpoints disabled
+                if (!config.Enabled)
+                    return Results.NotFound();
+
+                // Gate: API key required
+                if (config.RequireApiKey)
+                {
+                    if (!context.HttpContext.Request.Headers.TryGetValue("X-Training-Api-Key", out var apiKey)
+                        || !config.ApiKeys.Contains(apiKey.ToString()))
+                    {
+                        var logger = context.HttpContext.RequestServices
+                            .GetService(typeof(ILogger<BotDetectionOptions>)) as ILogger;
+                        logger?.LogWarning("Training endpoint access denied: invalid or missing API key from {IP}",
+                            context.HttpContext.Connection.RemoteIpAddress);
+                        return Results.Json(new { error = "Valid X-Training-Api-Key header required" },
+                            statusCode: StatusCodes.Status401Unauthorized);
+                    }
+                }
+
+                // Gate: rate limiting
+                if (config.RateLimitPerMinute > 0)
+                {
+                    var clientIp = context.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                    if (!CheckRateLimit(clientIp, config.RateLimitPerMinute))
+                    {
+                        context.HttpContext.Response.Headers["Retry-After"] = "60";
+                        return Results.Json(new { error = "Rate limit exceeded" },
+                            statusCode: StatusCodes.Status429TooManyRequests);
+                    }
+                }
+
                 context.HttpContext.Response.Headers["X-PII-Level"] = "none";
-                context.HttpContext.Response.Headers["X-Data-Classification"] = "public-training-data";
+                context.HttpContext.Response.Headers["X-Data-Classification"] = "training-data";
                 return await next(context);
             });
 
@@ -104,6 +147,67 @@ public static partial class TrainingDataEndpoints
         return group;
     }
 
+    #region Rate Limiting
+
+    private static bool CheckRateLimit(string clientIp, int maxPerMinute)
+    {
+        var now = DateTime.UtcNow;
+        var window = RateLimitWindow.GetOrAdd(clientIp, _ => new List<DateTime>());
+
+        lock (window)
+        {
+            // Evict entries older than 1 minute
+            window.RemoveAll(t => (now - t).TotalMinutes > 1);
+            if (window.Count >= maxPerMinute)
+                return false;
+            window.Add(now);
+            return true;
+        }
+    }
+
+    #endregion
+
+    #region Derived Feature Computation
+
+    /// <summary>
+    ///     Computed features derived from a <see cref="SignatureBehavior" />.
+    ///     Eliminates duplication across endpoints and BotClusterService.
+    /// </summary>
+    internal record DerivedFeatures(
+        double DurationSeconds,
+        double RequestRate,
+        double PathDiversity,
+        double IntervalStdDev);
+
+    /// <summary>
+    ///     Computes derived features from a signature behavior. Matches BotClusterService.BuildFeatureVectors logic.
+    /// </summary>
+    internal static DerivedFeatures ComputeDerived(SignatureBehavior b)
+    {
+        var durationSeconds = (b.LastSeen - b.FirstSeen).TotalSeconds;
+        var requestRate = durationSeconds > 0 ? b.RequestCount / (durationSeconds / 60.0) : 0;
+
+        var uniquePaths = b.Requests.Select(r => r.Path).Distinct().Count();
+        var pathDiversity = b.RequestCount > 0 ? (double)uniquePaths / b.RequestCount : 0;
+
+        var intervalStdDev = 0.0;
+        if (b.Requests.Count > 2)
+        {
+            var intervals = new double[b.Requests.Count - 1];
+            for (var i = 1; i < b.Requests.Count; i++)
+                intervals[i - 1] = (b.Requests[i].Timestamp - b.Requests[i - 1].Timestamp).TotalSeconds;
+
+            var avg = intervals.Average();
+            intervalStdDev = Math.Sqrt(intervals.Average(v => Math.Pow(v - avg, 2)));
+        }
+
+        return new DerivedFeatures(durationSeconds, requestRate, pathDiversity, intervalStdDev);
+    }
+
+    #endregion
+
+    #region Endpoint Handlers
+
     private static IResult ListSignatures(
         SignatureCoordinator signatureCoordinator,
         BotClusterService clusterService)
@@ -115,76 +219,15 @@ public static partial class TrainingDataEndpoints
             var cluster = clusterService.FindCluster(b.Signature);
             var spectral = clusterService.GetSpectralFeatures(b.Signature);
             var family = signatureCoordinator.GetFamily(b.Signature);
-
-            // Compute derived features matching BotClusterService.BuildFeatureVectors
-            var durationSeconds = (b.LastSeen - b.FirstSeen).TotalSeconds;
-            var requestRate = durationSeconds > 0 ? b.RequestCount / (durationSeconds / 60.0) : 0;
-            var uniquePaths = b.Requests.Select(r => r.Path).Distinct().Count();
-            var pathDiversity = b.RequestCount > 0 ? (double)uniquePaths / b.RequestCount : 0;
-
-            // Compute interval statistics for temporal vector
-            var intervals = new List<double>();
-            for (var i = 1; i < b.Requests.Count; i++)
-                intervals.Add((b.Requests[i].Timestamp - b.Requests[i - 1].Timestamp).TotalSeconds);
-            var intervalStdDev = 0.0;
-            if (intervals.Count > 1)
-            {
-                var avg = intervals.Average();
-                intervalStdDev = Math.Sqrt(intervals.Average(v => Math.Pow(v - avg, 2)));
-            }
+            var d = ComputeDerived(b);
 
             return new
             {
                 signature = b.Signature,
                 label = DeriveLabel(b.AverageBotProbability),
-                vectors = new
-                {
-                    behavioral = new
-                    {
-                        timingRegularity = Math.Round(b.TimingCoefficient, 4),
-                        requestRate = Math.Round(requestRate, 4),
-                        pathDiversity = Math.Round(pathDiversity, 4),
-                        pathEntropy = Math.Round(b.PathEntropy, 4),
-                        averageBotProbability = Math.Round(b.AverageBotProbability, 4),
-                        aberrationScore = Math.Round(b.AberrationScore, 4)
-                    },
-                    temporal = new
-                    {
-                        requestCount = b.RequestCount,
-                        firstSeen = b.FirstSeen,
-                        lastSeen = b.LastSeen,
-                        durationSeconds = Math.Round(durationSeconds, 1),
-                        averageInterval = Math.Round(b.AverageInterval, 3),
-                        intervalStdDev = Math.Round(intervalStdDev, 3)
-                    },
-                    spectral = spectral?.HasSufficientData == true
-                        ? new
-                        {
-                            dominantFrequency = Math.Round(spectral.DominantFrequency, 6),
-                            spectralEntropy = Math.Round(spectral.SpectralEntropy, 4),
-                            harmonicRatio = Math.Round(spectral.HarmonicRatio, 4),
-                            peakToAvgRatio = Math.Round(spectral.PeakToAvgRatio, 4),
-                            spectralCentroid = Math.Round(spectral.SpectralCentroid, 4)
-                        }
-                        : null,
-                    geo = new
-                    {
-                        countryCode = b.CountryCode,
-                        asn = b.Asn,
-                        isDatacenter = b.IsDatacenter
-                    }
-                },
+                vectors = BuildVectors(b, d, spectral),
                 isAberrant = b.IsAberrant,
-                cluster = cluster != null
-                    ? new
-                    {
-                        clusterId = cluster.ClusterId,
-                        type = cluster.Type.ToString(),
-                        label = cluster.Label,
-                        memberCount = cluster.MemberCount,
-                        avgSimilarity = Math.Round(cluster.AverageSimilarity, 4)
-                    }
-                    : null,
+                cluster = FormatClusterSummary(cluster),
                 family = family != null
                     ? new
                     {
@@ -214,6 +257,7 @@ public static partial class TrainingDataEndpoints
         var cluster = clusterService.FindCluster(signature);
         var spectral = clusterService.GetSpectralFeatures(signature);
         var family = signatureCoordinator.GetFamily(signature);
+        var d = ComputeDerived(behavior);
 
         // Build family member details if in a family
         object? familyData = null;
@@ -248,63 +292,11 @@ public static partial class TrainingDataEndpoints
             };
         }
 
-        // Compute derived features for multivector representation
-        var durationSeconds = (behavior.LastSeen - behavior.FirstSeen).TotalSeconds;
-        var requestRate = durationSeconds > 0 ? behavior.RequestCount / (durationSeconds / 60.0) : 0;
-        var uniquePaths = behavior.Requests.Select(r => r.Path).Distinct().Count();
-        var pathDiversity = behavior.RequestCount > 0 ? (double)uniquePaths / behavior.RequestCount : 0;
-
-        var intervals = new List<double>();
-        for (var i = 1; i < behavior.Requests.Count; i++)
-            intervals.Add((behavior.Requests[i].Timestamp - behavior.Requests[i - 1].Timestamp).TotalSeconds);
-        var intervalStdDev = 0.0;
-        if (intervals.Count > 1)
-        {
-            var avg = intervals.Average();
-            intervalStdDev = Math.Sqrt(intervals.Average(v => Math.Pow(v - avg, 2)));
-        }
-
         var result = new
         {
             signature = behavior.Signature,
             label = DeriveLabel(behavior.AverageBotProbability),
-            vectors = new
-            {
-                behavioral = new
-                {
-                    timingRegularity = Math.Round(behavior.TimingCoefficient, 4),
-                    requestRate = Math.Round(requestRate, 4),
-                    pathDiversity = Math.Round(pathDiversity, 4),
-                    pathEntropy = Math.Round(behavior.PathEntropy, 4),
-                    averageBotProbability = Math.Round(behavior.AverageBotProbability, 4),
-                    aberrationScore = Math.Round(behavior.AberrationScore, 4)
-                },
-                temporal = new
-                {
-                    requestCount = behavior.RequestCount,
-                    firstSeen = behavior.FirstSeen,
-                    lastSeen = behavior.LastSeen,
-                    durationSeconds = Math.Round(durationSeconds, 1),
-                    averageInterval = Math.Round(behavior.AverageInterval, 3),
-                    intervalStdDev = Math.Round(intervalStdDev, 3)
-                },
-                spectral = spectral?.HasSufficientData == true
-                    ? new
-                    {
-                        dominantFrequency = Math.Round(spectral.DominantFrequency, 6),
-                        spectralEntropy = Math.Round(spectral.SpectralEntropy, 4),
-                        harmonicRatio = Math.Round(spectral.HarmonicRatio, 4),
-                        peakToAvgRatio = Math.Round(spectral.PeakToAvgRatio, 4),
-                        spectralCentroid = Math.Round(spectral.SpectralCentroid, 4)
-                    }
-                    : null,
-                geo = new
-                {
-                    countryCode = behavior.CountryCode,
-                    asn = behavior.Asn,
-                    isDatacenter = behavior.IsDatacenter
-                }
-            },
+            vectors = BuildVectors(behavior, d, spectral),
             isAberrant = behavior.IsAberrant,
             cluster = cluster != null
                 ? new
@@ -340,32 +332,25 @@ public static partial class TrainingDataEndpoints
         SignatureCoordinator signatureCoordinator,
         BotClusterService clusterService)
     {
+        var options = httpContext.RequestServices
+            .GetService(typeof(IOptions<BotDetectionOptions>)) as IOptions<BotDetectionOptions>;
+        var maxRecords = options?.Value.TrainingEndpoints.MaxExportRecords ?? 10_000;
+
         httpContext.Response.ContentType = "application/x-ndjson";
         httpContext.Response.Headers["Content-Disposition"] = "attachment; filename=\"training-data.jsonl\"";
 
         var behaviors = signatureCoordinator.GetAllBehaviors();
+        var count = 0;
 
         foreach (var b in behaviors)
         {
+            if (++count > maxRecords)
+                break;
+
             var cluster = clusterService.FindCluster(b.Signature);
             var spectral = clusterService.GetSpectralFeatures(b.Signature);
             var family = signatureCoordinator.GetFamily(b.Signature);
-
-            // Compute derived features matching BotClusterService.BuildFeatureVectors
-            var durationSeconds = (b.LastSeen - b.FirstSeen).TotalSeconds;
-            var requestRate = durationSeconds > 0 ? b.RequestCount / (durationSeconds / 60.0) : 0;
-            var uniquePaths = b.Requests.Select(r => r.Path).Distinct().Count();
-            var pathDiversity = b.RequestCount > 0 ? (double)uniquePaths / b.RequestCount : 0;
-
-            var intervals = new List<double>();
-            for (var i = 1; i < b.Requests.Count; i++)
-                intervals.Add((b.Requests[i].Timestamp - b.Requests[i - 1].Timestamp).TotalSeconds);
-            var intervalStdDev = 0.0;
-            if (intervals.Count > 1)
-            {
-                var avg = intervals.Average();
-                intervalStdDev = Math.Sqrt(intervals.Average(v => Math.Pow(v - avg, 2)));
-            }
+            var d = ComputeDerived(b);
 
             var record = new
             {
@@ -373,16 +358,16 @@ public static partial class TrainingDataEndpoints
                 label = DeriveLabel(b.AverageBotProbability),
                 // Behavioral vector
                 v_timingRegularity = Math.Round(b.TimingCoefficient, 4),
-                v_requestRate = Math.Round(requestRate, 4),
-                v_pathDiversity = Math.Round(pathDiversity, 4),
+                v_requestRate = Math.Round(d.RequestRate, 4),
+                v_pathDiversity = Math.Round(d.PathDiversity, 4),
                 v_pathEntropy = Math.Round(b.PathEntropy, 4),
                 v_avgBotProbability = Math.Round(b.AverageBotProbability, 4),
                 v_aberrationScore = Math.Round(b.AberrationScore, 4),
                 // Temporal vector
                 v_requestCount = b.RequestCount,
-                v_durationSeconds = Math.Round(durationSeconds, 1),
+                v_durationSeconds = Math.Round(d.DurationSeconds, 1),
                 v_averageInterval = Math.Round(b.AverageInterval, 3),
-                v_intervalStdDev = Math.Round(intervalStdDev, 3),
+                v_intervalStdDev = Math.Round(d.IntervalStdDev, 3),
                 // Spectral vector (null if insufficient data)
                 v_dominantFrequency = spectral?.HasSufficientData == true
                     ? Math.Round(spectral.DominantFrequency, 6) : (double?)null,
@@ -409,6 +394,18 @@ public static partial class TrainingDataEndpoints
 
             var line = JsonSerializer.Serialize(record, JsonlOptions);
             await httpContext.Response.WriteAsync(line + "\n");
+
+            // Flush periodically to avoid buffering entire response
+            if (count % 100 == 0)
+                await httpContext.Response.Body.FlushAsync();
+        }
+
+        if (count > maxRecords)
+        {
+            var truncation = JsonSerializer.Serialize(
+                new { _truncated = true, _maxRecords = maxRecords, _message = "Export capped. Increase MaxExportRecords to export more." },
+                JsonlOptions);
+            await httpContext.Response.WriteAsync(truncation + "\n");
         }
     }
 
@@ -433,7 +430,6 @@ public static partial class TrainingDataEndpoints
         {
             var totalRequests = 0;
             var botProbSum = 0.0;
-            var memberCount = 0;
 
             foreach (var sig in family.MemberSignatures.Keys)
             {
@@ -442,7 +438,6 @@ public static partial class TrainingDataEndpoints
                 {
                     totalRequests += behavior.RequestCount;
                     botProbSum += behavior.AverageBotProbability * behavior.RequestCount;
-                    memberCount++;
                 }
             }
 
@@ -586,6 +581,67 @@ public static partial class TrainingDataEndpoints
         return Results.Json(result, JsonOptions);
     }
 
+    #endregion
+
+    #region Shared Helpers
+
+    /// <summary>
+    ///     Builds the multi-vector representation used by /signatures and /signatures/{id} endpoints.
+    /// </summary>
+    private static object BuildVectors(SignatureBehavior b, DerivedFeatures d, SpectralFeatures? spectral)
+    {
+        return new
+        {
+            behavioral = new
+            {
+                timingRegularity = Math.Round(b.TimingCoefficient, 4),
+                requestRate = Math.Round(d.RequestRate, 4),
+                pathDiversity = Math.Round(d.PathDiversity, 4),
+                pathEntropy = Math.Round(b.PathEntropy, 4),
+                averageBotProbability = Math.Round(b.AverageBotProbability, 4),
+                aberrationScore = Math.Round(b.AberrationScore, 4)
+            },
+            temporal = new
+            {
+                requestCount = b.RequestCount,
+                firstSeen = b.FirstSeen,
+                lastSeen = b.LastSeen,
+                durationSeconds = Math.Round(d.DurationSeconds, 1),
+                averageInterval = Math.Round(b.AverageInterval, 3),
+                intervalStdDev = Math.Round(d.IntervalStdDev, 3)
+            },
+            spectral = spectral?.HasSufficientData == true
+                ? new
+                {
+                    dominantFrequency = Math.Round(spectral.DominantFrequency, 6),
+                    spectralEntropy = Math.Round(spectral.SpectralEntropy, 4),
+                    harmonicRatio = Math.Round(spectral.HarmonicRatio, 4),
+                    peakToAvgRatio = Math.Round(spectral.PeakToAvgRatio, 4),
+                    spectralCentroid = Math.Round(spectral.SpectralCentroid, 4)
+                }
+                : null,
+            geo = new
+            {
+                countryCode = b.CountryCode,
+                asn = b.Asn,
+                isDatacenter = b.IsDatacenter
+            }
+        };
+    }
+
+    private static object? FormatClusterSummary(BotCluster? cluster)
+    {
+        if (cluster == null) return null;
+        return new
+        {
+            clusterId = cluster.ClusterId,
+            type = cluster.Type.ToString(),
+            label = cluster.Label,
+            memberCount = cluster.MemberCount,
+            avgSimilarity = Math.Round(cluster.AverageSimilarity, 4)
+        };
+    }
+
     internal static string DeriveLabel(double averageBotProbability) =>
         averageBotProbability >= 0.7 ? "bot"
         : averageBotProbability <= 0.3 ? "human"
@@ -627,4 +683,6 @@ public static partial class TrainingDataEndpoints
 
         return generalized;
     }
+
+    #endregion
 }

@@ -71,10 +71,14 @@ public sealed class DetectorConfigProvider : IDetectorConfigProvider
     public T GetParameter<T>(string detectorName, string parameterName, T defaultValue)
     {
         // Try appsettings first
+        // Use string lookup to avoid value-type defaults (GetValue<double> returns 0.0, not null)
         var configPath = $"BotDetection:Detectors:{detectorName}:Defaults:Parameters:{parameterName}";
-        var configValue = _configuration.GetValue<T>(configPath);
-        if (configValue is not null)
-            return configValue;
+        var rawValue = _configuration[configPath];
+        if (rawValue is not null)
+        {
+            try { return (T)Convert.ChangeType(rawValue, typeof(T)); }
+            catch { /* fall through */ }
+        }
 
         // Then try manifest
         var manifest = GetManifest(detectorName);
