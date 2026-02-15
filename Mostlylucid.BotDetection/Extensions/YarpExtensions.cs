@@ -40,13 +40,16 @@ public static class YarpExtensions
     {
         var isBot = httpContext.IsBot();
 
-        // Get actual confidence from aggregated evidence if available, otherwise default to 0
-        var confidence = 0.0;
+        // Try to get aggregated evidence for detailed headers
+        AggregatedEvidence? evidence = null;
         if (httpContext.Items.TryGetValue(Middleware.BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
-            evidenceObj is AggregatedEvidence evidence)
+            evidenceObj is AggregatedEvidence ev)
         {
-            confidence = evidence.Confidence;
+            evidence = ev;
         }
+
+        // Get actual confidence from aggregated evidence if available, otherwise default to 0
+        var confidence = evidence?.Confidence ?? 0.0;
 
         addHeader("X-Bot-Detected", isBot.ToString().ToLowerInvariant());
         addHeader("X-Bot-Confidence", confidence.ToString("F2"));
@@ -73,8 +76,7 @@ public static class YarpExtensions
         }
 
         // Always include detection metadata (internal gateway→website headers, not exposed to clients)
-        if (httpContext.Items.TryGetValue(Middleware.BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
-            evidenceObj is AggregatedEvidence evidence)
+        if (evidence != null)
         {
             addHeader("X-Bot-Detection-Probability", evidence.BotProbability.ToString("F4"));
             addHeader("X-Bot-Detection-RiskBand", evidence.RiskBand.ToString());
