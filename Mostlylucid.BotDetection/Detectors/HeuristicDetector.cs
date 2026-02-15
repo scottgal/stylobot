@@ -81,6 +81,10 @@ public class HeuristicDetector : IDetector, IDisposable
         ["hdr:x-requested-with"] = -0.3f,
         ["hdr:connection-close"] = 0.3f,
 
+        // Missing header penalties - absence of expected headers is a bot signal
+        ["hdr:missing_accept_language"] = 0.4f,
+        ["hdr:missing_referer"] = 0.2f,
+
         // UA patterns - bot indicators
         ["ua:contains_bot"] = 0.9f,
         ["ua:contains_spider"] = 0.8f,
@@ -102,6 +106,23 @@ public class HeuristicDetector : IDetector, IDisposable
         ["ua:firefox"] = -0.2f,
         ["ua:safari"] = -0.2f,
         ["ua:edge"] = -0.2f,
+
+        // Very short User-Agent (< 15 chars) is suspicious
+        ["ua:very_short"] = 0.4f,
+
+        // Composite signals - suspicious combinations
+        ["combo:browser_no_accept_lang"] = 0.6f, // Browser UA without Accept-Language = spoofed
+        ["combo:browser_no_cookies"] = 0.3f, // Browser UA with no cookies
+
+        // HTTP method
+        ["req:method_head"] = 0.3f, // HEAD is commonly used by scanners
+
+        // Path probing patterns
+        ["path:env_file"] = 0.6f, // .env file scanning
+        ["path:dotfile"] = 0.5f, // Hidden/config file access
+        ["path:wordpress_probe"] = 0.5f, // WordPress scanning
+        ["path:vcs_probe"] = 0.6f, // .git/.svn probing
+        ["path:config_probe"] = 0.5f, // Config/admin path probing
 
         // Accept patterns
         ["accept:wildcard"] = 0.4f,

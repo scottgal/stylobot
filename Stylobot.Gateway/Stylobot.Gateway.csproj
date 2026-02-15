@@ -34,6 +34,9 @@
         <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
         <!-- PostgreSQL storage for detection persistence -->
         <ProjectReference Include="..\Mostlylucid.BotDetection.UI.PostgreSQL\Mostlylucid.BotDetection.UI.PostgreSQL.csproj" />
+        <!-- Geo Detection for country code enrichment -->
+        <ProjectReference Include="..\Mostlylucid.GeoDetection\Mostlylucid.GeoDetection.csproj" />
+        <ProjectReference Include="..\Mostlylucid.GeoDetection.Contributor\Mostlylucid.GeoDetection.Contributor.csproj" />
     </ItemGroup>
 
     <ItemGroup>

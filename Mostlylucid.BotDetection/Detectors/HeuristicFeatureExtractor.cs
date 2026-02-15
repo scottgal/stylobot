@@ -97,9 +97,11 @@ public static class HeuristicFeatureExtractor
         features["req:cookie_count"] = Math.Min(context.Request.Cookies.Count / 10f, 1f);
 
         // Header presence (using header name as feature key)
-        features["hdr:accept-language"] = headers.ContainsKey("Accept-Language") ? 1f : 0f;
+        var hasAcceptLanguage = headers.ContainsKey("Accept-Language");
+        var hasReferer = headers.ContainsKey("Referer");
+        features["hdr:accept-language"] = hasAcceptLanguage ? 1f : 0f;
         features["hdr:accept"] = headers.ContainsKey("Accept") ? 1f : 0f;
-        features["hdr:referer"] = headers.ContainsKey("Referer") ? 1f : 0f;
+        features["hdr:referer"] = hasReferer ? 1f : 0f;
         features["hdr:origin"] = headers.ContainsKey("Origin") ? 1f : 0f;
         features["hdr:x-requested-with"] = headers["X-Requested-With"].ToString()
             .Equals("XMLHttpRequest", StringComparison.OrdinalIgnoreCase)
@@ -109,6 +111,10 @@ public static class HeuristicFeatureExtractor
             .Equals("close", StringComparison.OrdinalIgnoreCase)
             ? 1f
             : 0f;
+
+        // Missing header penalties — absence of expected headers is a bot signal
+        if (!hasAcceptLanguage) features["hdr:missing_accept_language"] = 1f;
+        if (!hasReferer) features["hdr:missing_referer"] = 1f;
 
         // User-Agent pattern features (dynamic based on content)
         var uaLower = userAgent.ToLowerInvariant();
@@ -130,6 +136,34 @@ public static class HeuristicFeatureExtractor
         if (uaLower.Contains("requests")) features["ua:requests"] = 1f;
         if (uaLower.Contains("httpx")) features["ua:httpx"] = 1f;
         if (uaLower.Contains("aiohttp")) features["ua:aiohttp"] = 1f;
+
+        // Very short User-Agent (< 15 chars) is suspicious — real browsers have long UAs
+        if (userAgent.Length > 0 && userAgent.Length < 15) features["ua:very_short"] = 1f;
+
+        // Detect browser-like UA (Chrome/Firefox/Safari/Edge in the string)
+        var isBrowserUa = uaLower.Contains("chrome") || uaLower.Contains("firefox") ||
+                          uaLower.Contains("safari") || uaLower.Contains("edge");
+
+        // Composite: browser UA without typical browser headers = spoofed UA
+        if (isBrowserUa && !hasAcceptLanguage) features["combo:browser_no_accept_lang"] = 1f;
+        if (isBrowserUa && context.Request.Cookies.Count == 0) features["combo:browser_no_cookies"] = 1f;
+
+        // HTTP method — HEAD is commonly used by scanners/probers
+        if (string.Equals(context.Request.Method, "HEAD", StringComparison.OrdinalIgnoreCase))
+            features["req:method_head"] = 1f;
+
+        // Path analysis — detect config/env file probing
+        var path = context.Request.Path.Value?.ToLowerInvariant() ?? "";
+        if (path.Contains("/.env")) features["path:env_file"] = 1f;
+        if (path.StartsWith("/.") && path.Length > 2) features["path:dotfile"] = 1f;
+        if (path.Contains("wp-") || path.Contains("wordpress") || path.Contains("wp-admin") ||
+            path.Contains("wp-login"))
+            features["path:wordpress_probe"] = 1f;
+        if (path.Contains(".git") || path.Contains(".svn") || path.Contains(".hg"))
+            features["path:vcs_probe"] = 1f;
+        if (path.Contains("config") || path.Contains("backup") || path.Contains("admin") ||
+            path.Contains("phpmyadmin"))
+            features["path:config_probe"] = 1f;
 
         // Accept header analysis
         var accept = headers.Accept.ToString();

@@ -121,9 +121,16 @@ public class ContributorIntegrationTests
             ["header.has_accept_language"] = true,
             ["header.has_accept_encoding"] = true
         };
+        // A real browser sends Accept-Language, Accept, Referer etc.
+        var headers = new Dictionary<string, string>
+        {
+            ["Accept-Language"] = "en-US,en;q=0.9",
+            ["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            ["Accept-Encoding"] = "gzip, deflate, br"
+        };
         var result = await c.ContributeAsync(CreateState(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-            "192.168.1.1", signals));
+            "192.168.1.1", signals, headers));
         Assert.NotEmpty(result);
         Assert.True(result.First().ConfidenceDelta < 0, "Browser should have human signal");
     }
@@ -288,11 +295,16 @@ public class ContributorIntegrationTests
         return _sp.GetServices<IContributingDetector>().First(c => c.Name == name);
     }
 
-    private static BlackboardState CreateState(string ua, string ip, Dictionary<string, object>? signals = null)
+    private static BlackboardState CreateState(string ua, string ip, Dictionary<string, object>? signals = null,
+        Dictionary<string, string>? headers = null)
     {
         var ctx = new DefaultHttpContext();
         ctx.Request.Headers.UserAgent = ua;
         ctx.Connection.RemoteIpAddress = IPAddress.TryParse(ip, out var addr) ? addr : null;
+
+        if (headers != null)
+            foreach (var (key, value) in headers)
+                ctx.Request.Headers[key] = value;
 
         return new BlackboardState
         {

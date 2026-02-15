@@ -5,6 +5,7 @@ using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.UI.PostgreSQL.Extensions;
+using Mostlylucid.GeoDetection.Contributor.Extensions;
 using Stylobot.Gateway.Configuration;
 using Stylobot.Gateway.Data;
 using Stylobot.Gateway.Endpoints;
@@ -110,6 +111,15 @@ try
     // Add Bot Detection - the core feature of this gateway!
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
+
+    // Add geo detection for country code enrichment on all requests
+    builder.Services.AddGeoDetectionContributor(options =>
+    {
+        options.EnableBotVerification = true;
+        options.EnableInconsistencyDetection = true;
+        options.FlagHostingIps = true;
+        options.FlagVpnIps = false;
+    });
 
     // Add detection persistence: saves detections to shared DB + broadcasts via SignalR.
     // This is the lightweight path (no dashboard UI served from the gateway).
