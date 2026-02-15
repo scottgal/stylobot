@@ -1,3 +1,5 @@
+using System.Net;
+using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Middleware;
@@ -52,6 +54,47 @@ try
         }
     });
 
+    // Forward headers from reverse proxy (Caddy) so bot detection sees the real client IP.
+    // Without this, the gateway sees Caddy's Docker bridge IP (172.x.x.x) instead.
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+        var trustAllProxies = builder.Environment.IsDevelopment() ||
+                              builder.Configuration.GetValue("Network:TrustAllForwardedProxies", false) ||
+                              bool.TryParse(Environment.GetEnvironmentVariable("TRUST_ALL_FORWARDED_PROXIES"), out var trustAll) &&
+                              trustAll;
+
+        if (trustAllProxies)
+        {
+            options.KnownIPNetworks.Clear();
+            options.KnownProxies.Clear();
+            return;
+        }
+
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+
+        var knownNetworkList = builder.Configuration["Network:KnownNetworks"] ??
+                               Environment.GetEnvironmentVariable("KNOWN_NETWORKS") ??
+                               string.Empty;
+        foreach (var network in knownNetworkList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = network.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length == 2 &&
+                IPAddress.TryParse(parts[0], out var prefix) &&
+                int.TryParse(parts[1], out var prefixLength))
+                options.KnownIPNetworks.Add(new System.Net.IPNetwork(prefix, prefixLength));
+        }
+
+        var knownProxyList = builder.Configuration["Network:KnownProxies"] ??
+                             Environment.GetEnvironmentVariable("KNOWN_PROXIES") ??
+                             string.Empty;
+        foreach (var proxy in knownProxyList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            if (IPAddress.TryParse(proxy, out var ip))
+                options.KnownProxies.Add(ip);
+    });
+
     // Add gateway configuration
     builder.Services.AddGatewayConfiguration(builder.Configuration);
 
@@ -78,6 +121,9 @@ try
 
     // Apply database migrations if enabled
     await app.ApplyMigrationsAsync();
+
+    // Forward headers FIRST so bot detection sees real client IPs, not Docker bridge IPs
+    app.UseForwardedHeaders();
 
     // Routing must be enabled for Bot Detection middleware to resolve endpoints
     app.UseRouting();

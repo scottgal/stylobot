@@ -51,6 +51,8 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
+      # Trust all forwarded headers from Caddy (internal Docker network)
+      - TRUST_ALL_FORWARDED_PROXIES=true
       # Route all traffic to the website backend
       - DEFAULT_UPSTREAM=http://website:8080
       # PostgreSQL for dashboard persistence
@@ -100,6 +102,8 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
+      # Trust all forwarded headers from gateway (internal Docker network)
+      - TRUST_ALL_FORWARDED_PROXIES=true
       # Trust upstream detection from YARP gateway (skip re-running detectors)
       - BOTDETECTION_TRUST_UPSTREAM=true
       # Dashboard access: set STYLOBOT_DASHBOARD_SECRET in .env for secret-protected access
