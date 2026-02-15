@@ -364,7 +364,8 @@ public class BlackboardOrchestrator
                         failedDetectors.Keys,
                         aggregator,
                         requestId,
-                        stopwatch.Elapsed);
+                        stopwatch.Elapsed,
+                        aiRan);
 
                     // Find detectors that can run in this wave
                     // When BypassTriggerConditions is true, all detectors run in Wave 0
@@ -417,8 +418,11 @@ public class BlackboardOrchestrator
                     signals[DetectorCountTrigger.CompletedDetectorsSignal] = completedDetectors.Count;
                     signals[RiskThresholdTrigger.CurrentRiskSignal] = aggregator.BotProbability;
 
-                    // Evaluate policy transitions
-                    if (_policyEvaluator != null)
+                    // Evaluate policy transitions — skip on Wave 0 so that Wave 1
+                    // triggered detectors (VersionAge, Inconsistency, Heuristic, etc.)
+                    // get a chance to contribute before the early-exit threshold fires.
+                    // Detector-driven early exits (EarlyExit flag above) still apply on all waves.
+                    if (_policyEvaluator != null && waveNumber > 0)
                     {
                         var evalState = BuildState(
                             httpContext,
@@ -427,7 +431,8 @@ public class BlackboardOrchestrator
                             failedDetectors.Keys,
                             aggregator,
                             requestId,
-                            stopwatch.Elapsed);
+                            stopwatch.Elapsed,
+                            aiRan);
 
                         var evalResult = _policyEvaluator.Evaluate(policy, evalState);
 
@@ -474,10 +479,16 @@ public class BlackboardOrchestrator
                                         // Mark as ran
                                         foreach (var detector in aiDetectors) ranDetectors.Add(detector.Name);
 
+                                        // Build fresh state so AI detectors see current risk/contributions
+                                        var aiState = BuildState(
+                                            httpContext, signals, completedDetectors.Keys,
+                                            failedDetectors.Keys, aggregator, requestId,
+                                            stopwatch.Elapsed);
+
                                         // Execute AI detectors
                                         await ExecuteWaveAsync(
                                             aiDetectors,
-                                            state,
+                                            aiState,
                                             aggregator,
                                             signals,
                                             completedDetectors,
@@ -786,9 +797,10 @@ public class BlackboardOrchestrator
         ICollection<string> failedDetectors,
         DetectionLedger aggregator,
         string requestId,
-        TimeSpan elapsed)
+        TimeSpan elapsed,
+        bool aiRan = false)
     {
-        var aggregated = aggregator.ToAggregatedEvidence();
+        var aggregated = aggregator.ToAggregatedEvidence(aiRan: aiRan);
 
         return new BlackboardState
         {

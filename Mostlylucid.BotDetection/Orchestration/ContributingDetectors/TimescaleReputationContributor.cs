@@ -60,9 +60,11 @@ public class TimescaleReputationContributor : ConfiguredContributorBase
             };
         }
 
-        // Compute signature directly from request (same HMAC-SHA256 as BlackboardOrchestrator)
-        var clientIp = state.HttpContext.Connection.RemoteIpAddress?.ToString();
-        var userAgent = state.HttpContext.Request.Headers.UserAgent.ToString();
+        // Prefer resolved IP from IpContributor if available, fall back to RemoteIpAddress
+        var clientIp = state.Signals.TryGetValue(SignalKeys.ClientIp, out var ipObj)
+            ? ipObj?.ToString()
+            : state.ClientIp;
+        var userAgent = state.UserAgent;
 
         if (string.IsNullOrEmpty(clientIp) && string.IsNullOrEmpty(userAgent))
         {

@@ -49,15 +49,15 @@ public class HeuristicLateContributor : ContributingDetectorBase
 
     // Trigger conditions: Run as final meta-layer
     // - When AI has run (AiPrediction signal exists), OR
-    // - When all static detectors have run (detector count >= threshold) and no AI
+    // - When enough static detectors have run (fallback when no AI)
+    // NOTE: These are OR'd via outer AnyOf. The orchestrator evaluates TriggerConditions
+    // with ALL semantics, so we must wrap in a single AnyOf for OR behavior.
     public override IReadOnlyList<TriggerCondition> TriggerConditions =>
     [
-        // Option 1: AI prediction is available - run after AI
         Triggers.AnyOf(
             Triggers.WhenSignalExists(SignalKeys.AiPrediction),
-            Triggers.WhenSignalExists(SignalKeys.AiConfidence)),
-        // Option 2: Enough static detectors have run (fallback when no AI)
-        Triggers.WhenDetectorCount(5) // At least 5 detectors ran = ready for final heuristic
+            Triggers.WhenSignalExists(SignalKeys.AiConfidence),
+            Triggers.WhenDetectorCount(5))
     ];
 
     public override async Task<IReadOnlyList<DetectionContribution>> ContributeAsync(

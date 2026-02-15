@@ -13,6 +13,7 @@
     <ProjectReference Include="..\..\..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
     <ProjectReference Include="..\..\..\Mostlylucid.BotDetection.UI.PostgreSQL\Mostlylucid.BotDetection.UI.PostgreSQL.csproj" />
     <ProjectReference Include="..\..\..\Mostlylucid.GeoDetection\Mostlylucid.GeoDetection.csproj" />
+    <ProjectReference Include="..\..\..\Mostlylucid.GeoDetection.Contributor\Mostlylucid.GeoDetection.Contributor.csproj" />
   </ItemGroup>
 
   <ItemGroup>

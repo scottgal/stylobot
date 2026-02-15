@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -132,11 +133,7 @@ public class CacheBehaviorContributor : ContributingDetectorBase
         var profileKey = $"cache_profile:{clientIp}";
         var profile = GetOrCreateProfile(profileKey);
 
-        profile.TotalRequests++;
-        profile.StaticResourceRequests += isStaticResource ? 1 : 0;
-        profile.RequestsWithCacheValidation += hasCacheValidation ? 1 : 0;
-
-        UpdateProfile(profileKey, profile);
+        profile.RecordRequest(isStaticResource, hasCacheValidation);
 
         // Analyze profile after sufficient requests
         if (profile.TotalRequests >= 10)
@@ -210,15 +207,15 @@ public class CacheBehaviorContributor : ContributingDetectorBase
 
     private int IncrementResourceRequestCount(string key)
     {
-        var count = _cache.GetOrCreate(key, entry =>
+        // Use GetOrCreate with a mutable wrapper to avoid TOCTOU race.
+        // Two concurrent requests could otherwise both read 0, increment to 1, write 1.
+        var counter = _cache.GetOrCreate(key, entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(10);
-            return 0;
-        });
+            return new StrongBox<int>(0);
+        })!;
 
-        count++;
-        _cache.Set(key, count, TimeSpan.FromMinutes(10));
-        return count;
+        return Interlocked.Increment(ref counter.Value);
     }
 
     private DateTime? GetLastRequestTime(string key)
@@ -240,15 +237,21 @@ public class CacheBehaviorContributor : ContributingDetectorBase
         }) ?? new CacheBehaviorProfile();
     }
 
-    private void UpdateProfile(string key, CacheBehaviorProfile profile)
-    {
-        _cache.Set(key, profile, TimeSpan.FromHours(1));
-    }
-
     private class CacheBehaviorProfile
     {
-        public int TotalRequests { get; set; }
-        public int StaticResourceRequests { get; set; }
-        public int RequestsWithCacheValidation { get; set; }
+        private int _totalRequests;
+        private int _staticResourceRequests;
+        private int _requestsWithCacheValidation;
+
+        public int TotalRequests => _totalRequests;
+        public int StaticResourceRequests => _staticResourceRequests;
+        public int RequestsWithCacheValidation => _requestsWithCacheValidation;
+
+        public void RecordRequest(bool isStaticResource, bool hasCacheValidation)
+        {
+            Interlocked.Increment(ref _totalRequests);
+            if (isStaticResource) Interlocked.Increment(ref _staticResourceRequests);
+            if (hasCacheValidation) Interlocked.Increment(ref _requestsWithCacheValidation);
+        }
     }
 }

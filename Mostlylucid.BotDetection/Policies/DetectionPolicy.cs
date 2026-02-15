@@ -132,10 +132,13 @@ public sealed record DetectionPolicy
         Name = "default",
         Description = "Fast path with early bailout and reputation cache",
         // All static/fast detectors - includes reputation for instant allow/block
+        // Wave 0 (no triggers): FastPathReputation, TimescaleReputation, UserAgent, Header, Ip, SecurityTool, Behavioral, CacheBehavior
+        // Wave 1 (trigger on ua.raw): Inconsistency, VersionAge, Heuristic, HeuristicLate, ReputationBias
+        // Wave 1+ (trigger on fingerprint): ClientSide
         FastPathDetectors =
         [
             "FastPathReputation", "TimescaleReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Behavioral", "ClientSide",
-            "Inconsistency", "VersionAge"
+            "CacheBehavior", "Inconsistency", "VersionAge", "Heuristic", "HeuristicLate", "ReputationBias", "Geo", "GeoClient"
         ],
         SlowPathDetectors = [],
         AiPathDetectors = [], // Empty by default - add ONNX/LLM/others via JSON config

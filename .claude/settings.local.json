@@ -180,7 +180,9 @@
       "WebFetch(domain:qdrant.tech)",
       "WebFetch(domain:gist.github.com)",
       "WebFetch(domain:fossies.org)",
-      "WebFetch(domain:hub-data.crowdsec.net)"
+      "WebFetch(domain:hub-data.crowdsec.net)",
+      "Bash(wc:*)",
+      "Bash(head:*)"
     ]
   }
 }

@@ -89,10 +89,13 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
             }
         }
 
-        // Check IP reputation
-        if (!string.IsNullOrWhiteSpace(state.ClientIp))
+        // Check IP reputation - prefer resolved IP from IpContributor
+        var resolvedIp = state.Signals.TryGetValue(SignalKeys.ClientIp, out var ipObj)
+            ? ipObj?.ToString()
+            : state.ClientIp;
+        if (!string.IsNullOrWhiteSpace(resolvedIp))
         {
-            var ipPatternId = CreateIpPatternId(state.ClientIp);
+            var ipPatternId = CreateIpPatternId(resolvedIp);
             var ipReputation = _reputationCache.Get(ipPatternId);
 
             if (ipReputation != null && ipReputation.State != ReputationState.Neutral)
@@ -115,10 +118,10 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
         }
 
         // Check combined signature reputation (UA + IP + Path)
-        if (!string.IsNullOrWhiteSpace(state.UserAgent) && !string.IsNullOrWhiteSpace(state.ClientIp))
+        if (!string.IsNullOrWhiteSpace(state.UserAgent) && !string.IsNullOrWhiteSpace(resolvedIp))
         {
             var path = state.HttpContext?.Request?.Path.Value ?? "/";
-            var combinedPatternId = CreateCombinedPatternId(state.UserAgent, state.ClientIp, path);
+            var combinedPatternId = CreateCombinedPatternId(state.UserAgent, resolvedIp, path);
             var combinedReputation = _reputationCache.Get(combinedPatternId);
 
             if (combinedReputation != null && combinedReputation.State != ReputationState.Neutral)

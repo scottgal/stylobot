@@ -8,6 +8,7 @@ using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.UI.PostgreSQL.Extensions;
+using Mostlylucid.GeoDetection.Contributor.Extensions;
 using Mostlylucid.GeoDetection.Extensions;
 using Mostlylucid.GeoDetection.Models;
 using Stylobot.Website.Services;
@@ -163,6 +164,16 @@ builder.Services.AddBotDetection(options =>
         // Heuristic mode - fast, no external dependencies
         options.AiDetection.Provider = Mostlylucid.BotDetection.Models.AiProvider.Heuristic;
     }
+});
+
+// Add geo-detection contributor for geo-based bot signals
+// Enables country tracking, bot origin verification, and geo-inconsistency detection
+builder.Services.AddGeoDetectionContributor(options =>
+{
+    options.EnableBotVerification = true;
+    options.EnableInconsistencyDetection = true;
+    options.FlagHostingIps = true;
+    options.FlagVpnIps = false; // Don't flag VPNs by default
 });
 
 // Add Bot Detection Dashboard UI
