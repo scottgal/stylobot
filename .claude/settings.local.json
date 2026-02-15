@@ -156,7 +156,26 @@
       "Bash(cmd //c \"taskkill /PID 466988 /F\")",
       "Bash(wmic process where \"name=''dotnet.exe''\" get processid,commandline)",
       "Bash(tee:*)",
-      "WebFetch(domain:onnxruntime.ai)"
+      "WebFetch(domain:onnxruntime.ai)",
+      "Bash(git -C D:Sourcemostlylucid.stylobot status --short)",
+      "Bash(del:*)",
+      "Bash(git checkout:*)",
+      "Bash(git -C \"D:\\\\Source\\\\mostlylucid.stylobot\" log --oneline --since=\"2024-12-01\" -30)",
+      "Bash(git -C \"D:\\\\Source\\\\mostlylucid.stylobot\" log --all --grep=\"detechif\\\\|de-techif\\\\|simplif\\\\|user.friend\" --oneline -i)",
+      "Bash(git -C \"D:\\\\Source\\\\mostlylucid.stylobot\" log --all --since=\"2024-12-01\" --grep=\"contributor\\\\|detector\" --oneline -i)",
+      "Bash(git -C \"D:\\\\Source\\\\mostlylucid.stylobot\" log --all --since=\"2024-12-05\" --pretty=format:\"%h %s\")",
+      "Bash(git -C \"D:\\\\Source\\\\mostlylucid.stylobot\" log --since=\"2024-12-05\" --pretty=format:\"%h %ad %s\" --date=short --grep=\"Contributor\\\\|Detector\" -i)",
+      "Bash(git -C \"D:\\\\Source\\\\mostlylucid.stylobot\" diff HEAD~20 HEAD --name-only -- \"*Contributor.cs\")",
+      "Bash(git -C \"D:\\\\Source\\\\mostlylucid.stylobot\" log --all --oneline --since=\"2024-11-01\")",
+      "Bash(docker-compose:*)",
+      "Bash(if [ ! -f .env ])",
+      "Bash(then cp .env.example .env)",
+      "Bash(.env:*)",
+      "Bash(fi)",
+      "Bash(xargs:*)",
+      "Bash(/tmp/verify_updates.sh:*)",
+      "Bash(chmod:*)",
+      "Bash(bash /tmp/verify_updates.sh)"
     ]
   }
 }

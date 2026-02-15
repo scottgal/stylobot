@@ -10,7 +10,7 @@ namespace Mostlylucid.BotDetection.UI.Services;
 /// <summary>
 ///     Simulator service for generating fake bot detection events.
 ///     Useful for testing the dashboard without real traffic.
-///     TODO: Integrate with LLMApi (https://github.com/scottgal/LLMApi) for more realistic mocking.
+///     Uses LlamaSharp LLM to generate realistic bot names and behaviors.
 /// </summary>
 public class DashboardSimulatorService : BackgroundService
 {

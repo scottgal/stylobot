@@ -61,12 +61,13 @@ services:
       - StyloBotDashboard__PostgreSQL__AutoInitializeSchema=true
       - StyloBotDashboard__PostgreSQL__RetentionDays=90
       - StyloBotDashboard__PostgreSQL__CompressionAfterDays=7
-      # Ollama LLM escalation for uncertain bot classifications
-      - BotDetection__EnableLlmDetection=true
-      - BotDetection__AiDetection__Provider=Ollama
-      - BotDetection__AiDetection__Ollama__Endpoint=http://ollama:11434
-      - BotDetection__AiDetection__Ollama__Model=gemma3:1b
-      - BotDetection__AiDetection__TimeoutMs=30000
+      # LLamaSharp - CPU-only LLM for bot name synthesis
+      - BotDetection__AiDetection__Provider=LlamaSharp
+      - BotDetection__AiDetection__LlamaSharp__Enabled=true
+      - BotDetection__AiDetection__LlamaSharp__ModelPath=Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf
+      - BotDetection__AiDetection__LlamaSharp__ContextSize=512
+      - BotDetection__AiDetection__TimeoutMs=10000
+      - BotDetection__SignatureDescriptionThreshold=50
       # Qdrant vector database for similarity search
       - BotDetection__Qdrant__Enabled=true
       - BotDetection__Qdrant__Endpoint=http://qdrant:6334
@@ -76,13 +77,12 @@ services:
     volumes:
       - bot-detection-data:/app/data
       - gateway-learning:/app/yarp-learning-data
+      - llm-models:/models  # Persistent cache for LLamaSharp GGUF models
     depends_on:
       timescaledb:
         condition: service_healthy
       website:
         condition: service_started
-      ollama:
-        condition: service_healthy
       qdrant:
         condition: service_healthy
     networks:
@@ -131,31 +131,6 @@ services:
     restart: unless-stopped
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
-
-  # ----------------------------------------------------------
-  # Ollama - Local LLM for AI bot classification
-  # ----------------------------------------------------------
-  ollama:
-    image: ollama/ollama:latest
-    container_name: stylobot-ollama
-    volumes:
-      - ollama-models:/root/.ollama
-    expose:
-      - "11434"
-    networks:
-      - stylobot-network
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '4'
-    healthcheck:
-      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 90s
-    entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 10 && ollama pull gemma3:1b || true; wait"]
 
   # ----------------------------------------------------------
   # Qdrant - Vector database for signature similarity search
@@ -233,7 +208,7 @@ volumes:
     driver: local
   gateway-learning:
     driver: local
-  ollama-models:
+  llm-models:
     driver: local
   qdrant-data:
     driver: local

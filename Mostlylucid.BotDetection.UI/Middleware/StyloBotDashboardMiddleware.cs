@@ -859,6 +859,40 @@ internal static class DashboardHtmlTemplate
             </div>
         </div>
 
+        <!-- Bot Clusters Row -->
+        <div x-show=""clusters.length > 0"" x-transition class=""mb-6"">
+            <div class=""card bg-base-200 shadow-lg border-l-4"" style=""border-left-color: #5BA3A3;"">
+                <div class=""card-body"">
+                    <h2 class=""card-title text-base"">
+                        <i class=""bx bx-git-branch mr-1""></i>Bot Clusters
+                        <span class=""badge badge-sm font-bold"" style=""background-color:#5BA3A3;color:#fff"" x-text=""clusters.length""></span>
+                        <span class=""live-dot ml-2""></span>
+                    </h2>
+                    <div class=""grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-2"">
+                        <template x-for=""(cl, idx) in clusters"" :key=""cl.clusterId"">
+                            <div class=""bg-base-300/50 rounded-lg p-3 hover:bg-base-300 transition-colors"">
+                                <div class=""flex items-center justify-between mb-1"">
+                                    <span class=""font-semibold text-sm truncate"" x-text=""cl.label""></span>
+                                    <span class=""badge badge-xs"" :class=""cl.memberCount > 5 ? 'badge-error' : 'badge-warning'"" x-text=""cl.memberCount + ' members'""></span>
+                                </div>
+                                <div x-show=""cl.description"" class=""text-xs leading-relaxed opacity-70 mt-1 mb-2 pl-2 border-l-2"" style=""border-left-color:#5BA3A3"" x-text=""cl.description""></div>
+                                <div class=""flex flex-wrap gap-1 text-[10px]"">
+                                    <span class=""opacity-40"">Type:</span>
+                                    <span class=""font-medium"" x-text=""cl.type || 'Unknown'""></span>
+                                    <span class=""opacity-20"">|</span>
+                                    <span class=""opacity-40"">Prob:</span>
+                                    <span class=""font-bold"" :style=""'color:' + (cl.avgBotProb >= 0.7 ? '#ef4444' : cl.avgBotProb >= 0.4 ? '#DAA564' : '#86B59C')"" x-text=""((cl.avgBotProb || 0) * 100).toFixed(0) + '%'""></span>
+                                    <template x-if=""cl.country"">
+                                        <span><span class=""opacity-20"">|</span> <span class=""opacity-40"">Country:</span> <span x-text=""cl.country""></span></span>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Detections Grid -->
         <div class=""card bg-base-200 shadow-lg"">
             <div class=""card-body"">
@@ -913,6 +947,7 @@ internal static class DashboardHtmlTemplate
                 signatures: [],
                 detections: [],
                 topBots: [],
+                clusters: [],
                 filters: {{
                     timeRange: '24h',
                     riskBand: '',
@@ -1020,6 +1055,20 @@ internal static class DashboardHtmlTemplate
                         if (det) {{
                             det.description = description;
                             this.tabulatorTable?.updateData([det]);
+                        }}
+                    }});
+
+                    this.connection.on('BroadcastClusters', (clusterList) => {{
+                        this.clusters = (clusterList || []).map(toCamel);
+                    }});
+
+                    this.connection.on('BroadcastClusterDescriptionUpdate', (clusterId, label, description) => {{
+                        const existing = this.clusters.find(c => c.clusterId === clusterId);
+                        if (existing) {{
+                            existing.label = label;
+                            existing.description = description;
+                        }} else {{
+                            this.clusters.unshift({{ clusterId, label, description, memberCount: 0, type: '', avgBotProb: 0, country: '' }});
                         }}
                     }});
 

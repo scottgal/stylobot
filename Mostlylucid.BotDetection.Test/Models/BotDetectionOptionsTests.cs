@@ -95,8 +95,8 @@ public class BotDetectionOptionsTests
         // Act
         var options = new BotDetectionOptions();
 
-        // Assert - Default model was changed to gemma3:4b (better reasoning, 8K context)
-        Assert.Equal("gemma3:4b", options.OllamaModel);
+        // Assert - Default model is qwen3:0.6b (fast inference, good classification)
+        Assert.Equal("qwen3:0.6b", options.OllamaModel);
     }
 
     [Fact]

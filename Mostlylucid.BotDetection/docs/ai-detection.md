@@ -315,7 +315,7 @@ sequenceDiagram
 2. **Pull a Model:**
    ```bash
    # Recommended for bot detection (better reasoning)
-   ollama pull gemma3:4b
+   ollama pull qwen3:0.6b
 
    # Alternatives
    ollama pull gemma3:1b      # Faster, smaller
@@ -334,7 +334,7 @@ sequenceDiagram
          "TimeoutMs": 15000,
          "Ollama": {
            "Endpoint": "http://localhost:11434",
-           "Model": "gemma3:4b",
+           "Model": "qwen3:0.6b",
            "UseJsonMode": true
          }
        }
@@ -353,7 +353,7 @@ sequenceDiagram
       "MaxConcurrentRequests": 3,
       "Ollama": {
         "Endpoint": "http://localhost:11434",
-        "Model": "gemma3:4b",
+        "Model": "qwen3:0.6b",
         "UseJsonMode": true,
         "Temperature": 0.1,
         "MaxTokens": 256,
@@ -370,7 +370,7 @@ sequenceDiagram
 | Option         | Type   | Default                  | Description            |
 |----------------|--------|--------------------------|------------------------|
 | `Endpoint`     | string | `http://localhost:11434` | Ollama API endpoint    |
-| `Model`        | string | `gemma3:4b`              | Model name             |
+| `Model`        | string | `qwen3:0.6b`              | Model name             |
 | `UseJsonMode`  | bool   | `true`                   | Request JSON output    |
 | `Temperature`  | double | `0.1`                    | Randomness (0.0-1.0)   |
 | `MaxTokens`    | int    | `256`                    | Max response tokens    |
@@ -383,8 +383,8 @@ sequenceDiagram
 
 | Model          | Size | Context | Speed  | Accuracy | Use Case                    |
 |----------------|------|---------|--------|----------|-----------------------------|
-| `gemma3:4b`    | 4B   | 8K      | ~100ms | Best     | **Default - best accuracy** |
-| `gemma3:1b`    | 1B   | 8K      | ~50ms  | Good     | High throughput             |
+| `qwen3:0.6b`  | 0.6B | 32K     | ~50ms  | Good     | **Default - fast, lightweight** |
+| `gemma3:1b`   | 1B   | 8K      | ~50ms  | Good     | High throughput             |
 | `tinyllama`    | 1.1B | 2K      | ~20ms  | Basic    | Very high throughput        |
 | `qwen2.5:1.5b` | 1.5B | 32K     | ~80ms  | Better   | Complex patterns            |
 | `phi3:mini`    | 3.8B | 4K      | ~150ms | Best     | Low volume, high accuracy   |
@@ -654,7 +654,7 @@ Error: Failed to connect to Ollama at http://localhost:11434
 1. Start Ollama: `ollama serve`
 2. Check endpoint URL
 3. Verify firewall settings
-4. Pull required model: `ollama pull gemma3:4b`
+4. Pull required model: `ollama pull qwen3:0.6b`
 
 ### Learning Not Updating
 

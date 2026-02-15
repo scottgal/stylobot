@@ -5,6 +5,113 @@ All notable changes to the Mostlylucid.BotDetection package will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2025-02-15
+
+### Added - Major Features
+
+#### Clustering & Community Detection
+- **Leiden clustering** with configurable resolution for bot network discovery
+  - Replaced Label Propagation with native C# Leiden algorithm (CPM quality function)
+  - Optional semantic embeddings (384-dim ONNX all-MiniLM-L6-v2) blended with heuristic features
+  - Configurable via `BotDetection:Cluster:Algorithm` (`leiden` or `label_propagation`)
+  - Semantic similarity weight: configurable blend (default 40% embedding cosine + 60% heuristic)
+
+- **LLM-based cluster descriptions** (GraphRAG-style)
+  - Background service generates creative names and descriptions for detected bot networks
+  - Analyzes behavior, country, ASN, timing patterns, path diversity
+  - Live SignalR updates push descriptions to dashboard as they're generated
+  - Uses qwen3:0.6b by default (async, never blocks detection pipeline)
+  - Graceful fallback to heuristic labels when Ollama unavailable
+  - Enable via `BotDetection:Cluster:EnableLlmDescriptions=true`
+
+#### New Detectors (7 new, 26 total)
+- **TimescaleReputationContributor**: Time-series IP/signature reputation with automatic PostgreSQL fallback
+- **ClusterContributor**: Multi-request bot network detection using FFT-based spectral analysis
+- **SimilarityContributor**: Fuzzy signature matching via HNSW or Qdrant vector search
+- **BehavioralWaveformContributor**: Spectral fingerprinting of request timing patterns
+- **CacheBehaviorContributor**: HTTP cache header interaction analysis
+- **ResponseBehaviorContributor**: Bot-specific response handling pattern detection
+- **TcpIpFingerprintContributor**: p0f-style passive OS fingerprinting
+
+#### Infrastructure
+- **Qdrant vector database** integration for semantic similarity search
+  - Dual-vector support: 64-dim heuristic + 384-dim semantic
+  - Auto-migration from file-backed HNSW index
+  - gRPC client with health checks
+  - Docker Compose integration
+
+- **ONNX embedding provider** for local ML inference
+  - CPU-quantized all-MiniLM-L6-v2 model (~22MB)
+  - Pure CPU inference (~1-5ms per embedding)
+  - Auto-download from HuggingFace on first use
+
+- **TimescaleDB** support with automatic PostgreSQL fallback
+  - Continuous aggregates for time-series reputation data
+  - Graceful degradation when TimescaleDB extension unavailable
+
+- **Real client IP detection** via forwarded headers
+  - X-Forwarded-For, X-Real-IP, CF-Connecting-IP support
+  - Configurable trust depth for proxy chains
+
+#### Dashboard
+- **Bot Clusters widget** with live SignalR updates
+  - Cluster cards show type, member count, bot probability, country
+  - LLM-generated descriptions appear live as they're generated
+  - Description updates via `BroadcastClusterDescriptionUpdate` SignalR event
+
+### Changed
+
+#### Model Updates
+- **Default LLM**: gemma3:4b -> **qwen3:0.6b** (3x faster, 32K context)
+  - Disabled internal reasoning mode (`Think = false`) for JSON output
+  - Lighter weight (0.6B vs 4B params)
+
+#### De-techify Pass
+- All detector reasons converted to human-friendly language
+  - "User-Agent header indicates bot software" -> "Browser identifies as a known bot"
+  - "TLS JA3 fingerprint mismatch" -> "Browser fingerprint doesn't match its claimed identity"
+  - "Request timing coefficient of variation below threshold" -> "Makes requests with robotic timing precision"
+
+#### Clustering Algorithm
+- Label Propagation -> **Leiden** (configurable, label_propagation still available)
+- Hand-crafted 12-dim features -> **Blended semantic + heuristic** (configurable)
+- Static heuristic labels -> **LLM-generated descriptions** (with heuristic fallback)
+
+### Security
+- **Zero-PII semantic embeddings**: Raw IP/UA never in embedding text, only derived features
+- **Deterministic cluster IDs**: SHA256-based, no random seeds
+- **Privacy-safe LLM prompts**: Only aggregated behavioral stats, no raw request data
+
+### Migration Notes
+
+#### New Configuration Options
+```json
+{
+  "BotDetection": {
+    "Cluster": {
+      "Algorithm": "leiden",
+      "EnableSemanticEmbeddings": true,
+      "SemanticWeight": 0.4,
+      "LeidenResolution": 1.0,
+      "EnableLlmDescriptions": false,
+      "DescriptionModel": "qwen3:0.6b",
+      "DescriptionEndpoint": "http://localhost:11434"
+    }
+  }
+}
+```
+
+#### Docker Compose
+- Add Qdrant service (optional): `docker compose up -d qdrant`
+- Qdrant collection auto-created on first use
+
+### Performance
+- Clustering with semantic embeddings: +1-5ms per signature (384-dim ONNX inference)
+- LLM cluster descriptions: ~200ms per cluster (async background, does not block detection)
+- Leiden vs Label Propagation: comparable O(E) complexity, better community quality
+
+---
+
 ## [1.5.0] - 2024-12-05
 
 ### Added

@@ -475,9 +475,9 @@ public class ShapeBuilderOptions
 
     /// <summary>
     ///     LLM model name for shape analysis.
-    ///     Default: gemma3:4b
+    ///     Default: qwen3:0.6b
     /// </summary>
-    public string LlmModel { get; set; } = "gemma3:4b";
+    public string LlmModel { get; set; } = "qwen3:0.6b";
 
     /// <summary>
     ///     Confidence threshold below which to use LLM analysis.

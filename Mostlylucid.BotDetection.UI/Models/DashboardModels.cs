@@ -135,3 +135,20 @@ public sealed record DashboardFilter
     public int? Limit { get; init; } = 100;
     public int? Offset { get; init; } = 0;
 }
+
+/// <summary>
+///     Cluster summary for dashboard display.
+///     Broadcast when clusters are updated (before LLM descriptions arrive).
+/// </summary>
+public sealed record DashboardClusterEvent
+{
+    public required string ClusterId { get; init; }
+    public required string Label { get; init; }
+    public string? Description { get; init; }
+    public required string Type { get; init; }
+    public required int MemberCount { get; init; }
+    public required double AvgBotProb { get; init; }
+    public string? Country { get; init; }
+    public double AverageSimilarity { get; init; }
+    public double TemporalDensity { get; init; }
+}

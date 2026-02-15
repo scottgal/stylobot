@@ -113,6 +113,14 @@ public class BotDetectionOptions
     /// </summary>
     public bool ExcludeLocalIpFromBroadcast { get; set; } = true;
 
+    /// <summary>
+    ///     Request count threshold for triggering signature description synthesis.
+    ///     When a signature (unique bot fingerprint) receives this many requests,
+    ///     the LLM generates a human-readable name/description.
+    ///     Set to 0 to disable. Default: 50 requests.
+    /// </summary>
+    public int SignatureDescriptionThreshold { get; set; } = 50;
+
     // ==========================================
     // Blocking Policy Settings
     // ==========================================
@@ -176,7 +184,7 @@ public class BotDetectionOptions
     ///     This property will be removed in a future version.
     /// </summary>
     [Obsolete("Use AiDetection.Ollama.Model instead. This property will be removed in v1.0.")]
-    public string? OllamaModel { get; set; } = "gemma3:4b";
+    public string? OllamaModel { get; set; } = "qwen3:0.6b";
 
     /// <summary>
     ///     [OBSOLETE] Use AiDetection.TimeoutMs instead.
@@ -2219,13 +2227,21 @@ public enum StorageProvider
 public enum AiProvider
 {
     /// <summary>
-    ///     Use Ollama with a local LLM (requires Ollama server).
-    ///     BEST QUALITY: Full reasoning capabilities, can explain decisions, handles edge cases well.
-    ///     REQUIREMENTS: Ollama server running, ~1-4GB RAM depending on model.
+    ///     Use Ollama with a remote LLM server (optional plugin).
+    ///     REQUIRES: Ollama server running, ~1-4GB RAM depending on model.
     ///     LATENCY: 50-500ms per request depending on model size.
-    ///     USE WHEN: You need high accuracy and have Ollama infrastructure.
+    ///     USE WHEN: You need external LLM services with managed infrastructure.
     /// </summary>
     Ollama,
+
+    /// <summary>
+    ///     Use LLamaSharp with local quantized models (llama.cpp backend).
+    ///     LIGHTWEIGHT: In-process, no external service, ~300-500MB memory.
+    ///     QUALITY: Good reasoning on small models (Qwen 0.5B-0.6B).
+    ///     LATENCY: 50-150ms per request on CPU, 10-50ms on GPU.
+    ///     USE WHEN: You want minimal dependencies and fast local inference.
+    /// </summary>
+    LlamaSharp,
 
     /// <summary>
     ///     Use heuristic-based detection with learned weights.
@@ -2253,7 +2269,7 @@ public class AiDetectionOptions
     /// <summary>
     ///     Timeout for AI detection in milliseconds.
     ///     If exceeded, AI detection is skipped (fail-safe).
-    ///     Valid range: 100 to 60000. Default: 15000ms (15s for gemma3:4b cold start)
+    ///     Valid range: 100 to 60000. Default: 15000ms (15s for cold start)
     ///     Note: First request may be slower while model loads into GPU memory.
     /// </summary>
     public int TimeoutMs { get; set; } = 15000;
@@ -2270,6 +2286,12 @@ public class AiDetectionOptions
     ///     Only used when Provider is Ollama.
     /// </summary>
     public OllamaOptions Ollama { get; set; } = new();
+
+    /// <summary>
+    ///     LLamaSharp-specific configuration (local llama.cpp inference).
+    ///     Only used when Provider is LlamaSharp.
+    /// </summary>
+    public LlamaSharpOptions LlamaSharp { get; set; } = new();
 
     /// <summary>
     ///     Heuristic-specific configuration.
@@ -2357,14 +2379,14 @@ TYPE:scraper|searchengine|monitor|malicious|social|good|unknown
 
     /// <summary>
     ///     Ollama model to use for bot detection.
-    ///     Default: "gemma3:4b" (4B params, 8K context, good reasoning)
+    ///     Default: "qwen3:0.6b" (0.6B params, fast inference, good classification)
     ///     Alternatives:
-    ///     - "gemma3:1b" - Faster but less accurate reasoning
+    ///     - "gemma3:4b" - Larger, better reasoning
     ///     - "qwen2.5:1.5b" - Good reasoning, slightly larger
     ///     - "phi3:mini" - Microsoft's small model
     ///     - "tinyllama" - Very small, basic classification
     /// </summary>
-    public string Model { get; set; } = "gemma3:4b";
+    public string Model { get; set; } = "qwen3:0.6b";
 
     /// <summary>
     ///     Whether to use JSON mode for structured output.
@@ -2377,12 +2399,74 @@ TYPE:scraper|searchengine|monitor|malicious|social|good|unknown
     ///     Custom system prompt for bot detection.
     ///     Use {REQUEST_INFO} as placeholder for the request data.
     ///     If empty, uses the default compact prompt optimized for small models.
-    ///     Default prompt (~350 tokens) is designed for 8K context models like gemma3:1b.
+    ///     Default prompt (~350 tokens) is designed for small models like qwen3:0.6b.
     /// </summary>
     public string? CustomPrompt { get; set; }
 
     /// <summary>Number of CPU threads for Ollama inference. Default: 4</summary>
     public int NumThreads { get; set; } = 4;
+}
+
+/// <summary>
+///     LLamaSharp-specific configuration for local llama.cpp inference.
+///     Uses quantized GGUF models for in-process LLM execution without external services.
+/// </summary>
+public class LlamaSharpOptions
+{
+    /// <summary>
+    ///     Whether LLamaSharp LLM inference is enabled.
+    ///     Default: true (no server required, runs in-process)
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    ///     Path to the GGUF model file or Hugging Face model identifier.
+    ///     Examples:
+    ///     - "./models/qwen-0.5b-q4_k_m.gguf" (local file)
+    ///     - "qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf" (HF auto-download)
+    ///     Default: Uses auto-download from Hugging Face
+    /// </summary>
+    public string ModelPath { get; set; } = "Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf";
+
+    /// <summary>
+    ///     Cache directory for downloaded models.
+    ///     Default: ~/.cache/stylobot-models (or STYLOBOT_MODEL_CACHE env var)
+    ///     If empty, uses system default LLamaSharp cache
+    /// </summary>
+    public string? ModelCacheDir { get; set; }
+
+    /// <summary>
+    ///     Maximum context size for inference (tokens).
+    ///     Larger = more memory but allows longer prompts.
+    ///     Default: 512 (sufficient for bot classification)
+    /// </summary>
+    public int ContextSize { get; set; } = 512;
+
+    /// <summary>
+    ///     Number of CPU threads for inference.
+    ///     Default: All available cores (auto-detected)
+    /// </summary>
+    public int ThreadCount { get; set; } = Environment.ProcessorCount;
+
+    /// <summary>
+    ///     Temperature for generation (0.0 = deterministic, 1.0 = creative).
+    ///     Lower = more reliable for classification.
+    ///     Default: 0.1 (very low randomness for bot naming)
+    /// </summary>
+    public float Temperature { get; set; } = 0.1f;
+
+    /// <summary>
+    ///     Maximum tokens to generate per inference.
+    ///     Default: 150 (sufficient for bot name + description)
+    /// </summary>
+    public int MaxTokens { get; set; } = 150;
+
+    /// <summary>
+    ///     Timeout for inference in milliseconds.
+    ///     If exceeded, synthesis fails gracefully (returns null).
+    ///     Default: 10000ms (10 seconds, CPU-only inference)
+    /// </summary>
+    public int TimeoutMs { get; set; } = 10000;
 }
 
 /// <summary>
@@ -2895,6 +2979,27 @@ public class ClusterOptions
 
     /// <summary>Number of new bot detections that trigger an early clustering run. Default: 20</summary>
     public int MinBotDetectionsToTrigger { get; set; } = 20;
+
+    /// <summary>Enable semantic embeddings in clustering. Default: true</summary>
+    public bool EnableSemanticEmbeddings { get; set; } = true;
+
+    /// <summary>Clustering algorithm: "leiden" or "label_propagation". Default: leiden</summary>
+    public string Algorithm { get; set; } = "leiden";
+
+    /// <summary>Leiden resolution parameter (higher = more/smaller clusters). Default: 1.0</summary>
+    public double LeidenResolution { get; set; } = 1.0;
+
+    /// <summary>Weight for semantic similarity vs heuristic (0-1). Default: 0.4</summary>
+    public double SemanticWeight { get; set; } = 0.4;
+
+    /// <summary>Enable LLM-generated cluster descriptions. Default: false</summary>
+    public bool EnableLlmDescriptions { get; set; }
+
+    /// <summary>LLM model for cluster descriptions. Default: qwen3:0.6b</summary>
+    public string DescriptionModel { get; set; } = "qwen3:0.6b";
+
+    /// <summary>Ollama endpoint for cluster descriptions. Uses the main AiDetection endpoint if empty.</summary>
+    public string? DescriptionEndpoint { get; set; }
 }
 
 /// <summary>

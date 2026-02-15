@@ -135,21 +135,36 @@ app.MapPost("/api/submit", () => "ok")
 public IActionResult Index() => View();
 ```
 
-## Detection Methods
+## Detection Methods (26 Detectors)
 
-| Method               | Description                                              | Latency  |
-|----------------------|----------------------------------------------------------|----------|
-| **User-Agent**       | Pattern matching against known bots                      | <1ms     |
-| **Headers**          | Suspicious/missing header detection                      | <1ms     |
-| **IP**               | Datacenter IP range identification                       | <1ms     |
-| **Version Age**      | Browser/OS version staleness detection                   | <1ms     |
-| **Security Tools**   | Penetration testing tool detection (Nikto, sqlmap, etc.) | <1ms     |
-| **Project Honeypot** | HTTP:BL IP reputation via DNS lookup                     | ~100ms   |
-| **Behavioral**       | Rate limiting + anomaly detection                        | 1-5ms    |
-| **Inconsistency**    | Cross-signal mismatch detection                          | 1-5ms    |
-| **Heuristic AI**     | Feature-weighted classification with learning            | <1ms     |
-| **LLM**              | Full reasoning (escalation only)                         | 50-500ms |
-| **HeuristicLate**    | Post-AI refinement with all evidence                     | <1ms     |
+| Method                    | Description                                              | Latency  |
+|---------------------------|----------------------------------------------------------|----------|
+| **User-Agent**            | Pattern matching against known bots                      | <1ms     |
+| **Headers**               | Suspicious/missing header detection                      | <1ms     |
+| **IP**                    | Datacenter IP range identification                       | <1ms     |
+| **Version Age**           | Browser/OS version staleness detection                   | <1ms     |
+| **Security Tools**        | Penetration testing tool detection (Nikto, sqlmap, etc.) | <1ms     |
+| **Cache Behavior**        | HTTP cache header interaction analysis                   | <1ms     |
+| **Response Behavior**     | Bot-specific response handling patterns                  | <1ms     |
+| **Fast Path Reputation**  | Cached reputation from previous detections               | <1ms     |
+| **Reputation Bias**       | Signature-based reputation tracking                      | <1ms     |
+| **AI Scraper**            | Detects AI training data scrapers                        | <1ms     |
+| **Project Honeypot**      | HTTP:BL IP reputation via DNS lookup                     | ~100ms   |
+| **Behavioral**            | Rate limiting + anomaly detection                        | 1-5ms    |
+| **Advanced Behavioral**   | Deep behavioral pattern analysis                         | 1-5ms    |
+| **Behavioral Waveform**   | FFT-based spectral fingerprinting of request timing      | 1-5ms    |
+| **Client-Side**           | Headless browser detection via JS fingerprinting         | 1-5ms    |
+| **Inconsistency**         | Cross-signal mismatch detection                          | 1-5ms    |
+| **Multi-Layer Correlation** | Cross-detector signal correlation                      | 1-5ms    |
+| **Similarity**            | Fuzzy signature matching via HNSW/Qdrant vector search   | 1-10ms   |
+| **Cluster**               | Bot network detection with Leiden community detection    | 1-10ms   |
+| **Timescale Reputation**  | Time-series IP/signature reputation aggregation          | 1-10ms   |
+| **TLS Fingerprint**       | JA3/JA4 TLS fingerprint analysis                         | <1ms     |
+| **TCP/IP Fingerprint**    | p0f-style passive OS fingerprinting                      | <1ms     |
+| **HTTP/2 Fingerprint**    | AKAMAI-style HTTP/2 fingerprinting                       | <1ms     |
+| **Heuristic AI**          | Feature-weighted classification with learning            | <1ms     |
+| **LLM**                   | Full reasoning (escalation only, qwen3:0.6b)             | 50-500ms |
+| **HeuristicLate**         | Post-AI refinement with all evidence                     | <1ms     |
 
 ## AI Detection & Learning (Key Differentiator)
 
@@ -315,6 +330,12 @@ For advanced similarity-based detection, embeddings support named vectors:
 | **Project Honeypot**           | HTTP:BL IP reputation checking            | [project-honeypot.md](docs/project-honeypot.md)                     |
 | **Behavioral Analysis**        | Rate limiting and anomaly detection       | [behavioral-analysis.md](docs/behavioral-analysis.md)               |
 | **Client-Side Fingerprinting** | Headless browser detection                | [client-side-fingerprinting.md](docs/client-side-fingerprinting.md) |
+| **Cluster Detection**          | Leiden clustering and bot networks        | [cluster-detection.md](docs/cluster-detection.md)                   |
+| **Cache Behavior**             | HTTP cache header analysis                | [cache-behavior.md](docs/cache-behavior.md)                         |
+| **Response Behavior**          | Response handling pattern detection       | [response-behavior.md](docs/response-behavior.md)                   |
+| **TCP/IP Fingerprint**         | Passive OS fingerprinting                 | [tcp-ip-fingerprint.md](docs/tcp-ip-fingerprint.md)                 |
+| **Behavioral Waveform**        | Spectral request timing analysis          | [behavioral-waveform.md](docs/behavioral-waveform.md)               |
+| **Timescale Reputation**       | Time-series reputation aggregation        | [timescale-reputation.md](docs/timescale-reputation.md)             |
 | **YARP Integration**           | Bot-aware reverse proxy                   | [yarp-integration.md](docs/yarp-integration.md)                     |
 | **Telemetry**                  | OpenTelemetry traces and metrics          | [telemetry-and-metrics.md](docs/telemetry-and-metrics.md)           |
 | **Stylobot Gateway**           | Companion Docker gateway                  | [yarp-gateway.md](docs/yarp-gateway.md)                             |
@@ -361,7 +382,7 @@ builder.Services.AddBotDetection();
 builder.Services.AddSimpleBotDetection();
 
 // All detectors + LLM escalation (requires Ollama)
-builder.Services.AddAdvancedBotDetection("http://localhost:11434", "gemma3:4b");
+builder.Services.AddAdvancedBotDetection("http://localhost:11434", "qwen3:0.6b");
 ```
 
 ## Requirements

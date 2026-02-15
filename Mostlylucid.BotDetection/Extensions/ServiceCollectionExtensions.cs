@@ -175,13 +175,13 @@ public static class ServiceCollectionExtensions
     ///     - Enables all heuristic detection methods
     ///     - Enables LLM-based semantic analysis
     ///     - Requires Ollama to be running at the specified endpoint
-    ///     - Recommended models: qwen2.5:1.5b, phi3:mini, tinyllama
+    ///     - Recommended models: qwen3:0.6b, qwen2.5:1.5b, phi3:mini
     ///     LLM detection is fail-safe: if Ollama is unavailable,
     ///     detection continues with heuristics only.
     /// </remarks>
     /// <param name="services">The service collection</param>
     /// <param name="ollamaEndpoint">Ollama endpoint URL (default: http://localhost:11434)</param>
-    /// <param name="model">Ollama model name (default: qwen2.5:1.5b)</param>
+    /// <param name="model">Ollama model name (default: qwen3:0.6b)</param>
     /// <param name="configure">Optional configuration action</param>
     /// <returns>The service collection for chaining</returns>
     /// <example>
@@ -195,7 +195,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddAdvancedBotDetection(
         this IServiceCollection services,
         string ollamaEndpoint = "http://localhost:11434",
-        string model = "qwen2.5:1.5b",
+        string model = "qwen3:0.6b",
         Action<BotDetectionOptions>? configure = null)
     {
         return services.AddBotDetection(options =>
@@ -448,6 +448,31 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<SignatureConvergenceService>();
         services.AddHostedService(sp => sp.GetRequiredService<SignatureConvergenceService>());
         services.AddSingleton<IContributingDetector, ClusterContributor>();
+        // LLM-based cluster descriptions (background, never in request pipeline)
+        services.AddSingleton<BotClusterDescriptionService>();
+
+        // ==========================================
+        // Bot Name Synthesizer (LLamaSharp or Ollama)
+        // ==========================================
+        // Synthesizes human-readable bot names from detection signals
+        services.AddSingleton<IBotNameSynthesizer>(sp =>
+        {
+            var opts = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+            var logger = sp.GetRequiredService<ILogger<LlamaSharpBotNameSynthesizer>>();
+
+            return opts.AiDetection.Provider switch
+            {
+                AiProvider.LlamaSharp => new LlamaSharpBotNameSynthesizer(logger, sp.GetRequiredService<IOptions<BotDetectionOptions>>()),
+                _ => new LlamaSharpBotNameSynthesizer(logger, sp.GetRequiredService<IOptions<BotDetectionOptions>>())
+            };
+        });
+
+        // ==========================================
+        // Signature Description Service (Background)
+        // ==========================================
+        // Generates LLM descriptions for signatures once they reach request threshold
+        services.AddHostedService<SignatureDescriptionService>();
+
         // Similarity search - runs after Heuristic (priority 60) to leverage feature extraction
         services.AddSingleton<IContributingDetector, SimilarityContributor>();
         // AI/LLM detectors (run when escalation triggered or in demo mode)

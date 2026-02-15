@@ -105,9 +105,12 @@ public class ClusterContributor : ConfiguredContributorBase
                             // High confidence boost: same bot software across different IPs
                             var delta = ProductConfidenceDelta *
                                         Math.Min(1.0, cluster.AverageBotProbability + 0.2);
+                            var reason = $"Part of bot product cluster '{cluster.Label}' ({cluster.MemberCount} members, similarity={cluster.AverageSimilarity:F2})";
+                            if (!string.IsNullOrEmpty(cluster.Description))
+                                reason += $". {cluster.Description}";
                             contributions.Add(BotContribution(
                                 "Cluster",
-                                $"Part of bot product cluster '{cluster.Label}' ({cluster.MemberCount} members, similarity={cluster.AverageSimilarity:F2})",
+                                reason,
                                 confidenceOverride: delta,
                                 weightMultiplier: WeightBotSignal,
                                 botType: "Scraper"));
@@ -118,9 +121,12 @@ public class ClusterContributor : ConfiguredContributorBase
                             // Moderate confidence boost: coordinated campaign
                             var delta = NetworkConfidenceDelta *
                                         Math.Min(1.0, cluster.TemporalDensity + 0.2);
+                            var reason = $"Part of bot network '{cluster.Label}' ({cluster.MemberCount} members, density={cluster.TemporalDensity:F2})";
+                            if (!string.IsNullOrEmpty(cluster.Description))
+                                reason += $". {cluster.Description}";
                             contributions.Add(BotContribution(
                                 "Cluster",
-                                $"Part of bot network '{cluster.Label}' ({cluster.MemberCount} members, density={cluster.TemporalDensity:F2})",
+                                reason,
                                 confidenceOverride: delta,
                                 weightMultiplier: WeightBotSignal,
                                 botType: "MaliciousBot"));

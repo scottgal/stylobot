@@ -28,7 +28,8 @@ public class ContributorIntegrationTests
                 ["BotDetection:EnableHeaderAnalysis"] = "true",
                 ["BotDetection:EnableIpDetection"] = "true",
                 ["BotDetection:EnableBehavioralAnalysis"] = "true",
-                ["BotDetection:EnableLlmDetection"] = "false"
+                ["BotDetection:EnableLlmDetection"] = "false",
+                ["BotDetection:EnableTestMode"] = "true"
             })
             .Build();
 
@@ -37,7 +38,7 @@ public class ContributorIntegrationTests
         services.AddLogging(b => b.SetMinimumLevel(LogLevel.Warning));
         services.AddMemoryCache();
         services.AddHttpClient();
-        services.AddBotDetection(config);
+        services.AddBotDetection();
         _sp = services.BuildServiceProvider();
     }
 

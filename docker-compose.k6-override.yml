@@ -15,7 +15,6 @@ services:
         condition: service_healthy
       website:
         condition: service_healthy
-      # Don't wait for ollama - it's slow to start
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
@@ -29,10 +28,12 @@ services:
       - BotDetection__BlockDetectedBots=false
       - BotDetection__LogDetailedReasons=true
       - BotDetection__LogAllRequests=false
-      - BotDetection__AiDetection__Provider=Ollama
-      - BotDetection__AiDetection__Ollama__Endpoint=http://ollama:11434
-      - BotDetection__AiDetection__Ollama__Model=llama3.2:1b
+      - BotDetection__AiDetection__Provider=LlamaSharp
+      - BotDetection__AiDetection__LlamaSharp__Enabled=true
+      - BotDetection__AiDetection__LlamaSharp__ModelPath=Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf
+      - BotDetection__AiDetection__LlamaSharp__ContextSize=512
       - BotDetection__AiDetection__TimeoutMs=5000
+      - BotDetection__SignatureDescriptionThreshold=50
       - BotDetection__ResponseHeaders__Enabled=true
       - BotDetection__ResponseHeaders__IncludeConfidence=true
       - BotDetection__ResponseHeaders__IncludeDetectors=true
@@ -50,10 +51,10 @@ services:
       - BOTDETECTION_BLOCK_BOTS=false
       - BOTDETECTION_LOG_DETAILED=true
       - BOTDETECTION_LOG_ALL_REQUESTS=true
-      - BOTDETECTION_AI_PROVIDER=Heuristic
-      - BOTDETECTION_OLLAMA_ENDPOINT=http://ollama:11434
-      - BOTDETECTION_OLLAMA_MODEL=llama3.2:1b
-      - BOTDETECTION_OLLAMA_TIMEOUT_MS=5000
+      - BOTDETECTION_AI_PROVIDER=LlamaSharp
+      - BOTDETECTION_LLAMASHARP_ENABLED=true
+      - BOTDETECTION_LLAMASHARP_CONTEXT_SIZE=512
+      - BOTDETECTION_LLAMASHARP_TIMEOUT_MS=5000
       - BOTDETECTION_SIGNATURE_HASH_KEY=${BOTDETECTION_SIGNATURE_HASH_KEY}
       - BOTDETECTION_CLIENTSIDE_TOKEN_SECRET=${BOTDETECTION_CLIENTSIDE_TOKEN_SECRET}
       - STYLOBOT_DASHBOARD_PATH=/_stylobot
@@ -75,9 +76,6 @@ services:
       - "127.0.0.1:6335:6333"
       - "127.0.0.1:6336:6334"
 
-  # Ollama without GPU requirement (CPU mode)
-  ollama:
-    deploy: {}
 
   # Remap Redis host port
   redis:

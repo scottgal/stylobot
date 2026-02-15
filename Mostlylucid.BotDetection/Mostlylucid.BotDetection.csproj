@@ -45,6 +45,8 @@
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" />
         <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.3" />
         <PackageReference Include="OllamaSharp" Version="5.4.16" />
+        <PackageReference Include="LLamaSharp" Version="0.26.0" />
+        <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.26.0" />
         <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.3" />
         <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.2" />
         <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.3" />

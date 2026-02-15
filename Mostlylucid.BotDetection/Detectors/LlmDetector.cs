@@ -17,7 +17,7 @@ namespace Mostlylucid.BotDetection.Detectors;
 
 /// <summary>
 ///     Advanced LLM-based bot detection with learning capabilities.
-///     Uses a small language model (default: gemma3:1b) to analyze request patterns.
+///     Uses a small language model (default: qwen3:0.6b) to analyze request patterns.
 ///     Prompt is optimized for minimal context usage (~500 tokens).
 /// </summary>
 public partial class LlmDetector : IDetector, IDisposable
@@ -216,7 +216,7 @@ public partial class LlmDetector : IDetector, IDisposable
                 return ctx;
             }
 
-            // Default: gemma3:4b has 8192 context, most small models have 2048-4096
+            // Default: qwen3:0.6b has 32K context, most small models have 2048-4096
             _modelContextLength = 2048;
             _contextLengthFetchedAt = DateTime.UtcNow;
             return _modelContextLength;
@@ -355,7 +355,10 @@ public partial class LlmDetector : IDetector, IDisposable
                 Options = new OllamaSharp.Models.RequestOptions
                 {
                     NumThread = _options.AiDetection.Ollama.NumThreads
-                }
+                },
+                // Disable thinking mode for reasoning models (qwen3, deepseek-r1, etc.)
+                // Thinking wastes tokens on internal reasoning instead of producing JSON output
+                Think = false
             };
             var responseBuilder = new StringBuilder();
 

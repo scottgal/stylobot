@@ -35,6 +35,9 @@ public sealed record BotCluster
     /// <summary>Auto-generated label describing the cluster behavior.</summary>
     public string? Label { get; init; }
 
+    /// <summary>LLM-generated description of the cluster behavior and intent. Null until LLM processes it.</summary>
+    public string? Description { get; init; }
+
     /// <summary>When the earliest member was first seen.</summary>
     public DateTimeOffset FirstSeen { get; init; }
 

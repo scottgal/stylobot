@@ -1214,3 +1214,43 @@ Usage:
 ```bash
 curl -H "ml-bot-test-mode: googlebot" http://localhost/api/test
 ```
+
+---
+
+## Cluster Detection Options
+
+Configure bot network clustering and LLM-based descriptions:
+
+```json
+{
+  "BotDetection": {
+    "Cluster": {
+      // === Clustering Algorithm ===
+      "Algorithm": "leiden",             // "leiden" (default) or "label_propagation"
+      "LeidenResolution": 1.0,           // Higher = more, smaller clusters
+      "MinClusterSize": 3,               // Minimum members for a cluster
+      "SimilarityThreshold": 0.7,        // Edge threshold for similarity graph
+      "ClusterIntervalSeconds": 60,      // Background clustering interval
+
+      // === Semantic Embeddings ===
+      "EnableSemanticEmbeddings": true,   // Blend ONNX embeddings with heuristic features
+      "SemanticWeight": 0.4,             // 0.0 = heuristic only, 1.0 = semantic only
+
+      // === LLM Cluster Descriptions (GraphRAG-style) ===
+      "EnableLlmDescriptions": false,    // Enable background LLM naming
+      "DescriptionModel": "qwen3:0.6b",  // Ollama model for descriptions
+      "DescriptionEndpoint": null        // Ollama endpoint (defaults to AiDetection.Ollama.Endpoint)
+    }
+  }
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `Algorithm` | string | `leiden` | Clustering algorithm (`leiden` or `label_propagation`) |
+| `LeidenResolution` | double | `1.0` | Resolution parameter for Leiden (higher = more clusters) |
+| `EnableSemanticEmbeddings` | bool | `true` | Blend 384-dim ONNX embeddings with heuristic features |
+| `SemanticWeight` | double | `0.4` | Weight for semantic vs heuristic similarity |
+| `EnableLlmDescriptions` | bool | `false` | Enable background LLM cluster naming/description |
+| `DescriptionModel` | string | `qwen3:0.6b` | Ollama model name for descriptions |
+| `DescriptionEndpoint` | string | `null` | Override Ollama endpoint (defaults to main AI endpoint) |

@@ -33,4 +33,16 @@ public interface IStyloBotDashboardHub
     /// <param name="requestId">The request ID of the detection to update</param>
     /// <param name="description">The plain-english description</param>
     Task BroadcastDescriptionUpdate(string requestId, string description);
+
+    /// <summary>
+    ///     Broadcast an LLM-generated cluster description update.
+    ///     Sent when background BotClusterDescriptionService generates a description.
+    /// </summary>
+    Task BroadcastClusterDescriptionUpdate(string clusterId, string label, string description);
+
+    /// <summary>
+    ///     Broadcast the full cluster list when clusters are refreshed.
+    ///     Sent immediately when background clustering completes (before LLM descriptions).
+    /// </summary>
+    Task BroadcastClusters(List<DashboardClusterEvent> clusters);
 }

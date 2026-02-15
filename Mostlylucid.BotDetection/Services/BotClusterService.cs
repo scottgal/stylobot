@@ -1,20 +1,32 @@
-using System.Collections.Concurrent;
 using System.Collections.Frozen;
+using System.Numerics.Tensors;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Clustering;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Similarity;
 
 namespace Mostlylucid.BotDetection.Services;
 
 /// <summary>
 ///     Background service that periodically clusters signatures from the SignatureCoordinator's
-///     sliding window using Label Propagation. Discovers bot products (same bot software) and
-///     bot networks (coordinated campaigns). Uses FFT-based spectral analysis to detect
-///     shared timing patterns (C2 heartbeats, cron schedules).
+///     sliding window. Discovers bot products (same bot software) and bot networks (coordinated
+///     campaigns). Uses FFT-based spectral analysis to detect shared timing patterns.
+///
+///     Supports two clustering algorithms (configurable):
+///     - Leiden (default): CPM-based community detection with refinement step for guaranteed
+///       well-connected communities. Better quality than Label Propagation.
+///     - Label Propagation (fallback): Fast, simple algorithm for compatibility.
+///
+///     Optionally blends semantic embeddings (ONNX all-MiniLM-L6-v2) with heuristic features
+///     for improved similarity scoring.
+///
+///     After clustering completes, fires an event for background LLM description generation
+///     (never blocks the request pipeline).
 ///
 ///     Clustering is triggered either by a timer or when enough new bot detections accumulate.
 /// </summary>
@@ -26,19 +38,33 @@ public class BotClusterService : BackgroundService
     private readonly ILogger<BotClusterService> _logger;
     private readonly ClusterOptions _options;
     private readonly SignatureCoordinator _signatureCoordinator;
+    private readonly IEmbeddingProvider? _embeddingProvider;
 
     // Event-driven trigger: counts new bot detections since last clustering run
     private int _botDetectionsSinceLastRun;
     private readonly SemaphoreSlim _triggerSignal = new(0, 1);
 
+    /// <summary>
+    ///     Fired after each clustering run with the new clusters.
+    ///     Used by BotClusterDescriptionService to generate LLM descriptions in background.
+    /// </summary>
+    public event Action<IReadOnlyList<BotCluster>, IReadOnlyList<SignatureBehavior>>? ClustersUpdated;
+
     public BotClusterService(
         ILogger<BotClusterService> logger,
         IOptions<BotDetectionOptions> options,
-        SignatureCoordinator signatureCoordinator)
+        SignatureCoordinator signatureCoordinator,
+        IEmbeddingProvider? embeddingProvider = null)
     {
         _logger = logger;
         _options = options.Value.Cluster;
         _signatureCoordinator = signatureCoordinator;
+        _embeddingProvider = embeddingProvider;
+
+        if (_options.EnableSemanticEmbeddings && _embeddingProvider != null)
+            _logger.LogInformation(
+                "Semantic embeddings enabled for clustering (dimension={Dim}, weight={Weight:F2})",
+                _embeddingProvider.Dimension, _options.SemanticWeight);
     }
 
     /// <summary>
@@ -84,10 +110,40 @@ public class BotClusterService : BackgroundService
         return features;
     }
 
+    /// <summary>
+    ///     Update a cluster's description (called by BotClusterDescriptionService after LLM generates it).
+    ///     Atomically replaces the cluster in the snapshot with the updated description.
+    /// </summary>
+    public void UpdateClusterDescription(string clusterId, string label, string description)
+    {
+        var snapshot = _snapshot;
+        if (!snapshot.Clusters.TryGetValue(clusterId, out var existing))
+            return;
+
+        var updated = existing with
+        {
+            Label = label,
+            Description = description
+        };
+
+        // Rebuild the clusters dictionary with the updated cluster
+        var newClusters = snapshot.Clusters.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+        newClusters[clusterId] = updated;
+
+        _snapshot = new ClusterSnapshot(
+            newClusters.ToFrozenDictionary(),
+            snapshot.SignatureToCluster,
+            snapshot.SpectralCache);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var algorithm = _options.Algorithm.Equals("leiden", StringComparison.OrdinalIgnoreCase)
+            ? "Leiden" : "LabelPropagation";
+
         _logger.LogInformation(
-            "BotClusterService started (interval={Interval}s, threshold={Threshold}, trigger={Trigger} detections)",
+            "BotClusterService started (algorithm={Algorithm}, interval={Interval}s, threshold={Threshold}, trigger={Trigger} detections)",
+            algorithm,
             _options.ClusterIntervalSeconds,
             _options.SimilarityThreshold,
             _options.MinBotDetectionsToTrigger);
@@ -143,7 +199,7 @@ public class BotClusterService : BackgroundService
             return;
         }
 
-        // 2. Build feature vectors (includes spectral analysis)
+        // 2. Build feature vectors (includes spectral analysis + optional semantic embeddings)
         var features = BuildFeatureVectors(behaviors);
 
         // 2.5. Build spectral cache
@@ -157,8 +213,23 @@ public class BotClusterService : BackgroundService
         // 3. Compute similarity matrix and build graph
         var adjacency = BuildSimilarityGraph(features);
 
-        // 4. Run Label Propagation
-        var labels = LabelPropagation(adjacency, features.Count);
+        // 4. Run community detection algorithm
+        int[] labels;
+        var useLeiden = _options.Algorithm.Equals("leiden", StringComparison.OrdinalIgnoreCase);
+
+        if (useLeiden)
+        {
+            labels = LeidenClustering.FindCommunities(
+                adjacency, features.Count,
+                _options.LeidenResolution,
+                _options.MaxIterations);
+            _logger.LogDebug("Leiden clustering produced {Communities} communities from {Nodes} nodes",
+                labels.Distinct().Count(), features.Count);
+        }
+        else
+        {
+            labels = LabelPropagation(adjacency, features.Count);
+        }
 
         // 5. Group into clusters
         var rawClusters = labels
@@ -197,8 +268,13 @@ public class BotClusterService : BackgroundService
             var productCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotProduct);
             var networkCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotNetwork);
             _logger.LogInformation(
-                "BotClusterService: discovered {Total} clusters ({Product} product, {Network} network) from {BotSignatures} bot signatures (filtered from {TotalSignatures} total)",
-                newClusters.Count, productCount, networkCount, behaviors.Count, allBehaviors.Count);
+                "BotClusterService: discovered {Total} clusters ({Product} product, {Network} network) from {BotSignatures} bot signatures using {Algorithm} (filtered from {TotalSignatures} total)",
+                newClusters.Count, productCount, networkCount, behaviors.Count,
+                useLeiden ? "Leiden" : "LabelPropagation",
+                allBehaviors.Count);
+
+            // Fire event for background LLM description generation
+            ClustersUpdated?.Invoke(newClusters.Values.ToList(), behaviors);
         }
     }
 
@@ -219,10 +295,16 @@ public class BotClusterService : BackgroundService
         public DateTime LastSeen { get; init; }
         public SpectralFeatures? Spectral { get; init; }
         public double[]? Intervals { get; init; }
+
+        /// <summary>384-dim semantic embedding from ONNX model, or null if unavailable.</summary>
+        public float[]? SemanticEmbedding { get; init; }
     }
 
     internal List<FeatureVector> BuildFeatureVectors(IReadOnlyList<SignatureBehavior> behaviors)
     {
+        var useEmbeddings = _options.EnableSemanticEmbeddings
+                            && _embeddingProvider is { IsAvailable: true };
+
         return behaviors.Select(b =>
         {
             var durationSeconds = (b.LastSeen - b.FirstSeen).TotalSeconds;
@@ -241,6 +323,25 @@ public class BotClusterService : BackgroundService
                 spectral = SpectralFeatureExtractor.Extract(intervals);
             }
 
+            // Generate semantic embedding from behavioral text (privacy-safe: no raw IP/UA)
+            float[]? embedding = null;
+            if (useEmbeddings)
+            {
+                var topPaths = string.Join(",",
+                    b.Requests.GroupBy(r => r.Path)
+                        .OrderByDescending(g => g.Count())
+                        .Take(5)
+                        .Select(g => g.Key));
+
+                var embeddingText =
+                    $"RATE:{requestRate:F1}/min | PATHS:{topPaths} | " +
+                    $"ENTROPY:{b.PathEntropy:F2} | TIMING_CV:{b.TimingCoefficient:F2} | " +
+                    $"COUNTRY:{b.CountryCode ?? "?"} | ASN:{b.Asn ?? "?"} | " +
+                    $"DC:{b.IsDatacenter} | BOT_PROB:{b.AverageBotProbability:F2}";
+
+                embedding = _embeddingProvider!.GenerateEmbedding(embeddingText);
+            }
+
             return new FeatureVector
             {
                 Signature = b.Signature,
@@ -255,7 +356,8 @@ public class BotClusterService : BackgroundService
                 FirstSeen = b.FirstSeen,
                 LastSeen = b.LastSeen,
                 Spectral = spectral,
-                Intervals = intervals
+                Intervals = intervals,
+                SemanticEmbedding = embedding
             };
         }).ToList();
     }
@@ -263,6 +365,22 @@ public class BotClusterService : BackgroundService
     #endregion
 
     #region Similarity
+
+    internal double ComputeBlendedSimilarity(FeatureVector a, FeatureVector b)
+    {
+        var heuristicSim = ComputeSimilarity(a, b);
+
+        // If both have semantic embeddings, blend with heuristic
+        if (a.SemanticEmbedding != null && b.SemanticEmbedding != null)
+        {
+            var cosineSim = CosineSimilarity(a.SemanticEmbedding, b.SemanticEmbedding);
+            // Blend: (1-w)*heuristic + w*semantic
+            var w = _options.SemanticWeight;
+            return (1.0 - w) * heuristicSim + w * cosineSim;
+        }
+
+        return heuristicSim;
+    }
 
     internal static double ComputeSimilarity(FeatureVector a, FeatureVector b)
     {
@@ -308,6 +426,14 @@ public class BotClusterService : BackgroundService
                dominantFreqSim * 0.05;
     }
 
+    private static double CosineSimilarity(float[] a, float[] b)
+    {
+        var dot = TensorPrimitives.Dot(a, b);
+        // Embeddings are already L2-normalized by OnnxEmbeddingProvider
+        // so cosine similarity = dot product, mapped from [-1,1] to [0,1]
+        return (dot + 1.0) / 2.0;
+    }
+
     private static double NormalizedDiff(double a, double b)
     {
         var maxVal = Math.Max(Math.Abs(a), Math.Abs(b));
@@ -320,6 +446,7 @@ public class BotClusterService : BackgroundService
     ///     Build adjacency list with similarity weights.
     ///     Edge exists if similarity exceeds threshold.
     ///     Cross-correlation boosts similarity for signatures with shared timing patterns.
+    ///     When semantic embeddings are available, similarity is blended (configurable weight).
     /// </summary>
     internal Dictionary<int, List<(int Neighbor, double Similarity)>> BuildSimilarityGraph(
         List<FeatureVector> features)
@@ -333,7 +460,7 @@ public class BotClusterService : BackgroundService
         {
             for (var j = i + 1; j < features.Count; j++)
             {
-                var sim = ComputeSimilarity(features[i], features[j]);
+                var sim = ComputeBlendedSimilarity(features[i], features[j]);
 
                 // If both have interval data, boost with temporal cross-correlation
                 if (features[i].Intervals is { } intervalsI && features[j].Intervals is { } intervalsJ)
@@ -357,11 +484,12 @@ public class BotClusterService : BackgroundService
 
     #endregion
 
-    #region Label Propagation
+    #region Label Propagation (fallback)
 
     /// <summary>
     ///     Label Propagation algorithm: each node adopts the most frequent label
     ///     among its neighbors (weighted by similarity). O(V+E) per iteration.
+    ///     Used as fallback when Leiden is not selected.
     /// </summary>
     private int[] LabelPropagation(
         Dictionary<int, List<(int Neighbor, double Similarity)>> adjacency,
@@ -507,8 +635,8 @@ public class BotClusterService : BackgroundService
             .OrderByDescending(g => g.Count())
             .FirstOrDefault()?.Key;
 
-        // Generate label
-        var label = GenerateLabel(clusterType, avgSimilarity, temporalDensity, avgBotProb, members);
+        // Generate heuristic label (LLM description applied asynchronously later)
+        var label = GenerateHeuristicLabel(clusterType, avgSimilarity, temporalDensity, avgBotProb, members);
 
         // Generate deterministic cluster ID from sorted member signatures
         var sortedSigs = uniqueSignatures.OrderBy(s => s).ToList();
@@ -559,7 +687,11 @@ public class BotClusterService : BackgroundService
         return totalPairs > 0 ? (double)overlapping / totalPairs : 0;
     }
 
-    internal static string GenerateLabel(
+    /// <summary>
+    ///     Heuristic label generation used as default and fallback when LLM is unavailable.
+    ///     Renamed from GenerateLabel to clarify this is the non-LLM path.
+    /// </summary>
+    internal static string GenerateHeuristicLabel(
         BotClusterType type, double similarity, double temporalDensity,
         double avgBotProb, List<SignatureBehavior> members)
     {
@@ -578,6 +710,12 @@ public class BotClusterService : BackgroundService
             _ => "Unknown-Cluster"
         };
     }
+
+    // Keep backward-compatible static method
+    internal static string GenerateLabel(
+        BotClusterType type, double similarity, double temporalDensity,
+        double avgBotProb, List<SignatureBehavior> members)
+        => GenerateHeuristicLabel(type, similarity, temporalDensity, avgBotProb, members);
 
     internal static string ComputeClusterId(List<string> sortedSignatures)
     {

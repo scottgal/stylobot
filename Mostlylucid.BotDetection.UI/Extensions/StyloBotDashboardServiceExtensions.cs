@@ -49,6 +49,9 @@ public static class StyloBotDashboardServiceExtensions
         // LLM result callback for background classification coordinator
         services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();
 
+        // Cluster description callback for background LLM cluster naming
+        services.TryAddSingleton<IClusterDescriptionCallback, ClusterDescriptionSignalRCallback>();
+
         // Simulator if enabled
         if (options.EnableSimulator) services.AddHostedService<DashboardSimulatorService>();
 
@@ -137,6 +140,9 @@ public static class StyloBotDashboardServiceExtensions
 
         // LLM result callback (needed if LLM classification is enabled)
         services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();
+
+        // Cluster description callback for live cluster updates
+        services.TryAddSingleton<IClusterDescriptionCallback, ClusterDescriptionSignalRCallback>();
 
         return services;
     }
