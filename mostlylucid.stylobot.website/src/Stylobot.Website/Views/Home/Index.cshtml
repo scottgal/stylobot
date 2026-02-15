@@ -300,28 +300,26 @@
                     <img src="https://img.shields.io/github/v/release/scottgal/stylobot?label=Release" alt="Release" />
                 </a>
             </div>
+
+            <!-- Top 5 Bots (HTMX live-refreshed) -->
+            <div class="mt-3">
+                <div class="flex items-center gap-2 mb-1.5">
+                    <h3 class="text-[10px] uppercase tracking-wider text-base-content/50 font-semibold">Top Bots Right Now</h3>
+                    <span class="relative flex h-1.5 w-1.5">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
+                        <span class="relative inline-flex rounded-full h-1.5 w-1.5 live-dot"></span>
+                    </span>
+                </div>
+                <div hx-get="/Home/TopBots" hx-trigger="load, every 30s" hx-swap="innerHTML">
+                    <div class="text-[10px] text-base-content/30 italic">Loading bot activity...</div>
+                </div>
+            </div>
             </div>
         </div>
     </div>
 </section>
 
 @await Html.PartialAsync("_TrustStrip")
-
-<!-- Live Bot Activity (HTMX refreshed) -->
-<section class="py-3 bg-base-100">
-    <div class="max-w-6xl mx-auto px-4">
-        <div class="flex items-center gap-2 mb-2">
-            <h3 class="text-xs uppercase tracking-wider text-base-content/50 font-semibold">Live Bot Activity</h3>
-            <span class="relative flex h-2 w-2">
-                <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
-                <span class="relative inline-flex rounded-full h-2 w-2 live-dot"></span>
-            </span>
-        </div>
-        <div hx-get="/Home/TopBots" hx-trigger="load, every 30s" hx-swap="innerHTML">
-            <div class="text-xs text-base-content/30 italic">Loading bot activity...</div>
-        </div>
-    </div>
-</section>
 
 <!-- Docs Home -->
 <section class="py-8 bg-base-100 border-y border-base-content/10">

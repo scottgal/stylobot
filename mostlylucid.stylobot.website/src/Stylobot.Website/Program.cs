@@ -111,6 +111,11 @@ builder.Services.AddBotDetection(options =>
     // Trust upstream detection from YARP gateway (skip re-running the full pipeline)
     options.TrustUpstreamDetection = GetConfigBool("BotDetection:TrustUpstreamDetection", "BOTDETECTION_TRUST_UPSTREAM", false);
 
+    // Exclude dashboard paths from bot detection (SignalR hub, API endpoints)
+    // These generate high-frequency polling that falsely triggers bot detection
+    var dashboardPath = GetConfig("StyloBotDashboard:BasePath", "STYLOBOT_DASHBOARD_PATH", "/_stylobot");
+    options.ExcludedPaths.Add(dashboardPath);
+
     // Detection thresholds
     options.BotThreshold = GetConfigDouble("BotDetection:Threshold", "BOTDETECTION_THRESHOLD", 0.7);
     options.BlockDetectedBots = GetConfigBool("BotDetection:BlockDetectedBots", "BOTDETECTION_BLOCK_BOTS", false);
@@ -291,7 +296,7 @@ app.Use(async (context, next) =>
     var cspNonce = Convert.ToBase64String(nonceBytes);
     context.Items["CspNonce"] = cspNonce;
 
-    var scriptSrc = $"'self' 'nonce-{cspNonce}' 'unsafe-eval' https://umami.mostlylucid.net https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com";
+    var scriptSrc = $"'self' 'nonce-{cspNonce}' 'unsafe-eval' https://umami.mostlylucid.net https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com https://cdn.tailwindcss.com";
     var styleSrc = "'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com";
     var csp = string.Join("; ", new[]
     {

@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
@@ -874,6 +875,13 @@ public class BotDetectionMiddleware(
         // Clamp to valid range
         confidence = Math.Clamp(confidence, 0.0, 1.0);
 
+        // Parse bot probability (prefer explicit probability header, fall back to confidence)
+        var botProbability = confidence;
+        if (context.Request.Headers.TryGetValue("X-Bot-Detection-Probability", out var probHeader) &&
+            double.TryParse(probHeader.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsedProb))
+            botProbability = Math.Clamp(parsedProb, 0.0, 1.0);
+
         // Parse optional fields
         BotType? botType = null;
         if (context.Request.Headers.TryGetValue("X-Bot-Type", out var typeHeader) &&
@@ -883,9 +891,48 @@ public class BotDetectionMiddleware(
         var botName = context.Request.Headers["X-Bot-Name"].FirstOrDefault();
         var category = context.Request.Headers["X-Bot-Category"].FirstOrDefault();
 
+        // Parse risk band
+        var riskBand = RiskBand.Unknown;
+        if (context.Request.Headers.TryGetValue("X-Bot-Detection-RiskBand", out var riskHeader) &&
+            Enum.TryParse<RiskBand>(riskHeader.ToString(), true, out var parsedRisk))
+            riskBand = parsedRisk;
+        else
+            riskBand = botProbability switch
+            {
+                >= 0.85 => RiskBand.VeryHigh,
+                >= 0.7 => RiskBand.High,
+                >= 0.5 => RiskBand.Medium, // Changed from Elevated
+                >= 0.3 => RiskBand.Elevated,
+                >= 0.15 => RiskBand.Low,
+                _ => RiskBand.VeryLow
+            };
+
+        // Parse processing time
+        double processingMs = 0;
+        if (context.Request.Headers.TryGetValue("X-Bot-Detection-ProcessingMs", out var procHeader))
+            double.TryParse(procHeader.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out processingMs);
+
+        // Parse action
+        var actionName = context.Request.Headers["X-Bot-Detection-Action"].FirstOrDefault();
+
+        // Build AggregatedEvidence so views (LiveDemo, Index) can render detection data
+        var evidence = new AggregatedEvidence
+        {
+            BotProbability = botProbability,
+            Confidence = confidence,
+            RiskBand = riskBand,
+            PrimaryBotType = botType,
+            PrimaryBotName = botName,
+            TotalProcessingTimeMs = processingMs,
+            PolicyName = "upstream",
+            TriggeredActionPolicyName = actionName
+        };
+
         // Populate HttpContext.Items (same keys as PopulateContextFromAggregated)
+        context.Items[AggregatedEvidenceKey] = evidence;
         context.Items[IsBotKey] = isBot;
-        context.Items[BotConfidenceKey] = confidence;
+        context.Items[BotConfidenceKey] = botProbability;
         context.Items[BotTypeKey] = botType;
         context.Items[BotNameKey] = botName;
         context.Items[PolicyNameKey] = "upstream";
@@ -897,7 +944,7 @@ public class BotDetectionMiddleware(
         var legacyResult = new BotDetectionResult
         {
             IsBot = isBot,
-            ConfidenceScore = confidence,
+            ConfidenceScore = botProbability,
             BotType = isBot ? botType : null,
             BotName = isBot ? botName : null,
             Reasons = []
@@ -905,8 +952,8 @@ public class BotDetectionMiddleware(
         context.Items[BotDetectionResultKey] = legacyResult;
 
         _logger.LogDebug(
-            "Trusted upstream detection for {Path}: isBot={IsBot}, confidence={Confidence:F2}",
-            context.Request.Path, isBot, confidence);
+            "Trusted upstream detection for {Path}: isBot={IsBot}, probability={Probability:F2}, risk={Risk}",
+            context.Request.Path, isBot, botProbability, riskBand);
 
         return true;
     }
@@ -1025,6 +1072,20 @@ public class BotDetectionMiddleware(
 
             // Record response (async, fire-and-forget style)
             await coordinator.RecordResponseAsync(signal, CancellationToken.None);
+
+            // Feed response content type back to behavioral waveform for Markov chain accuracy
+            try
+            {
+                var waveform = context.RequestServices
+                    .GetService<IEnumerable<IContributingDetector>>()?
+                    .OfType<Orchestration.ContributingDetectors.BehavioralWaveformContributor>()
+                    .FirstOrDefault();
+                waveform?.UpdateResponseContentType(clientId, context.Response.ContentType);
+            }
+            catch
+            {
+                // Non-critical feedback - swallow silently
+            }
         }
         catch (Exception ex)
         {

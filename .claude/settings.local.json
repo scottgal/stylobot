@@ -153,7 +153,9 @@
       "Bash(DEFAULT_UPSTREAM=http://localhost:5062 dotnet run:*)",
       "Bash(more:*)",
       "Bash(cmd //c \"taskkill /PID 325884 /F\")",
-      "Bash(cmd //c \"taskkill /PID 466988 /F\")"
+      "Bash(cmd //c \"taskkill /PID 466988 /F\")",
+      "Bash(wmic process where \"name=''dotnet.exe''\" get processid,commandline)",
+      "Bash(tee:*)"
     ]
   }
 }

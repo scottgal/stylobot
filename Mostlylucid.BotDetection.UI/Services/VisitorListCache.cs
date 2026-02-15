@@ -44,6 +44,7 @@ public class VisitorListCache
                 Action = detection.Action ?? "Allow",
                 BotName = detection.BotName,
                 BotType = detection.BotType,
+                CountryCode = detection.CountryCode,
                 Narrative = detection.Narrative,
                 Description = detection.Description,
                 TopReasons = detection.TopReasons.ToList(),
@@ -70,6 +71,8 @@ public class VisitorListCache
                     existing.BotName = detection.BotName;
                 if (!string.IsNullOrEmpty(detection.BotType))
                     existing.BotType = detection.BotType;
+                if (!string.IsNullOrEmpty(detection.CountryCode))
+                    existing.CountryCode = detection.CountryCode;
                 existing.ProcessingTimeMs = detection.ProcessingTimeMs;
                 existing.LastRequestId = detection.RequestId;
                 if (!string.IsNullOrEmpty(detection.Path) && !existing.Paths.Contains(detection.Path))
@@ -198,6 +201,7 @@ public class CachedVisitor
     public string Action { get; set; } = "Allow";
     public string? BotName { get; set; }
     public string? BotType { get; set; }
+    public string? CountryCode { get; set; }
     public string? Narrative { get; set; }
     public string? Description { get; set; }
     public List<string> TopReasons { get; set; } = new();

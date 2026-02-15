@@ -117,6 +117,8 @@ services:
       - ASPNETCORE_URLS=http://+:8080
       # Trust upstream detection from YARP gateway (skip re-running detectors)
       - BOTDETECTION_TRUST_UPSTREAM=true
+      # Dashboard access: set STYLOBOT_DASHBOARD_SECRET in .env for secret-protected access
+      - STYLOBOT_DASHBOARD_PUBLIC=${STYLOBOT_DASHBOARD_PUBLIC:-true}
       # PostgreSQL for dashboard persistence (MUST match gateway config)
       - StyloBotDashboard__PostgreSQL__ConnectionString=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       - StyloBotDashboard__PostgreSQL__EnableTimescaleDB=true

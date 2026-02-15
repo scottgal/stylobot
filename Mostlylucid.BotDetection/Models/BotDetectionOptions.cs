@@ -878,7 +878,7 @@ public class BotDetectionOptions
     ///     "ExcludedPaths": ["/health", "/metrics", "/.well-known", "/favicon.ico"]
     ///     </code>
     /// </example>
-    public List<string> ExcludedPaths { get; set; } = ["/health", "/metrics"];
+    public List<string> ExcludedPaths { get; set; } = ["/health", "/metrics", "/_stylobot"];
 
     /// <summary>
     ///     Path overrides that always allow requests through, even if detected as bots.

@@ -380,6 +380,77 @@
 
                 <!-- Error -->
                 <div x-show="yourError" class="alert alert-warning text-sm" x-text="yourError"></div>
+
+                <!-- Risk + Bot Types (compact, side by side) -->
+                <div x-show="summary?.riskBandCounts" x-cloak class="grid grid-cols-2 gap-3">
+                    <div class="card bg-base-200">
+                        <div class="card-body p-3">
+                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">Risk Distribution</h3>
+                            <template x-for="band in ['VeryLow','Low','Medium','High','VeryHigh']" :key="band">
+                                <div x-show="summary?.riskBandCounts?.[band] > 0" class="flex items-center gap-1.5 mb-1">
+                                    <span class="text-[10px] w-12 font-medium" :class="riskLabelClass(band)" x-text="band"></span>
+                                    <div class="flex-1 bg-base-300 rounded-full h-2 overflow-hidden">
+                                        <div class="h-full rounded-full" :style="'width:' + Math.max(((summary?.riskBandCounts?.[band] || 0) / (totalCount || 1)) * 100, 3) + '%; background-color:' + alphaColor(riskColor(band), 42)"></div>
+                                    </div>
+                                    <span class="text-[10px] font-mono w-6 text-right" x-text="summary?.riskBandCounts?.[band] || 0"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="card bg-base-200">
+                        <div class="card-body p-3">
+                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
+                                <span x-text="summary?.topBotTypes && Object.keys(summary.topBotTypes).length > 0 ? 'Top Bot Types' : 'Actions Taken'"></span>
+                            </h3>
+                            <template x-if="summary?.topBotTypes && Object.keys(summary.topBotTypes).length > 0">
+                                <div>
+                                    <template x-for="[type, count] in Object.entries(summary.topBotTypes).sort((a,b) => b[1] - a[1]).slice(0, 5)" :key="type">
+                                        <div class="flex items-center justify-between mb-1 text-[11px]">
+                                            <span x-text="type"></span>
+                                            <span class="font-mono opacity-50" x-text="count"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                            <template x-if="!summary?.topBotTypes || Object.keys(summary.topBotTypes).length === 0">
+                                <div>
+                                    <template x-for="[action, count] in Object.entries(summary?.topActions || {}).sort((a,b) => b[1] - a[1])" :key="action">
+                                        <div class="flex items-center justify-between mb-1 text-[11px]">
+                                            <span x-text="action"></span>
+                                            <span class="font-mono opacity-50" x-text="count"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top Bot Countries + Bot Clusters (side by side) -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="card bg-base-200">
+                        <div class="card-body p-3">
+                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
+                                Top Bot Countries
+                                <span class="text-[9px] font-normal normal-case text-base-content/30 ml-1">(by bot rate)</span>
+                            </h3>
+                            <div hx-get="/Home/TopCountries" hx-trigger="load, every 30s" hx-swap="innerHTML">
+                                <span class="loading loading-spinner loading-xs"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card bg-base-200">
+                        <div class="card-body p-3">
+                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
+                                Bot Clusters
+                                <span class="text-[9px] font-normal normal-case text-base-content/30 ml-1">(discovered)</span>
+                            </h3>
+                            <div hx-get="/Home/Clusters" hx-trigger="load, every 30s" hx-swap="innerHTML">
+                                <span class="loading loading-spinner loading-xs"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- ======== RIGHT COLUMN: Live Feed (3/5) ======== -->
@@ -503,51 +574,6 @@
                     </div>
                 </div>
 
-                <!-- Risk + Bot Types (compact, side by side) -->
-                <div x-show="summary?.riskBandCounts" x-cloak class="grid grid-cols-2 gap-3">
-                    <div class="card bg-base-200">
-                        <div class="card-body p-3">
-                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">Risk Distribution</h3>
-                            <template x-for="band in ['VeryLow','Low','Medium','High','VeryHigh']" :key="band">
-                                <div x-show="summary?.riskBandCounts?.[band] > 0" class="flex items-center gap-1.5 mb-1">
-                                    <span class="text-[10px] w-12 font-medium" :class="riskLabelClass(band)" x-text="band"></span>
-                                    <div class="flex-1 bg-base-300 rounded-full h-2 overflow-hidden">
-                                        <div class="h-full rounded-full" :style="'width:' + Math.max(((summary?.riskBandCounts?.[band] || 0) / (totalCount || 1)) * 100, 3) + '%; background-color:' + alphaColor(riskColor(band), 42)"></div>
-                                    </div>
-                                    <span class="text-[10px] font-mono w-6 text-right" x-text="summary?.riskBandCounts?.[band] || 0"></span>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-                    <div class="card bg-base-200">
-                        <div class="card-body p-3">
-                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
-                                <span x-text="summary?.topBotTypes && Object.keys(summary.topBotTypes).length > 0 ? 'Top Bot Types' : 'Actions Taken'"></span>
-                            </h3>
-                            <template x-if="summary?.topBotTypes && Object.keys(summary.topBotTypes).length > 0">
-                                <div>
-                                    <template x-for="[type, count] in Object.entries(summary.topBotTypes).sort((a,b) => b[1] - a[1]).slice(0, 5)" :key="type">
-                                        <div class="flex items-center justify-between mb-1 text-[11px]">
-                                            <span x-text="type"></span>
-                                            <span class="font-mono opacity-50" x-text="count"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </template>
-                            <template x-if="!summary?.topBotTypes || Object.keys(summary.topBotTypes).length === 0">
-                                <div>
-                                    <template x-for="[action, count] in Object.entries(summary?.topActions || {}).sort((a,b) => b[1] - a[1])" :key="action">
-                                        <div class="flex items-center justify-between mb-1 text-[11px]">
-                                            <span x-text="action"></span>
-                                            <span class="font-mono opacity-50" x-text="count"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Hot Endpoints -->
                 <div x-show="topEndpoints.length > 0" x-cloak class="card bg-base-200">
                     <div class="card-body p-3">
@@ -574,32 +600,6 @@
                             </template>
                         </div>
                         <div class="text-[9px] text-base-content/30 mt-2">Bot % per endpoint from observed traffic</div>
-                    </div>
-                </div>
-
-                <!-- Top Bot Countries + Bot Clusters (side by side) -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div class="card bg-base-200">
-                        <div class="card-body p-3">
-                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
-                                Top Bot Countries
-                                <span class="text-[9px] font-normal normal-case text-base-content/30 ml-1">(by bot rate)</span>
-                            </h3>
-                            <div hx-get="/Home/TopCountries" hx-trigger="load, every 30s" hx-swap="innerHTML">
-                                <span class="loading loading-spinner loading-xs"></span>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="card bg-base-200">
-                        <div class="card-body p-3">
-                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
-                                Bot Clusters
-                                <span class="text-[9px] font-normal normal-case text-base-content/30 ml-1">(discovered)</span>
-                            </h3>
-                            <div hx-get="/Home/Clusters" hx-trigger="load, every 30s" hx-swap="innerHTML">
-                                <span class="loading loading-spinner loading-xs"></span>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>

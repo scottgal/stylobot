@@ -90,6 +90,13 @@ public class DetectionBroadcastMiddleware
                     .Select(c => c.Reason!)
                     .ToList();
 
+                // Extract country code from geo signals if available
+                string? countryCode = null;
+                if (evidence.Signals != null &&
+                    evidence.Signals.TryGetValue("geo.country_code", out var ccObj) &&
+                    ccObj is string cc && cc != "LOCAL")
+                    countryCode = cc;
+
                 var detection = new DashboardDetectionEvent
                 {
                     RequestId = context.TraceIdentifier,
@@ -107,6 +114,7 @@ public class DetectionBroadcastMiddleware
                     StatusCode = context.Response.StatusCode,
                     ProcessingTimeMs = evidence.TotalProcessingTimeMs,
                     PrimarySignature = sigValue,
+                    CountryCode = countryCode,
                     TopReasons = topReasons
                 };
 
@@ -220,6 +228,22 @@ public class DetectionBroadcastMiddleware
             _ => "VeryLow"
         };
 
+        // Read gateway processing time from forwarded header
+        double upstreamProcessingMs = 0;
+        if (context.Request.Headers.TryGetValue("X-Bot-Detection-ProcessingMs", out var procHeader))
+            double.TryParse(procHeader.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out upstreamProcessingMs);
+
+        // Read upstream reasons
+        var topReasons = result.Reasons
+            .Where(r => !string.IsNullOrEmpty(r.Detail))
+            .Take(5)
+            .Select(r => r.Detail!)
+            .ToList();
+
+        // Read upstream country code
+        var upstreamCountry = context.Request.Headers["X-Bot-Detection-Country"].FirstOrDefault();
+
         var detection = new DashboardDetectionEvent
         {
             RequestId = context.TraceIdentifier,
@@ -230,14 +254,15 @@ public class DetectionBroadcastMiddleware
             RiskBand = riskBand,
             BotType = result.BotType?.ToString(),
             BotName = result.BotName,
-            Action = "Allow",
+            Action = context.Request.Headers["X-Bot-Detection-Action"].FirstOrDefault() ?? "Allow",
             PolicyName = "upstream",
             Method = context.Request.Method,
             Path = context.Request.Path.Value ?? "/",
             StatusCode = context.Response.StatusCode,
-            ProcessingTimeMs = 0,
+            ProcessingTimeMs = upstreamProcessingMs,
             PrimarySignature = sigValue,
-            TopReasons = []
+            CountryCode = upstreamCountry,
+            TopReasons = topReasons
         };
 
         detection = detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };

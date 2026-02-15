@@ -124,6 +124,12 @@ public static class YarpExtensions
             // Processing metrics
             addHeader("X-Bot-Detection-ProcessingMs", evidence.TotalProcessingTimeMs.ToString("F2"));
 
+            // Country code from geo enrichment
+            if (evidence.Signals != null &&
+                evidence.Signals.TryGetValue("geo.country_code", out var ccObj) &&
+                ccObj is string cc && cc != "LOCAL")
+                addHeader("X-Bot-Detection-Country", cc);
+
             // Top reasons (JSON array for easy parsing)
             var topReasons = evidence.Contributions
                 .Where(c => !string.IsNullOrEmpty(c.Reason))

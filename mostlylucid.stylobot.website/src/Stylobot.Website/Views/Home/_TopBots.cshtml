@@ -1,20 +1,63 @@
 @using Mostlylucid.BotDetection.UI.Services
 @model IReadOnlyList<CachedVisitor>
 
+@functions {
+    static string CountryFlag(string? code)
+    {
+        if (string.IsNullOrEmpty(code) || code.Length != 2) return "";
+        // Convert 2-letter country code to regional indicator emoji
+        var upper = code.ToUpperInvariant();
+        return string.Concat(
+            char.ConvertFromUtf32(0x1F1E6 + (upper[0] - 'A')),
+            char.ConvertFromUtf32(0x1F1E6 + (upper[1] - 'A')));
+    }
+}
+
 @if (Model.Count > 0)
 {
-    <div class="flex flex-wrap gap-2">
+    <div class="space-y-1">
         @foreach (var bot in Model)
         {
+            var name = bot.BotName ?? bot.PrimarySignature[..Math.Min(8, bot.PrimarySignature.Length)];
+            var prob = (int)Math.Round(bot.BotProbability * 100);
+            var reason = bot.TopReasons.FirstOrDefault();
+            var typeBadge = bot.BotType ?? "Bot";
+            var barColor = prob >= 85 ? "bg-error" : prob >= 60 ? "bg-warning" : "bg-info";
+            var textColor = prob >= 85 ? "text-error" : prob >= 60 ? "text-warning" : "text-info";
+            var flag = CountryFlag(bot.CountryCode);
             <a href="/Home/LiveDemo?sig=@bot.PrimarySignature"
-               class="badge badge-error badge-outline gap-1 text-xs hover:bg-error hover:text-white transition-colors">
-                @(bot.BotName ?? bot.PrimarySignature[..Math.Min(8, bot.PrimarySignature.Length)])
-                <span class="font-bold">@bot.Hits</span>
+               class="block rounded-md border border-base-content/10 bg-base-content/[0.03] hover:bg-base-content/[0.07] transition-colors no-underline p-1.5 group">
+                <div class="flex items-center justify-between gap-1.5 mb-0.5">
+                    <div class="flex items-center gap-1.5 min-w-0">
+                        @if (!string.IsNullOrEmpty(flag))
+                        {
+                            <span class="text-[11px] shrink-0" title="@bot.CountryCode">@flag</span>
+                        }
+                        else
+                        {
+                            <span class="inline-flex items-center justify-center w-4 h-4 rounded text-[8px] font-black text-white bg-error shrink-0">R</span>
+                        }
+                        <span class="text-[11px] font-bold text-base-content truncate" title="@name">@name</span>
+                        <span class="text-[8px] px-1 py-px rounded-sm font-semibold uppercase tracking-wider bg-base-content/10 text-base-content/50 shrink-0">@typeBadge</span>
+                    </div>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <span class="text-[10px] font-bold @textColor">@(prob)%</span>
+                        <span class="text-[9px] text-base-content/30 tabular-nums">@bot.Hits×</span>
+                    </div>
+                </div>
+                <!-- probability bar -->
+                <div class="w-full h-0.5 bg-base-content/5 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full @barColor transition-all" style="width: @(prob)%"></div>
+                </div>
+                @if (!string.IsNullOrEmpty(reason))
+                {
+                    <div class="text-[9px] text-base-content/40 truncate mt-0.5 group-hover:text-base-content/60" title="@reason">@reason</div>
+                }
             </a>
         }
     </div>
 }
 else
 {
-    <div class="text-xs text-base-content/30 italic">No bot activity detected yet</div>
+    <div class="text-[10px] text-base-content/30 italic py-1">No bot activity detected yet</div>
 }

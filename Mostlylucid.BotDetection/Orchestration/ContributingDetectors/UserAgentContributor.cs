@@ -133,19 +133,28 @@ public partial class UserAgentContributor : ConfiguredContributorBase
     private (bool isBot, double confidence, BotType? type, string? name, string reason)
         AnalyzeUserAgent(string userAgent)
     {
-        // Check compiled patterns from data sources
-        if (_patternCache != null)
-            if (_patternCache.MatchesAnyPattern(userAgent, out var matchedPattern))
-                return (true, PatternMatchConfidence, BotType.Unknown, null,
-                    $"Matched pattern: {matchedPattern}");
-
-        // Check common bot indicators
+        // Check common bot indicators FIRST - these provide specific names and types
         if (IsCommonBotPattern(userAgent, out var botType, out var botName))
             return (true, PatternMatchConfidence, botType, botName, $"Known bot pattern: {botName}");
 
+        // Check compiled patterns from data sources (generic regex patterns)
+        if (_patternCache != null)
+            if (_patternCache.MatchesAnyPattern(userAgent, out var matchedPattern))
+            {
+                // Try to extract a meaningful name from the UA string
+                var extractedName = ExtractNameFromUserAgent(userAgent);
+                return (true, PatternMatchConfidence, BotType.Unknown, extractedName,
+                    extractedName != null
+                        ? $"Known bot pattern: {extractedName}"
+                        : $"Matched pattern: {matchedPattern}");
+            }
+
         // Check for suspicious patterns
         if (IsSuspiciousUserAgent(userAgent, out var suspiciousReason))
-            return (true, SuspiciousConfidence, BotType.Unknown, null, suspiciousReason);
+        {
+            var extractedName2 = ExtractNameFromUserAgent(userAgent);
+            return (true, SuspiciousConfidence, BotType.Unknown, extractedName2, suspiciousReason);
+        }
 
         return (false, 0.0, null, null, "Normal user agent");
     }
@@ -153,13 +162,16 @@ public partial class UserAgentContributor : ConfiguredContributorBase
     private static bool IsCommonBotPattern(string userAgent, out BotType? botType, out string? botName)
     {
         // Common bot patterns with high confidence
-        // Using Scraper for automation tools since BotType.Automation doesn't exist
+        // Ordered: specific automation tools first, then known named bots
         var patterns = new (string pattern, BotType type, string name)[]
         {
+            // Automation / scraping tools
             ("curl/", BotType.Scraper, "curl"),
             ("wget/", BotType.Scraper, "wget"),
             ("python-requests", BotType.Scraper, "python-requests"),
             ("python-urllib", BotType.Scraper, "python-urllib"),
+            ("python-httpx", BotType.Scraper, "python-httpx"),
+            ("aiohttp", BotType.Scraper, "aiohttp"),
             ("scrapy", BotType.Scraper, "Scrapy"),
             ("selenium", BotType.Scraper, "Selenium"),
             ("headless", BotType.Scraper, "Headless browser"),
@@ -173,7 +185,41 @@ public partial class UserAgentContributor : ConfiguredContributorBase
             ("okhttp", BotType.Scraper, "OkHttp"),
             ("go-http-client", BotType.Scraper, "Go HTTP client"),
             ("node-fetch", BotType.Scraper, "node-fetch"),
-            ("axios/", BotType.Scraper, "axios")
+            ("axios/", BotType.Scraper, "axios"),
+            ("httpie", BotType.Scraper, "HTTPie"),
+            ("colly", BotType.Scraper, "Colly"),
+            // Search engines (when not whitelisted)
+            ("Googlebot", BotType.SearchEngine, "Googlebot"),
+            ("bingbot", BotType.SearchEngine, "Bingbot"),
+            ("YandexBot", BotType.SearchEngine, "YandexBot"),
+            ("Baiduspider", BotType.SearchEngine, "Baiduspider"),
+            ("DuckDuckBot", BotType.SearchEngine, "DuckDuckBot"),
+            // Social media bots
+            ("facebookexternalhit", BotType.SocialMediaBot, "FacebookBot"),
+            ("Facebot", BotType.SocialMediaBot, "FacebookBot"),
+            ("Twitterbot", BotType.SocialMediaBot, "TwitterBot"),
+            ("LinkedInBot", BotType.SocialMediaBot, "LinkedInBot"),
+            ("Slackbot", BotType.SocialMediaBot, "SlackBot"),
+            ("Discordbot", BotType.SocialMediaBot, "DiscordBot"),
+            ("TelegramBot", BotType.SocialMediaBot, "TelegramBot"),
+            ("WhatsApp", BotType.SocialMediaBot, "WhatsApp"),
+            // AI / LLM crawlers
+            ("GPTBot", BotType.AiBot, "GPTBot"),
+            ("ChatGPT-User", BotType.AiBot, "ChatGPT"),
+            ("ClaudeBot", BotType.AiBot, "ClaudeBot"),
+            ("Claude-Web", BotType.AiBot, "Claude"),
+            ("anthropic-ai", BotType.AiBot, "Anthropic"),
+            ("CCBot", BotType.AiBot, "CommonCrawl"),
+            ("cohere-ai", BotType.AiBot, "Cohere"),
+            ("PerplexityBot", BotType.AiBot, "PerplexityBot"),
+            ("Bytespider", BotType.AiBot, "Bytespider"),
+            // Monitoring / uptime bots
+            ("UptimeRobot", BotType.MonitoringBot, "UptimeRobot"),
+            ("Pingdom", BotType.MonitoringBot, "Pingdom"),
+            ("StatusCake", BotType.MonitoringBot, "StatusCake"),
+            ("Site24x7", BotType.MonitoringBot, "Site24x7"),
+            ("NewRelicPinger", BotType.MonitoringBot, "New Relic"),
+            ("Datadog", BotType.MonitoringBot, "Datadog"),
         };
 
         foreach (var (pattern, type, name) in patterns)
@@ -216,6 +262,35 @@ public partial class UserAgentContributor : ConfiguredContributorBase
         return false;
     }
 
+    /// <summary>
+    ///     Extracts a human-readable name from a User-Agent string.
+    ///     Handles formats like "ToolName/1.2.3", "Mozilla/5.0 (compatible; BotName/2.0; ...)", etc.
+    /// </summary>
+    private static string? ExtractNameFromUserAgent(string userAgent)
+    {
+        // Try "compatible; BotName/version" format (e.g., bingbot, YandexBot)
+        var compatibleMatch = CompatibleBotRegex().Match(userAgent);
+        if (compatibleMatch.Success)
+            return compatibleMatch.Groups[1].Value;
+
+        // Try simple "ToolName/version" format (e.g., curl/8.4.0, Scrapy/2.11)
+        // Only use this for short UAs (not full browser strings)
+        if (!userAgent.Contains("Mozilla/") || userAgent.Length < 60)
+        {
+            var simpleMatch = SimpleToolRegex().Match(userAgent);
+            if (simpleMatch.Success)
+            {
+                var name = simpleMatch.Groups[1].Value;
+                // Skip generic names
+                if (!string.Equals(name, "Mozilla", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(name, "HTTP", StringComparison.OrdinalIgnoreCase))
+                    return name;
+            }
+        }
+
+        return null;
+    }
+
     [GeneratedRegex(@"\b(bot|crawler|spider|scraper)\b", RegexOptions.IgnoreCase)]
     private static partial Regex BotKeywordRegex();
 
@@ -224,6 +299,12 @@ public partial class UserAgentContributor : ConfiguredContributorBase
 
     [GeneratedRegex(@"Chrome/(\d+)")]
     private static partial Regex ChromeVersionRegex();
+
+    [GeneratedRegex(@"compatible;\s*([A-Za-z][A-Za-z0-9_-]+)")]
+    private static partial Regex CompatibleBotRegex();
+
+    [GeneratedRegex(@"^([A-Za-z][A-Za-z0-9_.-]+)/[\d.]")]
+    private static partial Regex SimpleToolRegex();
 }
 
 /// <summary>

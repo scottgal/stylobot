@@ -328,7 +328,8 @@ internal static class DashboardHtmlTemplate
         }})();
     </script>
 
-    <!-- Tailwind + DaisyUI -->
+    <!-- Tailwind CSS + DaisyUI -->
+    <script src=""https://cdn.tailwindcss.com""></script>
     <link href=""https://cdn.jsdelivr.net/npm/daisyui@4.6.0/dist/full.min.css"" rel=""stylesheet"" type=""text/css"" />
 
     <!-- Alpine.js -->
@@ -729,6 +730,7 @@ internal static class DashboardHtmlTemplate
                                         <div><span class=""opacity-40"">Confidence:</span> <span class=""font-bold"" x-text=""((sig.confidence || 0) * 100).toFixed(0) + '%'""></span></div>
                                         <div><span class=""opacity-40"">Bot Type:</span> <span x-text=""sig.botType || '-'""></span></div>
                                         <div><span class=""opacity-40"">Action:</span> <span x-text=""sig.action || 'Allow'""></span></div>
+                                        <div x-show=""sig.countryCode""><span class=""opacity-40"">Country:</span> <span x-text=""sig.countryCode""></span></div>
                                         <div x-show=""sig.lastPath""><span class=""opacity-40"">Last Path:</span> <code class=""font-mono"" x-text=""sig.lastPath""></code></div>
                                         <div x-show=""sig.firstSeen""><span class=""opacity-40"">First Seen:</span> <span x-text=""new Date(sig.firstSeen).toLocaleTimeString()""></span></div>
                                     </div>
@@ -1042,6 +1044,13 @@ internal static class DashboardHtmlTemplate
                                 const sig = cell.getValue();
                                 const name = row.botName;
                                 return name ? `${{name}} (${{sig}})` : sig ? `Client Signature: ${{sig}}` : '';
+                            }} }},
+                            {{ title: '', field: 'countryCode', width: 36, hozAlign: 'center', formatter: (cell) => {{
+                                const cc = cell.getValue();
+                                if (!cc || cc.length !== 2) return '';
+                                const cp1 = 0x1F1E6 + cc.toUpperCase().charCodeAt(0) - 65;
+                                const cp2 = 0x1F1E6 + cc.toUpperCase().charCodeAt(1) - 65;
+                                return `<span title=""${{cc}}"" style=""font-size:14px"">${{String.fromCodePoint(cp1)}}${{String.fromCodePoint(cp2)}}</span>`;
                             }} }},
                             {{ title: 'Type', field: 'isBot', width: 80, formatter: (cell) => {{
                                 const isBot = cell.getValue();
