@@ -150,9 +150,9 @@ public class BehavioralDetectorTests
             ["X-Forwarded-For"] = "10.0.0.1, 192.168.1.1"
         });
 
-        // Act
+        // Act - exceed the warmup rate limit (MaxRequestsPerMinute * 2 = 10)
         DetectorResult result = null!;
-        for (var i = 0; i < 10; i++) result = await detector.DetectAsync(context);
+        for (var i = 0; i < 15; i++) result = await detector.DetectAsync(context);
 
         // Assert
         Assert.True(result.Confidence >= 0.3, "Should track by X-Forwarded-For IP");
