@@ -10,8 +10,9 @@ COPY Mostlylucid.BotDetection.UI.PostgreSQL/Mostlylucid.BotDetection.UI.PostgreS
 COPY Mostlylucid.Common/Mostlylucid.Common.csproj Mostlylucid.Common/
 COPY Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj Mostlylucid.GeoDetection/
 COPY Mostlylucid.GeoDetection.Contributor/Mostlylucid.GeoDetection.Contributor.csproj Mostlylucid.GeoDetection.Contributor/
-# BotDetection.csproj reads ReleaseNotes.txt during restore for PackageReleaseNotes
+# csproj files read ReleaseNotes.txt during restore for PackageReleaseNotes
 COPY Mostlylucid.BotDetection/ReleaseNotes.txt Mostlylucid.BotDetection/
+COPY Mostlylucid.GeoDetection/ReleaseNotes.txt Mostlylucid.GeoDetection/
 RUN dotnet restore Stylobot.Gateway/Stylobot.Gateway.csproj
 
 # Copy source and publish with optimizations
