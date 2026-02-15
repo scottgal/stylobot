@@ -1,6 +1,7 @@
 # ============================================================
-# Caddyfile for stylobot.net
-# Automatic HTTPS via Let's Encrypt
+# Caddyfile for Stylobot
+# Automatic HTTPS via Let's Encrypt for stylobot.net
+# Fallback routing for any other host (local dev, testing, etc)
 # ============================================================
 #
 # Architecture:
@@ -19,16 +20,11 @@
 	email scott.galloway+sb@gmail.com
 }
 
-# ============================================================
-# Production: stylobot.net
-# ============================================================
-stylobot.net, www.stylobot.net {
-
-	# ----------------------------------------------------------
+# Define shared routing logic for all hosts
+(common_routes) {
 	# Dashboard: route /_stylobot* directly to website container
 	# (SignalR WebSocket upgrades fail through YARP, and
 	# dashboard API/UI must bypass the gateway proxy)
-	# ----------------------------------------------------------
 	handle /_stylobot* {
 		reverse_proxy website:8080 {
 			header_up X-Real-IP {remote_host}
@@ -38,9 +34,7 @@ stylobot.net, www.stylobot.net {
 		}
 	}
 
-	# ----------------------------------------------------------
 	# Everything else → YARP gateway (bot detection layer)
-	# ----------------------------------------------------------
 	handle {
 		reverse_proxy gateway:8080 {
 			health_uri /health
@@ -54,9 +48,7 @@ stylobot.net, www.stylobot.net {
 		}
 	}
 
-	# ----------------------------------------------------------
 	# Security Headers
-	# ----------------------------------------------------------
 	header {
 		# HSTS (1 year, subdomains, preload-ready)
 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
@@ -73,23 +65,19 @@ stylobot.net, www.stylobot.net {
 		# Permissions policy (disable unused browser features)
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
 
-		# ----------------------------------------------------------
 		# Content Security Policy
-		#
-		# What each source is for:
-		#   'self'                         - local scripts/styles/fonts/images
-		#   'unsafe-inline'                - Alpine.js :style bindings + theme <script>
-		#   'unsafe-eval'                  - Alpine.js uses new Function() for x-data/x-text/x-show expressions
-		#   cdn.jsdelivr.net               - SignalR client library + DaisyUI CSS (dashboard)
-		#   cdn.tailwindcss.com            - Tailwind CSS CDN (dashboard)
-		#   unpkg.com                      - boxicons (CSS + fonts)
-		#   fonts.googleapis.com           - Google Fonts CSS (Raleway)
-		#   fonts.gstatic.com              - Google Fonts WOFF2 files
-		#   umami.mostlylucid.net          - Umami analytics script + beacons
-		#   api.web3forms.com              - Contact form submission API
-		#   wss: ws:                       - SignalR WebSocket connections
-		#   data: blob:                    - inline SVGs, canvas blobs
-		# ----------------------------------------------------------
+		# 'self'                    - local scripts/styles/fonts/images
+		# 'unsafe-inline'           - Alpine.js :style bindings + theme <script>
+		# 'unsafe-eval'             - Alpine.js uses new Function() for expressions
+		# cdn.jsdelivr.net          - SignalR client library + DaisyUI CSS
+		# cdn.tailwindcss.com       - Tailwind CSS CDN (dashboard)
+		# unpkg.com                 - boxicons (CSS + fonts)
+		# fonts.googleapis.com      - Google Fonts CSS (Raleway)
+		# fonts.gstatic.com         - Google Fonts WOFF2 files
+		# umami.mostlylucid.net     - Umami analytics script + beacons
+		# api.web3forms.com         - Contact form submission API
+		# wss: ws:                  - SignalR WebSocket connections
+		# data: blob:               - inline SVGs, canvas blobs
 		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdn.tailwindcss.com https://unpkg.com https://umami.mostlylucid.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com https://unpkg.com; font-src 'self' https://fonts.gstatic.com https://unpkg.com; img-src 'self' data: blob: https:; connect-src 'self' wss: ws: https://api.web3forms.com https://umami.mostlylucid.net; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https://api.web3forms.com"
 
 		# Remove server identity header
@@ -106,13 +94,13 @@ stylobot.net, www.stylobot.net {
 	}
 }
 
-# ============================================================
-# Development / localhost fallback (no TLS)
-# ============================================================
-:80 {
-	reverse_proxy website:8080 {
-		header_up X-Real-IP {remote_host}
-		header_up X-Forwarded-For {remote_host}
-		header_up X-Forwarded-Proto {scheme}
-	}
+# Production domains with HTTPS via Let's Encrypt
+stylobot.net, www.stylobot.net {
+	import common_routes
+}
+
+# Wildcard matcher for any other hostname (localhost, IPs, internal domains, etc)
+# Caddy will handle TLS appropriately based on the host
+:443, :80 {
+	import common_routes
 }

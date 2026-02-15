@@ -85,8 +85,8 @@ builder.Services.AddGeoRouting(
         options.Provider = geoProvider;
         options.DatabasePath = config["GeoLite2:DatabasePath"] ?? "data/GeoLite2-City.mmdb";
         options.FallbackToSimple = true;
-        options.EnableAutoUpdate = config.GetValue("GeoLite2:EnableAutoUpdate", true);
-        options.DownloadOnStartup = config.GetValue("GeoLite2:DownloadOnStartup", true);
+        options.EnableAutoUpdate = config.GetValue("GeoLite2:EnableAutoUpdate", !builder.Environment.IsProduction());
+        options.DownloadOnStartup = config.GetValue("GeoLite2:DownloadOnStartup", false);
         options.LicenseKey = config["GeoLite2:LicenseKey"];
         if (int.TryParse(config["GeoLite2:AccountId"], out var accountId))
             options.AccountId = accountId;
