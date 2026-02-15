@@ -6,6 +6,8 @@ using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.UI.PostgreSQL.Extensions;
 using Mostlylucid.GeoDetection.Contributor.Extensions;
+using Mostlylucid.GeoDetection.Extensions;
+using Mostlylucid.GeoDetection.Models;
 using Stylobot.Gateway.Configuration;
 using Stylobot.Gateway.Data;
 using Stylobot.Gateway.Endpoints;
@@ -112,7 +114,21 @@ try
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
 
-    // Add geo detection for country code enrichment on all requests
+    // Add geo detection services (IP lookup via ip-api.com fallback)
+    builder.Services.AddGeoRouting(
+        configureRouting: options =>
+        {
+            options.Enabled = true;
+            options.AddCountryHeader = true;
+            options.StoreInContext = true;
+        },
+        configureProvider: options =>
+        {
+            options.Provider = GeoProvider.IpApi;
+            options.FallbackToSimple = true;
+        });
+
+    // Add geo detection contributor for country code enrichment on all requests
     builder.Services.AddGeoDetectionContributor(options =>
     {
         options.EnableBotVerification = true;
