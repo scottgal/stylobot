@@ -175,7 +175,12 @@
       "Bash(xargs:*)",
       "Bash(/tmp/verify_updates.sh:*)",
       "Bash(chmod:*)",
-      "Bash(bash /tmp/verify_updates.sh)"
+      "Bash(bash /tmp/verify_updates.sh)",
+      "Bash(/tmp/check_qdrant.sh:*)",
+      "WebFetch(domain:qdrant.tech)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:fossies.org)",
+      "WebFetch(domain:hub-data.crowdsec.net)"
     ]
   }
 }

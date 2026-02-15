@@ -738,6 +738,7 @@ public class EphemeralDetectionOrchestrator : IAsyncDisposable
             HttpContext = httpContext,
             Signals = new Dictionary<string, object>(signals),
             CurrentRiskScore = aggregated.BotProbability,
+            DetectionConfidence = aggregated.Confidence,
             CompletedDetectors = completedResults.Select(r => r.Contributor).ToHashSet(),
             FailedDetectors = aggregated.FailedDetectors,
             Contributions = aggregated.Contributions,

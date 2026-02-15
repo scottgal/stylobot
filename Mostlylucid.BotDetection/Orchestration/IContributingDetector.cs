@@ -290,9 +290,15 @@ public sealed class BlackboardState
     public required IReadOnlyDictionary<string, object> Signals { get; init; }
 
     /// <summary>
-    ///     Current aggregated risk score (0.0 to 1.0)
+    ///     Current aggregated risk score (0.0 to 1.0) — bot probability.
     /// </summary>
     public double CurrentRiskScore { get; init; }
+
+    /// <summary>
+    ///     Current detection confidence (0.0 to 1.0) — how certain the system is in its verdict.
+    ///     Independent of <see cref="CurrentRiskScore" />. Based on detector coverage, agreement, and evidence weight.
+    /// </summary>
+    public double DetectionConfidence { get; init; }
 
     /// <summary>
     ///     Which detectors have already run

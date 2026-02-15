@@ -177,8 +177,11 @@ public class BehavioralDetector : IDetector
         }
 
         // ===== Request Timing Analysis =====
+        // Always record timings, but only flag during non-warmup.
+        // Browser page loads produce regular-interval JS-triggered requests that
+        // would otherwise cause false positives.
         var timingPattern = AnalyzeRequestTiming(ipAddress);
-        if (timingPattern.IsSuspicious)
+        if (!isWarmingUp && timingPattern.IsSuspicious)
         {
             confidence += 0.3;
             reasons.Add(new DetectionReason
@@ -190,25 +193,21 @@ public class BehavioralDetector : IDetector
         }
 
         // Check for rapid sequential requests (no human delay)
+        // During warmup, skip this entirely — browsers make parallel HTTP/2 requests
+        // on page load (CSS, JS, images, XHR) arriving simultaneously at 0ms intervals.
         var lastRequestTime = GetLastRequestTime(ipAddress);
-        if (lastRequestTime.HasValue)
+        if (!isWarmingUp && lastRequestTime.HasValue)
         {
             var timeSinceLastRequest = (currentTime - lastRequestTime.Value).TotalMilliseconds;
 
-            // During warmup, allow rapid parallel requests (browser loading resources)
-            // But still flag sub-50ms as suspicious (likely automated)
-            var rapidThreshold = isWarmingUp ? 50.0 : 100.0;
-
-            if (timeSinceLastRequest < rapidThreshold)
+            if (timeSinceLastRequest < 100)
             {
                 var impact = timeSinceLastRequest < 50 ? 0.4 : 0.25;
                 confidence += impact;
                 reasons.Add(new DetectionReason
                 {
                     Category = "Behavioral",
-                    Detail = isWarmingUp
-                        ? $"Extremely fast requests during warmup: {timeSinceLastRequest:F0}ms between requests"
-                        : $"Extremely fast requests: {timeSinceLastRequest:F0}ms between requests",
+                    Detail = $"Extremely fast requests: {timeSinceLastRequest:F0}ms between requests",
                     ConfidenceImpact = impact
                 });
             }
@@ -431,7 +430,10 @@ public class BehavioralDetector : IDetector
         _cache.Set(key, timings, TimeSpan.FromMinutes(5));
 
         // Check if requests are too evenly spaced (bot-like)
-        if (timings.Count >= 5)
+        // Require 8+ requests for statistical reliability.
+        // stdDev < 0.2 catches real bots (near-identical intervals) while
+        // allowing normal browser JS-triggered XHR which has stdDev 0.3-0.6.
+        if (timings.Count >= 8)
         {
             var intervals = new List<double>();
             for (var i = 1; i < timings.Count; i++) intervals.Add((timings[i] - timings[i - 1]).TotalSeconds);
@@ -442,7 +444,7 @@ public class BehavioralDetector : IDetector
             var stdDev = Math.Sqrt(variance);
 
             // Very low standard deviation means requests are too regular
-            if (stdDev < 0.5 && mean < 5) return (true, $"Too regular interval: {mean:F2}s ± {stdDev:F2}s");
+            if (stdDev < 0.2 && mean < 5) return (true, $"Too regular interval: {mean:F2}s ± {stdDev:F2}s");
         }
 
         return (false, string.Empty);

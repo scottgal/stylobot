@@ -68,11 +68,46 @@ public static partial class HttpContextExtensions
     }
 
     /// <summary>
+    ///     Gets the bot probability score (0.0 to 1.0) — how likely this request is from a bot.
+    ///     Returns 0.0 if detection hasn't run.
+    /// </summary>
+    public static double GetBotProbability(this HttpContext context)
+    {
+        if (context.Items.TryGetValue(Middleware.BotDetectionMiddleware.AggregatedEvidenceKey, out var obj) &&
+            obj is Orchestration.AggregatedEvidence evidence)
+            return evidence.BotProbability;
+        return context.GetBotDetectionResult()?.ConfidenceScore ?? 0.0;
+    }
+
+    /// <summary>
+    ///     Gets the detection confidence (0.0 to 1.0) — how certain the system is in its verdict,
+    ///     independent of the bot probability. High confidence with low probability means
+    ///     "we're very sure this is human". Based on detector coverage, agreement, and evidence weight.
+    ///     Returns 0.0 if detection hasn't run.
+    /// </summary>
+    public static double GetDetectionConfidence(this HttpContext context)
+    {
+        if (context.Items.TryGetValue(Middleware.BotDetectionMiddleware.AggregatedEvidenceKey, out var obj) &&
+            obj is Orchestration.AggregatedEvidence evidence)
+            return evidence.Confidence;
+        return 0.0;
+    }
+
+    /// <summary>
     ///     Gets the bot confidence score (0.0 to 1.0).
     ///     Returns 0.0 if detection hasn't run.
     /// </summary>
+    /// <remarks>
+    ///     This returns the bot probability (likelihood of being a bot), not the detection confidence.
+    ///     For decision certainty, use <see cref="GetDetectionConfidence" />.
+    ///     For bot likelihood, prefer <see cref="GetBotProbability" />.
+    /// </remarks>
     public static double GetBotConfidence(this HttpContext context)
     {
+        // Check AggregatedEvidence first (has correct separated values)
+        if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var obj) &&
+            obj is AggregatedEvidence evidence)
+            return evidence.BotProbability;
         return context.GetBotDetectionResult()?.ConfidenceScore ?? 0.0;
     }
 
@@ -157,14 +192,14 @@ public static partial class HttpContextExtensions
     }
 
     /// <summary>
-    ///     Checks if the confidence score meets a minimum threshold.
+    ///     Checks if the bot probability meets a minimum threshold.
     /// </summary>
     /// <param name="context">The HttpContext</param>
-    /// <param name="threshold">Minimum confidence threshold (0.0-1.0)</param>
-    /// <returns>True if detected as a bot with confidence at or above the threshold.</returns>
+    /// <param name="threshold">Minimum bot probability threshold (0.0-1.0)</param>
+    /// <returns>True if detected as a bot with probability at or above the threshold.</returns>
     public static bool IsBotWithConfidence(this HttpContext context, double threshold)
     {
-        return context.IsBot() && context.GetBotConfidence() >= threshold;
+        return context.IsBot() && context.GetBotProbability() >= threshold;
     }
 
     // ==========================================
@@ -178,6 +213,11 @@ public static partial class HttpContextExtensions
     /// <returns>A RiskBand indicating the risk level of the request.</returns>
     public static RiskBand GetRiskBand(this HttpContext context)
     {
+        // Prefer the orchestrator's already-computed RiskBand from AggregatedEvidence
+        if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var obj) &&
+            obj is AggregatedEvidence evidence)
+            return evidence.RiskBand;
+
         var result = context.GetBotDetectionResult();
         if (result == null)
             return RiskBand.Unknown;

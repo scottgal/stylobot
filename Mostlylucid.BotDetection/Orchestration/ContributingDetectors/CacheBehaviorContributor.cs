@@ -46,8 +46,10 @@ public class CacheBehaviorContributor : ContributingDetectorBase
         var context = state.HttpContext;
         var request = context.Request;
 
-        // Get client identifier
-        var clientIp = GetClientIp(context);
+        // Get client identifier - prefer resolved IP from IpContributor
+        var clientIp = state.Signals.TryGetValue(SignalKeys.ClientIp, out var ipObj)
+            ? ipObj?.ToString()
+            : GetClientIp(context);
         if (string.IsNullOrEmpty(clientIp))
             return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
 
@@ -139,22 +141,25 @@ public class CacheBehaviorContributor : ContributingDetectorBase
         // Analyze profile after sufficient requests
         if (profile.TotalRequests >= 10)
         {
-            var cacheValidationRate = (double)profile.RequestsWithCacheValidation / profile.StaticResourceRequests;
-
             // Browser should use cache validation on at least 30% of static resource revisits
-            if (profile.StaticResourceRequests > 5 && cacheValidationRate < 0.3)
-                contributions.Add(new DetectionContribution
-                {
-                    DetectorName = Name,
-                    Category = "CacheBehavior",
-                    ConfidenceDelta = 0.3,
-                    Weight = 1.5,
-                    Reason =
-                        $"Client rarely reuses cached resources ({cacheValidationRate:P0} of static files) unlike real browsers",
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add(SignalKeys.CacheBehaviorAnomaly, true)
-                        .Add("CacheValidationRate", cacheValidationRate)
-                });
+            // Guard: only compute rate when there are enough static requests to be meaningful
+            if (profile.StaticResourceRequests > 5)
+            {
+                var cacheValidationRate = (double)profile.RequestsWithCacheValidation / profile.StaticResourceRequests;
+                if (cacheValidationRate < 0.3)
+                    contributions.Add(new DetectionContribution
+                    {
+                        DetectorName = Name,
+                        Category = "CacheBehavior",
+                        ConfidenceDelta = 0.3,
+                        Weight = 1.5,
+                        Reason =
+                            $"Client rarely reuses cached resources ({cacheValidationRate:P0} of static files) unlike real browsers",
+                        Signals = ImmutableDictionary<string, object>.Empty
+                            .Add(SignalKeys.CacheBehaviorAnomaly, true)
+                            .Add("CacheValidationRate", cacheValidationRate)
+                    });
+            }
         }
 
         // 5. Positive signal: Good cache behavior

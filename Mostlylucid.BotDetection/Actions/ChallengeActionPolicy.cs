@@ -1,3 +1,6 @@
+using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Orchestration;
@@ -120,12 +123,51 @@ public class ChallengeActionPolicy : IActionPolicy
     {
         if (!_options.UseTokens) return false;
 
-        if (context.Request.Cookies.TryGetValue(_options.TokenCookieName, out var token))
-            // In a real implementation, validate the token signature and expiry
-            // This is a simplified check
-            return !string.IsNullOrEmpty(token);
+        if (!context.Request.Cookies.TryGetValue(_options.TokenCookieName, out var token)
+            || string.IsNullOrEmpty(token))
+            return false;
 
-        return false;
+        // Token format: base64(expiry_unix_seconds:signature)
+        // Signature = HMAC-SHA256(expiry_unix_seconds, key)
+        try
+        {
+            var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(token));
+            var colonIndex = decoded.IndexOf(':');
+            if (colonIndex < 0) return false;
+
+            var expiryStr = decoded[..colonIndex];
+            var providedSignature = decoded[(colonIndex + 1)..];
+
+            // Check expiry
+            if (!long.TryParse(expiryStr, out var expiryUnix)) return false;
+            var expiry = DateTimeOffset.FromUnixTimeSeconds(expiryUnix);
+            if (DateTimeOffset.UtcNow > expiry) return false;
+
+            // Verify HMAC signature
+            var key = Encoding.UTF8.GetBytes(_options.TokenSecret ?? _options.TokenCookieName);
+            var expectedSignature = Convert.ToHexString(
+                HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(expiryStr)));
+
+            return CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(providedSignature),
+                Encoding.UTF8.GetBytes(expectedSignature));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    ///     Generates a signed challenge token with expiry.
+    /// </summary>
+    internal static string GenerateChallengeToken(ChallengeActionOptions options)
+    {
+        var expiry = DateTimeOffset.UtcNow.AddMinutes(options.TokenValidityMinutes).ToUnixTimeSeconds();
+        var expiryStr = expiry.ToString();
+        var key = Encoding.UTF8.GetBytes(options.TokenSecret ?? options.TokenCookieName);
+        var signature = Convert.ToHexString(HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(expiryStr)));
+        return Convert.ToBase64String(Encoding.UTF8.GetBytes($"{expiryStr}:{signature}"));
     }
 
     private Task<ActionResult> HandleRedirectChallenge(
@@ -162,11 +204,14 @@ public class ChallengeActionPolicy : IActionPolicy
         context.Response.StatusCode = _options.ChallengeStatusCode;
         context.Response.ContentType = "text/html";
 
+        var encodedScript = WebUtility.HtmlEncode(_options.ChallengeScript);
+        var encodedName = WebUtility.HtmlEncode(Name);
+        var returnUrl = Uri.EscapeDataString(context.Request.Path + context.Request.QueryString);
         var html = $@"<!DOCTYPE html>
 <html>
 <head>
     <title>Verifying your browser...</title>
-    <script src=""{_options.ChallengeScript}""></script>
+    <script src=""{encodedScript}""></script>
 </head>
 <body>
     <div id=""challenge-container"">
@@ -177,9 +222,9 @@ public class ChallengeActionPolicy : IActionPolicy
     </div>
     <script>
         window.__botChallenge = {{
-            policy: '{Name}',
+            policy: '{encodedName}',
             risk: {evidence.BotProbability:F3},
-            returnUrl: '{Uri.EscapeDataString(context.Request.Path + context.Request.QueryString)}'
+            returnUrl: '{returnUrl}'
         }};
     </script>
 </body>
@@ -198,6 +243,9 @@ public class ChallengeActionPolicy : IActionPolicy
         context.Response.ContentType = "text/html";
 
         var returnUrl = context.Request.Path + context.Request.QueryString;
+        var encodedChallengeUrl = WebUtility.HtmlEncode(_options.ChallengeUrl);
+        var encodedReturnUrl = WebUtility.HtmlEncode(Uri.EscapeDataString(returnUrl));
+        var encodedSiteKey = WebUtility.HtmlEncode(_options.CaptchaSiteKey);
         var html = $@"<!DOCTYPE html>
 <html>
 <head>
@@ -208,9 +256,9 @@ public class ChallengeActionPolicy : IActionPolicy
     <div style=""max-width: 400px; margin: 100px auto; text-align: center;"">
         <h1>Human Verification Required</h1>
         <p>Please complete the challenge below to continue.</p>
-        <form method=""POST"" action=""{_options.ChallengeUrl}"">
-            <input type=""hidden"" name=""returnUrl"" value=""{Uri.EscapeDataString(returnUrl)}"" />
-            {(!string.IsNullOrEmpty(_options.CaptchaSiteKey) ? $@"<div class=""g-recaptcha"" data-sitekey=""{_options.CaptchaSiteKey}""></div>" : "<p>[CAPTCHA placeholder - configure CaptchaSiteKey]</p>")}
+        <form method=""POST"" action=""{encodedChallengeUrl}"">
+            <input type=""hidden"" name=""returnUrl"" value=""{encodedReturnUrl}"" />
+            {(!string.IsNullOrEmpty(_options.CaptchaSiteKey) ? $@"<div class=""g-recaptcha"" data-sitekey=""{encodedSiteKey}""></div>" : "<p>[CAPTCHA placeholder - configure CaptchaSiteKey]</p>")}
             <br/>
             <button type=""submit"">Verify</button>
         </form>
@@ -236,6 +284,8 @@ public class ChallengeActionPolicy : IActionPolicy
         context.Response.StatusCode = _options.ChallengeStatusCode;
         context.Response.ContentType = "text/html";
 
+        var encodedChallengeUrl = WebUtility.HtmlEncode(_options.ChallengeUrl);
+        var encodedReturnUrl = WebUtility.HtmlEncode(Uri.EscapeDataString(context.Request.Path + context.Request.QueryString));
         var html = $@"<!DOCTYPE html>
 <html>
 <head>
@@ -269,11 +319,11 @@ public class ChallengeActionPolicy : IActionPolicy
                     // Submit proof
                     const form = document.createElement('form');
                     form.method = 'POST';
-                    form.action = '{_options.ChallengeUrl}';
+                    form.action = '{encodedChallengeUrl}';
                     form.innerHTML = `
                         <input type=""hidden"" name=""challenge"" value=""${{challenge}}"" />
                         <input type=""hidden"" name=""nonce"" value=""${{nonce}}"" />
-                        <input type=""hidden"" name=""returnUrl"" value=""{Uri.EscapeDataString(context.Request.Path + context.Request.QueryString)}"" />
+                        <input type=""hidden"" name=""returnUrl"" value=""{encodedReturnUrl}"" />
                     `;
                     document.body.appendChild(form);
                     form.submit();
@@ -304,6 +354,10 @@ public class ChallengeActionPolicy : IActionPolicy
 
     private string GenerateChallengeHtml(HttpContext context, AggregatedEvidence evidence)
     {
+        var encodedTitle = WebUtility.HtmlEncode(_options.ChallengeTitle);
+        var encodedMessage = WebUtility.HtmlEncode(_options.ChallengeMessage);
+        var encodedChallengeUrl = WebUtility.HtmlEncode(_options.ChallengeUrl);
+        var encodedReturnUrl = WebUtility.HtmlEncode(Uri.EscapeDataString(context.Request.Path + context.Request.QueryString));
         return $@"<!DOCTYPE html>
 <html>
 <head>
@@ -319,10 +373,10 @@ public class ChallengeActionPolicy : IActionPolicy
 </head>
 <body>
     <div class=""container"">
-        <h1>{_options.ChallengeTitle}</h1>
-        <p>{_options.ChallengeMessage}</p>
-        <form method=""POST"" action=""{_options.ChallengeUrl}"">
-            <input type=""hidden"" name=""returnUrl"" value=""{Uri.EscapeDataString(context.Request.Path + context.Request.QueryString)}"" />
+        <h1>{encodedTitle}</h1>
+        <p>{encodedMessage}</p>
+        <form method=""POST"" action=""{encodedChallengeUrl}"">
+            <input type=""hidden"" name=""returnUrl"" value=""{encodedReturnUrl}"" />
             <button type=""submit"" class=""button"">Continue</button>
         </form>
     </div>
@@ -399,6 +453,12 @@ public class ChallengeActionOptions
     ///     Default: 30
     /// </summary>
     public int TokenValidityMinutes { get; set; } = 30;
+
+    /// <summary>
+    ///     HMAC secret for signing challenge tokens.
+    ///     If null, falls back to TokenCookieName (insecure - set this in production).
+    /// </summary>
+    public string? TokenSecret { get; set; }
 
     /// <summary>
     ///     JavaScript file URL for JavaScript challenge type.

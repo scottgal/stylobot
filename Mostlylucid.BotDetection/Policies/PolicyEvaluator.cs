@@ -264,6 +264,21 @@ public class PolicyEvaluator : IPolicyEvaluator
 
     private bool ShouldTransition(PolicyTransition transition, BlackboardState state)
     {
+        // Guard: transitions with no conditions are misconfigured — never fire them.
+        // A transition must have at least one condition to prevent accidental unconditional triggers.
+        var hasConditions = transition.WhenRiskExceeds.HasValue
+                            || transition.WhenRiskBelow.HasValue
+                            || !string.IsNullOrEmpty(transition.WhenSignal)
+                            || !string.IsNullOrEmpty(transition.WhenReputationState);
+
+        if (!hasConditions)
+        {
+            _logger.LogWarning(
+                "Skipping transition with no conditions: {Description}",
+                transition.Description ?? "unnamed");
+            return false;
+        }
+
         // Check risk threshold conditions
         if (transition.WhenRiskExceeds.HasValue &&
             state.CurrentRiskScore < transition.WhenRiskExceeds.Value)

@@ -69,6 +69,19 @@ public class BotPolicyAttribute : Attribute, IFilterMetadata
     public double BlockThreshold { get; set; } = -1; // -1 means use policy default
 
     /// <summary>
+    ///     Minimum confidence required before blocking decisions take effect.
+    ///     Even if bot probability exceeds <see cref="BlockThreshold" />, blocking only
+    ///     occurs when confidence meets this gate. This prevents low-evidence verdicts
+    ///     from triggering blocks. Range: 0.0-1.0. Default: -1 (use policy default).
+    /// </summary>
+    /// <example>
+    ///     // Only block when highly confident the detection is accurate
+    ///     [BotPolicy("strict", BlockThreshold = 0.7, MinConfidence = 0.9)]
+    ///     public IActionResult Payment() { }
+    /// </example>
+    public double MinConfidence { get; set; } = -1; // -1 means use policy default
+
+    /// <summary>
     ///     Name of the action policy to use for this endpoint.
     ///     Overrides the detection policy's default action policy.
     ///     Reference any named action policy (built-in or custom).
@@ -134,6 +147,16 @@ public class BotDetectorAttribute : Attribute, IFilterMetadata
     ///     Default: 0.3
     /// </summary>
     public double AllowThreshold { get; set; } = 0.3;
+
+    /// <summary>
+    ///     Minimum confidence required before blocking decisions take effect.
+    ///     Even if bot probability exceeds <see cref="BlockThreshold" />, blocking only
+    ///     occurs when confidence meets this gate. Default: 0 (no confidence gate).
+    /// </summary>
+    /// <example>
+    ///     [BotDetector("UserAgent,Header", BlockThreshold = 0.7, MinConfidence = 0.85)]
+    /// </example>
+    public double MinConfidence { get; set; }
 
     /// <summary>
     ///     Action to take when block threshold is exceeded.

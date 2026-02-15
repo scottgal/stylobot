@@ -64,6 +64,8 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
+      # Trust all forwarded headers from Caddy (internal Docker network)
+      - TRUST_ALL_FORWARDED_PROXIES=true
       # Gateway configuration
       - GATEWAY_DEMO_MODE=true
       - Gateway__DemoMode__PassAllHeaders=true
@@ -131,6 +133,10 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
+      # Trust all forwarded headers from gateway (internal Docker network)
+      - TRUST_ALL_FORWARDED_PROXIES=true
+      # Trust upstream detection from YARP gateway (skip re-running detectors)
+      - BOTDETECTION_TRUST_UPSTREAM=true
       # Bot Detection Configuration (can be overridden in .env)
       - BOTDETECTION_THRESHOLD=${BOTDETECTION_THRESHOLD:-0.7}
       - BOTDETECTION_BLOCK_BOTS=${BOTDETECTION_BLOCK_BOTS:-false}

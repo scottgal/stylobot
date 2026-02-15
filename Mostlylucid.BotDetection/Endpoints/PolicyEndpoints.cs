@@ -190,6 +190,7 @@ public static class PolicyEndpoints
                 HttpContext = null!,
                 Signals = step.Signals ?? new Dictionary<string, object>(),
                 CurrentRiskScore = step.RiskScore,
+                DetectionConfidence = step.RiskScore, // Simulation: confidence defaults to risk score
                 CompletedDetectors = step.CompletedDetectors?.ToHashSet() ?? new HashSet<string>(),
                 FailedDetectors = new HashSet<string>(),
                 Contributions = [],

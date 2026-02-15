@@ -248,6 +248,10 @@ public static class SignalKeys
     public const string HeuristicConfidence = "heuristic.confidence";
     public const string HeuristicEarlyCompleted = "heuristic.early_completed";
 
+    // Late heuristic signals (runs after all detectors, uses full evidence)
+    public const string HeuristicLatePrediction = "heuristic.late_prediction";
+    public const string HeuristicLateConfidence = "heuristic.late_confidence";
+
     // ==========================================
     // Security tool detection signals
     // Set by SecurityToolContributor when penetration testing tools are detected

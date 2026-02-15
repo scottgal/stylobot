@@ -60,11 +60,12 @@ public class UserAgentPatternTrigger : ILearningTrigger
 
     public bool ShouldTrigger(BlackboardState state, string signal, object? signalValue)
     {
-        // Only trigger on high-confidence detections
-        if (signal == "ua.bot_probability" && signalValue is double prob) return prob >= 0.85; // High confidence
-
-        // Always trigger on specific pattern matches
+        // Specific pattern matches are high-confidence quick matches — always trigger
         if (signal is "ua.pattern_match" or "ua.headless_detected" or "ua.automation_detected") return true;
+
+        // High bot probability for UA signal — but gate on detection confidence
+        if (signal == "ua.bot_probability" && signalValue is double prob)
+            return prob >= 0.85 && state.DetectionConfidence >= 0.7;
 
         return false;
     }
@@ -83,8 +84,11 @@ public class UserAgentPatternTrigger : ILearningTrigger
         if (string.IsNullOrEmpty(pattern))
             yield break;
 
-        // Get confidence from signal or state
-        var confidence = signalValue as double? ?? state.CurrentRiskScore;
+        // Use detection confidence for learning; fall back to risk score for pattern matches
+        // (specific pattern matches like "ua.headless_detected" are inherently high-confidence)
+        var confidence = signal is "ua.pattern_match" or "ua.headless_detected" or "ua.automation_detected"
+            ? Math.Max(state.DetectionConfidence, 0.9) // Direct matches are very confident
+            : state.DetectionConfidence;
 
         _logger.LogDebug(
             "UA pattern trigger fired: signal={Signal}, pattern={Pattern}, confidence={Confidence:F2}",
@@ -167,15 +171,26 @@ public class HeuristicWeightTrigger : ILearningTrigger
 
     public bool ShouldTrigger(BlackboardState state, string signal, object? signalValue)
     {
-        // Trigger on high-confidence detections (for online learning)
-        if (signal == "detection.high_confidence") return state.CurrentRiskScore >= 0.85;
-
         // Always trigger on user feedback (ground truth)
         if (signal == "user.feedback_received") return true;
 
-        // Trigger on completed detections above learning threshold
+        // Trigger on high-confidence detections (for online learning — learn from certain verdicts)
+        if (signal == "detection.high_confidence")
+            return state.DetectionConfidence >= 0.85;
+
+        // Key learning trigger: high bot probability BUT low confidence.
+        // This means "we think it's a bot but aren't sure" — run full learning pipeline
+        // to gather more evidence and improve future detection.
         if (signal == "detection.completed")
-            return state.CurrentRiskScore >= 0.7; // Lower threshold for training data collection
+        {
+            // High probability, low confidence = uncertain detection → learn
+            if (state.CurrentRiskScore >= 0.5 && state.DetectionConfidence < 0.7)
+                return true;
+
+            // Also learn from very high-confidence detections (training data)
+            if (state.DetectionConfidence >= 0.85)
+                return true;
+        }
 
         return false;
     }
@@ -207,21 +222,29 @@ public class HeuristicWeightTrigger : ILearningTrigger
             label = state.CurrentRiskScore >= 0.5;
         }
 
+        // Determine operation type based on confidence
+        var isUncertain = state.DetectionConfidence < 0.7 && state.CurrentRiskScore >= 0.5;
+        var operationType = signal == "user.feedback_received"
+            ? LearningOperationType.WeightUpdate
+            : isUncertain
+                ? LearningOperationType.ModelTraining // Uncertain → full training run
+                : LearningOperationType.PatternUpdate; // Certain → reinforce existing patterns
+
         yield return ("heuristic.weights", new LearningTask
         {
             Source = nameof(HeuristicWeightTrigger),
-            OperationType = signal == "user.feedback_received"
-                ? LearningOperationType.WeightUpdate
-                : LearningOperationType.ModelTraining,
+            OperationType = operationType,
             Features = features,
             Label = label,
-            Confidence = state.CurrentRiskScore,
+            Confidence = state.DetectionConfidence,
             RequestId = state.RequestId,
             Metadata = new Dictionary<string, object>
             {
                 ["signal"] = signal,
                 ["risk_score"] = state.CurrentRiskScore,
-                ["detector_count"] = state.CompletedDetectors.Count
+                ["detection_confidence"] = state.DetectionConfidence,
+                ["detector_count"] = state.CompletedDetectors.Count,
+                ["uncertain"] = isUncertain
             }
         });
     }
@@ -239,10 +262,10 @@ public class HeuristicWeightTrigger : ILearningTrigger
                 features[key] = b ? 1.0 : 0.0;
             else if (value is int i) features[key] = i;
 
-        // Ignore complex objects
         // Add derived features
         features["detector_count"] = state.CompletedDetectors.Count;
         features["risk_score"] = state.CurrentRiskScore;
+        features["detection_confidence"] = state.DetectionConfidence;
         features["processing_time_ms"] = state.Elapsed.TotalMilliseconds;
 
         return features;
@@ -271,9 +294,9 @@ public class TlsFingerprintTrigger : ILearningTrigger
 
     public bool ShouldTrigger(BlackboardState state, string signal, object? signalValue)
     {
-        // Trigger on unknown fingerprints (potential new pattern)
+        // Trigger on unknown fingerprints when we have reasonable confidence in the overall detection
         if (signal == "tls.unknown_fingerprint")
-            return state.CurrentRiskScore >= 0.7; // Only if rest of detection is high
+            return state.CurrentRiskScore >= 0.7 && state.DetectionConfidence >= 0.5;
 
         // Trigger on fingerprint matches for confidence updates
         if (signal == "tls.fingerprint_match") return true;
@@ -299,7 +322,7 @@ public class TlsFingerprintTrigger : ILearningTrigger
             Source = nameof(TlsFingerprintTrigger),
             OperationType = operationType,
             Pattern = fingerprint,
-            Confidence = state.CurrentRiskScore,
+            Confidence = state.DetectionConfidence,
             RequestId = state.RequestId,
             Metadata = new Dictionary<string, object>
             {

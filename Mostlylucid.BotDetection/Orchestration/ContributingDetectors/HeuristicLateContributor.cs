@@ -94,8 +94,8 @@ public class HeuristicLateContributor : ContributingDetectorBase
                 BotType = result.BotType?.ToString(),
                 BotName = result.BotName,
                 Signals = ImmutableDictionary<string, object>.Empty
-                    .Add(SignalKeys.HeuristicPrediction, isBot ? "bot" : "human")
-                    .Add(SignalKeys.HeuristicConfidence, result.Confidence)
+                    .Add(SignalKeys.HeuristicLatePrediction, isBot ? "bot" : "human")
+                    .Add(SignalKeys.HeuristicLateConfidence, result.Confidence)
             });
 
             _logger.LogDebug(

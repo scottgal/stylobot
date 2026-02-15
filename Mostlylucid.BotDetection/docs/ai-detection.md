@@ -77,6 +77,40 @@ services.AddAdvancedBotDetection();
 
 ---
 
+## Two-Dimensional Scoring
+
+StyloBot uses a two-dimensional scoring model that separates **what** the system believes from **how certain** it is:
+
+| Dimension | Range | Meaning |
+|-----------|-------|---------|
+| **Bot Probability** | 0.0 - 1.0 | Likelihood that the request is from a bot |
+| **Detection Confidence** | 0.0 - 1.0 | How certain the system is in its verdict, regardless of what that verdict is |
+
+Previously, "confidence" was derived from bot probability (distance from 0.5). Now confidence is calculated independently from three factors:
+
+1. **Agreement (40%)** -- what fraction of weighted evidence points in the majority direction
+2. **Weight Coverage (35%)** -- total evidence weight compared to an expected baseline
+3. **Detector Count (25%)** -- number of distinct detectors that contributed
+
+### How AI Affects Confidence
+
+Running AI detection (heuristic or LLM) increases detection confidence in two ways:
+
+- **Weight coverage** -- AI detectors carry high weights (Heuristic: 2.0, LLM: 2.5), so they significantly increase the total evidence weight relative to baseline, boosting the coverage component.
+- **Detector count** -- Each AI detector that runs adds to the distinct detector count, improving the breadth component.
+
+A request evaluated by fast-path detectors alone may have a detection confidence of 0.5-0.7. The same request with AI escalation typically reaches 0.8-0.95 confidence, even if the bot probability stays the same.
+
+### HttpContext Extensions
+
+```csharp
+context.GetBotProbability()       // 0.0 - 1.0: likelihood of being a bot
+context.GetDetectionConfidence()  // 0.0 - 1.0: certainty of the verdict
+context.GetBotConfidence()        // backward compat, returns bot probability
+```
+
+---
+
 ## Heuristic Detection (Recommended)
 
 The heuristic detector provides fast, learned classification using a lightweight logistic regression model. This is the

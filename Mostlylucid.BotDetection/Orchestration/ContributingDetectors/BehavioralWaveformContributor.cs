@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
@@ -33,6 +34,8 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
     private static readonly TimeSpan HistoryExpiration = TimeSpan.FromMinutes(30);
     private readonly IMemoryCache _cache;
     private readonly ILogger<BehavioralWaveformContributor> _logger;
+    // Per-signature locks to prevent concurrent List<T> mutation
+    private readonly ConcurrentDictionary<string, object> _signatureLocks = new();
 
     public BehavioralWaveformContributor(
         ILogger<BehavioralWaveformContributor> logger,
@@ -64,43 +67,48 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
             var signature = GetClientSignature(state);
             signals.Add(SignalKeys.WaveformSignature, signature);
 
-            // Get request history for this signature
-            var history = GetOrCreateHistory(signature);
-
-            // Add current request to history
-            var currentRequest = new RequestSnapshot
+            // Lock per-signature to prevent concurrent List<T> mutation
+            var signatureLock = _signatureLocks.GetOrAdd(signature, _ => new object());
+            lock (signatureLock)
             {
-                Timestamp = DateTimeOffset.UtcNow,
-                Path = state.HttpContext.Request.Path.ToString(),
-                Method = state.HttpContext.Request.Method,
-                StatusCode = state.HttpContext.Response.StatusCode,
-                UserAgent = state.HttpContext.Request.Headers.UserAgent.ToString(),
-                RefererHash = GetRefererHash(state.HttpContext.Request.Headers.Referer.ToString()),
-                ContentClass = ClassifyRequest(state.HttpContext)
-            };
+                // Get request history for this signature
+                var history = GetOrCreateHistory(signature);
 
-            history.Add(currentRequest);
+                // Add current request to history
+                var currentRequest = new RequestSnapshot
+                {
+                    Timestamp = DateTimeOffset.UtcNow,
+                    Path = state.HttpContext.Request.Path.ToString(),
+                    Method = state.HttpContext.Request.Method,
+                    StatusCode = state.HttpContext.Response.StatusCode,
+                    UserAgent = state.HttpContext.Request.Headers.UserAgent.ToString(),
+                    RefererHash = GetRefererHash(state.HttpContext.Request.Headers.Referer.ToString()),
+                    ContentClass = ClassifyRequest(state.HttpContext)
+                };
 
-            // Analyze timing patterns
-            AnalyzeTimingPatterns(history, contributions, signals);
+                history.Add(currentRequest);
 
-            // Analyze path traversal patterns
-            AnalyzePathPatterns(history, contributions, signals);
+                // Analyze timing patterns
+                AnalyzeTimingPatterns(history, contributions, signals);
 
-            // Analyze request transitions (Markov chain content class analysis)
-            AnalyzeRequestTransitions(history, contributions, signals);
+                // Analyze path traversal patterns
+                AnalyzePathPatterns(history, contributions, signals);
 
-            // Analyze request rate and bursts (content-class-aware)
-            AnalyzeRequestRate(history, contributions, signals);
+                // Analyze request transitions (Markov chain content class analysis)
+                AnalyzeRequestTransitions(history, contributions, signals);
 
-            // Analyze session behavior
-            AnalyzeSessionBehavior(state, history, contributions, signals);
+                // Analyze request rate and bursts (content-class-aware)
+                AnalyzeRequestRate(history, contributions, signals);
 
-            // Analyze mouse/keyboard interaction signals (if available from client-side)
+                // Analyze session behavior
+                AnalyzeSessionBehavior(state, history, contributions, signals);
+
+                // Update cache with new history
+                UpdateHistory(signature, history);
+            }
+
+            // Analyze mouse/keyboard interaction signals (if available from client-side - no history needed)
             AnalyzeInteractionPatterns(state, contributions, signals);
-
-            // Update cache with new history
-            UpdateHistory(signature, history);
         }
         catch (Exception ex)
         {
@@ -361,8 +369,10 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
 
     private string GetClientSignature(BlackboardState state)
     {
-        // Create signature from IP + User-Agent hash
-        var ip = state.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        // Use resolved IP from IpContributor (handles X-Forwarded-For behind proxies)
+        var ip = state.GetSignal<string>(SignalKeys.ClientIp)
+                 ?? state.HttpContext.Connection.RemoteIpAddress?.ToString()
+                 ?? "unknown";
         var ua = state.HttpContext.Request.Headers.UserAgent.ToString();
         return $"{ip}:{GetHash(ua)}";
     }
@@ -473,7 +483,9 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
 
     private static string GetHash(string input)
     {
-        return input.Length > 0 ? input.GetHashCode().ToString("X8") : "empty";
+        if (input.Length == 0) return "empty";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(input);
+        return System.IO.Hashing.XxHash32.HashToUInt32(bytes).ToString("X8");
     }
 
     private static string GetRefererHash(string referer)

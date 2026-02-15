@@ -28,77 +28,74 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 /// </summary>
 public class Http2FingerprintContributor : ConfiguredContributorBase
 {
-    // Known HTTP/2 fingerprints for different clients
+    // Known HTTP/2 fingerprints for different clients (list allows multiple clients per fingerprint)
     // Format: settings_frame values (key:value pairs)
     // Based on AKAMAI HTTP/2 fingerprinting research
-    private static readonly Dictionary<string, string> KnownFingerprints = new()
-    {
+    private static readonly (string Fingerprint, string ClientName)[] KnownFingerprints =
+    [
         // Chrome/Chromium fingerprints (versions 90+)
-        { "1:65536,2:0,3:1000,4:6291456,6:262144", "Chrome_Desktop_90+" },
-        { "1:65536,2:0,3:100,4:6291456,6:262144", "Chrome_Mobile" },
-        { "1:262144,2:0,3:100,4:6291456,6:262144", "Chrome_Desktop_Latest" },
+        ("1:65536,2:0,3:1000,4:6291456,6:262144", "Chrome_Desktop_90+"),
+        ("1:65536,2:0,3:100,4:6291456,6:262144", "Chrome_Mobile"),
+        ("1:262144,2:0,3:100,4:6291456,6:262144", "Chrome_Desktop_Latest"),
 
         // Firefox fingerprints
-        { "1:65536,2:0,3:100,4:131072,5:16384", "Firefox_Desktop" },
-        { "1:65536,2:0,3:250,4:131072,5:16384", "Firefox_Latest" },
-        { "1:131072,3:100,4:131072,5:16384", "Firefox_Android" },
+        ("1:65536,2:0,3:100,4:131072,5:16384", "Firefox_Desktop"),
+        ("1:65536,2:0,3:250,4:131072,5:16384", "Firefox_Latest"),
+        ("1:131072,3:100,4:131072,5:16384", "Firefox_Android"),
 
         // Safari/WebKit fingerprints
-        { "1:32768,2:0,3:100,4:2097152", "Safari_Desktop" },
-        { "2:0,3:100,4:2097152,8:1", "Safari_iOS" },
-        { "1:65536,3:100,4:2097152", "Safari_Latest" },
+        ("1:32768,2:0,3:100,4:2097152", "Safari_Desktop"),
+        ("2:0,3:100,4:2097152,8:1", "Safari_iOS"),
+        ("1:65536,3:100,4:2097152", "Safari_Latest"),
 
-        // Edge fingerprints (Chromium-based)
-        { "1:65536,2:0,3:1000,4:6291456,6:262144", "Edge_Chromium" },
+        // Edge fingerprints (Chromium-based, same fingerprint as Chrome)
+        ("1:65536,2:0,3:1000,4:6291456,6:262144", "Edge_Chromium"),
 
         // Opera fingerprints
-        { "1:65536,2:0,3:1000,4:6291456,6:262144,8:1", "Opera_Chromium" },
+        ("1:65536,2:0,3:1000,4:6291456,6:262144,8:1", "Opera_Chromium"),
 
-        // ====================================
         // Bot/Automation Fingerprints
-        // ====================================
 
         // Go net/http library (minimal settings)
-        { "3:100,4:65536", "Go_HTTP2_Client" },
-        { "3:1000,4:1048576", "Go_HTTP2_Custom" },
-        { "4:4194304", "Go_Minimal" },
+        ("3:100,4:65536", "Go_HTTP2_Client"),
+        ("3:1000,4:1048576", "Go_HTTP2_Custom"),
+        ("4:4194304", "Go_Minimal"),
 
         // Python httpx/h2 library
-        { "3:100,4:6291456", "Python_httpx" },
-        { "1:65535,3:100,4:65535", "Python_h2_Library" },
-        { "2:0,3:100,4:1048576", "Python_Custom_Stack" },
+        ("3:100,4:6291456", "Python_httpx"),
+        ("1:65535,3:100,4:65535", "Python_h2_Library"),
+        ("2:0,3:100,4:1048576", "Python_Custom_Stack"),
 
         // Node.js http2 module
-        { "1:4096,3:100,4:65536", "Node_HTTP2_Bot" },
-        { "3:100,4:16777215", "Node_HTTP2_Default" },
-        { "1:65535,2:1,3:100,4:65535", "Node_HTTP2_Custom" },
+        ("1:4096,3:100,4:65536", "Node_HTTP2_Bot"),
+        ("3:100,4:16777215", "Node_HTTP2_Default"),
+        ("1:65535,2:1,3:100,4:65535", "Node_HTTP2_Custom"),
 
         // cURL with HTTP/2 (libcurl)
-        { "3:100,5:16384", "cURL_HTTP2" },
-        { "1:32768,3:100,4:1048576,5:16384", "cURL_Latest" },
+        ("3:100,5:16384", "cURL_HTTP2"),
+        ("1:32768,3:100,4:1048576,5:16384", "cURL_Latest"),
 
         // Java OkHttp library
-        { "1:16384,3:4096,4:1048576", "Java_OkHttp" },
-        { "1:65535,2:0,3:65535,4:65535", "Java_HTTP2_Client" },
+        ("1:16384,3:4096,4:1048576", "Java_OkHttp"),
+        ("1:65535,2:0,3:65535,4:65535", "Java_HTTP2_Client"),
 
         // .NET HttpClient with HTTP/2
-        { "1:65536,3:100,4:1048576", "DotNet_HttpClient" },
-        { "2:0,3:100,4:1048576,6:65536", "DotNet_HTTP2" },
+        ("1:65536,3:100,4:1048576", "DotNet_HttpClient"),
+        ("2:0,3:100,4:1048576,6:65536", "DotNet_HTTP2"),
 
         // Rust reqwest library
-        { "1:65536,2:0,3:100,4:6291456,5:16384,6:262144", "Rust_Reqwest" },
+        ("1:65536,2:0,3:100,4:6291456,5:16384,6:262144", "Rust_Reqwest"),
 
         // Scrapy with HTTP/2
-        { "3:100,4:65536,5:16384", "Scrapy_HTTP2" },
+        ("3:100,4:65536,5:16384", "Scrapy_HTTP2"),
 
-        // Selenium/Puppeteer (headless Chrome)
-        { "1:65536,2:0,3:1000,4:6291456,6:262144", "Headless_Chrome_Potential" },
-        // Note: Same as Chrome, requires cross-checking with other signals
+        // Selenium/Puppeteer (headless Chrome - same fingerprint as Chrome, requires cross-checking)
+        ("1:65536,2:0,3:1000,4:6291456,6:262144", "Headless_Chrome_Potential"),
 
         // Custom/Unknown stacks (suspicious patterns)
-        { "1:1,2:1,3:1,4:1", "Custom_Minimal_Stack" },
-        { "4:1", "Bare_Minimum_Settings" }
-    };
+        ("1:1,2:1,3:1,4:1", "Custom_Minimal_Stack"),
+        ("4:1", "Bare_Minimum_Settings")
+    ];
 
     private readonly ILogger<Http2FingerprintContributor> _logger;
 

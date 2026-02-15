@@ -242,7 +242,15 @@ bool IsBotWithConfidence(this HttpContext context, double threshold)
 ### Scores & Classification
 
 ```csharp
-// Confidence score (0.0 to 1.0). Returns 0.0 if not detected.
+// Bot probability (0.0 to 1.0) - how likely this request is from a bot.
+double GetBotProbability(this HttpContext context)
+
+// Detection confidence (0.0 to 1.0) - how certain the system is in its verdict.
+// Independent of bot probability: high confidence + low probability = "definitely human".
+// Based on detector coverage, agreement between detectors, and evidence weight.
+double GetDetectionConfidence(this HttpContext context)
+
+// Legacy: returns bot probability (same as GetBotProbability). Prefer the explicit methods above.
 double GetBotConfidence(this HttpContext context)
 
 // Bot type enum, or null

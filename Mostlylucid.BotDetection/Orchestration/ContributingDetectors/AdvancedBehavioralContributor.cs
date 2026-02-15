@@ -50,7 +50,10 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
             return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
 
         var context = state.HttpContext;
-        var clientIp = GetClientIp(context);
+        // Prefer resolved IP from IpContributor to handle proxy scenarios
+        var clientIp = state.Signals.TryGetValue(SignalKeys.ClientIp, out var ipObj)
+            ? ipObj?.ToString()
+            : GetClientIp(context);
         if (string.IsNullOrEmpty(clientIp))
             return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
 

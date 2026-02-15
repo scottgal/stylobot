@@ -350,6 +350,7 @@ public class BlackboardOrchestrator
                 requestId, policy.Name, availableDetectors.Count);
 
             var waveNumber = 0;
+            var aiRan = false; // Track whether AI detectors executed (affects probability clamping)
 
             try
             {
@@ -483,6 +484,9 @@ public class BlackboardOrchestrator
                                             failedDetectors,
                                             cts.Token);
 
+                                        // Mark that AI detectors have run (removes probability clamping)
+                                        aiRan = true;
+
                                         // Update signals after AI ran
                                         signals[DetectorCountTrigger.CompletedDetectorsSignal] =
                                             completedDetectors.Count;
@@ -535,7 +539,7 @@ public class BlackboardOrchestrator
                     stopwatch.ElapsedMilliseconds, requestId);
             }
 
-            var result = aggregator.ToAggregatedEvidence(policy.Name);
+            var result = aggregator.ToAggregatedEvidence(policy.Name, aiRan: aiRan);
 
             // Always use stopwatch for actual wall-clock time (more accurate than sum of contributions)
             var actualProcessingTimeMs = stopwatch.Elapsed.TotalMilliseconds;
@@ -544,7 +548,7 @@ public class BlackboardOrchestrator
             // Mark EarlyExit=true when policy triggered an early action (Allow/Block before full pipeline)
             var wasEarlyExit = finalAction.HasValue &&
                                (finalAction.Value == PolicyAction.Allow || finalAction.Value == PolicyAction.Block) &&
-                               result.ContributingDetectors.Count < 9; // Less than full detector count
+                               result.ContributingDetectors.Count < availableDetectors.Count;
 
             if (finalAction.HasValue || !string.IsNullOrEmpty(triggeredActionPolicyName))
                 result = result with
@@ -554,7 +558,9 @@ public class BlackboardOrchestrator
                     PolicyName = policy.Name,
                     TotalProcessingTimeMs = actualProcessingTimeMs,
                     EarlyExit = wasEarlyExit || result.EarlyExit,
-                    EarlyExitVerdict = wasEarlyExit ? EarlyExitVerdict.PolicyAllowed : result.EarlyExitVerdict
+                    EarlyExitVerdict = wasEarlyExit
+                        ? (finalAction!.Value == PolicyAction.Allow ? EarlyExitVerdict.PolicyAllowed : EarlyExitVerdict.PolicyBlocked)
+                        : result.EarlyExitVerdict
                 };
             else
                 result = result with
@@ -789,6 +795,7 @@ public class BlackboardOrchestrator
             HttpContext = httpContext,
             Signals = signals, // Pass by reference - no copy
             CurrentRiskScore = aggregated.BotProbability,
+            DetectionConfidence = aggregated.Confidence,
             CompletedDetectors = new HashSet<string>(completedDetectors),
             FailedDetectors = new HashSet<string>(failedDetectors),
             Contributions = aggregated.Contributions,
@@ -804,48 +811,23 @@ public class BlackboardOrchestrator
         if (!_circuitStates.TryGetValue(detectorName, out var state))
             return true;
 
-        if (state.State == CircuitBreakerState.Closed)
-            return true;
-
-        if (state.State == CircuitBreakerState.Open)
-        {
-            // Check if enough time has passed to try again
-            if (DateTimeOffset.UtcNow - state.LastFailure > _options.CircuitBreakerResetTime)
-            {
-                state.State = CircuitBreakerState.HalfOpen;
-                return true;
-            }
-
-            return false;
-        }
-
-        // Half-open: allow one attempt
-        return true;
+        return state.AllowRequest(_options.CircuitBreakerResetTime);
     }
 
     private void RecordSuccess(string detectorName)
     {
         if (_circuitStates.TryGetValue(detectorName, out var state))
-        {
-            state.FailureCount = 0;
-            state.State = CircuitBreakerState.Closed;
-        }
+            state.RecordSuccess();
     }
 
     private void RecordFailure(string detectorName)
     {
         var state = _circuitStates.GetOrAdd(detectorName, _ => new CircuitState());
 
-        state.FailureCount++;
-        state.LastFailure = DateTimeOffset.UtcNow;
-
-        if (state.FailureCount >= _options.CircuitBreakerThreshold)
-        {
-            state.State = CircuitBreakerState.Open;
+        if (state.RecordFailure(_options.CircuitBreakerThreshold))
             _logger.LogWarning(
                 "Circuit breaker opened for detector {Name} after {Count} failures",
                 detectorName, state.FailureCount);
-        }
     }
 
     #endregion
@@ -861,10 +843,14 @@ public class BlackboardOrchestrator
         if (_learningBus == null)
             return;
 
-        // High confidence detection for BOTH bots (probability >= 0.8) AND humans (probability <= 0.2)
-        // This enables the heuristic to learn good behavior patterns, not just bad ones
-        var isHighConfidenceBot = result.BotProbability >= 0.8;
-        var isHighConfidenceHuman = result.BotProbability <= 0.2;
+        // Determine learning event type based on BOTH probability and confidence:
+        // 1. High confidence + extreme probability → HighConfidenceDetection (ground truth for training)
+        // 2. Low confidence + significant probability → FullDetection (uncertain → trigger full learning)
+        // The learning pipeline runs ALL detectors for uncertain cases, boosting confidence.
+        var isHighConfidenceBot = result.BotProbability >= 0.8 && result.Confidence >= 0.7;
+        var isHighConfidenceHuman = result.BotProbability <= 0.2 && result.Confidence >= 0.7;
+        var isUncertain = result.Confidence < 0.6 && result.BotProbability is >= 0.3 and <= 0.8;
+
         var eventType = isHighConfidenceBot || isHighConfidenceHuman
             ? LearningEventType.HighConfidenceDetection
             : LearningEventType.FullDetection;
@@ -873,6 +859,8 @@ public class BlackboardOrchestrator
         var metadata = new Dictionary<string, object>
         {
             ["botProbability"] = result.BotProbability,
+            ["detectionConfidence"] = result.Confidence,
+            ["uncertain"] = isUncertain,
             ["riskBand"] = result.RiskBand.ToString(),
             ["contributingDetectors"] = result.ContributingDetectors.ToList(),
             ["failedDetectors"] = result.FailedDetectors.ToList(),
@@ -892,8 +880,9 @@ public class BlackboardOrchestrator
 
         // Extract features for similarity learning vector storage.
         // Without this, SimilarityLearningHandler gets null features and skips AddAsync.
+        // Also extract for uncertain detections — the learning pipeline needs features to improve.
         Dictionary<string, double>? features = null;
-        if (isHighConfidenceBot || isHighConfidenceHuman)
+        if (isHighConfidenceBot || isHighConfidenceHuman || isUncertain)
         {
             try
             {
@@ -962,17 +951,24 @@ public class BlackboardOrchestrator
             string? enqueueReason = null;
             var isDriftSample = false;
             var isConfirmationSample = false;
+            var confidence = result.Confidence;
 
             if (isNew)
             {
                 // New unknown signature — always enqueue for learning
                 enqueueReason = "new_signature";
             }
-            else if (isConclusive)
+            else if (isConclusive && confidence >= 0.7)
             {
-                // Already well-classified by TimescaleDB — skip
-                _logger.LogDebug("Skipping LLM enqueue: TimescaleDB reputation is conclusive");
+                // Already well-classified by TimescaleDB AND confident — skip
+                _logger.LogDebug("Skipping LLM enqueue: TimescaleDB reputation is conclusive and confidence is high ({Confidence:F2})", confidence);
                 return;
+            }
+            else if (confidence < 0.6 && prob >= 0.3)
+            {
+                // Low confidence with meaningful probability — always enqueue for deeper analysis.
+                // This is the key trigger: "we're not sure" → get LLM opinion to boost confidence.
+                enqueueReason = "low_confidence";
             }
             else if (prob >= coordOptions.MinProbabilityToEnqueue && prob <= coordOptions.MaxProbabilityToEnqueue)
             {
@@ -1124,13 +1120,83 @@ public class BlackboardOrchestrator
 }
 
 /// <summary>
-///     Circuit breaker state for a single detector
+///     Thread-safe circuit breaker state for a single detector.
+///     All mutations are protected by a lock to prevent race conditions.
 /// </summary>
 internal class CircuitState
 {
-    public CircuitBreakerState State { get; set; } = CircuitBreakerState.Closed;
-    public int FailureCount { get; set; }
-    public DateTimeOffset LastFailure { get; set; }
+    private readonly object _lock = new();
+    private CircuitBreakerState _state = CircuitBreakerState.Closed;
+    private int _failureCount;
+    private DateTimeOffset _lastFailure;
+
+    public CircuitBreakerState State
+    {
+        get { lock (_lock) return _state; }
+    }
+
+    /// <summary>
+    ///     Checks if the circuit allows a request through.
+    ///     Atomically transitions Open → HalfOpen when reset time has elapsed.
+    /// </summary>
+    public bool AllowRequest(TimeSpan resetTime)
+    {
+        lock (_lock)
+        {
+            if (_state == CircuitBreakerState.Closed)
+                return true;
+
+            if (_state == CircuitBreakerState.Open)
+            {
+                if (DateTimeOffset.UtcNow - _lastFailure > resetTime)
+                {
+                    _state = CircuitBreakerState.HalfOpen;
+                    return true;
+                }
+                return false;
+            }
+
+            // HalfOpen: allow one attempt
+            return true;
+        }
+    }
+
+    /// <summary>
+    ///     Records a successful execution. Resets the circuit to Closed.
+    /// </summary>
+    public void RecordSuccess()
+    {
+        lock (_lock)
+        {
+            _failureCount = 0;
+            _state = CircuitBreakerState.Closed;
+        }
+    }
+
+    /// <summary>
+    ///     Records a failed execution. Opens the circuit if threshold is reached.
+    ///     Returns true if the circuit just opened.
+    /// </summary>
+    public bool RecordFailure(int threshold)
+    {
+        lock (_lock)
+        {
+            _failureCount++;
+            _lastFailure = DateTimeOffset.UtcNow;
+
+            if (_failureCount >= threshold)
+            {
+                _state = CircuitBreakerState.Open;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    public int FailureCount
+    {
+        get { lock (_lock) return _failureCount; }
+    }
 }
 
 internal enum CircuitBreakerState

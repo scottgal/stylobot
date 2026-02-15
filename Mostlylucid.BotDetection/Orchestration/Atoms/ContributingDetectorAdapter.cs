@@ -67,6 +67,7 @@ public sealed class ContributingDetectorAdapter : IDetectorAtom
             HttpContext = httpContext,
             Signals = signals,
             CurrentRiskScore = CalculateCurrentRisk(contributions),
+            DetectionConfidence = 0.0, // Not tracked in adapter — full confidence set post-aggregation
             CompletedDetectors = GetCompletedDetectors(sink, sessionId),
             FailedDetectors = GetFailedDetectors(sink, sessionId),
             Contributions = contributions,

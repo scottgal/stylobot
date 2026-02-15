@@ -132,8 +132,11 @@ public static class DetectionLedgerExtensions
 
     private static RiskBand DetermineRiskBand(double botProbability, double confidence, bool aiRan)
     {
+        // Low confidence = not enough data to assess. Use probability to disambiguate:
+        // low probability + low confidence = probably fine (Unknown/Low)
+        // high probability + low confidence = uncertain but suspicious (Medium)
         if (confidence < 0.3)
-            return RiskBand.Medium;
+            return botProbability >= 0.5 ? RiskBand.Medium : RiskBand.Unknown;
 
         if (aiRan)
             return botProbability switch

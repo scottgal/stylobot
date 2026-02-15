@@ -74,6 +74,15 @@ public sealed record DetectionPolicy
     public double ImmediateBlockThreshold { get; init; } = 0.95;
 
     /// <summary>
+    ///     Minimum confidence required before any blocking decision takes effect.
+    ///     Even if bot probability exceeds <see cref="ImmediateBlockThreshold" />,
+    ///     blocking only occurs when confidence meets this gate.
+    ///     This prevents low-evidence verdicts from triggering blocks.
+    ///     Default: 0.0 (no confidence gate — backwards compatible).
+    /// </summary>
+    public double MinConfidence { get; init; }
+
+    /// <summary>
     ///     Weight overrides for detectors in this policy.
     ///     Key = detector name, Value = weight multiplier.
     /// </summary>

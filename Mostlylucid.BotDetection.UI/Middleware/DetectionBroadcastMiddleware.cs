@@ -250,8 +250,8 @@ public class DetectionBroadcastMiddleware
         }
 
         var sigValue = primarySignature ?? GenerateFallbackSignature(context);
-        var confidence = result.ConfidenceScore;
-        var riskBand = confidence switch
+        var botProbability = result.ConfidenceScore; // Legacy field: actually holds bot probability
+        var riskBand = botProbability switch
         {
             >= 0.85 => "VeryHigh",
             >= 0.7 => "High",
@@ -259,6 +259,15 @@ public class DetectionBroadcastMiddleware
             >= 0.2 => "Low",
             _ => "VeryLow"
         };
+
+        // Get actual detection confidence from AggregatedEvidence if available
+        var detectionConfidence = botProbability; // Default: match probability for backward compat
+        if (context.Items.TryGetValue(BotDetectionMiddleware.DetectionConfidenceKey, out var confObj) &&
+            confObj is double parsedConf)
+            detectionConfidence = parsedConf;
+        else if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
+                 evidenceObj is AggregatedEvidence upstreamEvidence)
+            detectionConfidence = upstreamEvidence.Confidence;
 
         // Read gateway processing time from forwarded header
         double upstreamProcessingMs = 0;
@@ -285,8 +294,8 @@ public class DetectionBroadcastMiddleware
             RequestId = context.TraceIdentifier,
             Timestamp = DateTime.UtcNow,
             IsBot = result.IsBot,
-            BotProbability = confidence,
-            Confidence = confidence,
+            BotProbability = botProbability,
+            Confidence = detectionConfidence,
             RiskBand = riskBand,
             BotType = botType,
             BotName = result.IsBot ? result.BotName : null,

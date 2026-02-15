@@ -278,10 +278,10 @@ public sealed class ResponseCoordinator : IAsyncDisposable
         }
         catch (Exception ex)
         {
+            // Log but do NOT rethrow — rethrowing would kill the KeyedSequentialAtom processing loop
             _logger.LogError(ex,
                 "Failed to process response signal for {ClientId}",
                 signal.ClientId);
-            throw;
         }
     }
 

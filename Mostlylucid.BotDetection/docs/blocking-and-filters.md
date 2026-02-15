@@ -172,13 +172,63 @@ Configure automatic blocking in appsettings:
 }
 ```
 
+## Bot Probability vs Detection Confidence
+
+StyloBot exposes two independent scores:
+
+- **Bot Probability** (`GetBotProbability()`) — How likely is this request from a bot? Range 0.0 (definitely human) to 1.0 (definitely bot).
+- **Detection Confidence** (`GetDetectionConfidence()`) — How certain is the system in its verdict? Range 0.0 (guessing) to 1.0 (certain). Based on detector coverage, agreement between detectors, and total evidence weight.
+
+These are independent. You can be 95% confident that something is human (low probability, high confidence). Or you can see a suspicious request but have low confidence because only one detector ran.
+
+### Confidence-Gated Blocking
+
+Use `MinConfidence` on policies or attributes to require a minimum confidence before blocking:
+
+```json
+{
+  "Policies": {
+    "strict": {
+      "ImmediateBlockThreshold": 0.7,
+      "MinConfidence": 0.9
+    }
+  }
+}
+```
+
+```csharp
+// Only block when we're sure (confidence >= 0.9) AND bot probability >= 0.7
+[BotPolicy("strict", BlockThreshold = 0.7, MinConfidence = 0.9)]
+public IActionResult Payment() { }
+
+// Inline detector with confidence gate
+[BotDetector("UserAgent,Header", BlockThreshold = 0.7, MinConfidence = 0.85)]
+public IActionResult SensitiveEndpoint() { }
+```
+
+### Confidence Calculation
+
+Confidence is computed from three factors (independent of bot probability):
+
+1. **Agreement** (40%) — What fraction of detector evidence points in the same direction. If all detectors agree, agreement = 1.0.
+2. **Weight Coverage** (35%) — Total evidence weight collected vs expected baseline. More weighted evidence = more confident.
+3. **Detector Count** (25%) — Number of distinct detectors that contributed. 4+ detectors = full count score.
+
+Then `ComputeCoverageConfidence()` caps the final value based on which specific detectors ran (e.g., UserAgent, Header, ClientSide, Behavioral, Heuristic have higher weight).
+
 ## HttpContext Extensions
 
 ```csharp
 // Basic checks
 bool isBot = context.IsBot();
 bool isHuman = context.IsHuman();
-double confidence = context.GetBotConfidence();
+
+// Two-dimensional scoring
+double probability = context.GetBotProbability();   // How likely it's a bot
+double confidence = context.GetDetectionConfidence(); // How sure we are
+
+// Legacy (returns bot probability — prefer GetBotProbability())
+double legacyConf = context.GetBotConfidence();
 
 // Bot type checks
 bool isSearchEngine = context.IsSearchEngineBot();
@@ -199,12 +249,12 @@ bool challenge = context.ShouldChallengeRequest();
 
 ## Risk Bands
 
-| Band     | Confidence | Recommended Action    |
-|----------|------------|-----------------------|
-| Low      | < 0.3      | Allow                 |
-| Elevated | 0.3 - 0.5  | Challenge or Throttle |
-| Medium   | 0.5 - 0.7  | Challenge             |
-| High     | > 0.7      | Block                 |
+| Band     | Bot Probability | Recommended Action    |
+|----------|----------------|-----------------------|
+| Low      | < 0.3          | Allow                 |
+| Elevated | 0.3 - 0.5      | Challenge or Throttle |
+| Medium   | 0.5 - 0.7      | Challenge             |
+| High     | > 0.7          | Block                 |
 
 ## Custom Middleware
 

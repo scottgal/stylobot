@@ -172,7 +172,9 @@ app.MapGet("/", (HttpContext ctx) =>
 
     return Results.Ok(new
     {
-        confidence = ctx.GetBotConfidence(),
+        botProbability = ctx.GetBotProbability(),          // 0.0-1.0: likelihood of being a bot
+        detectionConfidence = ctx.GetDetectionConfidence(), // 0.0-1.0: certainty of the verdict
+        confidence = ctx.GetBotConfidence(),                // backward compat (returns bot probability)
         riskBand = ctx.GetRiskBand().ToString(),
         action = ctx.GetRecommendedAction().ToString()
     });
@@ -395,7 +397,8 @@ The gateway sends these headers to backends (via `AddBotDetectionHeaders`):
 | Header | Example | Purpose |
 |--------|---------|---------|
 | `X-Bot-Detected` | `true` | Bot/human classification |
-| `X-Bot-Confidence` | `0.87` | Detection confidence |
+| `X-Bot-Confidence` | `0.91` | Detection confidence (how certain the system is) |
+| `X-Bot-Detection-Probability` | `0.87` | Bot probability (likelihood of being a bot) |
 | `X-Bot-Type` | `Scraper` | Bot category |
 | `X-Bot-Name` | `AhrefsBot` | Identified bot name |
 | `X-Bot-Detection-Country` | `CN` | Source country (geo enrichment) |

@@ -127,13 +127,25 @@ public class BotDetectionMiddleware(
             var countryCode = context.Request.Headers["X-Bot-Detection-Country"].FirstOrDefault();
             if (countryTracker != null && !string.IsNullOrEmpty(countryCode) && countryCode != "LOCAL")
             {
-                var prob = context.Items[BotConfidenceKey] is double p ? p : 0.0;
+                var prob = context.Items[BotProbabilityKey] is double p ? p : 0.0;
                 countryTracker.RecordDetection(countryCode, countryCode, prob > 0.5, prob);
             }
 
             // Notify cluster service of bot detections
             if (clusterService != null && context.Items[IsBotKey] is true)
                 clusterService.NotifyBotDetected();
+
+            // Register response recording for upstream-trusted requests too
+            // (captures 404s, errors, etc. for behavioral analysis)
+            var upstreamEvidence = context.Items[AggregatedEvidenceKey] as AggregatedEvidence;
+            if (upstreamEvidence != null)
+            {
+                var upstreamStartTime = DateTime.UtcNow;
+                context.Response.OnCompleted(async () =>
+                {
+                    await RecordResponseAsync(context, upstreamEvidence, responseCoordinator, upstreamStartTime);
+                });
+            }
 
             // Only add the trust marker — the gateway already emits full X-Bot-* response headers
             if (_options.ResponseHeaders.Enabled)
@@ -155,7 +167,7 @@ public class BotDetectionMiddleware(
             var customUa = context.Request.Headers["ml-bot-test-ua"].FirstOrDefault();
             if (!string.IsNullOrEmpty(customUa))
             {
-                await HandleCustomUaDetection(context, customUa, orchestrator, policyRegistry, actionPolicyRegistry);
+                await HandleCustomUaDetection(context, customUa, orchestrator, policyRegistry, actionPolicyRegistry, responseCoordinator);
                 return;
             }
 
@@ -164,7 +176,7 @@ public class BotDetectionMiddleware(
             if (!string.IsNullOrEmpty(testMode))
             {
                 await HandleTestModeWithRealDetection(context, testMode, orchestrator, policyRegistry,
-                    actionPolicyRegistry);
+                    actionPolicyRegistry, responseCoordinator);
                 return;
             }
         }
@@ -176,6 +188,17 @@ public class BotDetectionMiddleware(
         // Run full pipeline with orchestrator - always use full detection
         var aggregatedResult = await orchestrator.DetectWithPolicyAsync(context, policy, context.RequestAborted);
         PopulateContextFromAggregated(context, aggregatedResult, policy.Name);
+
+        // Feed country reputation and cluster services with detection results
+        FeedDetectionServices(aggregatedResult);
+
+        // Register response recording BEFORE any early exits (blocked, action policy, etc.)
+        // so all response codes (403, 404, 500) are captured for behavioral analysis.
+        var requestStartTime = DateTime.UtcNow;
+        context.Response.OnCompleted(async () =>
+        {
+            await RecordResponseAsync(context, aggregatedResult, responseCoordinator, requestStartTime);
+        });
 
         // Log detection result
         LogDetectionResult(context, aggregatedResult, policy.Name);
@@ -217,16 +240,46 @@ public class BotDetectionMiddleware(
             return;
         }
 
-        // Register response recording callback (fires after response is sent)
-        var requestStartTime = DateTime.UtcNow;
-        context.Response.OnCompleted(async () =>
-        {
-            await RecordResponseAsync(context, aggregatedResult, responseCoordinator, requestStartTime);
-        });
-
         // Continue pipeline
         await _next(context);
     }
+
+    #region Detection Service Feeds
+
+    /// <summary>
+    ///     Feeds detection data to CountryReputationTracker and BotClusterService.
+    ///     Called after both local and test-mode detections.
+    /// </summary>
+    private void FeedDetectionServices(AggregatedEvidence aggregated)
+    {
+        // Feed country reputation tracker
+        if (countryTracker != null && aggregated.Signals != null)
+        {
+            string? countryCode = null;
+            if (aggregated.Signals.TryGetValue("geo.country_code", out var ccObj))
+                countryCode = ccObj as string ?? ccObj?.ToString();
+
+            if (!string.IsNullOrEmpty(countryCode) && countryCode != "LOCAL")
+            {
+                // Get country name if available, fall back to code
+                string? countryName = null;
+                if (aggregated.Signals.TryGetValue("geo.country_name", out var cnObj))
+                    countryName = cnObj as string ?? cnObj?.ToString();
+
+                countryTracker.RecordDetection(
+                    countryCode,
+                    countryName ?? countryCode,
+                    aggregated.BotProbability > 0.5,
+                    aggregated.BotProbability);
+            }
+        }
+
+        // Feed cluster service for bot detections
+        if (clusterService != null && aggregated.BotProbability > 0.5)
+            clusterService.NotifyBotDetected();
+    }
+
+    #endregion
 
     #region Response Headers
 
@@ -356,8 +409,14 @@ public class BotDetectionMiddleware(
     /// <summary>Boolean: true if request is from a bot</summary>
     public const string IsBotKey = "BotDetection.IsBot";
 
-    /// <summary>Double: confidence score (0.0-1.0)</summary>
+    /// <summary>Double: bot probability score (0.0-1.0). Legacy name kept for backward compatibility.</summary>
     public const string BotConfidenceKey = "BotDetection.Confidence";
+
+    /// <summary>Double: bot probability (0.0-1.0) - how likely the request is from a bot</summary>
+    public const string BotProbabilityKey = "BotDetection.Probability";
+
+    /// <summary>Double: detection confidence (0.0-1.0) - how certain the system is of its verdict</summary>
+    public const string DetectionConfidenceKey = "BotDetection.DetectionConfidence";
 
     /// <summary>BotType?: the detected bot type</summary>
     public const string BotTypeKey = "BotDetection.BotType";
@@ -544,6 +603,18 @@ public class BotDetectionMiddleware(
         // Determine action from attribute or default
         var defaultAction = policyAttr?.BlockAction ?? BotBlockAction.Default;
 
+        // Confidence gate: attribute override > policy default > 0 (disabled)
+        var minConfidence = policyAttr?.MinConfidence is > 0 ? policyAttr.MinConfidence : policy.MinConfidence;
+
+        // If confidence gate is set and not met, don't block (insufficient evidence)
+        if (minConfidence > 0 && aggregated.Confidence < minConfidence)
+        {
+            _logger.LogDebug(
+                "Confidence gate not met for {Path}: confidence={Confidence:F2} < required={Required:F2}, skipping block",
+                "", aggregated.Confidence, minConfidence);
+            return (false, BotBlockAction.Default);
+        }
+
         // Check if policy action says to block
         if (aggregated.PolicyAction == PolicyAction.Block)
             return (true, defaultAction == BotBlockAction.Default ? BotBlockAction.StatusCode : defaultAction);
@@ -560,7 +631,7 @@ public class BotDetectionMiddleware(
         if (aggregated.BotProbability >= policy.ImmediateBlockThreshold)
             return (true, defaultAction == BotBlockAction.Default ? BotBlockAction.StatusCode : defaultAction);
 
-        // Check for verified bad bot
+        // Check for verified bad bot (bypasses confidence gate — verified bots are always high confidence)
         if (aggregated.EarlyExit && aggregated.EarlyExitVerdict == EarlyExitVerdict.VerifiedBadBot)
             return (true, defaultAction == BotBlockAction.Default ? BotBlockAction.StatusCode : defaultAction);
 
@@ -687,7 +758,8 @@ public class BotDetectionMiddleware(
         string testMode,
         BlackboardOrchestrator orchestrator,
         IPolicyRegistry policyRegistry,
-        IActionPolicyRegistry actionPolicyRegistry)
+        IActionPolicyRegistry actionPolicyRegistry,
+        ResponseCoordinator responseCoordinator)
     {
         _logger.LogInformation("Test mode: Running real detection with simulated UA for '{Mode}'", testMode);
 
@@ -712,6 +784,7 @@ public class BotDetectionMiddleware(
             orchestrator,
             policyRegistry,
             actionPolicyRegistry,
+            responseCoordinator,
             testModeHeader: "true",
             uaHeader: ("X-Test-Simulated-UA", simulatedUserAgent ?? "none"),
             logPrefix: "Test mode");
@@ -726,7 +799,8 @@ public class BotDetectionMiddleware(
         string customUa,
         BlackboardOrchestrator orchestrator,
         IPolicyRegistry policyRegistry,
-        IActionPolicyRegistry actionPolicyRegistry)
+        IActionPolicyRegistry actionPolicyRegistry,
+        ResponseCoordinator responseCoordinator)
     {
         _logger.LogInformation("Custom UA test: Running real detection with '{UA}'", customUa);
 
@@ -736,6 +810,7 @@ public class BotDetectionMiddleware(
             orchestrator,
             policyRegistry,
             actionPolicyRegistry,
+            responseCoordinator,
             testModeHeader: "custom-ua",
             uaHeader: ("X-Test-Custom-UA", customUa),
             logPrefix: "Custom UA test");
@@ -751,6 +826,7 @@ public class BotDetectionMiddleware(
         BlackboardOrchestrator orchestrator,
         IPolicyRegistry policyRegistry,
         IActionPolicyRegistry actionPolicyRegistry,
+        ResponseCoordinator responseCoordinator,
         string testModeHeader,
         (string Name, string Value) uaHeader,
         string logPrefix)
@@ -767,6 +843,7 @@ public class BotDetectionMiddleware(
             policy = ResolvePolicy(context, endpoint, policyRegistry);
             aggregatedResult = await orchestrator.DetectWithPolicyAsync(context, policy, context.RequestAborted);
             PopulateContextFromAggregated(context, aggregatedResult, policy.Name);
+            FeedDetectionServices(aggregatedResult);
 
             context.Response.Headers.TryAdd("X-Test-Mode", testModeHeader);
             context.Response.Headers.TryAdd(uaHeader.Name, uaHeader.Value);
@@ -785,6 +862,16 @@ public class BotDetectionMiddleware(
         finally
         {
             context.Request.Headers.UserAgent = originalUserAgent;
+        }
+
+        // Register response recording BEFORE any early exits (blocked, action policy, etc.)
+        if (aggregatedResult != null)
+        {
+            var testStartTime = DateTime.UtcNow;
+            context.Response.OnCompleted(async () =>
+            {
+                await RecordResponseAsync(context, aggregatedResult, responseCoordinator, testStartTime);
+            });
         }
 
         // Handle post-detection actions (action policies and blocking)
@@ -882,21 +969,40 @@ public class BotDetectionMiddleware(
 
         var isBot = string.Equals(detectedHeader.ToString(), "true", StringComparison.OrdinalIgnoreCase);
 
-        // Parse bot probability (REQUIRED - what's the actual likelihood of being a bot?)
-        if (!context.Request.Headers.TryGetValue("X-Bot-Detection-Probability", out var probHeader) ||
-            !double.TryParse(probHeader.ToString(), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var botProbability))
+        // Parse bot probability and confidence from headers
+        // Prefer explicit X-Bot-Detection-Probability header, fall back to X-Bot-Confidence for backward compatibility
+        var botProbability = 0.0;
+        var confidence = 0.0;
+
+        // Try explicit probability header first
+        if (context.Request.Headers.TryGetValue("X-Bot-Detection-Probability", out var probHeader) &&
+            double.TryParse(probHeader.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var parsedProb))
+        {
+            botProbability = Math.Clamp(parsedProb, 0.0, 1.0);
+        }
+        // Try confidence header as fallback for bot probability (backward compat)
+        else if (context.Request.Headers.TryGetValue("X-Bot-Confidence", out var confHeader) &&
+                 double.TryParse(confHeader.ToString(), System.Globalization.NumberStyles.Float,
+                     System.Globalization.CultureInfo.InvariantCulture, out var parsedConf))
+        {
+            botProbability = Math.Clamp(parsedConf, 0.0, 1.0);
+        }
+        else
+        {
+            // Neither header present
             return false;
+        }
 
-        // Clamp to valid range
-        botProbability = Math.Clamp(botProbability, 0.0, 1.0);
-
-        // Parse confidence (OPTIONAL - how certain are we about this decision? defaults to bot probability if not provided)
-        var confidence = botProbability;
-        if (context.Request.Headers.TryGetValue("X-Bot-Confidence", out var confHeader) &&
-            double.TryParse(confHeader.ToString(), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var parsedConf))
-            confidence = Math.Clamp(parsedConf, 0.0, 1.0);
+        // Parse actual confidence if available (distinct from bot probability)
+        confidence = botProbability; // Default: confidence = probability
+        if (context.Request.Headers.TryGetValue("X-Bot-Confidence", out var actualConfHeader) &&
+            double.TryParse(actualConfHeader.ToString(), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var actualConf) &&
+            context.Request.Headers.ContainsKey("X-Bot-Detection-Probability")) // Only use confidence header if probability header also exists
+        {
+            confidence = Math.Clamp(actualConf, 0.0, 1.0);
+        }
 
         // Parse optional fields
         BotType? botType = null;
@@ -1024,7 +1130,9 @@ public class BotDetectionMiddleware(
         // Populate HttpContext.Items (same keys as PopulateContextFromAggregated)
         context.Items[AggregatedEvidenceKey] = evidence;
         context.Items[IsBotKey] = isBot;
-        context.Items[BotConfidenceKey] = botProbability;
+        context.Items[BotConfidenceKey] = botProbability; // Legacy: holds probability for backward compat
+        context.Items[BotProbabilityKey] = botProbability;
+        context.Items[DetectionConfidenceKey] = confidence;
         context.Items[BotTypeKey] = botType;
         context.Items[BotNameKey] = botName;
         context.Items[PolicyNameKey] = "upstream";
@@ -1082,7 +1190,9 @@ public class BotDetectionMiddleware(
         // Map to legacy keys for compatibility
         var isBot = result.BotProbability >= 0.5;
         context.Items[IsBotKey] = isBot;
-        context.Items[BotConfidenceKey] = result.BotProbability;
+        context.Items[BotConfidenceKey] = result.BotProbability; // Legacy: holds probability for backward compat
+        context.Items[BotProbabilityKey] = result.BotProbability;
+        context.Items[DetectionConfidenceKey] = result.Confidence;
         context.Items[BotTypeKey] = result.PrimaryBotType;
         context.Items[BotNameKey] = result.PrimaryBotName;
 

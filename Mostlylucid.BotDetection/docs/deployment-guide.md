@@ -34,7 +34,9 @@ app.MapBotDetectionEndpoints();
 app.MapGet("/", (HttpContext ctx) => Results.Ok(new
 {
     isBot = ctx.IsBot(),
-    confidence = ctx.GetBotConfidence(),
+    botProbability = ctx.GetBotProbability(),          // 0.0-1.0: likelihood of being a bot
+    detectionConfidence = ctx.GetDetectionConfidence(), // 0.0-1.0: certainty of the verdict
+    confidence = ctx.GetBotConfidence(),                // backward compat (returns bot probability)
     botType = ctx.GetBotType()?.ToString(),
     botName = ctx.GetBotName()
 }));
@@ -143,8 +145,12 @@ context.IsHuman()               // inverse of IsBot()
 context.IsSearchEngineBot()     // true for Googlebot, Bingbot, etc.
 context.IsVerifiedBot()         // true for bots that pass DNS verification
 
-// Scores and details
-context.GetBotConfidence()      // 0.0 - 1.0 probability
+// Two-dimensional scoring
+context.GetBotProbability()       // 0.0 - 1.0: likelihood of being a bot
+context.GetDetectionConfidence()  // 0.0 - 1.0: certainty of verdict (independent of probability)
+context.GetBotConfidence()        // backward compat, returns bot probability
+
+// Details
 context.GetBotType()            // BotType enum (SearchEngine, Scraper, etc.)
 context.GetBotName()            // "Googlebot", "Scrapy", etc.
 context.GetRiskBand()           // VeryLow, Low, Elevated, Medium, High, VeryHigh
@@ -541,7 +547,8 @@ Internet → Stylobot Gateway (bot detection) → Your reverse proxy / backend
                  ├── X-Bot-Risk-Score: 0.82
                  ├── X-Bot-Risk-Band: High
                  ├── X-Bot-Action: Block
-                 └── X-Bot-Confidence: 0.91
+                 ├── X-Bot-Confidence: 0.91          (detection confidence)
+                 └── X-Bot-Detection-Probability: 0.82 (bot probability)
 ```
 
 Your backend or downstream proxy reads these headers and decides what to do. The gateway does detection; you decide the response.

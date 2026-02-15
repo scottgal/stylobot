@@ -23,108 +23,92 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 /// </summary>
 public class TcpIpFingerprintContributor : ContributingDetectorBase
 {
-    // Known TCP window sizes for different systems
+    // Known TCP window sizes for different systems (list allows multiple OS per window size)
     // Based on p0f database and real-world observations
-    private static readonly Dictionary<int, string[]> WindowSizePatterns = new()
-    {
+    private static readonly (int WindowSize, string[] Patterns)[] WindowSizePatterns =
+    [
         // Windows patterns
-        { 8192, new[] { "Windows", "Windows_95/98/ME" } },
-        { 16384, new[] { "Windows", "Windows_2000/NT4" } },
-        { 64240, new[] { "Windows", "Windows_XP_SP1" } },
-        { 65535, new[] { "Windows", "Windows_XP_SP2+/Vista/7/8/10/11", "MacOS", "FreeBSD", "OpenBSD" } },
-        { 64512, new[] { "Windows", "Windows_Server_2008+" } },
+        (8192, ["Windows", "Windows_95/98/ME"]),
+        (16384, ["Windows", "Windows_2000/NT4"]),
+        (64240, ["Windows", "Windows_XP_SP1"]),
+        (65535, ["Windows", "Windows_XP_SP2+/Vista/7/8/10/11"]),
+        (64512, ["Windows", "Windows_Server_2008+"]),
 
         // Linux patterns (kernel version dependent)
-        { 5840, new[] { "Linux", "Linux_2.2.x" } },
-        { 5792, new[] { "Linux", "Linux_2.4.x" } },
-        { 14600, new[] { "Linux", "Linux_2.6.x_early" } },
-        { 29200, new[] { "Linux", "Linux_2.6.x_later" } },
-        { 14480, new[] { "Linux", "Linux_3.x/4.x/5.x" } },
+        (5840, ["Linux", "Linux_2.2.x"]),
+        (5792, ["Linux", "Linux_2.4.x"]),
+        (14600, ["Linux", "Linux_2.6.x_early"]),
+        (29200, ["Linux", "Linux_2.6.x_later"]),
+        (14480, ["Linux", "Linux_3.x/4.x/5.x"]),
 
         // macOS/iOS patterns
-        { 65535, new[] { "MacOS", "MacOS_X", "iOS" } },
-        { 131072, new[] { "MacOS", "MacOS_Recent" } },
+        (65535, ["MacOS", "MacOS_X", "iOS"]),
+        (131072, ["MacOS", "MacOS_Recent"]),
 
         // Android patterns
-        { 28960, new[] { "Android", "Android_4.x" } },
-        { 14600, new[] { "Android", "Android_5.x+" } },
+        (28960, ["Android", "Android_4.x"]),
+        (14600, ["Android", "Android_5.x+"]),
 
         // BSD variants
-        { 65535, new[] { "FreeBSD", "OpenBSD", "NetBSD" } },
-        { 32768, new[] { "FreeBSD", "FreeBSD_Old" } },
+        (65535, ["FreeBSD", "OpenBSD", "NetBSD"]),
+        (32768, ["FreeBSD", "FreeBSD_Old"]),
 
         // Solaris/Unix
-        { 49152, new[] { "Solaris", "Solaris_10+" } },
-        { 49640, new[] { "Solaris", "Solaris_11" } },
+        (49152, ["Solaris", "Solaris_10+"]),
+        (49640, ["Solaris", "Solaris_11"]),
 
-        // ===================================
         // Bot/Automation patterns
-        // ===================================
-
-        // Go net/http
-        { 4096, new[] { "Bot", "Go_net/http", "Custom_Stack" } },
-        { 65536, new[] { "Bot", "Go_HTTP_Client_Custom" } },
-
-        // Python requests/urllib
-        { 32768, new[] { "Bot", "Python_requests", "Python_urllib" } },
-        { 87380, new[] { "Bot", "Python_Default_Stack" } },
-
-        // cURL
-        { 32768, new[] { "Bot", "cURL", "libcurl" } },
-        { 16384, new[] { "Bot", "cURL_Old" } },
-
-        // Java HttpClient
-        { 65535, new[] { "Bot", "Java_HttpClient" } },
-        { 8192, new[] { "Bot", "Java_Old_Stack" } },
-
-        // .NET HttpClient
-        { 65535, new[] { "Bot", "DotNet_HttpClient" } },
-        { 64240, new[] { "Bot", "DotNet_Framework" } },
-
-        // Node.js
-        { 65535, new[] { "Bot", "Node_HTTP_Module" } },
-
-        // Scrapy/Twisted
-        { 65535, new[] { "Bot", "Scrapy", "Twisted_Framework" } },
+        (4096, ["Bot", "Go_net/http", "Custom_Stack"]),
+        (65536, ["Bot", "Go_HTTP_Client_Custom"]),
+        (32768, ["Bot", "Python_requests", "Python_urllib"]),
+        (87380, ["Bot", "Python_Default_Stack"]),
+        (32768, ["Bot", "cURL", "libcurl"]),
+        (16384, ["Bot", "cURL_Old"]),
+        (65535, ["Bot", "Java_HttpClient"]),
+        (8192, ["Bot", "Java_Old_Stack"]),
+        (65535, ["Bot", "DotNet_HttpClient"]),
+        (64240, ["Bot", "DotNet_Framework"]),
+        (65535, ["Bot", "Node_HTTP_Module"]),
+        (65535, ["Bot", "Scrapy", "Twisted_Framework"]),
 
         // Suspicious/Custom stacks
-        { 1024, new[] { "Bot", "Tiny_Window_Suspicious" } },
-        { 512, new[] { "Bot", "Very_Small_Window_Bot" } },
-        { 1, new[] { "Bot", "Minimal_Stack_Definite_Bot" } }
-    };
+        (1024, ["Bot", "Tiny_Window_Suspicious"]),
+        (512, ["Bot", "Very_Small_Window_Bot"]),
+        (1, ["Bot", "Minimal_Stack_Definite_Bot"])
+    ];
 
-    // Typical TTL values by OS
+    // Typical TTL values by OS (list allows multiple OS per TTL)
     // TTL gets decremented by each router hop, so we check initial values
-    private static readonly Dictionary<int, string[]> TtlPatterns = new()
-    {
+    private static readonly (int Ttl, string[] Patterns)[] TtlPatterns =
+    [
         // Linux/Unix (initial TTL 64)
-        { 64, new[] { "Linux", "Unix", "MacOS", "Android", "iOS" } },
-        { 63, new[] { "Linux", "1_Hop_Away" } },
-        { 62, new[] { "Linux", "2_Hops_Away" } },
-        { 61, new[] { "Linux", "3_Hops_Away" } },
+        (64, ["Linux", "Unix", "MacOS", "Android", "iOS"]),
+        (63, ["Linux", "1_Hop_Away"]),
+        (62, ["Linux", "2_Hops_Away"]),
+        (61, ["Linux", "3_Hops_Away"]),
 
         // Windows (initial TTL 128)
-        { 128, new[] { "Windows", "Windows_All_Versions" } },
-        { 127, new[] { "Windows", "1_Hop_Away" } },
-        { 126, new[] { "Windows", "2_Hops_Away" } },
-        { 125, new[] { "Windows", "3_Hops_Away" } },
+        (128, ["Windows", "Windows_All_Versions"]),
+        (127, ["Windows", "1_Hop_Away"]),
+        (126, ["Windows", "2_Hops_Away"]),
+        (125, ["Windows", "3_Hops_Away"]),
 
         // Network devices (initial TTL 255)
-        { 255, new[] { "Network_Device", "Cisco", "Router", "Firewall" } },
-        { 254, new[] { "Network_Device", "1_Hop_Away" } },
+        (255, ["Network_Device", "Cisco", "Router", "Firewall"]),
+        (254, ["Network_Device", "1_Hop_Away"]),
 
         // Old systems
-        { 32, new[] { "Windows", "Windows_95/98/ME" } },
-        { 60, new[] { "MacOS", "MacOS_Classic" } },
+        (32, ["Windows", "Windows_95/98/ME"]),
+        (60, ["MacOS", "MacOS_Classic"]),
 
         // Suspicious/Bot patterns
-        { 1, new[] { "Bot", "Extremely_Suspicious_TTL" } },
-        { 2, new[] { "Bot", "Very_Low_TTL" } },
-        { 10, new[] { "Bot", "Unusually_Low_TTL" } },
-        { 30, new[] { "Bot", "Non_Standard_TTL" } },
-        { 100, new[] { "Bot", "Unusual_TTL_100" } },
-        { 200, new[] { "Bot", "Unusual_TTL_200" } }
-    };
+        (1, ["Bot", "Extremely_Suspicious_TTL"]),
+        (2, ["Bot", "Very_Low_TTL"]),
+        (10, ["Bot", "Unusually_Low_TTL"]),
+        (30, ["Bot", "Non_Standard_TTL"]),
+        (100, ["Bot", "Unusual_TTL_100"]),
+        (200, ["Bot", "Unusual_TTL_200"])
+    ];
 
     private readonly ILogger<TcpIpFingerprintContributor> _logger;
 
@@ -276,12 +260,15 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
     private void AnalyzeWindowSize(int windowSize, List<DetectionContribution> contributions,
         ImmutableDictionary<string, object>.Builder signals)
     {
-        if (WindowSizePatterns.TryGetValue(windowSize, out var patterns))
+        // Find all matching entries (multiple OS/bot patterns can share the same window size)
+        var matches = WindowSizePatterns.Where(p => p.WindowSize == windowSize).ToArray();
+        if (matches.Length > 0)
         {
-            var pattern = patterns[0];
+            var allPatterns = matches.SelectMany(m => m.Patterns).ToArray();
+            var pattern = allPatterns[0];
             signals.Add(SignalKeys.TcpOsHintWindow, pattern);
 
-            if (patterns.Any(p => p.Contains("Bot")))
+            if (allPatterns.Any(p => p.Contains("Bot")))
                 contributions.Add(DetectionContribution.Bot(
                     Name, "TCP/IP", 0.55,
                     $"Network buffer size matches a known bot fingerprint ({pattern})",
@@ -307,12 +294,14 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
     private void AnalyzeTtl(int ttl, List<DetectionContribution> contributions,
         ImmutableDictionary<string, object>.Builder signals)
     {
-        if (TtlPatterns.TryGetValue(ttl, out var patterns))
+        var ttlMatches = TtlPatterns.Where(p => p.Ttl == ttl).ToArray();
+        if (ttlMatches.Length > 0)
         {
-            var pattern = patterns[0];
+            var allTtlPatterns = ttlMatches.SelectMany(m => m.Patterns).ToArray();
+            var pattern = allTtlPatterns[0];
             signals.Add(SignalKeys.TcpOsHintTtl, pattern);
 
-            if (patterns.Any(p => p.Contains("Bot")))
+            if (allTtlPatterns.Any(p => p.Contains("Bot")))
                 contributions.Add(DetectionContribution.Bot(
                     Name, "TCP/IP", 0.6,
                     "Network hop count matches a known bot fingerprint",

@@ -174,6 +174,17 @@ public class DetectionPolicyConfig : BaseComponentConfig
     /// </summary>
     public double ImmediateBlockThreshold { get; set; } = 0.95;
 
+    /// <summary>
+    ///     Minimum confidence required before any blocking decision takes effect.
+    ///     Even if bot probability exceeds <see cref="ImmediateBlockThreshold" />,
+    ///     blocking only occurs when confidence meets this gate.
+    ///     Default: 0.0 (no confidence gate — backwards compatible).
+    /// </summary>
+    /// <example>
+    ///     "strict": { "ImmediateBlockThreshold": 0.7, "MinConfidence": 0.9 }
+    /// </example>
+    public double MinConfidence { get; set; }
+
     // ==========================================
     // Detector Weights
     // ==========================================
@@ -253,6 +264,7 @@ public class DetectionPolicyConfig : BaseComponentConfig
             AiEscalationThreshold = AiEscalationThreshold,
             EarlyExitThreshold = EarlyExitThreshold,
             ImmediateBlockThreshold = ImmediateBlockThreshold,
+            MinConfidence = MinConfidence,
             WeightOverrides = Weights.ToImmutableDictionary(),
             Transitions = Transitions.Select(t => t.ToTransition()).ToImmutableList(),
             Timeout = TimeSpan.FromMilliseconds(TimeoutMs),

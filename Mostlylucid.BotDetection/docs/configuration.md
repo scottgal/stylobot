@@ -200,7 +200,8 @@ Complete reference with all available options:
         "Description": "Lower thresholds for sensitive endpoints",
         "FastPath": ["FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Heuristic"],
         "EarlyExitThreshold": 0.70,
-        "ImmediateBlockThreshold": 0.80
+        "ImmediateBlockThreshold": 0.80,
+        "MinConfidence": 0.85
       }
     },
 

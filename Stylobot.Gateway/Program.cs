@@ -69,6 +69,10 @@ try
 
         if (trustAllProxies)
         {
+            if (!builder.Environment.IsDevelopment())
+                Log.Warning("TrustAllForwardedProxies is enabled outside Development. " +
+                            "This allows IP spoofing via X-Forwarded-For. " +
+                            "Configure Network:KnownNetworks/KnownProxies for production.");
             options.KnownIPNetworks.Clear();
             options.KnownProxies.Clear();
             return;

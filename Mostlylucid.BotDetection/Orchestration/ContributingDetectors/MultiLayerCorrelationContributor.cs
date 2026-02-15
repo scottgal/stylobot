@@ -320,11 +320,12 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
         if (string.IsNullOrEmpty(os)) return string.Empty;
 
         os = os.ToLowerInvariant();
+        // Order matters: Android UA contains "Linux", iOS contains "Mac"
+        if (os.Contains("android")) return "android";
+        if (os.Contains("ios") || os.Contains("iphone")) return "ios";
         if (os.Contains("windows")) return "windows";
         if (os.Contains("linux")) return "linux";
         if (os.Contains("mac") || os.Contains("darwin")) return "macos";
-        if (os.Contains("android")) return "android";
-        if (os.Contains("ios") || os.Contains("iphone")) return "ios";
         if (os.Contains("unix") || os.Contains("bsd")) return "unix";
 
         return os;
@@ -335,11 +336,12 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
         if (string.IsNullOrEmpty(browser)) return string.Empty;
 
         browser = browser.ToLowerInvariant();
+        // Order matters: Edge UA contains "Chrome", so check Edge/Opera first
+        if (browser.Contains("edg")) return "edge";
+        if (browser.Contains("opera") || browser.Contains("opr")) return "opera";
         if (browser.Contains("chrome")) return "chrome";
         if (browser.Contains("firefox")) return "firefox";
         if (browser.Contains("safari")) return "safari";
-        if (browser.Contains("edge")) return "edge";
-        if (browser.Contains("opera")) return "opera";
 
         return browser;
     }

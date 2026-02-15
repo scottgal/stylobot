@@ -21,6 +21,29 @@ Mostlylucid.BotDetection uses multiple detection strategies that work together t
 
 Detection runs on a **signal-driven, event-based architecture** with two execution paths:
 
+### Two-Dimensional Scoring Model
+
+StyloBot separates **bot probability** from **detection confidence**:
+
+| Dimension | Range | Meaning |
+|-----------|-------|---------|
+| **Bot Probability** | 0.0 - 1.0 | Likelihood that the request is from a bot |
+| **Detection Confidence** | 0.0 - 1.0 | How certain the system is in its verdict |
+
+Detection confidence is calculated independently from three factors:
+
+- **Agreement (40%)** -- fraction of weighted evidence pointing in the majority direction
+- **Weight Coverage (35%)** -- total evidence weight vs expected baseline
+- **Detector Count (25%)** -- number of distinct detectors that contributed
+
+This means a request can have high bot probability but low confidence (e.g., only one detector fired) or low bot probability with high confidence (many detectors agree it is human). Policies can use `MinConfidence` to require a threshold of certainty before taking action.
+
+```csharp
+context.GetBotProbability()       // 0.0 - 1.0: likelihood of being a bot
+context.GetDetectionConfidence()  // 0.0 - 1.0: certainty of the verdict
+context.GetBotConfidence()        // backward compat, returns bot probability
+```
+
 ### Fast Path (Synchronous)
 
 Low-latency detectors that run inline with the request:
@@ -28,7 +51,7 @@ Low-latency detectors that run inline with the request:
 - User-Agent, Header, IP, Behavioral analysis
 - Completes in <100ms
 - Uses consensus-based finalisation (all detectors report before scoring)
-- Can trigger early exit if confidence exceeds threshold
+- Can trigger early exit if detection confidence exceeds threshold
 
 ### Slow Path (Asynchronous)
 

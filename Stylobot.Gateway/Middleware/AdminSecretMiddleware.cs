@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.Options;
 using Stylobot.Gateway.Configuration;
 
@@ -60,9 +62,11 @@ public class AdminSecretMiddleware
             return;
         }
 
-        // Check for secret header
+        // Check for secret header (timing-safe comparison to prevent side-channel attacks)
         if (!context.Request.Headers.TryGetValue("X-Admin-Secret", out var providedSecret) ||
-            providedSecret != _adminSecret)
+            !CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(providedSecret.ToString()),
+                Encoding.UTF8.GetBytes(_adminSecret)))
         {
             _logger.LogWarning("Unauthorized admin access attempt from {RemoteIp}",
                 context.Connection.RemoteIpAddress);

@@ -65,7 +65,7 @@ public class IpContributor : ConfiguredContributorBase
         CancellationToken cancellationToken = default)
     {
         var contributions = new List<DetectionContribution>();
-        var clientIp = state.HttpContext.Connection.RemoteIpAddress?.ToString() ?? "";
+        var clientIp = ResolveClientIp(state.HttpContext);
         var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
         signals.Add(SignalKeys.ClientIp, clientIp);
@@ -133,6 +133,34 @@ public class IpContributor : ConfiguredContributorBase
                 $"IP appears normal: {MaskIp(clientIp)}") with { Signals = signals.ToImmutable() });
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
+    }
+
+    /// <summary>
+    ///     Resolves the real client IP address.
+    ///     Prefers Connection.RemoteIpAddress (set by UseForwardedHeaders middleware).
+    ///     Falls back to X-Forwarded-For header when the connection IP is a private/Docker network IP,
+    ///     which indicates UseForwardedHeaders isn't configured or doesn't trust the proxy.
+    /// </summary>
+    private static string ResolveClientIp(Microsoft.AspNetCore.Http.HttpContext httpContext)
+    {
+        var connectionIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "";
+
+        // If connection IP is already public, UseForwardedHeaders did its job — use it
+        if (!string.IsNullOrEmpty(connectionIp) && !IsLocalIp(connectionIp))
+            return connectionIp;
+
+        // Connection IP is private (likely Docker/proxy). Check X-Forwarded-For as fallback.
+        var forwardedFor = httpContext.Request.Headers["X-Forwarded-For"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(forwardedFor))
+        {
+            // X-Forwarded-For format: "client, proxy1, proxy2" — leftmost is the original client
+            var firstIp = forwardedFor.Split(',', StringSplitOptions.RemoveEmptyEntries)[0].Trim();
+            if (!string.IsNullOrEmpty(firstIp) && !IsLocalIp(firstIp))
+                return firstIp;
+        }
+
+        // No forwarded header or it's also private — return what we have
+        return connectionIp;
     }
 
     private static bool IsLocalIp(string ip)

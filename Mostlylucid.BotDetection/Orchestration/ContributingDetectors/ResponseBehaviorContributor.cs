@@ -374,14 +374,27 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
 
     private string GetClientSignature(HttpContext context)
     {
-        // Create signature from IP + User-Agent hash (same as BehavioralWaveformContributor)
-        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        // Use resolved IP from middleware (handles X-Forwarded-For behind proxies)
+        var ip = "unknown";
+        if (context.Items.TryGetValue(Middleware.BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
+            && evObj is AggregatedEvidence evidence
+            && evidence.Signals.TryGetValue(SignalKeys.ClientIp, out var ipObj))
+        {
+            ip = ipObj?.ToString() ?? ip;
+        }
+        else
+        {
+            ip = context.Connection.RemoteIpAddress?.ToString() ?? ip;
+        }
+
         var ua = context.Request.Headers.UserAgent.ToString();
         return $"{ip}:{GetHash(ua)}";
     }
 
     private static string GetHash(string input)
     {
-        return input.Length > 0 ? input.GetHashCode().ToString("X8") : "empty";
+        if (input.Length == 0) return "empty";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(input);
+        return System.IO.Hashing.XxHash32.HashToUInt32(bytes).ToString("X8");
     }
 }

@@ -95,6 +95,7 @@ services.AddBotDetection(options =>
         SlowPath = ["Behavioral"],
         EarlyExitThreshold = 0.2,
         ImmediateBlockThreshold = 0.95,
+        MinConfidence = 0.6, // Only act when detection confidence >= 0.6
         Weights = new Dictionary<string, double>
         {
             ["Behavioral"] = 2.0
@@ -164,6 +165,61 @@ Transitions allow dynamic policy changes based on detection state:
 | `LogOnly`            | Log but allow (shadow mode)  |
 | `EscalateToSlowPath` | Run slow path detectors      |
 | `EscalateToAi`       | Run AI detectors             |
+
+## Confidence Gating with `MinConfidence`
+
+Policies support a `MinConfidence` property that acts as a confidence gate for blocking actions. When set, the policy
+will only block or challenge requests where the **detection confidence** meets the threshold -- regardless of how high
+the bot probability is.
+
+This prevents false positives from low-evidence detections. A request might have a high bot probability (0.9) but low
+detection confidence (0.3) because only one lightweight detector contributed. With `MinConfidence = 0.6`, that request
+would pass through unblocked.
+
+Detection confidence is independent of bot probability. It is calculated from:
+- **Agreement (40%)** -- fraction of weighted evidence in the majority direction
+- **Weight Coverage (35%)** -- total evidence weight vs expected baseline
+- **Detector Count (25%)** -- number of distinct detectors that contributed
+
+### Configuration
+
+```json
+{
+  "BotDetection": {
+    "Policies": {
+      "high-confidence-only": {
+        "Description": "Only block when detection is confident",
+        "MinConfidence": 0.7,
+        "ImmediateBlockThreshold": 0.85,
+        "FastPath": ["UserAgent", "Header", "Ip", "Behavioral"],
+        "SlowPath": ["Inconsistency", "ClientSide"],
+        "AiPath": ["Heuristic"]
+      },
+      "lenient-api": {
+        "Description": "API endpoints - require very high confidence to block",
+        "MinConfidence": 0.85,
+        "ImmediateBlockThreshold": 0.9,
+        "FastPath": ["UserAgent", "Header"],
+        "EscalateToAi": true
+      }
+    }
+  }
+}
+```
+
+`MinConfidence` is also available on `[BotPolicy]` and `[BotDetector]` attributes:
+
+```csharp
+// Only block when confidence >= 0.7
+[BotPolicy("strict", MinConfidence = 0.7)]
+public IActionResult Checkout() => View();
+
+// Inline detectors with confidence gate
+[BotDetector("UserAgent,Header,Behavioral", MinConfidence = 0.6, BlockThreshold = 0.8)]
+public IActionResult ApiEndpoint() => Ok();
+```
+
+---
 
 ## Detector Weights
 

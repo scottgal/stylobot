@@ -59,10 +59,6 @@ public class ThrottleActionPolicy : IActionPolicy
 {
     private readonly ILogger<ThrottleActionPolicy>? _logger;
     private readonly ThrottleActionOptions _options;
-    private readonly Random _random;
-
-    // Need to store context for exponential backoff
-    private HttpContext? context;
 
     /// <summary>
     ///     Creates a new throttle action policy with the specified options.
@@ -73,7 +69,6 @@ public class ThrottleActionPolicy : IActionPolicy
         Name = name ?? throw new ArgumentNullException(nameof(name));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger;
-        _random = new Random();
     }
 
     /// <inheritdoc />
@@ -88,7 +83,6 @@ public class ThrottleActionPolicy : IActionPolicy
         AggregatedEvidence evidence,
         CancellationToken cancellationToken)
     {
-        context = httpContext;
         return await ExecuteAsync(httpContext, evidence, cancellationToken);
     }
 
@@ -99,7 +93,7 @@ public class ThrottleActionPolicy : IActionPolicy
         CancellationToken cancellationToken = default)
     {
         // Calculate base delay
-        var delay = CalculateDelay(evidence);
+        var delay = CalculateDelay(context, evidence);
 
         _logger?.LogInformation(
             "Throttling request to {Path}: policy={Policy}, risk={Risk:F2}, delay={Delay}ms",
@@ -155,7 +149,7 @@ public class ThrottleActionPolicy : IActionPolicy
     /// <summary>
     ///     Calculates the delay to apply based on options and risk score.
     /// </summary>
-    private int CalculateDelay(AggregatedEvidence evidence)
+    private int CalculateDelay(HttpContext httpContext, AggregatedEvidence evidence)
     {
         var baseDelay = (double)_options.BaseDelayMs;
 
@@ -169,14 +163,15 @@ public class ThrottleActionPolicy : IActionPolicy
             baseDelay += riskFactor * (_options.MaxDelayMs - _options.BaseDelayMs);
         }
 
-        // Apply exponential backoff if enabled and we have session data
-        if (_options.ExponentialBackoff && context?.Items != null)
+        // Apply exponential backoff if enabled
+        if (_options.ExponentialBackoff)
         {
-            // Track request count in session/context (simplified - real impl would use session)
+            // Track request count in HttpContext.Items (per-request; cross-request backoff
+            // would require a MemoryCache keyed by client signature)
             var key = $"throttle_{Name}_count";
             var count = 1;
-            if (context.Items.TryGetValue(key, out var countObj) && countObj is int c) count = c + 1;
-            context.Items[key] = count;
+            if (httpContext.Items.TryGetValue(key, out var countObj) && countObj is int c) count = c + 1;
+            httpContext.Items[key] = count;
 
             // Apply backoff factor
             if (count > 1) baseDelay *= Math.Pow(_options.BackoffFactor, count - 1);
@@ -185,11 +180,11 @@ public class ThrottleActionPolicy : IActionPolicy
         // Clamp to max delay
         baseDelay = Math.Min(baseDelay, _options.MaxDelayMs);
 
-        // Apply jitter
+        // Apply jitter (Random.Shared is thread-safe)
         if (_options.JitterPercent > 0)
         {
             var jitterRange = baseDelay * _options.JitterPercent;
-            var jitter = (_random.NextDouble() * 2 - 1) * jitterRange; // -jitterRange to +jitterRange
+            var jitter = (Random.Shared.NextDouble() * 2 - 1) * jitterRange; // -jitterRange to +jitterRange
             baseDelay += jitter;
         }
 

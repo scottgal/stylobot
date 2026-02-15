@@ -79,22 +79,37 @@ public interface ILearningEventHandler
 }
 
 /// <summary>
-///     Triggers that cause inference to run
+///     Triggers that cause inference to run.
+///     Uses detection confidence (certainty of verdict) not bot probability.
 /// </summary>
 public static class InferenceTriggers
 {
     /// <summary>
-    ///     Confidence threshold above which we trigger learning
+    ///     Detection confidence threshold above which we store for training.
+    ///     High confidence = system is sure about its verdict → good training data.
     /// </summary>
     public const double HighConfidenceThreshold = 0.85;
 
     /// <summary>
-    ///     Minimum confidence to consider for pattern extraction
+    ///     Minimum detection confidence for pattern extraction.
+    ///     Must be reasonably sure of the verdict before extracting patterns.
     /// </summary>
     public const double PatternExtractionThreshold = 0.7;
 
     /// <summary>
-    ///     Number of similar detections before triggering pattern analysis
+    ///     Detection confidence below which we trigger full learning for uncertain detections.
+    ///     Combined with high bot probability, this means "looks like a bot but we're not sure".
+    /// </summary>
+    public const double UncertainConfidenceThreshold = 0.6;
+
+    /// <summary>
+    ///     Bot probability threshold for triggering uncertain-detection learning.
+    ///     When probability > this AND confidence &lt; UncertainConfidenceThreshold → learn.
+    /// </summary>
+    public const double UncertainProbabilityThreshold = 0.5;
+
+    /// <summary>
+    ///     Number of similar detections before triggering pattern analysis.
     /// </summary>
     public const int PatternAnalysisCount = 5;
 }
