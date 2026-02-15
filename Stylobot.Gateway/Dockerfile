@@ -7,6 +7,9 @@ COPY Stylobot.Gateway/Stylobot.Gateway.csproj Stylobot.Gateway/
 COPY Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj Mostlylucid.BotDetection/
 COPY Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj Mostlylucid.BotDetection.UI/
 COPY Mostlylucid.BotDetection.UI.PostgreSQL/Mostlylucid.BotDetection.UI.PostgreSQL.csproj Mostlylucid.BotDetection.UI.PostgreSQL/
+COPY Mostlylucid.Common/Mostlylucid.Common.csproj Mostlylucid.Common/
+COPY Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj Mostlylucid.GeoDetection/
+COPY Mostlylucid.GeoDetection.Contributor/Mostlylucid.GeoDetection.Contributor.csproj Mostlylucid.GeoDetection.Contributor/
 # BotDetection.csproj reads ReleaseNotes.txt during restore for PackageReleaseNotes
 COPY Mostlylucid.BotDetection/ReleaseNotes.txt Mostlylucid.BotDetection/
 RUN dotnet restore Stylobot.Gateway/Stylobot.Gateway.csproj
@@ -16,6 +19,9 @@ COPY Stylobot.Gateway/ Stylobot.Gateway/
 COPY Mostlylucid.BotDetection/ Mostlylucid.BotDetection/
 COPY Mostlylucid.BotDetection.UI/ Mostlylucid.BotDetection.UI/
 COPY Mostlylucid.BotDetection.UI.PostgreSQL/ Mostlylucid.BotDetection.UI.PostgreSQL/
+COPY Mostlylucid.Common/ Mostlylucid.Common/
+COPY Mostlylucid.GeoDetection/ Mostlylucid.GeoDetection/
+COPY Mostlylucid.GeoDetection.Contributor/ Mostlylucid.GeoDetection.Contributor/
 RUN dotnet publish Stylobot.Gateway/Stylobot.Gateway.csproj -c Release -o /app \
     /p:DebugType=none \
     /p:DebugSymbols=false
