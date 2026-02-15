@@ -734,6 +734,11 @@ internal static class DashboardHtmlTemplate
                                         <div x-show=""sig.lastPath""><span class=""opacity-40"">Last Path:</span> <code class=""font-mono"" x-text=""sig.lastPath""></code></div>
                                         <div x-show=""sig.firstSeen""><span class=""opacity-40"">First Seen:</span> <span x-text=""new Date(sig.firstSeen).toLocaleTimeString()""></span></div>
                                     </div>
+                                    <!-- User-Agent (bots) -->
+                                    <div x-show=""sig.userAgent"" class=""mb-2"">
+                                        <span class=""text-[10px] font-bold uppercase tracking-wider opacity-40"">User-Agent</span>
+                                        <code class=""block text-[10px] opacity-60 break-all bg-base-300/30 rounded px-2 py-1 mt-0.5"" x-text=""sig.userAgent""></code>
+                                    </div>
                                     <!-- Factors/Reasons -->
                                     <template x-if=""sig.topReasons && sig.topReasons.length > 0"">
                                         <div>
@@ -1043,7 +1048,10 @@ internal static class DashboardHtmlTemplate
                                 const row = cell.getRow().getData();
                                 const sig = cell.getValue();
                                 const name = row.botName;
-                                return name ? `${{name}} (${{sig}})` : sig ? `Client Signature: ${{sig}}` : '';
+                                const ua = row.userAgent;
+                                let tip = name ? `${{name}} (${{sig}})` : sig ? `Client Signature: ${{sig}}` : '';
+                                if (ua) tip += `\nUA: ${{ua}}`;
+                                return tip;
                             }} }},
                             {{ title: '', field: 'countryCode', width: 36, hozAlign: 'center', formatter: (cell) => {{
                                 const cc = cell.getValue();

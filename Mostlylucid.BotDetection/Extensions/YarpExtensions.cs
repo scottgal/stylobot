@@ -63,6 +63,52 @@ public static class YarpExtensions
             addHeader("X-Is-Malicious-Bot", httpContext.IsMaliciousBot().ToString().ToLowerInvariant());
             addHeader("X-Is-Social-Bot", httpContext.IsSocialMediaBot().ToString().ToLowerInvariant());
         }
+
+        // Always include detection metadata (internal gateway→website headers, not exposed to clients)
+        if (httpContext.Items.TryGetValue(Middleware.BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
+            evidenceObj is AggregatedEvidence evidence)
+        {
+            addHeader("X-Bot-Detection-Probability", evidence.BotProbability.ToString("F4"));
+            addHeader("X-Bot-Detection-RiskBand", evidence.RiskBand.ToString());
+            addHeader("X-Bot-Detection-ProcessingMs", evidence.TotalProcessingTimeMs.ToString("F2"));
+
+            // Country code from geo enrichment
+            if (evidence.Signals != null &&
+                evidence.Signals.TryGetValue("geo.country_code", out var ccObj) &&
+                ccObj is string cc && cc != "LOCAL")
+                addHeader("X-Bot-Detection-Country", cc);
+
+            // Top reasons (JSON array)
+            var topReasons = evidence.Contributions
+                .Where(c => !string.IsNullOrEmpty(c.Reason))
+                .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
+                .Take(5)
+                .Select(c => c.Reason)
+                .ToList();
+
+            if (topReasons.Any())
+                addHeader("X-Bot-Detection-Reasons", JsonSerializer.Serialize(topReasons));
+
+            // Detector contributions (JSON array — internal only, not client-facing)
+            var contributionsData = evidence.Contributions
+                .GroupBy(c => c.DetectorName)
+                .Select(g => new
+                {
+                    Name = g.Key,
+                    g.First().Category,
+                    ConfidenceDelta = g.Sum(c => c.ConfidenceDelta),
+                    Weight = g.Sum(c => c.Weight),
+                    Contribution = g.Sum(c => c.ConfidenceDelta * c.Weight),
+                    Reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r))),
+                    ExecutionTimeMs = g.Sum(c => c.ProcessingTimeMs),
+                    g.First().Priority
+                })
+                .OrderByDescending(d => Math.Abs(d.Contribution))
+                .ToList();
+
+            if (contributionsData.Any())
+                addHeader("X-Bot-Detection-Contributions", JsonSerializer.Serialize(contributionsData));
+        }
     }
 
     /// <summary>
@@ -86,89 +132,28 @@ public static class YarpExtensions
 
     /// <summary>
     ///     Adds FULL bot detection headers including all metadata for UI display.
-    ///     This includes: results, probabilities, reasons, detector contributions, YARP info, etc.
-    ///     USE THIS for comprehensive dashboard display behind YARP proxy.
+    ///     Extends the basic headers with request metadata, signature ID, and YARP routing info.
     /// </summary>
     /// <param name="httpContext">The current HttpContext with bot detection results</param>
     /// <param name="addHeader">Action to add headers</param>
     public static void AddBotDetectionHeadersFull(this HttpContext httpContext, Action<string, string> addHeader)
     {
-        // Add basic headers
+        // Add basic headers (includes contributions, processing time, reasons, risk band)
         httpContext.AddBotDetectionHeaders(addHeader);
 
-        // Get aggregated evidence from context if available
+        // Additional metadata only in full mode
         if (httpContext.Items.TryGetValue(Middleware.BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
             evidenceObj is AggregatedEvidence evidence)
         {
-            // Core detection results
             addHeader("X-Bot-Detection-Result", evidence.BotProbability > 0.5 ? "true" : "false");
-            addHeader("X-Bot-Detection-Probability", evidence.BotProbability.ToString("F4"));
-            addHeader("X-Bot-Detection-Confidence", evidence.Confidence.ToString("F4"));
-            addHeader("X-Bot-Detection-RiskBand", evidence.RiskBand.ToString());
+            addHeader("X-Bot-Detection-RequestId", httpContext.TraceIdentifier);
 
-            // Bot identification
-            if (evidence.PrimaryBotType.HasValue)
-                addHeader("X-Bot-Detection-BotType", evidence.PrimaryBotType.Value.ToString());
-
-            if (!string.IsNullOrEmpty(evidence.PrimaryBotName))
-                addHeader("X-Bot-Detection-BotName", evidence.PrimaryBotName);
-
-            // Policy and action
             if (!string.IsNullOrEmpty(evidence.PolicyName))
                 addHeader("X-Bot-Detection-Policy", evidence.PolicyName);
 
             var action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName;
             if (!string.IsNullOrEmpty(action))
                 addHeader("X-Bot-Detection-Action", action);
-
-            // Processing metrics
-            addHeader("X-Bot-Detection-ProcessingMs", evidence.TotalProcessingTimeMs.ToString("F2"));
-
-            // Country code from geo enrichment
-            if (evidence.Signals != null &&
-                evidence.Signals.TryGetValue("geo.country_code", out var ccObj) &&
-                ccObj is string cc && cc != "LOCAL")
-                addHeader("X-Bot-Detection-Country", cc);
-
-            // Top reasons (JSON array for easy parsing)
-            var topReasons = evidence.Contributions
-                .Where(c => !string.IsNullOrEmpty(c.Reason))
-                .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
-                .Take(5)
-                .Select(c => c.Reason)
-                .ToList();
-
-            if (topReasons.Any())
-            {
-                var reasonsJson = JsonSerializer.Serialize(topReasons);
-                addHeader("X-Bot-Detection-Reasons", reasonsJson);
-            }
-
-            // Detector contributions (JSON array)
-            var contributionsData = evidence.Contributions
-                .GroupBy(c => c.DetectorName)
-                .Select(g => new
-                {
-                    Name = g.Key,
-                    g.First().Category,
-                    ConfidenceDelta = g.Sum(c => c.ConfidenceDelta),
-                    Weight = g.Sum(c => c.Weight),
-                    Contribution = g.Sum(c => c.ConfidenceDelta * c.Weight),
-                    Reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r))),
-                    ExecutionTimeMs = g.Sum(c => c.ProcessingTimeMs),
-                    g.First().Priority
-                })
-                .OrderByDescending(d => Math.Abs(d.Contribution))
-                .ToList();
-
-            if (contributionsData.Any())
-            {
-                var contributionsJson = JsonSerializer.Serialize(contributionsData);
-                addHeader("X-Bot-Detection-Contributions", contributionsJson);
-            }
-
-            // Request metadata
-            addHeader("X-Bot-Detection-RequestId", httpContext.TraceIdentifier);
         }
 
         // Add signature ID if available (for demo/debug mode)

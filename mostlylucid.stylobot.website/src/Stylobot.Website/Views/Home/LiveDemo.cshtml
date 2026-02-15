@@ -210,6 +210,12 @@
                                 </template>
                             </div>
 
+                            <!-- User-Agent (bots only) -->
+                            <div x-show="activeDetail?.userAgent" class="mb-3">
+                                <h4 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-1">User-Agent</h4>
+                                <code class="text-[10px] text-base-content/60 break-all block bg-base-300/30 rounded px-2 py-1" x-text="activeDetail?.userAgent"></code>
+                            </div>
+
                             <!-- Pages visited -->
                             <div x-show="activeDetail?.paths?.length > 0" class="mb-3">
                                 <h4 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-1.5">Pages visited</h4>

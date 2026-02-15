@@ -115,6 +115,7 @@ public class DetectionBroadcastMiddleware
                     ProcessingTimeMs = evidence.TotalProcessingTimeMs,
                     PrimarySignature = sigValue,
                     CountryCode = countryCode,
+                    UserAgent = evidence.BotProbability > 0.5 ? context.Request.Headers.UserAgent.ToString() : null,
                     TopReasons = topReasons
                 };
 
@@ -262,6 +263,7 @@ public class DetectionBroadcastMiddleware
             ProcessingTimeMs = upstreamProcessingMs,
             PrimarySignature = sigValue,
             CountryCode = upstreamCountry,
+            UserAgent = result.IsBot ? context.Request.Headers.UserAgent.ToString() : null,
             TopReasons = topReasons
         };
 

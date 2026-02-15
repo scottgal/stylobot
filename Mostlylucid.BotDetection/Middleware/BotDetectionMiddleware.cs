@@ -10,6 +10,7 @@ using Mostlylucid.BotDetection.Attributes;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Policies;
+using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Middleware;
 
@@ -901,7 +902,7 @@ public class BotDetectionMiddleware(
             {
                 >= 0.85 => RiskBand.VeryHigh,
                 >= 0.7 => RiskBand.High,
-                >= 0.5 => RiskBand.Medium, // Changed from Elevated
+                >= 0.5 => RiskBand.Medium,
                 >= 0.3 => RiskBand.Elevated,
                 >= 0.15 => RiskBand.Low,
                 _ => RiskBand.VeryLow
@@ -916,9 +917,84 @@ public class BotDetectionMiddleware(
         // Parse action
         var actionName = context.Request.Headers["X-Bot-Detection-Action"].FirstOrDefault();
 
-        // Build AggregatedEvidence so views (LiveDemo, Index) can render detection data
+        // Parse contributions from gateway (JSON array)
+        // This populates the detector breakdown, reasons, and processing metrics
+        DetectionLedger? ledger = null;
+        var contributingDetectorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var detectionReasons = new List<DetectionReason>();
+
+        if (context.Request.Headers.TryGetValue("X-Bot-Detection-Contributions", out var contribHeader) &&
+            !string.IsNullOrEmpty(contribHeader.ToString()))
+        {
+            try
+            {
+                var contribs = JsonSerializer.Deserialize<List<UpstreamContribution>>(contribHeader.ToString(),
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                if (contribs is { Count: > 0 })
+                {
+                    ledger = new DetectionLedger(context.TraceIdentifier);
+                    foreach (var c in contribs)
+                    {
+                        var contribution = new Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger.DetectionContribution
+                        {
+                            DetectorName = c.Name ?? "Unknown",
+                            Category = c.Category ?? "Unknown",
+                            ConfidenceDelta = c.ConfidenceDelta,
+                            Weight = c.Weight,
+                            Reason = c.Reason ?? "",
+                            ProcessingTimeMs = c.ExecutionTimeMs,
+                            Priority = c.Priority
+                        };
+                        ledger.AddContribution(contribution);
+                        contributingDetectorNames.Add(c.Name ?? "Unknown");
+
+                        if (!string.IsNullOrEmpty(c.Reason))
+                        {
+                            detectionReasons.Add(new DetectionReason
+                            {
+                                Category = c.Category ?? "Unknown",
+                                Detail = c.Reason,
+                                ConfidenceImpact = c.ConfidenceDelta
+                            });
+                        }
+                    }
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogDebug(ex, "Failed to parse upstream contributions JSON");
+            }
+        }
+
+        // Fall back to reasons header if no contributions
+        if (detectionReasons.Count == 0 &&
+            context.Request.Headers.TryGetValue("X-Bot-Detection-Reasons", out var reasonsHeader) &&
+            !string.IsNullOrEmpty(reasonsHeader.ToString()))
+        {
+            try
+            {
+                var reasons = JsonSerializer.Deserialize<List<string>>(reasonsHeader.ToString());
+                if (reasons != null)
+                {
+                    detectionReasons.AddRange(reasons.Select(r => new DetectionReason
+                    {
+                        Category = "upstream",
+                        Detail = r,
+                        ConfidenceImpact = 0
+                    }));
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogDebug(ex, "Failed to parse upstream reasons JSON");
+            }
+        }
+
+        // Build AggregatedEvidence with ledger so Contributions property works
         var evidence = new AggregatedEvidence
         {
+            Ledger = ledger,
             BotProbability = botProbability,
             Confidence = confidence,
             RiskBand = riskBand,
@@ -926,7 +1002,8 @@ public class BotDetectionMiddleware(
             PrimaryBotName = botName,
             TotalProcessingTimeMs = processingMs,
             PolicyName = "upstream",
-            TriggeredActionPolicyName = actionName
+            TriggeredActionPolicyName = actionName,
+            ContributingDetectors = contributingDetectorNames
         };
 
         // Populate HttpContext.Items (same keys as PopulateContextFromAggregated)
@@ -936,7 +1013,7 @@ public class BotDetectionMiddleware(
         context.Items[BotTypeKey] = botType;
         context.Items[BotNameKey] = botName;
         context.Items[PolicyNameKey] = "upstream";
-        context.Items[DetectionReasonsKey] = new List<DetectionReason>();
+        context.Items[DetectionReasonsKey] = detectionReasons;
         if (!string.IsNullOrEmpty(category))
             context.Items[BotCategoryKey] = category;
 
@@ -947,15 +1024,30 @@ public class BotDetectionMiddleware(
             ConfidenceScore = botProbability,
             BotType = isBot ? botType : null,
             BotName = isBot ? botName : null,
-            Reasons = []
+            Reasons = detectionReasons
         };
         context.Items[BotDetectionResultKey] = legacyResult;
 
         _logger.LogDebug(
-            "Trusted upstream detection for {Path}: isBot={IsBot}, probability={Probability:F2}, risk={Risk}",
-            context.Request.Path, isBot, botProbability, riskBand);
+            "Trusted upstream detection for {Path}: isBot={IsBot}, probability={Probability:F2}, risk={Risk}, detectors={DetectorCount}",
+            context.Request.Path, isBot, botProbability, riskBand, contributingDetectorNames.Count);
 
         return true;
+    }
+
+    /// <summary>
+    ///     JSON model for parsing upstream contribution headers.
+    /// </summary>
+    private sealed class UpstreamContribution
+    {
+        public string? Name { get; set; }
+        public string? Category { get; set; }
+        public double ConfidenceDelta { get; set; }
+        public double Weight { get; set; }
+        public double Contribution { get; set; }
+        public string? Reason { get; set; }
+        public double ExecutionTimeMs { get; set; }
+        public int Priority { get; set; }
     }
 
     #endregion

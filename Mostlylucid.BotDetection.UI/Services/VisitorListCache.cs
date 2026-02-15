@@ -45,6 +45,7 @@ public class VisitorListCache
                 BotName = detection.BotName,
                 BotType = detection.BotType,
                 CountryCode = detection.CountryCode,
+                UserAgent = detection.UserAgent,
                 Narrative = detection.Narrative,
                 Description = detection.Description,
                 TopReasons = detection.TopReasons.ToList(),
@@ -73,6 +74,8 @@ public class VisitorListCache
                     existing.BotType = detection.BotType;
                 if (!string.IsNullOrEmpty(detection.CountryCode))
                     existing.CountryCode = detection.CountryCode;
+                if (!string.IsNullOrEmpty(detection.UserAgent))
+                    existing.UserAgent = detection.UserAgent;
                 existing.ProcessingTimeMs = detection.ProcessingTimeMs;
                 existing.LastRequestId = detection.RequestId;
                 if (!string.IsNullOrEmpty(detection.Path) && !existing.Paths.Contains(detection.Path))
@@ -202,6 +205,7 @@ public class CachedVisitor
     public string? BotName { get; set; }
     public string? BotType { get; set; }
     public string? CountryCode { get; set; }
+    public string? UserAgent { get; set; }
     public string? Narrative { get; set; }
     public string? Description { get; set; }
     public List<string> TopReasons { get; set; } = new();
