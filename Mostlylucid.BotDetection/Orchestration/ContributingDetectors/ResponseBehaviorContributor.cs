@@ -194,7 +194,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.25,
                 Weight = 1.3,
-                Reason = $"Possible scanning: {behavior.Count404} 404s across {behavior.UniqueNotFoundPaths} paths",
+                Reason = $"Possible scanning: {behavior.Count404} page-not-found errors across {behavior.UniqueNotFoundPaths} different URLs",
                 Signals = signals.ToImmutable()
             });
         }
@@ -216,7 +216,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
 
             contributions.Add(DetectionContribution.Bot(
                 Name, "Response", 0.85,
-                $"Severe auth brute-forcing: {behavior.AuthFailures} authentication failures",
+                $"Severe login brute-forcing: {behavior.AuthFailures} failed login attempts",
                 weight: 1.9,
                 botType: BotType.MaliciousBot.ToString()));
         }
@@ -230,7 +230,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.5,
                 Weight = 1.5,
-                Reason = $"Repeated auth failures: {behavior.AuthFailures} attempts",
+                Reason = $"Repeated login failures: {behavior.AuthFailures} failed attempts",
                 Signals = signals.ToImmutable()
             });
         }
@@ -244,7 +244,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.2,
                 Weight = 1.2,
-                Reason = $"Some auth failures: {behavior.AuthFailures} attempts",
+                Reason = $"Some login failures: {behavior.AuthFailures} failed attempts",
                 Signals = signals.ToImmutable()
             });
         }
@@ -318,7 +318,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.4,
                 Weight = 1.4,
-                Reason = $"Some rate limit violations: {rateLimitCount} occurrences",
+                Reason = $"Exceeded request speed limits {rateLimitCount} times",
                 Signals = signals.ToImmutable()
             });
     }

@@ -63,7 +63,7 @@ public class SimilarityContributor : ContributingDetectorBase
                     Category = "Similarity",
                     ConfidenceDelta = 0.0,
                     Weight = 1.0,
-                    Reason = "Similarity search skipped (empty index)",
+                    Reason = "No prior visitor signatures to compare against yet",
                     Signals = signals.ToImmutable()
                 });
             }
@@ -102,7 +102,7 @@ public class SimilarityContributor : ContributingDetectorBase
                     var boost = BotBoostConfidence * topSimilarity;
                     contributions.Add(DetectionContribution.Bot(
                         Name, "Similarity", boost,
-                        $"Similar to {botMatches} known bot signature(s) (top similarity: {topSimilarity:F2})",
+                        $"Resembles {botMatches} previously identified bot(s) ({topSimilarity:P0} match)",
                         weight: 1.4,
                         botType: BotType.Scraper.ToString()));
                 }
@@ -116,7 +116,7 @@ public class SimilarityContributor : ContributingDetectorBase
                         ConfidenceDelta = HumanReduceConfidence * topSimilarity,
                         Weight = 1.3,
                         Reason =
-                            $"Similar to {humanMatches} known human signature(s) (top similarity: {topSimilarity:F2})",
+                            $"Resembles {humanMatches} previously verified human visitor(s) ({topSimilarity:P0} match)",
                         Signals = signals.ToImmutable()
                     });
                 }
@@ -130,7 +130,7 @@ public class SimilarityContributor : ContributingDetectorBase
                         ConfidenceDelta = 0.0,
                         Weight = 1.0,
                         Reason =
-                            $"Found {similar.Count} similar signatures (mixed or below threshold, top: {topSimilarity:F2})",
+                            $"Found {similar.Count} similar past visitors but results are inconclusive",
                         Signals = signals.ToImmutable()
                     });
                 }
@@ -151,7 +151,7 @@ public class SimilarityContributor : ContributingDetectorBase
                 Category = "Similarity",
                 ConfidenceDelta = 0.0,
                 Weight = 1.0,
-                Reason = "Similarity search complete (no matches above threshold)",
+                Reason = "No closely matching past visitors found",
                 Signals = signals.ToImmutable()
             });
         }

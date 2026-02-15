@@ -115,7 +115,7 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
                     Category = "Correlation",
                     ConfidenceDelta = 0.4,
                     Weight = 1.4,
-                    Reason = $"TLS version inconsistent with claimed browser: {userAgentBrowser}",
+                    Reason = $"Encryption version does not match what {userAgentBrowser} would normally use",
                     Signals = signals.ToImmutable()
                 });
             }
@@ -133,7 +133,7 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
                     Category = "Correlation",
                     ConfidenceDelta = 0.3,
                     Weight = 1.2,
-                    Reason = "Geographic inconsistency detected (IP location vs language headers)",
+                    Reason = "IP address location does not match the language preference claimed by the browser",
                     Signals = signals.ToImmutable()
                 });
             }
@@ -182,7 +182,7 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
                     Category = "Correlation",
                     ConfidenceDelta = -0.25,
                     Weight = 1.8,
-                    Reason = "Perfect cross-layer consistency (OS, Browser, TLS, Geo all match)",
+                    Reason = "All signals consistent: operating system, browser, encryption, and location all match",
                     Signals = signals.ToImmutable()
                 });
         }
@@ -201,7 +201,7 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
                 Category = "Correlation",
                 ConfidenceDelta = 0.0,
                 Weight = 1.0,
-                Reason = "Multi-layer correlation analysis complete (insufficient data for comparison)",
+                Reason = "Cross-signal consistency check complete (not enough data to compare)",
                 Signals = signals.ToImmutable()
             });
         }

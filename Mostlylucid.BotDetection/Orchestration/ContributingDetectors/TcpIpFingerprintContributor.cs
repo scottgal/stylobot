@@ -196,7 +196,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                         Category = "TCP/IP",
                         ConfidenceDelta = 0.15,
                         Weight = 0.8,
-                        Reason = "IP Don't Fragment flag not set (unusual for modern systems)",
+                        Reason = "Network packet configuration differs from modern browsers",
                         Signals = signals.ToImmutable()
                     });
             }
@@ -222,7 +222,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                     Category = "TCP/IP",
                     ConfidenceDelta = 0.2,
                     Weight = 0.7,
-                    Reason = "Missing Connection header (unusual for modern clients)",
+                    Reason = "Missing connection reuse header (unusual for real browsers)",
                     Signals = signals.ToImmutable()
                 });
             else if (connectionHeader.Equals("close", StringComparison.OrdinalIgnoreCase))
@@ -233,7 +233,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                     Category = "TCP/IP",
                     ConfidenceDelta = 0.1,
                     Weight = 0.6,
-                    Reason = "Connection: close (bots often avoid keep-alive)",
+                    Reason = "Client closes connection after each request (bots often avoid persistent connections)",
                     Signals = signals.ToImmutable()
                 });
 
@@ -256,7 +256,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                 Category = "TCP/IP",
                 ConfidenceDelta = 0.0,
                 Weight = 1.0,
-                Reason = "TCP/IP stack analysis complete (no anomalies detected)",
+                Reason = "Network fingerprint analysis complete (no anomalies detected)",
                 Signals = signals.ToImmutable()
             });
         }
@@ -284,7 +284,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
             if (patterns.Any(p => p.Contains("Bot")))
                 contributions.Add(DetectionContribution.Bot(
                     Name, "TCP/IP", 0.55,
-                    $"TCP window size matches known bot pattern: {windowSize} ({pattern})",
+                    $"Network buffer size matches a known bot fingerprint ({pattern})",
                     weight: 1.3,
                     botType: BotType.Scraper.ToString()));
         }
@@ -298,7 +298,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                     Category = "TCP/IP",
                     ConfidenceDelta = 0.25,
                     Weight = 1.1,
-                    Reason = $"Unusual TCP window size: {windowSize}",
+                    Reason = "Unusual network buffer configuration (does not match standard browsers or operating systems)",
                     Signals = signals.ToImmutable()
                 });
         }
@@ -315,7 +315,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
             if (patterns.Any(p => p.Contains("Bot")))
                 contributions.Add(DetectionContribution.Bot(
                     Name, "TCP/IP", 0.6,
-                    $"Unusual TTL value for web client: {ttl}",
+                    "Network hop count matches a known bot fingerprint",
                     weight: 1.4,
                     botType: BotType.Scraper.ToString()));
         }
@@ -329,7 +329,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                     Category = "TCP/IP",
                     ConfidenceDelta = 0.3,
                     Weight = 1.2,
-                    Reason = $"Non-standard TTL value: {ttl}",
+                    Reason = "Unusual network hop count (does not match standard browsers or operating systems)",
                     Signals = signals.ToImmutable()
                 });
         }
@@ -360,7 +360,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                 Category = "TCP/IP",
                 ConfidenceDelta = 0.2,
                 Weight = 0.9,
-                Reason = "Missing modern TCP options (TS/SACK/WS)",
+                Reason = "Missing modern network features that real browsers include",
                 Signals = signals.ToImmutable()
             });
 
@@ -372,7 +372,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                 Category = "TCP/IP",
                 ConfidenceDelta = 0.25,
                 Weight = 1.0,
-                Reason = "Minimal TCP options (typical for automation tools)",
+                Reason = "Very few network options set (typical for automation tools, not real browsers)",
                 Signals = signals.ToImmutable()
             });
     }
@@ -390,7 +390,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                 Category = "TCP/IP",
                 ConfidenceDelta = 0.3,
                 Weight = 1.1,
-                Reason = "Default/minimal MSS value (536) - indicates old or custom TCP stack",
+                Reason = "Minimal network packet size (indicates old or custom networking, not a real browser)",
                 Signals = signals.ToImmutable()
             });
         else if (mss < 536 || mss > 1460)
@@ -401,7 +401,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                 Category = "TCP/IP",
                 ConfidenceDelta = 0.15,
                 Weight = 0.8,
-                Reason = $"Non-standard MSS value: {mss}",
+                Reason = "Non-standard network packet size (does not match standard browsers)",
                 Signals = signals.ToImmutable()
             });
     }

@@ -93,7 +93,7 @@ public class CacheBehaviorContributor : ContributingDetectorBase
                 Category = "CacheBehavior",
                 ConfidenceDelta = 0.25,
                 Weight = 1.0,
-                Reason = "No compression support in Accept-Encoding header",
+                Reason = "Client does not support data compression (unusual for real browsers)",
                 Signals = ImmutableDictionary<string, object>.Empty
                     .Add(SignalKeys.CompressionSupported, false)
             });
@@ -150,7 +150,7 @@ public class CacheBehaviorContributor : ContributingDetectorBase
                     ConfidenceDelta = 0.3,
                     Weight = 1.5,
                     Reason =
-                        $"Low cache validation rate: {cacheValidationRate:P0} ({profile.RequestsWithCacheValidation}/{profile.StaticResourceRequests} static requests)",
+                        $"Client rarely reuses cached resources ({cacheValidationRate:P0} of static files) unlike real browsers",
                     Signals = ImmutableDictionary<string, object>.Empty
                         .Add(SignalKeys.CacheBehaviorAnomaly, true)
                         .Add("CacheValidationRate", cacheValidationRate)

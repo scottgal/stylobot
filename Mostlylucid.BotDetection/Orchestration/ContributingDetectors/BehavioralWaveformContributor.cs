@@ -554,7 +554,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Category = "Waveform",
                 ConfidenceDelta = 0.35,
                 Weight = 1.4,
-                Reason = $"API-only access: {apiCt} API calls with no page visits (programmatic access)"
+                Reason = $"Only accessing data endpoints ({apiCt} calls) without visiting any web pages"
             });
 
         // Asset-to-page ratio for rate adjustment
