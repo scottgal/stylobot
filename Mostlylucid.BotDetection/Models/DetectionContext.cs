@@ -529,6 +529,26 @@ public static class SignalKeys
     public const string ClusterTemporalCorrelation = "cluster.temporal_correlation";
 
     // ==========================================
+    // Geographic and network classification signals
+    // Written by GeoDetection.Contributor, read by core filters for geo/network blocking
+    // ==========================================
+
+    /// <summary>String: ISO 3166-1 alpha-2 country code (e.g., "US", "CN")</summary>
+    public const string GeoCountryCode = "geo.country_code";
+
+    /// <summary>Boolean: true if connection is via VPN</summary>
+    public const string GeoIsVpn = "geo.is_vpn";
+
+    /// <summary>Boolean: true if connection is via proxy</summary>
+    public const string GeoIsProxy = "geo.is_proxy";
+
+    /// <summary>Boolean: true if connection is via Tor exit node</summary>
+    public const string GeoIsTor = "geo.is_tor";
+
+    /// <summary>Boolean: true if IP belongs to a hosting/cloud provider</summary>
+    public const string GeoIsHosting = "geo.is_hosting";
+
+    // ==========================================
     // Country reputation signals
     // Set by ClusterContributor from CountryReputationTracker
     // ==========================================

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.Extensions;
@@ -77,6 +78,23 @@ public static class YarpExtensions
                 evidence.Signals.TryGetValue("geo.country_code", out var ccObj) &&
                 ccObj is string cc && cc != "LOCAL")
                 addHeader("X-Bot-Detection-Country", cc);
+
+            // Network classification flags for downstream geo/network blocking
+            if (evidence.Signals != null)
+            {
+                var flags = new List<string>(4);
+                if (evidence.Signals.TryGetValue(SignalKeys.GeoIsVpn, out var vpn) && vpn is true)
+                    flags.Add("vpn");
+                if (evidence.Signals.TryGetValue(SignalKeys.GeoIsProxy, out var proxy) && proxy is true)
+                    flags.Add("proxy");
+                if (evidence.Signals.TryGetValue(SignalKeys.GeoIsTor, out var tor) && tor is true)
+                    flags.Add("tor");
+                if (evidence.Signals.TryGetValue(SignalKeys.GeoIsHosting, out var hosting) && hosting is true
+                    || evidence.Signals.TryGetValue(SignalKeys.IpIsDatacenter, out var dc) && dc is true)
+                    flags.Add("datacenter");
+                if (flags.Count > 0)
+                    addHeader("X-Bot-Detection-NetworkFlags", string.Join(",", flags));
+            }
 
             // Top reasons (JSON array)
             var topReasons = evidence.Contributions

@@ -345,7 +345,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.5,
                 Weight = 1.5,
-                Reason = $"High response score: {behavior.ResponseScore:F2}",
+                Reason = "Response patterns strongly suggest automated access",
                 Signals = signals.ToImmutable()
             });
         else if (behavior.ResponseScore > 0.4)
@@ -355,7 +355,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.2,
                 Weight = 1.2,
-                Reason = $"Elevated response score: {behavior.ResponseScore:F2}",
+                Reason = "Response patterns show some signs of automated access",
                 Signals = signals.ToImmutable()
             });
         // Low score = likely human

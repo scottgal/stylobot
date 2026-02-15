@@ -139,14 +139,14 @@ public partial class UserAgentContributor : ConfiguredContributorBase
 
         // Check compiled patterns from data sources (generic regex patterns)
         if (_patternCache != null)
-            if (_patternCache.MatchesAnyPattern(userAgent, out var matchedPattern))
+            if (_patternCache.MatchesAnyPattern(userAgent, out var matchedValue))
             {
                 // Try to extract a meaningful name from the UA string
                 var extractedName = ExtractNameFromUserAgent(userAgent);
                 return (true, PatternMatchConfidence, BotType.Unknown, extractedName,
                     extractedName != null
                         ? $"Known bot pattern: {extractedName}"
-                        : $"Matched pattern: {matchedPattern}");
+                        : DescribeMatchedUserAgent(userAgent, matchedValue));
             }
 
         // Check for suspicious patterns
@@ -289,6 +289,37 @@ public partial class UserAgentContributor : ConfiguredContributorBase
         }
 
         return null;
+    }
+
+    /// <summary>
+    ///     Generates a human-readable description of why a User-Agent matched a bot pattern.
+    ///     Never exposes raw regex patterns to the user.
+    /// </summary>
+    private static string DescribeMatchedUserAgent(string userAgent, string? matchedValue)
+    {
+        // Simple tool-style UA: "curl/7.64.1", "wget/1.21", "python-requests/2.28.0"
+        if (SimpleToolRegex().IsMatch(userAgent) && !userAgent.Contains(' '))
+            return $"Simple tool-style User-Agent: {Truncate(userAgent, 60)} (no browser information)";
+
+        // UA contains bot/crawler/spider keywords
+        if (BotKeywordRegex().IsMatch(userAgent))
+            return $"User-Agent contains bot identifier: {Truncate(userAgent, 60)}";
+
+        // Very short or minimal UA
+        if (userAgent.Length < 30)
+            return $"Minimal User-Agent: {Truncate(userAgent, 60)} (too short for a real browser)";
+
+        // Matched value is meaningful - describe what was found
+        if (!string.IsNullOrEmpty(matchedValue) && matchedValue.Length > 2)
+            return $"User-Agent matches known bot signature: {Truncate(userAgent, 60)}";
+
+        // Generic fallback - still human-readable
+        return $"User-Agent matches known bot pattern database: {Truncate(userAgent, 60)}";
+    }
+
+    private static string Truncate(string value, int maxLength)
+    {
+        return value.Length <= maxLength ? value : value[..(maxLength - 3)] + "...";
     }
 
     [GeneratedRegex(@"\b(bot|crawler|spider|scraper)\b", RegexOptions.IgnoreCase)]

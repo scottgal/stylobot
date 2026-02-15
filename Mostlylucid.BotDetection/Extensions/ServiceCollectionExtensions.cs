@@ -462,14 +462,41 @@ public static class ServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<LlmClassificationCoordinator>());
 
         // ==========================================
-        // Similarity Search (HNSW approximate nearest neighbor)
+        // Similarity Search (HNSW or Qdrant)
         // ==========================================
 
         // Feature vectorizer converts dynamic feature dictionaries to fixed-length vectors
         services.TryAddSingleton<FeatureVectorizer>();
 
-        // HNSW file-backed similarity search (loads from disk on startup, auto-saves periodically)
-        services.TryAddSingleton<ISignatureSimilaritySearch, HnswFileSimilaritySearch>();
+        // ONNX embedding provider (optional - for ML-powered similarity)
+        services.TryAddSingleton<IEmbeddingProvider>(sp =>
+        {
+            var opts = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+            var logger = sp.GetRequiredService<ILogger<OnnxEmbeddingProvider>>();
+            return new OnnxEmbeddingProvider(opts.Qdrant, opts.DatabasePath, logger);
+        });
+
+        // Always register HNSW as concrete type for fallback
+        services.TryAddSingleton<HnswFileSimilaritySearch>();
+
+        // Qdrant or HNSW based on configuration
+        services.TryAddSingleton<ISignatureSimilaritySearch>(sp =>
+        {
+            var opts = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+            if (opts.Qdrant.Enabled)
+            {
+                var qdrantLogger = sp.GetRequiredService<ILogger<QdrantSimilaritySearch>>();
+                if (opts.Qdrant.EnableEmbeddings)
+                {
+                    var embedder = sp.GetRequiredService<IEmbeddingProvider>();
+                    var vectorizer = sp.GetRequiredService<FeatureVectorizer>();
+                    return new DualVectorSimilaritySearch(opts.Qdrant, vectorizer, embedder, opts.DatabasePath, qdrantLogger);
+                }
+                return new QdrantSimilaritySearch(opts.Qdrant, opts.DatabasePath, qdrantLogger);
+            }
+            // Fallback: file-backed HNSW (current behavior)
+            return sp.GetRequiredService<HnswFileSimilaritySearch>();
+        });
 
         // Learning handler that feeds high-confidence detections into the similarity index
         services.AddSingleton<ILearningEventHandler, SimilarityLearningHandler>();

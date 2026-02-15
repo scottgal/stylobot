@@ -67,6 +67,10 @@ services:
       - BotDetection__AiDetection__Ollama__Endpoint=http://ollama:11434
       - BotDetection__AiDetection__Ollama__Model=gemma3:1b
       - BotDetection__AiDetection__TimeoutMs=30000
+      # Qdrant vector database for similarity search
+      - BotDetection__Qdrant__Enabled=true
+      - BotDetection__Qdrant__Endpoint=http://qdrant:6334
+      - BotDetection__Qdrant__EnableEmbeddings=true
     expose:
       - "8080"
     volumes:
@@ -78,6 +82,8 @@ services:
       website:
         condition: service_started
       ollama:
+        condition: service_healthy
+      qdrant:
         condition: service_healthy
     networks:
       - stylobot-network
@@ -152,6 +158,26 @@ services:
     entrypoint: ["/bin/sh", "-c", "ollama serve & sleep 10 && ollama pull gemma3:1b || true; wait"]
 
   # ----------------------------------------------------------
+  # Qdrant - Vector database for signature similarity search
+  # ----------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: stylobot-qdrant
+    volumes:
+      - qdrant-data:/qdrant/storage
+    expose:
+      - "6334"
+    networks:
+      - stylobot-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:6333/healthz || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # ----------------------------------------------------------
   # TimescaleDB - Dashboard event persistence
   # ----------------------------------------------------------
   timescaledb:
@@ -208,6 +234,8 @@ volumes:
   gateway-learning:
     driver: local
   ollama-models:
+    driver: local
+  qdrant-data:
     driver: local
   timescale-data:
     driver: local

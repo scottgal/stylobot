@@ -53,7 +53,22 @@ public sealed class SimilarityLearningHandler : ILearningEventHandler
             // Generate a signature ID from request context
             var signatureId = evt.RequestId ?? Guid.NewGuid().ToString("N")[..12];
 
-            await _search.AddAsync(vector, signatureId, wasBot, confidence);
+            // Build embedding context from metadata for semantic similarity.
+            // Uses User-Agent + request path - these are the signals that best distinguish
+            // bot identities across the heuristic feature dimensions.
+            string? embeddingContext = null;
+            if (evt.Metadata != null)
+            {
+                var parts = new List<string>(3);
+                if (evt.Metadata.TryGetValue("userAgent", out var ua) && ua is string uaStr)
+                    parts.Add($"UA:{uaStr}");
+                if (evt.Metadata.TryGetValue("path", out var path) && path is string pathStr)
+                    parts.Add($"Path:{pathStr}");
+                parts.Add(wasBot ? "Bot" : "Human");
+                embeddingContext = string.Join(" | ", parts);
+            }
+
+            await _search.AddAsync(vector, signatureId, wasBot, confidence, embeddingContext);
 
             _logger.LogDebug(
                 "Added vector to similarity index: signature={SignatureId}, wasBot={WasBot}, confidence={Confidence:F2}, indexSize={Count}",

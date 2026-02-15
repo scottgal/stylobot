@@ -156,7 +156,7 @@ public class TimescaleReputationContributor : ConfiguredContributorBase
                 {
                     DetectorName = Name,
                     Category = "Reputation",
-                    Reason = $"Historical data: {reputation.TotalHitCount} hits, {reputation.BotRatio:P0} bot ratio ({reputation.DaysActive} days active)",
+                    Reason = $"Seen {reputation.TotalHitCount} times over {reputation.DaysActive} days, {reputation.BotRatio:P0} classified as bot",
                     Weight = 0,
                     ConfidenceDelta = 0,
                     Signals = signals

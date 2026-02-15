@@ -10,6 +10,7 @@ using Mostlylucid.BotDetection.Attributes;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Policies;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Middleware;
@@ -37,7 +38,9 @@ namespace Mostlylucid.BotDetection.Middleware;
 public class BotDetectionMiddleware(
     RequestDelegate next,
     ILogger<BotDetectionMiddleware> logger,
-    IOptions<BotDetectionOptions> options)
+    IOptions<BotDetectionOptions> options,
+    CountryReputationTracker? countryTracker = null,
+    BotClusterService? clusterService = null)
 {
     // Default test mode simulations - used as fallback when options don't contain the mode
     private static readonly Dictionary<string, string> DefaultTestModeSimulations =
@@ -120,6 +123,18 @@ public class BotDetectionMiddleware(
         // Fast path: trust upstream detection from gateway proxy
         if (_options.TrustUpstreamDetection && TryHydrateFromUpstream(context))
         {
+            // Feed country reputation from upstream detection
+            var countryCode = context.Request.Headers["X-Bot-Detection-Country"].FirstOrDefault();
+            if (countryTracker != null && !string.IsNullOrEmpty(countryCode) && countryCode != "LOCAL")
+            {
+                var prob = context.Items[BotConfidenceKey] is double p ? p : 0.0;
+                countryTracker.RecordDetection(countryCode, countryCode, prob > 0.5, prob);
+            }
+
+            // Notify cluster service of bot detections
+            if (clusterService != null && context.Items[IsBotKey] is true)
+                clusterService.NotifyBotDetected();
+
             // Only add the trust marker — the gateway already emits full X-Bot-* response headers
             if (_options.ResponseHeaders.Enabled)
             {

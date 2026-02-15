@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Middleware;
+using Mostlylucid.BotDetection.UI.Extensions;
+using Mostlylucid.BotDetection.UI.PostgreSQL.Extensions;
 using Stylobot.Gateway.Configuration;
 using Stylobot.Gateway.Data;
 using Stylobot.Gateway.Endpoints;
@@ -105,6 +107,32 @@ try
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
 
+    // Add detection persistence: saves detections to shared DB + broadcasts via SignalR.
+    // This is the lightweight path (no dashboard UI served from the gateway).
+    // The website handles dashboard rendering; the gateway just persists and broadcasts.
+    builder.Services.AddBotDetectionPersistence();
+
+    // Add PostgreSQL persistence if connection string is configured
+    var pgConnectionString = builder.Configuration["StyloBotDashboard:PostgreSQL:ConnectionString"]
+                             ?? Environment.GetEnvironmentVariable("STYLOBOT_PG_CONNECTION");
+    if (!string.IsNullOrEmpty(pgConnectionString))
+    {
+        builder.Services.AddStyloBotPostgreSQL(pgConnectionString, options =>
+        {
+            options.EnableTimescaleDB = builder.Configuration.GetValue("StyloBotDashboard:PostgreSQL:EnableTimescaleDB", true);
+            options.AutoInitializeSchema = builder.Configuration.GetValue("StyloBotDashboard:PostgreSQL:AutoInitializeSchema", true);
+            options.RetentionDays = builder.Configuration.GetValue("StyloBotDashboard:PostgreSQL:RetentionDays", 90);
+            var compressionDays = builder.Configuration.GetValue("StyloBotDashboard:PostgreSQL:CompressionAfterDays", 7);
+            options.CompressionAfter = TimeSpan.FromDays(compressionDays);
+        });
+        Log.Information("Gateway persistence: PostgreSQL enabled (TimescaleDB={Timescale})",
+            builder.Configuration.GetValue("StyloBotDashboard:PostgreSQL:EnableTimescaleDB", true));
+    }
+    else
+    {
+        Log.Information("Gateway persistence: in-memory (no PostgreSQL connection string configured)");
+    }
+
     // Configure demo mode if enabled
     ConfigureDemoMode(builder.Configuration, builder.Services);
 
@@ -133,6 +161,10 @@ try
 
     // Bot Detection middleware - runs on every request
     app.UseBotDetection();
+
+    // Persist detections to shared DB + broadcast via SignalR
+    // Downstream dashboard clients (on the website) can connect to this hub
+    app.UseBotDetectionPersistence();
 
     // Admin API endpoints
     app.MapAdminEndpoints();

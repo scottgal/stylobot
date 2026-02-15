@@ -77,7 +77,7 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
     }
 
     public async Task<IReadOnlyList<SimilarSignature>> FindSimilarAsync(
-        float[] vector, int topK = 5, float minSimilarity = 0.80f)
+        float[] vector, int topK = 5, float minSimilarity = 0.80f, string? embeddingContext = null)
     {
         // Ensure startup load completes before first search
         await _loadTask.ConfigureAwait(false);
@@ -153,7 +153,7 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
         return (IReadOnlyList<SimilarSignature>)results;
     }
 
-    public Task AddAsync(float[] vector, string signatureId, bool wasBot, double confidence)
+    public Task AddAsync(float[] vector, string signatureId, bool wasBot, double confidence, string? embeddingContext = null)
     {
         var meta = new SignatureMetadata
         {

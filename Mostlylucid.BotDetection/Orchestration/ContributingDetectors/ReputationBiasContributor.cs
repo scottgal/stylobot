@@ -218,7 +218,7 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
             Category = $"Reputation:{category}",
             ConfidenceDelta = weight > 0 ? weight : -Math.Abs(weight),
             Weight = Math.Abs(weight) * ReputationWeightMultiplier, // Reputation has decent weight
-            Reason = $"[Reputation] {reason}",
+            Reason = reason,
             BotType = botType,
             Signals = signals
         }, signals);

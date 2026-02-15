@@ -58,6 +58,9 @@
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.KeyedSequential" Version="2.3.2" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.SlidingCache" Version="2.3.2" />
         <PackageReference Include="HNSW" Version="26.1.63669" />
+        <PackageReference Include="Qdrant.Client" Version="1.16.1" />
+        <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" />
+        <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
         <PackageReference Include="System.Numerics.Tensors" Version="10.0.3" />
         <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
         <PackageReference Include="YamlDotNet" Version="16.3.0" />

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.ObjectPool;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies;
@@ -562,8 +563,8 @@ public class BlackboardOrchestrator
                     TotalProcessingTimeMs = actualProcessingTimeMs
                 };
 
-            // Publish learning event
-            PublishLearningEvent(result, requestId, stopwatch.Elapsed);
+            // Publish learning event with features for similarity learning
+            PublishLearningEvent(result, httpContext, requestId, stopwatch.Elapsed);
 
             // Extract geo data from signals for country tracking and cluster analysis
             var geoCountryCode = signals.TryGetValue("geo.country_code", out var ccVal) ? ccVal as string : null;
@@ -853,6 +854,7 @@ public class BlackboardOrchestrator
 
     private void PublishLearningEvent(
         AggregatedEvidence result,
+        HttpContext httpContext,
         string requestId,
         TimeSpan elapsed)
     {
@@ -888,6 +890,24 @@ public class BlackboardOrchestrator
         if (result.Signals.TryGetValue("path", out var path))
             metadata["path"] = path;
 
+        // Extract features for similarity learning vector storage.
+        // Without this, SimilarityLearningHandler gets null features and skips AddAsync.
+        Dictionary<string, double>? features = null;
+        if (isHighConfidenceBot || isHighConfidenceHuman)
+        {
+            try
+            {
+                var floatFeatures = HeuristicFeatureExtractor.ExtractFeatures(httpContext, result);
+                features = new Dictionary<string, double>(floatFeatures.Count, StringComparer.OrdinalIgnoreCase);
+                foreach (var (key, value) in floatFeatures)
+                    features[key] = value;
+            }
+            catch
+            {
+                // Feature extraction is non-critical; don't fail the learning event
+            }
+        }
+
         _learningBus.TryPublish(new LearningEvent
         {
             Type = eventType,
@@ -895,6 +915,7 @@ public class BlackboardOrchestrator
             Confidence = result.Confidence,
             Label = result.BotProbability >= 0.5,
             RequestId = requestId,
+            Features = features,
             Metadata = metadata
         });
     }

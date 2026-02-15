@@ -162,7 +162,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         if (cv < 0.15 && intervals.Count >= 5)
             contributions.Add(DetectionContribution.Bot(
                 Name, "Waveform", 0.7,
-                $"Highly regular timing pattern (CV={cv:F3}) - typical bot behavior",
+                $"Requests arrive at almost identical intervals (typical automated behavior)",
                 weight: 1.6,
                 botType: BotType.Scraper.ToString()));
         // Moderate CV = human-like
@@ -173,7 +173,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Category = "Waveform",
                 ConfidenceDelta = -0.15,
                 Weight = 1.3,
-                Reason = $"Natural timing variation detected (CV={cv:F3})",
+                Reason = "Request timing shows natural human variation",
                 Signals = signals.ToImmutable()
             });
 
@@ -212,7 +212,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Category = "Waveform",
                 ConfidenceDelta = 0.3,
                 Weight = 1.2,
-                Reason = $"Low path diversity ({pathDiversity:P0}) - possible automated scanning",
+                Reason = $"Only visiting {uniquePaths} unique pages out of {recentPaths.Count} requests (possible automated scanning)",
                 Signals = signals.ToImmutable()
             });
 
@@ -286,7 +286,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Category = "Waveform",
                 ConfidenceDelta = 0.3,
                 Weight = 1.3,
-                Reason = $"Elevated {rateLabel} rate: {effectiveRate:F1}/min (total: {totalRate:F1}/min)",
+                Reason = $"Elevated request rate: {effectiveRate:F0} page requests per minute",
                 Signals = signals.ToImmutable()
             });
         // High total rate but normal page rate = probably HTTP/2 multiplexing (human-like)
@@ -297,7 +297,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Category = "Waveform",
                 ConfidenceDelta = -0.15,
                 Weight = 1.2,
-                Reason = $"HTTP/2+ pattern: {totalRate:F1} total req/min but only {pageRate:F1} page nav/min ({assetRequests} assets)"
+                Reason = $"Normal browser multiplexing: high total traffic but only {pageRate:F0} page visits per minute ({assetRequests} sub-resources loaded)"
             });
     }
 
@@ -531,7 +531,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
             if (pageToPage > 0.7 && pageCt >= 5)
                 contributions.Add(DetectionContribution.Bot(
                     Name, "Waveform", 0.6,
-                    $"Scraper pattern: {pageToPage:P0} of page requests lead to another page (no asset loading)",
+                    $"Pages requested without loading images, scripts, or stylesheets (scraper-like behavior)",
                     weight: 1.5,
                     botType: BotType.Scraper.ToString()));
             // Normal Page→Asset ratio = human-like (browser loads sub-resources)
@@ -542,7 +542,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                     Category = "Waveform",
                     ConfidenceDelta = -0.2,
                     Weight = 1.3,
-                    Reason = $"Normal browsing pattern: page loads trigger {assetCt} asset requests ({pageToAsset:P0} Page→Asset)"
+                    Reason = $"Normal browsing pattern: page loads trigger {assetCt} sub-resource requests (images, scripts, stylesheets)"
                 });
         }
 
@@ -554,7 +554,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Category = "Waveform",
                 ConfidenceDelta = 0.35,
                 Weight = 1.4,
-                Reason = $"API-only access pattern: {apiCt} API requests with no page/asset requests"
+                Reason = $"API-only access: {apiCt} API calls with no page visits (programmatic access)"
             });
 
         // Asset-to-page ratio for rate adjustment

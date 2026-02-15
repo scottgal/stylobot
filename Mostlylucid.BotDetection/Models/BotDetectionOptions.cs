@@ -443,6 +443,12 @@ public class BotDetectionOptions
     public string? DatabasePath { get; set; }
 
     /// <summary>
+    ///     Qdrant vector database configuration for similarity search.
+    ///     When enabled, replaces the file-backed HNSW index with Qdrant.
+    /// </summary>
+    public QdrantOptions Qdrant { get; set; } = new();
+
+    /// <summary>
     ///     Enable database WAL mode for better concurrent access (SQLite only).
     ///     Recommended for production.
     /// </summary>
@@ -3468,4 +3474,33 @@ public class ProjectHoneypotOptions
     ///     Default: true
     /// </summary>
     public bool TreatSuspiciousAsSuspicious { get; set; } = true;
+}
+
+/// <summary>
+///     Qdrant vector database configuration for similarity search.
+///     When enabled, replaces the file-backed HNSW index with Qdrant for
+///     fuzzy multi-vector signature matching.
+/// </summary>
+public class QdrantOptions
+{
+    /// <summary>Enable Qdrant-backed similarity search (default: false = use HNSW file)</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>Qdrant gRPC endpoint (default: http://localhost:6334)</summary>
+    public string Endpoint { get; set; } = "http://localhost:6334";
+
+    /// <summary>Collection name for signature vectors</summary>
+    public string CollectionName { get; set; } = "stylobot-signatures";
+
+    /// <summary>Vector dimension for heuristic features (default: 64, matching FeatureVectorizer)</summary>
+    public int VectorDimension { get; set; } = 64;
+
+    /// <summary>Enable ML embeddings via ONNX (augments heuristic vectors with semantic similarity)</summary>
+    public bool EnableEmbeddings { get; set; }
+
+    /// <summary>ONNX model file name for embeddings (default: all-MiniLM-L6-v2.onnx)</summary>
+    public string EmbeddingModel { get; set; } = "all-MiniLM-L6-v2.onnx";
+
+    /// <summary>Embedding vector dimension (384 for all-MiniLM-L6-v2)</summary>
+    public int EmbeddingDimension { get; set; } = 384;
 }

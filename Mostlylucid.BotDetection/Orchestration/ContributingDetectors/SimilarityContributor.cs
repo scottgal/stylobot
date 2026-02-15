@@ -73,8 +73,15 @@ public class SimilarityContributor : ContributingDetectorBase
             var features = HeuristicFeatureExtractor.ExtractFeatures(state.HttpContext, evidence);
             var vector = _vectorizer.Vectorize(features);
 
-            // Search for similar signatures
-            var similar = await _search.FindSimilarAsync(vector, topK: 5, minSimilarity: 0.80f);
+            // Build embedding context from request data for semantic search
+            var ua = state.HttpContext.Request.Headers.UserAgent.ToString();
+            var path = state.HttpContext.Request.Path.ToString();
+            var embeddingContext = !string.IsNullOrEmpty(ua)
+                ? $"UA:{ua} | Path:{path}"
+                : null;
+
+            // Search for similar signatures (heuristic + semantic when available)
+            var similar = await _search.FindSimilarAsync(vector, topK: 5, minSimilarity: 0.80f, embeddingContext);
 
             signals.Add(SignalKeys.SimilarityMatchCount, similar.Count);
 

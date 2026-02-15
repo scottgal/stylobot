@@ -363,7 +363,7 @@ internal static class DashboardHtmlTemplate
 
     <!-- Google Fonts -->
     <link rel=""preconnect"" href=""https://fonts.googleapis.com"">
-    <link href=""https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Raleway:wght@800;900&display=swap"" rel=""stylesheet"">
+    <link href=""https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Raleway:ital,wght@0,400;0,500;0,800;0,900;1,400;1,500&display=swap"" rel=""stylesheet"">
 
     <style>
         [data-theme=""dark""] {{
@@ -494,6 +494,58 @@ internal static class DashboardHtmlTemplate
         .tabulator .tabulator-footer .tabulator-page:hover:not(.active) {{
             filter: brightness(1.06);
         }}
+
+        /* Dark-mode Tabulator overrides — improve contrast on midnight theme */
+        [data-theme=""dark""] .tabulator {{
+            background: var(--sb-card-bg) !important;
+            border-color: var(--sb-card-border) !important;
+        }}
+        [data-theme=""dark""] .tabulator .tabulator-header {{
+            background: rgba(91, 163, 163, 0.10) !important;
+            border-bottom: 2px solid var(--sb-accent) !important;
+        }}
+        [data-theme=""dark""] .tabulator .tabulator-header .tabulator-col {{
+            background: transparent !important;
+            border-color: var(--sb-card-divider) !important;
+        }}
+        [data-theme=""dark""] .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-title {{
+            color: #cbd5e1 !important;
+        }}
+        [data-theme=""dark""] .tabulator .tabulator-header .tabulator-col .tabulator-col-sorter .tabulator-arrow {{
+            border-bottom-color: #94a3b8 !important;
+        }}
+        [data-theme=""dark""] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row {{
+            background: var(--sb-card-bg) !important;
+            color: #e2e8f0 !important;
+            border-color: var(--sb-card-divider) !important;
+        }}
+        [data-theme=""dark""] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row:nth-child(even) {{
+            background: rgba(91, 163, 163, 0.05) !important;
+        }}
+        [data-theme=""dark""] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row:hover {{
+            background: rgba(91, 163, 163, 0.14) !important;
+        }}
+        [data-theme=""dark""] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell {{
+            border-color: var(--sb-card-divider) !important;
+            color: #e2e8f0 !important;
+        }}
+        [data-theme=""dark""] .tabulator .tabulator-footer {{
+            background: var(--sb-card-bg) !important;
+            border-color: var(--sb-card-divider) !important;
+            color: #cbd5e1 !important;
+        }}
+        [data-theme=""dark""] .tabulator .tabulator-footer .tabulator-page {{
+            background: rgba(91, 163, 163, 0.12) !important;
+            border: 1px solid var(--sb-card-divider) !important;
+            color: #cbd5e1 !important;
+        }}
+        [data-theme=""dark""] .tabulator .tabulator-footer .tabulator-page:hover:not(.active):not([disabled]) {{
+            background: rgba(91, 163, 163, 0.22) !important;
+            color: #f1f5f9 !important;
+        }}
+        [data-theme=""dark""] .tabulator .tabulator-footer .tabulator-page[disabled] {{
+            opacity: 0.35 !important;
+        }}
     </style>
 </head>
 <body class=""bg-base-100"">
@@ -511,6 +563,11 @@ internal static class DashboardHtmlTemplate
                         </h1>
                         <p class=""text-xs dashboard-subtle mt-1"">Detection dashboard</p>
                     </div>
+                </a>
+                <a href=""https://www.mostlylucid.net"" target=""_blank"" rel=""noopener"" class=""no-underline hover:opacity-80 transition-opacity ml-1"" title=""A mostlylucid product"">
+                    <span style=""font-family: 'Raleway', sans-serif; font-size: 0.7rem; letter-spacing: 0.02em;"">
+                        <span style=""opacity: 0.45; font-size: 0.6rem;"">a </span><span style=""color: #dddddd; font-style: italic; font-weight: 500;"">mostly</span><span style=""color: #ffffff; font-weight: 500;"">lucid</span><span style=""opacity: 0.45; font-size: 0.6rem;""> product</span>
+                    </span>
                 </a>
                 <div class=""flex items-center gap-2 flex-wrap"">
                     <span class=""brand-chip""><i class=""bx bx-shield-quarter text-[12px]""></i> Live telemetry</span>
@@ -1096,6 +1153,73 @@ internal static class DashboardHtmlTemplate
                                 return (v != null && !isNaN(v)) ? v.toFixed(0) : '0';
                             }} }}
                         ]
+                    }});
+
+                    // Row-click signal expander: shows detector contributions and signals
+                    this.tabulatorTable.on('rowClick', function(e, row) {{
+                        const data = row.getData();
+                        const el = row.getElement();
+                        const existing = el.nextElementSibling;
+
+                        // Toggle: if detail row exists, remove it
+                        if (existing && existing.classList.contains('sb-row-detail')) {{
+                            existing.remove();
+                            return;
+                        }}
+
+                        // Remove any other open detail rows
+                        document.querySelectorAll('.sb-row-detail').forEach(r => r.remove());
+
+                        // Build detail HTML
+                        const detailRow = document.createElement('div');
+                        detailRow.className = 'sb-row-detail';
+                        detailRow.style.cssText = 'padding:12px 16px;background:var(--sb-card-bg);border-bottom:2px solid var(--sb-accent);font-size:11px;';
+
+                        let html = '<div style=""display:grid;grid-template-columns:1fr 1fr;gap:16px"">';
+
+                        // Left: Detector Contributions
+                        html += '<div><h4 style=""font-weight:700;text-transform:uppercase;letter-spacing:0.05em;opacity:0.5;margin:0 0 6px 0;font-size:10px"">Detector Contributions</h4>';
+                        const contribs = data.detectorContributions || {{}};
+                        const contribEntries = Object.entries(contribs);
+                        if (contribEntries.length > 0) {{
+                            for (const [name, c] of contribEntries) {{
+                                const delta = c.confidenceDelta || 0;
+                                const color = delta > 0 ? '#ef4444' : delta < 0 ? '#86B59C' : '#6b7280';
+                                const impact = ((c.contribution || 0) * 100).toFixed(1);
+                                const ms = (c.executionTimeMs || 0).toFixed(0);
+                                html += `<div style=""display:flex;align-items:center;gap:6px;margin-bottom:2px"">`;
+                                html += `<span style=""flex:1;font-family:monospace;opacity:0.7"">${{name}}</span>`;
+                                html += `<span style=""color:${{color}};font-weight:600;width:50px;text-align:right"">${{impact > 0 ? '+' : ''}}${{impact}}%</span>`;
+                                html += `<span style=""opacity:0.4;width:40px;text-align:right"">${{ms}}ms</span>`;
+                                html += `</div>`;
+                                if (c.reason) html += `<div style=""padding-left:12px;opacity:0.5;margin-bottom:4px;font-size:10px"">${{c.reason}}</div>`;
+                            }}
+                        }} else {{
+                            html += '<span style=""opacity:0.4"">No contribution data available</span>';
+                        }}
+                        html += '</div>';
+
+                        // Right: Signals
+                        html += '<div><h4 style=""font-weight:700;text-transform:uppercase;letter-spacing:0.05em;opacity:0.5;margin:0 0 6px 0;font-size:10px"">All Signals</h4>';
+                        html += '<div style=""max-height:200px;overflow-y:auto"">';
+                        const signals = data.importantSignals || {{}};
+                        const sigEntries = Object.entries(signals);
+                        if (sigEntries.length > 0) {{
+                            for (const [key, val] of sigEntries) {{
+                                const valColor = val === true ? '#86B59C' : val === false ? '#ef4444' : '#6b7280';
+                                html += `<div style=""display:flex;gap:4px;margin-bottom:1px"">`;
+                                html += `<code style=""font-family:monospace;opacity:0.5;flex:1;overflow:hidden;text-overflow:ellipsis"">${{key}}</code>`;
+                                html += `<span style=""color:${{valColor}};font-weight:500"">${{String(val)}}</span>`;
+                                html += `</div>`;
+                            }}
+                        }} else {{
+                            html += '<span style=""opacity:0.4"">No signals available</span>';
+                        }}
+                        html += '</div></div>';
+
+                        html += '</div>';
+                        detailRow.innerHTML = html;
+                        el.after(detailRow);
                     }});
                 }},
 

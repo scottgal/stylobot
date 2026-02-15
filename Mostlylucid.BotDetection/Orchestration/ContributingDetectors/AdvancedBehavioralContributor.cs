@@ -78,7 +78,7 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                         Category = "AdvancedBehavioral",
                         ConfidenceDelta = 0.35,
                         Weight = 1.3,
-                        Reason = $"High path entropy: {pathEntropy:F2} (random scanning pattern)",
+                        Reason = "Visiting many random URLs in no logical order (random scanning pattern)",
                         Signals = ImmutableDictionary<string, object>.Empty
                             .Add("PathEntropy", pathEntropy)
                             .Add("PathEntropyHigh", true)
@@ -90,7 +90,7 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                         Category = "AdvancedBehavioral",
                         ConfidenceDelta = 0.25,
                         Weight = 1.2,
-                        Reason = $"Low path entropy: {pathEntropy:F2} (too repetitive)",
+                        Reason = "Repeatedly visiting the same few URLs (too repetitive for a real user)",
                         Signals = ImmutableDictionary<string, object>.Empty
                             .Add("PathEntropy", pathEntropy)
                             .Add("PathEntropyLow", true)
@@ -108,7 +108,7 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                         Category = "AdvancedBehavioral",
                         ConfidenceDelta = 0.3,
                         Weight = 1.3,
-                        Reason = $"Low timing entropy: {timingEntropy:F2} (too regular timing)",
+                        Reason = "Requests arrive at suspiciously regular intervals (machine-like timing)",
                         Signals = ImmutableDictionary<string, object>.Empty
                             .Add("TimingEntropy", timingEntropy)
                             .Add("TimingTooRegular", true)
@@ -169,7 +169,7 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                     Category = "AdvancedBehavioral",
                     ConfidenceDelta = 0.4,
                     Weight = 1.5,
-                    Reason = $"Burst detected: {burstSize} requests in {burstDuration.TotalSeconds:F0}s",
+                    Reason = $"Burst detected: {burstSize} requests in {burstDuration.TotalSeconds:F0} seconds",
                     Signals = ImmutableDictionary<string, object>.Empty
                         .Add("BurstDetected", true)
                         .Add("BurstSize", burstSize)

@@ -41,6 +41,29 @@ public sealed record DashboardDetectionEvent
     ///              "Real Chrome 134 user from Glasgow - verified by browser fingerprint"
     /// </summary>
     public string? Narrative { get; init; }
+
+    /// <summary>
+    ///     Per-detector contributions for drill-down display.
+    ///     Key: detector name, Value: contribution details.
+    /// </summary>
+    public Dictionary<string, DashboardDetectorContribution>? DetectorContributions { get; init; }
+
+    /// <summary>
+    ///     Non-PII signals from the blackboard for debugging.
+    /// </summary>
+    public Dictionary<string, object>? ImportantSignals { get; init; }
+}
+
+/// <summary>
+///     Lightweight detector contribution for dashboard display.
+/// </summary>
+public sealed record DashboardDetectorContribution
+{
+    public required double ConfidenceDelta { get; init; }
+    public required double Contribution { get; init; }
+    public string? Reason { get; init; }
+    public double ExecutionTimeMs { get; init; }
+    public int Priority { get; init; }
 }
 
 /// <summary>

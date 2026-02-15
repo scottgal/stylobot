@@ -30,6 +30,10 @@
     <ItemGroup>
         <!-- Bot Detection -->
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
+        <!-- Dashboard persistence (event store, SignalR broadcast, visitor cache) -->
+        <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
+        <!-- PostgreSQL storage for detection persistence -->
+        <ProjectReference Include="..\Mostlylucid.BotDetection.UI.PostgreSQL\Mostlylucid.BotDetection.UI.PostgreSQL.csproj" />
     </ItemGroup>
 
     <ItemGroup>

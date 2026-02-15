@@ -17,19 +17,50 @@ public static class RouteBuilderExtensions
 {
     /// <summary>
     ///     Adds bot blocking to this endpoint.
+    ///     By default blocks ALL bots. Use allow* parameters to whitelist specific types.
+    ///     Use block* parameters for geographic/network restrictions.
     /// </summary>
     /// <example>
     ///     app.MapGet("/api/data", () => "sensitive")
     ///     .BlockBots();
+    ///
+    ///     app.MapGet("/api/products", () => "data")
+    ///     .BlockBots(allowSearchEngines: true, allowSocialMediaBots: true);
+    ///
+    ///     app.MapGet("/health", () => "ok")
+    ///     .BlockBots(allowMonitoringBots: true);
+    ///
+    ///     app.MapGet("/honeypot", () => "welcome")
+    ///     .BlockBots(allowScrapers: true, allowMaliciousBots: true);
+    ///
+    ///     app.MapGet("/api/restricted", () => "data")
+    ///     .BlockBots(blockCountries: "CN,RU", blockVpn: true);
     /// </example>
     public static RouteHandlerBuilder BlockBots(this RouteHandlerBuilder builder,
         bool allowVerifiedBots = false,
         bool allowSearchEngines = false,
+        bool allowSocialMediaBots = false,
+        bool allowMonitoringBots = false,
+        bool allowAiBots = false,
+        bool allowGoodBots = false,
+        bool allowScrapers = false,
+        bool allowMaliciousBots = false,
         double minConfidence = 0.0,
-        int statusCode = 403)
+        int statusCode = 403,
+        string? blockCountries = null,
+        string? allowCountries = null,
+        bool blockVpn = false,
+        bool blockProxy = false,
+        bool blockDatacenter = false,
+        bool blockTor = false)
     {
         return builder.AddEndpointFilter(new BlockBotsEndpointFilter(
-            allowVerifiedBots, allowSearchEngines, minConfidence, statusCode));
+            allowVerifiedBots, allowSearchEngines, allowSocialMediaBots,
+            allowMonitoringBots, allowAiBots, allowGoodBots,
+            allowScrapers, allowMaliciousBots,
+            minConfidence, statusCode,
+            blockCountries, allowCountries,
+            blockVpn, blockProxy, blockDatacenter, blockTor));
     }
 
     /// <summary>

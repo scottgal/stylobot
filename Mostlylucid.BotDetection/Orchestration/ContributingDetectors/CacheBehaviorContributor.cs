@@ -117,7 +117,7 @@ public class CacheBehaviorContributor : ContributingDetectorBase
                     Category = "CacheBehavior",
                     ConfidenceDelta = impact,
                     Weight = 1.3,
-                    Reason = $"Resource re-requested after {timeSinceLastRequest:F1}s without caching",
+                    Reason = $"Same page re-requested after {timeSinceLastRequest:F1} seconds without using browser cache",
                     Signals = ImmutableDictionary<string, object>.Empty
                         .Add(SignalKeys.RapidRepeatedRequest, true)
                 });

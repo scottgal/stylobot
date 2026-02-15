@@ -97,6 +97,35 @@ public class DetectionBroadcastMiddleware
                     ccObj is string cc && cc != "LOCAL")
                     countryCode = cc;
 
+                // Build detector contributions map for drill-down
+                var detectorContributions = evidence.Contributions
+                    .GroupBy(c => c.DetectorName)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => new DashboardDetectorContribution
+                        {
+                            ConfidenceDelta = g.Sum(c => c.ConfidenceDelta),
+                            Contribution = g.Sum(c => c.ConfidenceDelta * c.Weight),
+                            Reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r))),
+                            ExecutionTimeMs = g.Sum(c => c.ProcessingTimeMs),
+                            Priority = g.First().Priority
+                        });
+
+                // Build non-PII signals for debugging
+                Dictionary<string, object>? importantSignals = null;
+                if (evidence.Signals is { Count: > 0 })
+                {
+                    var allowedPrefixes = new[] { "ua.", "header.", "client.", "geo.", "ip.", "behavioral.", "detection.", "request.", "h2.", "tls.", "tcp." };
+                    var blockedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                        { "client_ip", "ip_address", "email", "phone", "session_id", "cookie", "authorization" };
+
+                    importantSignals = evidence.Signals
+                        .Where(s => allowedPrefixes.Any(p => s.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))
+                                    && !blockedKeys.Contains(s.Key))
+                        .Take(50)
+                        .ToDictionary(s => s.Key, s => s.Value);
+                }
+
                 var detection = new DashboardDetectionEvent
                 {
                     RequestId = context.TraceIdentifier,
@@ -116,7 +145,9 @@ public class DetectionBroadcastMiddleware
                     PrimarySignature = sigValue,
                     CountryCode = countryCode,
                     UserAgent = evidence.BotProbability > 0.5 ? context.Request.Headers.UserAgent.ToString() : null,
-                    TopReasons = topReasons
+                    TopReasons = topReasons,
+                    DetectorContributions = detectorContributions.Count > 0 ? detectorContributions : null,
+                    ImportantSignals = importantSignals
                 };
 
                 // Build instant marketing-friendly narrative (no LLM, every request)
@@ -245,6 +276,10 @@ public class DetectionBroadcastMiddleware
         // Read upstream country code
         var upstreamCountry = context.Request.Headers["X-Bot-Detection-Country"].FirstOrDefault();
 
+        // Only show BotType when probability >= 0.5 (consistent with DetectionLedgerExtensions)
+        // Prevents "Human Visitor" rows showing "Type: Scraper" at 46% probability
+        var botType = result.IsBot ? result.BotType?.ToString() : null;
+
         var detection = new DashboardDetectionEvent
         {
             RequestId = context.TraceIdentifier,
@@ -253,8 +288,8 @@ public class DetectionBroadcastMiddleware
             BotProbability = confidence,
             Confidence = confidence,
             RiskBand = riskBand,
-            BotType = result.BotType?.ToString(),
-            BotName = result.BotName,
+            BotType = botType,
+            BotName = result.IsBot ? result.BotName : null,
             Action = context.Request.Headers["X-Bot-Detection-Action"].FirstOrDefault() ?? "Allow",
             PolicyName = "upstream",
             Method = context.Request.Method,

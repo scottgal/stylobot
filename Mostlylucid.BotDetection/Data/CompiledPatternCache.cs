@@ -123,9 +123,10 @@ public class CompiledPatternCache : ICompiledPatternCache
         foreach (var regex in BotSignatures.CompiledBotPatterns)
             try
             {
-                if (regex.IsMatch(userAgent))
+                var match = regex.Match(userAgent);
+                if (match.Success)
                 {
-                    matchedPattern = regex.ToString();
+                    matchedPattern = match.Value;
                     return true;
                 }
             }
@@ -138,9 +139,10 @@ public class CompiledPatternCache : ICompiledPatternCache
         foreach (var regex in _downloadedPatterns)
             try
             {
-                if (regex.IsMatch(userAgent))
+                var match = regex.Match(userAgent);
+                if (match.Success)
                 {
-                    matchedPattern = regex.ToString();
+                    matchedPattern = match.Value;
                     return true;
                 }
             }

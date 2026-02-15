@@ -274,7 +274,7 @@ public sealed record DetectionRecordOptions
     public bool IncludeReferer { get; init; } = false;
 
     /// <summary>Include blackboard signals</summary>
-    public bool IncludeSignals { get; init; } = false;
+    public bool IncludeSignals { get; init; } = true;
 
     /// <summary>Include server hostname</summary>
     public bool IncludeServerHost { get; init; } = false;

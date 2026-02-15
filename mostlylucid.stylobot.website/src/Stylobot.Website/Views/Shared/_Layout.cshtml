@@ -37,7 +37,7 @@
     <!-- Google Fonts: Raleway -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Raleway:ital,wght@0,400;0,500;0,800;0,900;1,400;1,500&display=swap" rel="stylesheet">
 
     <!-- Built CSS (watch mode rebuilds on changes) -->
     <link rel="stylesheet" href="/dist/assets/index.css" asp-append-version="true" />
@@ -221,8 +221,13 @@
 
             <div class="divider"></div>
 
-            <div class="text-center text-base-content/60 text-sm">
-                &copy; @DateTime.Now.Year Stylobot. All rights reserved.
+            <div class="flex flex-col items-center gap-2 text-base-content/60 text-sm">
+                <a href="https://www.mostlylucid.net" target="_blank" rel="noopener" class="no-underline hover:opacity-80 transition-opacity">
+                    <span style="font-family: 'Raleway', sans-serif; font-size: 0.8rem; letter-spacing: 0.02em;">
+                        <span style="opacity: 0.5; font-size: 0.7rem;">a </span><span style="color: #dddddd; font-style: italic; font-weight: 500;">mostly</span><span style="color: #ffffff; font-weight: 500;">lucid</span><span style="opacity: 0.5; font-size: 0.7rem;"> product</span>
+                    </span>
+                </a>
+                <span>&copy; @DateTime.Now.Year Stylobot. All rights reserved.</span>
             </div>
         </div>
     </footer>

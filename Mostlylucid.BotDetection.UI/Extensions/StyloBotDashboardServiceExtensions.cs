@@ -97,4 +97,69 @@ public static class StyloBotDashboardServiceExtensions
             configure?.Invoke(options);
         });
     }
+
+    // ==========================================
+    // Lightweight persistence (for gateways/proxies)
+    // ==========================================
+
+    /// <summary>
+    ///     Adds detection persistence services WITHOUT the full dashboard UI.
+    ///     Use this in gateways/proxies that run detection and should save results
+    ///     to the shared database, but don't serve the dashboard page.
+    ///     <para>
+    ///     Registers: event store, SignalR hub, broadcast middleware, visitor cache.
+    ///     Does NOT register: dashboard UI, simulator, ViewComponent data extraction.
+    ///     </para>
+    /// </summary>
+    /// <example>
+    ///     Gateway setup:
+    ///     <code>
+    ///     builder.Services.AddBotDetection();
+    ///     builder.Services.AddBotDetectionPersistence();
+    ///     // ...
+    ///     app.UseBotDetection();
+    ///     app.UseBotDetectionPersistence(); // saves detections to shared DB
+    ///     </code>
+    /// </example>
+    public static IServiceCollection AddBotDetectionPersistence(this IServiceCollection services)
+    {
+        // Shared options (Enabled=true but no UI path needed)
+        services.TryAddSingleton(new StyloBotDashboardOptions { Enabled = true });
+
+        // SignalR for broadcasting to connected dashboard clients
+        services.AddSignalR();
+
+        // Event store (in-memory by default, replaced by PostgreSQL when configured)
+        services.TryAddSingleton<IDashboardEventStore, InMemoryDashboardEventStore>();
+
+        // Server-side visitor cache (needed by broadcast middleware)
+        services.TryAddSingleton<VisitorListCache>();
+
+        // LLM result callback (needed if LLM classification is enabled)
+        services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Adds the detection broadcast middleware that persists detection results
+    ///     to the event store and broadcasts via SignalR.
+    ///     Use after <see cref="Mostlylucid.BotDetection.Middleware.BotDetectionMiddlewareExtensions.UseBotDetection"/>.
+    ///     <para>
+    ///     This is the lightweight counterpart to <see cref="UseStyloBotDashboard"/> -
+    ///     it saves detection data but doesn't serve the dashboard UI.
+    ///     </para>
+    /// </summary>
+    public static IApplicationBuilder UseBotDetectionPersistence(this IApplicationBuilder app)
+    {
+        // Broadcast middleware: persists detections to event store + broadcasts to SignalR
+        app.UseMiddleware<DetectionBroadcastMiddleware>();
+
+        // Map SignalR hub so dashboard clients (on other hosts) can connect
+        var options = app.ApplicationServices.GetService<StyloBotDashboardOptions>();
+        var hubPath = options?.HubPath ?? "/stylobot/hub";
+        app.UseEndpoints(endpoints => { endpoints.MapHub<StyloBotDashboardHub>(hubPath); });
+
+        return app;
+    }
 }

@@ -143,7 +143,7 @@ public class FastPathReputationContributor : ConfiguredContributorBase
 
         var contribution = DetectionContribution.VerifiedGoodBot(
                 Name,
-                $"[FastPath] Known good {matchType}: {matchedPattern.State} (score={matchedPattern.BotScore:F2}, support={matchedPattern.Support:F0})",
+                $"Previously verified as safe ({matchType} seen {matchedPattern.Support:F0} times)",
                 botName)
             with
             {
@@ -174,7 +174,7 @@ public class FastPathReputationContributor : ConfiguredContributorBase
 
         var contribution = DetectionContribution.VerifiedBot(
                 Name,
-                $"[FastPath] Known bad {matchType}: {matchedPattern.State} (score={matchedPattern.BotScore:F2}, support={matchedPattern.Support:F0})",
+                $"Previously identified as bot ({matchType} seen {matchedPattern.Support:F0} times)",
                 botName: matchedPattern.PatternId)
             with
             {
