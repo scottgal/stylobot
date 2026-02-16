@@ -398,8 +398,13 @@ All endpoints are under `{BasePath}/api/`:
 | `/stylobot/api/detections` | GET | Recent detection events with filtering |
 | `/stylobot/api/signatures` | GET | Unique visitor signatures |
 | `/stylobot/api/timeseries` | GET | Time-bucketed detection counts |
+| `/stylobot/api/countries` | GET | Top bot source countries with reputation data |
+| `/stylobot/api/clusters` | GET | Leiden bot clusters with similarity scores |
+| `/stylobot/api/sparkline/{sig}` | GET | Sparkline history for a specific signature |
 | `/stylobot/api/export` | GET | Export detections as CSV/JSON |
 | `/stylobot/api/diagnostics` | GET | Comprehensive diagnostics (rate-limited) |
+
+The dashboard page (`/stylobot/`) is **server-side rendered** — all data is embedded in the HTML on first load. SignalR provides live updates only. No XHR calls are made on page load.
 
 ### Diagnostics API
 

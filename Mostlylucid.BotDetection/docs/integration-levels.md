@@ -304,12 +304,26 @@ builder.Services.AddStyloBotDashboard(
 
 ### Dashboard Features
 
-- Real-time detection table with row-click signal expansion
-- Time-series charts (detections/minute, bot vs human)
-- Top bot countries and cluster visualization
-- Signature list with similarity search
+- **Server-side rendered** — all data embedded in initial HTML (no loading spinners)
+- Live visitor feed with inline SVG sparklines (bot probability, processing time, confidence)
+- Two-column layout: detection detail (left) + live visitor feed (right)
+- Narrative-driven visitor rows with "How we know" explanations
+- Top bot countries with reputation tracking
+- Leiden bot cluster detection and visualization
+- Hot endpoint tracking with bot percentage
 - Detection export (JSON/CSV)
-- SignalR live updates
+- SignalR live updates (patches only — initial render is server-side)
+- Self-contained: Alpine.js + DaisyUI + Tailwind, no build step required
+
+### Dashboard Architecture
+
+The dashboard follows a **server-rendered first** model:
+
+1. `ServeDashboardPageAsync` gathers all data server-side (summary, detections, signatures, countries, clusters, your detection)
+2. Data is embedded as `<script type="application/json">` tags in the HTML
+3. Alpine.js reads embedded JSON synchronously on page load — instant render
+4. SignalR connects after render and delivers live updates only
+5. Zero XHR calls on initial page load
 
 ### Dashboard API
 
@@ -317,11 +331,15 @@ All endpoints are under the configured `BasePath` (default: `/_stylobot`):
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/` | GET | Dashboard HTML page |
+| `/` | GET | Dashboard HTML page (server-rendered) |
 | `/api/detections` | GET | Detection list (filterable) |
 | `/api/signatures` | GET | Signature feed |
 | `/api/summary` | GET | Statistics summary |
 | `/api/timeseries` | GET | Time-series chart data |
+| `/api/countries` | GET | Top bot source countries |
+| `/api/clusters` | GET | Leiden bot clusters |
+| `/api/sparkline/{sig}` | GET | Sparkline history for a signature |
+| `/api/diagnostics` | GET | Comprehensive diagnostics (rate-limited) |
 | `/api/export` | GET | Export detections (JSON/CSV) |
 | `/hub` | WebSocket | SignalR real-time hub |
 

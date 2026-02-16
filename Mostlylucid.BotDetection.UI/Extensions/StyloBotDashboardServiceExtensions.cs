@@ -31,6 +31,12 @@ public static class StyloBotDashboardServiceExtensions
         services.AddSingleton(options);
         services.AddSignalR();
 
+        // Ensure MVC services are available for Razor view rendering (idempotent)
+        services.AddControllersWithViews();
+
+        // Razor view renderer for middleware-hosted dashboard
+        services.AddSingleton<RazorViewRenderer>();
+
         // Detection data extraction for ViewComponents
         services.AddSingleton<DetectionDataExtractor>();
 

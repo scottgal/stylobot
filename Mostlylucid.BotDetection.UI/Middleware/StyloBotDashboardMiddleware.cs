@@ -2,7 +2,8 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
-using Mostlylucid.BotDetection.Orchestration;
+using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
@@ -17,8 +18,10 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 public class StyloBotDashboardMiddleware
 {
     private readonly IDashboardEventStore _eventStore;
+    private readonly ILogger<StyloBotDashboardMiddleware> _logger;
     private readonly RequestDelegate _next;
     private readonly StyloBotDashboardOptions _options;
+    private readonly RazorViewRenderer _razorViewRenderer;
 
     // Rate limiter: 10 requests per minute per IP for diagnostics endpoint
     private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> _rateLimits = new();
@@ -29,11 +32,15 @@ public class StyloBotDashboardMiddleware
     public StyloBotDashboardMiddleware(
         RequestDelegate next,
         StyloBotDashboardOptions options,
-        IDashboardEventStore eventStore)
+        IDashboardEventStore eventStore,
+        RazorViewRenderer razorViewRenderer,
+        ILogger<StyloBotDashboardMiddleware> logger)
     {
         _next = next;
         _options = options;
         _eventStore = eventStore;
+        _razorViewRenderer = razorViewRenderer;
+        _logger = logger;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -161,70 +168,168 @@ public class StyloBotDashboardMiddleware
             "connect-src 'self' ws: wss:");
         context.Response.Headers["Content-Security-Policy"] = dashboardCsp;
 
-        // Extract visitor's own detection evidence (set by BotDetection middleware)
-        string yourDetectionJson = "null";
-        if (context.Items.TryGetValue("BotDetection.AggregatedEvidence", out var evidenceObj)
-            && evidenceObj is AggregatedEvidence evidence)
+        // Look up the current visitor's cached detection via signature service.
+        // The dashboard path is excluded from bot detection, so we compute the signature
+        // and look up the cached result from the visitor's last non-dashboard request.
+        var yourDetectionJson = BuildYourDetectionJson(context);
+
+        // Gather all dashboard data server-side so the page renders fully on first load.
+        // SignalR then provides live updates — no XHR waterfall needed.
+        var jsonOpts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+        var summaryJson = "null";
+        var detectionsJson = "[]";
+        var signaturesJson = "[]";
+        var countriesJson = "[]";
+        var clustersJson = "[]";
+
+        try
         {
-            var contributions = evidence.Contributions
-                .GroupBy(c => c.DetectorName)
-                .Select(g => new {
-                    detector = g.Key,
-                    impact = g.Sum(c => c.ConfidenceDelta * c.Weight),
-                    reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r))),
-                    category = DetectionNarrativeBuilder.GetDetectorCategory(g.Key),
-                    friendlyName = DetectionNarrativeBuilder.GetDetectorFriendlyName(g.Key)
-                })
-                .OrderByDescending(c => Math.Abs(c.impact))
-                .ToList();
+            var summary = await _eventStore.GetSummaryAsync();
+            summaryJson = JsonSerializer.Serialize(summary, jsonOpts);
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Dashboard: failed to load summary"); }
 
-            var signals = evidence.Signals != null
-                ? new Dictionary<string, object>(evidence.Signals)
-                : new Dictionary<string, object>();
+        try
+        {
+            var filter = new DashboardFilter { Limit = 200 };
+            var detections = await _eventStore.GetDetectionsAsync(filter);
+            detectionsJson = JsonSerializer.Serialize(detections, jsonOpts);
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Dashboard: failed to load detections"); }
 
-            var topReasons = evidence.Contributions
-                .Where(c => !string.IsNullOrEmpty(c.Reason))
-                .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
-                .Take(5)
-                .Select(c => c.Reason!)
-                .ToList();
+        try
+        {
+            var signatures = await _eventStore.GetSignaturesAsync(50);
+            signaturesJson = JsonSerializer.Serialize(signatures, jsonOpts);
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Dashboard: failed to load signatures"); }
+
+        try
+        {
+            var tracker = context.RequestServices.GetService(typeof(CountryReputationTracker))
+                as CountryReputationTracker;
+            if (tracker != null)
+            {
+                var countries = tracker.GetTopBotCountries(10)
+                    .Select(cr => new
+                    {
+                        countryCode = cr.CountryCode,
+                        countryName = cr.CountryName,
+                        botRate = Math.Round(cr.BotRate, 3),
+                        botCount = (int)Math.Round(cr.DecayedBotCount),
+                        totalCount = (int)Math.Round(cr.DecayedTotalCount),
+                        flag = GetCountryFlag(cr.CountryCode)
+                    })
+                    .ToList();
+                countriesJson = JsonSerializer.Serialize(countries, jsonOpts);
+            }
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Dashboard: failed to load countries"); }
+
+        try
+        {
+            var clusterService = context.RequestServices.GetService(typeof(BotClusterService))
+                as BotClusterService;
+            if (clusterService != null)
+            {
+                var clusters = clusterService.GetClusters()
+                    .Select(cl => new
+                    {
+                        clusterId = cl.ClusterId,
+                        label = cl.Label ?? "Unknown",
+                        description = cl.Description,
+                        type = cl.Type.ToString(),
+                        memberCount = cl.MemberCount,
+                        avgBotProb = Math.Round(cl.AverageBotProbability, 3),
+                        country = cl.DominantCountry,
+                        averageSimilarity = Math.Round(cl.AverageSimilarity, 3),
+                        temporalDensity = Math.Round(cl.TemporalDensity, 3)
+                    })
+                    .ToList();
+                clustersJson = JsonSerializer.Serialize(clusters, jsonOpts);
+            }
+        }
+        catch (Exception ex) { _logger.LogDebug(ex, "Dashboard: failed to load clusters"); }
+
+        var model = new DashboardViewModel
+        {
+            Options = _options,
+            CspNonce = cspNonce,
+            YourDetectionJson = yourDetectionJson,
+            SummaryJson = summaryJson,
+            DetectionsJson = detectionsJson,
+            SignaturesJson = signaturesJson,
+            CountriesJson = countriesJson,
+            ClustersJson = clustersJson
+        };
+
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Dashboard/Index.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>
+    ///     Builds the "You" panel JSON by looking up the current visitor in the cache.
+    ///     Since /_stylobot is excluded from detection, we compute the visitor's signature
+    ///     using MultiFactorSignatureService and look them up in VisitorListCache.
+    /// </summary>
+    private string BuildYourDetectionJson(HttpContext context)
+    {
+        try
+        {
+            var sigService = context.RequestServices.GetService(typeof(MultiFactorSignatureService))
+                as MultiFactorSignatureService;
+            var visitorCache = context.RequestServices.GetService(typeof(VisitorListCache))
+                as VisitorListCache;
+
+            if (sigService == null || visitorCache == null)
+                return "null";
+
+            var sigs = sigService.GenerateSignatures(context);
+            var visitor = visitorCache.Get(sigs.PrimarySignature);
+
+            if (visitor == null)
+                return "null";
 
             var narrativeEvent = new DashboardDetectionEvent
             {
                 RequestId = "self",
-                Timestamp = DateTime.UtcNow,
-                IsBot = evidence.BotProbability > 0.5,
-                BotProbability = evidence.BotProbability,
-                Confidence = evidence.Confidence,
-                RiskBand = evidence.RiskBand.ToString(),
-                BotType = evidence.PrimaryBotType?.ToString(),
-                BotName = evidence.PrimaryBotName,
-                Action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName ?? "Allow",
+                Timestamp = visitor.LastSeen,
+                IsBot = visitor.IsBot,
+                BotProbability = visitor.BotProbability,
+                Confidence = visitor.Confidence,
+                RiskBand = visitor.RiskBand,
+                BotType = visitor.BotType,
+                BotName = visitor.BotName,
+                Action = visitor.Action,
                 Method = "GET",
-                Path = context.Request.Path.Value ?? "/",
-                TopReasons = topReasons
+                Path = visitor.LastPath ?? "/",
+                TopReasons = visitor.TopReasons
             };
             var narrative = DetectionNarrativeBuilder.Build(narrativeEvent);
 
-            var yourDetection = new {
-                isBot = evidence.BotProbability > 0.5,
-                botProbability = Math.Round(evidence.BotProbability, 4),
-                confidence = Math.Round(evidence.Confidence, 4),
-                riskBand = evidence.RiskBand.ToString(),
-                processingTimeMs = evidence.TotalProcessingTimeMs,
-                detectorCount = evidence.Contributions.Select(c => c.DetectorName).Distinct().Count(),
-                aiRan = evidence.Contributions.Any(c => c.DetectorName.Contains("Heuristic") || c.DetectorName.Contains("Llm")),
-                contributions = contributions,
-                signals = signals,
-                narrative = narrative,
-                topReasons = topReasons
+            var yourDetection = new
+            {
+                isBot = visitor.IsBot,
+                botProbability = Math.Round(visitor.BotProbability, 4),
+                confidence = Math.Round(visitor.Confidence, 4),
+                riskBand = visitor.RiskBand,
+                processingTimeMs = visitor.ProcessingTimeMs,
+                detectorCount = visitor.TopReasons.Count,
+                narrative = visitor.Narrative ?? narrative,
+                topReasons = visitor.TopReasons,
+                signature = sigs.PrimarySignature
             };
-            yourDetectionJson = JsonSerializer.Serialize(yourDetection,
+
+            return JsonSerializer.Serialize(yourDetection,
                 new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
         }
-
-        var html = DashboardHtmlTemplate.GetHtml(_options, yourDetectionJson, cspNonce);
-        await context.Response.WriteAsync(html);
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Dashboard: failed to build your detection from cache");
+            return "null";
+        }
     }
 
     private async Task ServeDetectionsApiAsync(HttpContext context)
