@@ -158,6 +158,18 @@ public class VisitorListCache
             .ToList();
     }
 
+    /// <summary>
+    ///     Warm the cache from persisted detection events (e.g. on startup).
+    ///     Only populates if the cache is currently empty.
+    /// </summary>
+    public void WarmFrom(IEnumerable<DashboardDetectionEvent> detections)
+    {
+        if (!_visitors.IsEmpty) return;
+
+        foreach (var detection in detections)
+            Upsert(detection);
+    }
+
     private void EvictOldest()
     {
         if (_visitors.Count <= _maxVisitors) return;

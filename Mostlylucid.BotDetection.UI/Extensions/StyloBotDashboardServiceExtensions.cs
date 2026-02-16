@@ -46,6 +46,9 @@ public static class StyloBotDashboardServiceExtensions
         // Server-side visitor cache for HTMX rendering
         services.AddSingleton<VisitorListCache>();
 
+        // Warm visitor cache from DB on startup so "Top Bots" isn't empty after restarts
+        services.AddHostedService<VisitorCacheWarmupService>();
+
         // LLM result callback for background classification coordinator
         services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();
 
@@ -137,6 +140,9 @@ public static class StyloBotDashboardServiceExtensions
 
         // Server-side visitor cache (needed by broadcast middleware)
         services.TryAddSingleton<VisitorListCache>();
+
+        // Warm visitor cache from DB on startup so "Top Bots" isn't empty after restarts
+        services.AddHostedService<VisitorCacheWarmupService>();
 
         // LLM result callback (needed if LLM classification is enabled)
         services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();

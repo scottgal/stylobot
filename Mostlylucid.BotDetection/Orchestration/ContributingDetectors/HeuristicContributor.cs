@@ -35,12 +35,10 @@ public class HeuristicContributor : ConfiguredContributorBase
     // Config-driven parameters from YAML
     private double HeuristicWeight => GetParam("heuristic_weight", 2.0);
 
-    // Trigger when we have enough signals and want heuristic classification
-    public override IReadOnlyList<TriggerCondition> TriggerConditions =>
-    [
-        // Run when UserAgent signal exists (basic info available)
-        Triggers.WhenSignalExists(SignalKeys.UserAgent)
-    ];
+    // No triggers — heuristic runs for every request, including those with missing UAs.
+    // Previously required SignalKeys.UserAgent which caused the heuristic to be skipped
+    // entirely when the UA header was absent (a strong bot signal in itself).
+    public override IReadOnlyList<TriggerCondition> TriggerConditions => [];
 
     public override async Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,

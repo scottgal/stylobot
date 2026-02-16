@@ -183,7 +183,8 @@
       "WebFetch(domain:hub-data.crowdsec.net)",
       "Bash(wc:*)",
       "Bash(head:*)",
-      "WebFetch(domain:www.stylobot.net)"
+      "WebFetch(domain:www.stylobot.net)",
+      "Bash(python:*)"
     ]
   }
 }

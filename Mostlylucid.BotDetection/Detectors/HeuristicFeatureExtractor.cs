@@ -137,6 +137,9 @@ public static class HeuristicFeatureExtractor
         if (uaLower.Contains("httpx")) features["ua:httpx"] = 1f;
         if (uaLower.Contains("aiohttp")) features["ua:aiohttp"] = 1f;
 
+        // Empty/missing User-Agent — no real browser omits the UA header
+        if (userAgent.Length == 0) features["ua:empty"] = 1f;
+
         // Very short User-Agent (< 15 chars) is suspicious — real browsers have long UAs
         if (userAgent.Length > 0 && userAgent.Length < 15) features["ua:very_short"] = 1f;
 

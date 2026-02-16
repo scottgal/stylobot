@@ -107,6 +107,9 @@ public class HeuristicDetector : IDetector, IDisposable
         ["ua:safari"] = -0.2f,
         ["ua:edge"] = -0.2f,
 
+        // Empty/missing User-Agent — no real browser omits this
+        ["ua:empty"] = 0.7f,
+
         // Very short User-Agent (< 15 chars) is suspicious
         ["ua:very_short"] = 0.4f,
 
