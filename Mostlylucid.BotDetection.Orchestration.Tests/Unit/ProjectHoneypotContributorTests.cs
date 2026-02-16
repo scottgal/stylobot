@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -41,15 +42,16 @@ public class ProjectHoneypotContributorTests
     private BlackboardState CreateState(string? clientIp, bool isLocal = false)
     {
         var httpContext = new DefaultHttpContext();
-        var signals = new Dictionary<string, object>();
+        var signalDict = new ConcurrentDictionary<string, object>();
 
-        if (clientIp != null) signals[SignalKeys.ClientIp] = clientIp;
-        signals[SignalKeys.IpIsLocal] = isLocal;
+        if (clientIp != null) signalDict[SignalKeys.ClientIp] = clientIp;
+        signalDict[SignalKeys.IpIsLocal] = isLocal;
 
         return new BlackboardState
         {
             HttpContext = httpContext,
-            Signals = signals,
+            Signals = signalDict,
+            SignalWriter = signalDict,
             CurrentRiskScore = 0,
             CompletedDetectors = new HashSet<string>(),
             FailedDetectors = new HashSet<string>(),

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -52,10 +53,12 @@ public class UserAgentContributorTests
         if (userAgent != null)
             httpContext.Request.Headers.UserAgent = userAgent;
 
+        var signalDict = new ConcurrentDictionary<string, object>();
         return new BlackboardState
         {
             HttpContext = httpContext,
-            Signals = new Dictionary<string, object>(),
+            Signals = signalDict,
+            SignalWriter = signalDict,
             CurrentRiskScore = 0,
             CompletedDetectors = new HashSet<string>(),
             FailedDetectors = new HashSet<string>(),

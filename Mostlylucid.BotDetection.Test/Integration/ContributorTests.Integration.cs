@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Net;
 using Microsoft.AspNetCore.Http;
@@ -163,14 +164,16 @@ public class ContributorIntegrationTests
         ctx.Request.Headers.UserAgent = testUserAgent;
         ctx.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.1");
 
+        var signalDict = new ConcurrentDictionary<string, object>(new Dictionary<string, object>
+        {
+            [SignalKeys.ClientIp] = "192.168.1.1",
+            [SignalKeys.IpIsLocal] = false
+        });
         var state = new BlackboardState
         {
             HttpContext = ctx,
-            Signals = new Dictionary<string, object>
-            {
-                [SignalKeys.ClientIp] = "192.168.1.1",
-                [SignalKeys.IpIsLocal] = false
-            }.ToImmutableDictionary(),
+            Signals = signalDict,
+            SignalWriter = signalDict,
             CurrentRiskScore = 0,
             CompletedDetectors = ImmutableHashSet<string>.Empty,
             FailedDetectors = ImmutableHashSet<string>.Empty,
@@ -188,10 +191,10 @@ public class ContributorIntegrationTests
         Assert.Contains("[TEST MODE]", contribution.Reason);
         Assert.Contains(expectedType, contribution.Reason);
 
-        // Verify signals contain test mode marker
-        Assert.True(contribution.Signals.ContainsKey("HoneypotTestMode"));
-        Assert.Equal(true, contribution.Signals["HoneypotTestMode"]);
-        Assert.Equal(expectedThreatScore, contribution.Signals[SignalKeys.HoneypotThreatScore]);
+        // Verify signals written to shared state contain test mode marker
+        Assert.True(state.Signals.ContainsKey("HoneypotTestMode"));
+        Assert.Equal(true, state.Signals["HoneypotTestMode"]);
+        Assert.Equal(expectedThreatScore, state.Signals[SignalKeys.HoneypotThreatScore]);
     }
 
     [Fact]
@@ -224,10 +227,12 @@ public class ContributorIntegrationTests
         ctx.Request.Headers.AcceptLanguage = "en-US";
         ctx.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.1");
 
+        var signalDict2 = new ConcurrentDictionary<string, object>(aiSignals);
         var state = new BlackboardState
         {
             HttpContext = ctx,
-            Signals = aiSignals.ToImmutableDictionary(),
+            Signals = signalDict2,
+            SignalWriter = signalDict2,
             CurrentRiskScore = 0,
             CompletedDetectors = ImmutableHashSet.Create("Llm"),
             FailedDetectors = ImmutableHashSet<string>.Empty,
@@ -306,10 +311,12 @@ public class ContributorIntegrationTests
             foreach (var (key, value) in headers)
                 ctx.Request.Headers[key] = value;
 
+        var signalDict = new ConcurrentDictionary<string, object>(signals ?? new Dictionary<string, object>());
         return new BlackboardState
         {
             HttpContext = ctx,
-            Signals = (signals ?? new Dictionary<string, object>()).ToImmutableDictionary(),
+            Signals = signalDict,
+            SignalWriter = signalDict,
             CurrentRiskScore = 0,
             CompletedDetectors = ImmutableHashSet<string>.Empty,
             FailedDetectors = ImmutableHashSet<string>.Empty,

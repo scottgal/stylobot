@@ -9,12 +9,12 @@ AMD Ryzen 9 9950X 4.30GHz, 1 CPU, 32 logical and 16 physical cores
 IterationCount=10  RunStrategy=Throughput  WarmupCount=3  
 
 ```
-| Method                        | Mean       | Error     | StdDev   | Gen0   | Completed Work Items | Lock Contentions | Gen1   | Gen2   | Allocated |
-|------------------------------ |-----------:|----------:|---------:|-------:|---------------------:|-----------------:|-------:|-------:|----------:|
-| &#39;UserAgent Detector&#39;          |   482.2 ns |  81.01 ns | 53.58 ns | 0.0200 |               0.0000 |                - |      - |      - |    1568 B |
-| &#39;IP Detector&#39;                 |   700.4 ns | 117.68 ns | 77.84 ns | 0.0181 |               0.0000 |                - |      - |      - |    1400 B |
-| &#39;Header Detector&#39;             |   519.0 ns |  25.30 ns | 16.74 ns | 0.0191 |               0.0000 |                - |      - |      - |    1472 B |
-| &#39;Behavioral Detector&#39;         | 1,465.5 ns |  92.34 ns | 54.95 ns | 0.0381 |               0.0000 |                - |      - |      - |    2944 B |
-| &#39;Heuristic Detector&#39;          | 1,605.1 ns | 115.29 ns | 76.26 ns | 0.0362 |               0.0000 |                - |      - |      - |    2848 B |
-| &#39;HTTP/3 Fingerprint Detector&#39; |   898.7 ns |  70.38 ns | 41.88 ns | 0.0401 |               0.0000 |                - | 0.0010 | 0.0010 |         - |
-| &#39;AI Scraper Detector&#39;         |   706.7 ns |  57.96 ns | 38.34 ns | 0.0210 |               0.0000 |                - |      - |      - |    1664 B |
+| Method                        | Mean       | Error    | StdDev   | Gen0   | Completed Work Items | Lock Contentions | Gen1   | Gen2   | Allocated |
+|------------------------------ |-----------:|---------:|---------:|-------:|---------------------:|-----------------:|-------:|-------:|----------:|
+| &#39;UserAgent Detector&#39;          |   283.3 ns |  5.86 ns |  3.88 ns | 0.0148 |               0.0000 |                - |      - |      - |    1152 B |
+| &#39;IP Detector&#39;                 |   422.8 ns |  2.72 ns |  1.62 ns | 0.0124 |               0.0000 |                - | 0.0005 | 0.0005 |         - |
+| &#39;Header Detector&#39;             |   204.8 ns |  4.41 ns |  2.92 ns | 0.0119 |               0.0000 |                - |      - |      - |     920 B |
+| &#39;Behavioral Detector&#39;         | 1,193.6 ns | 43.00 ns | 28.44 ns | 0.0343 |               0.0000 |                - |      - |      - |    2688 B |
+| &#39;Heuristic Detector&#39;          | 1,200.7 ns | 19.54 ns | 11.63 ns | 0.0324 |               0.0000 |                - |      - |      - |    2512 B |
+| &#39;HTTP/3 Fingerprint Detector&#39; |   405.5 ns |  8.42 ns |  5.57 ns | 0.0229 |               0.0000 |                - |      - |      - |    1776 B |
+| &#39;AI Scraper Detector&#39;         |   347.2 ns |  9.08 ns |  5.40 ns | 0.0143 |               0.0000 |                - |      - |      - |    1112 B |

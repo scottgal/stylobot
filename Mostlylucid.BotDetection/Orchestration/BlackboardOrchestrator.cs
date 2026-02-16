@@ -551,8 +551,9 @@ public class BlackboardOrchestrator
 
                     waveNumber++;
 
-                    // Small delay between waves to allow signals to propagate
-                    if (waveNumber < _options.MaxWaves) await Task.Delay(_options.WaveInterval, cts.Token);
+                    // Signals propagate immediately via ConcurrentDictionary (no delay needed).
+                    // Yield to avoid starving other tasks, but don't burn 50ms per wave.
+                    if (waveNumber < _options.MaxWaves) await Task.Yield();
                 }
             }
             catch (OperationCanceledException) when (cts.IsCancellationRequested &&

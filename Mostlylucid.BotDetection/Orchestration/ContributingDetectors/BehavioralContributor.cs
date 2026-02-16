@@ -57,14 +57,15 @@ public class BehavioralContributor : ConfiguredContributorBase
             }
             else
             {
-                // Convert each reason to a contribution
+                // Write signals once, then convert each reason to a contribution
+                var hasRate = result.Reasons.Any(r =>
+                    r.Detail.Contains("rate", StringComparison.OrdinalIgnoreCase));
+                state.WriteSignals([
+                    new(SignalKeys.BehavioralAnomalyDetected, true),
+                    new(SignalKeys.BehavioralRateExceeded, hasRate)
+                ]);
                 foreach (var reason in result.Reasons)
                 {
-                    state.WriteSignals([
-                        new(SignalKeys.BehavioralAnomalyDetected, true),
-                        new(SignalKeys.BehavioralRateExceeded,
-                            reason.Detail.Contains("rate", StringComparison.OrdinalIgnoreCase))
-                    ]);
                     contributions.Add(new DetectionContribution
                     {
                         DetectorName = Name,

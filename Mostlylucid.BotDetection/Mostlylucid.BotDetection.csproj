@@ -29,6 +29,7 @@
     </PropertyGroup>
     <ItemGroup>
         <InternalsVisibleTo Include="Mostlylucid.BotDetection.Test" />
+        <InternalsVisibleTo Include="Mostlylucid.BotDetection.Orchestration.Tests" />
     </ItemGroup>
     <PropertyGroup>
         <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>

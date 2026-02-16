@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -59,13 +60,15 @@ public class SecurityToolContributorTests
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Headers.UserAgent = userAgent;
 
+        var signalDict = new ConcurrentDictionary<string, object>(new Dictionary<string, object>
+        {
+            [SignalKeys.ClientIp] = clientIp ?? ""
+        });
         return new BlackboardState
         {
             HttpContext = httpContext,
-            Signals = new Dictionary<string, object>
-            {
-                [SignalKeys.ClientIp] = clientIp ?? ""
-            },
+            Signals = signalDict,
+            SignalWriter = signalDict,
             CurrentRiskScore = 0,
             CompletedDetectors = new HashSet<string>(),
             FailedDetectors = new HashSet<string>(),
@@ -114,9 +117,9 @@ public class SecurityToolContributorTests
         Assert.Contains(expectedToolName.ToLowerInvariant(),
             contribution.Reason?.ToLowerInvariant() ?? "");
 
-        // Verify signals are set
-        Assert.True(contribution.Signals.ContainsKey(SignalKeys.SecurityToolDetected));
-        Assert.True((bool)contribution.Signals[SignalKeys.SecurityToolDetected]);
+        // Verify signals are written to shared state
+        Assert.True(state.Signals.ContainsKey(SignalKeys.SecurityToolDetected));
+        Assert.True((bool)state.Signals[SignalKeys.SecurityToolDetected]);
     }
 
     [Fact]
@@ -281,24 +284,23 @@ public class SecurityToolContributorTests
 
         // Assert
         Assert.Single(contributions);
-        var signals = contributions[0].Signals;
 
-        Assert.True(signals.ContainsKey(SignalKeys.SecurityToolDetected));
-        Assert.True((bool)signals[SignalKeys.SecurityToolDetected]);
+        Assert.True(state.Signals.ContainsKey(SignalKeys.SecurityToolDetected));
+        Assert.True((bool)state.Signals[SignalKeys.SecurityToolDetected]);
 
-        Assert.True(signals.ContainsKey(SignalKeys.SecurityToolName));
-        Assert.Equal("Nikto", signals[SignalKeys.SecurityToolName]);
+        Assert.True(state.Signals.ContainsKey(SignalKeys.SecurityToolName));
+        Assert.Equal("Nikto", state.Signals[SignalKeys.SecurityToolName]);
 
-        Assert.True(signals.ContainsKey(SignalKeys.SecurityToolCategory));
+        Assert.True(state.Signals.ContainsKey(SignalKeys.SecurityToolCategory));
 
-        Assert.True(signals.ContainsKey(SignalKeys.UserAgent));
-        Assert.Equal("Nikto/2.1.6", signals[SignalKeys.UserAgent]);
+        Assert.True(state.Signals.ContainsKey(SignalKeys.UserAgent));
+        Assert.Equal("Nikto/2.1.6", state.Signals[SignalKeys.UserAgent]);
 
-        Assert.True(signals.ContainsKey(SignalKeys.UserAgentIsBot));
-        Assert.True((bool)signals[SignalKeys.UserAgentIsBot]);
+        Assert.True(state.Signals.ContainsKey(SignalKeys.UserAgentIsBot));
+        Assert.True((bool)state.Signals[SignalKeys.UserAgentIsBot]);
 
-        Assert.True(signals.ContainsKey(SignalKeys.UserAgentBotType));
-        Assert.Equal(BotType.MaliciousBot.ToString(), signals[SignalKeys.UserAgentBotType]);
+        Assert.True(state.Signals.ContainsKey(SignalKeys.UserAgentBotType));
+        Assert.Equal(BotType.MaliciousBot.ToString(), state.Signals[SignalKeys.UserAgentBotType]);
     }
 
     // ==========================================

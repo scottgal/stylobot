@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -50,10 +51,12 @@ public class Http3FingerprintContributorTests
                 httpContext.Request.Headers[key] = value;
         }
 
+        var signalDict = new ConcurrentDictionary<string, object>();
         return new BlackboardState
         {
             HttpContext = httpContext,
-            Signals = new Dictionary<string, object>(),
+            Signals = signalDict,
+            SignalWriter = signalDict,
             CurrentRiskScore = 0,
             CompletedDetectors = new HashSet<string>(),
             FailedDetectors = new HashSet<string>(),
@@ -102,7 +105,7 @@ public class Http3FingerprintContributorTests
         Assert.Single(contributions);
         Assert.Equal(0, contributions[0].ConfidenceDelta);
         Assert.Contains("not HTTP/3", contributions[0].Reason);
-        Assert.True(contributions[0].Signals.ContainsKey(SignalKeys.H3Protocol));
+        Assert.True(state.Signals.ContainsKey(SignalKeys.H3Protocol));
     }
 
     [Theory]
@@ -153,9 +156,8 @@ public class Http3FingerprintContributorTests
         var contributions = await contributor.ContributeAsync(state);
 
         Assert.True(contributions.Count >= 2); // HTTP/3 human + browser fingerprint
-        var signals = contributions[^1].Signals;
-        Assert.True(signals.ContainsKey(SignalKeys.H3ClientType));
-        Assert.Equal(expectedClient, signals[SignalKeys.H3ClientType]);
+        Assert.True(state.Signals.ContainsKey(SignalKeys.H3ClientType));
+        Assert.Equal(expectedClient, state.Signals[SignalKeys.H3ClientType]);
     }
 
     [Theory]
@@ -189,8 +191,7 @@ public class Http3FingerprintContributorTests
 
         var contributions = await contributor.ContributeAsync(state);
 
-        var signals = contributions[^1].Signals;
-        Assert.True(signals.ContainsKey("h3.transport_fingerprint_unknown"));
+        Assert.True(state.Signals.ContainsKey("h3.transport_fingerprint_unknown"));
     }
 
     // ==========================================
@@ -253,9 +254,8 @@ public class Http3FingerprintContributorTests
         Assert.NotNull(zeroRttContrib);
         Assert.True(zeroRttContrib!.ConfidenceDelta < 0, "0-RTT should produce human signal");
 
-        var signals = contributions[^1].Signals;
-        Assert.True(signals.ContainsKey(SignalKeys.H3ZeroRtt));
-        Assert.True((bool)signals[SignalKeys.H3ZeroRtt]);
+        Assert.True(state.Signals.ContainsKey(SignalKeys.H3ZeroRtt));
+        Assert.True((bool)state.Signals[SignalKeys.H3ZeroRtt]);
     }
 
     // ==========================================
@@ -278,8 +278,7 @@ public class Http3FingerprintContributorTests
         Assert.NotNull(migrationContrib);
         Assert.True(migrationContrib!.ConfidenceDelta < 0, "Connection migration should produce human signal");
 
-        var signals = contributions[^1].Signals;
-        Assert.True(signals.ContainsKey(SignalKeys.H3ConnectionMigrated));
+        Assert.True(state.Signals.ContainsKey(SignalKeys.H3ConnectionMigrated));
     }
 
     // ==========================================
@@ -379,11 +378,10 @@ public class Http3FingerprintContributorTests
 
         var contributions = await contributor.ContributeAsync(state);
 
-        var signals = contributions[^1].Signals;
-        Assert.True(signals.ContainsKey(SignalKeys.H3Protocol));
-        Assert.Equal("HTTP/3", signals[SignalKeys.H3Protocol]);
-        Assert.True(signals.ContainsKey("h3.is_http3"));
-        Assert.True((bool)signals["h3.is_http3"]);
+        Assert.True(state.Signals.ContainsKey(SignalKeys.H3Protocol));
+        Assert.Equal("HTTP/3", state.Signals[SignalKeys.H3Protocol]);
+        Assert.True(state.Signals.ContainsKey("h3.is_http3"));
+        Assert.True((bool)state.Signals["h3.is_http3"]);
     }
 
     [Fact]
@@ -398,10 +396,9 @@ public class Http3FingerprintContributorTests
 
         var contributions = await contributor.ContributeAsync(state);
 
-        var lastSignals = contributions[^1].Signals;
-        Assert.True(lastSignals.ContainsKey(SignalKeys.H3Protocol));
-        Assert.True(lastSignals.ContainsKey("h3.is_http3"));
-        Assert.True(lastSignals.ContainsKey("h3.transport_params"));
-        Assert.True(lastSignals.ContainsKey(SignalKeys.H3ZeroRtt));
+        Assert.True(state.Signals.ContainsKey(SignalKeys.H3Protocol));
+        Assert.True(state.Signals.ContainsKey("h3.is_http3"));
+        Assert.True(state.Signals.ContainsKey("h3.transport_params"));
+        Assert.True(state.Signals.ContainsKey(SignalKeys.H3ZeroRtt));
     }
 }

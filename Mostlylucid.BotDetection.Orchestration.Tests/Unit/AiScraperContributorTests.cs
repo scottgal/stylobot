@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Moq;
@@ -55,10 +56,12 @@ public class AiScraperContributorTests
                 httpContext.Request.Headers[key] = value;
         }
 
+        var signalDict = new ConcurrentDictionary<string, object>();
         return new BlackboardState
         {
             HttpContext = httpContext,
-            Signals = new Dictionary<string, object>(),
+            Signals = signalDict,
+            SignalWriter = signalDict,
             CurrentRiskScore = 0,
             CompletedDetectors = new HashSet<string>(),
             FailedDetectors = new HashSet<string>(),
@@ -121,11 +124,10 @@ public class AiScraperContributorTests
         Assert.Contains(expectedName, botContrib.Reason);
         Assert.Equal(expectedName, botContrib.BotName);
 
-        var signals = contributions[^1].Signals;
-        Assert.True(signals.ContainsKey(SignalKeys.AiScraperDetected));
-        Assert.True((bool)signals[SignalKeys.AiScraperDetected]);
-        Assert.Equal(expectedName, signals[SignalKeys.AiScraperName]);
-        Assert.Equal(expectedOperator, signals[SignalKeys.AiScraperOperator]);
+        Assert.True(state.Signals.ContainsKey(SignalKeys.AiScraperDetected));
+        Assert.True((bool)state.Signals[SignalKeys.AiScraperDetected]);
+        Assert.Equal(expectedName, state.Signals[SignalKeys.AiScraperName]);
+        Assert.Equal(expectedOperator, state.Signals[SignalKeys.AiScraperOperator]);
     }
 
     [Fact]
@@ -173,8 +175,7 @@ public class AiScraperContributorTests
         Assert.NotNull(markdownContrib);
         Assert.True(markdownContrib!.ConfidenceDelta >= 0.8);
 
-        var signals = contributions[^1].Signals;
-        Assert.True(signals.ContainsKey("aiscraper.accept_markdown"));
+        Assert.True(state.Signals.ContainsKey("aiscraper.accept_markdown"));
     }
 
     [Fact]
@@ -215,8 +216,7 @@ public class AiScraperContributorTests
             c.Reason?.Contains("AI Gateway", StringComparison.OrdinalIgnoreCase) == true);
         Assert.NotNull(aigContrib);
 
-        var signals = contributions[^1].Signals;
-        Assert.True(signals.ContainsKey("aiscraper.cloudflare_ai_gateway"));
+        Assert.True(state.Signals.ContainsKey("aiscraper.cloudflare_ai_gateway"));
     }
 
     // ==========================================
@@ -242,10 +242,9 @@ public class AiScraperContributorTests
         Assert.True(webBotContrib!.ConfidenceDelta >= 0.9);
         Assert.Equal("ChatGPT", webBotContrib.BotName);
 
-        var signals = contributions[^1].Signals;
-        Assert.True(signals.ContainsKey("aiscraper.web_bot_auth"));
-        Assert.True(signals.ContainsKey("aiscraper.web_bot_auth_verified"));
-        Assert.True((bool)signals["aiscraper.web_bot_auth_verified"]);
+        Assert.True(state.Signals.ContainsKey("aiscraper.web_bot_auth"));
+        Assert.True(state.Signals.ContainsKey("aiscraper.web_bot_auth_verified"));
+        Assert.True((bool)state.Signals["aiscraper.web_bot_auth_verified"]);
     }
 
     [Fact]
@@ -283,8 +282,7 @@ public class AiScraperContributorTests
 
         var contributions = await contributor.ContributeAsync(state);
 
-        var signals = contributions[^1].Signals;
-        Assert.True(signals.ContainsKey("aiscraper.cloudflare_browser_rendering"));
+        Assert.True(state.Signals.ContainsKey("aiscraper.cloudflare_browser_rendering"));
     }
 
     // ==========================================
@@ -306,8 +304,7 @@ public class AiScraperContributorTests
             c.Reason?.Contains(path, StringComparison.OrdinalIgnoreCase) == true);
         Assert.NotNull(pathContrib);
 
-        var signals = contributions[^1].Signals;
-        Assert.True(signals.ContainsKey("aiscraper.ai_discovery_path"));
+        Assert.True(state.Signals.ContainsKey("aiscraper.ai_discovery_path"));
     }
 
     // ==========================================
@@ -348,10 +345,9 @@ public class AiScraperContributorTests
 
         var contributions = await contributor.ContributeAsync(state);
 
-        var lastSignals = contributions[^1].Signals;
-        Assert.True(lastSignals.ContainsKey(SignalKeys.AiScraperDetected));
-        Assert.True(lastSignals.ContainsKey(SignalKeys.AiScraperName));
-        Assert.True(lastSignals.ContainsKey("aiscraper.accept_markdown"));
+        Assert.True(state.Signals.ContainsKey(SignalKeys.AiScraperDetected));
+        Assert.True(state.Signals.ContainsKey(SignalKeys.AiScraperName));
+        Assert.True(state.Signals.ContainsKey("aiscraper.accept_markdown"));
     }
 
     // ==========================================
@@ -370,9 +366,8 @@ public class AiScraperContributorTests
 
         var contributions = await contributor.ContributeAsync(state);
 
-        var signals = contributions[^1].Signals;
-        Assert.True(signals.ContainsKey(SignalKeys.AiScraperCategory));
-        Assert.Equal(expectedCategory, signals[SignalKeys.AiScraperCategory]);
+        Assert.True(state.Signals.ContainsKey(SignalKeys.AiScraperCategory));
+        Assert.Equal(expectedCategory, state.Signals[SignalKeys.AiScraperCategory]);
     }
 
     // ==========================================

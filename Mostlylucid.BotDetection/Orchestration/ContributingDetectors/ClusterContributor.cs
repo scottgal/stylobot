@@ -241,13 +241,6 @@ public class ClusterContributor : ConfiguredContributorBase
             _logger.LogWarning(ex, "Error in cluster/country reputation analysis");
         }
 
-        // Ensure at least one contribution
-        if (contributions.Count == 0)
-        {
-            contributions.Add(NeutralContribution("Cluster",
-                "Cluster and country reputation analysis complete"));
-        }
-
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }
 

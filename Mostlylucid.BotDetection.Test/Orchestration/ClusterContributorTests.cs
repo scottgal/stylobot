@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -126,10 +127,12 @@ public class ClusterContributorTests
     {
         var ctx = new DefaultHttpContext();
         ctx.Request.Headers.UserAgent = "Mozilla/5.0";
+        var signalDict = new ConcurrentDictionary<string, object>(signals ?? new Dictionary<string, object>());
         return new BlackboardState
         {
             HttpContext = ctx,
-            Signals = (signals ?? new Dictionary<string, object>()).ToImmutableDictionary(),
+            Signals = signalDict,
+            SignalWriter = signalDict,
             CurrentRiskScore = 0,
             CompletedDetectors = ImmutableHashSet<string>.Empty,
             FailedDetectors = ImmutableHashSet<string>.Empty,
@@ -214,9 +217,9 @@ public class ClusterContributorTests
         // Should have at least one contribution with country reputation signal
         Assert.NotEmpty(result);
 
-        var lastContribution = result[^1];
-        Assert.True(lastContribution.Signals.ContainsKey(SignalKeys.GeoCountryBotRate));
-        var botRate = (double)lastContribution.Signals[SignalKeys.GeoCountryBotRate];
+        // Signals are written to the shared state, not on individual contributions
+        Assert.True(state.Signals.ContainsKey(SignalKeys.GeoCountryBotRate));
+        var botRate = (double)state.Signals[SignalKeys.GeoCountryBotRate];
         Assert.InRange(botRate, 0.9, 1.0);
     }
 
