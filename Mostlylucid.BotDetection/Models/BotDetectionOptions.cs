@@ -916,7 +916,15 @@ public class BotDetectionOptions
     ///     "ExcludedPaths": ["/health", "/metrics", "/.well-known", "/favicon.ico"]
     ///     </code>
     /// </example>
-    public List<string> ExcludedPaths { get; set; } = ["/health", "/metrics", "/_stylobot"];
+    public List<string> ExcludedPaths { get; set; } = ["/health", "/metrics"];
+
+    /// <summary>
+    ///     Paths where only signature generation runs (no detection pipeline).
+    ///     The visitor's signature is computed and stored in HttpContext.Items
+    ///     so downstream middleware can look them up in the visitor cache,
+    ///     but no detectors run and no detection events are broadcast.
+    /// </summary>
+    public List<string> SignatureOnlyPaths { get; set; } = [];
 
     /// <summary>
     ///     Path overrides that always allow requests through, even if detected as bots.

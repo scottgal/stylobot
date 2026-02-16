@@ -1,0 +1,372 @@
+@page "/component-demo"
+@model ComponentDemoModel
+@using Mostlylucid.BotDetection.UI.TagHelpers
+@{
+    ViewData["Title"] = "sb-* Component TagHelpers Demo";
+    var honeypotTriggered = Request.Method == "POST" && HoneypotValidator.IsTriggered(Request);
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - StyloBot</title>
+    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/css/sb-components.css"/>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0d1117;
+            color: #c9d1d9;
+        }
+        h1 { color: #58a6ff; margin-bottom: 10px; }
+        .subtitle { color: #8b949e; margin-bottom: 30px; }
+        .section {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }
+        .section h2 {
+            margin-top: 0;
+            color: #c9d1d9;
+            font-size: 1.2em;
+            border-bottom: 1px solid #30363d;
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+        }
+        .demo-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 12px;
+            flex-wrap: wrap;
+        }
+        .demo-label {
+            color: #8b949e;
+            min-width: 180px;
+            font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 0.85em;
+        }
+        .demo-output {
+            background: #21262d;
+            padding: 8px 14px;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+        }
+        .gated-content {
+            background: #1c2333;
+            border: 1px dashed #30363d;
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin: 8px 0;
+        }
+        .gated-content.visible { border-color: #238636; }
+        .gated-content.hidden-note { color: #8b949e; font-style: italic; }
+        .nav-buttons {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+        .nav-btn {
+            padding: 10px 18px;
+            background: #238636;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        .nav-btn:hover { background: #2ea043; }
+        .nav-btn.secondary { background: #1f6feb; }
+        .nav-btn.secondary:hover { background: #388bfd; }
+        .info-box {
+            background: #21262d;
+            border-left: 3px solid #58a6ff;
+            padding: 15px 18px;
+            margin-bottom: 20px;
+            border-radius: 0 6px 6px 0;
+        }
+        .info-box strong { color: #58a6ff; }
+        code.inline {
+            background: #21262d;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 0.85em;
+            color: #7ee787;
+        }
+        .honeypot-result {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-top: 12px;
+            font-weight: 600;
+        }
+        .honeypot-result.triggered { background: #3d1f1f; border: 1px solid #ef4444; color: #fca5a5; }
+        .honeypot-result.clean { background: #1f3d1f; border: 1px solid #22c55e; color: #86efac; }
+        form button {
+            padding: 8px 16px;
+            background: #238636;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        form button:hover { background: #2ea043; }
+    </style>
+</head>
+<body>
+<h1>sb-* Component TagHelpers Demo</h1>
+<p class="subtitle">Content gating, data display, and form protection — all from simple HTML tags</p>
+
+<div class="nav-buttons">
+    <a href="/bot-test" class="nav-btn">&#8592; Main Demo</a>
+    <a href="/tag-helper-demo" class="nav-btn secondary">Full Details TagHelper</a>
+    <a href="/component-demo" class="nav-btn secondary">Refresh</a>
+</div>
+
+<!-- ===== DATA DISPLAY ===== -->
+<div class="section">
+    <h2>Data Display TagHelpers</h2>
+    <div class="info-box">
+        <strong>Live detection data</strong> for your current request, rendered via <code class="inline">sb-*</code> tags.
+    </div>
+
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-badge /&gt;</span>
+        <span class="demo-output"><sb-badge /></span>
+    </div>
+
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-badge variant="compact" /&gt;</span>
+        <span class="demo-output"><sb-badge variant="compact" /></span>
+    </div>
+
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-badge variant="icon" /&gt;</span>
+        <span class="demo-output"><sb-badge variant="icon" /></span>
+    </div>
+
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-risk-pill /&gt;</span>
+        <span class="demo-output"><sb-risk-pill /></span>
+    </div>
+
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-confidence /&gt;</span>
+        <span class="demo-output"><sb-confidence /></span>
+    </div>
+
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-confidence display="both" /&gt;</span>
+        <span class="demo-output"><sb-confidence display="both" width="160px" /></span>
+    </div>
+
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-confidence display="text" /&gt;</span>
+        <span class="demo-output"><sb-confidence display="text" /></span>
+    </div>
+
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-summary /&gt;</span>
+        <span class="demo-output"><sb-summary /></span>
+    </div>
+</div>
+
+<!-- Summary Card -->
+<div class="section">
+    <h2>Summary Card</h2>
+    <div class="info-box">
+        <strong>&lt;sb-summary variant="card" /&gt;</strong> — a boxed layout with badge, risk pill, and stats.
+    </div>
+    <sb-summary variant="card" />
+</div>
+
+<!-- ===== CONTENT GATING ===== -->
+<div class="section">
+    <h2>Content Gating TagHelpers</h2>
+    <div class="info-box">
+        <strong>Conditional rendering</strong> — content is shown or hidden based on detection results.
+        If you're viewing this in a browser, you should see the "human" blocks and not the "bot" blocks.
+    </div>
+
+    <h3 style="color: #58a6ff; font-size: 1em; margin-bottom: 12px;">&lt;sb-human&gt; — Human-only content</h3>
+    <div class="gated-content visible">
+        <sb-human>This content is only visible to humans. Welcome, real person!</sb-human>
+        <sb-human fallback="hide"><em>(This also shows only for humans, but hides if detection hasn't run)</em></sb-human>
+    </div>
+
+    <h3 style="color: #58a6ff; font-size: 1em; margin: 20px 0 12px;">&lt;sb-bot&gt; — Bot-only content</h3>
+    <div class="gated-content">
+        <sb-bot>This content is only visible to bots. You are automated.</sb-bot>
+        <span class="hidden-note">(If you see nothing here, that means you're human — the bot-only content is hidden)</span>
+    </div>
+
+    <h3 style="color: #58a6ff; font-size: 1em; margin: 20px 0 12px;">&lt;sb-gate&gt; — Universal gate</h3>
+    <div class="gated-content visible">
+        <sb-gate human-only>
+            <strong>human-only gate:</strong> You passed the human-only gate.
+        </sb-gate>
+    </div>
+    <div class="gated-content">
+        <sb-gate bot-only>
+            <strong>bot-only gate:</strong> You passed the bot-only gate.
+        </sb-gate>
+        <span class="hidden-note">(bot-only gate — hidden for humans)</span>
+    </div>
+    <div class="gated-content visible">
+        <sb-gate max-risk="Low">
+            <strong>max-risk="Low" gate:</strong> Your risk is Low or below — content visible.
+        </sb-gate>
+        <sb-gate min-risk="Medium">
+            <strong>min-risk="Medium" gate:</strong> Your risk is Medium or above — content visible.
+        </sb-gate>
+    </div>
+    <div class="gated-content visible">
+        <sb-gate human-only negate>
+            <strong>negate test:</strong> This shows when the human-only condition is NEGATED (i.e., you're a bot).
+        </sb-gate>
+        <span class="hidden-note">(negated human-only — hidden for actual humans)</span>
+    </div>
+
+    <h3 style="color: #58a6ff; font-size: 1em; margin: 20px 0 12px;">&lt;sb-risk&gt; — Risk band gate</h3>
+    <div class="gated-content visible">
+        <sb-risk max="Elevated">
+            <strong>max="Elevated":</strong> Visible when risk is Elevated or below.
+        </sb-risk>
+    </div>
+    <div class="gated-content">
+        <sb-risk min="High" fallback="hide">
+            <strong>min="High":</strong> Visible only for High risk or above.
+        </sb-risk>
+        <span class="hidden-note">(min="High" — hidden for low-risk visitors)</span>
+    </div>
+</div>
+
+<!-- ===== SIGNAL GATING ===== -->
+<div class="section">
+    <h2>Signal-Based Gating: &lt;sb-signal&gt;</h2>
+    <div class="info-box">
+        <strong>Gate content on detection signals</strong> — VPN, country, datacenter, bot UA, and more.
+    </div>
+
+    <div class="gated-content">
+        <sb-signal signal="geo.country_code" condition="exists">
+            <strong>Country detected:</strong> GeoDetection ran and found a country code.
+        </sb-signal>
+        <span class="hidden-note">(visible when geo contributor is registered)</span>
+    </div>
+    <div class="gated-content">
+        <sb-signal signal="ip.is_datacenter" condition="true">
+            <strong>Datacenter IP:</strong> Request from a hosting provider.
+        </sb-signal>
+        <span class="hidden-note">(visible for datacenter IPs)</span>
+    </div>
+    <div class="gated-content">
+        <sb-signal signal="geo.is_vpn,geo.is_tor" condition="any-true">
+            <strong>Anonymised:</strong> VPN or Tor detected.
+        </sb-signal>
+        <span class="hidden-note">(visible for VPN/Tor users)</span>
+    </div>
+    <div class="gated-content">
+        <sb-signal signal="ua.is_bot" condition="true" negate>
+            <strong>Not flagged by UA:</strong> User-Agent detector did not flag you.
+        </sb-signal>
+    </div>
+</div>
+
+<!-- ===== HONEYPOT ===== -->
+<div class="section">
+    <h2>Form Protection: &lt;sb-honeypot /&gt;</h2>
+    <div class="info-box">
+        <strong>Hidden trap fields</strong> that bots fill but humans don't see. Submit the form to test server-side validation.
+    </div>
+
+    <form method="post">
+        <sb-honeypot />
+        <div style="margin-bottom: 12px;">
+            <label style="color: #8b949e; display: block; margin-bottom: 4px;">Your name (real field):</label>
+            <input type="text" name="realName" style="padding: 6px 10px; background: #21262d; border: 1px solid #30363d; color: #c9d1d9; border-radius: 4px;" />
+        </div>
+        <button type="submit">Submit Form</button>
+    </form>
+
+    @if (Request.Method == "POST")
+    {
+        if (honeypotTriggered)
+        {
+            <div class="honeypot-result triggered">Honeypot triggered — a trap field was filled in. This looks like a bot!</div>
+        }
+        else
+        {
+            <div class="honeypot-result clean">Honeypot clean — no trap fields filled. This looks like a human submission.</div>
+        }
+    }
+</div>
+
+<!-- ===== USAGE ===== -->
+<div class="section">
+    <h2>Quick Reference</h2>
+    <div class="info-box">
+        Add the CSS to your layout: <code class="inline">&lt;link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/css/sb-components.css" /&gt;</code>
+    </div>
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+        <thead>
+        <tr style="border-bottom: 1px solid #30363d; text-align: left;">
+            <th style="padding: 8px; color: #8b949e;">Tag</th>
+            <th style="padding: 8px; color: #8b949e;">Purpose</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr style="border-bottom: 1px solid #21262d;">
+            <td style="padding: 8px;"><code class="inline">&lt;sb-gate&gt;</code></td>
+            <td style="padding: 8px;">Universal gate (human-only, bot-only, risk range, bot-type, verified-only, negate)</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #21262d;">
+            <td style="padding: 8px;"><code class="inline">&lt;sb-human&gt;</code></td>
+            <td style="padding: 8px;">Show content to humans only (fail-open)</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #21262d;">
+            <td style="padding: 8px;"><code class="inline">&lt;sb-bot&gt;</code></td>
+            <td style="padding: 8px;">Show content to bots only (fail-closed)</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #21262d;">
+            <td style="padding: 8px;"><code class="inline">&lt;sb-risk&gt;</code></td>
+            <td style="padding: 8px;">Risk band gate (band, min, max)</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #21262d;">
+            <td style="padding: 8px;"><code class="inline">&lt;sb-badge /&gt;</code></td>
+            <td style="padding: 8px;">Inline badge (full, compact, icon variants)</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #21262d;">
+            <td style="padding: 8px;"><code class="inline">&lt;sb-confidence /&gt;</code></td>
+            <td style="padding: 8px;">Bot probability meter (bar, text, both)</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #21262d;">
+            <td style="padding: 8px;"><code class="inline">&lt;sb-risk-pill /&gt;</code></td>
+            <td style="padding: 8px;">Colored risk band pill</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #21262d;">
+            <td style="padding: 8px;"><code class="inline">&lt;sb-summary /&gt;</code></td>
+            <td style="padding: 8px;">One-line or card detection summary</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #21262d;">
+            <td style="padding: 8px;"><code class="inline">&lt;sb-signal&gt;</code></td>
+            <td style="padding: 8px;">Signal gate (exists, equals, true/false, gt/lt, any-true, contains)</td>
+        </tr>
+        <tr>
+            <td style="padding: 8px;"><code class="inline">&lt;sb-honeypot /&gt;</code></td>
+            <td style="padding: 8px;">Hidden form trap fields + server-side validator</td>
+        </tr>
+        </tbody>
+    </table>
+</div>
+
+</body>
+</html>

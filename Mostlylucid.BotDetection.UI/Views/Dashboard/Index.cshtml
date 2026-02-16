@@ -22,6 +22,13 @@
                 if (saved) document.documentElement.setAttribute('data-theme', saved);
                 else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) document.documentElement.setAttribute('data-theme', 'light');
             } catch(e) {}
+            // Hide header when embedded via ?embed=1
+            if (new URLSearchParams(window.location.search).get('embed') === '1') {
+                document.addEventListener('DOMContentLoaded', function() {
+                    var hdr = document.getElementById('sb-brand-header');
+                    if (hdr) hdr.style.display = 'none';
+                });
+            }
         })();
     </script>
 
@@ -90,8 +97,8 @@
 <body class="bg-base-100">
 <div x-data="dashboard()" x-init="init()" class="min-h-screen">
 
-    <!-- Header -->
-    <header class="brand-header sticky top-0 z-50">
+    <!-- Header (hidden when embedded via ?embed=1) -->
+    <header class="brand-header sticky top-0 z-50" id="sb-brand-header">
         <div class="dashboard-shell px-4 py-2 flex items-center justify-between">
             <div class="flex items-center gap-3">
                 <a href="/" target="_top" class="brand-wordmark text-lg no-underline hover:opacity-80 transition-opacity">

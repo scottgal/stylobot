@@ -1,0 +1,71 @@
+@model Mostlylucid.BotDetection.Demo.Controllers.HoneypotDemoModel
+@{
+    Layout = "_Layout";
+}
+
+<div class="section">
+    <h2>How it works</h2>
+    <div class="info">
+        <strong>&lt;sb-honeypot /&gt;</strong> renders hidden form fields positioned offscreen.
+        Bots auto-fill all fields (including hidden ones), humans don't see them.
+        Use <code class="hl">HoneypotValidator.IsTriggered(Request)</code> on the server.
+    </div>
+</div>
+
+<div class="section">
+    <h2>Live Demo Form</h2>
+    <form asp-action="Honeypot" method="post">
+        <sb-honeypot />
+
+        <div style="margin-bottom: 12px">
+            <label style="color:#8b949e;display:block;margin-bottom:4px">Name:</label>
+            <input asp-for="Name" style="padding:6px 10px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;width:300px" />
+        </div>
+        <div style="margin-bottom: 12px">
+            <label style="color:#8b949e;display:block;margin-bottom:4px">Email:</label>
+            <input asp-for="Email" type="email" style="padding:6px 10px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;width:300px" />
+        </div>
+        <div style="margin-bottom: 12px">
+            <label style="color:#8b949e;display:block;margin-bottom:4px">Message:</label>
+            <textarea asp-for="Message" rows="3" style="padding:6px 10px;background:#21262d;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;width:300px"></textarea>
+        </div>
+        <button type="submit">Submit</button>
+    </form>
+
+    @if (Model.IsSubmitted)
+    {
+        if (Model.IsTriggered)
+        {
+            <div class="result fail">Honeypot TRIGGERED — a hidden trap field was filled. This is likely a bot.</div>
+        }
+        else
+        {
+            <div class="result pass">Honeypot clean — no trap fields filled. This looks like a human submission.</div>
+        }
+    }
+</div>
+
+<div class="section">
+    <h2>Server-Side Validation</h2>
+    <div class="info">
+        Add this to your controller or minimal API handler:
+    </div>
+    <pre style="background:#0d1117;padding:14px;border-radius:6px;border:1px solid #30363d;overflow-x:auto;color:#c9d1d9"><code>// In your controller
+[HttpPost]
+public IActionResult Submit()
+{
+    if (HoneypotValidator.IsTriggered(Request))
+        return BadRequest("Bot detected");
+
+    // Process real submission...
+}
+
+// In minimal API
+app.MapPost("/contact", (HttpRequest request) =>
+{
+    if (HoneypotValidator.IsTriggered(request))
+        return Results.BadRequest("Bot detected");
+
+    return Results.Ok("Thanks!");
+});</code></pre>
+</div>

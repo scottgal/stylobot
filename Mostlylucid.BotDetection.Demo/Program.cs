@@ -108,6 +108,7 @@ app.UseAuthorization();
 app.UseStyloBotDashboard();
 
 app.MapControllers();
+app.MapControllerRoute("default", "{controller}/{action=Index}/{id?}"); // MVC conventional routing
 app.MapRazorPages();
 
 // Map SignalR hub for signature streaming

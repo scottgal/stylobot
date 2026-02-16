@@ -1,0 +1,29 @@
+@model Mostlylucid.BotDetection.UI.Models.DetectionDisplayModel
+@{
+    var variant = (string)(ViewBag.Variant ?? "full");
+    var extraClass = (string?)ViewBag.CssClass;
+    var isBot = Model.HasData && Model.IsBot;
+    var riskBand = Model.HasData ? Model.RiskBand : "Unknown";
+    var riskLower = riskBand.ToLowerInvariant();
+    var typeClass = isBot ? "sb-badge--bot" : "sb-badge--human";
+    var label = isBot ? (Model.BotName ?? Model.BotType ?? "Bot") : "Human";
+    var icon = isBot ? "&#x1F916;" : "&#x1F464;";
+
+    var classes = $"sb-badge {typeClass} sb-badge--risk-{riskLower}";
+    if (!string.IsNullOrWhiteSpace(extraClass))
+    {
+        classes += $" {extraClass}";
+    }
+}
+
+<span class="@classes" data-sb-is-bot="@isBot.ToString().ToLowerInvariant()" data-sb-risk="@riskBand">
+    <span class="sb-badge__icon">@Html.Raw(icon)</span>
+    @if (variant is "full" or "compact")
+    {
+        @if (variant == "full")
+        {
+            <span class="sb-badge__label">@label</span>
+        }
+        <span class="sb-badge__risk">@riskBand risk</span>
+    }
+</span>

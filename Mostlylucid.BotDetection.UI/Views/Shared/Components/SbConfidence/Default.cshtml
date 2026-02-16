@@ -1,0 +1,33 @@
+@model Mostlylucid.BotDetection.UI.Models.DetectionDisplayModel
+@{
+    var display = (string)(ViewBag.Display ?? "bar");
+    var width = (string)(ViewBag.Width ?? "120px");
+    var extraClass = (string?)ViewBag.CssClass;
+    var probability = Model.HasData ? Model.BotProbability : 0.0;
+    var pct = (int)Math.Round(probability * 100);
+    var level = pct switch
+    {
+        >= 70 => "high",
+        >= 40 => "medium",
+        _ => "low"
+    };
+
+    var classes = $"sb-confidence sb-confidence--{level}";
+    if (!string.IsNullOrWhiteSpace(extraClass))
+    {
+        classes += $" {extraClass}";
+    }
+}
+
+<span class="@classes" data-sb-probability="@probability.ToString("F2")">
+    @if (display is "bar" or "both")
+    {
+        <span class="sb-confidence__bar" style="width:@width">
+            <span class="sb-confidence__fill" style="width:@(pct)%"></span>
+        </span>
+    }
+    @if (display is "text" or "both")
+    {
+        <span class="sb-confidence__text">@(pct)%</span>
+    }
+</span>

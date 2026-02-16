@@ -286,7 +286,9 @@ public class StyloBotDashboardMiddleware
             if (sigService == null || visitorCache == null)
                 return "null";
 
-            var sigs = sigService.GenerateSignatures(context);
+            // Use pre-computed signature from BotDetectionMiddleware if available
+            var sigs = context.Items["BotDetection.Signatures"] as MultiFactorSignatures
+                       ?? sigService.GenerateSignatures(context);
             var visitor = visitorCache.Get(sigs.PrimarySignature);
 
             if (visitor == null)

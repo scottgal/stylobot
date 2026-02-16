@@ -2,6 +2,8 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
@@ -29,6 +31,7 @@ public static class StyloBotDashboardServiceExtensions
         configure?.Invoke(options);
 
         services.AddSingleton(options);
+        services.AddHttpContextAccessor(); // Needed by sb-* gating TagHelpers
         services.AddSignalR();
 
         // Ensure MVC services are available for Razor view rendering (idempotent)
@@ -71,6 +74,16 @@ public static class StyloBotDashboardServiceExtensions
         var options = app.ApplicationServices.GetRequiredService<StyloBotDashboardOptions>();
 
         if (!options.Enabled) return app;
+
+        // Ensure dashboard path gets signature-only treatment
+        // (signature is computed for "Your Detection" panel, but no detection runs)
+        var botOptions = app.ApplicationServices.GetService<IOptions<BotDetectionOptions>>()?.Value;
+        if (botOptions != null && !botOptions.ExcludedPaths.Any(p =>
+                options.BasePath.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+        {
+            if (!botOptions.SignatureOnlyPaths.Contains(options.BasePath))
+                botOptions.SignatureOnlyPaths.Add(options.BasePath);
+        }
 
         // Broadcast REAL detections to SignalR - must be BEFORE UseEndpoints
         // This runs for ALL requests to capture detection results

@@ -11,6 +11,7 @@ using Mostlylucid.BotDetection.Filters;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Policies;
+using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
@@ -117,6 +118,14 @@ public class BotDetectionMiddleware(
         // Check skip paths from configuration
         if (ShouldSkipPath(context.Request.Path))
         {
+            await _next(context);
+            return;
+        }
+
+        // Signature-only paths: compute signature for cache lookups but skip detection
+        if (IsSignatureOnlyPath(context.Request.Path))
+        {
+            ComputeAndStoreSignature(context);
             await _next(context);
             return;
         }
@@ -532,6 +541,23 @@ public class BotDetectionMiddleware(
                 return true;
 
         return false;
+    }
+
+    private bool IsSignatureOnlyPath(PathString path)
+    {
+        foreach (var sigPath in _options.SignatureOnlyPaths)
+            if (path.StartsWithSegments(sigPath, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
+    }
+
+    private void ComputeAndStoreSignature(HttpContext context)
+    {
+        var sigService = context.RequestServices.GetService<MultiFactorSignatureService>();
+        if (sigService == null) return;
+
+        var sigs = sigService.GenerateSignatures(context);
+        context.Items["BotDetection.Signatures"] = sigs;
     }
 
     /// <summary>

@@ -1,0 +1,200 @@
+@{
+    Layout = "_Layout";
+}
+
+<!-- Data Display -->
+<div class="section">
+    <h2>Data Display TagHelpers</h2>
+    <div class="info">
+        <strong>Live detection data</strong> from the current request, rendered by sb-* TagHelpers.
+    </div>
+
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-badge /&gt;</span>
+        <span class="demo-out"><sb-badge /></span>
+    </div>
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-badge variant="compact" /&gt;</span>
+        <span class="demo-out"><sb-badge variant="compact" /></span>
+    </div>
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-badge variant="icon" /&gt;</span>
+        <span class="demo-out"><sb-badge variant="icon" /></span>
+    </div>
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-risk-pill /&gt;</span>
+        <span class="demo-out"><sb-risk-pill /></span>
+    </div>
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-confidence /&gt;</span>
+        <span class="demo-out"><sb-confidence /></span>
+    </div>
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-confidence display="both" /&gt;</span>
+        <span class="demo-out"><sb-confidence display="both" width="160px" /></span>
+    </div>
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-confidence display="text" /&gt;</span>
+        <span class="demo-out"><sb-confidence display="text" /></span>
+    </div>
+    <div class="demo-row">
+        <span class="demo-label">&lt;sb-summary /&gt;</span>
+        <span class="demo-out"><sb-summary /></span>
+    </div>
+</div>
+
+<!-- Summary Card -->
+<div class="section">
+    <h2>Summary Card</h2>
+    <div class="info">
+        <strong>&lt;sb-summary variant="card" /&gt;</strong> — boxed detection card.
+    </div>
+    <sb-summary variant="card" />
+</div>
+
+<!-- Content Gating -->
+<div class="section">
+    <h2>Content Gating</h2>
+    <div class="info">
+        <strong>Conditional rendering</strong> — content shown or hidden based on detection.
+        In a browser you'll see the human blocks; bot blocks are hidden.
+    </div>
+
+    <h3 style="color:#58a6ff;font-size:1em;margin-bottom:10px">&lt;sb-human&gt;</h3>
+    <div class="gated ok">
+        <sb-human>This is visible to humans only. Welcome!</sb-human>
+    </div>
+
+    <h3 style="color:#58a6ff;font-size:1em;margin:16px 0 10px">&lt;sb-bot&gt;</h3>
+    <div class="gated">
+        <sb-bot>This is visible to bots only.</sb-bot>
+        <span class="muted">(If empty, you're human — bot content is hidden)</span>
+    </div>
+
+    <h3 style="color:#58a6ff;font-size:1em;margin:16px 0 10px">&lt;sb-gate&gt; combos</h3>
+    <div class="gated ok">
+        <sb-gate human-only>
+            <strong>human-only:</strong> You passed the human gate.
+        </sb-gate>
+    </div>
+    <div class="gated">
+        <sb-gate bot-only>
+            <strong>bot-only:</strong> You passed the bot gate.
+        </sb-gate>
+        <span class="muted">(hidden for humans)</span>
+    </div>
+    <div class="gated ok">
+        <sb-gate max-risk="Low">
+            <strong>max-risk="Low":</strong> Low risk or below — visible.
+        </sb-gate>
+    </div>
+    <div class="gated">
+        <sb-gate min-risk="High" fallback="hide">
+            <strong>min-risk="High":</strong> High risk or above — visible.
+        </sb-gate>
+        <span class="muted">(hidden for low-risk visitors)</span>
+    </div>
+
+    <h3 style="color:#58a6ff;font-size:1em;margin:16px 0 10px">&lt;sb-risk&gt;</h3>
+    <div class="gated ok">
+        <sb-risk max="Elevated">
+            <strong>max="Elevated":</strong> Risk is Elevated or below.
+        </sb-risk>
+    </div>
+    <div class="gated">
+        <sb-risk min="High" fallback="hide">
+            <strong>min="High":</strong> Risk is High or above.
+        </sb-risk>
+        <span class="muted">(hidden for low-risk)</span>
+    </div>
+</div>
+
+<!-- Signal Gating -->
+<div class="section">
+    <h2>Signal-Based Gating</h2>
+    <div class="info">
+        <strong>&lt;sb-signal&gt;</strong> — gate content on any detection signal (VPN, country, datacenter, etc.).
+        Uses the blackboard signals from the detection pipeline.
+    </div>
+
+    <h3 style="color:#58a6ff;font-size:1em;margin-bottom:10px">Existence checks</h3>
+    <div class="gated">
+        <sb-signal signal="geo.country_code" condition="exists">
+            <strong>Country detected:</strong> GeoDetection contributor ran and found a country code.
+        </sb-signal>
+        <span class="muted">(visible when geo contributor is registered)</span>
+    </div>
+
+    <h3 style="color:#58a6ff;font-size:1em;margin:16px 0 10px">Boolean signals</h3>
+    <div class="gated">
+        <sb-signal signal="ip.is_datacenter" condition="true">
+            <strong>Datacenter IP:</strong> This request originates from a hosting provider.
+        </sb-signal>
+        <span class="muted">(visible for datacenter IPs only)</span>
+    </div>
+    <div class="gated">
+        <sb-signal signal="geo.is_vpn" condition="true">
+            <strong>VPN detected:</strong> This request is coming through a VPN.
+        </sb-signal>
+        <span class="muted">(visible for VPN users only)</span>
+    </div>
+    <div class="gated">
+        <sb-signal signal="geo.is_vpn,geo.is_tor" condition="any-true">
+            <strong>Anonymised traffic:</strong> Either VPN or Tor detected.
+        </sb-signal>
+        <span class="muted">(visible for VPN or Tor users)</span>
+    </div>
+
+    <h3 style="color:#58a6ff;font-size:1em;margin:16px 0 10px">Value comparisons</h3>
+    <div class="gated">
+        <sb-signal signal="geo.country_code" condition="equals" value="US">
+            <strong>US visitor:</strong> Your country code is US.
+        </sb-signal>
+        <span class="muted">(visible for US visitors only)</span>
+    </div>
+    <div class="gated">
+        <sb-signal signal="ua.is_bot" condition="true" negate>
+            <strong>Not a UA bot:</strong> User-Agent detector did not flag you as a bot.
+        </sb-signal>
+    </div>
+
+    <h3 style="color:#58a6ff;font-size:1em;margin:16px 0 10px">Numeric thresholds</h3>
+    <div class="gated">
+        <sb-signal signal="behavioral.request_count" condition="gte" value="5">
+            <strong>Repeat visitor:</strong> You've made 5+ requests in this session.
+        </sb-signal>
+        <span class="muted">(visible after 5 requests)</span>
+    </div>
+</div>
+
+<!-- Honeypot (link to dedicated page) -->
+<div class="section">
+    <h2>Form Protection</h2>
+    <div class="info">
+        <strong>&lt;sb-honeypot /&gt;</strong> injects hidden trap fields.
+        <a asp-action="Honeypot">Try the full honeypot demo &rarr;</a>
+    </div>
+</div>
+
+<!-- Quick Reference -->
+<div class="section">
+    <h2>Quick Reference</h2>
+    <div class="info">
+        CSS: <code class="hl">&lt;link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/css/sb-components.css" /&gt;</code>
+    </div>
+    <table>
+        <thead><tr><th>Tag</th><th>Purpose</th></tr></thead>
+        <tbody>
+            <tr><td><code class="hl">&lt;sb-gate&gt;</code></td><td>Universal gate (human-only, bot-only, risk range, bot-type, verified-only, negate)</td></tr>
+            <tr><td><code class="hl">&lt;sb-human&gt;</code></td><td>Human-only content (fail-open)</td></tr>
+            <tr><td><code class="hl">&lt;sb-bot&gt;</code></td><td>Bot-only content (fail-closed)</td></tr>
+            <tr><td><code class="hl">&lt;sb-risk&gt;</code></td><td>Risk band gate (band, min, max)</td></tr>
+            <tr><td><code class="hl">&lt;sb-badge /&gt;</code></td><td>Inline badge (full, compact, icon)</td></tr>
+            <tr><td><code class="hl">&lt;sb-confidence /&gt;</code></td><td>Bot probability meter (bar, text, both)</td></tr>
+            <tr><td><code class="hl">&lt;sb-risk-pill /&gt;</code></td><td>Colored risk band pill</td></tr>
+            <tr><td><code class="hl">&lt;sb-summary /&gt;</code></td><td>Detection summary (inline or card)</td></tr>
+            <tr><td><code class="hl">&lt;sb-signal&gt;</code></td><td>Signal gate (exists, equals, true/false, gt/lt, any-true, contains)</td></tr>
+            <tr><td><code class="hl">&lt;sb-honeypot /&gt;</code></td><td>Hidden form trap fields</td></tr>
+        </tbody>
+    </table>
+</div>

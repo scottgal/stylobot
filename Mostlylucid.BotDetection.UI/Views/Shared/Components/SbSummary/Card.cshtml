@@ -1,0 +1,47 @@
+@model Mostlylucid.BotDetection.UI.Models.DetectionDisplayModel
+@{
+    var extraClass = (string?)ViewBag.CssClass;
+    var isBot = Model.HasData && Model.IsBot;
+    var label = Model.HasData ? (isBot ? (Model.BotName ?? Model.BotType ?? "Bot") : "Human") : "Unknown";
+    var pct = Model.HasData ? (int)Math.Round(Model.BotProbability * 100) : 0;
+    var risk = Model.HasData ? Model.RiskBand : "Unknown";
+    var riskLower = risk.ToLowerInvariant();
+    var timeMs = Model.HasData ? Model.ProcessingTimeMs.ToString("F1") : "—";
+    var icon = isBot ? "&#x1F916;" : "&#x1F464;";
+    var typeClass = isBot ? "sb-summary-card--bot" : "sb-summary-card--human";
+
+    var classes = $"sb-summary-card {typeClass}";
+    if (!string.IsNullOrWhiteSpace(extraClass))
+    {
+        classes += $" {extraClass}";
+    }
+}
+
+<div class="@classes">
+    <div class="sb-summary-card__header">
+        <span class="sb-summary-card__icon">@Html.Raw(icon)</span>
+        <span class="sb-summary-card__label">@label</span>
+        <span class="sb-risk-pill sb-risk-pill--@riskLower" data-sb-risk="@risk">@risk</span>
+    </div>
+    <div class="sb-summary-card__stats">
+        <div class="sb-summary-card__stat">
+            <span class="sb-summary-card__stat-label">Bot probability</span>
+            <span class="sb-summary-card__stat-value">@(pct)%</span>
+        </div>
+        <div class="sb-summary-card__stat">
+            <span class="sb-summary-card__stat-label">Confidence</span>
+            <span class="sb-summary-card__stat-value">@((Model.HasData ? (int)Math.Round(Model.Confidence * 100) : 0))%</span>
+        </div>
+        <div class="sb-summary-card__stat">
+            <span class="sb-summary-card__stat-label">Processing</span>
+            <span class="sb-summary-card__stat-value">@(timeMs)ms</span>
+        </div>
+        @if (Model.HasData && !string.IsNullOrEmpty(Model.PolicyName))
+        {
+            <div class="sb-summary-card__stat">
+                <span class="sb-summary-card__stat-label">Policy</span>
+                <span class="sb-summary-card__stat-value">@Model.PolicyName</span>
+            </div>
+        }
+    </div>
+</div>

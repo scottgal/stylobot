@@ -1,0 +1,62 @@
+@{
+    Layout = "_Layout";
+}
+
+<div class="section">
+    <h2>&lt;sb-human&gt; — Human-only content</h2>
+    <div class="info">
+        <strong>Default fallback: show</strong> — content is visible even when detection hasn't run (fail-open).
+    </div>
+    <div class="gated ok">
+        <sb-human>You are a human visitor. This content is hidden from bots.</sb-human>
+    </div>
+    <div class="gated">
+        <sb-human fallback="hide">Same gate with <code class="hl">fallback="hide"</code> — hidden when detection hasn't run.</sb-human>
+    </div>
+</div>
+
+<div class="section">
+    <h2>&lt;sb-bot&gt; — Bot-only content</h2>
+    <div class="info">
+        <strong>Default fallback: hide</strong> — content is hidden when detection hasn't run (fail-closed).
+    </div>
+    <div class="gated">
+        <sb-bot>You are a bot. Here is structured data for you.</sb-bot>
+        <span class="muted">(Empty? You're human.)</span>
+    </div>
+    <div class="gated">
+        <sb-bot fallback="show">Same gate with <code class="hl">fallback="show"</code> — visible when detection hasn't run.</sb-bot>
+    </div>
+</div>
+
+<div class="section">
+    <h2>&lt;sb-gate&gt; — Universal gate</h2>
+    <div class="info">
+        <strong>All conditions AND together.</strong> Combine human-only, bot-only, risk ranges, bot types, and negate.
+    </div>
+
+    <h3 style="color:#58a6ff;font-size:1em;margin-bottom:8px">Basic gates</h3>
+    <div class="gated ok"><sb-gate human-only>human-only gate: passed</sb-gate></div>
+    <div class="gated"><sb-gate bot-only>bot-only gate: passed</sb-gate> <span class="muted">(hidden for humans)</span></div>
+    <div class="gated ok"><sb-gate human-only negate>negated human-only: shows for bots</sb-gate> <span class="muted">(hidden for humans)</span></div>
+
+    <h3 style="color:#58a6ff;font-size:1em;margin:16px 0 8px">Risk range gates</h3>
+    <div class="gated ok"><sb-gate max-risk="Low">max-risk="Low": visible</sb-gate></div>
+    <div class="gated"><sb-gate min-risk="Medium">min-risk="Medium": visible</sb-gate> <span class="muted">(depends on your risk)</span></div>
+    <div class="gated"><sb-gate min-risk="High" fallback="hide">min-risk="High" fallback="hide": visible for high risk only</sb-gate> <span class="muted">(hidden)</span></div>
+
+    <h3 style="color:#58a6ff;font-size:1em;margin:16px 0 8px">Bot type filtering</h3>
+    <div class="gated"><sb-gate bot-type="SearchEngine">bot-type="SearchEngine": for search engine bots</sb-gate> <span class="muted">(hidden unless Googlebot etc.)</span></div>
+    <div class="gated"><sb-gate bot-type="SearchEngine" verified-only>bot-type="SearchEngine" verified-only: verified search bots only</sb-gate> <span class="muted">(hidden)</span></div>
+</div>
+
+<div class="section">
+    <h2>&lt;sb-risk&gt; — Risk band gate</h2>
+    <div class="info">
+        Gate content by exact risk band or range.
+    </div>
+    <div class="gated ok"><sb-risk band="VeryLow">band="VeryLow": exact match</sb-risk> <span class="muted">(visible if your risk is VeryLow)</span></div>
+    <div class="gated ok"><sb-risk max="Elevated">max="Elevated": up to Elevated</sb-risk></div>
+    <div class="gated"><sb-risk min="High" fallback="hide">min="High": High and above</sb-risk> <span class="muted">(hidden for low-risk)</span></div>
+    <div class="gated"><sb-risk band="Verified">band="Verified": verified bots only</sb-risk> <span class="muted">(hidden unless verified bot)</span></div>
+</div>

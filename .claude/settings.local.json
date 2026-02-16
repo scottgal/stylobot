@@ -189,7 +189,14 @@
       "Bash(# Let''s check the server log for the Googlebot request # First rebuild with the fix cd /d/Source/mostlylucid.stylobot && taskkill //F //IM \"\"Mostlylucid.BotDetection.MinimalDemo.exe\"\" sleep 1 dotnet build Mostlylucid.BotDetection.MinimalDemo/Mostlylucid.BotDetection.MinimalDemo.csproj -v q 2>&1)",
       "mcp__plugin_playwright_playwright__browser_install",
       "Bash(# Test 1: Homepage returns 200 with bot detection headers echo \"\"=== Test 1: Homepage ===\"\" curl -sk https://localhost:5099/ -o /dev/null -w \"\"Status: %{http_code}\\\\n\"\" -D -)",
-      "Bash(npx playwright:*)"
+      "Bash(npx playwright:*)",
+      "Bash(claude plugin install:*)",
+      "Bash(claude plugins install:*)",
+      "Bash(npm install:*)",
+      "Bash(pip install:*)",
+      "Bash(claude plugin:*)",
+      "Bash(claude plugins:*)",
+      "Bash(claude install:*)"
     ]
   }
 }

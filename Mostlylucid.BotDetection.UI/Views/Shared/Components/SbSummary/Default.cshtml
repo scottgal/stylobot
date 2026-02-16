@@ -1,0 +1,24 @@
+@model Mostlylucid.BotDetection.UI.Models.DetectionDisplayModel
+@{
+    var extraClass = (string?)ViewBag.CssClass;
+    var label = Model.HasData ? (Model.IsBot ? (Model.BotName ?? Model.BotType ?? "Bot") : "Human") : "Unknown";
+    var pct = Model.HasData ? (int)Math.Round(Model.BotProbability * 100) : 0;
+    var risk = Model.HasData ? Model.RiskBand : "Unknown";
+    var timeMs = Model.HasData ? Model.ProcessingTimeMs.ToString("F1") : "—";
+
+    var classes = "sb-summary";
+    if (!string.IsNullOrWhiteSpace(extraClass))
+    {
+        classes += $" {extraClass}";
+    }
+}
+
+<span class="@classes">
+    <span class="sb-summary__label">@label</span>
+    <span class="sb-summary__sep">&middot;</span>
+    <span class="sb-summary__probability">@(pct)% bot probability</span>
+    <span class="sb-summary__sep">&middot;</span>
+    <span class="sb-summary__risk">@risk risk</span>
+    <span class="sb-summary__sep">&middot;</span>
+    <span class="sb-summary__time">@(timeMs)ms</span>
+</span>

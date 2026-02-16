@@ -1,0 +1,276 @@
+/* StyloBot Component Styles — BEM + CSS Custom Properties
+   Theme-aware: adapts to light/dark via prefers-color-scheme.
+   Override with .sb-dark or .sb-light on any ancestor. */
+
+/* =============================================
+   Theme tokens (light by default)
+   ============================================= */
+
+:root {
+    --sb-color-human: #22c55e;
+    --sb-color-bot: #ef4444;
+    --sb-color-unknown: #94a3b8;
+
+    --sb-color-risk-unknown: #94a3b8;
+    --sb-color-risk-verylow: #22c55e;
+    --sb-color-risk-low: #4ade80;
+    --sb-color-risk-elevated: #facc15;
+    --sb-color-risk-medium: #f97316;
+    --sb-color-risk-high: #ef4444;
+    --sb-color-risk-veryhigh: #dc2626;
+    --sb-color-risk-verified: #3b82f6;
+
+    --sb-font-size: 0.875rem;
+    --sb-font-family: system-ui, -apple-system, sans-serif;
+    --sb-border-radius: 4px;
+    --sb-pill-border-radius: 9999px;
+
+    /* Surface / text tokens — light theme */
+    --sb-surface: #f8fafc;
+    --sb-surface-alt: #fff;
+    --sb-border: #e2e8f0;
+    --sb-text: #1e293b;
+    --sb-text-muted: #475569;
+    --sb-text-faint: #94a3b8;
+    --sb-bar-track: #e2e8f0;
+    --sb-badge-mix-base: white;
+}
+
+/* Dark theme — auto via media query */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --sb-surface: #1e293b;
+        --sb-surface-alt: #0f172a;
+        --sb-border: #334155;
+        --sb-text: #e2e8f0;
+        --sb-text-muted: #94a3b8;
+        --sb-text-faint: #64748b;
+        --sb-bar-track: #334155;
+        --sb-badge-mix-base: #0f172a;
+    }
+}
+
+/* Explicit dark override class */
+.sb-dark {
+    --sb-surface: #1e293b;
+    --sb-surface-alt: #0f172a;
+    --sb-border: #334155;
+    --sb-text: #e2e8f0;
+    --sb-text-muted: #94a3b8;
+    --sb-text-faint: #64748b;
+    --sb-bar-track: #334155;
+    --sb-badge-mix-base: #0f172a;
+}
+
+/* Explicit light override class */
+.sb-light {
+    --sb-surface: #f8fafc;
+    --sb-surface-alt: #fff;
+    --sb-border: #e2e8f0;
+    --sb-text: #1e293b;
+    --sb-text-muted: #475569;
+    --sb-text-faint: #94a3b8;
+    --sb-bar-track: #e2e8f0;
+    --sb-badge-mix-base: white;
+}
+
+/* =============================================
+   Badge
+   ============================================= */
+
+.sb-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35em;
+    font-family: var(--sb-font-family);
+    font-size: var(--sb-font-size);
+    line-height: 1;
+    padding: 0.25em 0.5em;
+    border-radius: var(--sb-border-radius);
+    background: var(--sb-surface);
+    border: 1px solid var(--sb-border);
+    color: var(--sb-text);
+}
+
+.sb-badge--human { border-color: var(--sb-color-human); }
+.sb-badge--bot   { border-color: var(--sb-color-bot); }
+
+.sb-badge--risk-unknown   { background: color-mix(in srgb, var(--sb-color-risk-unknown) 10%, var(--sb-badge-mix-base)); }
+.sb-badge--risk-verylow   { background: color-mix(in srgb, var(--sb-color-risk-verylow) 10%, var(--sb-badge-mix-base)); }
+.sb-badge--risk-low       { background: color-mix(in srgb, var(--sb-color-risk-low) 10%, var(--sb-badge-mix-base)); }
+.sb-badge--risk-elevated  { background: color-mix(in srgb, var(--sb-color-risk-elevated) 10%, var(--sb-badge-mix-base)); }
+.sb-badge--risk-medium    { background: color-mix(in srgb, var(--sb-color-risk-medium) 10%, var(--sb-badge-mix-base)); }
+.sb-badge--risk-high      { background: color-mix(in srgb, var(--sb-color-risk-high) 10%, var(--sb-badge-mix-base)); }
+.sb-badge--risk-veryhigh  { background: color-mix(in srgb, var(--sb-color-risk-veryhigh) 10%, var(--sb-badge-mix-base)); }
+
+.sb-badge__icon {
+    font-size: 1.1em;
+}
+
+.sb-badge__label {
+    font-weight: 600;
+}
+
+.sb-badge__risk {
+    opacity: 0.7;
+    font-size: 0.85em;
+}
+
+/* =============================================
+   Confidence Meter
+   ============================================= */
+
+.sb-confidence {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    font-family: var(--sb-font-family);
+    font-size: var(--sb-font-size);
+    color: var(--sb-text);
+}
+
+.sb-confidence__bar {
+    display: inline-block;
+    height: 8px;
+    background: var(--sb-bar-track);
+    border-radius: var(--sb-pill-border-radius);
+    overflow: hidden;
+}
+
+.sb-confidence__fill {
+    display: block;
+    height: 100%;
+    border-radius: var(--sb-pill-border-radius);
+    transition: width 0.3s ease;
+}
+
+.sb-confidence--low .sb-confidence__fill   { background: var(--sb-color-human); }
+.sb-confidence--medium .sb-confidence__fill { background: var(--sb-color-risk-medium); }
+.sb-confidence--high .sb-confidence__fill   { background: var(--sb-color-bot); }
+
+.sb-confidence__text {
+    font-weight: 600;
+    min-width: 2.5em;
+    text-align: right;
+}
+
+.sb-confidence--low .sb-confidence__text   { color: var(--sb-color-human); }
+.sb-confidence--medium .sb-confidence__text { color: var(--sb-color-risk-medium); }
+.sb-confidence--high .sb-confidence__text   { color: var(--sb-color-bot); }
+
+/* =============================================
+   Risk Pill
+   ============================================= */
+
+.sb-risk-pill {
+    display: inline-block;
+    font-family: var(--sb-font-family);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    padding: 0.25em 0.6em;
+    border-radius: var(--sb-pill-border-radius);
+    color: #fff;
+    text-transform: capitalize;
+}
+
+.sb-risk-pill--unknown   { background: var(--sb-color-risk-unknown); }
+.sb-risk-pill--verylow   { background: var(--sb-color-risk-verylow); }
+.sb-risk-pill--low       { background: var(--sb-color-risk-low); color: #1a2e05; }
+.sb-risk-pill--elevated  { background: var(--sb-color-risk-elevated); color: #422006; }
+.sb-risk-pill--medium    { background: var(--sb-color-risk-medium); }
+.sb-risk-pill--high      { background: var(--sb-color-risk-high); }
+.sb-risk-pill--veryhigh  { background: var(--sb-color-risk-veryhigh); }
+.sb-risk-pill--verified  { background: var(--sb-color-risk-verified); }
+
+/* =============================================
+   Summary (Inline)
+   ============================================= */
+
+.sb-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4em;
+    font-family: var(--sb-font-family);
+    font-size: var(--sb-font-size);
+    color: var(--sb-text-muted);
+}
+
+.sb-summary__label {
+    font-weight: 600;
+    color: var(--sb-text);
+}
+
+.sb-summary__sep {
+    opacity: 0.4;
+}
+
+/* =============================================
+   Summary Card
+   ============================================= */
+
+.sb-summary-card {
+    font-family: var(--sb-font-family);
+    font-size: var(--sb-font-size);
+    border: 1px solid var(--sb-border);
+    border-radius: 8px;
+    padding: 1em;
+    background: var(--sb-surface-alt);
+    color: var(--sb-text);
+    max-width: 320px;
+}
+
+.sb-summary-card--human { border-left: 3px solid var(--sb-color-human); }
+.sb-summary-card--bot   { border-left: 3px solid var(--sb-color-bot); }
+
+.sb-summary-card__header {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    margin-bottom: 0.75em;
+}
+
+.sb-summary-card__icon {
+    font-size: 1.25em;
+}
+
+.sb-summary-card__label {
+    font-weight: 700;
+    flex: 1;
+}
+
+.sb-summary-card__stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5em;
+}
+
+.sb-summary-card__stat {
+    display: flex;
+    flex-direction: column;
+}
+
+.sb-summary-card__stat-label {
+    font-size: 0.75rem;
+    color: var(--sb-text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.sb-summary-card__stat-value {
+    font-weight: 600;
+    color: var(--sb-text);
+}
+
+/* =============================================
+   Honeypot (offscreen trap)
+   ============================================= */
+
+.sb-honeypot {
+    position: absolute;
+    left: -9999px;
+    top: -9999px;
+    height: 0;
+    width: 0;
+    overflow: hidden;
+}
