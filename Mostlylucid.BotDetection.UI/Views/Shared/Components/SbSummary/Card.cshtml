@@ -7,7 +7,7 @@
     var risk = Model.HasData ? Model.RiskBand : "Unknown";
     var riskLower = risk.ToLowerInvariant();
     var timeMs = Model.HasData ? Model.ProcessingTimeMs.ToString("F1") : "—";
-    var icon = isBot ? "&#x1F916;" : "&#x1F464;";
+    var icon = isBot ? "\U0001F916" : "\U0001F464";
     var typeClass = isBot ? "sb-summary-card--bot" : "sb-summary-card--human";
 
     var classes = $"sb-summary-card {typeClass}";
@@ -19,7 +19,7 @@
 
 <div class="@classes">
     <div class="sb-summary-card__header">
-        <span class="sb-summary-card__icon">@Html.Raw(icon)</span>
+        <span class="sb-summary-card__icon">@icon</span>
         <span class="sb-summary-card__label">@label</span>
         <span class="sb-risk-pill sb-risk-pill--@riskLower" data-sb-risk="@risk">@risk</span>
     </div>

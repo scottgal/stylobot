@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Collections.Immutable;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
@@ -59,13 +58,12 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         CancellationToken cancellationToken = default)
     {
         var contributions = new List<DetectionContribution>();
-        var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
         try
         {
             // Get or create signature for this client
             var signature = GetClientSignature(state);
-            signals.Add(SignalKeys.WaveformSignature, signature);
+            state.WriteSignal(SignalKeys.WaveformSignature, signature);
 
             // Lock per-signature to prevent concurrent List<T> mutation
             var signatureLock = _signatureLocks.GetOrAdd(signature, _ => new object());
@@ -89,31 +87,31 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 history.Add(currentRequest);
 
                 // Analyze timing patterns
-                AnalyzeTimingPatterns(history, contributions, signals);
+                AnalyzeTimingPatterns(state, history, contributions);
 
                 // Analyze path traversal patterns
-                AnalyzePathPatterns(history, contributions, signals);
+                AnalyzePathPatterns(state, history, contributions);
 
                 // Analyze request transitions (Markov chain content class analysis)
-                AnalyzeRequestTransitions(history, contributions, signals);
+                AnalyzeRequestTransitions(state, history, contributions);
 
                 // Analyze request rate and bursts (content-class-aware)
-                AnalyzeRequestRate(history, contributions, signals);
+                AnalyzeRequestRate(state, history, contributions);
 
                 // Analyze session behavior
-                AnalyzeSessionBehavior(state, history, contributions, signals);
+                AnalyzeSessionBehavior(state, history, contributions);
 
                 // Update cache with new history
                 UpdateHistory(signature, history);
             }
 
             // Analyze mouse/keyboard interaction signals (if available from client-side - no history needed)
-            AnalyzeInteractionPatterns(state, contributions, signals);
+            AnalyzeInteractionPatterns(state, contributions);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error in behavioral waveform analysis");
-            signals.Add("waveform.analysis_error", ex.Message);
+            state.WriteSignal("waveform.analysis_error", ex.Message);
         }
 
         // Always add at least one contribution
@@ -125,22 +123,14 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Category = "Waveform",
                 ConfidenceDelta = 0.0,
                 Weight = 1.0,
-                Reason = "Behavioral waveform analysis complete (insufficient history)",
-                Signals = signals.ToImmutable()
+                Reason = "Behavioral waveform analysis complete (insufficient history)"
             });
-        }
-        else
-        {
-            // Ensure last contribution has all signals
-            var last = contributions[^1];
-            contributions[^1] = last with { Signals = signals.ToImmutable() };
         }
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }
 
-    private void AnalyzeTimingPatterns(List<RequestSnapshot> history, List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+    private void AnalyzeTimingPatterns(BlackboardState state, List<RequestSnapshot> history, List<DetectionContribution> contributions)
     {
         if (history.Count < 3) return; // Need at least 3 requests for timing analysis
 
@@ -159,12 +149,13 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         var variance = intervals.Sum(x => Math.Pow(x - mean, 2)) / intervals.Count;
         var stdDev = Math.Sqrt(variance);
 
-        signals.Add("waveform.interval_mean", mean);
-        signals.Add("waveform.interval_stddev", stdDev);
-
         // Coefficient of variation (CV = stddev / mean)
         var cv = mean > 0 ? stdDev / mean : 0;
-        signals.Add(SignalKeys.WaveformTimingRegularity, cv);
+        state.WriteSignals([
+            new("waveform.interval_mean", mean),
+            new("waveform.interval_stddev", stdDev),
+            new(SignalKeys.WaveformTimingRegularity, cv)
+        ]);
 
         // Very low CV = too regular = likely bot
         if (cv < 0.15 && intervals.Count >= 5)
@@ -181,16 +172,17 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Category = "Waveform",
                 ConfidenceDelta = -0.15,
                 Weight = 1.3,
-                Reason = "Request timing shows natural human variation",
-                Signals = signals.ToImmutable()
+                Reason = "Request timing shows natural human variation"
             });
 
         // Check for burst patterns (many requests in short time)
         var recentRequests = history.Where(r => r.Timestamp > DateTimeOffset.UtcNow.AddSeconds(-10)).Count();
         if (recentRequests >= 10)
         {
-            signals.Add(SignalKeys.WaveformBurstDetected, true);
-            signals.Add("waveform.burst_size", recentRequests);
+            state.WriteSignals([
+                new(SignalKeys.WaveformBurstDetected, true),
+                new("waveform.burst_size", recentRequests)
+            ]);
 
             contributions.Add(DetectionContribution.Bot(
                 Name, "Waveform", 0.65,
@@ -200,8 +192,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         }
     }
 
-    private void AnalyzePathPatterns(List<RequestSnapshot> history, List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+    private void AnalyzePathPatterns(BlackboardState state, List<RequestSnapshot> history, List<DetectionContribution> contributions)
     {
         if (history.Count < 5) return;
 
@@ -210,7 +201,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         // Calculate path diversity
         var uniquePaths = recentPaths.Distinct().Count();
         var pathDiversity = (double)uniquePaths / recentPaths.Count;
-        signals.Add(SignalKeys.WaveformPathDiversity, pathDiversity);
+        state.WriteSignal(SignalKeys.WaveformPathDiversity, pathDiversity);
 
         // Very low diversity = scanning/crawling same paths
         if (pathDiversity < 0.3 && recentPaths.Count >= 10)
@@ -220,15 +211,14 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Category = "Waveform",
                 ConfidenceDelta = 0.3,
                 Weight = 1.2,
-                Reason = $"Only visiting {uniquePaths} unique pages out of {recentPaths.Count} requests (possible automated scanning)",
-                Signals = signals.ToImmutable()
+                Reason = $"Only visiting {uniquePaths} unique pages out of {recentPaths.Count} requests (possible automated scanning)"
             });
 
         // Detect sequential/systematic path traversal (e.g., /page/1, /page/2, /page/3)
         var sequentialPattern = DetectSequentialPattern(recentPaths);
         if (sequentialPattern)
         {
-            signals.Add("waveform.sequential_pattern", true);
+            state.WriteSignal("waveform.sequential_pattern", true);
 
             contributions.Add(DetectionContribution.Bot(
                 Name, "Waveform", 0.6,
@@ -239,7 +229,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
 
         // Depth-first vs breadth-first traversal analysis
         var traversalPattern = AnalyzeTraversalPattern(recentPaths);
-        signals.Add("waveform.traversal_pattern", traversalPattern);
+        state.WriteSignal("waveform.traversal_pattern", traversalPattern);
 
         if (traversalPattern == "depth-first-strict")
             // Bots often do strict depth-first (go deep, then backtrack)
@@ -249,13 +239,11 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Category = "Waveform",
                 ConfidenceDelta = 0.25,
                 Weight = 1.1,
-                Reason = "Strict depth-first traversal (common for crawlers)",
-                Signals = signals.ToImmutable()
+                Reason = "Strict depth-first traversal (common for crawlers)"
             });
     }
 
-    private void AnalyzeRequestRate(List<RequestSnapshot> history, List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+    private void AnalyzeRequestRate(BlackboardState state, List<RequestSnapshot> history, List<DetectionContribution> contributions)
     {
         if (history.Count < 2) return;
 
@@ -263,7 +251,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         if (timeSpan <= 0) return;
 
         var totalRate = history.Count / timeSpan; // total requests per minute
-        signals.Add("waveform.request_rate", totalRate);
+        state.WriteSignal("waveform.request_rate", totalRate);
 
         // Calculate page-only rate (content-class aware for HTTP/2+)
         // HTTP/2+ multiplexes many asset requests per page load - that's normal.
@@ -272,7 +260,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         var assetRequests = history.Count(r => r.ContentClass == ContentClass.Asset);
         var pageRate = timeSpan > 0 ? pageRequests / timeSpan : 0;
 
-        signals.Add("waveform.page_rate", pageRate);
+        state.WriteSignal("waveform.page_rate", pageRate);
 
         // Determine effective rate: if significant asset traffic exists, use page-only rate
         // (HTTP/2+ browsers load 5-15 assets per page navigation)
@@ -294,8 +282,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Category = "Waveform",
                 ConfidenceDelta = 0.3,
                 Weight = 1.3,
-                Reason = $"Elevated request rate: {effectiveRate:F0} page requests per minute",
-                Signals = signals.ToImmutable()
+                Reason = $"Elevated request rate: {effectiveRate:F0} page requests per minute"
             });
         // High total rate but normal page rate = probably HTTP/2 multiplexing (human-like)
         else if (totalRate > 30 && hasAssetTraffic && pageRate <= 10)
@@ -310,11 +297,11 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
     }
 
     private void AnalyzeSessionBehavior(BlackboardState state, List<RequestSnapshot> history,
-        List<DetectionContribution> contributions, ImmutableDictionary<string, object>.Builder signals)
+        List<DetectionContribution> contributions)
     {
         // Check if User-Agent changes across requests (suspicious)
         var userAgents = history.Select(r => r.UserAgent).Distinct().Count();
-        signals.Add("waveform.user_agent_changes", userAgents);
+        state.WriteSignal("waveform.user_agent_changes", userAgents);
 
         if (userAgents > 1 && history.Count >= 5)
             contributions.Add(DetectionContribution.Bot(
@@ -327,7 +314,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         if (history.Count >= 2)
         {
             var sessionDuration = (history[^1].Timestamp - history[0].Timestamp).TotalMinutes;
-            signals.Add("waveform.session_duration_minutes", sessionDuration);
+            state.WriteSignal("waveform.session_duration_minutes", sessionDuration);
 
             // Very short session with many requests = bot
             if (sessionDuration < 1 && history.Count >= 10)
@@ -339,8 +326,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         }
     }
 
-    private void AnalyzeInteractionPatterns(BlackboardState state, List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+    private void AnalyzeInteractionPatterns(BlackboardState state, List<DetectionContribution> contributions)
     {
         // Check for client-side interaction signals (mouse movement, keyboard events)
         // These would be sent from JavaScript tracking
@@ -348,7 +334,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         if (state.Signals.TryGetValue(SignalKeys.ClientMouseEvents, out var mouseEvents) &&
             mouseEvents is int mouseCount)
         {
-            signals.Add("waveform.mouse_events", mouseCount);
+            state.WriteSignal("waveform.mouse_events", mouseCount);
 
             if (mouseCount == 0)
                 contributions.Add(new DetectionContribution
@@ -357,14 +343,13 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                     Category = "Waveform",
                     ConfidenceDelta = 0.4,
                     Weight = 1.5,
-                    Reason = "No mouse movement detected (headless browser indicator)",
-                    Signals = signals.ToImmutable()
+                    Reason = "No mouse movement detected (headless browser indicator)"
                 });
         }
 
         if (state.Signals.TryGetValue(SignalKeys.ClientKeyboardEvents, out var keyboardEvents) &&
             keyboardEvents is int keyCount)
-            signals.Add("waveform.keyboard_events", keyCount);
+            state.WriteSignal("waveform.keyboard_events", keyCount);
     }
 
     private string GetClientSignature(BlackboardState state)
@@ -500,8 +485,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
     ///     Scrapers: Page → Page (high), missing Page → Asset transitions.
     ///     API bots: Api → Api (high), no Page requests.
     /// </summary>
-    private void AnalyzeRequestTransitions(List<RequestSnapshot> history, List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+    private void AnalyzeRequestTransitions(BlackboardState state, List<RequestSnapshot> history, List<DetectionContribution> contributions)
     {
         if (history.Count < 5) return;
 
@@ -512,9 +496,11 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         var apiCt = classes.Count(c => c == ContentClass.Api);
         var total = classes.Count;
 
-        signals.Add("waveform.page_requests", pageCt);
-        signals.Add("waveform.asset_requests", assetCt);
-        signals.Add("waveform.api_requests", apiCt);
+        state.WriteSignals([
+            new("waveform.page_requests", pageCt),
+            new("waveform.asset_requests", assetCt),
+            new("waveform.api_requests", apiCt)
+        ]);
 
         // Build transition matrix (3x3: Page, Asset, Api)
         var transitions = new int[3, 3];
@@ -536,8 +522,10 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
             var pageToPage = (double)transitions[(int)ContentClass.Page, (int)ContentClass.Page]
                              / fromCounts[(int)ContentClass.Page];
 
-            signals.Add("waveform.transition_page_to_asset", pageToAsset);
-            signals.Add("waveform.transition_page_to_page", pageToPage);
+            state.WriteSignals([
+                new("waveform.transition_page_to_asset", pageToAsset),
+                new("waveform.transition_page_to_page", pageToPage)
+            ]);
 
             // High Page→Page ratio = scraper (doesn't load assets, just fetches HTML pages)
             if (pageToPage > 0.7 && pageCt >= 5)
@@ -574,7 +562,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         if (total > 0)
         {
             var assetRatio = (double)assetCt / total;
-            signals.Add("waveform.asset_ratio", assetRatio);
+            state.WriteSignal("waveform.asset_ratio", assetRatio);
         }
     }
 

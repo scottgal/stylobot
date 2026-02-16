@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
@@ -125,7 +124,6 @@ public class AiScraperContributor : ConfiguredContributorBase
         CancellationToken cancellationToken = default)
     {
         var contributions = new List<DetectionContribution>();
-        var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
         try
         {
@@ -140,10 +138,12 @@ public class AiScraperContributor : ConfiguredContributorBase
                 {
                     if (userAgent.Contains(bot.Pattern, StringComparison.OrdinalIgnoreCase))
                     {
-                        signals.Add(SignalKeys.AiScraperDetected, true);
-                        signals.Add(SignalKeys.AiScraperName, bot.BotName);
-                        signals.Add(SignalKeys.AiScraperOperator, bot.Operator);
-                        signals.Add(SignalKeys.AiScraperCategory, bot.Category.ToString());
+                        state.WriteSignals([
+                            new(SignalKeys.AiScraperDetected, true),
+                            new(SignalKeys.AiScraperName, bot.BotName),
+                            new(SignalKeys.AiScraperOperator, bot.Operator),
+                            new(SignalKeys.AiScraperCategory, bot.Category.ToString())
+                        ]);
                         foundBot = true;
 
                         var botType = bot.Category == AiBotCategory.Training
@@ -167,7 +167,7 @@ public class AiScraperContributor : ConfiguredContributorBase
             var acceptHeader = request.Headers.Accept.ToString();
             if (acceptHeader.Contains("text/markdown", StringComparison.OrdinalIgnoreCase))
             {
-                signals.Add("aiscraper.accept_markdown", true);
+                state.WriteSignal("aiscraper.accept_markdown", true);
 
                 if (!foundBot)
                 {
@@ -187,14 +187,14 @@ public class AiScraperContributor : ConfiguredContributorBase
                 if (header.Key.StartsWith("cf-aig-", StringComparison.OrdinalIgnoreCase))
                 {
                     hasAigHeaders = true;
-                    signals.Add("aiscraper.cf_aig_header", header.Key);
+                    state.WriteSignal("aiscraper.cf_aig_header", header.Key);
                     break;
                 }
             }
 
             if (hasAigHeaders)
             {
-                signals.Add("aiscraper.cloudflare_ai_gateway", true);
+                state.WriteSignal("aiscraper.cloudflare_ai_gateway", true);
 
                 if (!foundBot)
                 {
@@ -214,11 +214,11 @@ public class AiScraperContributor : ConfiguredContributorBase
             {
                 var signatureInput = request.Headers["Signature-Input"].ToString();
                 var signatureAgent = request.Headers["Signature-Agent"].ToString();
-                signals.Add("aiscraper.web_bot_auth", true);
-                signals.Add("aiscraper.signature_agent", signatureAgent);
+                state.WriteSignal("aiscraper.web_bot_auth", true);
+                state.WriteSignal("aiscraper.signature_agent", signatureAgent);
 
                 var isWebBotAuth = signatureInput.Contains("web-bot-auth", StringComparison.OrdinalIgnoreCase);
-                signals.Add("aiscraper.web_bot_auth_verified", isWebBotAuth);
+                state.WriteSignal("aiscraper.web_bot_auth_verified", isWebBotAuth);
 
                 if (isWebBotAuth)
                 {
@@ -237,7 +237,7 @@ public class AiScraperContributor : ConfiguredContributorBase
                 request.Headers.ContainsKey("cf-biso-devtools") ||
                 request.Headers.ContainsKey("cf-brapi-devtools"))
             {
-                signals.Add("aiscraper.cloudflare_browser_rendering", true);
+                state.WriteSignal("aiscraper.cloudflare_browser_rendering", true);
 
                 if (!foundBot)
                 {
@@ -254,7 +254,7 @@ public class AiScraperContributor : ConfiguredContributorBase
             var path = request.Path.Value ?? "/";
             if (AiDiscoveryPaths.Contains(path))
             {
-                signals.Add("aiscraper.ai_discovery_path", path);
+                state.WriteSignal("aiscraper.ai_discovery_path", path);
 
                 if (!foundBot)
                 {
@@ -271,7 +271,7 @@ public class AiScraperContributor : ConfiguredContributorBase
             if (request.Headers.ContainsKey("x-respond-with"))
             {
                 var respondWith = request.Headers["x-respond-with"].ToString();
-                signals.Add("aiscraper.jina_respond_with", respondWith);
+                state.WriteSignal("aiscraper.jina_respond_with", respondWith);
 
                 if (!foundBot)
                 {
@@ -288,27 +288,22 @@ public class AiScraperContributor : ConfiguredContributorBase
             // 8. Content-Signal header (Cloudflare content usage policy)
             if (request.Headers.ContainsKey("Content-Signal"))
             {
-                signals.Add("aiscraper.content_signal", request.Headers["Content-Signal"].ToString());
+                state.WriteSignal("aiscraper.content_signal", request.Headers["Content-Signal"].ToString());
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error analyzing AI scraper signals");
-            signals.Add("aiscraper.analysis_error", ex.Message);
+            state.WriteSignal("aiscraper.analysis_error", ex.Message);
         }
 
-        // Ensure last contribution has all signals
+        // If no contributions, add neutral
         if (contributions.Count == 0)
         {
             contributions.Add(DetectionContribution.Info(
                 Name,
                 "AI Scraper",
-                "No AI scraper signals detected") with { Signals = signals.ToImmutable() });
-        }
-        else
-        {
-            var last = contributions[^1];
-            contributions[^1] = last with { Signals = signals.ToImmutable() };
+                "No AI scraper signals detected"));
         }
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);

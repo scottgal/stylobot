@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Models;
@@ -52,6 +51,7 @@ public class ClientSideContributor : ContributingDetectorBase
                 // Skip neutral reasons (ConfidenceImpact = 0)
                 if (Math.Abs(reason.ConfidenceImpact) < 0.001) continue;
 
+                state.WriteSignal(SignalKeys.FingerprintHeadlessScore, reason.Detail.Contains("Headless") ? 1.0 : 0.0);
                 contributions.Add(new DetectionContribution
                 {
                     DetectorName = Name,
@@ -60,9 +60,7 @@ public class ClientSideContributor : ContributingDetectorBase
                     Weight = 1.8, // Client-side fingerprint is a very strong signal
                     Reason = reason.Detail,
                     BotType = result.BotType?.ToString(),
-                    BotName = result.BotName,
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add(SignalKeys.FingerprintHeadlessScore, reason.Detail.Contains("Headless") ? 1.0 : 0.0)
+                    BotName = result.BotName
                 });
             }
         }

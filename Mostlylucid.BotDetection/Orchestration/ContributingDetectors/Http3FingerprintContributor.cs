@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
@@ -109,25 +108,23 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
         CancellationToken cancellationToken = default)
     {
         var contributions = new List<DetectionContribution>();
-        var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
         try
         {
             var protocol = state.HttpContext.Request.Protocol;
-            signals.Add(SignalKeys.H3Protocol, protocol);
+            state.WriteSignal(SignalKeys.H3Protocol, protocol);
 
             // Only proceed if HTTP/3
             var isHttp3 = protocol.Equals("HTTP/3", StringComparison.OrdinalIgnoreCase) ||
                           protocol.Equals("HTTP/3.0", StringComparison.OrdinalIgnoreCase);
 
-            signals.Add("h3.is_http3", isHttp3);
+            state.WriteSignal("h3.is_http3", isHttp3);
 
             if (!isHttp3)
             {
                 // Not HTTP/3 — nothing for this contributor to do
                 contributions.Add(DetectionContribution.Info(Name, "HTTP/3",
-                    $"Connection uses {protocol} (not HTTP/3)")
-                    with { Signals = signals.ToImmutable() });
+                    $"Connection uses {protocol} (not HTTP/3)"));
                 return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
             }
 
@@ -140,12 +137,12 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
             if (state.HttpContext.Request.Headers.TryGetValue("X-QUIC-Transport-Params", out var transportParams))
             {
                 var paramStr = transportParams.ToString();
-                signals.Add("h3.transport_params", paramStr);
+                state.WriteSignal("h3.transport_params", paramStr);
 
                 var matchedClient = MatchTransportFingerprint(paramStr);
                 if (matchedClient != null)
                 {
-                    signals.Add(SignalKeys.H3ClientType, matchedClient);
+                    state.WriteSignal(SignalKeys.H3ClientType, matchedClient);
 
                     if (BotClientPatterns.Contains(matchedClient))
                     {
@@ -164,14 +161,13 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
                             with
                             {
                                 ConfidenceDelta = QuicBrowserConfidence,
-                                Weight = WeightHumanSignal * 1.4,
-                                Signals = signals.ToImmutable()
+                                Weight = WeightHumanSignal * 1.4
                             });
                     }
                 }
                 else
                 {
-                    signals.Add("h3.transport_fingerprint_unknown", true);
+                    state.WriteSignal("h3.transport_fingerprint_unknown", true);
                 }
             }
 
@@ -179,7 +175,7 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
             if (state.HttpContext.Request.Headers.TryGetValue("X-QUIC-Version", out var quicVersion))
             {
                 var version = quicVersion.ToString();
-                signals.Add("h3.quic_version", version);
+                state.WriteSignal("h3.quic_version", version);
 
                 if (version.Contains("draft", StringComparison.OrdinalIgnoreCase))
                 {
@@ -194,7 +190,7 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
                          version.Contains("0x6b3343cf", StringComparison.OrdinalIgnoreCase))
                 {
                     // QUIC v2 (RFC 9369) = very modern browser
-                    signals.Add("h3.quic_v2", true);
+                    state.WriteSignal("h3.quic_v2", true);
                     contributions.Add(HumanContribution("HTTP/3",
                         "Using QUIC v2 (RFC 9369) — very modern browser"));
                 }
@@ -206,7 +202,7 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
             {
                 var usesZeroRtt = zeroRtt.ToString().Equals("1", StringComparison.OrdinalIgnoreCase) ||
                                   zeroRtt.ToString().Equals("true", StringComparison.OrdinalIgnoreCase);
-                signals.Add(SignalKeys.H3ZeroRtt, usesZeroRtt);
+                state.WriteSignal(SignalKeys.H3ZeroRtt, usesZeroRtt);
 
                 if (usesZeroRtt)
                 {
@@ -226,7 +222,7 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
             {
                 var hasMigrated = migrated.ToString().Equals("1", StringComparison.OrdinalIgnoreCase) ||
                                   migrated.ToString().Equals("true", StringComparison.OrdinalIgnoreCase);
-                signals.Add(SignalKeys.H3ConnectionMigrated, hasMigrated);
+                state.WriteSignal(SignalKeys.H3ConnectionMigrated, hasMigrated);
 
                 if (hasMigrated)
                 {
@@ -246,7 +242,7 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
             {
                 var spinDisabled = spinBit.ToString().Equals("0", StringComparison.OrdinalIgnoreCase) ||
                                    spinBit.ToString().Equals("false", StringComparison.OrdinalIgnoreCase);
-                signals.Add("h3.spin_bit_disabled", spinDisabled);
+                state.WriteSignal("h3.spin_bit_disabled", spinDisabled);
 
                 if (spinDisabled)
                 {
@@ -264,7 +260,7 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
             {
                 var usedAltSvc = altSvc.ToString().Equals("1", StringComparison.OrdinalIgnoreCase) ||
                                  altSvc.ToString().Equals("true", StringComparison.OrdinalIgnoreCase);
-                signals.Add("h3.alt_svc_upgrade", usedAltSvc);
+                state.WriteSignal("h3.alt_svc_upgrade", usedAltSvc);
 
                 if (usedAltSvc)
                 {
@@ -283,21 +279,16 @@ public class Http3FingerprintContributor : ConfiguredContributorBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error analyzing HTTP/3 fingerprint");
-            signals.Add("h3.analysis_error", ex.Message);
+            state.WriteSignal("h3.analysis_error", ex.Message);
         }
 
-        // Ensure last contribution has all signals
+        // If no contributions, add neutral
         if (contributions.Count == 0)
         {
             contributions.Add(DetectionContribution.Info(
                 Name,
                 "HTTP/3",
-                "HTTP/3 analysis complete (no anomalies detected)") with { Signals = signals.ToImmutable() });
-        }
-        else
-        {
-            var last = contributions[^1];
-            contributions[^1] = last with { Signals = signals.ToImmutable() };
+                "HTTP/3 analysis complete (no anomalies detected)"));
         }
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);

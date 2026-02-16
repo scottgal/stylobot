@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
@@ -51,39 +50,39 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
         CancellationToken cancellationToken = default)
     {
         var contributions = new List<DetectionContribution>();
-        var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
         try
         {
             // Check if ResponseCoordinator is available
             if (_coordinator == null)
             {
-                signals.Add(SignalKeys.ResponseCoordinatorAvailable, false);
+                state.WriteSignal(SignalKeys.ResponseCoordinatorAvailable, false);
                 contributions.Add(new DetectionContribution
                 {
                     DetectorName = Name,
                     Category = "Response",
                     ConfidenceDelta = 0.0,
                     Weight = 0.0,
-                    Reason = "Response coordinator not configured",
-                    Signals = signals.ToImmutable()
+                    Reason = "Response coordinator not configured"
                 });
                 return contributions;
             }
 
-            signals.Add(SignalKeys.ResponseCoordinatorAvailable, true);
+            state.WriteSignal(SignalKeys.ResponseCoordinatorAvailable, true);
 
             // Get client signature (IP + UA hash)
             var clientSignature = GetClientSignature(state.HttpContext);
-            signals.Add(SignalKeys.ResponseClientSignature, clientSignature);
+            state.WriteSignal(SignalKeys.ResponseClientSignature, clientSignature);
 
             // Fetch historical response behavior
             var behavior = await _coordinator.GetClientBehaviorAsync(clientSignature, cancellationToken);
 
             if (behavior == null || behavior.TotalResponses == 0)
             {
-                signals.Add(SignalKeys.ResponseHasHistory, false);
-                signals.Add(SignalKeys.ResponseTotalResponses, 0);
+                state.WriteSignals([
+                    new(SignalKeys.ResponseHasHistory, false),
+                    new(SignalKeys.ResponseTotalResponses, 0)
+                ]);
 
                 // No history - neutral contribution
                 contributions.Add(new DetectionContribution
@@ -92,28 +91,29 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                     Category = "Response",
                     ConfidenceDelta = 0.0,
                     Weight = 1.0,
-                    Reason = "No response history for client",
-                    Signals = signals.ToImmutable()
+                    Reason = "No response history for client"
                 });
                 return contributions;
             }
 
-            signals.Add(SignalKeys.ResponseHasHistory, true);
-            signals.Add(SignalKeys.ResponseTotalResponses, behavior.TotalResponses);
-            signals.Add(SignalKeys.ResponseHistoricalScore, behavior.ResponseScore);
+            state.WriteSignals([
+                new(SignalKeys.ResponseHasHistory, true),
+                new(SignalKeys.ResponseTotalResponses, behavior.TotalResponses),
+                new(SignalKeys.ResponseHistoricalScore, behavior.ResponseScore)
+            ]);
 
             // Analyze historical behavior patterns
-            AnalyzeHoneypotHits(behavior, contributions, signals);
-            AnalyzeScanPatterns(behavior, contributions, signals);
-            AnalyzeAuthStruggle(behavior, contributions, signals);
-            AnalyzeErrorHarvesting(behavior, contributions, signals);
-            AnalyzeRateLimitViolations(behavior, contributions, signals);
-            AnalyzeOverallResponseScore(behavior, contributions, signals);
+            AnalyzeHoneypotHits(state, behavior, contributions);
+            AnalyzeScanPatterns(state, behavior, contributions);
+            AnalyzeAuthStruggle(state, behavior, contributions);
+            AnalyzeErrorHarvesting(state, behavior, contributions);
+            AnalyzeRateLimitViolations(state, behavior, contributions);
+            AnalyzeOverallResponseScore(state, behavior, contributions);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error analyzing response behavior");
-            signals.Add("response.analysis_error", ex.Message); // Not in SignalKeys — transient error info only
+            state.WriteSignal("response.analysis_error", ex.Message); // Not in SignalKeys — transient error info only
         }
 
         // Always add at least one contribution
@@ -125,15 +125,8 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.0,
                 Weight = 1.0,
-                Reason = "Response behavior analysis complete (no significant patterns)",
-                Signals = signals.ToImmutable()
+                Reason = "Response behavior analysis complete (no significant patterns)"
             });
-        }
-        else
-        {
-            // Ensure last contribution has all signals
-            var last = contributions[^1];
-            contributions[^1] = last with { Signals = signals.ToImmutable() };
         }
 
         return contributions;
@@ -143,14 +136,14 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
     ///     Analyze honeypot path hits - accessing paths that should never be accessed
     /// </summary>
     private void AnalyzeHoneypotHits(
+        BlackboardState state,
         ClientResponseBehavior behavior,
-        List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+        List<DetectionContribution> contributions)
     {
         if (behavior.HoneypotHits == 0)
             return;
 
-        signals.Add(SignalKeys.ResponseHoneypotHits, behavior.HoneypotHits);
+        state.WriteSignal(SignalKeys.ResponseHoneypotHits, behavior.HoneypotHits);
 
         // ANY honeypot hit is a very strong bot signal
         contributions.Add(DetectionContribution.Bot(
@@ -164,17 +157,19 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
     ///     Analyze 404 scanning patterns - systematic probing for vulnerabilities
     /// </summary>
     private void AnalyzeScanPatterns(
+        BlackboardState state,
         ClientResponseBehavior behavior,
-        List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+        List<DetectionContribution> contributions)
     {
-        signals.Add(SignalKeys.ResponseCount404, behavior.Count404);
-        signals.Add(SignalKeys.ResponseUnique404Paths, behavior.UniqueNotFoundPaths);
+        state.WriteSignals([
+            new(SignalKeys.ResponseCount404, behavior.Count404),
+            new(SignalKeys.ResponseUnique404Paths, behavior.UniqueNotFoundPaths)
+        ]);
 
         // Many 404s across unique paths = scanning behavior
         if (behavior.Count404 > 15 && behavior.UniqueNotFoundPaths > 10)
         {
-            signals.Add(SignalKeys.ResponseScanPatternDetected, true);
+            state.WriteSignal(SignalKeys.ResponseScanPatternDetected, true);
 
             var scanIntensity = Math.Min(1.0, behavior.UniqueNotFoundPaths / 50.0);
             var confidence = 0.5 + scanIntensity * 0.4; // 0.5 to 0.9
@@ -194,8 +189,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.25,
                 Weight = 1.3,
-                Reason = $"Possible scanning: {behavior.Count404} page-not-found errors across {behavior.UniqueNotFoundPaths} different URLs",
-                Signals = signals.ToImmutable()
+                Reason = $"Possible scanning: {behavior.Count404} page-not-found errors across {behavior.UniqueNotFoundPaths} different URLs"
             });
         }
     }
@@ -204,15 +198,15 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
     ///     Analyze authentication failures - credential brute-forcing
     /// </summary>
     private void AnalyzeAuthStruggle(
+        BlackboardState state,
         ClientResponseBehavior behavior,
-        List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+        List<DetectionContribution> contributions)
     {
-        signals.Add(SignalKeys.ResponseAuthFailures, behavior.AuthFailures);
+        state.WriteSignal(SignalKeys.ResponseAuthFailures, behavior.AuthFailures);
 
         if (behavior.AuthFailures > 20)
         {
-            signals.Add(SignalKeys.ResponseAuthStruggle, "severe");
+            state.WriteSignal(SignalKeys.ResponseAuthStruggle, "severe");
 
             contributions.Add(DetectionContribution.Bot(
                 Name, "Response", 0.85,
@@ -222,7 +216,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
         }
         else if (behavior.AuthFailures > 10)
         {
-            signals.Add(SignalKeys.ResponseAuthStruggle, "moderate");
+            state.WriteSignal(SignalKeys.ResponseAuthStruggle, "moderate");
 
             contributions.Add(new DetectionContribution
             {
@@ -230,13 +224,12 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.5,
                 Weight = 1.5,
-                Reason = $"Repeated login failures: {behavior.AuthFailures} failed attempts",
-                Signals = signals.ToImmutable()
+                Reason = $"Repeated login failures: {behavior.AuthFailures} failed attempts"
             });
         }
         else if (behavior.AuthFailures > 5)
         {
-            signals.Add(SignalKeys.ResponseAuthStruggle, "mild");
+            state.WriteSignal(SignalKeys.ResponseAuthStruggle, "mild");
 
             contributions.Add(new DetectionContribution
             {
@@ -244,8 +237,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.2,
                 Weight = 1.2,
-                Reason = $"Some login failures: {behavior.AuthFailures} failed attempts",
-                Signals = signals.ToImmutable()
+                Reason = $"Some login failures: {behavior.AuthFailures} failed attempts"
             });
         }
     }
@@ -254,9 +246,9 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
     ///     Analyze error template harvesting - triggering stack traces to gather info
     /// </summary>
     private void AnalyzeErrorHarvesting(
+        BlackboardState state,
         ClientResponseBehavior behavior,
-        List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+        List<DetectionContribution> contributions)
     {
         // Look for error patterns in response bodies
         var errorPatternCount = behavior.PatternCounts
@@ -264,11 +256,11 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                           kvp.Key.Contains("stack_trace", StringComparison.OrdinalIgnoreCase))
             .Sum(kvp => kvp.Value);
 
-        signals.Add(SignalKeys.ResponseErrorPatternCount, errorPatternCount);
+        state.WriteSignal(SignalKeys.ResponseErrorPatternCount, errorPatternCount);
 
         if (errorPatternCount > 10)
         {
-            signals.Add(SignalKeys.ResponseErrorHarvesting, true);
+            state.WriteSignal(SignalKeys.ResponseErrorHarvesting, true);
 
             contributions.Add(DetectionContribution.Bot(
                 Name, "Response", 0.7,
@@ -284,8 +276,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.3,
                 Weight = 1.3,
-                Reason = $"Triggering errors: {errorPatternCount} error patterns",
-                Signals = signals.ToImmutable()
+                Reason = $"Triggering errors: {errorPatternCount} error patterns"
             });
         }
     }
@@ -294,16 +285,16 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
     ///     Analyze rate limit violations
     /// </summary>
     private void AnalyzeRateLimitViolations(
+        BlackboardState state,
         ClientResponseBehavior behavior,
-        List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+        List<DetectionContribution> contributions)
     {
         var rateLimitCount = behavior.PatternCounts
             .Where(kvp => kvp.Key.Contains("rate_limit", StringComparison.OrdinalIgnoreCase) ||
                           kvp.Key.Contains("blocked", StringComparison.OrdinalIgnoreCase))
             .Sum(kvp => kvp.Value);
 
-        signals.Add(SignalKeys.ResponseRateLimitViolations, rateLimitCount);
+        state.WriteSignal(SignalKeys.ResponseRateLimitViolations, rateLimitCount);
 
         if (rateLimitCount > 5)
             contributions.Add(DetectionContribution.Bot(
@@ -318,8 +309,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.4,
                 Weight = 1.4,
-                Reason = $"Exceeded request speed limits {rateLimitCount} times",
-                Signals = signals.ToImmutable()
+                Reason = $"Exceeded request speed limits {rateLimitCount} times"
             });
     }
 
@@ -327,9 +317,9 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
     ///     Analyze overall response score from coordinator
     /// </summary>
     private void AnalyzeOverallResponseScore(
+        BlackboardState state,
         ClientResponseBehavior behavior,
-        List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+        List<DetectionContribution> contributions)
     {
         // The ResponseCoordinator already computed a comprehensive score
         if (behavior.ResponseScore > 0.8)
@@ -345,8 +335,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.5,
                 Weight = 1.5,
-                Reason = "Response patterns strongly suggest automated access",
-                Signals = signals.ToImmutable()
+                Reason = "Response patterns strongly suggest automated access"
             });
         else if (behavior.ResponseScore > 0.4)
             contributions.Add(new DetectionContribution
@@ -355,8 +344,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Category = "Response",
                 ConfidenceDelta = 0.2,
                 Weight = 1.2,
-                Reason = "Response patterns show some signs of automated access",
-                Signals = signals.ToImmutable()
+                Reason = "Response patterns show some signs of automated access"
             });
         // Low score = likely human
         else if (behavior.ResponseScore < 0.2 && behavior.TotalResponses >= 5)
@@ -367,8 +355,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 ConfidenceDelta = -0.15,
                 Weight = 1.3,
                 Reason =
-                    $"Clean response history: {behavior.TotalResponses} responses, score {behavior.ResponseScore:F2}",
-                Signals = signals.ToImmutable()
+                    $"Clean response history: {behavior.TotalResponses} responses, score {behavior.ResponseScore:F2}"
             });
     }
 

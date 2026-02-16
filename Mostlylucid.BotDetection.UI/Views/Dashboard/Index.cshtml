@@ -1,5 +1,9 @@
 @using Mostlylucid.BotDetection.UI.Models
 @model DashboardViewModel
+@functions {
+    /// <summary>Escape &lt;/ sequences to prevent script tag breakout in embedded JSON.</summary>
+    private static string SafeJson(string json) => json.Replace("</", "<\\/");
+}
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
@@ -141,12 +145,13 @@
     </header>
 
     <!-- Server-rendered data (no XHR needed on first load) -->
-    <script type="application/json" id="your-detection-data" nonce="@Model.CspNonce">@Html.Raw(Model.YourDetectionJson)</script>
-    <script type="application/json" id="initial-summary" nonce="@Model.CspNonce">@Html.Raw(Model.SummaryJson)</script>
-    <script type="application/json" id="initial-detections" nonce="@Model.CspNonce">@Html.Raw(Model.DetectionsJson)</script>
-    <script type="application/json" id="initial-signatures" nonce="@Model.CspNonce">@Html.Raw(Model.SignaturesJson)</script>
-    <script type="application/json" id="initial-countries" nonce="@Model.CspNonce">@Html.Raw(Model.CountriesJson)</script>
-    <script type="application/json" id="initial-clusters" nonce="@Model.CspNonce">@Html.Raw(Model.ClustersJson)</script>
+    <!-- SafeJson escapes </ to prevent script-tag breakout in embedded JSON -->
+    <script type="application/json" id="your-detection-data" nonce="@Model.CspNonce">@Html.Raw(SafeJson(Model.YourDetectionJson))</script>
+    <script type="application/json" id="initial-summary" nonce="@Model.CspNonce">@Html.Raw(SafeJson(Model.SummaryJson))</script>
+    <script type="application/json" id="initial-detections" nonce="@Model.CspNonce">@Html.Raw(SafeJson(Model.DetectionsJson))</script>
+    <script type="application/json" id="initial-signatures" nonce="@Model.CspNonce">@Html.Raw(SafeJson(Model.SignaturesJson))</script>
+    <script type="application/json" id="initial-countries" nonce="@Model.CspNonce">@Html.Raw(SafeJson(Model.CountriesJson))</script>
+    <script type="application/json" id="initial-clusters" nonce="@Model.CspNonce">@Html.Raw(SafeJson(Model.ClustersJson))</script>
 
     <!-- Main Content -->
     <main class="dashboard-shell px-4 py-4">
@@ -920,13 +925,37 @@ function dashboard() {
             this.initTheme();
             this.loadEmbeddedData();
             this.connectSignalR();
+            // If no "Your Detection" on first load, poll sentinel endpoint
+            if (!this.yourData) this.fetchMeWithRetry();
+        },
+
+        async fetchMeWithRetry(attempt) {
+            attempt = attempt || 0;
+            if (attempt >= 3 || this.yourData) { this.yourLoading = false; return; }
+            try {
+                var resp = await fetch('@Html.Raw(Model.Options.BasePath)/api/me');
+                if (resp.ok) {
+                    var data = await resp.json();
+                    if (data) {
+                        this.yourData = data;
+                        this.signature = data.signature || '';
+                        this.probabilityHistory = [data.botProbability];
+                        this.yourLoading = false;
+                        return;
+                    }
+                }
+            } catch(e) {}
+            // Retry after delay (2s, 5s, 10s) — gives time for a real page visit to populate cache
+            var self = this;
+            var delays = [2000, 5000, 10000];
+            setTimeout(function() { self.fetchMeWithRetry(attempt + 1); }, delays[attempt] || 5000);
         },
 
         loadEmbeddedData() {
             // Your detection (includes signature for SignalR live updates)
             var yd = this.readEmbeddedJson('your-detection-data');
             if (yd) { this.yourData = yd; this.signature = yd.signature || ''; this.probabilityHistory = [yd.botProbability]; }
-            this.yourLoading = false;
+            this.yourLoading = !yd; // keep loading if no data yet
 
             // Summary
             var sum = this.readEmbeddedJson('initial-summary');

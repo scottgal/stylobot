@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
@@ -112,15 +111,16 @@ public class FastPathReputationContributor : ConfiguredContributorBase
             });
 
         // FAST PATH HIT - create instant allow or abort contribution
-        if (isGoodPattern) return Task.FromResult(CreateFastAllowContribution(matchedPattern, matchType));
+        if (isGoodPattern) return Task.FromResult(CreateFastAllowContribution(state, matchedPattern, matchType));
 
-        return Task.FromResult(CreateFastAbortContribution(matchedPattern, matchType));
+        return Task.FromResult(CreateFastAbortContribution(state, matchedPattern, matchType));
     }
 
     /// <summary>
     ///     Creates a fast-path ALLOW contribution for known good patterns.
     /// </summary>
     private IReadOnlyList<DetectionContribution> CreateFastAllowContribution(
+        BlackboardState state,
         PatternReputation matchedPattern,
         string matchType)
     {
@@ -128,13 +128,15 @@ public class FastPathReputationContributor : ConfiguredContributorBase
             "Fast-path reputation allow: {PatternId} ({MatchType}) state={State} score={Score:F2} support={Support:F0}",
             matchedPattern.PatternId, matchType, matchedPattern.State, matchedPattern.BotScore, matchedPattern.Support);
 
-        var signals = ImmutableDictionary<string, object>.Empty
-            .Add(SignalKeys.ReputationFastPathHit, true)
-            .Add(SignalKeys.ReputationCanAllow, true)
-            .Add($"reputation.fastpath.{matchType.ToLowerInvariant()}.pattern_id", matchedPattern.PatternId)
-            .Add($"reputation.fastpath.{matchType.ToLowerInvariant()}.state", matchedPattern.State.ToString())
-            .Add($"reputation.fastpath.{matchType.ToLowerInvariant()}.score", matchedPattern.BotScore)
-            .Add($"reputation.fastpath.{matchType.ToLowerInvariant()}.support", matchedPattern.Support);
+        var mtLower = matchType.ToLowerInvariant();
+        state.WriteSignals([
+            new(SignalKeys.ReputationFastPathHit, true),
+            new(SignalKeys.ReputationCanAllow, true),
+            new($"reputation.fastpath.{mtLower}.pattern_id", matchedPattern.PatternId),
+            new($"reputation.fastpath.{mtLower}.state", matchedPattern.State.ToString()),
+            new($"reputation.fastpath.{mtLower}.score", matchedPattern.BotScore),
+            new($"reputation.fastpath.{mtLower}.support", matchedPattern.Support)
+        ]);
 
         // Derive a friendly bot name from the pattern
         var botName = matchedPattern.PatternId.StartsWith("ua:")
@@ -144,11 +146,7 @@ public class FastPathReputationContributor : ConfiguredContributorBase
         var contribution = DetectionContribution.VerifiedGoodBot(
                 Name,
                 $"Previously verified as safe ({matchType} seen {matchedPattern.Support:F0} times)",
-                botName)
-            with
-            {
-                Signals = signals
-            };
+                botName);
 
         return new[] { contribution };
     }
@@ -157,6 +155,7 @@ public class FastPathReputationContributor : ConfiguredContributorBase
     ///     Creates a fast-path ABORT contribution for known bad patterns.
     /// </summary>
     private IReadOnlyList<DetectionContribution> CreateFastAbortContribution(
+        BlackboardState state,
         PatternReputation matchedPattern,
         string matchType)
     {
@@ -164,13 +163,15 @@ public class FastPathReputationContributor : ConfiguredContributorBase
             "Fast-path reputation abort: {PatternId} ({MatchType}) state={State} score={Score:F2} support={Support:F0}",
             matchedPattern.PatternId, matchType, matchedPattern.State, matchedPattern.BotScore, matchedPattern.Support);
 
-        var signals = ImmutableDictionary<string, object>.Empty
-            .Add(SignalKeys.ReputationFastPathHit, true)
-            .Add(SignalKeys.ReputationCanAbort, true)
-            .Add($"reputation.fastpath.{matchType.ToLowerInvariant()}.pattern_id", matchedPattern.PatternId)
-            .Add($"reputation.fastpath.{matchType.ToLowerInvariant()}.state", matchedPattern.State.ToString())
-            .Add($"reputation.fastpath.{matchType.ToLowerInvariant()}.score", matchedPattern.BotScore)
-            .Add($"reputation.fastpath.{matchType.ToLowerInvariant()}.support", matchedPattern.Support);
+        var mtLower = matchType.ToLowerInvariant();
+        state.WriteSignals([
+            new(SignalKeys.ReputationFastPathHit, true),
+            new(SignalKeys.ReputationCanAbort, true),
+            new($"reputation.fastpath.{mtLower}.pattern_id", matchedPattern.PatternId),
+            new($"reputation.fastpath.{mtLower}.state", matchedPattern.State.ToString()),
+            new($"reputation.fastpath.{mtLower}.score", matchedPattern.BotScore),
+            new($"reputation.fastpath.{mtLower}.support", matchedPattern.Support)
+        ]);
 
         var contribution = DetectionContribution.VerifiedBot(
                 Name,
@@ -179,8 +180,7 @@ public class FastPathReputationContributor : ConfiguredContributorBase
             with
             {
                 ConfidenceDelta = matchedPattern.BotScore,
-                Weight = FastAbortWeight, // Very high weight for confirmed patterns - instant abort
-                Signals = signals
+                Weight = FastAbortWeight // Very high weight for confirmed patterns - instant abort
             };
 
         return new[] { contribution };

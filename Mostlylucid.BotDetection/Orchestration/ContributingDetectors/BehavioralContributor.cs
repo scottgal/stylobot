@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Models;
@@ -49,18 +48,23 @@ public class BehavioralContributor : ConfiguredContributorBase
             var result = await _detector.DetectAsync(state.HttpContext, cancellationToken);
 
             if (result.Reasons.Count == 0)
+            {
                 // No behavioral issues detected - add negative signal (human indicator)
+                state.WriteSignal(SignalKeys.BehavioralAnomalyDetected, false);
                 contributions.Add(HumanContribution(
                     "Behavioral",
-                    "Request patterns appear normal")
-                    with
-                    {
-                        Signals = ImmutableDictionary<string, object>.Empty
-                            .Add(SignalKeys.BehavioralAnomalyDetected, false)
-                    });
+                    "Request patterns appear normal"));
+            }
             else
+            {
                 // Convert each reason to a contribution
                 foreach (var reason in result.Reasons)
+                {
+                    state.WriteSignals([
+                        new(SignalKeys.BehavioralAnomalyDetected, true),
+                        new(SignalKeys.BehavioralRateExceeded,
+                            reason.Detail.Contains("rate", StringComparison.OrdinalIgnoreCase))
+                    ]);
                     contributions.Add(new DetectionContribution
                     {
                         DetectorName = Name,
@@ -68,12 +72,10 @@ public class BehavioralContributor : ConfiguredContributorBase
                         ConfidenceDelta = reason.ConfidenceImpact,
                         Weight = WeightBase * BehavioralWeightMultiplier,
                         Reason = reason.Detail,
-                        BotType = result.BotType?.ToString(),
-                        Signals = ImmutableDictionary<string, object>.Empty
-                            .Add(SignalKeys.BehavioralAnomalyDetected, true)
-                            .Add(SignalKeys.BehavioralRateExceeded,
-                                reason.Detail.Contains("rate", StringComparison.OrdinalIgnoreCase))
+                        BotType = result.BotType?.ToString()
                     });
+                }
+            }
         }
         catch (Exception ex)
         {

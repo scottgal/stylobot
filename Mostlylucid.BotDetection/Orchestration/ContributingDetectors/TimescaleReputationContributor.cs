@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Models;
@@ -83,10 +82,11 @@ public class TimescaleReputationContributor : ConfiguredContributorBase
             if (reputation == null)
             {
                 // New signature - no historical data (zero-weight contribution so it appears in detector list)
-                var newSignals = ImmutableDictionary<string, object>.Empty
-                    .Add("ts.is_new", true)
-                    .Add("ts.hit_count", 0)
-                    .Add("ts.days_active", 0);
+                state.WriteSignals([
+                    new("ts.is_new", true),
+                    new("ts.hit_count", 0),
+                    new("ts.days_active", 0)
+                ]);
 
                 return new[]
                 {
@@ -96,21 +96,21 @@ public class TimescaleReputationContributor : ConfiguredContributorBase
                         Category = "Reputation",
                         Reason = "New visitor - no historical reputation data",
                         Weight = 0,
-                        ConfidenceDelta = 0,
-                        Signals = newSignals
+                        ConfidenceDelta = 0
                     }
                 };
             }
 
-            // Build signals from historical data
-            var signals = ImmutableDictionary<string, object>.Empty
-                .Add("ts.bot_ratio", reputation.BotRatio)
-                .Add("ts.hit_count", reputation.TotalHitCount)
-                .Add("ts.days_active", reputation.DaysActive)
-                .Add("ts.velocity", reputation.RecentHourHitCount)
-                .Add("ts.is_new", false)
-                .Add("ts.is_conclusive", reputation.IsConclusive)
-                .Add("ts.avg_bot_prob", reputation.AverageBotProbability);
+            // Write signals from historical data
+            state.WriteSignals([
+                new("ts.bot_ratio", reputation.BotRatio),
+                new("ts.hit_count", reputation.TotalHitCount),
+                new("ts.days_active", reputation.DaysActive),
+                new("ts.velocity", reputation.RecentHourHitCount),
+                new("ts.is_new", false),
+                new("ts.is_conclusive", reputation.IsConclusive),
+                new("ts.avg_bot_prob", reputation.AverageBotProbability)
+            ]);
 
             // High bot ratio with enough hits → bot contribution
             if (reputation.BotRatio >= HighBotRatioThreshold && reputation.TotalHitCount >= MinHitsForConclusive)
@@ -120,10 +120,7 @@ public class TimescaleReputationContributor : ConfiguredContributorBase
 
                 return new[]
                 {
-                    BotContribution("Reputation", $"Historical reputation: {reputation.BotRatio:P0} bot ratio over {reputation.TotalHitCount} requests ({reputation.DaysActive} days)") with
-                    {
-                        Signals = signals
-                    }
+                    BotContribution("Reputation", $"Historical reputation: {reputation.BotRatio:P0} bot ratio over {reputation.TotalHitCount} requests ({reputation.DaysActive} days)")
                 };
             }
 
@@ -132,10 +129,7 @@ public class TimescaleReputationContributor : ConfiguredContributorBase
             {
                 return new[]
                 {
-                    HumanContribution("Reputation", $"Historical reputation: {1 - reputation.BotRatio:P0} human ratio over {reputation.TotalHitCount} requests ({reputation.DaysActive} days)") with
-                    {
-                        Signals = signals
-                    }
+                    HumanContribution("Reputation", $"Historical reputation: {1 - reputation.BotRatio:P0} human ratio over {reputation.TotalHitCount} requests ({reputation.DaysActive} days)")
                 };
             }
 
@@ -144,10 +138,7 @@ public class TimescaleReputationContributor : ConfiguredContributorBase
             {
                 return new[]
                 {
-                    BotContribution("Reputation", $"High request velocity: {reputation.RecentHourHitCount} requests in last hour") with
-                    {
-                        Signals = signals
-                    }
+                    BotContribution("Reputation", $"High request velocity: {reputation.RecentHourHitCount} requests in last hour")
                 };
             }
 
@@ -160,8 +151,7 @@ public class TimescaleReputationContributor : ConfiguredContributorBase
                     Category = "Reputation",
                     Reason = $"Seen {reputation.TotalHitCount} times over {reputation.DaysActive} days, {reputation.BotRatio:P0} classified as bot",
                     Weight = 0,
-                    ConfidenceDelta = 0,
-                    Signals = signals
+                    ConfidenceDelta = 0
                 }
             };
         }

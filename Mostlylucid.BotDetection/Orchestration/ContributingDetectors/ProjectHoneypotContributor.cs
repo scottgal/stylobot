@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Collections.Immutable;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
@@ -57,7 +56,7 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
         if (_options.EnableTestMode)
         {
             var userAgent = state.HttpContext?.Request.Headers["User-Agent"].FirstOrDefault() ?? "";
-            var testResult = CheckTestModeSimulation(userAgent);
+            var testResult = CheckTestModeSimulation(state, userAgent);
             if (testResult != null) return testResult;
         }
 
@@ -94,27 +93,28 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
 
             if (result == null || !result.IsListed)
                 // IP not found in database - slight positive signal
+            {
+                state.WriteSignals([new(SignalKeys.HoneypotChecked, true), new(SignalKeys.HoneypotListed, false)]);
                 return Single(new DetectionContribution
                 {
                     DetectorName = Name,
                     Category = "ProjectHoneypot",
                     ConfidenceDelta = -0.05,
                     Weight = 0.8,
-                    Reason = "IP not listed in Project Honeypot database",
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add(SignalKeys.HoneypotChecked, true)
-                        .Add(SignalKeys.HoneypotListed, false)
+                    Reason = "IP not listed in Project Honeypot database"
                 });
+            }
 
             // IP is listed - determine severity based on threat score and type
             var contributions = new List<DetectionContribution>();
-            var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
-            signals.Add(SignalKeys.HoneypotChecked, true);
-            signals.Add(SignalKeys.HoneypotListed, true);
-            signals.Add(SignalKeys.HoneypotThreatScore, result.ThreatScore);
-            signals.Add(SignalKeys.HoneypotVisitorType, result.VisitorType.ToString());
-            signals.Add(SignalKeys.HoneypotDaysSinceLastActivity, result.DaysSinceLastActivity);
+            state.WriteSignals([
+                new(SignalKeys.HoneypotChecked, true),
+                new(SignalKeys.HoneypotListed, true),
+                new(SignalKeys.HoneypotThreatScore, result.ThreatScore),
+                new(SignalKeys.HoneypotVisitorType, result.VisitorType.ToString()),
+                new(SignalKeys.HoneypotDaysSinceLastActivity, result.DaysSinceLastActivity)
+            ]);
 
             // Search engines get a pass (type 0)
             if (result.VisitorType == HoneypotVisitorType.SearchEngine)
@@ -123,11 +123,7 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
                 contributions.Add(DetectionContribution.VerifiedGoodBot(
                         Name,
                         "IP verified as search engine by Project Honeypot",
-                        "Search Engine (Project Honeypot)")
-                    with
-                    {
-                        Signals = signals.ToImmutable()
-                    });
+                        "Search Engine (Project Honeypot)"));
                 return contributions;
             }
 
@@ -150,8 +146,7 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
                     with
                     {
                         ConfidenceDelta = confidence,
-                        Weight = 1.8, // High weight for verified threats
-                        Signals = signals.ToImmutable()
+                        Weight = 1.8 // High weight for verified threats
                     });
             else
                 contributions.Add(DetectionContribution.Bot(
@@ -160,11 +155,7 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
                         confidence,
                         reason,
                         weight: 1.5,
-                        botType: botType.ToString())
-                    with
-                    {
-                        Signals = signals.ToImmutable()
-                    });
+                        botType: botType.ToString()));
 
             return contributions;
         }
@@ -370,7 +361,7 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
     ///     Check for test mode simulation markers in User-Agent.
     ///     Format: &lt;test-honeypot:type&gt; where type is harvester, spammer, or suspicious
     /// </summary>
-    private IReadOnlyList<DetectionContribution>? CheckTestModeSimulation(string userAgent)
+    private IReadOnlyList<DetectionContribution>? CheckTestModeSimulation(BlackboardState state, string userAgent)
     {
         if (string.IsNullOrEmpty(userAgent))
             return null;
@@ -425,14 +416,15 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
 
         // Generate contributions using the same logic as real lookups
         var contributions = new List<DetectionContribution>();
-        var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
-        signals.Add(SignalKeys.HoneypotChecked, true);
-        signals.Add(SignalKeys.HoneypotListed, true);
-        signals.Add(SignalKeys.HoneypotThreatScore, result.ThreatScore);
-        signals.Add(SignalKeys.HoneypotVisitorType, result.VisitorType.ToString());
-        signals.Add(SignalKeys.HoneypotDaysSinceLastActivity, result.DaysSinceLastActivity);
-        signals.Add("HoneypotTestMode", true);
+        state.WriteSignals([
+            new(SignalKeys.HoneypotChecked, true),
+            new(SignalKeys.HoneypotListed, true),
+            new(SignalKeys.HoneypotThreatScore, result.ThreatScore),
+            new(SignalKeys.HoneypotVisitorType, result.VisitorType.ToString()),
+            new(SignalKeys.HoneypotDaysSinceLastActivity, result.DaysSinceLastActivity),
+            new("HoneypotTestMode", true)
+        ]);
 
         var confidence = CalculateConfidence(result);
         var botType = DetermineBoType(result);
@@ -448,8 +440,7 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
                 with
                 {
                     ConfidenceDelta = confidence,
-                    Weight = 1.8,
-                    Signals = signals.ToImmutable()
+                    Weight = 1.8
                 });
         else
             contributions.Add(DetectionContribution.Bot(
@@ -458,11 +449,7 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
                     confidence,
                     reason,
                     weight: 1.5,
-                    botType: botType.ToString())
-                with
-                {
-                    Signals = signals.ToImmutable()
-                });
+                    botType: botType.ToString()));
 
         return contributions;
     }

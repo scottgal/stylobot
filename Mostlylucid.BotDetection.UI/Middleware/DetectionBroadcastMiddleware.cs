@@ -20,9 +20,12 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 ///     Middleware that broadcasts REAL detection results to the SignalR dashboard hub.
 ///     Must run AFTER BotDetectionMiddleware to access the detection results.
 /// </summary>
-public class DetectionBroadcastMiddleware
+public partial class DetectionBroadcastMiddleware
 {
     private static readonly ConcurrentDictionary<Type, PropertyInfo?> CountryCodePropertyCache = new();
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")]
+    private static partial System.Text.RegularExpressions.Regex EmailPattern();
     private readonly ILogger<DetectionBroadcastMiddleware> _logger;
     private readonly RequestDelegate _next;
 
@@ -165,7 +168,7 @@ public class DetectionBroadcastMiddleware
                     ProcessingTimeMs = evidence.TotalProcessingTimeMs,
                     PrimarySignature = sigValue,
                     CountryCode = countryCode,
-                    UserAgent = evidence.BotProbability > 0.5 ? context.Request.Headers.UserAgent.ToString() : null,
+                    UserAgent = evidence.BotProbability > 0.5 ? SanitizeUserAgent(context.Request.Headers.UserAgent.ToString()) : null,
                     TopReasons = topReasons,
                     DetectorContributions = detectorContributions.Count > 0 ? detectorContributions : null,
                     ImportantSignals = importantSignals
@@ -345,7 +348,7 @@ public class DetectionBroadcastMiddleware
             ProcessingTimeMs = upstreamProcessingMs,
             PrimarySignature = sigValue,
             CountryCode = upstreamCountry,
-            UserAgent = result.IsBot ? context.Request.Headers.UserAgent.ToString() : null,
+            UserAgent = result.IsBot ? SanitizeUserAgent(context.Request.Headers.UserAgent.ToString()) : null,
             TopReasons = topReasons
         };
 
@@ -471,6 +474,18 @@ public class DetectionBroadcastMiddleware
         {
             _logger.LogDebug(ex, "Failed to store local detection");
         }
+    }
+
+    /// <summary>
+    ///     Sanitize a User-Agent string for broadcast to dashboard clients.
+    ///     Strips email addresses that some crawlers embed (e.g. "MyBot/1.0 (+mailto:admin@example.com)").
+    ///     UA strings themselves are public HTTP headers, not PII — only embedded emails need redacting.
+    /// </summary>
+    private static string? SanitizeUserAgent(string? ua)
+    {
+        if (string.IsNullOrWhiteSpace(ua)) return null;
+        // Strip email addresses that some crawlers embed (e.g. "MyBot/1.0 (+mailto:admin@example.com)")
+        return EmailPattern().Replace(ua, "[email-redacted]");
     }
 
     /// <summary>

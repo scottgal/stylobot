@@ -81,8 +81,11 @@ public static class StyloBotDashboardServiceExtensions
         if (botOptions != null && !botOptions.ExcludedPaths.Any(p =>
                 options.BasePath.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
         {
-            if (!botOptions.SignatureOnlyPaths.Contains(options.BasePath))
-                botOptions.SignatureOnlyPaths.Add(options.BasePath);
+            lock (botOptions.SignatureOnlyPaths)
+            {
+                if (!botOptions.SignatureOnlyPaths.Contains(options.BasePath))
+                    botOptions.SignatureOnlyPaths.Add(options.BasePath);
+            }
         }
 
         // Broadcast REAL detections to SignalR - must be BEFORE UseEndpoints

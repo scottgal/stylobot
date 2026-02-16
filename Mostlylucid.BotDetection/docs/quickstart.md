@@ -402,9 +402,22 @@ All endpoints are under `{BasePath}/api/`:
 | `/stylobot/api/clusters` | GET | Leiden bot clusters with similarity scores |
 | `/stylobot/api/sparkline/{sig}` | GET | Sparkline history for a specific signature |
 | `/stylobot/api/export` | GET | Export detections as CSV/JSON |
-| `/stylobot/api/diagnostics` | GET | Comprehensive diagnostics (rate-limited) |
+| `/stylobot/api/diagnostics` | GET | Comprehensive diagnostics (rate-limited: 10/min) |
+| `/stylobot/api/me` | GET | Current visitor's cached detection (for "Your Detection" panel) |
+
+All API endpoints are **rate-limited** to 60 requests per minute per IP (diagnostics: 10/min). Rate limit headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`) are included in responses. HTTP 429 is returned when exceeded.
 
 The dashboard page (`/stylobot/`) is **server-side rendered** — all data is embedded in the HTML on first load. SignalR provides live updates only. No XHR calls are made on page load.
+
+### Embed Mode
+
+Pass `?embed=1` to hide the brand header when embedding the dashboard in an iframe:
+
+```html
+<iframe src="/_stylobot?embed=1" class="w-full" style="min-height: 80vh;"></iframe>
+```
+
+This is useful for embedding the dashboard inside admin portals or marketing pages. The `X-Frame-Options: SAMEORIGIN` header is set automatically, so the iframe must be on the same origin.
 
 ### Diagnostics API
 

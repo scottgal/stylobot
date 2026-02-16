@@ -237,7 +237,7 @@ public class BlackboardOrchestrator
     private readonly ConcurrentDictionary<string, CircuitState> _circuitStates = new();
     private readonly BotClusterService? _clusterService;
     private readonly CountryReputationTracker? _countryTracker;
-    private readonly IEnumerable<IContributingDetector> _detectors;
+    private readonly IContributingDetector[] _sortedDetectors;
     private readonly ILearningEventBus? _learningBus;
     private readonly LlmClassificationCoordinator? _llmCoordinator;
     private readonly ILogger<BlackboardOrchestrator> _logger;
@@ -266,7 +266,7 @@ public class BlackboardOrchestrator
         _logger = logger;
         _fullOptions = options.Value;
         _options = options.Value.Orchestrator;
-        _detectors = detectors;
+        _sortedDetectors = detectors.OrderBy(d => d.Priority).ToArray();
         _piiHasher = piiHasher;
         _learningBus = learningBus;
         _policyRegistry = policyRegistry;
@@ -332,6 +332,12 @@ public class BlackboardOrchestrator
             PolicyAction? finalAction = null;
             string? triggeredActionPolicyName = null;
 
+            // Wire up zero-allocation key set wrappers for BuildState
+            var completedKeys = pooledState.CompletedDetectorKeys;
+            completedKeys.SetSource(completedDetectors);
+            var failedKeys = pooledState.FailedDetectorKeys;
+            failedKeys.SetSource(failedDetectors);
+
             // Build detector lists based on policy
             var allPolicyDetectors = pooledState.AllPolicyDetectors;
             allPolicyDetectors.UnionWith(policy.FastPathDetectors);
@@ -339,11 +345,14 @@ public class BlackboardOrchestrator
             allPolicyDetectors.UnionWith(policy.AiPathDetectors);
 
             // Get enabled detectors (respecting circuit breakers and policy)
-            var availableDetectors = _detectors
-                .Where(d => d.IsEnabled && IsCircuitClosed(d.Name))
-                .Where(d => allPolicyDetectors.Count == 0 || allPolicyDetectors.Contains(d.Name))
-                .OrderBy(d => d.Priority)
-                .ToList();
+            // _sortedDetectors is pre-sorted at construction time, so no per-request sort.
+            var availableDetectors = new List<IContributingDetector>(_sortedDetectors.Length);
+            foreach (var d in _sortedDetectors)
+            {
+                if (d.IsEnabled && IsCircuitClosed(d.Name) &&
+                    (allPolicyDetectors.Count == 0 || allPolicyDetectors.Contains(d.Name)))
+                    availableDetectors.Add(d);
+            }
 
             _logger.LogDebug(
                 "Starting detection for {RequestId} with policy {Policy}, {DetectorCount} available detectors",
@@ -360,21 +369,23 @@ public class BlackboardOrchestrator
                     var state = BuildState(
                         httpContext,
                         signals,
-                        completedDetectors.Keys,
-                        failedDetectors.Keys,
+                        completedKeys,
+                        failedKeys,
                         aggregator,
                         requestId,
                         stopwatch.Elapsed,
                         aiRan);
 
-                    // Find detectors that can run in this wave
-                    // When BypassTriggerConditions is true, all detectors run in Wave 0
-                    var readyDetectors = availableDetectors
-                        .Where(d => !ranDetectors.Contains(d.Name))
-                        .Where(d => policy.BypassTriggerConditions || CanRun(d, state.Signals))
-                        .ToArray(); // ToArray is faster than ToList for iteration
+                    // Find detectors that can run in this wave — no LINQ allocation
+                    var readyDetectorsList = new List<IContributingDetector>();
+                    foreach (var d in availableDetectors)
+                    {
+                        if (!ranDetectors.Contains(d.Name) &&
+                            (policy.BypassTriggerConditions || CanRun(d, state.Signals)))
+                            readyDetectorsList.Add(d);
+                    }
 
-                    if (readyDetectors.Length == 0)
+                    if (readyDetectorsList.Count == 0)
                     {
                         _logger.LogDebug(
                             "Wave {Wave}: No more detectors ready, finishing",
@@ -385,15 +396,15 @@ public class BlackboardOrchestrator
                     _logger.LogDebug(
                         "Wave {Wave}: Running {Count} detectors: {Names}",
                         waveNumber,
-                        readyDetectors.Length,
-                        string.Join(", ", readyDetectors.Select(d => d.Name)));
+                        readyDetectorsList.Count,
+                        string.Join(", ", readyDetectorsList.Select(d => d.Name)));
 
                     // Mark as ran (before execution to prevent re-triggering)
-                    foreach (var detector in readyDetectors) ranDetectors.Add(detector.Name);
+                    foreach (var detector in readyDetectorsList) ranDetectors.Add(detector.Name);
 
                     // Execute wave
                     await ExecuteWaveAsync(
-                        readyDetectors,
+                        readyDetectorsList,
                         state,
                         aggregator,
                         signals,
@@ -427,8 +438,8 @@ public class BlackboardOrchestrator
                         var evalState = BuildState(
                             httpContext,
                             signals,
-                            completedDetectors.Keys,
-                            failedDetectors.Keys,
+                            completedKeys,
+                            failedKeys,
                             aggregator,
                             requestId,
                             stopwatch.Elapsed,
@@ -461,12 +472,14 @@ public class BlackboardOrchestrator
                                         : knownAiDetectors; // Empty = run ALL known AI detectors
 
                                     // Get AI detectors that haven't run yet
-                                    var aiDetectors = _detectors
-                                        .Where(d => d.IsEnabled && IsCircuitClosed(d.Name))
-                                        .Where(d => aiDetectorNames.Contains(d.Name))
-                                        .Where(d => !ranDetectors.Contains(d.Name))
-                                        .OrderBy(d => d.Priority)
-                                        .ToList();
+                                    var aiDetectors = new List<IContributingDetector>();
+                                    foreach (var d in _sortedDetectors)
+                                    {
+                                        if (d.IsEnabled && IsCircuitClosed(d.Name) &&
+                                            aiDetectorNames.Contains(d.Name) &&
+                                            !ranDetectors.Contains(d.Name))
+                                            aiDetectors.Add(d);
+                                    }
 
                                     if (aiDetectors.Count > 0)
                                     {
@@ -481,8 +494,8 @@ public class BlackboardOrchestrator
 
                                         // Build fresh state so AI detectors see current risk/contributions
                                         var aiState = BuildState(
-                                            httpContext, signals, completedDetectors.Keys,
-                                            failedDetectors.Keys, aggregator, requestId,
+                                            httpContext, signals, completedKeys,
+                                            failedKeys, aggregator, requestId,
                                             stopwatch.Elapsed);
 
                                         // Execute AI detectors
@@ -550,7 +563,7 @@ public class BlackboardOrchestrator
                     stopwatch.ElapsedMilliseconds, requestId);
             }
 
-            var result = aggregator.ToAggregatedEvidence(policy.Name, aiRan: aiRan);
+            var result = aggregator.ToAggregatedEvidence(policy.Name, aiRan: aiRan, premergedSignals: signals);
 
             // Always use stopwatch for actual wall-clock time (more accurate than sum of contributions)
             var actualProcessingTimeMs = stopwatch.Elapsed.TotalMilliseconds;
@@ -580,65 +593,73 @@ public class BlackboardOrchestrator
                     TotalProcessingTimeMs = actualProcessingTimeMs
                 };
 
-            // Publish learning event with features for similarity learning
-            PublishLearningEvent(result, httpContext, requestId, stopwatch.Elapsed);
+            // Skip heavy bookkeeping for verified good bot early exits (e.g. Googlebot).
+            // These don't need learning events, signature coordination, or LLM classification.
+            var isVerifiedEarlyExit = result.EarlyExit &&
+                result.EarlyExitVerdict is EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted;
 
-            // Extract geo data from signals for country tracking and cluster analysis
-            var geoCountryCode = signals.TryGetValue("geo.country_code", out var ccVal) ? ccVal as string : null;
-            var geoCountryName = signals.TryGetValue("geo.country_name", out var cnVal) ? cnVal as string : null;
-            var geoAsn = signals.TryGetValue("request.ip.asn", out var asnVal) ? asnVal as string : null;
-            var geoIsDatacenter = signals.TryGetValue("request.ip.is_datacenter", out var dcVal) && dcVal is true;
-
-            // Feed country reputation tracker
-            if (_countryTracker != null && !string.IsNullOrEmpty(geoCountryCode))
+            if (!isVerifiedEarlyExit)
             {
-                _countryTracker.RecordDetection(
-                    geoCountryCode,
-                    geoCountryName ?? geoCountryCode,
-                    result.BotProbability > 0.5,
-                    result.BotProbability);
+                // Publish learning event with features for similarity learning
+                PublishLearningEvent(result, httpContext, requestId, stopwatch.Elapsed);
+
+                // Extract geo data from signals for country tracking and cluster analysis
+                var geoCountryCode = signals.TryGetValue("geo.country_code", out var ccVal) ? ccVal as string : null;
+                var geoCountryName = signals.TryGetValue("geo.country_name", out var cnVal) ? cnVal as string : null;
+                var geoAsn = signals.TryGetValue("request.ip.asn", out var asnVal) ? asnVal as string : null;
+                var geoIsDatacenter = signals.TryGetValue("request.ip.is_datacenter", out var dcVal) && dcVal is true;
+
+                // Feed country reputation tracker
+                if (_countryTracker != null && !string.IsNullOrEmpty(geoCountryCode))
+                {
+                    _countryTracker.RecordDetection(
+                        geoCountryCode,
+                        geoCountryName ?? geoCountryCode,
+                        result.BotProbability > 0.5,
+                        result.BotProbability);
+                }
+
+                // Notify cluster service of bot detections to trigger early clustering
+                if (_clusterService != null && result.BotProbability > 0.5)
+                    _clusterService.NotifyBotDetected();
+
+                // Record request in cross-request signature coordinator
+                if (_signatureCoordinator != null)
+                    try
+                    {
+                        var signature = ComputeSignatureHash(httpContext);
+                        var path = httpContext.Request.Path.ToString();
+
+                        // Compute IP hash for convergence analysis (detects UA rotation from same IP)
+                        var clientIp = httpContext.Connection.RemoteIpAddress?.ToString();
+                        var ipHash = !string.IsNullOrEmpty(clientIp) ? _piiHasher.HashIp(clientIp) : null;
+
+                        // Fire-and-forget (don't await to avoid blocking request)
+                        // Pass geo data for cluster analysis
+                        _ = _signatureCoordinator.RecordRequestAsync(
+                            signature,
+                            requestId,
+                            path,
+                            result.BotProbability,
+                            new Dictionary<string, object>(signals),
+                            new HashSet<string>(result.ContributingDetectors),
+                            cancellationToken,
+                            countryCode: geoCountryCode,
+                            asn: geoAsn,
+                            isDatacenter: geoIsDatacenter,
+                            ipHash: ipHash);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Log but don't fail request if signature recording fails
+                        _logger.LogWarning(ex, "Failed to record request in SignatureCoordinator for {RequestId}",
+                            requestId);
+                    }
+
+                // Enqueue for background LLM classification if appropriate
+                if (_llmCoordinator != null && _fullOptions.EnableLlmDetection)
+                    TryEnqueueLlmClassification(httpContext, result, signals);
             }
-
-            // Notify cluster service of bot detections to trigger early clustering
-            if (_clusterService != null && result.BotProbability > 0.5)
-                _clusterService.NotifyBotDetected();
-
-            // Record request in cross-request signature coordinator
-            if (_signatureCoordinator != null)
-                try
-                {
-                    var signature = ComputeSignatureHash(httpContext);
-                    var path = httpContext.Request.Path.ToString();
-
-                    // Compute IP hash for convergence analysis (detects UA rotation from same IP)
-                    var clientIp = httpContext.Connection.RemoteIpAddress?.ToString();
-                    var ipHash = !string.IsNullOrEmpty(clientIp) ? _piiHasher.HashIp(clientIp) : null;
-
-                    // Fire-and-forget (don't await to avoid blocking request)
-                    // Pass geo data for cluster analysis
-                    _ = _signatureCoordinator.RecordRequestAsync(
-                        signature,
-                        requestId,
-                        path,
-                        result.BotProbability,
-                        signals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
-                        result.ContributingDetectors.ToHashSet(),
-                        cancellationToken,
-                        countryCode: geoCountryCode,
-                        asn: geoAsn,
-                        isDatacenter: geoIsDatacenter,
-                        ipHash: ipHash);
-                }
-                catch (Exception ex)
-                {
-                    // Log but don't fail request if signature recording fails
-                    _logger.LogWarning(ex, "Failed to record request in SignatureCoordinator for {RequestId}",
-                        requestId);
-                }
-
-            // Enqueue for background LLM classification if appropriate
-            if (_llmCoordinator != null && _fullOptions.EnableLlmDetection)
-                TryEnqueueLlmClassification(httpContext, result, signals);
 
             _logger.LogDebug(
                 "Detection complete for {RequestId}: {RiskBand} (prob={Probability:F2}, conf={Confidence:F2}) in {Elapsed}ms, {Waves} waves, {Detectors} detectors",
@@ -685,23 +706,41 @@ public class BlackboardOrchestrator
         {
             // Parallel execution with semaphore — allocated per-wave intentionally.
             // A class-level semaphore would throttle across concurrent requests, not per-request.
+            // Use explicit array instead of LINQ .Select() to avoid closure allocations.
             using var semaphore = new SemaphoreSlim(_options.MaxParallelDetectors);
-            var tasks = detectors.Select(async detector =>
+            var tasks = new Task[detectors.Count];
+            for (var i = 0; i < detectors.Count; i++)
             {
-                await semaphore.WaitAsync(cancellationToken);
-                try
-                {
-                    await ExecuteDetectorAsync(
-                        detector, state, aggregator, signals,
-                        completedDetectors, failedDetectors, cancellationToken);
-                }
-                finally
-                {
-                    semaphore.Release();
-                }
-            });
+                var detector = detectors[i];
+                tasks[i] = RunWithSemaphoreAsync(
+                    semaphore, detector, state, aggregator, signals,
+                    completedDetectors, failedDetectors, cancellationToken);
+            }
 
             await Task.WhenAll(tasks);
+        }
+    }
+
+    private async Task RunWithSemaphoreAsync(
+        SemaphoreSlim semaphore,
+        IContributingDetector detector,
+        BlackboardState state,
+        DetectionLedger aggregator,
+        ConcurrentDictionary<string, object> signals,
+        ConcurrentDictionary<string, bool> completedDetectors,
+        ConcurrentDictionary<string, bool> failedDetectors,
+        CancellationToken cancellationToken)
+    {
+        await semaphore.WaitAsync(cancellationToken);
+        try
+        {
+            await ExecuteDetectorAsync(
+                detector, state, aggregator, signals,
+                completedDetectors, failedDetectors, cancellationToken);
+        }
+        finally
+        {
+            semaphore.Release();
         }
     }
 
@@ -793,24 +832,34 @@ public class BlackboardOrchestrator
     private static BlackboardState BuildState(
         HttpContext httpContext,
         IReadOnlyDictionary<string, object> signals,
-        ICollection<string> completedDetectors,
-        ICollection<string> failedDetectors,
+        IReadOnlySet<string> completedDetectors,
+        IReadOnlySet<string> failedDetectors,
         DetectionLedger aggregator,
         string requestId,
         TimeSpan elapsed,
         bool aiRan = false)
     {
-        var aggregated = aggregator.ToAggregatedEvidence(aiRan: aiRan);
+        // Read BotProbability and Confidence directly from the ledger
+        // instead of calling ToAggregatedEvidence() which allocates heavily.
+        // Apply the same clamping logic as DetectionLedgerExtensions.
+        var botProbability = aggregator.BotProbability;
+        if (!aiRan)
+            botProbability = Math.Clamp(botProbability, 0.05, 0.80);
+
+        // SignalWriter: give detectors direct write access to the shared signal dict,
+        // so they can call state.WriteSignal() instead of allocating ImmutableDictionary per contribution.
+        var signalWriter = signals as ConcurrentDictionary<string, object>;
 
         return new BlackboardState
         {
             HttpContext = httpContext,
             Signals = signals, // Pass by reference - no copy
-            CurrentRiskScore = aggregated.BotProbability,
-            DetectionConfidence = aggregated.Confidence,
-            CompletedDetectors = new HashSet<string>(completedDetectors),
-            FailedDetectors = new HashSet<string>(failedDetectors),
-            Contributions = aggregated.Contributions,
+            SignalWriter = signalWriter,
+            CurrentRiskScore = botProbability,
+            DetectionConfidence = aggregator.Confidence,
+            CompletedDetectors = completedDetectors, // Zero-copy: ConcurrentDictionaryKeySet wrapper
+            FailedDetectors = failedDetectors,
+            Contributions = aggregator.Contributions,
             RequestId = requestId,
             Elapsed = elapsed
         };

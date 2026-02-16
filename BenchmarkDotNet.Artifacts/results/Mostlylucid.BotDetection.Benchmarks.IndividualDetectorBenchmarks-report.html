@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Mostlylucid.BotDetection.Benchmarks.IndividualDetectorBenchmarks-20260216-211101</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.15.8, Windows 11 (10.0.26100.7840/24H2/2024Update/HudsonValley)
+AMD Ryzen 9 9950X 4.30GHz, 1 CPU, 32 logical and 16 physical cores
+.NET SDK 10.0.103
+  [Host]     : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v4
+  Job-ORZUYQ : .NET 10.0.3 (10.0.3, 10.0.326.7603), X64 RyuJIT x86-64-v4
+</code></pre>
+<pre><code>IterationCount=10  RunStrategy=Throughput  WarmupCount=3  
+</code></pre>
+
+<table>
+<thead><tr><th>Method                 </th><th>Mean</th><th>Error</th><th>StdDev</th><th>Gen0</th><th>Completed Work Items</th><th>Lock Contentions</th><th>Gen1</th><th>Gen2</th><th>Allocated</th>
+</tr>
+</thead><tbody><tr><td>&#39;UserAgent Detector&#39;</td><td>482.2 ns</td><td>81.01 ns</td><td>53.58 ns</td><td>0.0200</td><td>0.0000</td><td>-</td><td>-</td><td>-</td><td>1568 B</td>
+</tr><tr><td>&#39;IP Detector&#39;</td><td>700.4 ns</td><td>117.68 ns</td><td>77.84 ns</td><td>0.0181</td><td>0.0000</td><td>-</td><td>-</td><td>-</td><td>1400 B</td>
+</tr><tr><td>&#39;Header Detector&#39;</td><td>519.0 ns</td><td>25.30 ns</td><td>16.74 ns</td><td>0.0191</td><td>0.0000</td><td>-</td><td>-</td><td>-</td><td>1472 B</td>
+</tr><tr><td>&#39;Behavioral Detector&#39;</td><td>1,465.5 ns</td><td>92.34 ns</td><td>54.95 ns</td><td>0.0381</td><td>0.0000</td><td>-</td><td>-</td><td>-</td><td>2944 B</td>
+</tr><tr><td>&#39;Heuristic Detector&#39;</td><td>1,605.1 ns</td><td>115.29 ns</td><td>76.26 ns</td><td>0.0362</td><td>0.0000</td><td>-</td><td>-</td><td>-</td><td>2848 B</td>
+</tr><tr><td>&#39;HTTP/3 Fingerprint Detector&#39;</td><td>898.7 ns</td><td>70.38 ns</td><td>41.88 ns</td><td>0.0401</td><td>0.0000</td><td>-</td><td>0.0010</td><td>0.0010</td><td>-</td>
+</tr><tr><td>&#39;AI Scraper Detector&#39;</td><td>706.7 ns</td><td>57.96 ns</td><td>38.34 ns</td><td>0.0210</td><td>0.0000</td><td>-</td><td>-</td><td>-</td><td>1664 B</td>
+</tr></tbody></table>
+</body>
+</html>

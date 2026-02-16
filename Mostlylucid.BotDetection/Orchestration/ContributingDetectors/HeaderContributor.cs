@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -43,7 +42,6 @@ public class HeaderContributor : ConfiguredContributorBase
     {
         var contributions = new List<DetectionContribution>();
         var headers = state.HttpContext.Request.Headers;
-        var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
         // Check for missing essential headers (from YAML: expected_browser_headers)
         var expectedHeaders = GetStringListParam("expected_browser_headers");
@@ -51,10 +49,10 @@ public class HeaderContributor : ConfiguredContributorBase
         var hasAccept = headers.ContainsKey("Accept");
         var hasAcceptEncoding = headers.ContainsKey("Accept-Encoding");
 
-        signals.Add("header.has_accept_language", hasAcceptLanguage);
-        signals.Add("header.has_accept", hasAccept);
-        signals.Add("header.has_accept_encoding", hasAcceptEncoding);
-        signals.Add("header.count", headers.Count);
+        state.WriteSignal("header.has_accept_language", hasAcceptLanguage);
+        state.WriteSignal("header.has_accept", hasAccept);
+        state.WriteSignal("header.has_accept_encoding", hasAcceptEncoding);
+        state.WriteSignal("header.count", headers.Count);
 
         // Missing Accept header - confidence from YAML
         if (!hasAccept)
@@ -62,11 +60,7 @@ public class HeaderContributor : ConfiguredContributorBase
                     "Header",
                     "Missing Accept header",
                     confidenceOverride: ConfidenceBotDetected, // from YAML: defaults.confidence.bot_detected
-                    botType: BotType.Unknown.ToString())
-                with
-                {
-                    Signals = signals.ToImmutable()
-                });
+                    botType: BotType.Unknown.ToString()));
 
         // Missing Accept-Language with browser UA
         var userAgent = state.UserAgent ?? "";
@@ -84,7 +78,7 @@ public class HeaderContributor : ConfiguredContributorBase
         // Check for proxy headers (X-Forwarded-For, Via)
         var hasXForwardedFor = headers.ContainsKey("X-Forwarded-For");
         var hasVia = headers.ContainsKey("Via");
-        signals.Add("header.has_proxy_headers", hasXForwardedFor || hasVia);
+        state.WriteSignal("header.has_proxy_headers", hasXForwardedFor || hasVia);
 
         // Check for unusual header count - threshold from YAML parameters
         var headerCount = headers.Count;
@@ -108,7 +102,7 @@ public class HeaderContributor : ConfiguredContributorBase
         if (contributions.Count == 0)
             contributions.Add(HumanContribution(
                 "Header",
-                "Headers appear normal") with { Signals = signals.ToImmutable() });
+                "Headers appear normal"));
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }

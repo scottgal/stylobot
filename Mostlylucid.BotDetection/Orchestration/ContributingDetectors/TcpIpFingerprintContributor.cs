@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -127,7 +126,6 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
         CancellationToken cancellationToken = default)
     {
         var contributions = new List<DetectionContribution>();
-        var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
         try
         {
@@ -138,39 +136,39 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
             if (state.HttpContext.Request.Headers.TryGetValue("X-TCP-Window", out var windowHeader) &&
                 int.TryParse(windowHeader, out var windowSize))
             {
-                signals.Add("tcp.window_size", windowSize);
-                AnalyzeWindowSize(windowSize, contributions, signals);
+                state.WriteSignal("tcp.window_size", windowSize);
+                AnalyzeWindowSize(windowSize, contributions, state);
             }
 
             // Check for TTL (Time To Live) - passed by reverse proxy as X-TCP-TTL
             if (state.HttpContext.Request.Headers.TryGetValue("X-TCP-TTL", out var ttlHeader) &&
                 int.TryParse(ttlHeader, out var ttl))
             {
-                signals.Add("tcp.ttl", ttl);
-                AnalyzeTtl(ttl, contributions, signals);
+                state.WriteSignal("tcp.ttl", ttl);
+                AnalyzeTtl(ttl, contributions, state);
             }
 
             // Check for TCP options fingerprint (passed by reverse proxy as X-TCP-Options)
             if (state.HttpContext.Request.Headers.TryGetValue("X-TCP-Options", out var tcpOptions))
             {
                 var options = tcpOptions.ToString();
-                signals.Add("tcp.options_pattern", options);
-                AnalyzeTcpOptions(options, contributions, signals);
+                state.WriteSignal("tcp.options_pattern", options);
+                AnalyzeTcpOptions(options, contributions, state);
             }
 
             // Check for MSS (Maximum Segment Size)
             if (state.HttpContext.Request.Headers.TryGetValue("X-TCP-MSS", out var mssHeader) &&
                 int.TryParse(mssHeader, out var mss))
             {
-                signals.Add("tcp.mss", mss);
-                AnalyzeMss(mss, contributions, signals);
+                state.WriteSignal("tcp.mss", mss);
+                AnalyzeMss(mss, contributions, state);
             }
 
             // Analyze IP fragmentation patterns
             if (state.HttpContext.Request.Headers.TryGetValue("X-IP-DF", out var dfFlag))
             {
                 var dontFragment = dfFlag == "1";
-                signals.Add("ip.dont_fragment", dontFragment);
+                state.WriteSignal("ip.dont_fragment", dontFragment);
 
                 // Modern systems set DF flag, old/custom stacks may not
                 if (!dontFragment)
@@ -180,24 +178,23 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                         Category = "TCP/IP",
                         ConfidenceDelta = 0.15,
                         Weight = 0.8,
-                        Reason = "Network packet configuration differs from modern browsers",
-                        Signals = signals.ToImmutable()
+                        Reason = "Network packet configuration differs from modern browsers"
                     });
             }
 
             // Check for IP ID patterns (sequential = Windows, random = Linux/BSD)
             if (state.HttpContext.Request.Headers.TryGetValue("X-IP-ID-Pattern", out var ipIdPattern))
             {
-                signals.Add("ip.id_pattern", ipIdPattern.ToString());
+                state.WriteSignal("ip.id_pattern", ipIdPattern.ToString());
 
                 if (ipIdPattern == "sequential")
-                    signals.Add(SignalKeys.TcpOsHint, "Windows");
-                else if (ipIdPattern == "random") signals.Add(SignalKeys.TcpOsHint, "Linux/BSD");
+                    state.WriteSignal(SignalKeys.TcpOsHint, "Windows");
+                else if (ipIdPattern == "random") state.WriteSignal(SignalKeys.TcpOsHint, "Linux/BSD");
             }
 
             // Analyze connection reuse patterns
             var connectionHeader = state.HttpContext.Request.Headers.Connection.ToString();
-            signals.Add("tcp.connection_header", connectionHeader);
+            state.WriteSignal("tcp.connection_header", connectionHeader);
 
             if (string.IsNullOrEmpty(connectionHeader))
                 contributions.Add(new DetectionContribution
@@ -206,8 +203,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                     Category = "TCP/IP",
                     ConfidenceDelta = 0.2,
                     Weight = 0.7,
-                    Reason = "Missing connection reuse header (unusual for real browsers)",
-                    Signals = signals.ToImmutable()
+                    Reason = "Missing connection reuse header (unusual for real browsers)"
                 });
             else if (connectionHeader.Equals("close", StringComparison.OrdinalIgnoreCase))
                 // Bots often use Connection: close to avoid keep-alive
@@ -217,18 +213,17 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                     Category = "TCP/IP",
                     ConfidenceDelta = 0.1,
                     Weight = 0.6,
-                    Reason = "Client closes connection after each request (bots often avoid persistent connections)",
-                    Signals = signals.ToImmutable()
+                    Reason = "Client closes connection after each request (bots often avoid persistent connections)"
                 });
 
             // Check for pipelining support (modern feature)
             if (state.HttpContext.Request.Headers.TryGetValue("X-HTTP-Pipelining", out var pipelining))
-                signals.Add("http.pipelining_supported", pipelining == "1");
+                state.WriteSignal("http.pipelining_supported", pipelining == "1");
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error analyzing TCP/IP fingerprint");
-            signals.Add("tcp.analysis_error", ex.Message);
+            state.WriteSignal("tcp.analysis_error", ex.Message);
         }
 
         // If no specific indicators found, add neutral contribution with signals
@@ -240,25 +235,15 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                 Category = "TCP/IP",
                 ConfidenceDelta = 0.0,
                 Weight = 1.0,
-                Reason = "Network fingerprint analysis complete (no anomalies detected)",
-                Signals = signals.ToImmutable()
+                Reason = "Network fingerprint analysis complete (no anomalies detected)"
             });
-        }
-        else
-        {
-            // Update last contribution to include all signals
-            if (contributions.Count > 0)
-            {
-                var last = contributions[^1];
-                contributions[^1] = last with { Signals = signals.ToImmutable() };
-            }
         }
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }
 
     private void AnalyzeWindowSize(int windowSize, List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+        BlackboardState state)
     {
         // Find all matching entries (multiple OS/bot patterns can share the same window size)
         var matches = WindowSizePatterns.Where(p => p.WindowSize == windowSize).ToArray();
@@ -266,7 +251,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
         {
             var allPatterns = matches.SelectMany(m => m.Patterns).ToArray();
             var pattern = allPatterns[0];
-            signals.Add(SignalKeys.TcpOsHintWindow, pattern);
+            state.WriteSignal(SignalKeys.TcpOsHintWindow, pattern);
 
             if (allPatterns.Any(p => p.Contains("Bot")))
                 contributions.Add(DetectionContribution.Bot(
@@ -285,21 +270,20 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                     Category = "TCP/IP",
                     ConfidenceDelta = 0.25,
                     Weight = 1.1,
-                    Reason = "Unusual network buffer configuration (does not match standard browsers or operating systems)",
-                    Signals = signals.ToImmutable()
+                    Reason = "Unusual network buffer configuration (does not match standard browsers or operating systems)"
                 });
         }
     }
 
     private void AnalyzeTtl(int ttl, List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+        BlackboardState state)
     {
         var ttlMatches = TtlPatterns.Where(p => p.Ttl == ttl).ToArray();
         if (ttlMatches.Length > 0)
         {
             var allTtlPatterns = ttlMatches.SelectMany(m => m.Patterns).ToArray();
             var pattern = allTtlPatterns[0];
-            signals.Add(SignalKeys.TcpOsHintTtl, pattern);
+            state.WriteSignal(SignalKeys.TcpOsHintTtl, pattern);
 
             if (allTtlPatterns.Any(p => p.Contains("Bot")))
                 contributions.Add(DetectionContribution.Bot(
@@ -318,14 +302,13 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                     Category = "TCP/IP",
                     ConfidenceDelta = 0.3,
                     Weight = 1.2,
-                    Reason = "Unusual network hop count (does not match standard browsers or operating systems)",
-                    Signals = signals.ToImmutable()
+                    Reason = "Unusual network hop count (does not match standard browsers or operating systems)"
                 });
         }
     }
 
     private void AnalyzeTcpOptions(string options, List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+        BlackboardState state)
     {
         // TCP options fingerprinting (similar to p0f)
         // Format: MSS,SACK,Timestamp,WindowScale,etc.
@@ -334,13 +317,13 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
         var hasSack = options.Contains("SACK", StringComparison.OrdinalIgnoreCase);
         var hasWindowScale = options.Contains("WS", StringComparison.OrdinalIgnoreCase);
 
-        signals.Add("tcp.has_timestamp", hasTimestamp);
-        signals.Add("tcp.has_sack", hasSack);
-        signals.Add("tcp.has_window_scale", hasWindowScale);
+        state.WriteSignal("tcp.has_timestamp", hasTimestamp);
+        state.WriteSignal("tcp.has_sack", hasSack);
+        state.WriteSignal("tcp.has_window_scale", hasWindowScale);
 
         // Modern browsers typically have all these options
         var modernOptions = hasTimestamp && hasSack && hasWindowScale;
-        signals.Add("tcp.modern_options", modernOptions);
+        state.WriteSignal("tcp.modern_options", modernOptions);
 
         if (!modernOptions)
             contributions.Add(new DetectionContribution
@@ -349,8 +332,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                 Category = "TCP/IP",
                 ConfidenceDelta = 0.2,
                 Weight = 0.9,
-                Reason = "Missing modern network features that real browsers include",
-                Signals = signals.ToImmutable()
+                Reason = "Missing modern network features that real browsers include"
             });
 
         // Very minimal options = likely bot/old client
@@ -361,13 +343,12 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                 Category = "TCP/IP",
                 ConfidenceDelta = 0.25,
                 Weight = 1.0,
-                Reason = "Very few network options set (typical for automation tools, not real browsers)",
-                Signals = signals.ToImmutable()
+                Reason = "Very few network options set (typical for automation tools, not real browsers)"
             });
     }
 
     private void AnalyzeMss(int mss, List<DetectionContribution> contributions,
-        ImmutableDictionary<string, object>.Builder signals)
+        BlackboardState state)
     {
         // Standard MSS values: 1460 (Ethernet), 1440 (PPPoE), 536 (default)
 
@@ -379,8 +360,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                 Category = "TCP/IP",
                 ConfidenceDelta = 0.3,
                 Weight = 1.1,
-                Reason = "Minimal network packet size (indicates old or custom networking, not a real browser)",
-                Signals = signals.ToImmutable()
+                Reason = "Minimal network packet size (indicates old or custom networking, not a real browser)"
             });
         else if (mss < 536 || mss > 1460)
             // Unusual MSS
@@ -390,8 +370,7 @@ public class TcpIpFingerprintContributor : ContributingDetectorBase
                 Category = "TCP/IP",
                 ConfidenceDelta = 0.15,
                 Weight = 0.8,
-                Reason = "Non-standard network packet size (does not match standard browsers)",
-                Signals = signals.ToImmutable()
+                Reason = "Non-standard network packet size (does not match standard browsers)"
             });
     }
 

@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -66,24 +65,34 @@ public partial class UserAgentContributor : ConfiguredContributorBase
         // Check for known good bots (whitelisted)
         var (isWhitelisted, whitelistName) = CheckWhitelist(userAgent);
         if (isWhitelisted)
+        {
+            state.WriteSignals([
+                new(SignalKeys.UserAgent, userAgent),
+                new(SignalKeys.UserAgentIsBot, true),
+                new(SignalKeys.UserAgentBotType, BotType.SearchEngine.ToString()),
+                new(SignalKeys.UserAgentBotName, whitelistName!)
+            ]);
             return Task.FromResult(Single(DetectionContribution.VerifiedGoodBot(
                     Name,
                     $"Whitelisted bot pattern: {whitelistName}",
                     whitelistName!)
                 with
                 {
-                    Weight = WeightVerified,
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add(SignalKeys.UserAgent, userAgent)
-                        .Add(SignalKeys.UserAgentIsBot, true)
-                        .Add(SignalKeys.UserAgentBotType, BotType.SearchEngine.ToString())
-                        .Add(SignalKeys.UserAgentBotName, whitelistName!)
+                    Weight = WeightVerified
                 }));
+        }
 
         // Check for known bot patterns
         var (isBot, confidence, botType, botName, reason) = AnalyzeUserAgent(userAgent);
 
         if (isBot)
+        {
+            state.WriteSignals([
+                new(SignalKeys.UserAgent, userAgent),
+                new(SignalKeys.UserAgentIsBot, true),
+                new(SignalKeys.UserAgentBotType, botType?.ToString() ?? "Unknown"),
+                new(SignalKeys.UserAgentBotName, botName ?? "")
+            ]);
             contributions.Add(BotContribution(
                     "UserAgent",
                     reason,
@@ -92,24 +101,20 @@ public partial class UserAgentContributor : ConfiguredContributorBase
                     botName: botName)
                 with
                 {
-                    Weight = WeightBotSignal,
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add(SignalKeys.UserAgent, userAgent)
-                        .Add(SignalKeys.UserAgentIsBot, true)
-                        .Add(SignalKeys.UserAgentBotType, botType?.ToString() ?? "Unknown")
-                        .Add(SignalKeys.UserAgentBotName, botName ?? "")
+                    Weight = WeightBotSignal
                 });
+        }
         else
+        {
             // Emit negative contribution (human-like) with signals for other detectors
+            state.WriteSignals([
+                new(SignalKeys.UserAgent, userAgent),
+                new(SignalKeys.UserAgentIsBot, false)
+            ]);
             contributions.Add(HumanContribution(
                     "UserAgent",
-                    "User-Agent appears normal")
-                with
-                {
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add(SignalKeys.UserAgent, userAgent)
-                        .Add(SignalKeys.UserAgentIsBot, false)
-                });
+                    "User-Agent appears normal"));
+        }
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }

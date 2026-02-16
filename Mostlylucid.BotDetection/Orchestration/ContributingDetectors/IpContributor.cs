@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Net;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
@@ -66,9 +65,8 @@ public class IpContributor : ConfiguredContributorBase
     {
         var contributions = new List<DetectionContribution>();
         var clientIp = ResolveClientIp(state.HttpContext);
-        var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
-        signals.Add(SignalKeys.ClientIp, clientIp);
+        state.WriteSignal(SignalKeys.ClientIp, clientIp);
 
         // Check if IP is empty/null - confidence from YAML
         if (string.IsNullOrEmpty(clientIp))
@@ -77,15 +75,14 @@ public class IpContributor : ConfiguredContributorBase
                     "IP",
                     "Missing client IP address",
                     confidenceOverride: MissingIpPenalty,
-                    botType: BotType.Unknown.ToString())
-                with { Signals = signals.ToImmutable() });
+                    botType: BotType.Unknown.ToString()));
             return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
         }
 
         // Check for localhost/local network
         var isLocal = IsLocalIp(clientIp);
         var isLoopback = clientIp is "::1" or "127.0.0.1" or "localhost";
-        signals.Add(SignalKeys.IpIsLocal, isLocal);
+        state.WriteSignal(SignalKeys.IpIsLocal, isLocal);
 
         if (isLocal)
         {
@@ -99,8 +96,7 @@ public class IpContributor : ConfiguredContributorBase
                 Weight = WeightBase * 0.5,
                 Reason = isLoopback
                     ? $"Localhost/loopback address: {MaskIp(clientIp)} (neutral in dev)"
-                    : $"Private network IP: {MaskIp(clientIp)}",
-                Signals = signals.ToImmutable()
+                    : $"Private network IP: {MaskIp(clientIp)}"
             });
         }
 
@@ -108,29 +104,28 @@ public class IpContributor : ConfiguredContributorBase
         var isDatacenter = false;
         string? datacenterName = null;
         if (!isLocal) (isDatacenter, datacenterName) = CheckDatacenterIp(clientIp);
-        signals.Add(SignalKeys.IpIsDatacenter, isDatacenter);
+        state.WriteSignal(SignalKeys.IpIsDatacenter, isDatacenter);
 
         if (isDatacenter)
         {
-            signals.Add("ip.datacenter_name", datacenterName!);
+            state.WriteSignal("ip.datacenter_name", datacenterName!);
             contributions.Add(BotContribution(
                     "IP",
                     $"Datacenter IP detected: {datacenterName}",
                     confidenceOverride: DatacenterConfidence, // from YAML
                     weightMultiplier: 1.2,
-                    botType: BotType.Unknown.ToString())
-                with { Signals = signals.ToImmutable() });
+                    botType: BotType.Unknown.ToString()));
         }
 
         // Check for IPv6 (less common for bots currently, but this varies)
         var isIpv6 = clientIp.Contains(':');
-        signals.Add("ip.is_ipv6", isIpv6);
+        state.WriteSignal("ip.is_ipv6", isIpv6);
 
         // No bot indicators found - use config-driven human indicator
         if (contributions.Count == 0)
             contributions.Add(HumanContribution(
                 "IP",
-                $"IP appears normal: {MaskIp(clientIp)}") with { Signals = signals.ToImmutable() });
+                $"IP appears normal: {MaskIp(clientIp)}"));
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }

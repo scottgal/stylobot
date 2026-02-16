@@ -455,6 +455,33 @@ Complete reference with all available options:
 
 ---
 
+## Path Configuration
+
+Control which paths run detection, skip it entirely, or only compute visitor signatures.
+
+| Option              | Type       | Default                  | Description                                                                 |
+|---------------------|------------|--------------------------|-----------------------------------------------------------------------------|
+| `ExcludedPaths`     | `string[]` | `["/health", "/metrics"]` | Paths that skip detection entirely (prefix match). No processing, no logging. |
+| `SignatureOnlyPaths` | `string[]` | `[]`                     | Paths where only the visitor signature is computed (no detection pipeline). Useful for dashboards that need to look up cached detection results. |
+| `PathOverrides`     | `dict`     | `{}`                     | Paths that always allow requests through, even if detected as bots. Detection still runs for logging/analytics. Supports glob patterns. |
+
+```json
+{
+  "BotDetection": {
+    "ExcludedPaths": ["/health", "/metrics"],
+    "SignatureOnlyPaths": ["/_stylobot"],
+    "PathOverrides": {
+      "/api/public/*": "allow",
+      "/webhooks/**": "allow"
+    }
+  }
+}
+```
+
+> **Note:** The StyloBot Dashboard automatically registers its `BasePath` as a signature-only path. You don't need to configure this manually unless you've customised the dashboard path.
+
+---
+
 ## AI Detection Settings (KEY FEATURE)
 
 AI detection provides machine learning-based classification with continuous learning. **This is a key differentiator** -

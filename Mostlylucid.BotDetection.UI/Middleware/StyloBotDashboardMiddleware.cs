@@ -23,9 +23,13 @@ public class StyloBotDashboardMiddleware
     private readonly StyloBotDashboardOptions _options;
     private readonly RazorViewRenderer _razorViewRenderer;
 
-    // Rate limiter: 10 requests per minute per IP for diagnostics endpoint
+    // Rate limiter: per IP, per minute
     private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> _rateLimits = new();
+    private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> _apiRateLimits = new();
+    private static volatile bool _authWarningLogged;
     private const int DiagnosticsRateLimit = 10;
+    private const int ApiRateLimit = 60; // general API endpoints
+    private const int MaxRateLimitEntries = 10_000; // hard cap to prevent memory exhaustion
     private static readonly TimeSpan RateLimitWindow = TimeSpan.FromMinutes(1);
     private static int _cleanupRunning;
 
@@ -57,6 +61,8 @@ public class StyloBotDashboardMiddleware
         // Check authorization
         if (!await IsAuthorizedAsync(context))
         {
+            _logger.LogWarning("Dashboard access denied for {IP} on {Path}",
+                context.Connection.RemoteIpAddress, context.Request.Path);
             context.Response.StatusCode = 403;
             await context.Response.WriteAsync("Forbidden: Dashboard access denied");
             return;
@@ -64,6 +70,24 @@ public class StyloBotDashboardMiddleware
 
         // Route the request
         var relativePath = path.Substring(_options.BasePath.Length).TrimStart('/');
+
+        // Rate limit all API endpoints (diagnostics has its own stricter limit)
+        if (relativePath.StartsWith("api/", StringComparison.OrdinalIgnoreCase)
+            && !relativePath.Equals("api/diagnostics", StringComparison.OrdinalIgnoreCase))
+        {
+            var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var (allowed, remaining) = CheckRateLimit(clientIp, DateTime.UtcNow, _apiRateLimits, ApiRateLimit);
+            context.Response.Headers["X-RateLimit-Limit"] = ApiRateLimit.ToString();
+            context.Response.Headers["X-RateLimit-Remaining"] = remaining.ToString();
+
+            if (!allowed)
+            {
+                context.Response.StatusCode = 429;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsync("{\"error\":\"Rate limit exceeded\"}");
+                return;
+            }
+        }
 
         switch (relativePath.ToLowerInvariant())
         {
@@ -105,6 +129,10 @@ public class StyloBotDashboardMiddleware
                 await ServeClustersApiAsync(context);
                 break;
 
+            case "api/me":
+                await ServeMeApiAsync(context);
+                break;
+
             case var p when p.StartsWith("api/sparkline/", StringComparison.OrdinalIgnoreCase):
                 await ServeSparklineApiAsync(context, p.Substring("api/sparkline/".Length));
                 break;
@@ -139,8 +167,16 @@ public class StyloBotDashboardMiddleware
             }
         }
 
-        // No auth configured - WARN but allow (for dev)
-        // In production, this should be locked down
+        // No auth configured — log warning on first request so operators notice
+        if (!_authWarningLogged)
+        {
+            _authWarningLogged = true;
+            _logger.LogWarning(
+                "Dashboard has no authorization configured (AuthorizationFilter and RequireAuthorizationPolicy are both null). " +
+                "In production, configure authentication via AddStyloBotDashboard(options => options.AuthorizationFilter = ...) " +
+                "or options.RequireAuthorizationPolicy = \"PolicyName\"");
+        }
+
         return true;
     }
 
@@ -332,6 +368,17 @@ public class StyloBotDashboardMiddleware
             _logger.LogDebug(ex, "Dashboard: failed to build your detection from cache");
             return "null";
         }
+    }
+
+    /// <summary>
+    ///     Sentinel endpoint: returns the current visitor's cached detection as JSON.
+    ///     Called by the dashboard when the initial page load has no yourData (first visit).
+    /// </summary>
+    private async Task ServeMeApiAsync(HttpContext context)
+    {
+        context.Response.ContentType = "application/json";
+        var json = BuildYourDetectionJson(context);
+        await context.Response.WriteAsync(json);
     }
 
     private async Task ServeDetectionsApiAsync(HttpContext context)
@@ -652,8 +699,17 @@ public class StyloBotDashboardMiddleware
     }
 
     private static (bool Allowed, int Remaining) CheckRateLimit(string clientIp, DateTime now)
+        => CheckRateLimit(clientIp, now, _rateLimits, DiagnosticsRateLimit);
+
+    private static (bool Allowed, int Remaining) CheckRateLimit(
+        string clientIp, DateTime now,
+        ConcurrentDictionary<string, (int Count, DateTime WindowStart)> store, int limit)
     {
-        var entry = _rateLimits.AddOrUpdate(clientIp,
+        // Hard cap: reject new IPs when store is at capacity (prevents memory exhaustion)
+        if (store.Count >= MaxRateLimitEntries && !store.ContainsKey(clientIp))
+            return (false, 0);
+
+        var entry = store.AddOrUpdate(clientIp,
             _ => (1, now),
             (_, existing) =>
             {
@@ -663,14 +719,14 @@ public class StyloBotDashboardMiddleware
             });
 
         // Periodic cleanup: evict stale entries (single-thread guard to avoid contention)
-        if (_rateLimits.Count > 1_000 && Interlocked.CompareExchange(ref _cleanupRunning, 1, 0) == 0)
+        if (store.Count > 500 && Interlocked.CompareExchange(ref _cleanupRunning, 1, 0) == 0)
         {
             try
             {
-                foreach (var kv in _rateLimits)
+                foreach (var kv in store)
                 {
                     if (now - kv.Value.WindowStart > RateLimitWindow)
-                        _rateLimits.TryRemove(kv.Key, out _);
+                        store.TryRemove(kv.Key, out _);
                 }
             }
             finally
@@ -679,8 +735,8 @@ public class StyloBotDashboardMiddleware
             }
         }
 
-        var remaining = Math.Max(0, DiagnosticsRateLimit - entry.Count);
-        return (entry.Count <= DiagnosticsRateLimit, remaining);
+        var remaining = Math.Max(0, limit - entry.Count);
+        return (entry.Count <= limit, remaining);
     }
 
     private DashboardFilter ParseFilter(IQueryCollection query)

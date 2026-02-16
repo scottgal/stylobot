@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -64,7 +63,6 @@ public class ClusterContributor : ConfiguredContributorBase
         BlackboardState state, CancellationToken cancellationToken)
     {
         var contributions = new List<DetectionContribution>();
-        var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
         try
         {
@@ -78,24 +76,28 @@ public class ClusterContributor : ConfiguredContributorBase
                 if (cluster != null)
                 {
                     inCluster = true;
-                    signals[SignalKeys.ClusterType] = cluster.Type.ToString().ToLowerInvariant();
-                    signals[SignalKeys.ClusterId] = cluster.ClusterId;
-                    signals[SignalKeys.ClusterMemberCount] = cluster.MemberCount;
-                    signals[SignalKeys.ClusterAvgBotProbability] = cluster.AverageBotProbability;
-                    signals[SignalKeys.ClusterAvgSimilarity] = cluster.AverageSimilarity;
-                    signals[SignalKeys.ClusterTemporalDensity] = cluster.TemporalDensity;
+                    state.WriteSignals([
+                        new(SignalKeys.ClusterType, cluster.Type.ToString().ToLowerInvariant()),
+                        new(SignalKeys.ClusterId, cluster.ClusterId),
+                        new(SignalKeys.ClusterMemberCount, cluster.MemberCount),
+                        new(SignalKeys.ClusterAvgBotProbability, cluster.AverageBotProbability),
+                        new(SignalKeys.ClusterAvgSimilarity, cluster.AverageSimilarity),
+                        new(SignalKeys.ClusterTemporalDensity, cluster.TemporalDensity)
+                    ]);
 
                     if (!string.IsNullOrEmpty(cluster.Label))
-                        signals[SignalKeys.ClusterLabel] = cluster.Label;
+                        state.WriteSignal(SignalKeys.ClusterLabel, cluster.Label);
 
                     // Emit spectral features if available
                     var spectral = _clusterService.GetSpectralFeatures(signature);
                     if (spectral?.HasSufficientData == true)
                     {
-                        signals[SignalKeys.ClusterSpectralEntropy] = spectral.SpectralEntropy;
-                        signals[SignalKeys.ClusterDominantFrequency] = spectral.DominantFrequency;
-                        signals[SignalKeys.ClusterHarmonicRatio] = spectral.HarmonicRatio;
-                        signals[SignalKeys.ClusterPeakToAvg] = spectral.PeakToAvgRatio;
+                        state.WriteSignals([
+                            new(SignalKeys.ClusterSpectralEntropy, spectral.SpectralEntropy),
+                            new(SignalKeys.ClusterDominantFrequency, spectral.DominantFrequency),
+                            new(SignalKeys.ClusterHarmonicRatio, spectral.HarmonicRatio),
+                            new(SignalKeys.ClusterPeakToAvg, spectral.PeakToAvgRatio)
+                        ]);
                     }
 
                     switch (cluster.Type)
@@ -142,10 +144,12 @@ public class ClusterContributor : ConfiguredContributorBase
                 var family = _signatureCoordinator.GetFamily(signature);
                 if (family != null && family.MemberSignatures.Count > 1)
                 {
-                    signals[SignalKeys.ConvergenceFamilyId] = family.FamilyId;
-                    signals[SignalKeys.ConvergenceFamilySize] = family.MemberSignatures.Count;
-                    signals[SignalKeys.ConvergenceFormationReason] = family.FormationReason.ToString();
-                    signals[SignalKeys.ConvergenceMergeConfidence] = family.MergeConfidence;
+                    state.WriteSignals([
+                        new(SignalKeys.ConvergenceFamilyId, family.FamilyId),
+                        new(SignalKeys.ConvergenceFamilySize, family.MemberSignatures.Count),
+                        new(SignalKeys.ConvergenceFormationReason, family.FormationReason.ToString()),
+                        new(SignalKeys.ConvergenceMergeConfidence, family.MergeConfidence)
+                    ]);
 
                     // Family-level boost: more members = stronger signal, capped at 3
                     var familyBoost = GetParam("convergence_family_boost", 0.05) *
@@ -171,8 +175,10 @@ public class ClusterContributor : ConfiguredContributorBase
                     if (bestAffinity.HasValue)
                     {
                         var (affinityCluster, affinityScore) = bestAffinity.Value;
-                        signals["cluster.community_affinity"] = Math.Round(affinityScore, 4);
-                        signals["cluster.community_cluster_id"] = affinityCluster.ClusterId;
+                        state.WriteSignals([
+                            new("cluster.community_affinity", Math.Round(affinityScore, 4)),
+                            new("cluster.community_cluster_id", affinityCluster.ClusterId)
+                        ]);
 
                         // Small proportional boost: community features increase resolution
                         // but never on their own make something a bot
@@ -194,7 +200,7 @@ public class ClusterContributor : ConfiguredContributorBase
                     var botRate = _countryTracker.GetCountryBotRate(countryCode);
                     if (botRate > 0)
                     {
-                        signals[SignalKeys.GeoCountryBotRate] = botRate;
+                        state.WriteSignal(SignalKeys.GeoCountryBotRate, botRate);
 
                         // Get rank among all tracked countries
                         var allCountries = _countryTracker.GetTopBotCountries(100);
@@ -210,7 +216,7 @@ public class ClusterContributor : ConfiguredContributorBase
                         }
 
                         if (rank > 0)
-                            signals[SignalKeys.GeoCountryBotRank] = rank;
+                            state.WriteSignal(SignalKeys.GeoCountryBotRank, rank);
 
                         if (botRate >= CountryVeryHighRateThreshold)
                         {
@@ -235,22 +241,11 @@ public class ClusterContributor : ConfiguredContributorBase
             _logger.LogWarning(ex, "Error in cluster/country reputation analysis");
         }
 
-        // Ensure signals are attached to the last contribution
+        // Ensure at least one contribution
         if (contributions.Count == 0)
         {
-            if (signals.Count > 0)
-            {
-                contributions.Add(NeutralContribution("Cluster",
-                    "Cluster and country reputation analysis complete") with
-                {
-                    Signals = signals.ToImmutable()
-                });
-            }
-        }
-        else
-        {
-            var last = contributions[^1];
-            contributions[^1] = last with { Signals = signals.ToImmutable() };
+            contributions.Add(NeutralContribution("Cluster",
+                "Cluster and country reputation analysis complete"));
         }
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);

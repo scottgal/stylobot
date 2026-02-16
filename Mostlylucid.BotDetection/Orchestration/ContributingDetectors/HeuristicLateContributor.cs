@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Middleware;
@@ -84,6 +83,11 @@ public class HeuristicLateContributor : ContributingDetectorBase
             var reason = result.Reasons.First();
             var isBot = reason.ConfidenceImpact > 0;
 
+            state.WriteSignals([
+                new(SignalKeys.HeuristicLatePrediction, isBot ? "bot" : "human"),
+                new(SignalKeys.HeuristicLateConfidence, result.Confidence)
+            ]);
+
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,
@@ -92,10 +96,7 @@ public class HeuristicLateContributor : ContributingDetectorBase
                 Weight = 2.5, // Late heuristic is weighted heavily - it's the final say
                 Reason = reason.Detail.Replace("(early)", "(late)").Replace("(full)", "(late)"),
                 BotType = result.BotType?.ToString(),
-                BotName = result.BotName,
-                Signals = ImmutableDictionary<string, object>.Empty
-                    .Add(SignalKeys.HeuristicLatePrediction, isBot ? "bot" : "human")
-                    .Add(SignalKeys.HeuristicLateConfidence, result.Confidence)
+                BotName = result.BotName
             });
 
             _logger.LogDebug(

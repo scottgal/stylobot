@@ -55,13 +55,13 @@ public class IndividualDetectorBenchmarks
 
         _serviceProvider = services.BuildServiceProvider();
 
-        // Get detectors
-        _userAgentDetector = _serviceProvider.GetRequiredService<UserAgentContributor>();
-        _ipDetector = _serviceProvider.GetRequiredService<IpContributor>();
-        _headerDetector = _serviceProvider.GetRequiredService<HeaderContributor>();
-        _behavioralDetector = _serviceProvider.GetRequiredService<BehavioralContributor>();
-        _heuristicDetector = _serviceProvider.GetRequiredService<HeuristicContributor>();
+        // Get detectors — all registered as IContributingDetector, resolve by type
         var allDetectors = _serviceProvider.GetServices<IContributingDetector>().ToList();
+        _userAgentDetector = allDetectors.OfType<UserAgentContributor>().First();
+        _ipDetector = allDetectors.OfType<IpContributor>().First();
+        _headerDetector = allDetectors.OfType<HeaderContributor>().First();
+        _behavioralDetector = allDetectors.OfType<BehavioralContributor>().First();
+        _heuristicDetector = allDetectors.OfType<HeuristicContributor>().First();
         _http3Detector = allDetectors.OfType<Http3FingerprintContributor>().First();
         _aiScraperDetector = allDetectors.OfType<AiScraperContributor>().First();
 

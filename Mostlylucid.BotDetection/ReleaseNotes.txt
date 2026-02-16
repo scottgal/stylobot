@@ -1,3 +1,60 @@
+3.5.0
+
+UI Components, Dashboard Enhancements & Hardening:
+
+New Sb* Tag Helpers (Mostlylucid.BotDetection.UI):
+- <sb-badge>: Inline bot/human badge with risk colouring
+- <sb-confidence>: Confidence score bar or text display
+- <sb-gate>: Conditional rendering based on bot detection result
+- <sb-honeypot>: Honeypot form field insertion
+- <sb-human>: Show content only for verified humans
+- <sb-risk>: Risk level display
+- <sb-risk-pill>: Compact risk pill/badge
+- <sb-signal>: Individual signal display
+- <sb-summary>: Full detection summary (inline or card variant)
+
+New View Components:
+- SbBadgeViewComponent, SbConfidenceViewComponent, SbSummaryViewComponent
+- Card and Default views for SbSummary
+- Standalone CSS: sb-components.css
+
+SignatureOnlyPaths:
+- New BotDetectionOptions.SignatureOnlyPaths property
+- Paths compute visitor HMAC signature without running the 27-detector pipeline
+- Dashboard automatically registers its BasePath as signature-only
+- Enables "Your Detection" panel to look up cached results from real page visits
+
+Dashboard Improvements:
+- Embed mode: pass ?embed=1 to hide the brand header (for iframe embedding)
+- /api/me sentinel endpoint: returns current visitor's cached detection
+- Client-side retry: fetchMeWithRetry polls api/me when initial data is null
+- General API rate limiting (60 req/min per IP) on all dashboard endpoints
+- Authorization failure logging
+
+Security & Hardening:
+- SignalR hub auth: OnConnectedAsync enforces same auth as dashboard middleware
+- Dashboard auth warning: logs when no AuthorizationFilter/RequireAuthorizationPolicy configured
+- SafeJson: all @Html.Raw() JSON blocks escape </ to prevent script-tag breakout (XSS defence-in-depth)
+- Removed Html.Raw for emoji rendering in ViewComponents (defence-in-depth)
+- Thread-safe mutation of SignatureOnlyPaths via lock
+- Rate limiting expanded from diagnostics-only to all API endpoints (60 req/min per IP)
+- Rate limiter cleanup threshold lowered from 1000 to 500 entries
+- Rate limiter hard cap (10,000 entries) prevents memory exhaustion under distributed attacks
+- User-Agent sanitization: email addresses stripped from UA strings before SignalR broadcast
+
+Demo Application:
+- ComponentsController with Gating, Honeypot, and Index views
+- ComponentDemo Razor Page for interactive component testing
+- New _Layout, _ViewImports, _ViewStart for Demo views
+
+Documentation:
+- New ui-components.md: full reference for all 11 Sb* tag helpers with usage examples
+- Path Configuration section in configuration.md (ExcludedPaths, SignatureOnlyPaths, PathOverrides)
+- Dashboard API: /api/me endpoint, embed mode (?embed=1), rate limiting details
+- Security: SignalR hub auth, dashboard auth warning, SafeJson escaping
+
+---
+
 1.2.0
 
 Enhanced Detection Pipeline & Security Layer:

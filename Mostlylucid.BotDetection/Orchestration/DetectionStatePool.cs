@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Concurrent;
 using Microsoft.Extensions.ObjectPool;
 
@@ -15,6 +16,13 @@ internal sealed class PooledDetectionState
     public HashSet<string> RanDetectors { get; } = new();
     public HashSet<string> AllPolicyDetectors { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    ///     Zero-allocation read-only set views over the ConcurrentDictionary keys.
+    ///     Avoids creating new HashSet copies in BuildState on every wave.
+    /// </summary>
+    public ConcurrentDictionaryKeySet CompletedDetectorKeys { get; } = new();
+    public ConcurrentDictionaryKeySet FailedDetectorKeys { get; } = new();
+
     public void Reset()
     {
         Signals.Clear();
@@ -22,7 +30,37 @@ internal sealed class PooledDetectionState
         FailedDetectors.Clear();
         RanDetectors.Clear();
         AllPolicyDetectors.Clear();
+        CompletedDetectorKeys.SetSource(null!);
+        FailedDetectorKeys.SetSource(null!);
     }
+}
+
+/// <summary>
+///     A lightweight IReadOnlySet wrapper over ConcurrentDictionary keys.
+///     Avoids allocating a new HashSet every time BuildState is called.
+/// </summary>
+internal sealed class ConcurrentDictionaryKeySet : IReadOnlySet<string>
+{
+    private ConcurrentDictionary<string, bool> _source = null!;
+
+    public void SetSource(ConcurrentDictionary<string, bool> source) => _source = source;
+
+    public int Count => _source?.Count ?? 0;
+    public bool Contains(string item) => _source?.ContainsKey(item) ?? false;
+
+    public IEnumerator<string> GetEnumerator() =>
+        _source?.Keys.GetEnumerator() ?? Enumerable.Empty<string>().GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+    public bool IsProperSubsetOf(IEnumerable<string> other) => ToHashSet().IsProperSubsetOf(other);
+    public bool IsProperSupersetOf(IEnumerable<string> other) => ToHashSet().IsProperSupersetOf(other);
+    public bool IsSubsetOf(IEnumerable<string> other) => ToHashSet().IsSubsetOf(other);
+    public bool IsSupersetOf(IEnumerable<string> other) => ToHashSet().IsSupersetOf(other);
+    public bool Overlaps(IEnumerable<string> other) => ToHashSet().Overlaps(other);
+    public bool SetEquals(IEnumerable<string> other) => ToHashSet().SetEquals(other);
+
+    private HashSet<string> ToHashSet() => new(_source?.Keys ?? Enumerable.Empty<string>());
 }
 
 /// <summary>

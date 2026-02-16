@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Models;
@@ -42,6 +41,8 @@ public class VersionAgeContributor : ContributingDetectorBase
         {
             var result = await _detector.DetectAsync(state.HttpContext, cancellationToken);
 
+            state.WriteSignal(SignalKeys.VersionAgeAnalyzed, true);
+
             if (result.Reasons.Count == 0)
                 // No version age issues detected - add negative signal (human indicator)
                 contributions.Add(new DetectionContribution
@@ -50,9 +51,7 @@ public class VersionAgeContributor : ContributingDetectorBase
                     Category = "VersionAge",
                     ConfidenceDelta = -0.05,
                     Weight = 0.8,
-                    Reason = "Browser/OS versions appear current",
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add(SignalKeys.VersionAgeAnalyzed, true)
+                    Reason = "Browser/OS versions appear current"
                 });
             else
                 // Convert each reason to a contribution
@@ -64,9 +63,7 @@ public class VersionAgeContributor : ContributingDetectorBase
                         ConfidenceDelta = reason.ConfidenceImpact,
                         Weight = 1.2, // Version age is a strong signal
                         Reason = reason.Detail,
-                        BotType = result.BotType?.ToString(),
-                        Signals = ImmutableDictionary<string, object>.Empty
-                            .Add(SignalKeys.VersionAgeAnalyzed, true)
+                        BotType = result.BotType?.ToString()
                     });
         }
         catch (Exception ex)

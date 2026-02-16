@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
@@ -56,6 +55,8 @@ public class LlmContributor : ConfiguredContributorBase
             ? "LLM background classification available"
             : "LLM detection disabled or unavailable";
 
+        state.WriteSignal("llm.available", isAvailable);
+
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(new[]
         {
             new DetectionContribution
@@ -64,9 +65,7 @@ public class LlmContributor : ConfiguredContributorBase
                 Category = "AI",
                 ConfidenceDelta = 0,
                 Weight = 0,
-                Reason = reason,
-                Signals = ImmutableDictionary<string, object>.Empty
-                    .Add("llm.available", isAvailable)
+                Reason = reason
             }
         });
     }

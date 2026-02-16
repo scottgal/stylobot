@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -93,6 +92,7 @@ public class SecurityToolContributor : ConfiguredContributorBase
                     pattern.Original.Name, pattern.Original.Category, state.ClientIp ?? "unknown");
 
                 return Single(CreateSecurityToolContribution(
+                    state,
                     pattern.Original.Name ?? pattern.Original.Pattern,
                     pattern.Original.Category ?? "SecurityTool",
                     0.95,
@@ -166,12 +166,23 @@ public class SecurityToolContributor : ConfiguredContributorBase
     }
 
     private DetectionContribution CreateSecurityToolContribution(
+        BlackboardState state,
         string toolName,
         string category,
         double confidence,
         string userAgent)
     {
         // Security tools trigger early exit as verified bad bot
+        state.WriteSignals([
+            new(SignalKeys.SecurityToolDetected, true),
+            new(SignalKeys.SecurityToolName, toolName),
+            new(SignalKeys.SecurityToolCategory, category),
+            new(SignalKeys.UserAgent, userAgent),
+            new(SignalKeys.UserAgentIsBot, true),
+            new(SignalKeys.UserAgentBotType, BotType.MaliciousBot.ToString()),
+            new(SignalKeys.UserAgentBotName, toolName)
+        ]);
+
         return DetectionContribution.VerifiedBot(
                 Name,
                 toolName,
@@ -179,15 +190,7 @@ public class SecurityToolContributor : ConfiguredContributorBase
             with
             {
                 ConfidenceDelta = confidence,
-                Weight = 2.0, // High weight - security tools are definitive
-                Signals = ImmutableDictionary<string, object>.Empty
-                    .Add(SignalKeys.SecurityToolDetected, true)
-                    .Add(SignalKeys.SecurityToolName, toolName)
-                    .Add(SignalKeys.SecurityToolCategory, category)
-                    .Add(SignalKeys.UserAgent, userAgent)
-                    .Add(SignalKeys.UserAgentIsBot, true)
-                    .Add(SignalKeys.UserAgentBotType, BotType.MaliciousBot.ToString())
-                    .Add(SignalKeys.UserAgentBotName, toolName)
+                Weight = 2.0 // High weight - security tools are definitive
             };
     }
 

@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
@@ -75,29 +74,29 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                 // Very high entropy (>3.5) = random scanning (bot)
                 // Very low entropy (<0.5) = too repetitive (bot)
                 if (pathEntropy > 3.5)
+                {
+                    state.WriteSignals([new("PathEntropy", pathEntropy), new("PathEntropyHigh", true)]);
                     contributions.Add(new DetectionContribution
                     {
                         DetectorName = Name,
                         Category = "AdvancedBehavioral",
                         ConfidenceDelta = 0.35,
                         Weight = 1.3,
-                        Reason = "Visiting many random URLs in no logical order (random scanning pattern)",
-                        Signals = ImmutableDictionary<string, object>.Empty
-                            .Add("PathEntropy", pathEntropy)
-                            .Add("PathEntropyHigh", true)
+                        Reason = "Visiting many random URLs in no logical order (random scanning pattern)"
                     });
+                }
                 else if (pathEntropy < 0.5)
+                {
+                    state.WriteSignals([new("PathEntropy", pathEntropy), new("PathEntropyLow", true)]);
                     contributions.Add(new DetectionContribution
                     {
                         DetectorName = Name,
                         Category = "AdvancedBehavioral",
                         ConfidenceDelta = 0.25,
                         Weight = 1.2,
-                        Reason = "Repeatedly visiting the same few URLs (too repetitive for a real user)",
-                        Signals = ImmutableDictionary<string, object>.Empty
-                            .Add("PathEntropy", pathEntropy)
-                            .Add("PathEntropyLow", true)
+                        Reason = "Repeatedly visiting the same few URLs (too repetitive for a real user)"
                     });
+                }
             }
 
             // 2. Timing Entropy
@@ -105,92 +104,96 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
             if (timingEntropy > 0)
                 // Very low timing entropy (<0.3) = too regular (bot)
                 if (timingEntropy < 0.3)
+                {
+                    state.WriteSignals([new("TimingEntropy", timingEntropy), new("TimingTooRegular", true)]);
                     contributions.Add(new DetectionContribution
                     {
                         DetectorName = Name,
                         Category = "AdvancedBehavioral",
                         ConfidenceDelta = 0.3,
                         Weight = 1.3,
-                        Reason = "Requests arrive at suspiciously regular intervals (machine-like timing)",
-                        Signals = ImmutableDictionary<string, object>.Empty
-                            .Add("TimingEntropy", timingEntropy)
-                            .Add("TimingTooRegular", true)
+                        Reason = "Requests arrive at suspiciously regular intervals (machine-like timing)"
                     });
+                }
 
             // 3. Timing Anomaly Detection
             var (isAnomaly, zScore, anomalyDesc) = _analyzer.DetectTimingAnomaly(clientIp, currentTime);
             if (isAnomaly)
+            {
+                state.WriteSignals([new("TimingAnomalyZScore", zScore), new("TimingAnomalyDetected", true)]);
                 contributions.Add(new DetectionContribution
                 {
                     DetectorName = Name,
                     Category = "AdvancedBehavioral",
                     ConfidenceDelta = 0.25,
                     Weight = 1.1,
-                    Reason = anomalyDesc,
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add("TimingAnomalyZScore", zScore)
-                        .Add("TimingAnomalyDetected", true)
+                    Reason = anomalyDesc
                 });
+            }
 
             // 4. Regular Pattern Detection (Coefficient of Variation)
             var (isTooRegular, cv, cvDesc) = _analyzer.DetectRegularPattern(clientIp);
             if (isTooRegular)
+            {
+                state.WriteSignals([new("CoefficientOfVariation", cv), new("PatternTooRegular", true)]);
                 contributions.Add(new DetectionContribution
                 {
                     DetectorName = Name,
                     Category = "AdvancedBehavioral",
                     ConfidenceDelta = 0.35,
                     Weight = 1.4,
-                    Reason = cvDesc,
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add("CoefficientOfVariation", cv)
-                        .Add("PatternTooRegular", true)
+                    Reason = cvDesc
                 });
+            }
 
             // 5. Navigation Pattern Analysis (Markov)
             var (transitionScore, navPattern) = _analyzer.AnalyzeNavigationPattern(clientIp, currentPath);
             if (transitionScore > 0)
+            {
+                state.WriteSignals([new("NavigationAnomalyScore", transitionScore), new("NavigationPatternUnusual", true)]);
                 contributions.Add(new DetectionContribution
                 {
                     DetectorName = Name,
                     Category = "AdvancedBehavioral",
                     ConfidenceDelta = transitionScore,
                     Weight = 1.2,
-                    Reason = navPattern,
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add("NavigationAnomalyScore", transitionScore)
-                        .Add("NavigationPatternUnusual", true)
+                    Reason = navPattern
                 });
+            }
 
             // 6. Burst Detection
             var burstWindow = TimeSpan.FromSeconds(30);
             var (isBurst, burstSize, burstDuration) = _analyzer.DetectBurstPattern(clientIp, burstWindow);
             if (isBurst)
+            {
+                state.WriteSignals([
+                    new("BurstDetected", true),
+                    new("BurstSize", burstSize),
+                    new("BurstDurationSeconds", burstDuration.TotalSeconds)
+                ]);
                 contributions.Add(new DetectionContribution
                 {
                     DetectorName = Name,
                     Category = "AdvancedBehavioral",
                     ConfidenceDelta = 0.4,
                     Weight = 1.5,
-                    Reason = $"Burst detected: {burstSize} requests in {burstDuration.TotalSeconds:F0} seconds",
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add("BurstDetected", true)
-                        .Add("BurstSize", burstSize)
-                        .Add("BurstDurationSeconds", burstDuration.TotalSeconds)
+                    Reason = $"Burst detected: {burstSize} requests in {burstDuration.TotalSeconds:F0} seconds"
                 });
+            }
 
             // 7. Positive signal: Good patterns detected
             if (contributions.Count == 0 && pathEntropy > 0.5 && pathEntropy < 3.0 && cv > 0.3)
+            {
+                state.WriteSignal("NaturalPatterns", true);
                 contributions.Add(new DetectionContribution
                 {
                     DetectorName = Name,
                     Category = "AdvancedBehavioral",
                     ConfidenceDelta = -0.2,
                     Weight = 1.0,
-                    Reason = "Natural browsing patterns detected (entropy, timing variation)",
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add("NaturalPatterns", true)
+                    Reason = "Natural browsing patterns detected (entropy, timing variation)"
                 });
+            }
         }
         catch (Exception ex)
         {

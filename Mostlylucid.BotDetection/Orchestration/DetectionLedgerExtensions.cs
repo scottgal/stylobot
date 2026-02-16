@@ -17,7 +17,8 @@ public static class DetectionLedgerExtensions
         string? policyName = null,
         PolicyAction? policyAction = null,
         string? actionPolicyName = null,
-        bool aiRan = false)
+        bool aiRan = false,
+        IReadOnlyDictionary<string, object>? premergedSignals = null)
     {
         var botProbability = ledger.BotProbability;
         var confidence = ledger.Confidence;
@@ -44,7 +45,7 @@ public static class DetectionLedgerExtensions
         // Handle early exit
         if (ledger.EarlyExit && ledger.EarlyExitContribution != null)
         {
-            return CreateEarlyExitResult(ledger, aiRan, policyName);
+            return CreateEarlyExitResult(ledger, aiRan, policyName, premergedSignals);
         }
 
         return new AggregatedEvidence
@@ -56,7 +57,9 @@ public static class DetectionLedgerExtensions
             EarlyExit = false,
             PrimaryBotType = primaryBotType,
             PrimaryBotName = primaryBotName,
-            Signals = ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+            Signals = premergedSignals != null
+                ? new Dictionary<string, object>(premergedSignals)
+                : ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
             TotalProcessingTimeMs = ledger.TotalProcessingTimeMs,
             CategoryBreakdown = ledger.CategoryBreakdown,
             ContributingDetectors = ledger.ContributingDetectors,
@@ -71,7 +74,8 @@ public static class DetectionLedgerExtensions
     private static AggregatedEvidence CreateEarlyExitResult(
         DetectionLedger ledger,
         bool aiRan,
-        string? policyName)
+        string? policyName,
+        IReadOnlyDictionary<string, object>? premergedSignals = null)
     {
         var exitContrib = ledger.EarlyExitContribution!;
         var verdict = ParseEarlyExitVerdict(exitContrib.EarlyExitVerdict);
@@ -88,7 +92,9 @@ public static class DetectionLedgerExtensions
             EarlyExitVerdict = verdict,
             PrimaryBotType = ParseBotType(exitContrib.BotType),
             PrimaryBotName = exitContrib.BotName,
-            Signals = ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+            Signals = premergedSignals != null
+                ? new Dictionary<string, object>(premergedSignals)
+                : ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
             TotalProcessingTimeMs = ledger.TotalProcessingTimeMs,
             CategoryBreakdown = ledger.CategoryBreakdown,
             ContributingDetectors = ledger.ContributingDetectors,

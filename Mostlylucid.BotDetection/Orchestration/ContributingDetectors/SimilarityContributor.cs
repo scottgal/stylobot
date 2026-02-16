@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Models;
@@ -49,22 +48,20 @@ public class SimilarityContributor : ContributingDetectorBase
         CancellationToken cancellationToken = default)
     {
         var contributions = new List<DetectionContribution>();
-        var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
         try
         {
             // Skip if index is empty
             if (_search.Count == 0)
             {
-                signals.Add(SignalKeys.SimilarityMatchCount, 0);
+                state.WriteSignal(SignalKeys.SimilarityMatchCount, 0);
                 return Single(new DetectionContribution
                 {
                     DetectorName = Name,
                     Category = "Similarity",
                     ConfidenceDelta = 0.0,
                     Weight = 1.0,
-                    Reason = "No prior visitor signatures to compare against yet",
-                    Signals = signals.ToImmutable()
+                    Reason = "No prior visitor signatures to compare against yet"
                 });
             }
 
@@ -83,14 +80,14 @@ public class SimilarityContributor : ContributingDetectorBase
             // Search for similar signatures (heuristic + semantic when available)
             var similar = await _search.FindSimilarAsync(vector, topK: 5, minSimilarity: 0.80f, embeddingContext);
 
-            signals.Add(SignalKeys.SimilarityMatchCount, similar.Count);
+            state.WriteSignal(SignalKeys.SimilarityMatchCount, similar.Count);
 
             if (similar.Count > 0)
             {
                 var topResult = similar[0];
                 var topSimilarity = 1.0f - topResult.Distance;
-                signals.Add(SignalKeys.SimilarityTopScore, topSimilarity);
-                signals.Add(SignalKeys.SimilarityKnownBot, topResult.WasBot);
+                state.WriteSignal(SignalKeys.SimilarityTopScore, topSimilarity);
+                state.WriteSignal(SignalKeys.SimilarityKnownBot, topResult.WasBot);
 
                 // Count how many similar signatures are bots vs humans
                 var botMatches = similar.Count(s => s.WasBot);
@@ -116,8 +113,7 @@ public class SimilarityContributor : ContributingDetectorBase
                         ConfidenceDelta = HumanReduceConfidence * topSimilarity,
                         Weight = 1.3,
                         Reason =
-                            $"Resembles {humanMatches} previously verified human visitor(s) ({topSimilarity:P0} match)",
-                        Signals = signals.ToImmutable()
+                            $"Resembles {humanMatches} previously verified human visitor(s) ({topSimilarity:P0} match)"
                     });
                 }
                 else
@@ -130,8 +126,7 @@ public class SimilarityContributor : ContributingDetectorBase
                         ConfidenceDelta = 0.0,
                         Weight = 1.0,
                         Reason =
-                            $"Found {similar.Count} similar past visitors but results are inconclusive",
-                        Signals = signals.ToImmutable()
+                            $"Found {similar.Count} similar past visitors but results are inconclusive"
                     });
                 }
             }
@@ -139,10 +134,10 @@ public class SimilarityContributor : ContributingDetectorBase
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error in similarity search");
-            signals.TryAdd("similarity.error", ex.Message);
+            state.WriteSignal("similarity.error", ex.Message);
         }
 
-        // Always emit at least one contribution with signals
+        // Always emit at least one contribution
         if (contributions.Count == 0)
         {
             contributions.Add(new DetectionContribution
@@ -151,15 +146,8 @@ public class SimilarityContributor : ContributingDetectorBase
                 Category = "Similarity",
                 ConfidenceDelta = 0.0,
                 Weight = 1.0,
-                Reason = "No closely matching past visitors found",
-                Signals = signals.ToImmutable()
+                Reason = "No closely matching past visitors found"
             });
-        }
-        else
-        {
-            // Ensure last contribution carries all signals
-            var last = contributions[^1];
-            contributions[^1] = last with { Signals = signals.ToImmutable() };
         }
 
         return contributions;

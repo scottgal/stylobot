@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -57,7 +56,6 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
         CancellationToken cancellationToken = default)
     {
         var contributions = new List<DetectionContribution>();
-        var signals = ImmutableDictionary.CreateBuilder<string, object>();
 
         try
         {
@@ -75,7 +73,7 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
             var ipIsDatacenter = GetSignal<bool>(state, SignalKeys.IpIsDatacenter);
 
             // 1. OS Fingerprint Correlation
-            var osMismatch = AnalyzeOsCorrelation(tcpOsHint, tcpWindowOsHint, userAgentOs, signals);
+            var osMismatch = AnalyzeOsCorrelation(state, tcpOsHint, tcpWindowOsHint, userAgentOs);
             if (osMismatch)
             {
                 anomalyCount++;
@@ -89,7 +87,7 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
             }
 
             // 2. Browser Fingerprint Correlation
-            var browserMismatch = AnalyzeBrowserCorrelation(h2ClientType, userAgentBrowser, tlsProtocol, signals);
+            var browserMismatch = AnalyzeBrowserCorrelation(state, h2ClientType, userAgentBrowser, tlsProtocol);
             if (browserMismatch)
             {
                 anomalyCount++;
@@ -103,7 +101,7 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
             }
 
             // 3. TLS vs User-Agent Correlation
-            var tlsMismatch = AnalyzeTlsCorrelation(tlsProtocol, userAgentBrowser, signals);
+            var tlsMismatch = AnalyzeTlsCorrelation(state, tlsProtocol, userAgentBrowser);
             if (tlsMismatch)
             {
                 anomalyCount++;
@@ -115,13 +113,12 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
                     Category = "Correlation",
                     ConfidenceDelta = 0.4,
                     Weight = 1.4,
-                    Reason = $"Encryption version does not match what {userAgentBrowser} would normally use",
-                    Signals = signals.ToImmutable()
+                    Reason = $"Encryption version does not match what {userAgentBrowser} would normally use"
                 });
             }
 
             // 4. Geographic Correlation
-            var geoMismatch = AnalyzeGeoCorrelation(state, signals);
+            var geoMismatch = AnalyzeGeoCorrelation(state);
             if (geoMismatch)
             {
                 anomalyCount++;
@@ -133,8 +130,7 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
                     Category = "Correlation",
                     ConfidenceDelta = 0.3,
                     Weight = 1.2,
-                    Reason = "IP address location does not match the language preference claimed by the browser",
-                    Signals = signals.ToImmutable()
+                    Reason = "IP address location does not match the language preference claimed by the browser"
                 });
             }
 
@@ -156,9 +152,11 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
             // 6. Calculate overall consistency score
             var totalLayers = 5; // OS, Browser, TLS, Geo, IP-Browser
             var consistencyScore = 1.0 - (double)anomalyCount / totalLayers;
-            signals.Add(SignalKeys.CorrelationConsistencyScore, consistencyScore);
-            signals.Add(SignalKeys.CorrelationAnomalyCount, anomalyCount);
-            signals.Add("correlation.anomaly_layers", string.Join(",", anomalyLayers));
+            state.WriteSignals([
+                new(SignalKeys.CorrelationConsistencyScore, consistencyScore),
+                new(SignalKeys.CorrelationAnomalyCount, anomalyCount),
+                new("correlation.anomaly_layers", string.Join(",", anomalyLayers))
+            ]);
 
             // High anomaly count = very suspicious
             if (anomalyCount >= 3)
@@ -182,17 +180,16 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
                     Category = "Correlation",
                     ConfidenceDelta = -0.25,
                     Weight = 1.8,
-                    Reason = "All signals consistent: operating system, browser, encryption, and location all match",
-                    Signals = signals.ToImmutable()
+                    Reason = "All signals consistent: operating system, browser, encryption, and location all match"
                 });
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error in multi-layer correlation analysis");
-            signals.Add("correlation.analysis_error", ex.Message);
+            state.WriteSignal("correlation.analysis_error", ex.Message);
         }
 
-        // Always add at least one contribution with all signals
+        // Always add at least one contribution
         if (contributions.Count == 0)
         {
             contributions.Add(new DetectionContribution
@@ -201,29 +198,23 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
                 Category = "Correlation",
                 ConfidenceDelta = 0.0,
                 Weight = 1.0,
-                Reason = "Cross-signal consistency check complete (not enough data to compare)",
-                Signals = signals.ToImmutable()
+                Reason = "Cross-signal consistency check complete (not enough data to compare)"
             });
-        }
-        else
-        {
-            // Ensure last contribution has all signals
-            var last = contributions[^1];
-            contributions[^1] = last with { Signals = signals.ToImmutable() };
         }
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }
 
-    private bool AnalyzeOsCorrelation(string? tcpOsHint, string? tcpWindowOsHint, string? userAgentOs,
-        ImmutableDictionary<string, object>.Builder signals)
+    private bool AnalyzeOsCorrelation(BlackboardState state, string? tcpOsHint, string? tcpWindowOsHint, string? userAgentOs)
     {
         if (string.IsNullOrEmpty(tcpOsHint) && string.IsNullOrEmpty(tcpWindowOsHint)) return false;
         if (string.IsNullOrEmpty(userAgentOs)) return false;
 
         var networkOs = tcpOsHint ?? tcpWindowOsHint;
-        signals.Add("correlation.network_os", networkOs!);
-        signals.Add("correlation.claimed_os", userAgentOs);
+        state.WriteSignals([
+            new("correlation.network_os", networkOs!),
+            new("correlation.claimed_os", userAgentOs)
+        ]);
 
         // Normalize OS names for comparison
         var networkOsNorm = NormalizeOsName(networkOs);
@@ -233,17 +224,18 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
                        !networkOsNorm.Contains(userAgentOsNorm, StringComparison.OrdinalIgnoreCase) &&
                        !userAgentOsNorm.Contains(networkOsNorm, StringComparison.OrdinalIgnoreCase);
 
-        signals.Add(SignalKeys.CorrelationOsMismatch, mismatch);
+        state.WriteSignal(SignalKeys.CorrelationOsMismatch, mismatch);
         return mismatch;
     }
 
-    private bool AnalyzeBrowserCorrelation(string? h2ClientType, string? userAgentBrowser, string? tlsProtocol,
-        ImmutableDictionary<string, object>.Builder signals)
+    private bool AnalyzeBrowserCorrelation(BlackboardState state, string? h2ClientType, string? userAgentBrowser, string? tlsProtocol)
     {
         if (string.IsNullOrEmpty(h2ClientType) || string.IsNullOrEmpty(userAgentBrowser)) return false;
 
-        signals.Add("correlation.h2_client", h2ClientType);
-        signals.Add("correlation.claimed_browser", userAgentBrowser);
+        state.WriteSignals([
+            new("correlation.h2_client", h2ClientType),
+            new("correlation.claimed_browser", userAgentBrowser)
+        ]);
 
         // Check if HTTP/2 fingerprint matches claimed browser
         var browserNorm = NormalizeBrowserName(userAgentBrowser);
@@ -254,12 +246,11 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
                        !h2ClientType.Contains("Bot") && // If H2 detected bot, that's already flagged
                        !string.IsNullOrEmpty(browserNorm);
 
-        signals.Add(SignalKeys.CorrelationBrowserMismatch, mismatch);
+        state.WriteSignal(SignalKeys.CorrelationBrowserMismatch, mismatch);
         return mismatch;
     }
 
-    private bool AnalyzeTlsCorrelation(string? tlsProtocol, string? userAgentBrowser,
-        ImmutableDictionary<string, object>.Builder signals)
+    private bool AnalyzeTlsCorrelation(BlackboardState state, string? tlsProtocol, string? userAgentBrowser)
     {
         if (string.IsNullOrEmpty(tlsProtocol) || string.IsNullOrEmpty(userAgentBrowser)) return false;
 
@@ -272,12 +263,12 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
         var isOldTls = tlsProtocol.Contains("Tls") && !tlsProtocol.Contains("Tls12") && !tlsProtocol.Contains("Tls13");
 
         var mismatch = isModernBrowser && isOldTls;
-        signals.Add("correlation.tls_browser_mismatch", mismatch);
+        state.WriteSignal("correlation.tls_browser_mismatch", mismatch);
 
         return mismatch;
     }
 
-    private bool AnalyzeGeoCorrelation(BlackboardState state, ImmutableDictionary<string, object>.Builder signals)
+    private bool AnalyzeGeoCorrelation(BlackboardState state)
     {
         // Check if IP geolocation matches Accept-Language headers
         var ipCountry = GetSignal<string>(state, "geo.country_code");
@@ -285,12 +276,14 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
 
         if (string.IsNullOrEmpty(ipCountry) || string.IsNullOrEmpty(acceptLanguage)) return false;
 
-        signals.Add("correlation.ip_country", ipCountry);
-        signals.Add("correlation.accept_language", acceptLanguage);
+        state.WriteSignals([
+            new("correlation.ip_country", ipCountry),
+            new("correlation.accept_language", acceptLanguage)
+        ]);
 
         // Extract primary language from Accept-Language (e.g., "en-US,en;q=0.9" -> "en-US")
         var primaryLang = acceptLanguage.Split(',')[0].Split(';')[0].Trim();
-        signals.Add("correlation.primary_language", primaryLang);
+        state.WriteSignal("correlation.primary_language", primaryLang);
 
         // Very basic geo-language correlation (extend with proper mapping in production)
         var languageCountryMap = new Dictionary<string, string[]>
@@ -308,7 +301,7 @@ public class MultiLayerCorrelationContributor : ContributingDetectorBase
         {
             var mismatch =
                 !expectedLanguages.Any(lang => primaryLang.StartsWith(lang, StringComparison.OrdinalIgnoreCase));
-            signals.Add("correlation.geo_mismatch", mismatch);
+            state.WriteSignal("correlation.geo_mismatch", mismatch);
             return mismatch;
         }
 

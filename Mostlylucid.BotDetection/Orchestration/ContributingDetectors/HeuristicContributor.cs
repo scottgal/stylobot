@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Models;
@@ -59,8 +58,7 @@ public class HeuristicContributor : ConfiguredContributorBase
                     Category = "HeuristicEarly",
                     ConfidenceDelta = 0,
                     Weight = 0,
-                    Reason = "Heuristic detection disabled or skipped",
-                    Signals = ImmutableDictionary<string, object>.Empty
+                    Reason = "Heuristic detection disabled or skipped"
                 });
             }
             else
@@ -68,6 +66,12 @@ public class HeuristicContributor : ConfiguredContributorBase
                 // Heuristic made a prediction (use reason's ConfidenceImpact which is negative for human)
                 var reason = result.Reasons.First();
                 var isBot = reason.ConfidenceImpact > 0;
+
+                state.WriteSignals([
+                    new(SignalKeys.HeuristicPrediction, isBot ? "bot" : "human"),
+                    new(SignalKeys.HeuristicConfidence, result.Confidence),
+                    new(SignalKeys.HeuristicEarlyCompleted, true) // Signal for late heuristic
+                ]);
 
                 contributions.Add(new DetectionContribution
                 {
@@ -77,11 +81,7 @@ public class HeuristicContributor : ConfiguredContributorBase
                     Weight = HeuristicWeight, // Heuristic predictions are weighted heavily
                     Reason = reason.Detail,
                     BotType = result.BotType?.ToString(),
-                    BotName = result.BotName,
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add(SignalKeys.HeuristicPrediction, isBot ? "bot" : "human")
-                        .Add(SignalKeys.HeuristicConfidence, result.Confidence)
-                        .Add(SignalKeys.HeuristicEarlyCompleted, true) // Signal for late heuristic
+                    BotName = result.BotName
                 });
             }
         }

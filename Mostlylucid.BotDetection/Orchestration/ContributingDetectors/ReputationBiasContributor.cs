@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -62,7 +61,6 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
         CancellationToken cancellationToken = default)
     {
         var contributions = new List<DetectionContribution>();
-        var signals = ImmutableDictionary<string, object>.Empty;
 
         // Check User-Agent reputation
         if (!string.IsNullOrWhiteSpace(state.UserAgent))
@@ -72,7 +70,8 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
 
             if (uaReputation != null && uaReputation.State != ReputationState.Neutral)
             {
-                var (contribution, uaSignals) = CreateReputationContribution(
+                var contribution = CreateReputationContribution(
+                    state,
                     uaReputation,
                     "UserAgent",
                     $"UA pattern {uaReputation.State} (score={uaReputation.BotScore:F2}, support={uaReputation.Support:F0})");
@@ -80,7 +79,6 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
                 if (contribution != null)
                 {
                     contributions.Add(contribution);
-                    signals = signals.AddRange(uaSignals);
 
                     _logger.LogDebug(
                         "UA reputation bias applied: {PatternId} state={State} score={Score:F2}",
@@ -100,7 +98,8 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
 
             if (ipReputation != null && ipReputation.State != ReputationState.Neutral)
             {
-                var (contribution, ipSignals) = CreateReputationContribution(
+                var contribution = CreateReputationContribution(
+                    state,
                     ipReputation,
                     "IP",
                     $"IP range {ipReputation.State} (score={ipReputation.BotScore:F2}, support={ipReputation.Support:F0})");
@@ -108,7 +107,6 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
                 if (contribution != null)
                 {
                     contributions.Add(contribution);
-                    signals = signals.AddRange(ipSignals);
 
                     _logger.LogDebug(
                         "IP reputation bias applied: {PatternId} state={State} score={Score:F2}",
@@ -126,7 +124,8 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
 
             if (combinedReputation != null && combinedReputation.State != ReputationState.Neutral)
             {
-                var (contribution, combinedSignals) = CreateReputationContribution(
+                var contribution = CreateReputationContribution(
+                    state,
                     combinedReputation,
                     "Combined",
                     $"Combined signature {combinedReputation.State} (score={combinedReputation.BotScore:F2}, support={combinedReputation.Support:F0})");
@@ -135,7 +134,6 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
                 {
                     // Combined patterns get higher weight as they're more specific
                     contributions.Add(contribution with { Weight = contribution.Weight * CombinedPatternMultiplier });
-                    signals = signals.AddRange(combinedSignals);
 
                     _logger.LogDebug(
                         "Combined reputation bias applied: {PatternId} state={State} score={Score:F2}",
@@ -147,22 +145,13 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
         // If we have any reputation-based contributions, add summary signal
         if (contributions.Count > 0)
         {
-            signals = signals.Add(SignalKeys.ReputationBiasApplied, true);
-            signals = signals.Add(SignalKeys.ReputationBiasCount, contributions.Count);
+            state.WriteSignal(SignalKeys.ReputationBiasApplied, true);
+            state.WriteSignal(SignalKeys.ReputationBiasCount, contributions.Count);
 
             // Check if any pattern can trigger fast abort
-            var canAbort = contributions.Any(c =>
-                c.Signals.TryGetValue(SignalKeys.ReputationCanAbort, out var v) && v is true);
+            var canAbort = state.Signals.TryGetValue(SignalKeys.ReputationCanAbort, out var v) && v is true;
 
-            if (canAbort) signals = signals.Add(SignalKeys.ReputationCanAbort, true);
-
-            // Update signals on first contribution to contain summary
-            if (contributions.Count > 0)
-            {
-                var existingSignals = contributions[0].Signals;
-                var merged = existingSignals.ToImmutableDictionary().SetItems(signals);
-                contributions[0] = contributions[0] with { Signals = merged };
-            }
+            if (canAbort) state.WriteSignal(SignalKeys.ReputationCanAbort, true);
         }
 
         // Always return at least one contribution so detector shows in list
@@ -172,16 +161,18 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }
 
-    private (DetectionContribution? Contribution, ImmutableDictionary<string, object> Signals)
-        CreateReputationContribution(
+    private DetectionContribution? CreateReputationContribution(
+            BlackboardState state,
             PatternReputation reputation,
             string category,
             string reason)
     {
-        var signals = ImmutableDictionary<string, object>.Empty
-            .Add($"reputation.{category.ToLowerInvariant()}.state", reputation.State.ToString())
-            .Add($"reputation.{category.ToLowerInvariant()}.score", reputation.BotScore)
-            .Add($"reputation.{category.ToLowerInvariant()}.support", reputation.Support);
+        var catLower = category.ToLowerInvariant();
+        state.WriteSignals([
+            new($"reputation.{catLower}.state", reputation.State.ToString()),
+            new($"reputation.{catLower}.score", reputation.BotScore),
+            new($"reputation.{catLower}.support", reputation.Support)
+        ]);
 
         // Calculate contribution based on reputation state and FastPathWeight
         var weight = reputation.FastPathWeight;
@@ -189,23 +180,22 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
         // Determine if this should trigger early exit
         if (reputation.CanTriggerFastAbort)
         {
-            signals = signals.Add(SignalKeys.ReputationCanAbort, true);
+            state.WriteSignal(SignalKeys.ReputationCanAbort, true);
 
-            return (DetectionContribution.VerifiedBot(
+            return DetectionContribution.VerifiedBot(
                     Name,
                     reputation.PatternId,
                     $"[Reputation] {reason}") with
                 {
                     ConfidenceDelta = reputation.BotScore,
-                    Weight = ConfirmedBadWeight, // High weight for confirmed bad patterns
-                    Signals = signals
-                }, signals);
+                    Weight = ConfirmedBadWeight // High weight for confirmed bad patterns
+                };
         }
 
         // For non-abort cases, return weighted contribution
         if (Math.Abs(weight) < 0.01)
             // Negligible weight, skip
-            return (null, ImmutableDictionary<string, object>.Empty);
+            return null;
 
         string? botType = reputation.State switch
         {
@@ -215,16 +205,15 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
             _ => null
         };
 
-        return (new DetectionContribution
+        return new DetectionContribution
         {
             DetectorName = Name,
             Category = $"Reputation:{category}",
             ConfidenceDelta = weight > 0 ? weight : -Math.Abs(weight),
             Weight = Math.Abs(weight) * ReputationWeightMultiplier, // Reputation has decent weight
             Reason = reason,
-            BotType = botType,
-            Signals = signals
-        }, signals);
+            BotType = botType
+        };
     }
 
     /// <summary>

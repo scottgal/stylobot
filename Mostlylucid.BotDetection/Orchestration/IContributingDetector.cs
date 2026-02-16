@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -324,6 +325,35 @@ public sealed class BlackboardState
     ///     Time elapsed since detection started
     /// </summary>
     public TimeSpan Elapsed { get; init; }
+
+    /// <summary>
+    ///     Direct writer for the shared signal dictionary.
+    ///     Set by the orchestrator at state construction time.
+    ///     Detectors use <see cref="WriteSignal"/> / <see cref="WriteSignals"/> instead of
+    ///     allocating per-contribution ImmutableDictionary signal payloads.
+    /// </summary>
+    internal ConcurrentDictionary<string, object>? SignalWriter { get; init; }
+
+    /// <summary>
+    ///     Write a single signal directly to the shared signal store.
+    ///     Avoids per-detector ImmutableDictionary allocations.
+    /// </summary>
+    public void WriteSignal(string key, object value)
+    {
+        if (SignalWriter is not null)
+            SignalWriter[key] = value;
+    }
+
+    /// <summary>
+    ///     Write multiple signals directly to the shared signal store.
+    ///     Avoids per-detector ImmutableDictionary allocations.
+    /// </summary>
+    public void WriteSignals(ReadOnlySpan<KeyValuePair<string, object>> signals)
+    {
+        if (SignalWriter is null) return;
+        foreach (var kvp in signals)
+            SignalWriter[kvp.Key] = kvp.Value;
+    }
 
     // ===== PII Properties (Direct Access ONLY) =====
     //

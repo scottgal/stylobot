@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
@@ -75,31 +74,30 @@ public class CacheBehaviorContributor : ContributingDetectorBase
         if (isStaticResource && requestCount > 1 && !hasCacheValidation)
         {
             var impact = Math.Min(0.2 + (requestCount - 1) * 0.1, 0.5);
+            state.WriteSignals([new(SignalKeys.CacheValidationMissing, true), new("ResourceRequestCount", requestCount)]);
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,
                 Category = "CacheBehavior",
                 ConfidenceDelta = impact,
                 Weight = 1.2,
-                Reason = $"Static resource requested {requestCount} times without cache headers",
-                Signals = ImmutableDictionary<string, object>.Empty
-                    .Add(SignalKeys.CacheValidationMissing, true)
-                    .Add("ResourceRequestCount", requestCount)
+                Reason = $"Static resource requested {requestCount} times without cache headers"
             });
         }
 
         // 2. No compression support (very rare for modern browsers)
         if (!supportsCompression && !string.IsNullOrEmpty(acceptEncoding))
+        {
+            state.WriteSignal(SignalKeys.CompressionSupported, false);
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,
                 Category = "CacheBehavior",
                 ConfidenceDelta = 0.25,
                 Weight = 1.0,
-                Reason = "Client does not support data compression (unusual for real browsers)",
-                Signals = ImmutableDictionary<string, object>.Empty
-                    .Add(SignalKeys.CompressionSupported, false)
+                Reason = "Client does not support data compression (unusual for real browsers)"
             });
+        }
 
         // 3. Rapid repeated requests for the same resource
         var timingKey = $"cache_timing:{clientIp}:{path}";
@@ -114,15 +112,14 @@ public class CacheBehaviorContributor : ContributingDetectorBase
             if (timeSinceLastRequest < 5 && !hasCacheValidation)
             {
                 var impact = timeSinceLastRequest < 1 ? 0.4 : 0.3;
+                state.WriteSignal(SignalKeys.RapidRepeatedRequest, true);
                 contributions.Add(new DetectionContribution
                 {
                     DetectorName = Name,
                     Category = "CacheBehavior",
                     ConfidenceDelta = impact,
                     Weight = 1.3,
-                    Reason = $"Same page re-requested after {timeSinceLastRequest:F1} seconds without using browser cache",
-                    Signals = ImmutableDictionary<string, object>.Empty
-                        .Add(SignalKeys.RapidRepeatedRequest, true)
+                    Reason = $"Same page re-requested after {timeSinceLastRequest:F1} seconds without using browser cache"
                 });
             }
         }
@@ -144,6 +141,8 @@ public class CacheBehaviorContributor : ContributingDetectorBase
             {
                 var cacheValidationRate = (double)profile.RequestsWithCacheValidation / profile.StaticResourceRequests;
                 if (cacheValidationRate < 0.3)
+                {
+                    state.WriteSignals([new(SignalKeys.CacheBehaviorAnomaly, true), new("CacheValidationRate", cacheValidationRate)]);
                     contributions.Add(new DetectionContribution
                     {
                         DetectorName = Name,
@@ -151,27 +150,25 @@ public class CacheBehaviorContributor : ContributingDetectorBase
                         ConfidenceDelta = 0.3,
                         Weight = 1.5,
                         Reason =
-                            $"Client rarely reuses cached resources ({cacheValidationRate:P0} of static files) unlike real browsers",
-                        Signals = ImmutableDictionary<string, object>.Empty
-                            .Add(SignalKeys.CacheBehaviorAnomaly, true)
-                            .Add("CacheValidationRate", cacheValidationRate)
+                            $"Client rarely reuses cached resources ({cacheValidationRate:P0} of static files) unlike real browsers"
                     });
+                }
             }
         }
 
         // 5. Positive signal: Good cache behavior
         if (contributions.Count == 0 && hasCacheValidation && supportsCompression)
+        {
+            state.WriteSignals([new(SignalKeys.CacheValidationMissing, false), new(SignalKeys.CompressionSupported, true)]);
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,
                 Category = "CacheBehavior",
                 ConfidenceDelta = -0.15,
                 Weight = 1.0,
-                Reason = "Normal cache behavior detected",
-                Signals = ImmutableDictionary<string, object>.Empty
-                    .Add(SignalKeys.CacheValidationMissing, false)
-                    .Add(SignalKeys.CompressionSupported, true)
+                Reason = "Normal cache behavior detected"
             });
+        }
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }

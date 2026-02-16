@@ -135,6 +135,7 @@ public static class KestrelTlsOptions
         });
     }
 
+    #pragma warning disable SYSLIB0039 // Enum values referenced for protocol name mapping only, not negotiation
     private static string GetProtocolName(SslProtocols protocol)
     {
         return protocol switch
@@ -146,6 +147,7 @@ public static class KestrelTlsOptions
             _ => protocol.ToString()
         };
     }
+    #pragma warning restore SYSLIB0039
 }
 
 /// <summary>
