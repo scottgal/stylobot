@@ -166,6 +166,10 @@ public static class DetectionLedgerExtensions
         if (Enum.TryParse<BotType>(botType, true, out var result))
             return result;
 
+        // Handle atoms library values that don't map directly to enum names
+        if (botType.Equals("VerifiedGood", StringComparison.OrdinalIgnoreCase))
+            return BotType.VerifiedBot;
+
         return null;
     }
 

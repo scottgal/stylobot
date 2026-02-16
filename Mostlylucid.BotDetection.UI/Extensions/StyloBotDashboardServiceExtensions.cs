@@ -40,9 +40,6 @@ public static class StyloBotDashboardServiceExtensions
         // Background service for summary updates
         services.AddHostedService<DashboardSummaryBroadcaster>();
 
-        // LLM-powered description generation for bot detections
-        services.AddSingleton<DetectionDescriptionService>();
-
         // Server-side visitor cache for HTMX rendering
         services.AddSingleton<VisitorListCache>();
 
@@ -54,9 +51,6 @@ public static class StyloBotDashboardServiceExtensions
 
         // Cluster description callback for background LLM cluster naming
         services.TryAddSingleton<IClusterDescriptionCallback, ClusterDescriptionSignalRCallback>();
-
-        // Simulator if enabled
-        if (options.EnableSimulator) services.AddHostedService<DashboardSimulatorService>();
 
         return services;
     }

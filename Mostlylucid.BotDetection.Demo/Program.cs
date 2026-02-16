@@ -8,6 +8,7 @@ using Mostlylucid.BotDetection.Demo.Services;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.GeoDetection.Contributor.Extensions;
 using Mostlylucid.GeoDetection.Extensions;
 using mostlylucid.mockllmapi;
@@ -34,6 +35,13 @@ builder.Services.AddGeoDetectionContributor(options =>
     options.EnableInconsistencyDetection = true;
     options.FlagHostingIps = true;
     options.FlagVpnIps = false; // Don't flag VPNs by default
+});
+
+// Add StyloBot Dashboard UI with real-time SignalR monitoring
+builder.Services.AddStyloBotDashboard(options =>
+{
+    options.Enabled = true;
+    options.BasePath = "/stylobot";
 });
 
 // Add ApiHolodeck for honeypot detection and bot redirection
@@ -83,7 +91,9 @@ app.UseHttpsRedirection();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-// Add bot detection middleware
+app.UseRouting();
+
+// Add bot detection middleware (MUST be after UseRouting so endpoint metadata is visible)
 app.UseBotDetection();
 
 // Add signature capture middleware (MUST be after UseBotDetection to capture evidence)
@@ -93,6 +103,10 @@ app.UseSignatureCapture();
 app.UseYarpLearningMode();
 
 app.UseAuthorization();
+
+// Add StyloBot Dashboard (MUST be after UseRouting/UseAuthorization)
+app.UseStyloBotDashboard();
+
 app.MapControllers();
 app.MapRazorPages();
 

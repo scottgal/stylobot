@@ -159,70 +159,68 @@ public partial class UserAgentContributor : ConfiguredContributorBase
         return (false, 0.0, null, null, "Normal user agent");
     }
 
+    private static readonly (string pattern, BotType type, string name)[] CommonBotPatterns =
+    [
+        // Automation / scraping tools
+        ("curl/", BotType.Scraper, "curl"),
+        ("wget/", BotType.Scraper, "wget"),
+        ("python-requests", BotType.Scraper, "python-requests"),
+        ("python-urllib", BotType.Scraper, "python-urllib"),
+        ("python-httpx", BotType.Scraper, "python-httpx"),
+        ("aiohttp", BotType.Scraper, "aiohttp"),
+        ("scrapy", BotType.Scraper, "Scrapy"),
+        ("selenium", BotType.Scraper, "Selenium"),
+        ("headless", BotType.Scraper, "Headless browser"),
+        ("phantomjs", BotType.Scraper, "PhantomJS"),
+        ("puppeteer", BotType.Scraper, "Puppeteer"),
+        ("playwright", BotType.Scraper, "Playwright"),
+        ("httrack", BotType.Scraper, "HTTrack"),
+        ("libwww-perl", BotType.Scraper, "libwww-perl"),
+        ("java/", BotType.Scraper, "Java HTTP client"),
+        ("apache-httpclient", BotType.Scraper, "Apache HttpClient"),
+        ("okhttp", BotType.Scraper, "OkHttp"),
+        ("go-http-client", BotType.Scraper, "Go HTTP client"),
+        ("node-fetch", BotType.Scraper, "node-fetch"),
+        ("axios/", BotType.Scraper, "axios"),
+        ("httpie", BotType.Scraper, "HTTPie"),
+        ("colly", BotType.Scraper, "Colly"),
+        // Search engines (when not whitelisted)
+        ("Googlebot", BotType.SearchEngine, "Googlebot"),
+        ("bingbot", BotType.SearchEngine, "Bingbot"),
+        ("YandexBot", BotType.SearchEngine, "YandexBot"),
+        ("Baiduspider", BotType.SearchEngine, "Baiduspider"),
+        ("DuckDuckBot", BotType.SearchEngine, "DuckDuckBot"),
+        // Social media bots
+        ("facebookexternalhit", BotType.SocialMediaBot, "FacebookBot"),
+        ("Facebot", BotType.SocialMediaBot, "FacebookBot"),
+        ("Twitterbot", BotType.SocialMediaBot, "TwitterBot"),
+        ("LinkedInBot", BotType.SocialMediaBot, "LinkedInBot"),
+        ("Slackbot", BotType.SocialMediaBot, "SlackBot"),
+        ("Discordbot", BotType.SocialMediaBot, "DiscordBot"),
+        ("TelegramBot", BotType.SocialMediaBot, "TelegramBot"),
+        ("WhatsApp", BotType.SocialMediaBot, "WhatsApp"),
+        // AI / LLM crawlers
+        ("GPTBot", BotType.AiBot, "GPTBot"),
+        ("ChatGPT-User", BotType.AiBot, "ChatGPT"),
+        ("ClaudeBot", BotType.AiBot, "ClaudeBot"),
+        ("Claude-Web", BotType.AiBot, "Claude"),
+        ("anthropic-ai", BotType.AiBot, "Anthropic"),
+        ("CCBot", BotType.AiBot, "CommonCrawl"),
+        ("cohere-ai", BotType.AiBot, "Cohere"),
+        ("PerplexityBot", BotType.AiBot, "PerplexityBot"),
+        ("Bytespider", BotType.AiBot, "Bytespider"),
+        // Monitoring / uptime bots
+        ("UptimeRobot", BotType.MonitoringBot, "UptimeRobot"),
+        ("Pingdom", BotType.MonitoringBot, "Pingdom"),
+        ("StatusCake", BotType.MonitoringBot, "StatusCake"),
+        ("Site24x7", BotType.MonitoringBot, "Site24x7"),
+        ("NewRelicPinger", BotType.MonitoringBot, "New Relic"),
+        ("Datadog", BotType.MonitoringBot, "Datadog"),
+    ];
+
     private static bool IsCommonBotPattern(string userAgent, out BotType? botType, out string? botName)
     {
-        // Common bot patterns with high confidence
-        // Ordered: specific automation tools first, then known named bots
-        var patterns = new (string pattern, BotType type, string name)[]
-        {
-            // Automation / scraping tools
-            ("curl/", BotType.Scraper, "curl"),
-            ("wget/", BotType.Scraper, "wget"),
-            ("python-requests", BotType.Scraper, "python-requests"),
-            ("python-urllib", BotType.Scraper, "python-urllib"),
-            ("python-httpx", BotType.Scraper, "python-httpx"),
-            ("aiohttp", BotType.Scraper, "aiohttp"),
-            ("scrapy", BotType.Scraper, "Scrapy"),
-            ("selenium", BotType.Scraper, "Selenium"),
-            ("headless", BotType.Scraper, "Headless browser"),
-            ("phantomjs", BotType.Scraper, "PhantomJS"),
-            ("puppeteer", BotType.Scraper, "Puppeteer"),
-            ("playwright", BotType.Scraper, "Playwright"),
-            ("httrack", BotType.Scraper, "HTTrack"),
-            ("libwww-perl", BotType.Scraper, "libwww-perl"),
-            ("java/", BotType.Scraper, "Java HTTP client"),
-            ("apache-httpclient", BotType.Scraper, "Apache HttpClient"),
-            ("okhttp", BotType.Scraper, "OkHttp"),
-            ("go-http-client", BotType.Scraper, "Go HTTP client"),
-            ("node-fetch", BotType.Scraper, "node-fetch"),
-            ("axios/", BotType.Scraper, "axios"),
-            ("httpie", BotType.Scraper, "HTTPie"),
-            ("colly", BotType.Scraper, "Colly"),
-            // Search engines (when not whitelisted)
-            ("Googlebot", BotType.SearchEngine, "Googlebot"),
-            ("bingbot", BotType.SearchEngine, "Bingbot"),
-            ("YandexBot", BotType.SearchEngine, "YandexBot"),
-            ("Baiduspider", BotType.SearchEngine, "Baiduspider"),
-            ("DuckDuckBot", BotType.SearchEngine, "DuckDuckBot"),
-            // Social media bots
-            ("facebookexternalhit", BotType.SocialMediaBot, "FacebookBot"),
-            ("Facebot", BotType.SocialMediaBot, "FacebookBot"),
-            ("Twitterbot", BotType.SocialMediaBot, "TwitterBot"),
-            ("LinkedInBot", BotType.SocialMediaBot, "LinkedInBot"),
-            ("Slackbot", BotType.SocialMediaBot, "SlackBot"),
-            ("Discordbot", BotType.SocialMediaBot, "DiscordBot"),
-            ("TelegramBot", BotType.SocialMediaBot, "TelegramBot"),
-            ("WhatsApp", BotType.SocialMediaBot, "WhatsApp"),
-            // AI / LLM crawlers
-            ("GPTBot", BotType.AiBot, "GPTBot"),
-            ("ChatGPT-User", BotType.AiBot, "ChatGPT"),
-            ("ClaudeBot", BotType.AiBot, "ClaudeBot"),
-            ("Claude-Web", BotType.AiBot, "Claude"),
-            ("anthropic-ai", BotType.AiBot, "Anthropic"),
-            ("CCBot", BotType.AiBot, "CommonCrawl"),
-            ("cohere-ai", BotType.AiBot, "Cohere"),
-            ("PerplexityBot", BotType.AiBot, "PerplexityBot"),
-            ("Bytespider", BotType.AiBot, "Bytespider"),
-            // Monitoring / uptime bots
-            ("UptimeRobot", BotType.MonitoringBot, "UptimeRobot"),
-            ("Pingdom", BotType.MonitoringBot, "Pingdom"),
-            ("StatusCake", BotType.MonitoringBot, "StatusCake"),
-            ("Site24x7", BotType.MonitoringBot, "Site24x7"),
-            ("NewRelicPinger", BotType.MonitoringBot, "New Relic"),
-            ("Datadog", BotType.MonitoringBot, "Datadog"),
-        };
-
-        foreach (var (pattern, type, name) in patterns)
+        foreach (var (pattern, type, name) in CommonBotPatterns)
             if (userAgent.Contains(pattern, StringComparison.OrdinalIgnoreCase))
             {
                 botType = type;

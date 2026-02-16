@@ -358,6 +358,136 @@ public static partial class HttpContextExtensions
 
     [GeneratedRegex(@"likelihood:\s*([\d.]+)")]
     private static partial Regex HeadlessLikelihoodRegex();
+
+    // ==========================================
+    // Signal Access Methods
+    // ==========================================
+
+    /// <summary>
+    ///     Gets the full AggregatedEvidence from the detection pipeline.
+    ///     Returns null if detection hasn't run.
+    /// </summary>
+    public static AggregatedEvidence? GetAggregatedEvidence(this HttpContext context)
+    {
+        return context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var obj)
+            && obj is AggregatedEvidence evidence
+                ? evidence
+                : null;
+    }
+
+    /// <summary>
+    ///     Gets all detection signals from the pipeline as a read-only dictionary.
+    ///     Signal keys are defined in <see cref="SignalKeys" />.
+    ///     Returns an empty dictionary if detection hasn't run.
+    /// </summary>
+    /// <example>
+    ///     var signals = context.GetSignals();
+    ///     if (signals.TryGetValue(SignalKeys.GeoCountryCode, out var country))
+    ///         logger.LogInformation("Request from {Country}", country);
+    /// </example>
+    public static IReadOnlyDictionary<string, object> GetSignals(this HttpContext context)
+    {
+        return context.GetAggregatedEvidence()?.Signals
+               ?? (IReadOnlyDictionary<string, object>)new Dictionary<string, object>();
+    }
+
+    /// <summary>
+    ///     Gets a typed signal value by key.
+    ///     Returns default(T) if the signal doesn't exist or is not of type T.
+    /// </summary>
+    /// <example>
+    ///     var isVpn = context.GetSignal&lt;bool&gt;(SignalKeys.GeoIsVpn);
+    ///     var country = context.GetSignal&lt;string&gt;(SignalKeys.GeoCountryCode);
+    ///     var botRate = context.GetSignal&lt;double&gt;(SignalKeys.GeoCountryBotRate);
+    /// </example>
+    public static T? GetSignal<T>(this HttpContext context, string signalKey)
+    {
+        var signals = context.GetSignals();
+        if (signals.TryGetValue(signalKey, out var value))
+        {
+            if (value is T typed)
+                return typed;
+
+            // Handle common type conversions (signals may be stored as different numeric types)
+            try
+            {
+                return (T)Convert.ChangeType(value, typeof(T));
+            }
+            catch (Exception ex) when (ex is InvalidCastException or FormatException or OverflowException)
+            {
+                return default;
+            }
+        }
+
+        return default;
+    }
+
+    /// <summary>
+    ///     Checks whether a specific signal exists in the detection results.
+    /// </summary>
+    public static bool HasSignal(this HttpContext context, string signalKey)
+    {
+        return context.GetSignals().ContainsKey(signalKey);
+    }
+
+    // ==========================================
+    // Geographic / Network Access Methods
+    // ==========================================
+
+    /// <summary>
+    ///     Gets the detected country code (ISO 3166-1 alpha-2) for the request.
+    ///     Requires GeoDetection contributor to be registered.
+    /// </summary>
+    public static string? GetCountryCode(this HttpContext context)
+    {
+        return context.GetSignal<string>(SignalKeys.GeoCountryCode);
+    }
+
+    /// <summary>
+    ///     Returns true if the request originates from a VPN connection.
+    ///     Requires GeoDetection contributor to be registered.
+    /// </summary>
+    public static bool IsVpn(this HttpContext context)
+    {
+        return context.GetSignal<bool>(SignalKeys.GeoIsVpn);
+    }
+
+    /// <summary>
+    ///     Returns true if the request originates from a proxy server.
+    ///     Requires GeoDetection contributor to be registered.
+    /// </summary>
+    public static bool IsProxy(this HttpContext context)
+    {
+        return context.GetSignal<bool>(SignalKeys.GeoIsProxy);
+    }
+
+    /// <summary>
+    ///     Returns true if the request originates from a Tor exit node.
+    ///     Requires GeoDetection contributor to be registered.
+    /// </summary>
+    public static bool IsTor(this HttpContext context)
+    {
+        return context.GetSignal<bool>(SignalKeys.GeoIsTor);
+    }
+
+    /// <summary>
+    ///     Returns true if the request originates from a datacenter/hosting provider (AWS, Azure, GCP, etc.).
+    /// </summary>
+    public static bool IsDatacenter(this HttpContext context)
+    {
+        return context.GetSignal<bool>(SignalKeys.GeoIsHosting)
+               || context.GetSignal<bool>(SignalKeys.IpIsDatacenter);
+    }
+
+    /// <summary>
+    ///     Gets the bot rate for the request's country of origin (0.0-1.0).
+    ///     Higher values indicate countries that produce more bot traffic.
+    ///     Requires GeoDetection contributor to be registered.
+    /// </summary>
+    public static double GetCountryBotRate(this HttpContext context)
+    {
+        return context.GetSignal<double>(SignalKeys.GeoCountryBotRate);
+    }
 }
 
 // NOTE: RiskBand and RecommendedAction enums are now in Mostlylucid.BotDetection.Orchestration.DetectionContribution

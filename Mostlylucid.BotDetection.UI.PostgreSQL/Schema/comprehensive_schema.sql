@@ -187,6 +187,13 @@ CREATE TABLE IF NOT EXISTS dashboard_detections (
     -- Evidence
     top_reasons JSONB DEFAULT '[]'::jsonb,
     detector_contributions JSONB DEFAULT '[]'::jsonb,
+    important_signals JSONB,
+
+    -- Enrichment
+    primary_signature VARCHAR(100),
+    country_code VARCHAR(10),
+    description TEXT,
+    narrative TEXT,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

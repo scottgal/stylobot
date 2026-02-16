@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**StyloBot** is an enterprise-grade bot detection framework for ASP.NET Core. It uses a blackboard architecture (via StyloFlow) with 26 detectors, AI-powered classification, Leiden clustering for bot network discovery, and zero-PII design. The system combines fast-path detection (<1ms) with optional LLM escalation for complex cases.
+**StyloBot** is an enterprise-grade bot detection framework for ASP.NET Core. It uses a blackboard architecture (via StyloFlow) with 27 detectors, AI-powered classification, Leiden clustering for bot network discovery, and zero-PII design. The system combines fast-path detection (<1ms) with optional LLM escalation for complex cases.
 
 ## Build Commands
 
@@ -15,7 +15,11 @@ dotnet build mostlylucid.stylobot.sln
 # Build specific project
 dotnet build Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
 
-# Run the demo application
+# Run the minimal demo (zero external dependencies)
+dotnet run --project Mostlylucid.BotDetection.MinimalDemo
+# Visit: http://localhost:5090/
+
+# Run the full demo application
 dotnet run --project Mostlylucid.BotDetection.Demo
 # Visit: https://localhost:5001/SignatureDemo
 
@@ -46,9 +50,10 @@ dotnet pack Mostlylucid.BotDetection -c Release
 | Project | Purpose |
 |---------|---------|
 | `Mostlylucid.BotDetection` | Core detection library (NuGet package) |
+| `Mostlylucid.BotDetection.MinimalDemo` | Minimal demo — zero dependencies, shows all protection approaches |
 | `Mostlylucid.BotDetection.UI` | Dashboard, TagHelpers, SignalR hub |
 | `Mostlylucid.BotDetection.UI.PostgreSQL` | PostgreSQL persistence layer |
-| `Mostlylucid.BotDetection.Demo` | Interactive demo with all 26 detectors |
+| `Mostlylucid.BotDetection.Demo` | Interactive demo with all 27 detectors |
 | `Mostlylucid.BotDetection.Console` | Standalone gateway/proxy console |
 | `Stylobot.Gateway` | Docker-first YARP reverse proxy |
 | `Mostlylucid.GeoDetection` | Geographic routing (MaxMind, ip-api) |
@@ -80,7 +85,7 @@ Detection uses an ephemeral blackboard where detectors write signals:
 
 - `Extensions/ServiceCollectionExtensions.cs` - DI registration entry points
 - `Orchestration/BlackboardOrchestrator.cs` - Main detection orchestration
-- `Orchestration/ContributingDetectors/` - All 26 detector implementations
+- `Orchestration/ContributingDetectors/` - All 27 detector implementations
 - `Orchestration/Manifests/detectors/*.yaml` - Detector configurations
 - `Models/BotDetectionOptions.cs` - Configuration model
 - `Actions/*.cs` - Response policies (block, throttle, challenge, redirect)
@@ -94,7 +99,7 @@ Detectors are configured via YAML manifests with appsettings.json overrides:
   "BotDetection": {
     "BotThreshold": 0.7,
     "DefaultActionPolicyName": "throttle-stealth",
-    "EnableAiDetection": true,
+    "EnableLlmDetection": true,
     "Detectors": {
       "UserAgentContributor": {
         "Weights": { "BotSignal": 2.0 }
@@ -114,7 +119,7 @@ builder.Services.AddBotDetection();
 builder.Services.AddSimpleBotDetection();
 
 // With LLM escalation (requires Ollama)
-builder.Services.AddAdvancedBotDetection("http://localhost:11434", "gemma3:4b");
+builder.Services.AddAdvancedBotDetection("http://localhost:11434", "qwen3:0.6b");
 ```
 
 ## Key Patterns
@@ -210,9 +215,13 @@ D:\Source\
 ## Documentation
 
 Detailed docs in `Mostlylucid.BotDetection/docs/`:
+- `quickstart.md` - Getting started with zero dependencies
+- `integration-levels.md` - Five integration levels from minimal to YARP gateway
+- `blocking-and-filters.md` - All bot type allow flags, geo/network blocking
+- `signals-and-custom-filters.md` - Signal access API, custom filters, GeoDetection integration
+- `action-policies.md` - Block, Throttle, Challenge, Redirect, LogOnly responses
+- `configuration.md` - Full options reference
 - `ai-detection.md` - Heuristic model and LLM escalation
 - `learning-and-reputation.md` - Adaptive learning system
-- `action-policies.md` - Response handling
-- `configuration.md` - Full options reference
 - `yarp-integration.md` - Reverse proxy setup
 

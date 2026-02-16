@@ -26,7 +26,7 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
         _detections.Enqueue(detection);
         Interlocked.Increment(ref _totalDetections);
 
-        // Track signature hit counts
+        // Track signature hit counts (single source of truth — AddSignatureAsync reads only)
         if (!string.IsNullOrEmpty(detection.PrimarySignature))
             _signatureHitCounts.AddOrUpdate(detection.PrimarySignature, 1, (_, count) => count + 1);
 
@@ -38,11 +38,8 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
 
     public Task<DashboardSignatureEvent> AddSignatureAsync(DashboardSignatureEvent signature)
     {
-        // Update hit count if we've seen this signature before
-        var hitCount = _signatureHitCounts.AddOrUpdate(
-            signature.PrimarySignature,
-            1,
-            (_, count) => count + 1);
+        // Read hit count from detection tracking (don't increment again — that would double-count)
+        var hitCount = _signatureHitCounts.GetOrAdd(signature.PrimarySignature, 1);
 
         var updatedSignature = signature with { HitCount = hitCount };
         _signatures.Enqueue(updatedSignature);
@@ -132,6 +129,9 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
         var avgProcessingTime = detections.Any()
             ? detections.Average(d => d.ProcessingTimeMs)
             : 0;
+        var lastProcessingTime = detections.Count > 0
+            ? detections[^1].ProcessingTimeMs
+            : 0;
 
         var summary = new DashboardSummary
         {
@@ -144,6 +144,7 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
             TopBotTypes = topBotTypes,
             TopActions = topActions,
             AverageProcessingTimeMs = avgProcessingTime,
+            LastProcessingTimeMs = lastProcessingTime,
             UniqueSignatures = _signatureHitCounts.Count
         };
 
@@ -155,6 +156,10 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
         DateTime endTime,
         TimeSpan bucketSize)
     {
+        // Guard against infinite loop from zero/negative bucket size
+        if (bucketSize <= TimeSpan.Zero)
+            return Task.FromResult(new List<DashboardTimeSeriesPoint>());
+
         var detections = _detections
             .Where(d => d.Timestamp >= startTime && d.Timestamp <= endTime)
             .ToList();

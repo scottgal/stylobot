@@ -470,8 +470,10 @@ public static class ServiceCollectionExtensions
         // ==========================================
         // Signature Description Service (Background)
         // ==========================================
-        // Generates LLM descriptions for signatures once they reach request threshold
-        services.AddHostedService<SignatureDescriptionService>();
+        // Generates LLM descriptions for signatures once they reach request threshold.
+        // Registered as singleton + hosted service so the broadcast middleware can inject it.
+        services.AddSingleton<SignatureDescriptionService>();
+        services.AddHostedService(sp => sp.GetRequiredService<SignatureDescriptionService>());
 
         // Similarity search - runs after Heuristic (priority 60) to leverage feature extraction
         services.AddSingleton<IContributingDetector, SimilarityContributor>();

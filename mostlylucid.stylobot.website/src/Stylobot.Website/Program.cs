@@ -149,8 +149,7 @@ builder.Services.AddBotDetection(options =>
     var aiProvider = GetConfig("BotDetection:AiProvider", "BOTDETECTION_AI_PROVIDER", "Heuristic");
     options.EnableLlmDetection = aiProvider.Equals("Ollama", StringComparison.OrdinalIgnoreCase);
 
-    // Always configure Ollama endpoint - used by DetectionDescriptionService
-    // even when detection mode is Heuristic (descriptions are separate from detection)
+    // Configure Ollama endpoint for LLM classification coordinator (background analysis)
     options.AiDetection.Ollama.Endpoint = GetConfig("BotDetection:Ollama:Endpoint", "BOTDETECTION_OLLAMA_ENDPOINT", "");
     options.AiDetection.Ollama.Model = GetConfig("BotDetection:Ollama:Model", "BOTDETECTION_OLLAMA_MODEL", "llama3.2:1b");
     options.AiDetection.TimeoutMs = GetConfigInt("BotDetection:Ollama:TimeoutMs", "BOTDETECTION_OLLAMA_TIMEOUT_MS", 5000);
@@ -182,8 +181,6 @@ builder.Services.AddStyloBotDashboard(options =>
     options.BasePath = GetConfig("StyloBotDashboard:BasePath", "STYLOBOT_DASHBOARD_PATH", "/_stylobot");
     options.HubPath = GetConfig("StyloBotDashboard:BasePath", "STYLOBOT_DASHBOARD_PATH", "/_stylobot") + "/hub"; // SignalR hub path
     options.MaxEventsInMemory = GetConfigInt("StyloBotDashboard:MaxEventsInMemory", "STYLOBOT_DASHBOARD_MAX_EVENTS", 1000);
-    options.EnableSimulator = false; // REAL detections only - no simulator
-
     var dashboardPublic = GetConfigBool("StyloBotDashboard:Public", "STYLOBOT_DASHBOARD_PUBLIC", builder.Environment.IsDevelopment());
     var dashboardSecret = GetConfig("StyloBotDashboard:AccessSecret", "STYLOBOT_DASHBOARD_SECRET", "");
 

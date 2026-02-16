@@ -5,7 +5,6 @@ using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.UI.PostgreSQL.Extensions;
-using Mostlylucid.GeoDetection.Contributor.Extensions;
 using Mostlylucid.GeoDetection.Extensions;
 using Mostlylucid.GeoDetection.Models;
 using Stylobot.Gateway.Configuration;
@@ -128,14 +127,9 @@ try
             options.FallbackToSimple = true;
         });
 
-    // Add geo detection contributor for country code enrichment on all requests
-    builder.Services.AddGeoDetectionContributor(options =>
-    {
-        options.EnableBotVerification = true;
-        options.EnableInconsistencyDetection = true;
-        options.FlagHostingIps = true;
-        options.FlagVpnIps = false;
-    });
+    // NOTE: GeoDetectionContributor removed from detection pipeline to eliminate ~50ms
+    // external API call latency. Country code is still available from GeoRouting middleware
+    // context (HttpContext.Items["GeoLocation"]) — the broadcast middleware reads it as fallback.
 
     // Add detection persistence: saves detections to shared DB + broadcasts via SignalR.
     // This is the lightweight path (no dashboard UI served from the gateway).

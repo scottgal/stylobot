@@ -21,7 +21,7 @@ public sealed class QdrantSimilaritySearch : ISignatureSimilaritySearch
     private readonly string? _databasePath;
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _initLock = new(1, 1);
-    private bool _initialized;
+    private volatile bool _initialized;
 
     public QdrantSimilaritySearch(
         QdrantOptions options,
@@ -37,20 +37,20 @@ public sealed class QdrantSimilaritySearch : ISignatureSimilaritySearch
         _client = new QdrantClient(uri.Host, uri.Port);
     }
 
-    public int Count
+    private volatile int _cachedCount;
+
+    public int Count => _cachedCount;
+
+    private async Task RefreshCountAsync()
     {
-        get
+        try
         {
-            try
-            {
-                EnsureInitializedAsync().GetAwaiter().GetResult();
-                var info = _client.GetCollectionInfoAsync(_collectionName).GetAwaiter().GetResult();
-                return (int)info.PointsCount;
-            }
-            catch
-            {
-                return 0;
-            }
+            var info = await _client.GetCollectionInfoAsync(_collectionName);
+            _cachedCount = (int)info.PointsCount;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to refresh Qdrant point count");
         }
     }
 
@@ -105,6 +105,7 @@ public sealed class QdrantSimilaritySearch : ISignatureSimilaritySearch
             };
 
             await _client.UpsertAsync(_collectionName, [point]);
+            await RefreshCountAsync();
         }
         catch (Exception ex)
         {
@@ -146,6 +147,7 @@ public sealed class QdrantSimilaritySearch : ISignatureSimilaritySearch
 
             _initialized = true;
             _logger.LogInformation("Qdrant similarity search initialized: collection={Collection}", _collectionName);
+            await RefreshCountAsync();
         }
         catch (Exception ex)
         {

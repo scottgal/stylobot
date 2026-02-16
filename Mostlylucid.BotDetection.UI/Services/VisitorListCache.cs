@@ -50,39 +50,63 @@ public class VisitorListCache
                 Description = detection.Description,
                 TopReasons = detection.TopReasons.ToList(),
                 ProcessingTimeMs = detection.ProcessingTimeMs,
+                MaxProcessingTimeMs = detection.ProcessingTimeMs,
+                MinProcessingTimeMs = detection.ProcessingTimeMs,
+                ProcessingTimeHistory = new List<double> { detection.ProcessingTimeMs },
+                BotProbabilityHistory = new List<double> { detection.BotProbability },
+                ConfidenceHistory = new List<double> { detection.Confidence },
                 LastRequestId = detection.RequestId
             },
             (_, existing) =>
             {
-                existing.Hits++;
-                existing.LastSeen = detection.Timestamp;
-                existing.IsBot = detection.IsBot;
-                existing.BotProbability = detection.BotProbability;
-                existing.Confidence = detection.Confidence;
-                existing.RiskBand = detection.RiskBand ?? existing.RiskBand;
-                existing.LastPath = detection.Path;
-                existing.Action = detection.Action ?? existing.Action;
-                if (!string.IsNullOrEmpty(detection.Narrative))
-                    existing.Narrative = detection.Narrative;
-                if (!string.IsNullOrEmpty(detection.Description))
-                    existing.Description = detection.Description;
-                if (detection.TopReasons.Count > 0)
-                    existing.TopReasons = detection.TopReasons.ToList();
-                if (!string.IsNullOrEmpty(detection.BotName))
-                    existing.BotName = detection.BotName;
-                if (!string.IsNullOrEmpty(detection.BotType))
-                    existing.BotType = detection.BotType;
-                if (!string.IsNullOrEmpty(detection.CountryCode))
-                    existing.CountryCode = detection.CountryCode;
-                if (!string.IsNullOrEmpty(detection.UserAgent))
-                    existing.UserAgent = detection.UserAgent;
-                existing.ProcessingTimeMs = detection.ProcessingTimeMs;
-                existing.LastRequestId = detection.RequestId;
-                if (!string.IsNullOrEmpty(detection.Path) && !existing.Paths.Contains(detection.Path))
+                lock (existing.SyncRoot)
                 {
-                    existing.Paths.Add(detection.Path);
-                    if (existing.Paths.Count > 5)
-                        existing.Paths.RemoveAt(0);
+                    existing.Hits++;
+                    existing.LastSeen = detection.Timestamp;
+                    existing.IsBot = detection.IsBot;
+                    existing.BotProbability = detection.BotProbability;
+                    existing.Confidence = detection.Confidence;
+                    existing.RiskBand = detection.RiskBand ?? existing.RiskBand;
+                    existing.LastPath = detection.Path;
+                    existing.Action = detection.Action ?? existing.Action;
+                    if (!string.IsNullOrEmpty(detection.Narrative))
+                        existing.Narrative = detection.Narrative;
+                    if (!string.IsNullOrEmpty(detection.Description))
+                        existing.Description = detection.Description;
+                    if (detection.TopReasons.Count > 0)
+                        existing.TopReasons = detection.TopReasons.ToList();
+                    if (!string.IsNullOrEmpty(detection.BotName))
+                        existing.BotName = detection.BotName;
+                    if (!string.IsNullOrEmpty(detection.BotType))
+                        existing.BotType = detection.BotType;
+                    if (!string.IsNullOrEmpty(detection.CountryCode))
+                        existing.CountryCode = detection.CountryCode;
+                    if (!string.IsNullOrEmpty(detection.UserAgent))
+                        existing.UserAgent = detection.UserAgent;
+                    existing.ProcessingTimeMs = detection.ProcessingTimeMs;
+                    if (detection.ProcessingTimeMs > existing.MaxProcessingTimeMs)
+                        existing.MaxProcessingTimeMs = detection.ProcessingTimeMs;
+                    if (detection.ProcessingTimeMs < existing.MinProcessingTimeMs || existing.MinProcessingTimeMs == 0)
+                        existing.MinProcessingTimeMs = detection.ProcessingTimeMs;
+
+                    // Push to ring buffers (max 20 entries)
+                    existing.ProcessingTimeHistory.Add(detection.ProcessingTimeMs);
+                    if (existing.ProcessingTimeHistory.Count > 20)
+                        existing.ProcessingTimeHistory.RemoveAt(0);
+                    existing.BotProbabilityHistory.Add(detection.BotProbability);
+                    if (existing.BotProbabilityHistory.Count > 20)
+                        existing.BotProbabilityHistory.RemoveAt(0);
+                    existing.ConfidenceHistory.Add(detection.Confidence);
+                    if (existing.ConfidenceHistory.Count > 20)
+                        existing.ConfidenceHistory.RemoveAt(0);
+
+                    existing.LastRequestId = detection.RequestId;
+                    if (!string.IsNullOrEmpty(detection.Path) && !existing.Paths.Contains(detection.Path))
+                    {
+                        existing.Paths.Add(detection.Path);
+                        if (existing.Paths.Count > 5)
+                            existing.Paths.RemoveAt(0);
+                    }
                 }
                 return existing;
             });
@@ -93,10 +117,11 @@ public class VisitorListCache
 
     /// <summary>
     ///     Get filtered, sorted, sliced list for HTMX rendering.
+    ///     Takes snapshots of mutable fields under lock for thread safety.
     /// </summary>
     public IReadOnlyList<CachedVisitor> GetFiltered(string? filter, string sortField, string sortDir, int limit = 50)
     {
-        IEnumerable<CachedVisitor> items = _visitors.Values;
+        IEnumerable<CachedVisitor> items = SnapshotAll();
 
         items = filter switch
         {
@@ -135,7 +160,7 @@ public class VisitorListCache
     /// </summary>
     public FilterCounts GetCounts()
     {
-        var all = _visitors.Values;
+        var all = SnapshotAll();
         return new FilterCounts
         {
             All = all.Count,
@@ -151,11 +176,57 @@ public class VisitorListCache
     /// </summary>
     public IReadOnlyList<CachedVisitor> GetTopBots(int count = 5)
     {
-        return _visitors.Values
+        return SnapshotAll()
             .Where(v => v.IsBot)
             .OrderByDescending(v => v.Hits)
             .Take(count)
             .ToList();
+    }
+
+    /// <summary>
+    ///     Take a thread-safe snapshot of all visitors.
+    ///     Reads mutable fields under SyncRoot to avoid torn reads.
+    /// </summary>
+    private List<CachedVisitor> SnapshotAll()
+    {
+        var result = new List<CachedVisitor>(_visitors.Count);
+        foreach (var kv in _visitors)
+        {
+            var v = kv.Value;
+            lock (v.SyncRoot)
+            {
+                // Shallow copy with snapshot of current values
+                result.Add(new CachedVisitor
+                {
+                    PrimarySignature = v.PrimarySignature,
+                    Hits = v.Hits,
+                    FirstSeen = v.FirstSeen,
+                    LastSeen = v.LastSeen,
+                    IsBot = v.IsBot,
+                    BotProbability = v.BotProbability,
+                    Confidence = v.Confidence,
+                    RiskBand = v.RiskBand,
+                    LastPath = v.LastPath,
+                    Paths = v.Paths.ToList(),
+                    Action = v.Action,
+                    BotName = v.BotName,
+                    BotType = v.BotType,
+                    CountryCode = v.CountryCode,
+                    UserAgent = v.UserAgent,
+                    Narrative = v.Narrative,
+                    Description = v.Description,
+                    TopReasons = v.TopReasons.ToList(),
+                    ProcessingTimeMs = v.ProcessingTimeMs,
+                    MaxProcessingTimeMs = v.MaxProcessingTimeMs,
+                    MinProcessingTimeMs = v.MinProcessingTimeMs,
+                    ProcessingTimeHistory = v.ProcessingTimeHistory.ToList(),
+                    BotProbabilityHistory = v.BotProbabilityHistory.ToList(),
+                    ConfidenceHistory = v.ConfidenceHistory.ToList(),
+                    LastRequestId = v.LastRequestId
+                });
+            }
+        }
+        return result;
     }
 
     /// <summary>
@@ -184,10 +255,12 @@ public class VisitorListCache
             _visitors.TryRemove(key, out _);
     }
 
+    private static readonly System.Text.RegularExpressions.Regex AiNameRegex =
+        new(@"ai|gpt|claude|llm|chatbot|copilot|gemini|bard",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
     private static bool IsAiName(string? name) =>
-        !string.IsNullOrEmpty(name) &&
-        System.Text.RegularExpressions.Regex.IsMatch(name, @"ai|gpt|claude|llm|chatbot|copilot|gemini|bard",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        !string.IsNullOrEmpty(name) && AiNameRegex.IsMatch(name);
 
     private static bool IsToolType(string? botType) =>
         botType is "Scraper" or "MonitoringBot" or "SearchEngine" or "SocialMediaBot" or "VerifiedBot" or "GoodBot";
@@ -203,6 +276,9 @@ public class VisitorListCache
 /// </summary>
 public class CachedVisitor
 {
+    /// <summary>Synchronization root — lock before mutating any collection field.</summary>
+    internal readonly object SyncRoot = new();
+
     public required string PrimarySignature { get; set; }
     public int Hits { get; set; }
     public DateTime FirstSeen { get; set; }
@@ -222,6 +298,16 @@ public class CachedVisitor
     public string? Description { get; set; }
     public List<string> TopReasons { get; set; } = new();
     public double ProcessingTimeMs { get; set; }
+    public double MaxProcessingTimeMs { get; set; }
+    public double MinProcessingTimeMs { get; set; }
+
+    /// <summary>Ring buffer of recent processing times (last 20 requests) for sparkline.</summary>
+    public List<double> ProcessingTimeHistory { get; set; } = new();
+    /// <summary>Ring buffer of recent bot probabilities (last 20 requests) for sparkline.</summary>
+    public List<double> BotProbabilityHistory { get; set; } = new();
+    /// <summary>Ring buffer of recent confidence values (last 20 requests) for sparkline.</summary>
+    public List<double> ConfidenceHistory { get; set; } = new();
+
     public string? LastRequestId { get; set; }
 
     public string TimeAgo

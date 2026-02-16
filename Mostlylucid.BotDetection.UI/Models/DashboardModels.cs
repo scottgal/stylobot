@@ -52,6 +52,9 @@ public sealed record DashboardDetectionEvent
     ///     Non-PII signals from the blackboard for debugging.
     /// </summary>
     public Dictionary<string, object>? ImportantSignals { get; init; }
+
+    // Sparkline history removed from SignalR broadcasts to reduce payload bloat.
+    // Clients fetch sparkline data on-demand via the dashboard API endpoints.
 }
 
 /// <summary>
@@ -83,6 +86,15 @@ public sealed record DashboardSignatureEvent
     public int HitCount { get; init; }
     public bool IsKnownBot { get; init; }
     public string? BotName { get; init; }
+    public double? BotProbability { get; init; }
+    public double? Confidence { get; init; }
+    public double? ProcessingTimeMs { get; init; }
+    public string? BotType { get; init; }
+    public string? Action { get; init; }
+    public string? LastPath { get; init; }
+    public string? Narrative { get; init; }
+    public string? Description { get; init; }
+    public List<string>? TopReasons { get; init; }
 }
 
 /// <summary>
@@ -105,6 +117,7 @@ public sealed record DashboardSummary
     public required Dictionary<string, int> TopBotTypes { get; init; }
     public required Dictionary<string, int> TopActions { get; init; }
     public double AverageProcessingTimeMs { get; init; }
+    public double LastProcessingTimeMs { get; init; }
     public required int UniqueSignatures { get; init; }
 }
 

@@ -63,26 +63,34 @@ public class BehavioralDetector : IDetector
         var sessionAge = GetOrCreateSessionAge(sessionKey);
         var isWarmingUp = sessionAge.TotalMinutes < 2; // First 2 minutes is warmup
 
-        // ===== Rate Limiting (per-IP) =====
-        var requestCount = IncrementRequestCount(ipAddress);
+        // ===== Content-Aware Rate Limiting (per-IP) =====
+        // HTTP/2+ multiplexes many asset requests per page load — counting all requests
+        // produces false positives. Only page navigations matter for rate limiting.
+        var isPageRequest = IsPageRequest(context);
+        var totalRequestCount = IncrementRequestCount(ipAddress);
+        var pageRequestCount = isPageRequest ? IncrementRequestCount($"page:{ipAddress}") : GetCurrentCount($"page:{ipAddress}");
+
+        // Use page-only rate when we have enough asset traffic to indicate HTTP/2+ multiplexing
+        var hasSignificantAssets = totalRequestCount > pageRequestCount * 3;
+        var effectiveCount = hasSignificantAssets ? pageRequestCount : totalRequestCount;
 
         // Apply lenient threshold during warmup (normal browser startup)
-        // Browsers often make 5-15 rapid requests on initial page load (HTML + CSS + JS + images)
         var effectiveLimit = isWarmingUp
             ? _options.MaxRequestsPerMinute * 2
             : _options.MaxRequestsPerMinute;
 
-        if (requestCount > effectiveLimit)
+        if (effectiveCount > effectiveLimit)
         {
-            var excess = requestCount - effectiveLimit;
+            var excess = effectiveCount - effectiveLimit;
             var impact = Math.Min(0.3 + excess * 0.05, 0.9);
             confidence += impact;
+            var rateLabel = hasSignificantAssets ? "page navigation" : "request";
             reasons.Add(new DetectionReason
             {
                 Category = "Behavioral",
                 Detail = isWarmingUp
-                    ? $"Excessive request rate during warmup: {requestCount} requests/min (warmup limit: {effectiveLimit})"
-                    : $"Excessive request rate: {requestCount} requests/min (limit: {effectiveLimit})",
+                    ? $"Excessive {rateLabel} rate during warmup: {effectiveCount} {rateLabel}s/min (warmup limit: {effectiveLimit}, total: {totalRequestCount})"
+                    : $"Excessive {rateLabel} rate: {effectiveCount} {rateLabel}s/min (limit: {effectiveLimit}, total: {totalRequestCount})",
                 ConfidenceImpact = impact
             });
         }
@@ -92,16 +100,21 @@ public class BehavioralDetector : IDetector
         // Check fingerprint-based rate limiting (if available)
         if (!string.IsNullOrEmpty(identities.FingerprintHash))
         {
-            var fpRequestCount = IncrementRequestCount($"fp:{identities.FingerprintHash}");
-            // Fingerprints should have similar rate limits
-            if (fpRequestCount > _options.MaxRequestsPerMinute * 1.5)
+            var fpTotalCount = IncrementRequestCount($"fp:{identities.FingerprintHash}");
+            var fpPageCount = isPageRequest
+                ? IncrementRequestCount($"fp_page:{identities.FingerprintHash}")
+                : GetCurrentCount($"fp_page:{identities.FingerprintHash}");
+            var fpHasAssets = fpTotalCount > fpPageCount * 3;
+            var fpEffective = fpHasAssets ? fpPageCount : fpTotalCount;
+
+            if (fpEffective > _options.MaxRequestsPerMinute * 1.5)
             {
                 var impact = 0.25;
                 confidence += impact;
                 reasons.Add(new DetectionReason
                 {
                     Category = "Behavioral",
-                    Detail = $"Fingerprint rate limit exceeded: {fpRequestCount} requests/min",
+                    Detail = $"Fingerprint rate limit exceeded: {fpEffective} page requests/min (total: {fpTotalCount})",
                     ConfidenceImpact = impact
                 });
             }
@@ -192,25 +205,31 @@ public class BehavioralDetector : IDetector
             });
         }
 
-        // Check for rapid sequential requests (no human delay)
-        // During warmup, skip this entirely — browsers make parallel HTTP/2 requests
-        // on page load (CSS, JS, images, XHR) arriving simultaneously at 0ms intervals.
-        var lastRequestTime = GetLastRequestTime(ipAddress);
-        if (!isWarmingUp && lastRequestTime.HasValue)
+        // Check for rapid sequential page requests (no human delay)
+        // Only check page-to-page intervals. Asset requests at 0ms intervals are
+        // normal HTTP/2+ multiplexing and should NOT be flagged.
+        // During warmup, skip this entirely.
+        if (!isWarmingUp && isPageRequest)
         {
-            var timeSinceLastRequest = (currentTime - lastRequestTime.Value).TotalMilliseconds;
-
-            if (timeSinceLastRequest < 100)
+            var lastPageTime = GetLastRequestTime($"page_time:{ipAddress}");
+            if (lastPageTime.HasValue)
             {
-                var impact = timeSinceLastRequest < 50 ? 0.4 : 0.25;
-                confidence += impact;
-                reasons.Add(new DetectionReason
+                var timeSinceLastPage = (currentTime - lastPageTime.Value).TotalMilliseconds;
+
+                if (timeSinceLastPage < 100)
                 {
-                    Category = "Behavioral",
-                    Detail = $"Extremely fast requests: {timeSinceLastRequest:F0}ms between requests",
-                    ConfidenceImpact = impact
-                });
+                    var impact = timeSinceLastPage < 50 ? 0.4 : 0.25;
+                    confidence += impact;
+                    reasons.Add(new DetectionReason
+                    {
+                        Category = "Behavioral",
+                        Detail = $"Extremely fast page navigation: {timeSinceLastPage:F0}ms between page requests",
+                        ConfidenceImpact = impact
+                    });
+                }
             }
+
+            UpdateLastRequestTime($"page_time:{ipAddress}", currentTime);
         }
 
         UpdateLastRequestTime(ipAddress, currentTime);
@@ -222,7 +241,7 @@ public class BehavioralDetector : IDetector
         if (!isWarmingUp &&
             !context.Request.Headers.ContainsKey("Referer") &&
             context.Request.Path != "/" &&
-            requestCount > 1) // After first request
+            totalRequestCount > 1) // After first request
         {
             confidence += 0.15;
             reasons.Add(new DetectionReason
@@ -235,7 +254,7 @@ public class BehavioralDetector : IDetector
 
         // Check for missing cookies (bots often don't maintain sessions)
         // Skip during warmup - cookies are set after first response
-        if (!isWarmingUp && !context.Request.Cookies.Any() && requestCount > 2)
+        if (!isWarmingUp && !context.Request.Cookies.Any() && totalRequestCount > 2)
         {
             confidence += 0.25;
             reasons.Add(new DetectionReason
@@ -309,75 +328,73 @@ public class BehavioralDetector : IDetector
 
         var currentTime = DateTime.UtcNow;
         var currentPath = context.Request.Path.ToString();
-        var currentMethod = context.Request.Method;
 
-        // Track this request
-        profile.RequestCount++;
-        profile.LastSeen = currentTime;
+        int pathCount, reqCount;
+        double avgRate = 0;
 
-        if (!profile.SeenPaths.Contains(currentPath))
+        // Lock the profile to prevent concurrent mutation from parallel requests
+        lock (profile.SyncRoot)
         {
-            profile.SeenPaths.Add(currentPath);
-            if (profile.SeenPaths.Count > 100) // Limit size
-                profile.SeenPaths.Remove(profile.SeenPaths.First());
-        }
+            // Track this request
+            profile.RequestCount++;
+            profile.LastSeen = currentTime;
 
-        // Detect anomalies
-
-        // 1. Sudden spike in request rate
-        if (profile.RequestCount > 10)
-        {
-            var avgRate = profile.RequestCount / Math.Max(1, (currentTime - profile.FirstSeen).TotalMinutes);
-            var recentCount = GetRecentRequestCount($"recent:{identityKey}");
-            if (recentCount > avgRate * 5 && recentCount > 20)
+            if (!profile.SeenPaths.Contains(currentPath))
             {
-                _cache.Set(profileKey, profile, TimeSpan.FromHours(24));
-                return (true, 0.35, $"Sudden request spike: {recentCount}/min vs {avgRate:F1}/min average");
+                profile.SeenPaths.Add(currentPath);
+                if (profile.SeenPaths.Count > 100) // Limit size
+                    profile.SeenPaths.Remove(profile.SeenPaths.First());
+            }
+
+            // Capture state for anomaly checks outside the lock
+            pathCount = profile.SeenPaths.Count;
+            reqCount = profile.RequestCount;
+
+            // 1. Sudden spike in request rate
+            // Compare current 1-minute window count against historical average
+            if (reqCount > 10)
+            {
+                avgRate = reqCount / Math.Max(1, (currentTime - profile.FirstSeen).TotalMinutes);
+                var recentCount = GetRecentRequestCount(identityKey);
+                if (recentCount > avgRate * 5 && recentCount > 20)
+                    return (true, 0.35, $"Sudden request spike: {recentCount}/min vs {avgRate:F1}/min average");
             }
         }
 
-        // 2. Accessing many new paths suddenly
-        if (profile.SeenPaths.Count > 20 && profile.RequestCount > 50)
+        // 2. Accessing many new paths suddenly (outside lock to avoid nested locking)
+        if (pathCount > 20 && reqCount > 50)
         {
             var newPathRate = GetNewPathRate(identityKey, currentPath);
             if (newPathRate > 0.8) // 80%+ new paths in recent requests
-            {
-                _cache.Set(profileKey, profile, TimeSpan.FromHours(24));
                 return (true, 0.25, "Accessing many new endpoints suddenly");
-            }
         }
 
-        _cache.Set(profileKey, profile, TimeSpan.FromHours(24));
         return (false, 0, "");
     }
 
     private int GetRecentRequestCount(string key)
     {
         var cacheKey = $"bot_detect_count_{key}";
-        return _cache.GetOrCreate(cacheKey, entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
-            return 0;
-        });
+        return _cache.TryGetValue(cacheKey, out int[]? counter) ? Volatile.Read(ref counter![0]) : 0;
     }
 
     private double GetNewPathRate(string identityKey, string currentPath)
     {
         var key = $"bot_detect_paths_{identityKey}";
-        var recentPaths = _cache.GetOrCreate(key, entry =>
+        var wrapper = _cache.GetOrCreate(key, entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
-            return new HashSet<string>();
-        }) ?? new HashSet<string>();
+            return new PathWrapper();
+        })!;
 
-        var wasNew = recentPaths.Add(currentPath);
-        if (recentPaths.Count > 50)
-            // Remove oldest (approximate)
-            recentPaths.Remove(recentPaths.First());
+        bool wasNew;
+        lock (wrapper.SyncRoot)
+        {
+            wasNew = wrapper.Paths.Add(currentPath);
+            if (wrapper.Paths.Count > 50)
+                wrapper.Paths.Remove(wrapper.Paths.First());
+        }
 
-        _cache.Set(key, recentPaths, TimeSpan.FromMinutes(5));
-
-        // This is a simplified check - in production you'd track this more precisely
         return wasNew ? 1.0 : 0.0;
     }
 
@@ -387,18 +404,62 @@ public class BehavioralDetector : IDetector
                ?? context.Connection.RemoteIpAddress?.ToString();
     }
 
+    /// <summary>
+    ///     Atomically increment a request counter using a boxed int array to avoid
+    ///     read-then-write race conditions with concurrent requests.
+    /// </summary>
     private int IncrementRequestCount(string ipAddress)
     {
         var key = $"bot_detect_count_{ipAddress}";
-        var count = _cache.GetOrCreate(key, entry =>
+        // Use int[] as a mutable reference type so GetOrCreate returns the same
+        // boxed array for concurrent callers, and Interlocked.Increment is atomic.
+        var counter = _cache.GetOrCreate(key, entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1);
-            return 0;
-        });
+            return new int[] { 0 };
+        })!;
 
-        count++;
-        _cache.Set(key, count, TimeSpan.FromMinutes(1));
-        return count;
+        return Interlocked.Increment(ref counter[0]);
+    }
+
+    private int GetCurrentCount(string ipAddress)
+    {
+        var key = $"bot_detect_count_{ipAddress}";
+        return _cache.TryGetValue(key, out int[]? counter) ? Volatile.Read(ref counter![0]) : 0;
+    }
+
+    /// <summary>
+    ///     Determines if a request is a page navigation (HTML document) vs an asset/API request.
+    ///     Uses Sec-Fetch-Dest (modern browsers), file extension, and Accept header as fallbacks.
+    /// </summary>
+    private static bool IsPageRequest(HttpContext context)
+    {
+        // Best signal: Sec-Fetch-Dest header (Chrome 80+, Firefox 90+, Safari 16.4+)
+        var fetchDest = context.Request.Headers["Sec-Fetch-Dest"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(fetchDest))
+            return fetchDest.Equals("document", StringComparison.OrdinalIgnoreCase)
+                   || fetchDest.Equals("iframe", StringComparison.OrdinalIgnoreCase);
+
+        // File extension check — known asset extensions are NOT page requests
+        var path = context.Request.Path.Value ?? "/";
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is ".js" or ".css" or ".png" or ".jpg" or ".jpeg" or ".gif" or ".svg" or ".ico"
+            or ".woff" or ".woff2" or ".ttf" or ".eot" or ".map" or ".webp" or ".avif"
+            or ".mp4" or ".webm" or ".json" or ".xml")
+            return false;
+
+        // API path pattern
+        if (path.Contains("/api/", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Accept header fallback
+        var accept = context.Request.Headers.Accept.FirstOrDefault() ?? "";
+        if (accept.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) ||
+            accept.Contains("application/xhtml", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // No extension = likely page, otherwise assume asset
+        return string.IsNullOrEmpty(ext);
     }
 
     private DateTime? GetLastRequestTime(string ipAddress)
@@ -416,27 +477,32 @@ public class BehavioralDetector : IDetector
     private (bool IsSuspicious, string Description) AnalyzeRequestTiming(string ipAddress)
     {
         var key = $"bot_detect_timing_{ipAddress}";
-        var timings = _cache.GetOrCreate(key, entry =>
+        var wrapper = _cache.GetOrCreate(key, entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
-            return new List<DateTime>();
-        }) ?? new List<DateTime>();
+            return new TimingWrapper();
+        })!;
 
-        timings.Add(DateTime.UtcNow);
+        List<DateTime> snapshot;
+        lock (wrapper.SyncRoot)
+        {
+            wrapper.Timings.Add(DateTime.UtcNow);
 
-        // Keep only last 10 requests
-        if (timings.Count > 10) timings = timings.Skip(timings.Count - 10).ToList();
+            // Keep only last 10 requests
+            if (wrapper.Timings.Count > 10)
+                wrapper.Timings.RemoveRange(0, wrapper.Timings.Count - 10);
 
-        _cache.Set(key, timings, TimeSpan.FromMinutes(5));
+            snapshot = wrapper.Timings.ToList();
+        }
 
         // Check if requests are too evenly spaced (bot-like)
         // Require 8+ requests for statistical reliability.
         // stdDev < 0.2 catches real bots (near-identical intervals) while
         // allowing normal browser JS-triggered XHR which has stdDev 0.3-0.6.
-        if (timings.Count >= 8)
+        if (snapshot.Count >= 8)
         {
             var intervals = new List<double>();
-            for (var i = 1; i < timings.Count; i++) intervals.Add((timings[i] - timings[i - 1]).TotalSeconds);
+            for (var i = 1; i < snapshot.Count; i++) intervals.Add((snapshot[i] - snapshot[i - 1]).TotalSeconds);
 
             // Calculate standard deviation
             var mean = intervals.Average();
@@ -475,9 +541,22 @@ public class BehavioralDetector : IDetector
 
     private class BehaviorProfile
     {
+        internal readonly object SyncRoot = new();
         public int RequestCount { get; set; }
         public DateTime FirstSeen { get; } = DateTime.UtcNow;
         public DateTime LastSeen { get; set; } = DateTime.UtcNow;
         public HashSet<string> SeenPaths { get; } = new();
+    }
+
+    private class TimingWrapper
+    {
+        internal readonly object SyncRoot = new();
+        public List<DateTime> Timings { get; } = new();
+    }
+
+    private class PathWrapper
+    {
+        internal readonly object SyncRoot = new();
+        public HashSet<string> Paths { get; } = new();
     }
 }

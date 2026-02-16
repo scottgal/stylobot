@@ -35,6 +35,12 @@ public interface IStyloBotDashboardHub
     Task BroadcastDescriptionUpdate(string requestId, string description);
 
     /// <summary>
+    ///     Broadcast an LLM-generated signature description (name + description) for a signature.
+    ///     Sent when SignatureDescriptionService generates a name after reaching the request threshold.
+    /// </summary>
+    Task BroadcastSignatureDescriptionUpdate(string signature, string name, string description);
+
+    /// <summary>
     ///     Broadcast an LLM-generated cluster description update.
     ///     Sent when background BotClusterDescriptionService generates a description.
     /// </summary>

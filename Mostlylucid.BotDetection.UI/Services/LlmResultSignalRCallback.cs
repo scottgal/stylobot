@@ -27,4 +27,11 @@ public class LlmResultSignalRCallback : ILlmResultCallback
         _logger.LogDebug("Broadcast LLM description for {RequestId}: {Description}",
             requestId, description.Length > 80 ? description[..80] + "..." : description);
     }
+
+    public async Task OnSignatureDescriptionAsync(string signature, string name, string description, CancellationToken ct = default)
+    {
+        await _hubContext.Clients.All.BroadcastSignatureDescriptionUpdate(signature, name, description);
+        _logger.LogDebug("Broadcast signature description for {Signature}: '{Name}'",
+            signature[..Math.Min(8, signature.Length)], name);
+    }
 }

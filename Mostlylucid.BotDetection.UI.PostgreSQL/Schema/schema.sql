@@ -27,12 +27,45 @@ CREATE TABLE IF NOT EXISTS dashboard_detections (
     path TEXT NOT NULL,
     status_code INTEGER,
     processing_time_ms DOUBLE PRECISION,
-    ip_address INET,
-    user_agent TEXT,
+    ip_address_hash VARCHAR(64),  -- HMAC-SHA256 hash of IP (never store raw IP)
+    user_agent_hash VARCHAR(64),  -- HMAC-SHA256 hash of UA (never store raw UA)
     top_reasons JSONB,
     primary_signature VARCHAR(100),
+    country_code VARCHAR(10),
+    description TEXT,
+    narrative TEXT,
+    detector_contributions JSONB,
+    important_signals JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Migration: add columns if upgrading from earlier schema
+ALTER TABLE dashboard_detections ADD COLUMN IF NOT EXISTS country_code VARCHAR(10);
+ALTER TABLE dashboard_detections ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE dashboard_detections ADD COLUMN IF NOT EXISTS narrative TEXT;
+ALTER TABLE dashboard_detections ADD COLUMN IF NOT EXISTS detector_contributions JSONB;
+ALTER TABLE dashboard_detections ADD COLUMN IF NOT EXISTS important_signals JSONB;
+
+-- Migration: rename raw PII columns to hashed variants (zero-PII compliance)
+-- These are safe to run on both old and new schemas
+DO $$
+BEGIN
+    -- Rename ip_address (INET) → ip_address_hash (VARCHAR) if old column exists
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'dashboard_detections' AND column_name = 'ip_address'
+                 AND data_type = 'inet') THEN
+        ALTER TABLE dashboard_detections DROP COLUMN ip_address;
+        ALTER TABLE dashboard_detections ADD COLUMN IF NOT EXISTS ip_address_hash VARCHAR(64);
+    END IF;
+
+    -- Rename user_agent (TEXT) → user_agent_hash (VARCHAR) if old column exists
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'dashboard_detections' AND column_name = 'user_agent'
+                 AND data_type = 'text') THEN
+        ALTER TABLE dashboard_detections DROP COLUMN user_agent;
+        ALTER TABLE dashboard_detections ADD COLUMN IF NOT EXISTS user_agent_hash VARCHAR(64);
+    END IF;
+END $$;
 
 -- Indexes for fast queries
 CREATE INDEX IF NOT EXISTS idx_detections_timestamp ON dashboard_detections(timestamp DESC);

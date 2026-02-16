@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Filters;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
@@ -9,6 +11,11 @@ using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Extensions;
+
+/// <summary>
+///     Request model for bot detection feedback.
+/// </summary>
+public record BotFeedbackRequest(string Outcome, string? RequestId = null, string? Notes = null);
 
 /// <summary>
 ///     Extension methods for minimal API route builders
@@ -64,6 +71,39 @@ public static class RouteBuilderExtensions
     }
 
     /// <summary>
+    ///     Blocks requests where a specific signal condition is met.
+    ///     Use <see cref="SignalKeys" /> for available signal key constants.
+    /// </summary>
+    /// <example>
+    ///     // Block VPN connections
+    ///     app.MapGet("/api/payment", () => "ok")
+    ///        .BlockIfSignal(SignalKeys.GeoIsVpn, SignalOperator.Equals, "True");
+    ///
+    ///     // Block datacenter IPs
+    ///     app.MapGet("/api/submit", () => "ok")
+    ///        .BlockIfSignal(SignalKeys.IpIsDatacenter, SignalOperator.Equals, "True");
+    /// </example>
+    public static RouteHandlerBuilder BlockIfSignal(this RouteHandlerBuilder builder,
+        string signalKey, SignalOperator op, string? value = null, int statusCode = 403)
+    {
+        return builder.AddEndpointFilter(new BlockIfSignalEndpointFilter(signalKey, op, value, statusCode));
+    }
+
+    /// <summary>
+    ///     Requires a specific signal condition to be met. Blocks when the condition is NOT met.
+    /// </summary>
+    /// <example>
+    ///     // Only allow requests from the US
+    ///     app.MapGet("/api/domestic", () => "ok")
+    ///        .RequireSignal(SignalKeys.GeoCountryCode, SignalOperator.Equals, "US");
+    /// </example>
+    public static RouteHandlerBuilder RequireSignal(this RouteHandlerBuilder builder,
+        string signalKey, SignalOperator op, string? value = null, int statusCode = 403)
+    {
+        return builder.AddEndpointFilter(new RequireSignalEndpointFilter(signalKey, op, value, statusCode));
+    }
+
+    /// <summary>
     ///     Requires human visitors for this endpoint (blocks all bots including verified).
     /// </summary>
     /// <example>
@@ -73,6 +113,65 @@ public static class RouteBuilderExtensions
     public static RouteHandlerBuilder RequireHuman(this RouteHandlerBuilder builder, int statusCode = 403)
     {
         return builder.AddEndpointFilter(new RequireHumanEndpointFilter(statusCode));
+    }
+
+    /// <summary>
+    ///     Requires a detection signal to have one of the specified values.
+    ///     Blocks requests where the signal exists but doesn't match.
+    ///     Allows through if the signal is missing (detector may not have run).
+    /// </summary>
+    /// <example>
+    ///     // Only allow US and Canadian traffic
+    ///     app.MapGet("/api/domestic", () => "data")
+    ///        .RequireSignal("geo.country_code", "US", "CA", "MX");
+    ///
+    ///     // Only allow search engine bot type
+    ///     app.MapGet("/seo-only", () => "sitemap")
+    ///        .RequireSignal("ua.bot_type", "SearchEngine", "VerifiedBot");
+    /// </example>
+    public static RouteHandlerBuilder RequireSignal(this RouteHandlerBuilder builder,
+        string signalKey, params string[] allowedValues)
+    {
+        return builder.AddEndpointFilter(
+            new RequireSignalEndpointFilter<string>(signalKey, allowedValues));
+    }
+
+    /// <summary>
+    ///     Blocks requests where a detection signal matches the specified value.
+    /// </summary>
+    /// <example>
+    ///     // Block datacenter traffic
+    ///     app.MapGet("/api/organic", () => "data")
+    ///        .BlockIfSignal("ip.is_datacenter", true);
+    ///
+    ///     // Block VPN traffic
+    ///     app.MapGet("/api/direct", () => "data")
+    ///        .BlockIfSignal("geo.is_vpn", true);
+    /// </example>
+    public static RouteHandlerBuilder BlockIfSignal<T>(this RouteHandlerBuilder builder,
+        string signalKey, T blockValue, int statusCode = 403, string? message = null)
+    {
+        return builder.AddEndpointFilter(
+            new BlockIfSignalEndpointFilter<T>(signalKey, blockValue, statusCode, message));
+    }
+
+    /// <summary>
+    ///     Blocks requests where a numeric detection signal exceeds the specified threshold.
+    /// </summary>
+    /// <example>
+    ///     // Block high temporal density (bot clustering signal)
+    ///     app.MapGet("/api/premium", () => "data")
+    ///        .BlockIfSignalAbove("cluster.temporal_density", 0.8);
+    ///
+    ///     // Block high headless likelihood
+    ///     app.MapGet("/api/form", () => "form")
+    ///        .BlockIfSignalAbove("fingerprint.headless_score", 0.7);
+    /// </example>
+    public static RouteHandlerBuilder BlockIfSignalAbove(this RouteHandlerBuilder builder,
+        string signalKey, double threshold, int statusCode = 403, string? message = null)
+    {
+        return builder.AddEndpointFilter(
+            new BlockIfSignalAboveEndpointFilter(signalKey, threshold, statusCode, message));
     }
 
     /// <summary>
@@ -247,6 +346,41 @@ public static class RouteBuilderExtensions
             .WithName("BotDetection_Health")
             .WithSummary("Bot detection service health check");
 
+        // Feedback endpoint for marking false positives/negatives
+        group.MapPost("/feedback", async (HttpContext context) =>
+            {
+                var feedback = await context.Request.ReadFromJsonAsync<BotFeedbackRequest>();
+                if (feedback == null)
+                    return Results.BadRequest(new { error = "Invalid feedback payload" });
+
+                if (feedback.Outcome is not ("Human" or "Bot"))
+                    return Results.BadRequest(new { error = "Outcome must be 'Human' or 'Bot'" });
+
+                // Length validation to prevent log flooding
+                if (feedback.Notes is { Length: > 500 })
+                    return Results.BadRequest(new { error = "Notes must be 500 characters or fewer" });
+
+                if (feedback.RequestId is { Length: > 128 })
+                    return Results.BadRequest(new { error = "RequestId must be 128 characters or fewer" });
+
+                var logger = context.RequestServices.GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("BotDetection.Feedback");
+                logger.LogInformation(
+                    "Bot detection feedback: Outcome={Outcome}, RequestId={RequestId}, Notes={Notes}",
+                    feedback.Outcome,
+                    feedback.RequestId ?? "(none)",
+                    feedback.Notes);
+
+                return Results.Ok(new
+                {
+                    accepted = true,
+                    outcome = feedback.Outcome,
+                    requestId = feedback.RequestId
+                });
+            })
+            .WithName("BotDetection_Feedback")
+            .WithSummary("Submit detection feedback (false positive/negative)");
+
         return endpoints;
     }
 
@@ -326,5 +460,67 @@ public static class RouteBuilderExtensions
             PolicyAction.LogOnly => "Policy set to log only",
             _ => $"Policy action: {action}"
         };
+    }
+
+    /// <summary>
+    ///     Applies a named bot detection policy and action policy to this endpoint.
+    /// </summary>
+    /// <example>
+    ///     app.MapGet("/api/data", () => "sensitive")
+    ///        .BotPolicy("strict", actionPolicy: "block");
+    ///
+    ///     app.MapPost("/api/submit", () => "ok")
+    ///        .BotPolicy("default", actionPolicy: "throttle-stealth", blockThreshold: 0.7);
+    /// </example>
+    public static RouteHandlerBuilder BotPolicy(this RouteHandlerBuilder builder,
+        string policyName = "default", string? actionPolicy = null, double blockThreshold = 0.0)
+    {
+        return builder.AddEndpointFilter(new BotPolicyEndpointFilter(policyName, actionPolicy, blockThreshold));
+    }
+
+    /// <summary>
+    ///     Applies bot blocking defaults to all endpoints in this group.
+    ///     Individual endpoints can override with their own .BlockBots() or .BotPolicy() calls.
+    /// </summary>
+    /// <example>
+    ///     var api = app.MapGroup("/api").WithBotProtection(allowSearchEngines: true);
+    ///     api.MapGet("/products", () => "data");
+    ///     api.MapGet("/categories", () => "cats");
+    /// </example>
+    public static RouteGroupBuilder WithBotProtection(this RouteGroupBuilder group,
+        bool allowSearchEngines = false,
+        bool allowSocialMediaBots = false,
+        bool allowMonitoringBots = false,
+        bool allowVerifiedBots = false,
+        bool allowAiBots = false,
+        bool allowGoodBots = false,
+        double minConfidence = 0.0,
+        int statusCode = 403,
+        string? blockCountries = null,
+        string? allowCountries = null,
+        bool blockVpn = false,
+        bool blockProxy = false,
+        bool blockDatacenter = false,
+        bool blockTor = false)
+    {
+        return group.AddEndpointFilter(new BlockBotsEndpointFilter(
+            allowVerifiedBots, allowSearchEngines, allowSocialMediaBots,
+            allowMonitoringBots, allowAiBots, allowGoodBots,
+            false, false, // scrapers and malicious always blocked at group level
+            minConfidence, statusCode,
+            blockCountries, allowCountries,
+            blockVpn, blockProxy, blockDatacenter, blockTor));
+    }
+
+    /// <summary>
+    ///     Requires human visitors for all endpoints in this group.
+    /// </summary>
+    /// <example>
+    ///     var secured = app.MapGroup("/secure").WithHumanOnly();
+    ///     secured.MapPost("/submit", () => "ok");
+    /// </example>
+    public static RouteGroupBuilder WithHumanOnly(this RouteGroupBuilder group, int statusCode = 403)
+    {
+        return group.AddEndpointFilter(new RequireHumanEndpointFilter(statusCode));
     }
 }

@@ -251,12 +251,12 @@ function liveDetection() {
                         this.visitorMap[sig] = {
                             sig, hits: s.hitCount || 1,
                             firstSeen: s.timestamp, lastSeen: s.timestamp,
-                            isBot, botProbability: null, confidence: null,
-                            riskBand: s.riskBand || 'Medium', lastPath: null, paths: [],
-                            action: 'Allow', botName: s.botName || null, botType: null,
-                            narrative: null, description: null, topReasons: [],
-                            processingTimeMs: null, lastRequestId: null,
-                            hasFullData: false
+                            isBot, botProbability: s.botProbability ?? null, confidence: s.confidence ?? null,
+                            riskBand: s.riskBand || 'Medium', lastPath: s.lastPath ?? null, paths: [],
+                            action: s.action || 'Allow', botName: s.botName || null, botType: s.botType || null,
+                            narrative: s.narrative || null, description: s.description || null,
+                            topReasons: s.topReasons || [], processingTimeMs: s.processingTimeMs ?? null,
+                            lastRequestId: s.lastRequestId || null, hasFullData: true
                         };
                     });
                 }

@@ -31,8 +31,8 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
 
     private InferenceSession? _session;
     private BertTokenizer? _tokenizer;
-    private bool _initialized;
-    private bool _available;
+    private volatile bool _initialized;
+    private volatile bool _available;
 
     public OnnxEmbeddingProvider(
         QdrantOptions qdrantOptions,

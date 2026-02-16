@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Data;
@@ -591,6 +592,29 @@ public class BotDetectionOptions
     ///     Default: false (gateway keeps this off; downstream website sets it to true).
     /// </summary>
     public bool TrustUpstreamDetection { get; set; }
+
+    /// <summary>
+    ///     Name of the header containing the HMAC signature from the upstream gateway.
+    ///     When set alongside TrustUpstreamDetection, the middleware will verify
+    ///     that upstream headers were signed by a trusted gateway using the shared secret.
+    ///     Default: null (no signature verification — only use when backend is network-isolated).
+    /// </summary>
+    public string? UpstreamSignatureHeader { get; set; }
+
+    /// <summary>
+    ///     Shared secret (base64-encoded) for verifying HMAC signatures on upstream detection headers.
+    ///     Generate with: Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+    ///     Must match the secret configured on the gateway.
+    /// </summary>
+    [JsonIgnore]
+    public string? UpstreamSignatureSecret { get; set; }
+
+    /// <summary>
+    ///     Maximum age (in seconds) for upstream HMAC signatures before they are rejected.
+    ///     Prevents replay attacks. Set higher for environments with clock skew.
+    ///     Default: 300 (5 minutes).
+    /// </summary>
+    public int UpstreamSignatureMaxAgeSeconds { get; set; } = 300;
 
     // ==========================================
     // Response Headers Configuration
@@ -3098,6 +3122,13 @@ public class BotDetectionOptionsValidator : IValidateOptions<BotDetectionOptions
             warnings.Add(
                 $"MinConfidenceToBlock ({options.MinConfidenceToBlock}) is less than BotThreshold ({options.BotThreshold}), this may cause unexpected blocking");
 
+        // Upstream trust without HMAC allows header spoofing — warn but allow (network-isolated backends are a valid use case)
+        if (options.TrustUpstreamDetection &&
+            (string.IsNullOrEmpty(options.UpstreamSignatureHeader) || string.IsNullOrEmpty(options.UpstreamSignatureSecret)))
+            warnings.Add(
+                "TrustUpstreamDetection is enabled without HMAC signature verification (UpstreamSignatureHeader/Secret). " +
+                "Any client can forge X-Bot-Detected headers. Configure HMAC unless backend is network-isolated.");
+
         // Validate BehavioralOptions
         ValidateBehavioralOptions(options.Behavioral, errors, warnings);
 
@@ -3117,7 +3148,6 @@ public class BotDetectionOptionsValidator : IValidateOptions<BotDetectionOptions
             if (!IsValidIpOrCidr(ip))
                 errors.Add($"Invalid IP or CIDR in BlacklistedIps: {ip}");
 
-        // Return errors, but log warnings
         return errors.Count > 0
             ? ValidateOptionsResult.Fail(errors)
             : ValidateOptionsResult.Success;

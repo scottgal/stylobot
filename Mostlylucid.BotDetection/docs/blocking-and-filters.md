@@ -152,6 +152,26 @@ app.MapPost("/api/payment", () => "ok")
 // Require human
 app.MapPost("/api/submit", () => "submitted")
    .RequireHuman();
+
+// Named action policy
+app.MapGet("/api/data", () => "sensitive")
+   .BotPolicy("default", actionPolicy: "throttle-stealth");
+
+app.MapPost("/api/checkout", () => "ok")
+   .BotPolicy("strict", actionPolicy: "block", blockThreshold: 0.8);
+```
+
+### Route Group Defaults
+
+```csharp
+// All /api routes: block bots, allow search engines
+var api = app.MapGroup("/api").WithBotProtection(allowSearchEngines: true);
+api.MapGet("/products", () => "data");
+api.MapGet("/categories", () => "cats");
+
+// Humans-only group
+var secure = app.MapGroup("/secure").WithHumanOnly();
+secure.MapPost("/submit", () => "ok");
 ```
 
 ## Global Blocking
@@ -286,4 +306,18 @@ public class BotActionMiddleware
         await _next(context);
     }
 }
+```
+
+## Signal-Based Filtering
+
+For filtering based on specific detector signals (VPN, datacenter, country, heuristic score, etc.), see [signals-and-custom-filters.md](signals-and-custom-filters.md).
+
+```csharp
+// MVC: Block VPN connections
+[BlockIfSignal(SignalKeys.GeoIsVpn, SignalOperator.Equals, "True")]
+public IActionResult Payment() { ... }
+
+// Minimal API: Block datacenter IPs
+app.MapPost("/api/submit", () => Results.Ok())
+   .BlockIfSignal(SignalKeys.IpIsDatacenter, SignalOperator.Equals, "True");
 ```

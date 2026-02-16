@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Net;
+using System.Reflection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
@@ -19,6 +22,7 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 /// </summary>
 public class DetectionBroadcastMiddleware
 {
+    private static readonly ConcurrentDictionary<Type, PropertyInfo?> CountryCodePropertyCache = new();
     private readonly ILogger<DetectionBroadcastMiddleware> _logger;
     private readonly RequestDelegate _next;
 
@@ -35,7 +39,8 @@ public class DetectionBroadcastMiddleware
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
         IDashboardEventStore eventStore,
         IOptions<BotDetectionOptions> optionsAccessor,
-        VisitorListCache visitorListCache)
+        VisitorListCache visitorListCache,
+        SignatureDescriptionService? signatureDescriptionService = null)
     {
         // Call next middleware first (so detection runs)
         await _next(context);
@@ -97,6 +102,17 @@ public class DetectionBroadcastMiddleware
                     ccObj is string cc && cc != "LOCAL")
                     countryCode = cc;
 
+                // Fallback: read from GeoRouting middleware context (avoids need for GeoContributor)
+                if (countryCode == null &&
+                    context.Items.TryGetValue("GeoLocation", out var geoLocObj) &&
+                    geoLocObj != null)
+                {
+                    var countryProp = CountryCodePropertyCache.GetOrAdd(
+                        geoLocObj.GetType(), t => t.GetProperty("CountryCode"));
+                    if (countryProp?.GetValue(geoLocObj) is string geoCC && !string.IsNullOrEmpty(geoCC) && geoCC != "LOCAL")
+                        countryCode = geoCC;
+                }
+
                 // Build detector contributions map for drill-down
                 var detectorContributions = evidence.Contributions
                     .GroupBy(c => c.DetectorName)
@@ -111,18 +127,23 @@ public class DetectionBroadcastMiddleware
                             Priority = g.First().Priority
                         });
 
-                // Build non-PII signals for debugging
-                Dictionary<string, object>? importantSignals = null;
+                // Build non-PII signals for debugging — allowlist of safe prefixes only
+                var importantSignals = new Dictionary<string, object>();
                 if (evidence.Signals is { Count: > 0 })
                 {
-                    var allowedPrefixes = new[] { "ua.", "header.", "client.", "geo.", "ip.", "behavioral.", "detection.", "request.", "h2.", "tls.", "tcp." };
+                    var allowedPrefixes = new[]
+                    {
+                        "ua.", "header.", "client.", "geo.", "ip.", "behavioral.",
+                        "detection.", "request.", "h2.", "tls.", "tcp.", "h3.",
+                        "cluster.", "reputation.", "honeypot.", "similarity."
+                    };
                     var blockedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                        { "client_ip", "ip_address", "email", "phone", "session_id", "cookie", "authorization" };
+                        { "ua.raw", "ip.address", "client_ip", "ip_address", "email", "phone", "session_id", "cookie", "authorization" };
 
                     importantSignals = evidence.Signals
                         .Where(s => allowedPrefixes.Any(p => s.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))
                                     && !blockedKeys.Contains(s.Key))
-                        .Take(50)
+                        .Take(80)
                         .ToDictionary(s => s.Key, s => s.Value);
                 }
 
@@ -192,19 +213,36 @@ public class DetectionBroadcastMiddleware
                     RiskBand = evidence.RiskBand.ToString(),
                     HitCount = 1, // Will be incremented by DB on conflict
                     IsKnownBot = evidence.PrimaryBotType.HasValue,
-                    BotName = evidence.PrimaryBotName
+                    BotName = evidence.PrimaryBotName,
+                    BotProbability = evidence.BotProbability,
+                    Confidence = evidence.Confidence,
+                    ProcessingTimeMs = evidence.TotalProcessingTimeMs,
+                    BotType = evidence.PrimaryBotType?.ToString(),
+                    Action = detection.Action,
+                    LastPath = detection.Path,
+                    Narrative = detection.Narrative,
+                    Description = detection.Description,
+                    TopReasons = detection.TopReasons.ToList()
                 };
 
                 var updatedSignature = await eventStore.AddSignatureAsync(signature);
 
                 // Update server-side visitor cache for HTMX rendering
-                visitorListCache.Upsert(detection);
+                var visitor = visitorListCache.Upsert(detection);
 
-                // Broadcast detection and signature (with hit_count) to all connected clients
+                // Broadcast detection and signature to all connected clients
+                // Sparkline history is served via API on-demand, not broadcast via SignalR
                 await hubContext.Clients.All.BroadcastDetection(detection);
                 await hubContext.Clients.All.BroadcastSignature(updatedSignature);
 
-                // LLM description generation is now handled by LlmClassificationCoordinator (background)
+                // Feed signature to SignatureDescriptionService for LLM name/description synthesis
+                if (signatureDescriptionService != null && detection.IsBot &&
+                    !string.IsNullOrEmpty(sigValue) && evidence.Signals is { Count: > 0 })
+                {
+                    var nullableSignals = evidence.Signals.ToDictionary(
+                        s => s.Key, s => (object?)s.Value);
+                    signatureDescriptionService.TrackSignature(sigValue, nullableSignals);
+                }
 
                 _logger.LogDebug(
                     "Broadcast detection: {Path} sig={Signature} prob={Probability:F2} hits={HitCount}",
@@ -315,6 +353,7 @@ public class DetectionBroadcastMiddleware
 
         await eventStore.AddDetectionAsync(detection);
         visitorListCache.Upsert(detection);
+        // Sparkline history served via API, not broadcast via SignalR
         await hubContext.Clients.All.BroadcastDetection(detection);
 
         _logger.LogDebug(
@@ -443,8 +482,7 @@ public class DetectionBroadcastMiddleware
         var ua = context.Request.Headers.UserAgent.ToString();
         var combined = $"{ip}:{ua}";
 
-        using var sha = System.Security.Cryptography.SHA256.Create();
-        var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(combined));
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(combined));
         return Convert.ToHexString(hash)[..16].ToLowerInvariant();
     }
 }

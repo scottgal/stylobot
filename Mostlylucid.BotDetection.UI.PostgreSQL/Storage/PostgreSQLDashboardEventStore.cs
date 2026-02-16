@@ -18,7 +18,7 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
     private readonly ILogger<PostgreSQLDashboardEventStore> _logger;
 
     // Circuit breaker: stop trying PostgreSQL for 60s after a connection failure
-    private DateTime _circuitOpenUntil = DateTime.MinValue;
+    private long _circuitOpenUntilTicks;
     private static readonly TimeSpan CircuitBreakDuration = TimeSpan.FromSeconds(60);
 
     public PostgreSQLDashboardEventStore(
@@ -37,23 +37,20 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         DefaultTypeMap.MatchNamesWithUnderscores = true;
     }
 
-    private bool IsCircuitOpen
-    {
-        get
-        {
-            if (_circuitOpenUntil <= DateTime.UtcNow) return false;
-            return true;
-        }
-    }
+    private bool IsCircuitOpen => Interlocked.Read(ref _circuitOpenUntilTicks) > DateTime.UtcNow.Ticks;
 
     private void TripCircuit()
     {
-        var newExpiry = DateTime.UtcNow + CircuitBreakDuration;
-        if (_circuitOpenUntil < newExpiry)
+        var newTicks = (DateTime.UtcNow + CircuitBreakDuration).Ticks;
+        // Only extend, never shorten — compare-and-swap loop
+        long current;
+        do
         {
-            _circuitOpenUntil = newExpiry;
-            _logger.LogWarning("PostgreSQL circuit breaker tripped — skipping DB calls for {Seconds}s", CircuitBreakDuration.TotalSeconds);
-        }
+            current = Interlocked.Read(ref _circuitOpenUntilTicks);
+            if (current >= newTicks) return;
+        } while (Interlocked.CompareExchange(ref _circuitOpenUntilTicks, newTicks, current) != current);
+
+        _logger.LogWarning("PostgreSQL circuit breaker tripped — skipping DB calls for {Seconds}s", CircuitBreakDuration.TotalSeconds);
     }
 
     public async Task AddDetectionAsync(DashboardDetectionEvent detection)
@@ -64,13 +61,17 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
             INSERT INTO dashboard_detections (
                 request_id, timestamp, is_bot, bot_probability, confidence,
                 risk_band, bot_type, bot_name, action, policy_name,
-                method, path, status_code, processing_time_ms, ip_address,
-                user_agent, top_reasons, primary_signature
+                method, path, status_code, processing_time_ms, ip_address_hash,
+                user_agent_hash, top_reasons, primary_signature,
+                country_code, description, narrative,
+                detector_contributions, important_signals
             ) VALUES (
                 @RequestId, @Timestamp, @IsBot, @BotProbability, @Confidence,
                 @RiskBand, @BotType, @BotName, @Action, @PolicyName,
-                @Method, @Path, @StatusCode, @ProcessingTimeMs, @IpAddress::inet,
-                @UserAgent, @TopReasons::jsonb, @PrimarySignature
+                @Method, @Path, @StatusCode, @ProcessingTimeMs, @IpAddressHash,
+                @UserAgentHash, @TopReasons::jsonb, @PrimarySignature,
+                @CountryCode, @Description, @Narrative,
+                @DetectorContributions::jsonb, @ImportantSignals::jsonb
             )";
 
         try
@@ -92,10 +93,19 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                 detection.Path,
                 detection.StatusCode,
                 detection.ProcessingTimeMs,
-                detection.IpAddress,
-                detection.UserAgent,
+                IpAddressHash = HashForStorage(detection.IpAddress),
+                UserAgentHash = HashForStorage(detection.UserAgent),
                 TopReasons = JsonSerializer.Serialize(detection.TopReasons),
-                detection.PrimarySignature
+                detection.PrimarySignature,
+                detection.CountryCode,
+                detection.Description,
+                detection.Narrative,
+                DetectorContributions = detection.DetectorContributions != null
+                    ? JsonSerializer.Serialize(detection.DetectorContributions)
+                    : null,
+                ImportantSignals = detection.ImportantSignals != null
+                    ? JsonSerializer.Serialize(detection.ImportantSignals)
+                    : null
             }, commandTimeout: _options.CommandTimeoutSeconds);
         }
         catch (Exception ex) when (ex is NpgsqlException or System.Net.Sockets.SocketException)
@@ -204,8 +214,13 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
 
             if (!string.IsNullOrEmpty(filter.PathContains))
             {
-                sql += " AND path ILIKE @PathContains";
-                parameters.Add("PathContains", $"%{filter.PathContains}%");
+                // Escape SQL ILIKE wildcards to prevent filter bypass and pattern DoS
+                var escaped = filter.PathContains
+                    .Replace("\\", "\\\\")
+                    .Replace("%", "\\%")
+                    .Replace("_", "\\_");
+                sql += " AND path ILIKE @PathContains ESCAPE '\\'";
+                parameters.Add("PathContains", $"%{escaped}%");
             }
 
             if (!string.IsNullOrEmpty(filter.SignatureId))
@@ -300,7 +315,8 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                     COUNT(*) FILTER (WHERE is_bot) as bot_requests,
                     COUNT(*) FILTER (WHERE NOT is_bot AND confidence >= 0.5) as human_requests,
                     COUNT(*) FILTER (WHERE NOT is_bot AND confidence < 0.5) as uncertain_requests,
-                    AVG(processing_time_ms) as avg_processing_time
+                    AVG(processing_time_ms) as avg_processing_time,
+                    (SELECT processing_time_ms FROM dashboard_detections WHERE timestamp > NOW() - INTERVAL '24 hours' ORDER BY timestamp DESC LIMIT 1) as last_processing_time
                 FROM dashboard_detections
                 WHERE timestamp > NOW() - INTERVAL '24 hours'
             ),
@@ -344,6 +360,7 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                 (SELECT human_requests::int FROM stats) as HumanRequests,
                 (SELECT uncertain_requests::int FROM stats) as UncertainRequests,
                 (SELECT avg_processing_time FROM stats) as AverageProcessingTimeMs,
+                (SELECT last_processing_time FROM stats) as LastProcessingTimeMs,
                 (SELECT count FROM unique_sigs) as UniqueSignatures";
 
         try
@@ -379,6 +396,7 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                 TopBotTypes = botTypes.ToDictionary(x => x.BotType, x => x.Count),
                 TopActions = actions.ToDictionary(x => x.Action, x => x.Count),
                 AverageProcessingTimeMs = summary.AverageProcessingTimeMs,
+                LastProcessingTimeMs = summary.LastProcessingTimeMs,
                 UniqueSignatures = summary.UniqueSignatures
             };
         }
@@ -556,13 +574,26 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
             Path = row.Path,
             StatusCode = row.StatusCode,
             ProcessingTimeMs = row.ProcessingTimeMs,
-            IpAddress = row.IpAddress,
-            UserAgent = row.UserAgent,
+            // IP and UA are stored as hashes — never return raw PII from DB
+            IpAddress = row.IpAddressHash,
+            UserAgent = row.UserAgentHash,
             TopReasons = string.IsNullOrEmpty(row.TopReasons)
                 ? new List<string>()
                 : JsonSerializer.Deserialize<List<string>>(row.TopReasons) ?? new List<string>(),
-            PrimarySignature = row.PrimarySignature
+            PrimarySignature = row.PrimarySignature,
+            CountryCode = row.CountryCode,
+            Description = row.Description,
+            Narrative = row.Narrative,
+            DetectorContributions = DeserializeJsonOrNull<Dictionary<string, DashboardDetectorContribution>>(row.DetectorContributions),
+            ImportantSignals = DeserializeJsonOrNull<Dictionary<string, object>>(row.ImportantSignals)
         };
+    }
+
+    private static T? DeserializeJsonOrNull<T>(string? json) where T : class
+    {
+        if (string.IsNullOrEmpty(json)) return null;
+        try { return JsonSerializer.Deserialize<T>(json); }
+        catch { return null; }
     }
 
     private static DashboardSignatureEvent MapToSignatureEvent(SignatureRow row)
@@ -583,6 +614,16 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         };
     }
 
+    /// <summary>
+    /// Hash a raw PII value (IP/UA) to SHA256 hex for storage. Never store raw PII.
+    /// </summary>
+    private static string? HashForStorage(string? value)
+    {
+        if (string.IsNullOrEmpty(value)) return null;
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
     // Database row models
     private class DetectionRow
     {
@@ -600,10 +641,15 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         public string Path { get; set; } = string.Empty;
         public int StatusCode { get; set; }
         public double ProcessingTimeMs { get; set; }
-        public string? IpAddress { get; set; }
-        public string? UserAgent { get; set; }
+        public string? IpAddressHash { get; set; }
+        public string? UserAgentHash { get; set; }
         public string? TopReasons { get; set; }
         public string? PrimarySignature { get; set; }
+        public string? CountryCode { get; set; }
+        public string? Description { get; set; }
+        public string? Narrative { get; set; }
+        public string? DetectorContributions { get; set; }
+        public string? ImportantSignals { get; set; }
     }
 
     private class SignatureRow
@@ -636,6 +682,7 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         public int HumanRequests { get; set; }
         public int UncertainRequests { get; set; }
         public double AverageProcessingTimeMs { get; set; }
+        public double LastProcessingTimeMs { get; set; }
         public int UniqueSignatures { get; set; }
     }
 }

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.Dashboard;
@@ -238,17 +239,19 @@ public static class DetectionRecordFactory
     private static ImmutableDictionary<string, object> FilterImportantSignals(
         IReadOnlyDictionary<string, object> signals)
     {
-        // Only include signals that are safe for dashboard display (no PII)
-        var allowedPrefixes = new[] { "ua.", "header.", "client.", "geo.", "ip.", "behavioral." };
+        // Pass all signals EXCEPT known PII keys (blocklist approach).
+        // The old allowedPrefixes whitelist was too restrictive — it missed most
+        // detector signals (bot.*, cluster.*, similarity.*, heuristic.*, fingerprint.*,
+        // reputation.*, cache.*, response.*, version.*, tls.*, tcpip.*, h2.*, h3.*, etc.)
         var blockedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "client_ip", "ip_address", "email", "phone", "session_id", "cookie", "authorization"
+            "client_ip", "ip_address", "email", "phone", "session_id", "cookie",
+            "authorization", SignalKeys.UserAgent, SignalKeys.ClientIp
         };
 
         return signals
-            .Where(s => allowedPrefixes.Any(p => s.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))
-                        && !blockedKeys.Contains(s.Key))
-            .Take(50) // Limit to 50 signals
+            .Where(s => !blockedKeys.Contains(s.Key))
+            .Take(80)
             .ToImmutableDictionary();
     }
 }

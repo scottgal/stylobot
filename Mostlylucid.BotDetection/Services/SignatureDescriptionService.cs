@@ -15,20 +15,21 @@ public class SignatureDescriptionService : BackgroundService
 {
     private readonly ILogger<SignatureDescriptionService> _logger;
     private readonly IBotNameSynthesizer _synthesizer;
+    private readonly ILlmResultCallback? _resultCallback;
     private readonly int _requestThreshold;
     private readonly ConcurrentDictionary<string, SignatureActivityTracker> _signatureActivity;
-
-    public event EventHandler<(string Signature, string? Name, string? Description)>? DescriptionGenerated;
 
     private record SignatureActivityTracker(string Signature, int RequestCount, Dictionary<string, object?> LatestSignals);
 
     public SignatureDescriptionService(
         ILogger<SignatureDescriptionService> logger,
         IBotNameSynthesizer synthesizer,
-        IOptions<BotDetectionOptions> options)
+        IOptions<BotDetectionOptions> options,
+        ILlmResultCallback? resultCallback = null)
     {
         _logger = logger;
         _synthesizer = synthesizer;
+        _resultCallback = resultCallback;
         _signatureActivity = new();
 
         // Threshold for triggering description synthesis
@@ -100,7 +101,12 @@ public class SignatureDescriptionService : BackgroundService
                     "Generated description for signature {Sig}: '{Name}'",
                     signature[..Math.Min(16, signature.Length)], name);
 
-                DescriptionGenerated?.Invoke(this, (signature, name, description));
+                // Broadcast via SignalR callback
+                if (_resultCallback != null)
+                {
+                    await _resultCallback.OnSignatureDescriptionAsync(
+                        signature, name, description ?? name, ct);
+                }
             }
         }
         catch (Exception ex)

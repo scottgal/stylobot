@@ -19,13 +19,13 @@ public class LlmClassificationCoordinator : BackgroundService
 {
     private readonly Channel<LlmClassificationRequest> _channel;
     private readonly LlmDetector _detector;
+    private readonly IBotNameSynthesizer? _nameSynthesizer;
     private readonly ILearningEventBus? _learningBus;
     private readonly ILogger<LlmClassificationCoordinator> _logger;
     private readonly BotDetectionOptions _options;
     private readonly IPatternReputationCache _reputationCache;
     private readonly ILlmResultCallback? _resultCallback;
 
-    private int _queueDepth;
     private long _totalProcessed;
 
     public LlmClassificationCoordinator(
@@ -34,7 +34,8 @@ public class LlmClassificationCoordinator : BackgroundService
         IPatternReputationCache reputationCache,
         IOptions<BotDetectionOptions> options,
         ILlmResultCallback? resultCallback = null,
-        ILearningEventBus? learningBus = null)
+        ILearningEventBus? learningBus = null,
+        IBotNameSynthesizer? nameSynthesizer = null)
     {
         _logger = logger;
         _detector = detector;
@@ -42,6 +43,7 @@ public class LlmClassificationCoordinator : BackgroundService
         _options = options.Value;
         _resultCallback = resultCallback;
         _learningBus = learningBus;
+        _nameSynthesizer = nameSynthesizer;
 
         _channel = Channel.CreateBounded<LlmClassificationRequest>(
             new BoundedChannelOptions(_options.LlmCoordinator.ChannelCapacity)
@@ -53,10 +55,10 @@ public class LlmClassificationCoordinator : BackgroundService
     }
 
     /// <summary>Current number of items waiting in the queue.</summary>
-    public int QueueDepth => _queueDepth;
+    public int QueueDepth => _channel.Reader.Count;
 
     /// <summary>Queue utilization as a fraction of capacity (0.0 to 1.0+).</summary>
-    public double QueueUtilization => (double)_queueDepth / _options.LlmCoordinator.ChannelCapacity;
+    public double QueueUtilization => (double)_channel.Reader.Count / _options.LlmCoordinator.ChannelCapacity;
 
     /// <summary>Total requests processed since startup.</summary>
     public long TotalProcessed => Interlocked.Read(ref _totalProcessed);
@@ -93,12 +95,11 @@ public class LlmClassificationCoordinator : BackgroundService
             return false;
         }
 
-        Interlocked.Increment(ref _queueDepth);
         _logger.LogDebug("Enqueued LLM classification for {RequestId} sig={Signature} reason={Reason} (depth={Depth})",
             request.RequestId,
             request.PrimarySignature[..Math.Min(8, request.PrimarySignature.Length)],
             request.EnqueueReason ?? "unknown",
-            _queueDepth);
+            _channel.Reader.Count);
         return true;
     }
 
@@ -125,7 +126,6 @@ public class LlmClassificationCoordinator : BackgroundService
                 }
                 finally
                 {
-                    Interlocked.Decrement(ref _queueDepth);
                     Interlocked.Increment(ref _totalProcessed);
                 }
             }
@@ -146,7 +146,15 @@ public class LlmClassificationCoordinator : BackgroundService
 
         if (result.Reasons.Count == 0)
         {
-            _logger.LogDebug("LLM returned no classification for {RequestId}", request.RequestId);
+            // Ollama returned nothing — try LlamaSharp name synthesizer as fallback
+            if (_nameSynthesizer != null && _nameSynthesizer.IsReady)
+            {
+                await FallbackToNameSynthesizerAsync(request, ct);
+            }
+            else
+            {
+                _logger.LogDebug("LLM returned no classification for {RequestId} (no fallback available)", request.RequestId);
+            }
             return;
         }
 
@@ -233,5 +241,48 @@ public class LlmClassificationCoordinator : BackgroundService
 
         _logger.LogDebug("LLM classification complete for {RequestId}: isBot={IsBot}, confidence={Confidence:F2}",
             request.RequestId, reason.ConfidenceImpact > 0, result.Confidence);
+    }
+
+    /// <summary>
+    ///     Fallback: use IBotNameSynthesizer (LlamaSharp) when Ollama is not configured.
+    ///     Generates a description from request signals and broadcasts via callback.
+    /// </summary>
+    private async Task FallbackToNameSynthesizerAsync(LlmClassificationRequest request, CancellationToken ct)
+    {
+        try
+        {
+            // Build minimal signals from the pre-built request info
+            var signals = new Dictionary<string, object?>
+            {
+                ["detection.useragent.source"] = request.PreBuiltRequestInfo,
+                ["request.signature"] = request.PrimarySignature,
+                ["detection.heuristic.probability"] = request.HeuristicProbability
+            };
+
+            // Add signature vectors as signals
+            if (request.SignatureVectors is { Count: > 0 })
+            {
+                foreach (var (vectorType, vectorHash) in request.SignatureVectors)
+                    signals[$"signature.{vectorType}"] = vectorHash;
+            }
+
+            var (name, description) = await _nameSynthesizer!.SynthesizeDetailedAsync(signals, ct: ct);
+
+            if (!string.IsNullOrWhiteSpace(description) && _resultCallback != null)
+            {
+                await _resultCallback.OnLlmResultAsync(
+                    request.RequestId,
+                    request.PrimarySignature,
+                    description,
+                    ct);
+
+                _logger.LogDebug("LlamaSharp fallback generated description for {RequestId}: {Name}",
+                    request.RequestId, name ?? "(unnamed)");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "LlamaSharp fallback failed for {RequestId}", request.RequestId);
+        }
     }
 }

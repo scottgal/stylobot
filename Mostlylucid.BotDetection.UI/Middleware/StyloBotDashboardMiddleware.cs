@@ -1,7 +1,9 @@
+﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
@@ -17,6 +19,12 @@ public class StyloBotDashboardMiddleware
     private readonly IDashboardEventStore _eventStore;
     private readonly RequestDelegate _next;
     private readonly StyloBotDashboardOptions _options;
+
+    // Rate limiter: 10 requests per minute per IP for diagnostics endpoint
+    private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> _rateLimits = new();
+    private const int DiagnosticsRateLimit = 10;
+    private static readonly TimeSpan RateLimitWindow = TimeSpan.FromMinutes(1);
+    private static int _cleanupRunning;
 
     public StyloBotDashboardMiddleware(
         RequestDelegate next,
@@ -78,6 +86,22 @@ public class StyloBotDashboardMiddleware
                 await ServeExportApiAsync(context);
                 break;
 
+            case "api/diagnostics":
+                await ServeDiagnosticsApiAsync(context);
+                break;
+
+            case "api/countries":
+                await ServeCountriesApiAsync(context);
+                break;
+
+            case "api/clusters":
+                await ServeClustersApiAsync(context);
+                break;
+
+            case var p when p.StartsWith("api/sparkline/", StringComparison.OrdinalIgnoreCase):
+                await ServeSparklineApiAsync(context, p.Substring("api/sparkline/".Length));
+                break;
+
             default:
                 // Static assets are served by static files middleware
                 await _next(context);
@@ -116,9 +140,26 @@ public class StyloBotDashboardMiddleware
     private async Task ServeDashboardPageAsync(HttpContext context)
     {
         context.Response.ContentType = "text/html";
+
+        // Allow same-origin iframing (e.g., LiveDemo page embedding the dashboard)
+        context.Response.Headers.Remove("X-Frame-Options");
+        context.Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
+        // Replace restrictive CSP with dashboard-appropriate one
+        context.Response.Headers.Remove("Content-Security-Policy");
         var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj)
             ? nonceObj?.ToString() ?? string.Empty
             : string.Empty;
+        var dashboardCsp = string.Join("; ",
+            "default-src 'self'",
+            "base-uri 'self'",
+            "frame-ancestors 'self'",
+            "object-src 'none'",
+            "img-src 'self' data: https:",
+            "font-src 'self' data: https://fonts.gstatic.com https://unpkg.com",
+            $"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+            $"script-src 'self' 'nonce-{cspNonce}' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com https://cdn.tailwindcss.com",
+            "connect-src 'self' ws: wss:");
+        context.Response.Headers["Content-Security-Policy"] = dashboardCsp;
 
         // Extract visitor's own detection evidence (set by BotDetection middleware)
         string yourDetectionJson = "null";
@@ -130,7 +171,9 @@ public class StyloBotDashboardMiddleware
                 .Select(g => new {
                     detector = g.Key,
                     impact = g.Sum(c => c.ConfidenceDelta * c.Weight),
-                    reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r)))
+                    reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r))),
+                    category = DetectionNarrativeBuilder.GetDetectorCategory(g.Key),
+                    friendlyName = DetectionNarrativeBuilder.GetDetectorFriendlyName(g.Key)
                 })
                 .OrderByDescending(c => Math.Abs(c.impact))
                 .ToList();
@@ -139,6 +182,30 @@ public class StyloBotDashboardMiddleware
                 ? new Dictionary<string, object>(evidence.Signals)
                 : new Dictionary<string, object>();
 
+            var topReasons = evidence.Contributions
+                .Where(c => !string.IsNullOrEmpty(c.Reason))
+                .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
+                .Take(5)
+                .Select(c => c.Reason!)
+                .ToList();
+
+            var narrativeEvent = new DashboardDetectionEvent
+            {
+                RequestId = "self",
+                Timestamp = DateTime.UtcNow,
+                IsBot = evidence.BotProbability > 0.5,
+                BotProbability = evidence.BotProbability,
+                Confidence = evidence.Confidence,
+                RiskBand = evidence.RiskBand.ToString(),
+                BotType = evidence.PrimaryBotType?.ToString(),
+                BotName = evidence.PrimaryBotName,
+                Action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName ?? "Allow",
+                Method = "GET",
+                Path = context.Request.Path.Value ?? "/",
+                TopReasons = topReasons
+            };
+            var narrative = DetectionNarrativeBuilder.Build(narrativeEvent);
+
             var yourDetection = new {
                 isBot = evidence.BotProbability > 0.5,
                 botProbability = Math.Round(evidence.BotProbability, 4),
@@ -146,8 +213,11 @@ public class StyloBotDashboardMiddleware
                 riskBand = evidence.RiskBand.ToString(),
                 processingTimeMs = evidence.TotalProcessingTimeMs,
                 detectorCount = evidence.Contributions.Select(c => c.DetectorName).Distinct().Count(),
+                aiRan = evidence.Contributions.Any(c => c.DetectorName.Contains("Heuristic") || c.DetectorName.Contains("Llm")),
                 contributions = contributions,
-                signals = signals
+                signals = signals,
+                narrative = narrative,
+                topReasons = topReasons
             };
             yourDetectionJson = JsonSerializer.Serialize(yourDetection,
                 new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
@@ -243,6 +313,269 @@ public class StyloBotDashboardMiddleware
         }
     }
 
+    /// <summary>
+    ///     Diagnostics API endpoint with rate limiting (10 requests/minute per IP).
+    ///     Returns comprehensive detection data for optimization and debugging.
+    /// </summary>
+    private async Task ServeDiagnosticsApiAsync(HttpContext context)
+    {
+        // Rate limit: 10 requests per minute per IP
+        var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var now = DateTime.UtcNow;
+
+        var (allowed, remaining) = CheckRateLimit(clientIp, now);
+        context.Response.Headers["X-RateLimit-Limit"] = DiagnosticsRateLimit.ToString();
+        context.Response.Headers["X-RateLimit-Remaining"] = remaining.ToString();
+
+        if (!allowed)
+        {
+            context.Response.StatusCode = 429;
+            context.Response.ContentType = "application/json";
+            await JsonSerializer.SerializeAsync(context.Response.Body, new
+            {
+                error = "Rate limit exceeded",
+                limit = DiagnosticsRateLimit,
+                windowSeconds = (int)RateLimitWindow.TotalSeconds,
+                retryAfterSeconds = (int)RateLimitWindow.TotalSeconds
+            });
+            return;
+        }
+
+        // Build comprehensive diagnostics response
+        var filter = ParseFilter(context.Request.Query);
+        // Default to higher limit for diagnostics
+        if (!filter.Limit.HasValue || filter.Limit > 500)
+            filter = filter with { Limit = 500 };
+
+        var summary = await _eventStore.GetSummaryAsync();
+        var detections = await _eventStore.GetDetectionsAsync(filter);
+        var signatures = await _eventStore.GetSignaturesAsync(200);
+
+        // Get visitor cache if available
+        var visitorCache = context.RequestServices
+            .GetService(typeof(VisitorListCache)) as VisitorListCache;
+
+        var topBots = visitorCache?.GetTopBots(10);
+        var filterCounts = visitorCache?.GetCounts();
+
+        var diagnostics = new
+        {
+            generatedAt = now,
+            summary,
+            filterCounts,
+            topBots = topBots?.Select(b => new
+            {
+                b.PrimarySignature,
+                b.Hits,
+                b.BotName,
+                b.BotType,
+                b.RiskBand,
+                b.BotProbability,
+                b.Confidence,
+                b.Action,
+                b.CountryCode,
+                b.ProcessingTimeMs,
+                b.MaxProcessingTimeMs,
+                b.MinProcessingTimeMs,
+                processingTimeHistory = b.ProcessingTimeHistory,
+                botProbabilityHistory = b.BotProbabilityHistory,
+                confidenceHistory = b.ConfidenceHistory,
+                b.Narrative,
+                topReasons = b.TopReasons
+            }),
+            detections = detections.Select(d => new
+            {
+                d.RequestId,
+                d.Timestamp,
+                d.IsBot,
+                d.BotProbability,
+                d.Confidence,
+                d.RiskBand,
+                d.BotType,
+                d.BotName,
+                d.Action,
+                d.PolicyName,
+                d.Method,
+                d.Path,
+                d.StatusCode,
+                d.ProcessingTimeMs,
+                d.PrimarySignature,
+                d.CountryCode,
+                d.Narrative,
+                d.TopReasons,
+                d.DetectorContributions,
+                d.ImportantSignals
+            }),
+            signatures = signatures.Select(s => new
+            {
+                s.SignatureId,
+                s.Timestamp,
+                s.PrimarySignature,
+                s.FactorCount,
+                s.RiskBand,
+                s.HitCount,
+                s.IsKnownBot,
+                s.BotName
+            })
+        };
+
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, diagnostics,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    }
+
+    private async Task ServeCountriesApiAsync(HttpContext context)
+    {
+        var countStr = context.Request.Query["count"].FirstOrDefault();
+        var count = int.TryParse(countStr, out var c) ? Math.Clamp(c, 1, 50) : 10;
+
+        var tracker = context.RequestServices.GetService(typeof(CountryReputationTracker))
+            as CountryReputationTracker;
+
+        if (tracker == null)
+        {
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("[]");
+            return;
+        }
+
+        var countries = tracker.GetTopBotCountries(count)
+            .Select(cr => new
+            {
+                countryCode = cr.CountryCode,
+                countryName = cr.CountryName,
+                botRate = Math.Round(cr.BotRate, 3),
+                botCount = (int)Math.Round(cr.DecayedBotCount),
+                totalCount = (int)Math.Round(cr.DecayedTotalCount),
+                flag = GetCountryFlag(cr.CountryCode)
+            })
+            .ToList();
+
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, countries,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    }
+
+    private async Task ServeClustersApiAsync(HttpContext context)
+    {
+        var clusterService = context.RequestServices.GetService(typeof(BotClusterService))
+            as BotClusterService;
+
+        if (clusterService == null)
+        {
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("[]");
+            return;
+        }
+
+        var clusters = clusterService.GetClusters()
+            .Select(cl => new
+            {
+                clusterId = cl.ClusterId,
+                label = cl.Label ?? "Unknown",
+                description = cl.Description,
+                type = cl.Type.ToString(),
+                memberCount = cl.MemberCount,
+                avgBotProb = Math.Round(cl.AverageBotProbability, 3),
+                country = cl.DominantCountry,
+                averageSimilarity = Math.Round(cl.AverageSimilarity, 3),
+                temporalDensity = Math.Round(cl.TemporalDensity, 3)
+            })
+            .ToList();
+
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, clusters,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    }
+
+    private static string GetCountryFlag(string? code)
+    {
+        if (string.IsNullOrEmpty(code) || code.Length != 2 || code.Equals("XX", StringComparison.OrdinalIgnoreCase))
+            return "\uD83C\uDF10"; // globe emoji
+        var upper = code.ToUpperInvariant();
+        return string.Concat(
+            char.ConvertFromUtf32(0x1F1E6 + upper[0] - 'A'),
+            char.ConvertFromUtf32(0x1F1E6 + upper[1] - 'A'));
+    }
+
+    /// <summary>
+    ///     Serves sparkline history data for a specific signature.
+    ///     Called on-demand by clients instead of broadcasting via SignalR.
+    /// </summary>
+    private async Task ServeSparklineApiAsync(HttpContext context, string signatureId)
+    {
+        if (string.IsNullOrEmpty(signatureId))
+        {
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsync("Missing signature ID");
+            return;
+        }
+
+        var visitorCache = context.RequestServices
+            .GetService(typeof(VisitorListCache)) as VisitorListCache;
+
+        var visitor = visitorCache?.Get(Uri.UnescapeDataString(signatureId));
+        if (visitor == null)
+        {
+            context.Response.StatusCode = 404;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{}");
+            return;
+        }
+
+        List<double> processingTimes, botProbabilities, confidences;
+        lock (visitor.SyncRoot)
+        {
+            processingTimes = visitor.ProcessingTimeHistory.ToList();
+            botProbabilities = visitor.BotProbabilityHistory.ToList();
+            confidences = visitor.ConfidenceHistory.ToList();
+        }
+
+        var sparkline = new
+        {
+            signatureId,
+            processingTimeHistory = processingTimes,
+            botProbabilityHistory = botProbabilities,
+            confidenceHistory = confidences
+        };
+
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, sparkline,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    }
+
+    private static (bool Allowed, int Remaining) CheckRateLimit(string clientIp, DateTime now)
+    {
+        var entry = _rateLimits.AddOrUpdate(clientIp,
+            _ => (1, now),
+            (_, existing) =>
+            {
+                if (now - existing.WindowStart > RateLimitWindow)
+                    return (1, now); // New window
+                return (existing.Count + 1, existing.WindowStart);
+            });
+
+        // Periodic cleanup: evict stale entries (single-thread guard to avoid contention)
+        if (_rateLimits.Count > 1_000 && Interlocked.CompareExchange(ref _cleanupRunning, 1, 0) == 0)
+        {
+            try
+            {
+                foreach (var kv in _rateLimits)
+                {
+                    if (now - kv.Value.WindowStart > RateLimitWindow)
+                        _rateLimits.TryRemove(kv.Key, out _);
+                }
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _cleanupRunning, 0);
+            }
+        }
+
+        var remaining = Math.Max(0, DiagnosticsRateLimit - entry.Count);
+        return (entry.Count <= DiagnosticsRateLimit, remaining);
+    }
+
     private DashboardFilter ParseFilter(IQueryCollection query)
     {
         var filter = new DashboardFilter();
@@ -295,1107 +628,13 @@ public class StyloBotDashboardMiddleware
     private static string EscapeCsv(string? value)
     {
         if (string.IsNullOrEmpty(value)) return "";
-        if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
-            return $"\"{value.Replace("\"", "\"\"")}\"";
-        return value;
-    }
-}
-
-/// <summary>
-///     HTML template for the dashboard page.
-///     Uses DaisyUI, HTMX, Alpine, ECharts, and Tabulator.
-/// </summary>
-internal static class DashboardHtmlTemplate
-{
-    public static string GetHtml(StyloBotDashboardOptions options, string yourDetectionJson = "null", string cspNonce = "")
-    {
-        return $@"<!DOCTYPE html>
-<html lang=""en"" data-theme=""light"">
-<head>
-    <meta charset=""UTF-8"">
-    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
-    <title>StyloBot Detection Dashboard</title>
-    <script nonce=""{cspNonce}"">
-        (function() {{
-            try {{
-                const saved = localStorage.getItem('sb-theme');
-                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-                const mode = saved === 'light' || saved === 'dark' ? saved : (prefersDark ? 'dark' : 'light');
-                document.documentElement.setAttribute('data-theme', mode);
-            }} catch (_) {{
-                document.documentElement.setAttribute('data-theme', 'light');
-            }}
-        }})();
-    </script>
-
-    <!-- Tailwind CSS + DaisyUI -->
-    <script src=""https://cdn.tailwindcss.com""></script>
-    <link href=""https://cdn.jsdelivr.net/npm/daisyui@4.6.0/dist/full.min.css"" rel=""stylesheet"" type=""text/css"" />
-
-    <!-- Alpine.js -->
-    <script defer src=""https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js""></script>
-
-    <!-- SignalR -->
-    <script src=""https://cdn.jsdelivr.net/npm/@microsoft/signalr@8.0.0/dist/browser/signalr.min.js""></script>
-
-    <!-- ECharts -->
-    <script src=""https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js""></script>
-
-    <!-- Tabulator (native themes) -->
-    <link id=""tabulator-light-css"" href=""https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator.min.css"" rel=""stylesheet"">
-    <link id=""tabulator-dark-css"" href=""https://unpkg.com/tabulator-tables@6.2.1/dist/css/tabulator_midnight.min.css"" rel=""stylesheet"">
-    <script nonce=""{cspNonce}"">
-        (function() {{
-            const mode = document.documentElement.getAttribute('data-theme') || 'light';
-            const light = document.getElementById('tabulator-light-css');
-            const dark = document.getElementById('tabulator-dark-css');
-            if (light && dark) {{
-                const darkOn = mode === 'dark';
-                dark.disabled = !darkOn;
-                light.disabled = darkOn;
-            }}
-        }})();
-    </script>
-    <script src=""https://unpkg.com/tabulator-tables@6.2.1/dist/js/tabulator.min.js""></script>
-
-    <!-- Boxicons -->
-    <link href=""https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css"" rel=""stylesheet"">
-
-    <!-- Google Fonts -->
-    <link rel=""preconnect"" href=""https://fonts.googleapis.com"">
-    <link href=""https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Raleway:ital,wght@0,400;0,500;0,800;0,900;1,400;1,500&display=swap"" rel=""stylesheet"">
-
-    <style>
-        [data-theme=""dark""] {{
-            --sb-brand-muted: #6b7280;
-            --sb-brand-strong: #ffffff;
-            --sb-accent: #5ba3a3;
-            --sb-accent-alt: #0f4c81;
-            --sb-accent-strong: #86b59c;
-            --sb-surface: #0b1220;
-            --sb-card-bg: #141f33;
-            --sb-card-border: rgba(91, 163, 163, 0.28);
-            --sb-card-divider: rgba(148, 163, 184, 0.18);
-        }}
-        [data-theme=""light""] {{
-            --sb-brand-muted: #475569;
-            --sb-brand-strong: #0f172a;
-            --sb-accent: #0f766e;
-            --sb-accent-alt: #0f4c81;
-            --sb-accent-strong: #059669;
-            --sb-surface: #f8fafc;
-            --sb-card-bg: #ffffff;
-            --sb-card-border: rgba(15, 118, 110, 0.18);
-            --sb-card-divider: rgba(15, 23, 42, 0.1);
-        }}
-        body {{
-            font-family: 'Inter', sans-serif;
-            background: var(--sb-surface);
-        }}
-        .brand-header {{
-            background: linear-gradient(120deg, color-mix(in oklab, var(--sb-surface) 78%, #0f172a), color-mix(in oklab, var(--sb-card-bg) 70%, #0f172a));
-            border-bottom: 1px solid var(--sb-card-divider);
-        }}
-        .brand-wordmark {{ font-family: 'Raleway', sans-serif; font-weight: 900; }}
-        .brand-chip {{
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            border: 1px solid var(--sb-card-divider);
-            border-radius: 9999px;
-            padding: 0.2rem 0.6rem;
-            background: color-mix(in oklab, var(--sb-card-bg) 88%, transparent);
-            color: color-mix(in oklab, var(--sb-brand-strong) 72%, var(--sb-brand-muted));
-            font-size: 0.7rem;
-            font-weight: 700;
-        }}
-        .logo-adaptive {{ filter: none; transition: filter 180ms ease; }}
-        [data-theme=""light""] .logo-adaptive {{
-            background: #000;
-            border-radius: 9999px;
-            padding: 2px;
-            filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.45)) drop-shadow(0 0 6px rgba(0, 0, 0, 0.35));
-        }}
-        .dashboard-shell {{ max-width: 84rem; margin: 0 auto; }}
-        .scrolling-signatures {{
-            max-height: 350px;
-            overflow-y: auto;
-        }}
-        .signature-item {{
-            animation: slideIn 0.3s ease-out;
-        }}
-        @@keyframes slideIn {{
-            from {{ opacity: 0; transform: translateY(-10px); }}
-            to {{ opacity: 1; transform: translateY(0); }}
-        }}
-        @@keyframes pulse-dot {{
-            0%, 100% {{ opacity: 1; }}
-            50% {{ opacity: 0.4; }}
-        }}
-        .live-dot {{
-            width: 8px; height: 8px; border-radius: 50%; background: var(--sb-accent);
-            display: inline-block; animation: pulse-dot 2s infinite;
-        }}
-        .risk-veryhigh {{ color: #dc2626; }}
-        .risk-high {{ color: #ef4444; }}
-        .risk-medium {{ color: #DAA564; }}
-        .risk-elevated {{ color: #DAA564; }}
-        .risk-low {{ color: #86B59C; }}
-        .risk-verylow {{ color: #86B59C; }}
-        .bot-pct-bar {{
-            height: 6px; border-radius: 3px; transition: width 0.5s ease;
-        }}
-
-        .dashboard-card {{
-            border: 1px solid var(--sb-card-divider) !important;
-            background: color-mix(in oklab, var(--sb-card-bg) 94%, transparent) !important;
-        }}
-        .card.bg-base-200 {{
-            border: 1px solid var(--sb-card-divider) !important;
-            background: color-mix(in oklab, var(--sb-card-bg) 94%, transparent) !important;
-        }}
-        .dashboard-subtle {{
-            color: color-mix(in oklab, var(--sb-brand-strong) 62%, var(--sb-brand-muted));
-        }}
-        .dashboard-cta {{
-            border-color: var(--sb-accent) !important;
-            color: var(--sb-accent) !important;
-            background: color-mix(in oklab, var(--sb-accent) 12%, transparent) !important;
-        }}
-
-        /* Minimal Tabulator polish; base theme comes from Tabulator CSS */
-        .tabulator {{
-            border: 1px solid var(--sb-card-divider) !important;
-            border-radius: 0.5rem;
-            font-size: 0.8rem;
-            overflow: hidden;
-        }}
-        .tabulator .tabulator-header {{
-            border-bottom: 2px solid var(--sb-accent) !important;
-        }}
-        .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-title {{
-            font-weight: 600;
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }}
-        .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell {{
-            padding: 6px 8px;
-        }}
-        .tabulator .tabulator-footer .tabulator-page {{
-            border-radius: 0.25rem;
-            margin: 0 2px;
-        }}
-        .tabulator .tabulator-footer .tabulator-page.active {{
-            background-color: var(--sb-accent) !important;
-            color: white !important;
-            border-color: var(--sb-accent) !important;
-        }}
-        .tabulator .tabulator-footer .tabulator-page:hover:not(.active) {{
-            filter: brightness(1.06);
-        }}
-
-        /* Dark-mode Tabulator overrides — improve contrast on midnight theme */
-        [data-theme=""dark""] .tabulator {{
-            background: var(--sb-card-bg) !important;
-            border-color: var(--sb-card-border) !important;
-        }}
-        [data-theme=""dark""] .tabulator .tabulator-header {{
-            background: rgba(91, 163, 163, 0.10) !important;
-            border-bottom: 2px solid var(--sb-accent) !important;
-        }}
-        [data-theme=""dark""] .tabulator .tabulator-header .tabulator-col {{
-            background: transparent !important;
-            border-color: var(--sb-card-divider) !important;
-        }}
-        [data-theme=""dark""] .tabulator .tabulator-header .tabulator-col .tabulator-col-content .tabulator-col-title {{
-            color: #cbd5e1 !important;
-        }}
-        [data-theme=""dark""] .tabulator .tabulator-header .tabulator-col .tabulator-col-sorter .tabulator-arrow {{
-            border-bottom-color: #94a3b8 !important;
-        }}
-        [data-theme=""dark""] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row {{
-            background: var(--sb-card-bg) !important;
-            color: #e2e8f0 !important;
-            border-color: var(--sb-card-divider) !important;
-        }}
-        [data-theme=""dark""] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row:nth-child(even) {{
-            background: rgba(91, 163, 163, 0.05) !important;
-        }}
-        [data-theme=""dark""] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row:hover {{
-            background: rgba(91, 163, 163, 0.14) !important;
-        }}
-        [data-theme=""dark""] .tabulator .tabulator-tableholder .tabulator-table .tabulator-row .tabulator-cell {{
-            border-color: var(--sb-card-divider) !important;
-            color: #e2e8f0 !important;
-        }}
-        [data-theme=""dark""] .tabulator .tabulator-footer {{
-            background: var(--sb-card-bg) !important;
-            border-color: var(--sb-card-divider) !important;
-            color: #cbd5e1 !important;
-        }}
-        [data-theme=""dark""] .tabulator .tabulator-footer .tabulator-page {{
-            background: rgba(91, 163, 163, 0.12) !important;
-            border: 1px solid var(--sb-card-divider) !important;
-            color: #cbd5e1 !important;
-        }}
-        [data-theme=""dark""] .tabulator .tabulator-footer .tabulator-page:hover:not(.active):not([disabled]) {{
-            background: rgba(91, 163, 163, 0.22) !important;
-            color: #f1f5f9 !important;
-        }}
-        [data-theme=""dark""] .tabulator .tabulator-footer .tabulator-page[disabled] {{
-            opacity: 0.35 !important;
-        }}
-    </style>
-</head>
-<body class=""bg-base-100"">
-
-    <div x-data=""dashboardState()"" x-init=""init()"" class=""min-h-screen"">
-
-        <!-- Header -->
-        <div class=""brand-header py-3 mb-4"">
-            <div class=""dashboard-shell px-4 flex flex-wrap items-center justify-between gap-3"">
-                <a href=""/"" class=""flex items-center gap-3 no-underline hover:opacity-90 transition-opacity"">
-                    <img src=""/img/stylowall.svg"" alt=""Stylobot logo"" class=""h-9 w-auto logo-adaptive"">
-                    <div>
-                        <h1 class=""text-2xl font-bold brand-wordmark leading-none"">
-                            <span style=""color: var(--sb-brand-muted); font-style: italic;"">stylo</span><span style=""color: var(--sb-brand-strong);"">bot</span>
-                        </h1>
-                        <p class=""text-xs dashboard-subtle mt-1"">Detection dashboard</p>
-                    </div>
-                </a>
-                <a href=""https://www.mostlylucid.net"" target=""_blank"" rel=""noopener"" class=""no-underline hover:opacity-80 transition-opacity ml-1"" title=""A mostlylucid product"">
-                    <span style=""font-family: 'Raleway', sans-serif; font-size: 0.7rem; letter-spacing: 0.02em;"">
-                        <span style=""opacity: 0.45; font-size: 0.6rem;"">a </span><span style=""color: #dddddd; font-style: italic; font-weight: 500;"">mostly</span><span style=""color: #ffffff; font-weight: 500;"">lucid</span><span style=""opacity: 0.45; font-size: 0.6rem;""> product</span>
-                    </span>
-                </a>
-                <div class=""flex items-center gap-2 flex-wrap"">
-                    <span class=""brand-chip""><i class=""bx bx-shield-quarter text-[12px]""></i> Live telemetry</span>
-                    <span class=""live-dot""></span>
-                    <span class=""text-sm font-medium"" :class=""signalrConnected ? 'text-success' : 'text-error'""
-                          x-text=""signalrConnected ? 'Connected' : 'Reconnecting...'""></span>
-                    <button type=""button"" class=""btn btn-ghost btn-sm btn-square"" title=""Toggle theme"" @@click=""toggleTheme()"">
-                        <i class=""bx"" :class=""isDark ? 'bx-sun' : 'bx-moon'""></i>
-                    </button>
-                    <a href=""/"" class=""btn btn-ghost btn-sm gap-1""><i class=""bx bx-home""></i> Home</a>
-                    <a href=""/Home/LiveDemo"" class=""btn btn-sm gap-1 dashboard-cta""><i class=""bx bx-broadcast""></i> Live Demo</a>
-                    <a href=""https://github.com/scottgal/stylobot"" target=""_blank"" class=""btn btn-ghost btn-sm gap-1""><i class=""bx bxl-github""></i> GitHub</a>
-                </div>
-            </div>
-        </div>
-
-        <div class=""dashboard-shell px-4 pb-8"">
-
-        <!-- Your Detection (visitor's own) -->
-        <template x-if=""yourData"">
-            <div class=""card bg-base-200 shadow-lg mb-6 border-l-4"" style=""border-left-color: #5BA3A3;"">
-                <div class=""card-body py-3"">
-                    <div class=""flex flex-wrap items-center gap-4"">
-                        <h2 class=""text-sm font-bold uppercase tracking-wider text-base-content/50"">
-                            <i class=""bx bx-user-check mr-1""></i> Your Detection
-                        </h2>
-                        <span class=""badge font-bold text-white""
-                              :class=""yourData.isBot ? 'badge-error' : 'badge-success'""
-                              x-text=""yourData.isBot ? 'BOT' : 'HUMAN'""></span>
-                        <span class=""text-lg font-bold"" :style=""'color:' + (yourData.botProbability >= 0.7 ? '#ef4444' : yourData.botProbability >= 0.4 ? '#DAA564' : '#86B59C')""
-                              x-text=""Math.round(yourData.botProbability * 100) + '% bot'""></span>
-                        <span class=""badge badge-sm badge-ghost"" x-text=""'Confidence ' + Math.round(yourData.confidence * 100) + '%'""></span>
-                        <span class=""badge badge-sm badge-ghost"" x-text=""yourData.detectorCount + ' detectors'""></span>
-                        <span class=""badge badge-sm"" :style=""'background-color:' + riskColor(yourData.riskBand) + '22; color:' + riskColor(yourData.riskBand)"" x-text=""yourData.riskBand""></span>
-                        <span class=""text-xs text-base-content/40"" x-text=""yourData.processingTimeMs?.toFixed(0) + 'ms'""></span>
-                        <button class=""btn btn-ghost btn-xs ml-auto"" x-on:click=""showYourDetail = !showYourDetail"">
-                            <i class=""bx"" :class=""showYourDetail ? 'bx-chevron-up' : 'bx-chevron-down'""></i>
-                            <span x-text=""showYourDetail ? 'Less' : 'Details'""></span>
-                        </button>
-                    </div>
-                    <div x-show=""showYourDetail"" x-transition class=""mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4"">
-                        <!-- Detector breakdown -->
-                        <div>
-                            <h3 class=""text-xs font-bold uppercase tracking-wider text-base-content/40 mb-2"">
-                                <i class=""bx bx-bar-chart-alt-2 mr-1""></i> Detector Breakdown
-                            </h3>
-                            <div class=""space-y-1"">
-                                <template x-for=""c in yourData.contributions?.slice(0, 10) || []"" :key=""c.detector"">
-                                    <div class=""flex items-center gap-2"">
-                                        <span class=""text-xs w-20 truncate"" x-text=""c.detector""></span>
-                                        <div class=""flex-1 bg-base-300 rounded-full h-2.5 overflow-hidden"">
-                                            <div class=""h-full rounded-full""
-                                                 :style=""'width:' + Math.max(Math.min(Math.abs(c.impact) * 1000, 100), 3) + '%; background-color:' + (c.impact > 0 ? '#ef444488' : '#86B59C88')""></div>
-                                        </div>
-                                        <span class=""w-12 text-right text-[10px] font-mono""
-                                              :style=""'color:' + (c.impact > 0 ? '#ef4444' : '#86B59C')""
-                                              x-text=""(c.impact > 0 ? '+' : '') + (c.impact * 100).toFixed(1) + '%'""></span>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-                        <!-- Signals -->
-                        <div>
-                            <h3 class=""text-xs font-bold uppercase tracking-wider text-base-content/40 mb-2"">
-                                <i class=""bx bx-broadcast mr-1""></i> Signals
-                                <span class=""badge badge-xs badge-ghost ml-1"" x-text=""Object.keys(yourData.signals || {{}}).length""></span>
-                            </h3>
-                            <div class=""space-y-0.5 max-h-40 overflow-y-auto"">
-                                <template x-for=""[key, val] in Object.entries(yourData.signals || {{}})"" :key=""key"">
-                                    <div class=""flex items-center gap-1 text-[11px]"">
-                                        <code class=""font-mono opacity-50 truncate flex-1"" x-text=""key""></code>
-                                        <span class=""font-medium""
-                                              :style=""'color:' + (val === true ? '#86B59C' : val === false ? '#ef4444' : '#6b7280')""
-                                              x-text=""String(val)""></span>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </template>
-        <script type=""application/json"" id=""your-detection-data"" nonce=""{cspNonce}"">{yourDetectionJson}</script>
-
-        <!-- Summary Cards -->
-        <div class=""grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6"">
-            <div class=""stat bg-base-200 rounded-lg shadow"">
-                <div class=""stat-title"">Total Requests</div>
-                <div class=""stat-value text-2xl"" x-text=""summary.totalRequests"">0</div>
-            </div>
-            <div class=""stat bg-base-200 rounded-lg shadow"">
-                <div class=""stat-title"">Bot Requests</div>
-                <div class=""stat-value text-2xl text-error"" x-text=""summary.botRequests"">0</div>
-                <div class=""stat-desc"">
-                    <div class=""flex items-center gap-2"">
-                        <div class=""flex-1 bg-base-300 rounded-full"" style=""height:6px"">
-                            <div class=""bot-pct-bar bg-error"" :style=""'width:' + (summary.botPercentage || 0) + '%'""></div>
-                        </div>
-                        <span x-text=""(summary.botPercentage || 0).toFixed(1) + '%'""></span>
-                    </div>
-                </div>
-            </div>
-            <div class=""stat bg-base-200 rounded-lg shadow"">
-                <div class=""stat-title"">Human Requests</div>
-                <div class=""stat-value text-2xl"" style=""color: #86B59C;"" x-text=""summary.humanRequests"">0</div>
-            </div>
-            <div class=""stat bg-base-200 rounded-lg shadow"">
-                <div class=""stat-title"">Unique Signatures</div>
-                <div class=""stat-value text-2xl"" style=""color: #5BA3A3;"" x-text=""summary.uniqueSignatures"">0</div>
-            </div>
-            <div class=""stat bg-base-200 rounded-lg shadow"">
-                <div class=""stat-title"">Avg Processing</div>
-                <div class=""stat-value text-2xl"" x-text=""(summary.averageProcessingTimeMs || 0).toFixed(0) + 'ms'"">0ms</div>
-            </div>
-        </div>
-
-        <!-- Controls Bar -->
-        <div class=""card bg-base-200 shadow-lg mb-6"">
-            <div class=""card-body py-3"">
-                <div class=""flex flex-wrap items-end gap-4"">
-                    <div class=""form-control"">
-                        <label class=""label py-0""><span class=""label-text text-xs"">Time Range</span></label>
-                        <select x-model=""filters.timeRange"" class=""select select-bordered select-sm"" x-on:change=""applyFilters()"">
-                            <option value=""5m"">Last 5 min</option>
-                            <option value=""15m"">Last 15 min</option>
-                            <option value=""1h"">Last hour</option>
-                            <option value=""6h"">Last 6 hours</option>
-                            <option value=""24h"" selected>Last 24h</option>
-                        </select>
-                    </div>
-                    <div class=""form-control"">
-                        <label class=""label py-0""><span class=""label-text text-xs"">Risk Band</span></label>
-                        <select x-model=""filters.riskBand"" class=""select select-bordered select-sm"" x-on:change=""applyFilters()"">
-                            <option value="""">All</option>
-                            <option value=""VeryLow"">Very Low</option>
-                            <option value=""Low"">Low</option>
-                            <option value=""Medium"">Medium</option>
-                            <option value=""High"">High</option>
-                            <option value=""VeryHigh"">Very High</option>
-                        </select>
-                    </div>
-                    <div class=""form-control"">
-                        <label class=""label py-0""><span class=""label-text text-xs"">Classification</span></label>
-                        <select x-model=""filters.classification"" class=""select select-bordered select-sm"" x-on:change=""applyFilters()"">
-                            <option value="""">All</option>
-                            <option value=""bot"">Bots</option>
-                            <option value=""human"">Humans</option>
-                        </select>
-                    </div>
-                    <div class=""ml-auto flex gap-2"">
-                        <button @click=""exportData('json')"" class=""btn btn-sm btn-outline"">Export JSON</button>
-                        <button @click=""exportData('csv')"" class=""btn btn-sm btn-outline"">Export CSV</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Charts Row -->
-        <div class=""grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6"">
-            <div class=""card bg-base-200 shadow-lg"">
-                <div class=""card-body"">
-                    <div class=""flex items-center justify-between mb-1"">
-                        <h2 class=""card-title text-base"">Detection Timeline</h2>
-                        <a href=""/docs/how-stylobot-works#temporal-intelligence-mostlylucidephemeral"" class=""text-xs dashboard-subtle hover:underline"">How this works</a>
-                    </div>
-                    <div id=""riskTimelineChart"" style=""height: 280px;""></div>
-                </div>
-            </div>
-            <div class=""card bg-base-200 shadow-lg"">
-                <div class=""card-body"">
-                    <div class=""flex items-center justify-between mb-1"">
-                        <h2 class=""card-title text-base"">Classification Distribution</h2>
-                        <a href=""/docs/detectors-in-depth"" class=""text-xs dashboard-subtle hover:underline"">Detector guide</a>
-                    </div>
-                    <div id=""classificationChart"" style=""height: 280px;""></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Signatures + Top Bots Row -->
-        <div class=""grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6"">
-            <!-- Scrolling Signatures (2 cols) -->
-            <div class=""card bg-base-200 shadow-lg lg:col-span-2"">
-                <div class=""card-body"">
-                    <h2 class=""card-title text-base"">
-                        Live Signatures Feed
-                        <span class=""live-dot ml-2""></span>
-                    </h2>
-                    <div class=""scrolling-signatures"">
-                        <template x-for=""(sig, idx) in signatures"" :key=""sig.signatureId || sig.primarySignature || idx"">
-                            <div class=""signature-item mb-1 rounded-lg bg-base-300/50 hover:bg-base-300 transition-colors"">
-                                <div class=""flex items-center gap-3 px-3 py-2 cursor-pointer"" x-on:click=""sig._expanded = !sig._expanded"">
-                                    <i class=""bx text-xs opacity-40"" :class=""sig._expanded ? 'bx-chevron-down' : 'bx-chevron-right'""></i>
-                                    <template x-if=""sig.botName"">
-                                        <span class=""text-xs font-bold"" :style=""'color:' + sigColor(sig.primarySignature || sig.signatureId)"" x-text=""sig.botName""></span>
-                                    </template>
-                                    <template x-if=""!sig.botName && sig.isKnownBot"">
-                                        <span class=""text-xs font-semibold opacity-70"">Known Bot</span>
-                                    </template>
-                                    <span class=""font-mono text-[10px] opacity-40"" x-text=""(sig.primarySignature || sig.signatureId || '-').substring(0, 8)""></span>
-                                    <span class=""badge badge-xs""
-                                          :class=""{{
-                                              'badge-error': sig.riskBand === 'VeryHigh' || sig.riskBand === 'High',
-                                              'badge-warning': sig.riskBand === 'Medium',
-                                              'badge-info': sig.riskBand === 'Low',
-                                              'badge-success': sig.riskBand === 'VeryLow'
-                                          }}""
-                                          x-text=""sig.riskBand || 'Unknown'""></span>
-                                    <span class=""text-xs font-bold ml-auto"" x-text=""sig.hitCount || 0""></span>
-                                    <span class=""text-[10px] opacity-40"">hits</span>
-                                    <span class=""text-xs opacity-60"" x-show=""sig.factorCount"" x-text=""sig.factorCount + ' vectors'""></span>
-                                </div>
-                                <!-- Expanded detail -->
-                                <div x-show=""sig._expanded"" x-transition class=""px-3 pb-3 pt-1 border-t border-base-300/50"">
-                                    <div class=""grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] mb-2"">
-                                        <div><span class=""opacity-40"">Probability:</span> <span class=""font-bold"" :style=""'color:' + ((sig.botProbability || 0) >= 0.5 ? '#ef4444' : '#86B59C')"" x-text=""((sig.botProbability || 0) * 100).toFixed(0) + '%'""></span></div>
-                                        <div><span class=""opacity-40"">Confidence:</span> <span class=""font-bold"" x-text=""((sig.confidence || 0) * 100).toFixed(0) + '%'""></span></div>
-                                        <div><span class=""opacity-40"">Bot Type:</span> <span x-text=""sig.botType || '-'""></span></div>
-                                        <div><span class=""opacity-40"">Action:</span> <span x-text=""sig.action || 'Allow'""></span></div>
-                                        <div x-show=""sig.countryCode""><span class=""opacity-40"">Country:</span> <span x-text=""sig.countryCode""></span></div>
-                                        <div x-show=""sig.lastPath""><span class=""opacity-40"">Last Path:</span> <code class=""font-mono"" x-text=""sig.lastPath""></code></div>
-                                        <div x-show=""sig.firstSeen""><span class=""opacity-40"">First Seen:</span> <span x-text=""new Date(sig.firstSeen).toLocaleTimeString()""></span></div>
-                                    </div>
-                                    <!-- User-Agent (bots) -->
-                                    <div x-show=""sig.userAgent"" class=""mb-2"">
-                                        <span class=""text-[10px] font-bold uppercase tracking-wider opacity-40"">User-Agent</span>
-                                        <code class=""block text-[10px] opacity-60 break-all bg-base-300/30 rounded px-2 py-1 mt-0.5"" x-text=""sig.userAgent""></code>
-                                    </div>
-                                    <!-- Factors/Reasons -->
-                                    <template x-if=""sig.topReasons && sig.topReasons.length > 0"">
-                                        <div>
-                                            <h4 class=""text-[10px] font-bold uppercase tracking-wider opacity-40 mb-1""><i class=""bx bx-analyse mr-1""></i>Detection Reasons</h4>
-                                            <div class=""space-y-0.5"">
-                                                <template x-for=""reason in sig.topReasons.slice(0, 5)"" :key=""reason"">
-                                                    <div class=""text-[11px] opacity-70 pl-2 border-l-2"" style=""border-left-color: #5BA3A3;"" x-text=""reason""></div>
-                                                </template>
-                                            </div>
-                                        </div>
-                                    </template>
-                                    <!-- Factor breakdown (multi-vector) -->
-                                    <template x-if=""sig.factors && Object.keys(sig.factors).length > 0"">
-                                        <div class=""mt-2"">
-                                            <h4 class=""text-[10px] font-bold uppercase tracking-wider opacity-40 mb-1""><i class=""bx bx-layer mr-1""></i>Multi-Vector Signals</h4>
-                                            <div class=""flex flex-wrap gap-1"">
-                                                <template x-for=""[factor, val] in Object.entries(sig.factors)"" :key=""factor"">
-                                                    <span class=""badge badge-xs badge-ghost"" x-text=""factor""></span>
-                                                </template>
-                                            </div>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                        </template>
-                        <template x-if=""signatures.length === 0"">
-                            <div class=""text-center text-base-content/50 py-8"">Waiting for signatures...</div>
-                        </template>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Top Bots Leaderboard (1 col) -->
-            <div class=""card bg-base-200 shadow-lg border-l-4"" style=""border-left-color: #ef4444;"">
-                <div class=""card-body"">
-                    <h2 class=""card-title text-base"">
-                        Top Bot Types
-                        <span class=""badge badge-error badge-sm"" x-text=""topBots.reduce((s, b) => s + b.count, 0)""></span>
-                    </h2>
-                    <div class=""space-y-3"">
-                        <template x-for=""(bot, i) in topBots"" :key=""i"">
-                            <div class=""bg-base-300/50 rounded-lg p-2"">
-                                <div class=""flex items-center gap-2 mb-1"">
-                                    <span class=""text-xs font-bold w-5 text-center"" :style=""'color:' + (i < 3 ? '#ef4444' : '#6b7280')"" x-text=""'#' + (i + 1)""></span>
-                                    <span class=""text-sm font-semibold flex-1 truncate"" x-text=""bot.name || 'Unknown'""></span>
-                                    <span class=""badge badge-sm badge-error font-bold"" x-text=""bot.count""></span>
-                                </div>
-                                <div class=""ml-7"">
-                                    <div class=""bg-base-300 rounded-full"" style=""height:4px"">
-                                        <div class=""rounded-full"" style=""height:4px; background-color: #ef444488;""
-                                             :style=""'width:' + Math.max((bot.count / (topBots[0]?.count || 1)) * 100, 5) + '%'""></div>
-                                    </div>
-                                </div>
-                            </div>
-                        </template>
-                        <template x-if=""topBots.length === 0"">
-                            <div class=""text-center text-base-content/50 py-4 text-sm"">No bots detected yet</div>
-                        </template>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Bot Clusters Row -->
-        <div x-show=""clusters.length > 0"" x-transition class=""mb-6"">
-            <div class=""card bg-base-200 shadow-lg border-l-4"" style=""border-left-color: #5BA3A3;"">
-                <div class=""card-body"">
-                    <h2 class=""card-title text-base"">
-                        <i class=""bx bx-git-branch mr-1""></i>Bot Clusters
-                        <span class=""badge badge-sm font-bold"" style=""background-color:#5BA3A3;color:#fff"" x-text=""clusters.length""></span>
-                        <span class=""live-dot ml-2""></span>
-                    </h2>
-                    <div class=""grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mt-2"">
-                        <template x-for=""(cl, idx) in clusters"" :key=""cl.clusterId"">
-                            <div class=""bg-base-300/50 rounded-lg p-3 hover:bg-base-300 transition-colors"">
-                                <div class=""flex items-center justify-between mb-1"">
-                                    <span class=""font-semibold text-sm truncate"" x-text=""cl.label""></span>
-                                    <span class=""badge badge-xs"" :class=""cl.memberCount > 5 ? 'badge-error' : 'badge-warning'"" x-text=""cl.memberCount + ' members'""></span>
-                                </div>
-                                <div x-show=""cl.description"" class=""text-xs leading-relaxed opacity-70 mt-1 mb-2 pl-2 border-l-2"" style=""border-left-color:#5BA3A3"" x-text=""cl.description""></div>
-                                <div class=""flex flex-wrap gap-1 text-[10px]"">
-                                    <span class=""opacity-40"">Type:</span>
-                                    <span class=""font-medium"" x-text=""cl.type || 'Unknown'""></span>
-                                    <span class=""opacity-20"">|</span>
-                                    <span class=""opacity-40"">Prob:</span>
-                                    <span class=""font-bold"" :style=""'color:' + (cl.avgBotProb >= 0.7 ? '#ef4444' : cl.avgBotProb >= 0.4 ? '#DAA564' : '#86B59C')"" x-text=""((cl.avgBotProb || 0) * 100).toFixed(0) + '%'""></span>
-                                    <template x-if=""cl.country"">
-                                        <span><span class=""opacity-20"">|</span> <span class=""opacity-40"">Country:</span> <span x-text=""cl.country""></span></span>
-                                    </template>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Detections Grid -->
-        <div class=""card bg-base-200 shadow-lg"">
-            <div class=""card-body"">
-                <div class=""flex items-center justify-between mb-2"">
-                    <h2 class=""card-title text-base"">Recent Requests</h2>
-                    <span class=""text-xs text-base-content/40"">Every request analysed by the detection pipeline. Named bots shown when identified.</span>
-                </div>
-                <div id=""detectionsTable""></div>
-            </div>
-        </div>
-
-        </div>
-    </div>
-
-    <script nonce=""{cspNonce}"">
-        // Generate a consistent HSL color from a signature hash for visual correlation
-        function sigColor(sig) {{
-            if (!sig) return '#6b7280';
-            let hash = 0;
-            for (let i = 0; i < sig.length; i++) {{ hash = sig.charCodeAt(i) + ((hash << 5) - hash); }}
-            const hue = ((hash % 360) + 360) % 360;
-            return `hsl(${{hue}}, 65%, 55%)`;
-        }}
-
-        // Normalize PascalCase API keys to camelCase for JS consumption
-        function toCamel(obj) {{
-            if (Array.isArray(obj)) return obj.map(toCamel);
-            if (obj !== null && typeof obj === 'object') {{
-                return Object.fromEntries(
-                    Object.entries(obj).map(([k, v]) => [k.charAt(0).toLowerCase() + k.slice(1), toCamel(v)])
-                );
-            }}
-            return obj;
-        }}
-
-        function dashboardState() {{
-            return {{
-                connection: null,
-                signalrConnected: false,
-                isDark: false,
-                yourData: null,
-                showYourDetail: false,
-                summary: {{
-                    totalRequests: 0,
-                    botRequests: 0,
-                    humanRequests: 0,
-                    uniqueSignatures: 0,
-                    botPercentage: 0,
-                    averageProcessingTimeMs: 0,
-                    uncertainRequests: 0
-                }},
-                signatures: [],
-                detections: [],
-                topBots: [],
-                clusters: [],
-                filters: {{
-                    timeRange: '24h',
-                    riskBand: '',
-                    classification: ''
-                }},
-                tabulatorTable: null,
-                riskChart: null,
-                classificationChart: null,
-
-                riskColor(band) {{
-                    return {{ 'VeryLow': '#86B59C', 'Low': '#86B59C', 'Elevated': '#DAA564', 'Medium': '#DAA564', 'High': '#ef4444', 'VeryHigh': '#dc2626' }}[band] || '#6b7280';
-                }},
-
-                initTheme() {{
-                    const current = document.documentElement.getAttribute('data-theme');
-                    this.isDark = current === 'dark';
-                }},
-
-                toggleTheme() {{
-                    this.isDark = !this.isDark;
-                    const next = this.isDark ? 'dark' : 'light';
-                    document.documentElement.setAttribute('data-theme', next);
-                    try {{ localStorage.setItem('sb-theme', next); }} catch (_) {{}}
-                    this.syncTabulatorTheme();
-                    this.applyChartTheme();
-                }},
-
-                syncTabulatorTheme() {{
-                    const light = document.getElementById('tabulator-light-css');
-                    const dark = document.getElementById('tabulator-dark-css');
-                    if (!light || !dark) return;
-                    const darkOn = this.isDark;
-                    dark.disabled = !darkOn;
-                    light.disabled = darkOn;
-                }},
-
-                chartThemeColors() {{
-                    if (this.isDark) {{
-                        return {{
-                            text: '#a0aec0',
-                            line: '#4a5568',
-                            split: '#2d3748',
-                            axis: '#4a5568'
-                        }};
-                    }}
-                    return {{
-                        text: '#334155',
-                        line: '#cbd5e1',
-                        split: '#e2e8f0',
-                        axis: '#94a3b8'
-                    }};
-                }},
-
-                init() {{
-                    this.initTheme();
-                    this.syncTabulatorTheme();
-                    // Load visitor's own detection from inline JSON
-                    try {{
-                        const el = document.getElementById('your-detection-data');
-                        if (el) {{ const d = JSON.parse(el.textContent); if (d) this.yourData = d; }}
-                    }} catch(e) {{}}
-
-                    this.initSignalR();
-                    this.initCharts();
-                    this.initTable();
-                    this.loadInitialData();
-                    this.applyChartTheme();
-                    window.addEventListener('resize', () => {{
-                        this.riskChart?.resize();
-                        this.classificationChart?.resize();
-                    }});
-                }},
-
-                initSignalR() {{
-                    this.connection = new signalR.HubConnectionBuilder()
-                        .withUrl('{options.HubPath}')
-                        .withAutomaticReconnect()
-                        .build();
-
-                    this.connection.on('BroadcastDetection', (detection) => {{
-                        const d = toCamel(detection);
-                        this.detections.unshift(d);
-                        if (this.detections.length > 100) this.detections.pop();
-                        this.tabulatorTable?.setData(this.detections);
-                    }});
-
-                    this.connection.on('BroadcastSignature', (signature) => {{
-                        const sig = toCamel(signature);
-                        const idx = this.signatures.findIndex(s => s.primarySignature === sig.primarySignature);
-                        if (idx >= 0) {{ this.signatures[idx] = sig; }}
-                        else {{ this.signatures.unshift(sig); }}
-                        if (this.signatures.length > 50) this.signatures.pop();
-                    }});
-
-                    this.connection.on('BroadcastSummary', (summary) => {{
-                        const s = toCamel(summary);
-                        this.summary = {{ ...this.summary, ...s }};
-                        this.updateTopBotsFromSummary();
-                        this.updateCharts();
-                    }});
-
-                    this.connection.on('BroadcastDescriptionUpdate', (requestId, description) => {{
-                        // Update matching detection with the LLM-generated description
-                        const det = this.detections.find(d => d.requestId === requestId);
-                        if (det) {{
-                            det.description = description;
-                            this.tabulatorTable?.updateData([det]);
-                        }}
-                    }});
-
-                    this.connection.on('BroadcastClusters', (clusterList) => {{
-                        this.clusters = (clusterList || []).map(toCamel);
-                    }});
-
-                    this.connection.on('BroadcastClusterDescriptionUpdate', (clusterId, label, description) => {{
-                        const existing = this.clusters.find(c => c.clusterId === clusterId);
-                        if (existing) {{
-                            existing.label = label;
-                            existing.description = description;
-                        }} else {{
-                            this.clusters.unshift({{ clusterId, label, description, memberCount: 0, type: '', avgBotProb: 0, country: '' }});
-                        }}
-                    }});
-
-                    this.connection.onclose(() => {{ this.signalrConnected = false; }});
-                    this.connection.onreconnecting(() => {{ this.signalrConnected = false; }});
-                    this.connection.onreconnected(() => {{ this.signalrConnected = true; }});
-
-                    this.connection.start()
-                        .then(() => {{ this.signalrConnected = true; }})
-                        .catch(err => console.error('SignalR error:', err));
-                }},
-
-                initCharts() {{
-                    const colors = this.chartThemeColors();
-                    this.riskChart = echarts.init(document.getElementById('riskTimelineChart'));
-                    this.riskChart.setOption({{
-                        tooltip: {{ trigger: 'axis' }},
-                        legend: {{ data: ['Bots', 'Humans'], textStyle: {{ color: colors.text }} }},
-                        grid: {{ left: 40, right: 20, top: 40, bottom: 30 }},
-                        xAxis: {{ type: 'time', axisLabel: {{ color: colors.text }}, axisLine: {{ lineStyle: {{ color: colors.axis }} }} }},
-                        yAxis: {{ type: 'value', axisLabel: {{ color: colors.text }}, splitLine: {{ lineStyle: {{ color: colors.split }} }} }},
-                        series: [
-                            {{ name: 'Bots', type: 'line', data: [], smooth: true, areaStyle: {{ opacity: 0.15 }}, lineStyle: {{ width: 2 }}, color: '#ef4444' }},
-                            {{ name: 'Humans', type: 'line', data: [], smooth: true, areaStyle: {{ opacity: 0.15 }}, lineStyle: {{ width: 2 }}, color: '#86B59C' }}
-                        ]
-                    }});
-
-                    this.classificationChart = echarts.init(document.getElementById('classificationChart'));
-                    this.classificationChart.setOption({{
-                        tooltip: {{ trigger: 'item' }},
-                        series: [{{
-                            type: 'pie',
-                            radius: ['40%', '65%'],
-                            label: {{ color: colors.text }},
-                            data: [
-                                {{ value: 0, name: 'Bots', itemStyle: {{ color: '#ef4444' }} }},
-                                {{ value: 0, name: 'Humans', itemStyle: {{ color: '#86B59C' }} }},
-                                {{ value: 0, name: 'Uncertain', itemStyle: {{ color: '#DAA564' }} }}
-                            ]
-                        }}]
-                    }});
-                }},
-
-                applyChartTheme() {{
-                    const colors = this.chartThemeColors();
-                    this.riskChart?.setOption({{
-                        legend: {{ textStyle: {{ color: colors.text }} }},
-                        xAxis: {{ axisLabel: {{ color: colors.text }}, axisLine: {{ lineStyle: {{ color: colors.axis }} }} }},
-                        yAxis: {{ axisLabel: {{ color: colors.text }}, splitLine: {{ lineStyle: {{ color: colors.split }} }} }}
-                    }});
-                    this.classificationChart?.setOption({{
-                        series: [{{ label: {{ color: colors.text }} }}]
-                    }});
-                }},
-
-                initTable() {{
-                    const riskColors = {{ VeryHigh: '#dc2626', High: '#ef4444', Medium: '#DAA564', Elevated: '#DAA564', Low: '#86B59C', VeryLow: '#86B59C' }};
-                    this.tabulatorTable = new Tabulator('#detectionsTable', {{
-                        data: [],
-                        layout: 'fitColumns',
-                        pagination: true,
-                        paginationSize: 25,
-                        columns: [
-                            {{ title: 'Time', field: 'timestamp', width: 100, formatter: (cell) => {{
-                                const v = cell.getValue();
-                                if (!v) return '';
-                                const d = new Date(v);
-                                return isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
-                            }} }},
-                            {{ title: 'Visitor', field: 'primarySignature', width: 160, formatter: (cell) => {{
-                                const row = cell.getRow().getData();
-                                const sig = cell.getValue();
-                                const name = row.botName;
-                                const color = sig ? sigColor(sig) : '#6b7280';
-                                const short = sig ? sig.substring(0, 8) : '-';
-                                const dot = `<span style=""width:8px;height:8px;border-radius:50%;background:${{color}};display:inline-block;flex-shrink:0""></span>`;
-                                if (name) {{
-                                    return `<span style=""display:inline-flex;align-items:center;gap:4px"">${{dot}}<span style=""font-weight:600;font-size:0.75rem"">${{name}}</span><code style=""color:${{color}};font-size:0.6rem;opacity:0.5"">${{short}}</code></span>`;
-                                }}
-                                return `<span style=""display:inline-flex;align-items:center;gap:4px"">${{dot}}<code style=""color:${{color}};font-size:0.75rem"">${{short}}</code></span>`;
-                            }},
-                            tooltip: (e, cell) => {{
-                                const row = cell.getRow().getData();
-                                const sig = cell.getValue();
-                                const name = row.botName;
-                                const ua = row.userAgent;
-                                let tip = name ? `${{name}} (${{sig}})` : sig ? `Client Signature: ${{sig}}` : '';
-                                if (ua) tip += `\nUA: ${{ua}}`;
-                                return tip;
-                            }} }},
-                            {{ title: '', field: 'countryCode', width: 36, hozAlign: 'center', formatter: (cell) => {{
-                                const cc = cell.getValue();
-                                if (!cc || cc.length !== 2) return '';
-                                const cp1 = 0x1F1E6 + cc.toUpperCase().charCodeAt(0) - 65;
-                                const cp2 = 0x1F1E6 + cc.toUpperCase().charCodeAt(1) - 65;
-                                return `<span title=""${{cc}}"" style=""font-size:14px"">${{String.fromCodePoint(cp1)}}${{String.fromCodePoint(cp2)}}</span>`;
-                            }} }},
-                            {{ title: 'Type', field: 'isBot', width: 80, formatter: (cell) => {{
-                                const isBot = cell.getValue();
-                                return `<span style=""color:${{isBot ? '#ef4444' : '#86B59C'}};font-weight:600"">${{isBot ? 'Bot' : 'Human'}}</span>`;
-                            }} }},
-                            {{ title: 'Risk', field: 'riskBand', width: 90, formatter: (cell) => {{
-                                const v = cell.getValue() || '';
-                                const c = riskColors[v] || '#6b7280';
-                                return `<span style=""color:${{c}};font-weight:500"">${{v || '-'}}</span>`;
-                            }} }},
-                            {{ title: 'Method', field: 'method', width: 70, formatter: (cell) => cell.getValue() || '' }},
-                            {{ title: 'Path', field: 'path', minWidth: 150, formatter: (cell) => cell.getValue() || '' }},
-                            {{ title: 'Action', field: 'action', width: 90, formatter: (cell) => cell.getValue() || '' }},
-                            {{ title: 'Prob', field: 'botProbability', width: 70, hozAlign: 'right', formatter: (cell) => {{
-                                const v = cell.getValue();
-                                if (v == null || isNaN(v)) return '-';
-                                const pct = (v * 100).toFixed(0);
-                                const color = v >= 0.7 ? '#ef4444' : v >= 0.4 ? '#DAA564' : '#86B59C';
-                                return `<span style=""color:${{color}};font-weight:600"">${{pct}}%</span>`;
-                            }} }},
-                            {{ title: 'Top Reason', field: 'topReasons', minWidth: 140, formatter: (cell) => {{
-                                const v = cell.getValue();
-                                if (!v || !v.length) return '<span style=""color:#6b7280"">-</span>';
-                                return `<span style=""font-size:0.7rem;opacity:0.8"">${{v[0]}}</span>`;
-                            }} }},
-                            {{ title: 'AI Description', field: 'description', minWidth: 180, formatter: (cell) => {{
-                                const v = cell.getValue();
-                                const row = cell.getRow().getData();
-                                if (!v && row.isBot) return '<span style=""color:#6b7280;font-size:0.65rem""><i class=""bx bx-loader-alt bx-spin"" style=""font-size:0.7rem""></i> Awaiting AI...</span>';
-                                if (!v) return '<span style=""color:#6b7280;font-size:0.65rem"">-</span>';
-                                return `<span style=""font-size:0.7rem;color:#5BA3A3;font-style:italic""><i class=""bx bx-bot"" style=""font-size:0.7rem;margin-right:2px""></i>${{v}}</span>`;
-                            }} }},
-                            {{ title: 'ms', field: 'processingTimeMs', width: 60, hozAlign: 'right', formatter: (cell) => {{
-                                const v = cell.getValue();
-                                return (v != null && !isNaN(v)) ? v.toFixed(0) : '0';
-                            }} }}
-                        ]
-                    }});
-
-                    // Row-click signal expander: shows detector contributions and signals
-                    this.tabulatorTable.on('rowClick', function(e, row) {{
-                        const data = row.getData();
-                        const el = row.getElement();
-                        const existing = el.nextElementSibling;
-
-                        // Toggle: if detail row exists, remove it
-                        if (existing && existing.classList.contains('sb-row-detail')) {{
-                            existing.remove();
-                            return;
-                        }}
-
-                        // Remove any other open detail rows
-                        document.querySelectorAll('.sb-row-detail').forEach(r => r.remove());
-
-                        // Build detail HTML
-                        const detailRow = document.createElement('div');
-                        detailRow.className = 'sb-row-detail';
-                        detailRow.style.cssText = 'padding:12px 16px;background:var(--sb-card-bg);border-bottom:2px solid var(--sb-accent);font-size:11px;';
-
-                        let html = '<div style=""display:grid;grid-template-columns:1fr 1fr;gap:16px"">';
-
-                        // Left: Detector Contributions
-                        html += '<div><h4 style=""font-weight:700;text-transform:uppercase;letter-spacing:0.05em;opacity:0.5;margin:0 0 6px 0;font-size:10px"">Detector Contributions</h4>';
-                        const contribs = data.detectorContributions || {{}};
-                        const contribEntries = Object.entries(contribs);
-                        if (contribEntries.length > 0) {{
-                            for (const [name, c] of contribEntries) {{
-                                const delta = c.confidenceDelta || 0;
-                                const color = delta > 0 ? '#ef4444' : delta < 0 ? '#86B59C' : '#6b7280';
-                                const impact = ((c.contribution || 0) * 100).toFixed(1);
-                                const ms = (c.executionTimeMs || 0).toFixed(0);
-                                html += `<div style=""display:flex;align-items:center;gap:6px;margin-bottom:2px"">`;
-                                html += `<span style=""flex:1;font-family:monospace;opacity:0.7"">${{name}}</span>`;
-                                html += `<span style=""color:${{color}};font-weight:600;width:50px;text-align:right"">${{impact > 0 ? '+' : ''}}${{impact}}%</span>`;
-                                html += `<span style=""opacity:0.4;width:40px;text-align:right"">${{ms}}ms</span>`;
-                                html += `</div>`;
-                                if (c.reason) html += `<div style=""padding-left:12px;opacity:0.5;margin-bottom:4px;font-size:10px"">${{c.reason}}</div>`;
-                            }}
-                        }} else {{
-                            html += '<span style=""opacity:0.4"">No contribution data available</span>';
-                        }}
-                        html += '</div>';
-
-                        // Right: Signals
-                        html += '<div><h4 style=""font-weight:700;text-transform:uppercase;letter-spacing:0.05em;opacity:0.5;margin:0 0 6px 0;font-size:10px"">All Signals</h4>';
-                        html += '<div style=""max-height:200px;overflow-y:auto"">';
-                        const signals = data.importantSignals || {{}};
-                        const sigEntries = Object.entries(signals);
-                        if (sigEntries.length > 0) {{
-                            for (const [key, val] of sigEntries) {{
-                                const valColor = val === true ? '#86B59C' : val === false ? '#ef4444' : '#6b7280';
-                                html += `<div style=""display:flex;gap:4px;margin-bottom:1px"">`;
-                                html += `<code style=""font-family:monospace;opacity:0.5;flex:1;overflow:hidden;text-overflow:ellipsis"">${{key}}</code>`;
-                                html += `<span style=""color:${{valColor}};font-weight:500"">${{String(val)}}</span>`;
-                                html += `</div>`;
-                            }}
-                        }} else {{
-                            html += '<span style=""opacity:0.4"">No signals available</span>';
-                        }}
-                        html += '</div></div>';
-
-                        html += '</div>';
-                        detailRow.innerHTML = html;
-                        el.after(detailRow);
-                    }});
-                }},
-
-                async loadInitialData() {{
-                    try {{
-                        const start = this.timeRangeToStart().toISOString();
-                        const end = new Date().toISOString();
-                        const bucket = this.timeRangeToBucket();
-
-                        const [summaryRaw, detectionsRaw, signaturesRaw, timeseriesRaw] = await Promise.all([
-                            fetch('{options.BasePath}/api/summary').then(r => r.json()),
-                            fetch(`{options.BasePath}/api/detections?limit=100&start=${{start}}&end=${{end}}`).then(r => r.json()),
-                            fetch('{options.BasePath}/api/signatures?limit=50').then(r => r.json()),
-                            fetch(`{options.BasePath}/api/timeseries?bucket=${{bucket}}&start=${{start}}&end=${{end}}`).then(r => r.json()).catch(() => [])
-                        ]);
-
-                        const summary = toCamel(summaryRaw);
-                        const detections = toCamel(detectionsRaw);
-                        const signatures = toCamel(signaturesRaw);
-                        const timeseries = toCamel(timeseriesRaw);
-
-                        this.summary = {{ ...this.summary, ...summary }};
-                        this.detections = detections;
-                        this.tabulatorTable.setData(detections);
-                        this.signatures = signatures;
-                        this.updateCharts();
-                        this.updateTimeline(timeseries);
-                        this.updateTopBotsFromSummary();
-                    }} catch (e) {{
-                        console.error('Failed to load initial data:', e);
-                    }}
-                }},
-
-                updateTimeline(timeseries) {{
-                    if (!timeseries || !timeseries.length) return;
-                    const botData = timeseries.map(t => [new Date(t.timestamp), t.botCount || 0]);
-                    const humanData = timeseries.map(t => [new Date(t.timestamp), t.humanCount || 0]);
-                    this.riskChart.setOption({{
-                        series: [
-                            {{ data: botData }},
-                            {{ data: humanData }}
-                        ]
-                    }});
-                }},
-
-                updateTopBotsFromSummary() {{
-                    const topBotTypes = this.summary.topBotTypes;
-                    if (topBotTypes && typeof topBotTypes === 'object') {{
-                        this.topBots = Object.entries(topBotTypes)
-                            .map(([name, count]) => ({{ name, count }}))
-                            .sort((a, b) => b.count - a.count)
-                            .slice(0, 8);
-                    }}
-                }},
-
-                updateCharts() {{
-                    this.classificationChart.setOption({{
-                        series: [{{
-                            data: [
-                                {{ value: this.summary.botRequests, name: 'Bots' }},
-                                {{ value: this.summary.humanRequests, name: 'Humans' }},
-                                {{ value: this.summary.uncertainRequests || 0, name: 'Uncertain' }}
-                            ]
-                        }}]
-                    }});
-                }},
-
-                timeRangeToStart() {{
-                    const now = new Date();
-                    switch (this.filters.timeRange) {{
-                        case '5m': return new Date(now - 5 * 60 * 1000);
-                        case '15m': return new Date(now - 15 * 60 * 1000);
-                        case '1h': return new Date(now - 60 * 60 * 1000);
-                        case '6h': return new Date(now - 6 * 60 * 60 * 1000);
-                        case '24h': return new Date(now - 24 * 60 * 60 * 1000);
-                        default: return new Date(now - 24 * 60 * 60 * 1000);
-                    }}
-                }},
-
-                timeRangeToBucket() {{
-                    switch (this.filters.timeRange) {{
-                        case '5m': return 10;
-                        case '15m': return 30;
-                        case '1h': return 60;
-                        case '6h': return 300;
-                        case '24h': return 600;
-                        default: return 60;
-                    }}
-                }},
-
-                async applyFilters() {{
-                    const start = this.timeRangeToStart().toISOString();
-                    const end = new Date().toISOString();
-                    const bucket = this.timeRangeToBucket();
-
-                    let detUrl = `{options.BasePath}/api/detections?limit=100&start=${{start}}&end=${{end}}`;
-                    if (this.filters.riskBand) detUrl += `&riskBands=${{this.filters.riskBand}}`;
-                    if (this.filters.classification === 'bot') detUrl += '&isBot=true';
-                    if (this.filters.classification === 'human') detUrl += '&isBot=false';
-
-                    const tsUrl = `{options.BasePath}/api/timeseries?bucket=${{bucket}}&start=${{start}}&end=${{end}}`;
-
-                    const [detRaw, tsRaw] = await Promise.all([
-                        fetch(detUrl).then(r => r.json()).catch(() => []),
-                        fetch(tsUrl).then(r => r.json()).catch(() => [])
-                    ]);
-
-                    const data = toCamel(detRaw);
-                    const timeseries = toCamel(tsRaw);
-                    this.detections = data;
-                    this.tabulatorTable?.setData(data);
-                    this.updateTimeline(timeseries);
-
-                    // Recompute local summary from filtered data
-                    const bots = data.filter(d => d.isBot).length;
-                    const humans = data.length - bots;
-                    this.updateCharts();
-                }},
-
-                exportData(format) {{
-                    window.location.href = `{options.BasePath}/api/export?format=${{format}}`;
-                }}
-            }};
-        }}
-    </script>
-
-</body>
-</html>";
+        // Prevent CSV injection: strip leading formula-trigger characters (=, +, -, @, \t, \r)
+        // that could cause spreadsheet applications to execute formulas.
+        var sanitized = value;
+        while (sanitized.Length > 0 && sanitized[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
+            sanitized = sanitized[1..];
+        if (sanitized.Contains(',') || sanitized.Contains('"') || sanitized.Contains('\n') || sanitized.Contains('\r'))
+            return $"\"{sanitized.Replace("\"", "\"\"")}\"";
+        return sanitized;
     }
 }

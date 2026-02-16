@@ -45,18 +45,6 @@ public sealed class StyloBotDashboardOptions
     public int SummaryBroadcastIntervalSeconds { get; set; } = 5;
 
     /// <summary>
-    ///     Enable simulator mode for testing (uses LLMApi for mocking).
-    ///     Default: false
-    /// </summary>
-    public bool EnableSimulator { get; set; } = false;
-
-    /// <summary>
-    ///     Simulator event generation rate (events per second).
-    ///     Default: 2
-    /// </summary>
-    public int SimulatorEventsPerSecond { get; set; } = 2;
-
-    /// <summary>
     ///     Custom authorization filter (evaluated before policy).
     ///     Signature: Func&lt;HttpContext, Task&lt;bool&gt;&gt;
     ///     Return true to allow access, false to deny.

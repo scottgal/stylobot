@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Attributes;
+using Mostlylucid.BotDetection.Filters;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Policies;
@@ -627,13 +628,33 @@ public class BotDetectionMiddleware(
         if (aggregated.PolicyAction == PolicyAction.Challenge)
             return (true, BotBlockAction.Challenge);
 
+        // Check for verified bad bot (bypasses confidence gate — verified bots are always high confidence)
+        if (aggregated.EarlyExit && aggregated.EarlyExitVerdict == EarlyExitVerdict.VerifiedBadBot)
+            return (true, defaultAction == BotBlockAction.Default ? BotBlockAction.StatusCode : defaultAction);
+
+        // Never block verified good bots (Googlebot, Bingbot, etc.) at the middleware level.
+        // Endpoint-level filters ([BlockBots], .BlockBots()) decide whether to allow them.
+        if (aggregated.EarlyExit && aggregated.EarlyExitVerdict == EarlyExitVerdict.VerifiedGoodBot)
+            return (false, BotBlockAction.Default);
+
         // Check if risk exceeds immediate block threshold
         if (aggregated.BotProbability >= policy.ImmediateBlockThreshold)
             return (true, defaultAction == BotBlockAction.Default ? BotBlockAction.StatusCode : defaultAction);
 
-        // Check for verified bad bot (bypasses confidence gate — verified bots are always high confidence)
-        if (aggregated.EarlyExit && aggregated.EarlyExitVerdict == EarlyExitVerdict.VerifiedBadBot)
-            return (true, defaultAction == BotBlockAction.Default ? BotBlockAction.StatusCode : defaultAction);
+        // Global BlockDetectedBots: block all detected bots app-wide (respecting allow-lists)
+        if (_options.BlockDetectedBots
+            && aggregated.BotProbability >= _options.MinConfidenceToBlock)
+        {
+            // Allow through bot types configured in global options
+            if (BotTypeFilter.IsBotTypeAllowed(aggregated.PrimaryBotType,
+                    allowSearchEngines: _options.AllowVerifiedSearchEngines,
+                    allowSocialMediaBots: _options.AllowSocialMediaBots,
+                    allowMonitoringBots: _options.AllowMonitoringBots,
+                    allowVerifiedBots: _options.AllowVerifiedSearchEngines))
+                return (false, BotBlockAction.Default);
+
+            return (true, BotBlockAction.StatusCode);
+        }
 
         return (false, BotBlockAction.Default);
     }
@@ -967,6 +988,62 @@ public class BotDetectionMiddleware(
         if (!context.Request.Headers.TryGetValue("X-Bot-Detected", out var detectedHeader))
             return false;
 
+        // Verify HMAC signature if configured
+        if (!string.IsNullOrEmpty(_options.UpstreamSignatureHeader) &&
+            !string.IsNullOrEmpty(_options.UpstreamSignatureSecret))
+        {
+            if (!context.Request.Headers.TryGetValue(_options.UpstreamSignatureHeader, out var signatureHeader) ||
+                string.IsNullOrEmpty(signatureHeader.ToString()))
+            {
+                _logger.LogWarning("Upstream detection headers present but missing signature header '{Header}' — rejecting",
+                    _options.UpstreamSignatureHeader);
+                return false;
+            }
+
+            // Signature = HMACSHA256(X-Bot-Detected + ":" + X-Bot-Confidence + ":" + timestamp, secret)
+            var timestamp = context.Request.Headers["X-Bot-Detection-Timestamp"].FirstOrDefault() ?? "";
+
+            // Reject missing or invalid timestamps — replay protection requires a valid timestamp
+            if (!long.TryParse(timestamp, out var epochSeconds))
+            {
+                _logger.LogWarning("Upstream detection missing or invalid timestamp — rejecting (replay protection)");
+                return false;
+            }
+
+            var signedAt = DateTimeOffset.FromUnixTimeSeconds(epochSeconds);
+            var age = DateTimeOffset.UtcNow - signedAt;
+            if (age.Duration() > TimeSpan.FromSeconds(_options.UpstreamSignatureMaxAgeSeconds))
+            {
+                _logger.LogWarning("Upstream detection signature expired (age: {Age}) — rejecting", age);
+                return false;
+            }
+
+            var payload = $"{detectedHeader}:{context.Request.Headers["X-Bot-Confidence"].FirstOrDefault()}:{timestamp}";
+
+            try
+            {
+                var secretBytes = Convert.FromBase64String(_options.UpstreamSignatureSecret);
+                using var hmac = new System.Security.Cryptography.HMACSHA256(secretBytes);
+                var expectedBytes = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(payload));
+
+                byte[] actualBytes;
+                try { actualBytes = Convert.FromBase64String(signatureHeader.ToString()); }
+                catch { actualBytes = []; }
+
+                // Constant-time comparison to prevent timing attacks
+                if (!System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes))
+                {
+                    _logger.LogWarning("Upstream detection signature mismatch — possible spoofing attempt");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to verify upstream detection signature");
+                return false;
+            }
+        }
+
         var isBot = string.Equals(detectedHeader.ToString(), "true", StringComparison.OrdinalIgnoreCase);
 
         // Parse bot probability and confidence from headers
@@ -1177,7 +1254,7 @@ public class BotDetectionMiddleware(
 
     #region Context Population
 
-    private static void PopulateContextFromAggregated(
+    private void PopulateContextFromAggregated(
         HttpContext context,
         AggregatedEvidence result,
         string policyName)
@@ -1188,7 +1265,8 @@ public class BotDetectionMiddleware(
         context.Items[PolicyActionKey] = result.PolicyAction;
 
         // Map to legacy keys for compatibility
-        var isBot = result.BotProbability >= 0.5;
+        // Use configurable BotThreshold for consistency with blocking logic
+        var isBot = result.BotProbability >= _options.BotThreshold;
         context.Items[IsBotKey] = isBot;
         context.Items[BotConfidenceKey] = result.BotProbability; // Legacy: holds probability for backward compat
         context.Items[BotProbabilityKey] = result.BotProbability;

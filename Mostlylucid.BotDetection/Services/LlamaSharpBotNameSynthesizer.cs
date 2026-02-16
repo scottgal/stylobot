@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using LLama;
@@ -18,10 +19,16 @@ public class LlamaSharpBotNameSynthesizer : IBotNameSynthesizer, IDisposable
 {
     private readonly ILogger<LlamaSharpBotNameSynthesizer> _logger;
     private readonly LlamaSharpOptions _options;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private readonly SemaphoreSlim _inferenceLock = new(1, 1);
     private LLamaWeights? _model;
     private LLamaContext? _context;
-    private bool _initialized;
-    private bool _initializationFailed;
+    private volatile bool _initialized;
+    private volatile bool _initializationFailed;
+
+    // Track recently used names for uniqueness (ring buffer of last 200 names)
+    private readonly ConcurrentQueue<string> _usedNames = new();
+    private const int MaxUsedNamesTracked = 200;
 
     public bool IsReady => _initialized && !_initializationFailed && _model != null;
 
@@ -41,8 +48,10 @@ public class LlamaSharpBotNameSynthesizer : IBotNameSynthesizer, IDisposable
     {
         if (_initialized || _initializationFailed) return;
 
+        await _initLock.WaitAsync(ct);
         try
         {
+            if (_initialized || _initializationFailed) return;
             _logger.LogInformation("Initializing LlamaSharp model (CPU-only): {ModelPath}", _options.ModelPath);
 
             // Build model parameters
@@ -81,6 +90,10 @@ public class LlamaSharpBotNameSynthesizer : IBotNameSynthesizer, IDisposable
             _initializationFailed = true;
             _logger.LogError(ex, "Failed to initialize LlamaSharp model");
         }
+        finally
+        {
+            _initLock.Release();
+        }
     }
 
     public async Task<string?> SynthesizeBotNameAsync(
@@ -117,7 +130,13 @@ public class LlamaSharpBotNameSynthesizer : IBotNameSynthesizer, IDisposable
 
             if (string.IsNullOrEmpty(result)) return (null, null);
 
-            return ParseJsonResponse(result);
+            var (name, description) = ParseJsonResponse(result);
+
+            // Track the name for uniqueness in future prompts
+            if (!string.IsNullOrEmpty(name))
+                TrackUsedName(name);
+
+            return (name, description);
         }
         catch (Exception ex)
         {
@@ -126,37 +145,110 @@ public class LlamaSharpBotNameSynthesizer : IBotNameSynthesizer, IDisposable
         }
     }
 
+    /// <summary>
+    ///     Track a name that was generated so future prompts can avoid duplicates.
+    /// </summary>
+    private void TrackUsedName(string name)
+    {
+        _usedNames.Enqueue(name);
+        while (_usedNames.Count > MaxUsedNamesTracked)
+            _usedNames.TryDequeue(out _);
+    }
+
+    /// <summary>
+    ///     Get recently used names to pass to the LLM for uniqueness enforcement.
+    ///     Limits count to avoid blowing the context window on small models.
+    /// </summary>
+    private List<string> GetRecentlyUsedNames(int maxNames = 20)
+    {
+        return _usedNames.ToArray().TakeLast(maxNames).ToList();
+    }
+
     private string BuildPrompt(IReadOnlyDictionary<string, object?> signals, string? context)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("Analyze these bot detection signals and generate a name.");
+        sb.AppendLine("You are a creative bot naming expert. Analyze these detection signals and generate a unique, descriptive, and slightly humorous bot name.");
+        sb.AppendLine("The name should reflect the bot's behavior/origin in a witty way (like 'Captain Crawlspace', 'The Headless Harvester', 'Señor Scrape-a-Lot', 'ByteNinja 3000').");
         sb.AppendLine();
 
-        // Extract key signals
-        if (signals.TryGetValue("detection.useragent.source", out var ua))
-            sb.AppendLine($"UserAgent: {ua}");
-        if (signals.TryGetValue("detection.ip.type", out var ipType))
-            sb.AppendLine($"IP Type: {ipType}");
-        if (signals.TryGetValue("detection.behavioral.rate_limit_violations", out var rateViolations))
-            sb.AppendLine($"Rate Violations: {rateViolations}");
-        if (signals.TryGetValue("detection.correlation.primary_behavior", out var behavior))
-            sb.AppendLine($"Behavior: {behavior}");
+        // Budget: ~600 tokens for signals to stay well within context window.
+        // Qwen 0.5B default context is 2048 tokens; prompt preamble + JSON instruction ~300 tokens,
+        // used names ~100 tokens, leaving ~600 for signals and ~1000 for generation.
+        const int maxSignalChars = 1200; // rough ~600 token budget (2 chars/token avg)
+        var signalBudget = maxSignalChars;
 
-        if (!string.IsNullOrEmpty(context))
+        void TryAddSignal(string label, object? value)
+        {
+            if (value == null || signalBudget <= 0) return;
+            var line = $"{label}: {value}";
+            // Truncate very long values (e.g. full user agent strings)
+            if (line.Length > 200) line = line[..200] + "...";
+            if (line.Length <= signalBudget)
+            {
+                sb.AppendLine(line);
+                signalBudget -= line.Length;
+            }
+        }
+
+        // Extract key signals — most informative first
+        signals.TryGetValue("ua.bot_type", out var botType);
+        TryAddSignal("Bot Type", botType);
+        signals.TryGetValue("ua.bot_name", out var knownName);
+        TryAddSignal("Known Bot", knownName);
+        signals.TryGetValue("detection.useragent.source", out var ua);
+        TryAddSignal("UserAgent", ua);
+        signals.TryGetValue("detection.ip.type", out var ipType);
+        TryAddSignal("IP Type", ipType);
+        signals.TryGetValue("ip.is_datacenter", out var dc);
+        TryAddSignal("Datacenter", dc);
+        signals.TryGetValue("geo.country_code", out var country);
+        TryAddSignal("Country", country);
+        signals.TryGetValue("detection.behavioral.rate_limit_violations", out var rateViolations);
+        TryAddSignal("Rate Violations", rateViolations);
+        signals.TryGetValue("detection.correlation.primary_behavior", out var behavior);
+        TryAddSignal("Behavior", behavior);
+        signals.TryGetValue("detection.heuristic.probability", out var heurProb);
+        TryAddSignal("Bot Probability", heurProb);
+        signals.TryGetValue("tls.ja3_hash", out var ja3);
+        TryAddSignal("TLS Fingerprint", ja3);
+        signals.TryGetValue("waveform.traversal_pattern", out var traversal);
+        TryAddSignal("Traversal", traversal);
+
+        // Include up to 5 signature vectors for diversity (within budget)
+        var sigCount = 0;
+        foreach (var (key, value) in signals)
+        {
+            if (sigCount >= 5) break;
+            if (key.StartsWith("signature.") && value != null)
+            {
+                TryAddSignal(key, value);
+                sigCount++;
+            }
+        }
+
+        if (!string.IsNullOrEmpty(context) && signalBudget > 50)
         {
             sb.AppendLine();
-            sb.AppendLine($"Additional Context: {context}");
+            var ctxLine = $"Additional Context: {context}";
+            if (ctxLine.Length > 200) ctxLine = ctxLine[..200] + "...";
+            sb.AppendLine(ctxLine);
+        }
+
+        // Add previously used names to avoid duplicates (limit to 20 names max)
+        var usedNames = GetRecentlyUsedNames(20);
+        if (usedNames.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine($"Do NOT reuse these names: {string.Join(", ", usedNames)}");
         }
 
         sb.AppendLine();
         sb.AppendLine("""
-            Generate JSON response:
+            Respond with ONLY this JSON:
             {
-              "name": "Bot Name (2-5 words)",
-              "description": "Brief technical description (1-2 sentences)"
+              "name": "Funny Bot Name (2-5 words)",
+              "description": "What this bot does (1 sentence)"
             }
-
-            Respond with ONLY the JSON object, no other text.
             """);
 
         return sb.ToString();
@@ -166,6 +258,8 @@ public class LlamaSharpBotNameSynthesizer : IBotNameSynthesizer, IDisposable
     {
         if (_context == null) return string.Empty;
 
+        // Serialize inference — LLamaContext is not thread-safe
+        await _inferenceLock.WaitAsync(ct);
         try
         {
             var executor = new InteractiveExecutor(_context);
@@ -204,6 +298,10 @@ public class LlamaSharpBotNameSynthesizer : IBotNameSynthesizer, IDisposable
         {
             _logger.LogDebug(ex, "Inference error");
             return string.Empty;
+        }
+        finally
+        {
+            _inferenceLock.Release();
         }
     }
 
@@ -296,12 +394,23 @@ public class LlamaSharpBotNameSynthesizer : IBotNameSynthesizer, IDisposable
             var response = await httpClient.GetAsync(hfUrl, HttpCompletionOption.ResponseHeadersRead, ct);
             response.EnsureSuccessStatusCode();
 
-            using (var contentStream = await response.Content.ReadAsStreamAsync(ct))
-            using (var fileStream = File.Create(modelPath))
+            // Download to temp file first, then rename atomically to avoid corrupted partial downloads
+            var tempPath = modelPath + ".tmp";
+            try
             {
-                await contentStream.CopyToAsync(fileStream, 81920, ct);
-            }
+                using (var contentStream = await response.Content.ReadAsStreamAsync(ct))
+                using (var fileStream = File.Create(tempPath))
+                {
+                    await contentStream.CopyToAsync(fileStream, 81920, ct);
+                }
 
+                File.Move(tempPath, modelPath, overwrite: true);
+            }
+            catch
+            {
+                try { File.Delete(tempPath); } catch { /* best-effort cleanup */ }
+                throw;
+            }
             _logger.LogInformation("Model downloaded to {Path}", modelPath);
             return modelPath;
         }
@@ -316,5 +425,7 @@ public class LlamaSharpBotNameSynthesizer : IBotNameSynthesizer, IDisposable
     {
         _context?.Dispose();
         _model?.Dispose();
+        _initLock.Dispose();
+        _inferenceLock.Dispose();
     }
 }

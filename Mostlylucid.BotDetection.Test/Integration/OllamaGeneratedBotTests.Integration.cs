@@ -93,7 +93,7 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
 
     #region Adversarial Tests
 
-    [Fact]
+    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
     public async Task Ollama_GeneratesEvasiveBots_TestsDetectionRobustness()
     {
         if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
@@ -127,7 +127,7 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
 
     #region Bulk Generation Tests
 
-    [Fact]
+    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
     public async Task Ollama_BulkGenerateBotUserAgents_50Samples()
     {
         if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
@@ -184,7 +184,7 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
 
     #region Bot User-Agent Generation Tests
 
-    [Fact]
+    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
     public async Task Ollama_GeneratesBotUserAgents_ThatAreDetectedAsBots()
     {
         if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
@@ -216,7 +216,7 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
             $"Undetected: {string.Join(", ", detectionResults.Where(r => !r.Detected).Select(r => r.UserAgent))}");
     }
 
-    [Fact]
+    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
     public async Task Ollama_GeneratesHumanUserAgents_ThatAreNotDetectedAsBots()
     {
         if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
@@ -248,7 +248,7 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
             $"False positives: {string.Join(", ", detectionResults.Where(r => r.Detected).Select(r => r.UserAgent))}");
     }
 
-    [Fact]
+    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
     public async Task Ollama_GeneratesVariedBotTypes()
     {
         if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
@@ -282,7 +282,7 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
 
     #region LLM Detector Integration Tests
 
-    [Fact]
+    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
     public async Task LlmDetector_WithOllama_ClassifiesGeneratedBots()
     {
         if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
@@ -307,7 +307,7 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
         Assert.True(result.Confidence >= 0, "Should return a valid confidence score");
     }
 
-    [Fact]
+    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
     public async Task LlmDetector_WithOllama_ClassifiesGeneratedHumans()
     {
         if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
@@ -333,7 +333,7 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
             $"Human UA should have moderate or low confidence, got {result.Confidence}");
     }
 
-    [Fact]
+    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
     public async Task LlmDetector_WithGemma_ReturnsValidJsonResponse()
     {
         if (Skip.If(!_ollamaAvailable, "Ollama not available")) return;
@@ -379,7 +379,7 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
             "LLM should return a valid result with reasons or zero confidence (disabled)");
     }
 
-    [Fact]
+    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
     public async Task LlmDetector_WithGemma_ClassifiesRealBotUserAgent()
     {
         if (Skip.If(!_ollamaAvailable, "Ollama not available")) return;
