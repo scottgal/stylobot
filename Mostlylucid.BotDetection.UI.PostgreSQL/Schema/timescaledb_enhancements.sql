@@ -132,79 +132,64 @@ BEGIN
     END IF;
 END $$;
 
+-- SPLIT_BATCH
 -- ============================================================================
 -- CONTINUOUS AGGREGATES (Pre-computed summaries for fast dashboards)
+-- Each CREATE MATERIALIZED VIEW runs in its own batch (no transaction context).
 -- ============================================================================
 
 -- 1-minute aggregates for real-time charts
-DO $$
-BEGIN
-    BEGIN
-        CREATE MATERIALIZED VIEW IF NOT EXISTS dashboard_detections_1min
-        WITH (timescaledb.continuous) AS
-        SELECT
-            time_bucket('1 minute', created_at) AS bucket,
-            risk_band,
-            COUNT(*) as total_count,
-            COUNT(*) FILTER (WHERE is_bot) as bot_count,
-            COUNT(*) FILTER (WHERE NOT is_bot) as human_count,
-            AVG(bot_probability) as avg_bot_probability,
-            AVG(confidence) as avg_confidence,
-            AVG(processing_time_ms) as avg_processing_time_ms
-        FROM dashboard_detections
-        GROUP BY bucket, risk_band;
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Could not create dashboard_detections_1min: %', SQLERRM;
-    END;
-END $$;
+CREATE MATERIALIZED VIEW IF NOT EXISTS dashboard_detections_1min
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 minute', created_at) AS bucket,
+    risk_band,
+    COUNT(*) as total_count,
+    COUNT(*) FILTER (WHERE is_bot) as bot_count,
+    COUNT(*) FILTER (WHERE NOT is_bot) as human_count,
+    AVG(bot_probability) as avg_bot_probability,
+    AVG(confidence) as avg_confidence,
+    AVG(processing_time_ms) as avg_processing_time_ms
+FROM dashboard_detections
+GROUP BY bucket, risk_band
+WITH NO DATA;
 
+-- SPLIT_BATCH
 -- 1-hour aggregates for historical charts
-DO $$
-BEGIN
-    BEGIN
-        CREATE MATERIALIZED VIEW IF NOT EXISTS dashboard_detections_1hour
-        WITH (timescaledb.continuous) AS
-        SELECT
-            time_bucket('1 hour', created_at) AS bucket,
-            risk_band,
-            COUNT(*) as total_count,
-            COUNT(*) FILTER (WHERE is_bot) as bot_count,
-            COUNT(*) FILTER (WHERE NOT is_bot) as human_count,
-            AVG(bot_probability) as avg_bot_probability,
-            AVG(confidence) as avg_confidence,
-            AVG(processing_time_ms) as avg_processing_time_ms,
-            COUNT(DISTINCT signature_id) as unique_signatures
-        FROM dashboard_detections
-        GROUP BY bucket, risk_band;
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Could not create dashboard_detections_1hour: %', SQLERRM;
-    END;
-END $$;
+CREATE MATERIALIZED VIEW IF NOT EXISTS dashboard_detections_1hour
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 hour', created_at) AS bucket,
+    risk_band,
+    COUNT(*) as total_count,
+    COUNT(*) FILTER (WHERE is_bot) as bot_count,
+    COUNT(*) FILTER (WHERE NOT is_bot) as human_count,
+    AVG(bot_probability) as avg_bot_probability,
+    AVG(confidence) as avg_confidence,
+    AVG(processing_time_ms) as avg_processing_time_ms
+FROM dashboard_detections
+GROUP BY bucket, risk_band
+WITH NO DATA;
 
+-- SPLIT_BATCH
 -- 1-day aggregates for long-term trends
-DO $$
-BEGIN
-    BEGIN
-        CREATE MATERIALIZED VIEW IF NOT EXISTS dashboard_detections_1day
-        WITH (timescaledb.continuous) AS
-        SELECT
-            time_bucket('1 day', created_at) AS bucket,
-            risk_band,
-            COUNT(*) as total_count,
-            COUNT(*) FILTER (WHERE is_bot) as bot_count,
-            COUNT(*) FILTER (WHERE NOT is_bot) as human_count,
-            AVG(bot_probability) as avg_bot_probability,
-            AVG(confidence) as avg_confidence,
-            AVG(processing_time_ms) as avg_processing_time_ms,
-            COUNT(DISTINCT signature_id) as unique_signatures,
-            COUNT(DISTINCT bot_type) FILTER (WHERE bot_type IS NOT NULL) as unique_bot_types
-        FROM dashboard_detections
-        GROUP BY bucket, risk_band;
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Could not create dashboard_detections_1day: %', SQLERRM;
-    END;
-END $$;
+CREATE MATERIALIZED VIEW IF NOT EXISTS dashboard_detections_1day
+WITH (timescaledb.continuous) AS
+SELECT
+    time_bucket('1 day', created_at) AS bucket,
+    risk_band,
+    COUNT(*) as total_count,
+    COUNT(*) FILTER (WHERE is_bot) as bot_count,
+    COUNT(*) FILTER (WHERE NOT is_bot) as human_count,
+    AVG(bot_probability) as avg_bot_probability,
+    AVG(confidence) as avg_confidence,
+    AVG(processing_time_ms) as avg_processing_time_ms,
+    COUNT(DISTINCT bot_type) FILTER (WHERE bot_type IS NOT NULL) as unique_bot_types
+FROM dashboard_detections
+GROUP BY bucket, risk_band
+WITH NO DATA;
 
+-- SPLIT_BATCH
 -- ============================================================================
 -- REFRESH POLICIES (Keep aggregates up-to-date)
 -- ============================================================================

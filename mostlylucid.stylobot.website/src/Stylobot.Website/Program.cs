@@ -300,6 +300,15 @@ app.UseHttpsRedirection();
 
 app.Use(async (context, next) =>
 {
+    // Skip strict CSP for dashboard paths — the dashboard middleware sets its own headers
+    // and needs frame-ancestors 'self' for the LiveDemo iframe embed
+    var dashboardBasePath = GetConfig("StyloBotDashboard:BasePath", "STYLOBOT_DASHBOARD_PATH", "/_stylobot");
+    if (context.Request.Path.StartsWithSegments(dashboardBasePath))
+    {
+        await next();
+        return;
+    }
+
     var nonceBytes = RandomNumberGenerator.GetBytes(16);
     var cspNonce = Convert.ToBase64String(nonceBytes);
     context.Items["CspNonce"] = cspNonce;
@@ -310,7 +319,8 @@ app.Use(async (context, next) =>
     {
         "default-src 'self'",
         "base-uri 'self'",
-        "frame-ancestors 'none'",
+        "frame-ancestors 'self'",
+        "frame-src 'self'",
         "object-src 'none'",
         "img-src 'self' data: https:",
         "font-src 'self' data: https://fonts.gstatic.com https://unpkg.com",
@@ -322,7 +332,7 @@ app.Use(async (context, next) =>
 
     context.Response.Headers.TryAdd("Content-Security-Policy", csp);
     context.Response.Headers.TryAdd("X-Content-Type-Options", "nosniff");
-    context.Response.Headers.TryAdd("X-Frame-Options", "DENY");
+    context.Response.Headers.TryAdd("X-Frame-Options", "SAMEORIGIN");
     context.Response.Headers.TryAdd("Referrer-Policy", "strict-origin-when-cross-origin");
     context.Response.Headers.TryAdd("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
     context.Response.Headers.TryAdd("Cross-Origin-Opener-Policy", "same-origin");

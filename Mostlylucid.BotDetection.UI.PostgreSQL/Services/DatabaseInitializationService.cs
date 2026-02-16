@@ -101,10 +101,29 @@ public class DatabaseInitializationService : IHostedService
             using var reader = new StreamReader(stream);
             var enhancements = await reader.ReadToEndAsync(cancellationToken);
 
-            await using var command = new NpgsqlCommand(enhancements, connection);
-            command.CommandTimeout = _options.CommandTimeoutSeconds * 10; // Even longer for TimescaleDB setup
+            // TimescaleDB continuous aggregates (CREATE MATERIALIZED VIEW ... WITH (timescaledb.continuous))
+            // cannot run inside a transaction. Npgsql batches multi-statement commands in an implicit transaction.
+            // Split the SQL on the -- SPLIT_BATCH marker so each section runs as its own top-level command.
+            var batches = enhancements.Split(
+                ["-- SPLIT_BATCH"],
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            foreach (var batch in batches)
+            {
+                if (string.IsNullOrWhiteSpace(batch)) continue;
+
+                try
+                {
+                    await using var command = new NpgsqlCommand(batch, connection);
+                    command.CommandTimeout = _options.CommandTimeoutSeconds * 10;
+                    await command.ExecuteNonQueryAsync(cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    // Log and continue — individual batch failures shouldn't block remaining batches
+                    _logger.LogWarning(ex, "TimescaleDB batch failed (non-fatal): {Message}", ex.Message);
+                }
+            }
 
             _logger.LogInformation(
                 "TimescaleDB enhancements applied successfully (hypertables, compression, continuous aggregates)");
