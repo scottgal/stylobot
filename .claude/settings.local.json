@@ -198,7 +198,12 @@
       "Bash(claude plugins:*)",
       "Bash(claude install:*)",
       "Bash(# Verify nonce in HTML body script tags curl -s http://localhost:5062/_stylobot)",
-      "Bash(# Kill the background website process pkill -f \"\"Stylobot.Website\"\" ; tasklist)"
+      "Bash(# Kill the background website process pkill -f \"\"Stylobot.Website\"\" ; tasklist)",
+      "Bash(npm run build:js:*)",
+      "Bash(npm run build:tw:*)",
+      "Bash(wmic process where \"name=''Stylobot.Website.exe''\" get ProcessId)",
+      "Bash(wmic process where \"CommandLine like ''%Stylobot.Website%''\" get ProcessId,CommandLine)",
+      "Bash(wmic:*)"
     ]
   }
 }

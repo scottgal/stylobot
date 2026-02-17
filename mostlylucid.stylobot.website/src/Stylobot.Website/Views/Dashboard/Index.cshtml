@@ -1,0 +1,420 @@
+@{
+    ViewData["Title"] = "Live Dashboard";
+}
+
+<section class="marketing-hero min-h-screen" x-data="dashboardApp()" x-init="init()">
+    <div class="marketing-container pt-2 pb-6">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between gap-3 mb-3">
+            <h1 class="text-lg lg:text-xl font-bold text-base-content brand-wordmark">
+                <span class="stylo-text brand-italic">stylo</span><span class="bot-text">bot</span>
+                <span class="text-sm font-normal ml-1.5" style="color: var(--sb-card-subtle);">Dashboard</span>
+            </h1>
+            <span class="flex items-center gap-1.5 text-xs" :class="connected ? 'signal-positive' : 'signal-muted'">
+                <span class="relative flex h-2 w-2">
+                    <span x-show="connected" class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
+                    <span class="relative inline-flex rounded-full h-2 w-2" :class="connected ? 'live-dot' : 'bg-base-300'"></span>
+                </span>
+                <span x-text="connected ? 'Live' : 'Connecting...'"></span>
+            </span>
+        </div>
+
+        <!-- Tabs -->
+        <div class="border-b mb-4" style="border-color: var(--sb-card-divider);">
+            <nav class="flex gap-0 -mb-px overflow-x-auto">
+                <template x-for="t in [{id:'overview',label:'Overview'},{id:'visitors',label:'Visitors'},{id:'clusters',label:'Clusters'},{id:'countries',label:'Countries'}]">
+                    <button @@click="switchTab(t.id)"
+                            class="px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap"
+                            :class="tab === t.id
+                                ? 'border-current'
+                                : 'border-transparent hover:border-base-300'"
+                            :style="tab === t.id ? 'color: var(--sb-accent)' : 'color: var(--sb-card-subtle)'"
+                            x-text="t.label">
+                    </button>
+                </template>
+            </nav>
+        </div>
+
+        <!-- ==================== OVERVIEW TAB ==================== -->
+        <div x-show="tab === 'overview'" x-cloak>
+
+            <!-- Summary Stats Bar -->
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4" x-show="summary">
+                <div class="marketing-card p-3">
+                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Requests</div>
+                    <div class="text-lg font-bold text-base-content" x-text="summary?.totalRequests?.toLocaleString() ?? '—'"></div>
+                </div>
+                <div class="marketing-card p-3">
+                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Bots</div>
+                    <div class="text-lg font-bold signal-danger" x-text="summary?.botRequests?.toLocaleString() ?? '0'"></div>
+                </div>
+                <div class="marketing-card p-3">
+                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Humans</div>
+                    <div class="text-lg font-bold signal-positive" x-text="summary?.humanRequests?.toLocaleString() ?? '0'"></div>
+                </div>
+                <div class="marketing-card p-3">
+                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Bot Rate</div>
+                    <div class="text-lg font-bold" style="color: var(--sb-accent);"
+                         x-text="summary?.botPercentage != null ? Math.round(summary.botPercentage) + '%' : '—'"></div>
+                </div>
+                <div class="marketing-card p-3">
+                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Avg Latency</div>
+                    <div class="text-lg font-bold text-base-content" x-text="summary?.averageProcessingTimeMs ? summary.averageProcessingTimeMs.toFixed(1) + 'ms' : '—'"></div>
+                </div>
+                <div class="marketing-card p-3">
+                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Visitors</div>
+                    <div class="text-lg font-bold text-base-content" x-text="summary?.uniqueSignatures?.toLocaleString() ?? '—'"></div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-4">
+                <!-- Time Series Area Chart -->
+                <div class="marketing-card p-4 lg:col-span-2">
+                    <h3 class="text-sm font-semibold text-base-content mb-2">Traffic Over Time</h3>
+                    <div id="time-chart"></div>
+                    <div x-show="timeData.length === 0" class="flex items-center justify-center h-48 text-sm" style="color: var(--sb-card-subtle);">
+                        Waiting for traffic data...
+                    </div>
+                </div>
+
+                <!-- Top Bots (replacing risk donut) -->
+                <div class="marketing-card p-4">
+                    <h3 class="text-sm font-semibold text-base-content mb-2">Top Bots</h3>
+                    <div x-show="topBots.length > 0" class="space-y-1.5">
+                        <template x-for="bot in topBots" :key="bot.primarySignature">
+                            <a :href="'/dashboard/signature/' + encodeURIComponent(bot.primarySignature)"
+                               class="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-base-100 transition-colors group">
+                                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold status-badge-warn"
+                                      x-text="bot.riskBand || 'Bot'"></span>
+                                <span class="text-xs font-medium truncate flex-1" style="color: var(--sb-card-text);"
+                                      x-text="bot.botName || bot.primarySignature?.substring(0, 12)"></span>
+                                <span class="text-[10px] font-mono" style="color: var(--sb-card-subtle);"
+                                      x-text="(bot.hitCount || 0) + ' hits'"></span>
+                            </a>
+                        </template>
+                    </div>
+                    <div x-show="topBots.length === 0"
+                         class="flex items-center justify-center h-48 text-sm" style="color: var(--sb-card-subtle);">
+                        No bots detected yet
+                    </div>
+                </div>
+            </div>
+
+            <!-- Your Detection + Bot Types Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <!-- Your Detection -->
+                <div class="marketing-card p-4">
+                    <h3 class="text-sm font-semibold text-base-content mb-2">Your Detection</h3>
+                    <template x-if="yourDetection">
+                        <div>
+                            <div class="flex items-center gap-3 mb-2">
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
+                                      :class="yourDetection.isBot ? 'status-badge-warn' : 'status-badge-human'">
+                                    <span x-text="yourDetection.isBot ? 'Bot' : 'Human'"></span>
+                                </span>
+                                <a class="text-xs font-mono hover:underline" style="color: var(--sb-accent);"
+                                   :href="'/dashboard/signature/' + encodeURIComponent(yourDetection.signature || '')"
+                                   x-text="yourDetection.signature ? yourDetection.signature.substring(0, 16) + '...' : ''"></a>
+                            </div>
+                            <div class="grid grid-cols-3 gap-3 mb-2">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Probability</div>
+                                    <div class="text-sm font-bold" :class="riskClass(yourDetection.riskBand)"
+                                         x-text="pct(yourDetection.botProbability)"></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Confidence</div>
+                                    <div class="text-sm font-bold text-base-content" x-text="pct(yourDetection.confidence)"></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Risk</div>
+                                    <div class="text-sm font-bold" :class="riskClass(yourDetection.riskBand)"
+                                         x-text="yourDetection.riskBand"></div>
+                                </div>
+                            </div>
+                            <div x-show="yourDetection.narrative" class="text-xs leading-relaxed p-2.5 rounded-lg bg-base-100 mb-2"
+                                 style="color: var(--sb-card-text);"
+                                 x-text="yourDetection.narrative"></div>
+                            <div x-show="yourDetection.topReasons && yourDetection.topReasons.length > 0">
+                                <ul class="space-y-0.5">
+                                    <template x-for="reason in (yourDetection.topReasons || []).slice(0, 5)">
+                                        <li class="text-xs flex items-start gap-1.5" style="color: var(--sb-card-text);">
+                                            <span style="color: var(--sb-accent);">&#x2022;</span>
+                                            <span x-text="reason"></span>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </div>
+                        </div>
+                    </template>
+                    <div x-show="!yourDetection" class="text-sm py-4 text-center" style="color: var(--sb-card-subtle);">
+                        Visit another page first so we can detect you
+                    </div>
+                </div>
+
+                <!-- Top Bot Types -->
+                <div class="marketing-card p-4">
+                    <h3 class="text-sm font-semibold text-base-content mb-2">Bot Categories</h3>
+                    <div x-show="summary?.topBotTypes && Object.keys(summary.topBotTypes).length > 0" class="space-y-2">
+                        <template x-for="[type, count] in Object.entries(summary?.topBotTypes ?? {}).sort((a,b) => b[1] - a[1]).slice(0, 8)">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs font-mono w-28 truncate" style="color: var(--sb-card-text);" x-text="type"></span>
+                                <div class="flex-1 h-2 rounded-full bg-base-300 overflow-hidden">
+                                    <div class="h-full rounded-full transition-all"
+                                         style="background: var(--sb-accent);"
+                                         :style="'width:' + Math.min(100, Math.round(count / Math.max(...Object.values(summary.topBotTypes)) * 100)) + '%'"></div>
+                                </div>
+                                <span class="text-xs font-mono w-8 text-right" style="color: var(--sb-card-subtle);" x-text="count"></span>
+                            </div>
+                        </template>
+                    </div>
+                    <div x-show="!summary?.topBotTypes || Object.keys(summary.topBotTypes).length === 0"
+                         class="text-sm py-4 text-center" style="color: var(--sb-card-subtle);">
+                        No bot types detected yet
+                    </div>
+                </div>
+            </div>
+
+            <!-- Signal Stats Row: Browsers, Protocols, Risk Distribution -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4" x-show="signalStats">
+                <!-- Browsers (clickable for version distribution) -->
+                <div class="marketing-card p-4">
+                    <h3 class="text-sm font-semibold text-base-content mb-2">Browsers</h3>
+                    <div x-show="topBrowsers.length > 0" class="space-y-1.5">
+                        <template x-for="[name, count] in topBrowsers" :key="name">
+                            <button @@click="selectBrowser(name)"
+                                    class="flex items-center gap-2 w-full text-left rounded-md px-1 py-0.5 transition-colors"
+                                    :class="selectedBrowser === name ? 'bg-base-100' : 'hover:bg-base-100/50'">
+                                <span class="text-xs w-20 truncate" style="color: var(--sb-card-text);" x-text="name"></span>
+                                <div class="flex-1 h-1.5 rounded-full bg-base-300 overflow-hidden">
+                                    <div class="h-full rounded-full" style="background: var(--sb-accent);"
+                                         :style="'width:' + Math.min(100, Math.round(count / (topBrowsers[0]?.[1] || 1) * 100)) + '%'"></div>
+                                </div>
+                                <span class="text-[10px] font-mono w-6 text-right" style="color: var(--sb-card-subtle);" x-text="count"></span>
+                            </button>
+                        </template>
+                    </div>
+                    <!-- Version Distribution Chart -->
+                    <div x-show="selectedBrowser && selectedBrowserVersions.length > 0" class="mt-3 border-t pt-2" style="border-color: var(--sb-card-divider);">
+                        <div class="text-[10px] uppercase tracking-wide mb-1" style="color: var(--sb-card-subtle);"
+                             x-text="selectedBrowser + ' Versions'"></div>
+                        <div id="browser-version-chart"></div>
+                    </div>
+                    <div x-show="selectedBrowser && selectedBrowserVersions.length === 0" class="mt-2 text-[10px] text-center" style="color: var(--sb-card-subtle);">
+                        No version data for this browser
+                    </div>
+                    <div x-show="topBrowsers.length === 0" class="text-xs py-3 text-center" style="color: var(--sb-card-subtle);">
+                        No browser data yet
+                    </div>
+                </div>
+
+                <!-- Protocols -->
+                <div class="marketing-card p-4">
+                    <h3 class="text-sm font-semibold text-base-content mb-2">Protocols</h3>
+                    <div x-show="topProtocols.length > 0" class="space-y-1.5">
+                        <template x-for="[name, count] in topProtocols" :key="name">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs w-20 truncate" style="color: var(--sb-card-text);" x-text="name"></span>
+                                <div class="flex-1 h-1.5 rounded-full bg-base-300 overflow-hidden">
+                                    <div class="h-full rounded-full" style="background: var(--sb-accent);"
+                                         :style="'width:' + Math.min(100, Math.round(count / (topProtocols[0]?.[1] || 1) * 100)) + '%'"></div>
+                                </div>
+                                <span class="text-[10px] font-mono w-6 text-right" style="color: var(--sb-card-subtle);" x-text="count"></span>
+                            </div>
+                        </template>
+                    </div>
+                    <div x-show="topProtocols.length === 0" class="text-xs py-3 text-center" style="color: var(--sb-card-subtle);">
+                        No protocol data yet
+                    </div>
+                </div>
+
+                <!-- Risk Distribution -->
+                <div class="marketing-card p-4">
+                    <h3 class="text-sm font-semibold text-base-content mb-2">Risk Distribution</h3>
+                    <div x-show="riskDistribution.length > 0" class="space-y-1.5">
+                        <template x-for="[band, count] in riskDistribution" :key="band">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs w-20 truncate" :class="riskClass(band)" x-text="band"></span>
+                                <div class="flex-1 h-1.5 rounded-full bg-base-300 overflow-hidden">
+                                    <div class="h-full rounded-full"
+                                         :style="'background:' + riskColor(band) + '; width:' + Math.min(100, Math.round(count / (riskDistribution[0]?.[1] || 1) * 100)) + '%'"></div>
+                                </div>
+                                <span class="text-[10px] font-mono w-6 text-right" style="color: var(--sb-card-subtle);" x-text="count"></span>
+                            </div>
+                        </template>
+                    </div>
+                    <div x-show="riskDistribution.length === 0" class="text-xs py-3 text-center" style="color: var(--sb-card-subtle);">
+                        No risk data yet
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== VISITORS TAB ==================== -->
+        <div x-show="tab === 'visitors'" x-cloak>
+
+            <!-- Filter Bar -->
+            <div class="flex flex-wrap items-center gap-2 mb-3">
+                <template x-for="f in [{id:'all',label:'All'},{id:'humans',label:'Humans'},{id:'bots',label:'Bots'},{id:'ai',label:'AI'},{id:'tools',label:'Tools'}]">
+                    <button @@click="visitorFilter = f.id"
+                            class="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors"
+                            :style="visitorFilter === f.id
+                                ? 'background: var(--sb-accent); color: white; border-color: var(--sb-accent);'
+                                : 'border-color: var(--sb-card-divider); color: var(--sb-card-subtle);'">
+                        <span x-text="f.label"></span>
+                        <span class="ml-1 opacity-70" x-text="'(' + filterCount(f.id) + ')'"></span>
+                    </button>
+                </template>
+
+                <div class="ml-auto flex items-center gap-2">
+                    <select @@change="visitorSort = $event.target.value"
+                            class="select select-xs bg-base-200 border" style="border-color: var(--sb-card-divider); color: var(--sb-card-text);">
+                        <option value="timestamp">Last Seen</option>
+                        <option value="hitCount">Hits</option>
+                        <option value="botProbability">Risk</option>
+                        <option value="botName">Name</option>
+                    </select>
+                    <button @@click="visitorSortDir = visitorSortDir === 'asc' ? 'desc' : 'asc'"
+                            class="btn btn-xs btn-ghost" style="color: var(--sb-card-subtle);">
+                        <span x-text="visitorSortDir === 'asc' ? '\u2191' : '\u2193'"></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Visitor List -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                <template x-for="v in filteredVisitors" :key="v.primarySignature">
+                    <a :href="visitorUrl(v)"
+                       class="p-3 rounded-lg border transition-colors hover:border-current group"
+                       style="background: var(--sb-card-bg); border-color: var(--sb-card-divider);"
+                       :style="'hover:border-color: var(--sb-accent);'">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs font-medium truncate max-w-[60%]" style="color: var(--sb-card-text);"
+                                  x-text="v.botName || v.primarySignature?.substring(0, 12) || 'Unknown'"></span>
+                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                                  :class="v.isKnownBot ? 'status-badge-warn' : 'status-badge-human'"
+                                  x-text="v.isKnownBot ? 'Bot' : 'Human'"></span>
+                        </div>
+                        <div class="flex items-center gap-3 text-[10px]" style="color: var(--sb-card-subtle);">
+                            <span x-text="'Hits: ' + (v.hitCount || 0)"></span>
+                            <span :class="riskClass(v.riskBand)" x-text="v.riskBand || '—'"></span>
+                            <span x-show="v.botType" class="font-mono" x-text="v.botType"></span>
+                            <span class="ml-auto" x-text="timeAgo(v.timestamp)"></span>
+                        </div>
+                    </a>
+                </template>
+            </div>
+            <div x-show="filteredVisitors.length === 0" class="text-sm py-8 text-center" style="color: var(--sb-card-subtle);">
+                No visitors match this filter
+            </div>
+        </div>
+
+        <!-- ==================== CLUSTERS TAB ==================== -->
+        <div x-show="tab === 'clusters'" x-cloak>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                <template x-for="cluster in clusters" :key="cluster.clusterId">
+                    <div class="marketing-card p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-sm font-semibold text-base-content truncate max-w-[70%]"
+                                x-text="cluster.label || 'Cluster ' + cluster.clusterId"></h3>
+                            <span class="text-[10px] font-mono px-2 py-0.5 rounded"
+                                  style="background: color-mix(in oklab, var(--sb-accent) 12%, transparent); color: var(--sb-accent);"
+                                  x-text="cluster.type || 'unknown'"></span>
+                        </div>
+                        <p x-show="cluster.description" class="text-xs mb-2 leading-relaxed"
+                           style="color: var(--sb-card-subtle);" x-text="cluster.description"></p>
+                        <div class="grid grid-cols-2 gap-2 text-xs">
+                            <div>
+                                <span style="color: var(--sb-card-subtle);">Members</span>
+                                <div class="font-bold text-base-content" x-text="cluster.memberCount"></div>
+                            </div>
+                            <div>
+                                <span style="color: var(--sb-card-subtle);">Avg Bot Prob</span>
+                                <div class="font-bold" :class="cluster.avgBotProb > 0.5 ? 'signal-danger' : 'signal-positive'"
+                                     x-text="Math.round((cluster.avgBotProb || 0) * 100) + '%'"></div>
+                            </div>
+                            <div x-show="cluster.country">
+                                <span style="color: var(--sb-card-subtle);">Country</span>
+                                <div class="font-bold text-base-content" x-text="countryFlag(cluster.country || '') + ' ' + (cluster.country || '')"></div>
+                            </div>
+                            <div>
+                                <span style="color: var(--sb-card-subtle);">Similarity</span>
+                                <div class="font-bold text-base-content" x-text="Math.round((cluster.averageSimilarity || 0) * 100) + '%'"></div>
+                            </div>
+                        </div>
+                        <div x-show="cluster.temporalDensity > 0" class="mt-2">
+                            <div class="flex items-center gap-1.5 text-[10px]" style="color: var(--sb-card-subtle);">
+                                <span>Temporal density:</span>
+                                <div class="flex-1 h-1 rounded-full bg-base-300 overflow-hidden">
+                                    <div class="h-full rounded-full" style="background: var(--sb-accent);"
+                                         :style="'width:' + Math.min(100, Math.round((cluster.temporalDensity || 0) * 100)) + '%'"></div>
+                                </div>
+                                <span x-text="Math.round((cluster.temporalDensity || 0) * 100) + '%'"></span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            <div x-show="clusters.length === 0" class="marketing-card p-6 text-center" style="color: var(--sb-card-subtle);">
+                <div class="text-2xl mb-1">&#x1F578;&#xFE0F;</div>
+                <div class="text-sm">No clusters discovered yet. Clusters form as Leiden community detection identifies bot networks.</div>
+            </div>
+        </div>
+
+        <!-- ==================== COUNTRIES TAB ==================== -->
+        <div x-show="tab === 'countries'" x-cloak>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <!-- Chart -->
+                <div class="marketing-card p-4">
+                    <h3 class="text-sm font-semibold text-base-content mb-2">Top Countries by Bot Rate</h3>
+                    <div id="country-chart"></div>
+                    <div x-show="countries.length === 0" class="flex items-center justify-center h-48 text-sm" style="color: var(--sb-card-subtle);">
+                        No country data yet
+                    </div>
+                </div>
+
+                <!-- Country List -->
+                <div class="marketing-card p-4">
+                    <h3 class="text-sm font-semibold text-base-content mb-2">Country Breakdown</h3>
+                    <div class="space-y-0.5 max-h-[400px] overflow-y-auto">
+                        <template x-for="co in countries" :key="co.countryCode">
+                            <div class="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-base-100 transition-colors">
+                                <span class="text-base" x-text="countryFlag(co.countryCode)"></span>
+                                <span class="text-xs font-medium flex-1 truncate" style="color: var(--sb-card-text);"
+                                      x-text="co.countryName || co.countryCode"></span>
+                                <div class="flex items-center gap-3 text-xs">
+                                    <span class="font-bold" :class="co.botRate > 0.5 ? 'signal-danger' : co.botRate > 0.25 ? 'signal-warning' : 'signal-positive'"
+                                          x-text="Math.round((co.botRate || 0) * 100) + '%'"></span>
+                                    <span style="color: var(--sb-card-subtle);"
+                                          x-text="(co.botCount || 0) + '/' + (co.totalCount || 0)"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    <div x-show="countries.length === 0" class="text-sm py-4 text-center" style="color: var(--sb-card-subtle);">
+                        No country data available
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</section>
+
+<!-- CTA -->
+<section class="py-4 bg-base-100">
+    <div class="max-w-4xl mx-auto px-4 text-center">
+        <h2 class="text-lg font-bold mb-1.5">Add This To Your App</h2>
+        <p class="text-xs text-base-content/60 mb-3 max-w-xl mx-auto">
+            Open source and free at present. Drop in the same detection stack via ASP.NET middleware, YARP gateway, or Docker.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-2 justify-center">
+            <a href="https://www.nuget.org/packages/mostlylucid.botdetection" target="_blank" class="btn btn-sm btn-primary">Start with NuGet</a>
+            <a href="https://hub.docker.com/r/scottgal/stylobot-gateway" target="_blank" class="btn btn-sm btn-outline">Docker Image</a>
+            <a href="/docs/start-here" class="btn btn-sm btn-outline">Docs</a>
+            <a href="https://github.com/scottgal/stylobot/blob/main/docs/README.md" target="_blank" class="btn btn-sm btn-outline">GitHub</a>
+        </div>
+    </div>
+</section>

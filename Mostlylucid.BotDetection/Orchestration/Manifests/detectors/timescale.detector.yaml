@@ -51,12 +51,12 @@ defaults:
   weights:
     base: 0.5
     bot_signal: 1.0
-    human_signal: -0.8
+    human_signal: 0.8
     verified: 1.5
 
   confidence:
     bot_detected: 0.7
-    human_indicated: 0.3
+    human_indicated: -0.3
     strong_signal: 0.9
     neutral: 0.0
 

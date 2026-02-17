@@ -79,8 +79,7 @@ public class HomeController : Controller
 
     public IActionResult LiveDemo()
     {
-        ViewData["SeoMetadata"] = _seoService.GetLiveDemoMetadata();
-        return View();
+        return RedirectPermanent("/dashboard");
     }
 
     [HttpGet]

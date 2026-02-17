@@ -63,6 +63,14 @@ public partial class DetectionBroadcastMiddleware
             if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
                 evidenceObj is AggregatedEvidence evidence)
             {
+                // Skip static assets with zero confidence — these are served by static file
+                // middleware with no meaningful detection and pollute reputation history
+                if (evidence.Confidence == 0 && evidence.TotalProcessingTimeMs < 0.5)
+                {
+                    _logger.LogDebug("Skipping broadcast for zero-confidence static asset: {Path}", context.Request.Path);
+                    return;
+                }
+
                 // Filter out local/private IP detections from broadcast if configured
                 var options = optionsAccessor.Value;
                 if (options.ExcludeLocalIpFromBroadcast && IsLocalIp(context.Connection.RemoteIpAddress))

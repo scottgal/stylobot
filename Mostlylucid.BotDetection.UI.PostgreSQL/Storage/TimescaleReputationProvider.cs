@@ -50,6 +50,7 @@ public class TimescaleReputationProvider : ITimescaleReputationProvider
                 FROM dashboard_detections
                 WHERE primary_signature = @Signature
                     AND timestamp > NOW() - INTERVAL '90 days'
+                    AND confidence > 0
                 """;
 
             var row = await conn.QuerySingleOrDefaultAsync<dynamic>(

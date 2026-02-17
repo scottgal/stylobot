@@ -2,6 +2,7 @@
 import Alpine from 'alpinejs';
 import htmx from 'htmx.org';
 import { registerLiveDemo } from './live-demo';
+import { registerDashboard } from './dashboard';
 
 const THEME_KEY = 'sb-theme';
 const DARK_THEME = 'dark';
@@ -61,6 +62,7 @@ Alpine.data('themeSwitcher', () => ({
 
 // Register page-specific Alpine components
 registerLiveDemo();
+registerDashboard();
 
 Alpine.start();
 

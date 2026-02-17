@@ -98,6 +98,20 @@ public class SeoService
     }
 
     /// <summary>
+    /// Gets SEO metadata for the Dashboard page
+    /// </summary>
+    public SeoMetadata GetDashboardMetadata()
+    {
+        var metadata = GetDefaultMetadata();
+        metadata.Title = "Live Dashboard - Real-Time Bot Detection | Stylobot";
+        metadata.Description = "Watch Stylobot detect bots in real-time. Live traffic charts, visitor analysis, cluster discovery, and country-level bot rates — all with zero PII.";
+        metadata.OgUrl = $"{_baseUrl}/dashboard";
+        metadata.Canonical = $"{_baseUrl}/dashboard";
+        metadata.JsonLd = GenerateSoftwareApplicationJsonLd();
+        return metadata;
+    }
+
+    /// <summary>
     /// Gets SEO metadata for the Contact page
     /// </summary>
     public SeoMetadata GetContactMetadata()
