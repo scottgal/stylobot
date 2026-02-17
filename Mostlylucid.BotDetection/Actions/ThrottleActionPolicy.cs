@@ -332,6 +332,24 @@ public class ThrottleActionOptions
         ScaleByRisk = true,
         IncludeHeaders = false
     };
+
+    /// <summary>
+    ///     Creates options for "tools" throttle — 429 with Retry-After for developer tools (curl, wget, python-requests).
+    ///     Uses exponential backoff so well-behaved tools auto-slow. Visible headers encourage proper rate limiting.
+    /// </summary>
+    public static ThrottleActionOptions Tools => new()
+    {
+        BaseDelayMs = 500,
+        MaxDelayMs = 15000,
+        JitterPercent = 0.2,
+        ScaleByRisk = true,
+        ExponentialBackoff = true,
+        BackoffFactor = 1.5,
+        ReturnStatus = true,
+        StatusCode = 429,
+        IncludeHeaders = true,
+        IncludeRetryAfter = true
+    };
 }
 
 /// <summary>

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>stylospam-score</ToolCommandName>
+    <PackageId>mostlylucid.stylospam.tool</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Scott Galloway</Authors>
+    <Description>Simple CLI tool to score email messages for StyloSpam.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Mostlylucid.StyloSpam.Core\Mostlylucid.StyloSpam.Core.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.3" />
+  </ItemGroup>
+
+</Project>

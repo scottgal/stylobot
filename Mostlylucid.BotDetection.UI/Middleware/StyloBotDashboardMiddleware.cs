@@ -598,19 +598,13 @@ public class StyloBotDashboardMiddleware
     private async Task ServeCountriesApiAsync(HttpContext context)
     {
         var countStr = context.Request.Query["count"].FirstOrDefault();
-        var count = int.TryParse(countStr, out var c) ? Math.Clamp(c, 1, 50) : 10;
+        var count = int.TryParse(countStr, out var c) ? Math.Clamp(c, 1, 50) : 20;
 
+        // Try CountryReputationTracker first (best source — time-decayed stats)
         var tracker = context.RequestServices.GetService(typeof(CountryReputationTracker))
             as CountryReputationTracker;
 
-        if (tracker == null)
-        {
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync("[]");
-            return;
-        }
-
-        var countries = tracker.GetTopBotCountries(count)
+        var countries = tracker?.GetTopBotCountries(count)
             .Select(cr => new
             {
                 countryCode = cr.CountryCode,
@@ -621,6 +615,31 @@ public class StyloBotDashboardMiddleware
                 flag = GetCountryFlag(cr.CountryCode)
             })
             .ToList();
+
+        // Fallback: aggregate from recent detections when tracker is empty or unavailable
+        if (countries == null || countries.Count == 0)
+        {
+            var detections = await _eventStore.GetDetectionsAsync(new DashboardFilter { Limit = 500 });
+            var countryGroups = detections
+                .Where(d => !string.IsNullOrEmpty(d.CountryCode)
+                            && d.CountryCode != "XX"
+                            && d.CountryCode != "LOCAL")
+                .GroupBy(d => d.CountryCode!.ToUpperInvariant())
+                .Select(g => new
+                {
+                    countryCode = g.Key,
+                    countryName = g.Key, // We don't have a name lookup here
+                    botRate = g.Count() > 0 ? Math.Round((double)g.Count(d => d.IsBot) / g.Count(), 3) : 0.0,
+                    botCount = g.Count(d => d.IsBot),
+                    totalCount = g.Count(),
+                    flag = GetCountryFlag(g.Key)
+                })
+                .OrderByDescending(c => c.totalCount)
+                .Take(count)
+                .ToList();
+
+            countries = countryGroups;
+        }
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, countries,
@@ -710,13 +729,14 @@ public class StyloBotDashboardMiddleware
 
             if (signals != null)
             {
-                if (signals.TryGetValue("ua.browser", out var fb)) family = fb?.ToString();
-                else if (signals.TryGetValue("ua.browser_family", out var ff)) family = ff?.ToString();
-                if (signals.TryGetValue("ua.browser_version", out var fv)) version = fv?.ToString();
-                else if (signals.TryGetValue("ua.version", out var fv2)) version = fv2?.ToString();
+                if (signals.TryGetValue("ua.family", out var ff)) family = ff?.ToString();
+                if (signals.TryGetValue("ua.family_version", out var fv)) version = fv?.ToString();
+                // Fallback to bot name for bot-type UAs
+                if (string.IsNullOrEmpty(family) && signals.TryGetValue("ua.bot_name", out var bn))
+                    family = bn?.ToString();
             }
 
-            // Lightweight fallback from raw UA string
+            // Lightweight fallback from raw UA string (only populated for bots)
             if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(d.UserAgent))
                 family = ExtractBrowserFamily(d.UserAgent);
 

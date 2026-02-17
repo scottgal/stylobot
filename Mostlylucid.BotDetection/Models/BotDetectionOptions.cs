@@ -908,6 +908,25 @@ public class BotDetectionOptions
     /// </summary>
     public string? DefaultActionPolicyName { get; set; }
 
+    /// <summary>
+    ///     Per-bot-type action policy overrides. When a bot is detected as a specific type,
+    ///     the matching policy name is used instead of DefaultActionPolicyName.
+    ///     Key is the BotType enum name (e.g., "Tool", "Scraper", "AiBot"), value is the policy name.
+    /// </summary>
+    /// <example>
+    ///     <code>
+    ///     "BotTypeActionPolicies": {
+    ///         "Tool": "throttle-tools",
+    ///         "Scraper": "throttle-aggressive",
+    ///         "AiBot": "block-soft"
+    ///     }
+    ///     </code>
+    /// </example>
+    public Dictionary<string, string> BotTypeActionPolicies { get; set; } = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Tool"] = "throttle-tools"
+    };
+
     // ==========================================
     // Path Exclusions and Overrides
     // ==========================================

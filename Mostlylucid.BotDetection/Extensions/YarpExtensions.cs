@@ -82,11 +82,24 @@ public static class YarpExtensions
             addHeader("X-Bot-Detection-RiskBand", evidence.RiskBand.ToString());
             addHeader("X-Bot-Detection-ProcessingMs", evidence.TotalProcessingTimeMs.ToString("F2"));
 
-            // Country code from geo enrichment
+            // Country code from geo enrichment (or upstream X-Country header fallback)
+            string? detectedCountry = null;
             if (evidence.Signals != null &&
                 evidence.Signals.TryGetValue("geo.country_code", out var ccObj) &&
                 ccObj is string cc && cc != "LOCAL")
-                addHeader("X-Bot-Detection-Country", cc);
+                detectedCountry = cc;
+
+            // Fallback: upstream CDN/proxy headers
+            if (string.IsNullOrEmpty(detectedCountry))
+            {
+                detectedCountry = httpContext.Request.Headers["X-Country"].FirstOrDefault()
+                                  ?? httpContext.Request.Headers["CF-IPCountry"].FirstOrDefault();
+                if (detectedCountry is "XX" or "LOCAL" or "" or null)
+                    detectedCountry = null;
+            }
+
+            if (!string.IsNullOrEmpty(detectedCountry))
+                addHeader("X-Bot-Detection-Country", detectedCountry);
 
             // Network classification flags for downstream geo/network blocking
             if (evidence.Signals != null)

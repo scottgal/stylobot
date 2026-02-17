@@ -207,6 +207,8 @@ public static class SignalKeys
     public const string UserAgentIsBot = "ua.is_bot";
     public const string UserAgentBotType = "ua.bot_type";
     public const string UserAgentBotName = "ua.bot_name";
+    public const string UserAgentFamily = "ua.family";
+    public const string UserAgentFamilyVersion = "ua.family_version";
 
     public const string HeadersPresent = "headers.present";
     public const string HeadersMissing = "headers.missing";

@@ -431,6 +431,7 @@ function dashboardApp() {
         countries: [] as any[],
         countryChart: null as ApexCharts | null,
         worldMapRendered: false,
+        overviewMapRendered: false,
 
         useragents: [] as any[],
         uaFilter: 'all',
@@ -463,11 +464,12 @@ function dashboardApp() {
 
         async loadOverview() {
             try {
-                const [summaryRes, timeRes, meRes, topBotsRes] = await Promise.all([
+                const [summaryRes, timeRes, meRes, topBotsRes, countriesRes] = await Promise.all([
                     fetch('/_stylobot/api/summary'),
                     fetch('/_stylobot/api/timeseries?bucket=60'),
                     fetch('/_stylobot/api/me'),
                     fetch('/_stylobot/api/topbots?count=10'),
+                    fetch('/_stylobot/api/countries?count=50'),
                 ]);
 
                 if (summaryRes.ok) this.summary = toCamel(await summaryRes.json());
@@ -481,8 +483,14 @@ function dashboardApp() {
                 if (topBotsRes.ok) {
                     this.topBots = toCamel(await topBotsRes.json());
                 }
+                if (countriesRes.ok) {
+                    this.countries = toCamel(await countriesRes.json());
+                }
 
-                this.$nextTick(() => this.renderTimeChart());
+                this.$nextTick(() => {
+                    this.renderTimeChart();
+                    this.renderOverviewMap();
+                });
             } catch (e) {
                 console.warn('[Dashboard] Failed to load overview:', e);
             }
@@ -657,7 +665,10 @@ function dashboardApp() {
             this.tab = t as any;
             if (t === 'visitors') await this.loadVisitors();
             if (t === 'clusters' && this.clusters.length === 0) await this.loadClusters();
-            if (t === 'countries' && this.countries.length === 0) await this.loadCountries();
+            if (t === 'countries') {
+                if (this.countries.length === 0) await this.loadCountries();
+                else this.$nextTick(() => { this.renderCountryChart(); this.renderWorldMapChart(); });
+            }
             if (t === 'useragents' && this.useragents.length === 0) await this.loadUserAgents();
         },
 
@@ -797,6 +808,11 @@ function dashboardApp() {
                         this.clusters[idx].label = label;
                         this.clusters[idx].description = description;
                     }
+                });
+
+                this.connection.on('BroadcastDescriptionUpdate', (requestId: string, description: string) => {
+                    const det = this.detections.find((d: any) => d.requestId === requestId);
+                    if (det) det.description = description;
                 });
 
                 this.connection.onclose(() => { this.connected = false; });
@@ -1008,10 +1024,26 @@ function dashboardApp() {
             this.worldMapRendered = true;
         },
 
+        renderOverviewMap() {
+            const el = document.getElementById('overview-world-map');
+            if (!el || this.countries.length === 0) return;
+
+            const mapData: MapDataPoint[] = this.countries.map((co: any) => ({
+                code: co.countryCode,
+                totalCount: co.totalCount || 0,
+                botRate: co.botRate || 0,
+                label: co.countryName || co.countryCode,
+            }));
+
+            renderWorldMap(el, mapData, { height: 300, dark: isDark() });
+            this.overviewMapRendered = true;
+        },
+
         onThemeChange() {
             if (this.timeChart) this.renderTimeChart();
             if (this.countryChart) this.renderCountryChart();
             if (this.worldMapRendered) this.renderWorldMapChart();
+            if (this.overviewMapRendered) this.renderOverviewMap();
             if (this.uaChart) this.renderUAVersionChart();
         },
 

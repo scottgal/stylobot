@@ -160,7 +160,7 @@ services:
       - STYLOBOT_DASHBOARD_PATH=${STYLOBOT_DASHBOARD_PATH:-/_stylobot}
       - STYLOBOT_DASHBOARD_MAX_EVENTS=${STYLOBOT_DASHBOARD_MAX_EVENTS:-1000}
       # Database (PostgreSQL/TimescaleDB)
-      - DATABASE_PROVIDER=${DATABASE_PROVIDER:-InMemory}
+      - DATABASE_PROVIDER=${DATABASE_PROVIDER:-Postgres}
       - DATABASE_CONNECTION_STRING=Host=timescaledb;Database=stylobot;Username=stylobot;Password=${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       - DATABASE_TIMESCALEDB_ENABLED=${DATABASE_TIMESCALEDB_ENABLED:-true}
       - DATABASE_AUTO_INIT_SCHEMA=${DATABASE_AUTO_INIT_SCHEMA:-true}
@@ -200,7 +200,7 @@ services:
       - timescale-data:/var/lib/postgresql/data
       - ./demo/init-db:/docker-entrypoint-initdb.d:ro
     ports:
-      - "127.0.0.1:5432:5432"  # Localhost only - for debugging
+      - "127.0.0.1:15432:5432"  # Localhost only - for debugging (15432 to avoid conflict with local PostgreSQL)
     networks:
       - stylobot-demo
     restart: unless-stopped

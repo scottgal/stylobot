@@ -326,6 +326,23 @@ public class BotDetectionMiddleware(
                     countryName = geoCN;
             }
 
+            // Fallback: upstream headers (X-Country from CDN/proxy, CF-IPCountry from Cloudflare)
+            if (string.IsNullOrEmpty(countryCode))
+            {
+                countryCode = context.Request.Headers["X-Country"].FirstOrDefault()
+                              ?? context.Request.Headers["CF-IPCountry"].FirstOrDefault();
+                if (countryCode is "XX" or "LOCAL" or "" or null)
+                    countryCode = null;
+            }
+
+            // Fallback: GeoDetection.CountryCode context item
+            if (string.IsNullOrEmpty(countryCode) &&
+                context.Items.TryGetValue("GeoDetection.CountryCode", out var geoCtx) &&
+                geoCtx is string geoCountry && !string.IsNullOrEmpty(geoCountry) && geoCountry != "LOCAL")
+            {
+                countryCode = geoCountry;
+            }
+
             if (!string.IsNullOrEmpty(countryCode) && countryCode != "LOCAL")
             {
                 countryTracker.RecordDetection(
@@ -1017,29 +1034,42 @@ public class BotDetectionMiddleware(
             }
         }
 
-        // Fallback: DefaultActionPolicyName for detected bots without explicit action policy.
-        // When this fires, it replaces the hard block — tarpit IS the response.
+        // Fallback: per-bot-type action policy, then DefaultActionPolicyName.
+        // When this fires, it replaces the hard block — the policy IS the response.
         if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
-            && !string.IsNullOrEmpty(_options.DefaultActionPolicyName)
             && aggregatedResult.BotProbability >= _options.BotThreshold
             && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
         {
-            var fallbackPolicy = actionPolicyRegistry.GetPolicy(_options.DefaultActionPolicyName);
-            if (fallbackPolicy != null)
+            // Try bot-type-specific policy first (e.g., Tool → throttle-tools)
+            string? resolvedPolicyName = null;
+            if (_options.BotTypeActionPolicies.Count > 0
+                && aggregatedResult.PrimaryBotType is not null and not BotType.Unknown)
             {
-                aggregatedResult = aggregatedResult with
+                var botTypeName = aggregatedResult.PrimaryBotType.Value.ToString();
+                _options.BotTypeActionPolicies.TryGetValue(botTypeName, out resolvedPolicyName);
+            }
+
+            // Fall back to default
+            resolvedPolicyName ??= _options.DefaultActionPolicyName;
+
+            if (!string.IsNullOrEmpty(resolvedPolicyName))
+            {
+                var fallbackPolicy = actionPolicyRegistry.GetPolicy(resolvedPolicyName);
+                if (fallbackPolicy != null)
                 {
-                    TriggeredActionPolicyName = _options.DefaultActionPolicyName
-                };
-                context.Items[AggregatedEvidenceKey] = aggregatedResult;
+                    aggregatedResult = aggregatedResult with
+                    {
+                        TriggeredActionPolicyName = resolvedPolicyName
+                    };
+                    context.Items[AggregatedEvidenceKey] = aggregatedResult;
 
-                _logger.LogInformation(
-                    "[ACTION] {LogPrefix} executing default action policy '{ActionPolicy}' for {Path} (risk={Risk:F2})",
-                    logPrefix, _options.DefaultActionPolicyName, context.Request.Path, aggregatedResult.BotProbability);
+                    _logger.LogInformation(
+                        "[ACTION] {LogPrefix} executing action policy '{ActionPolicy}' for {Path} (risk={Risk:F2}, type={BotType})",
+                        logPrefix, resolvedPolicyName, context.Request.Path, aggregatedResult.BotProbability, aggregatedResult.PrimaryBotType);
 
-                await fallbackPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
-                // DefaultActionPolicyName replaces ShouldBlockRequest — no 403
-                return false;
+                    await fallbackPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
+                    return false;
+                }
             }
         }
 
