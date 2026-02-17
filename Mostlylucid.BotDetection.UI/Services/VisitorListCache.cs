@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.RegularExpressions;
 using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -29,33 +30,49 @@ public class VisitorListCache
             sig = detection.RequestId;
 
         var visitor = _visitors.AddOrUpdate(sig,
-            _ => new CachedVisitor
+            _ =>
             {
-                PrimarySignature = sig,
-                Hits = 1,
-                FirstSeen = detection.Timestamp,
-                LastSeen = detection.Timestamp,
-                IsBot = detection.IsBot,
-                BotProbability = detection.BotProbability,
-                Confidence = detection.Confidence,
-                RiskBand = detection.RiskBand ?? "Medium",
-                LastPath = detection.Path,
-                Paths = new List<string> { detection.Path ?? "/" },
-                Action = detection.Action ?? "Allow",
-                BotName = detection.BotName,
-                BotType = detection.BotType,
-                CountryCode = detection.CountryCode,
-                UserAgent = detection.UserAgent,
-                Narrative = detection.Narrative,
-                Description = detection.Description,
-                TopReasons = detection.TopReasons.ToList(),
-                ProcessingTimeMs = detection.ProcessingTimeMs,
-                MaxProcessingTimeMs = detection.ProcessingTimeMs,
-                MinProcessingTimeMs = detection.ProcessingTimeMs,
-                ProcessingTimeHistory = new List<double> { detection.ProcessingTimeMs },
-                BotProbabilityHistory = new List<double> { detection.BotProbability },
-                ConfidenceHistory = new List<double> { detection.Confidence },
-                LastRequestId = detection.RequestId
+                var botName = detection.BotName;
+                var botType = detection.BotType;
+
+                // Infer bot identity from behavior when the detection ledger didn't provide it
+                if (detection.IsBot && string.IsNullOrEmpty(botName))
+                {
+                    var paths = new List<string> { detection.Path ?? "/" };
+                    var (inferredName, inferredType) = InferBotIdentity(
+                        paths, detection.UserAgent, 1, detection.Timestamp, detection.Timestamp);
+                    botName ??= inferredName;
+                    botType ??= inferredType;
+                }
+
+                return new CachedVisitor
+                {
+                    PrimarySignature = sig,
+                    Hits = 1,
+                    FirstSeen = detection.Timestamp,
+                    LastSeen = detection.Timestamp,
+                    IsBot = detection.IsBot,
+                    BotProbability = detection.BotProbability,
+                    Confidence = detection.Confidence,
+                    RiskBand = detection.RiskBand ?? "Medium",
+                    LastPath = detection.Path,
+                    Paths = new List<string> { detection.Path ?? "/" },
+                    Action = detection.Action ?? "Allow",
+                    BotName = botName,
+                    BotType = botType,
+                    CountryCode = detection.CountryCode,
+                    UserAgent = detection.UserAgent,
+                    Narrative = detection.Narrative,
+                    Description = detection.Description,
+                    TopReasons = detection.TopReasons.ToList(),
+                    ProcessingTimeMs = detection.ProcessingTimeMs,
+                    MaxProcessingTimeMs = detection.ProcessingTimeMs,
+                    MinProcessingTimeMs = detection.ProcessingTimeMs,
+                    ProcessingTimeHistory = new List<double> { detection.ProcessingTimeMs },
+                    BotProbabilityHistory = new List<double> { detection.BotProbability },
+                    ConfidenceHistory = new List<double> { detection.Confidence },
+                    LastRequestId = detection.RequestId
+                };
             },
             (_, existing) =>
             {
@@ -75,10 +92,37 @@ public class VisitorListCache
                         existing.Description = detection.Description;
                     if (detection.TopReasons.Count > 0)
                         existing.TopReasons = detection.TopReasons.ToList();
-                    if (!string.IsNullOrEmpty(detection.BotName))
-                        existing.BotName = detection.BotName;
-                    if (!string.IsNullOrEmpty(detection.BotType))
-                        existing.BotType = detection.BotType;
+                    // Update bot identity: clear stale bot info when detection is now human
+                    if (detection.IsBot)
+                    {
+                        if (!string.IsNullOrEmpty(detection.BotName))
+                            existing.BotName = detection.BotName;
+                        if (!string.IsNullOrEmpty(detection.BotType))
+                            existing.BotType = detection.BotType;
+
+                        // Re-infer identity as more paths accumulate (behavioral refinement)
+                        if (string.IsNullOrEmpty(existing.BotName) || existing.BotName == "Unknown Bot")
+                        {
+                            var (inferredName, inferredType) = InferBotIdentity(
+                                existing.Paths, existing.UserAgent, existing.Hits,
+                                existing.FirstSeen, existing.LastSeen);
+                            if (inferredName != null && inferredName != "Unknown Bot")
+                            {
+                                existing.BotName = inferredName;
+                                existing.BotType ??= inferredType;
+                            }
+                            else if (existing.BotName == null)
+                            {
+                                existing.BotName = inferredName;
+                                existing.BotType ??= inferredType;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        existing.BotName = null;
+                        existing.BotType = null;
+                    }
                     if (!string.IsNullOrEmpty(detection.CountryCode))
                         existing.CountryCode = detection.CountryCode;
                     if (!string.IsNullOrEmpty(detection.UserAgent))
@@ -104,7 +148,7 @@ public class VisitorListCache
                     if (!string.IsNullOrEmpty(detection.Path) && !existing.Paths.Contains(detection.Path))
                     {
                         existing.Paths.Add(detection.Path);
-                        if (existing.Paths.Count > 5)
+                        if (existing.Paths.Count > 20)
                             existing.Paths.RemoveAt(0);
                     }
                 }
@@ -127,8 +171,9 @@ public class VisitorListCache
         {
             "humans" => items.Where(v => !v.IsBot),
             "bots" => items.Where(v => v.IsBot),
-            "ai" => items.Where(v => v.IsBot && (v.BotType == "AiBot" || IsAiName(v.BotName))),
-            "tools" => items.Where(v => v.IsBot && IsToolType(v.BotType)),
+            "ai" => items.Where(v => v.IsBot && IsAiBot(v)),
+            "search" => items.Where(v => v.IsBot && IsSearchBot(v)),
+            "tools" => items.Where(v => v.IsBot && IsToolBot(v)),
             _ => items
         };
 
@@ -166,8 +211,9 @@ public class VisitorListCache
             All = all.Count,
             Humans = all.Count(v => !v.IsBot),
             Bots = all.Count(v => v.IsBot),
-            Ai = all.Count(v => v.IsBot && (v.BotType == "AiBot" || IsAiName(v.BotName))),
-            Tools = all.Count(v => v.IsBot && IsToolType(v.BotType))
+            Ai = all.Count(v => v.IsBot && IsAiBot(v)),
+            Search = all.Count(v => v.IsBot && IsSearchBot(v)),
+            Tools = all.Count(v => v.IsBot && IsToolBot(v))
         };
     }
 
@@ -256,14 +302,200 @@ public class VisitorListCache
     }
 
     private static readonly System.Text.RegularExpressions.Regex AiNameRegex =
-        new(@"ai|gpt|claude|llm|chatbot|copilot|gemini|bard",
+        new(@"\bai\b|gpt|claude|llm|chatbot|copilot|gemini|bard|anthropic|perplexity|cohere",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    private static bool IsAiName(string? name) =>
-        !string.IsNullOrEmpty(name) && AiNameRegex.IsMatch(name);
+    private static readonly System.Text.RegularExpressions.Regex SearchNameRegex =
+        new(@"googlebot|bingbot|yandexbot|baiduspider|duckduckbot|slurp|sogou|exabot|ia_archiver|archive\.org|google|bing",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
 
-    private static bool IsToolType(string? botType) =>
-        botType is "Scraper" or "MonitoringBot" or "SearchEngine" or "SocialMediaBot" or "VerifiedBot" or "GoodBot";
+    private static readonly System.Text.RegularExpressions.Regex ToolNameRegex =
+        new(@"semrush|ahrefs|mj12|majestic|screaming|dotbot|petalbot|bytespider|yeti|megaindex|serpstat|sistrix|curl|wget|python|go-http|java|ruby|perl|php|node-fetch|axios|scrapy|httpclient|requests|libwww|lwp|mechanize|webdriver|selenium|playwright|puppeteer|phantom|headless|chrome-lighthouse|pagespeed|gtmetrix|pingdom|uptime|monitor|datadog|newrelic|statuspage",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    ///     Infer the effective bot category from BotType and BotName.
+    ///     BotType is often null because the detection ledger only sets it
+    ///     when a contribution has ConfidenceDelta > 0. Falling back to BotName
+    ///     allows proper categorization for dashboard filters.
+    /// </summary>
+    private static string InferBotCategory(string? botType, string? botName)
+    {
+        // Explicit BotType takes precedence
+        if (!string.IsNullOrEmpty(botType))
+        {
+            if (botType is "AiBot") return "ai";
+            if (botType is "SearchEngine" or "VerifiedBot" or "GoodBot") return "search";
+            if (botType is "Scraper" or "MonitoringBot" or "SocialMediaBot") return "tools";
+            return "other";
+        }
+
+        // Infer from BotName when BotType is null
+        if (!string.IsNullOrEmpty(botName))
+        {
+            if (AiNameRegex.IsMatch(botName)) return "ai";
+            if (SearchNameRegex.IsMatch(botName)) return "search";
+            if (ToolNameRegex.IsMatch(botName)) return "tools";
+        }
+
+        return "other";
+    }
+
+    /// <summary>
+    ///     Infer bot name and type from behavioral signals when the detection ledger
+    ///     didn't provide them. Uses paths visited, user-agent, and hit rate.
+    ///     Returns (name, type) — either may be null if inference fails.
+    /// </summary>
+    internal static (string? Name, string? Type) InferBotIdentity(
+        IReadOnlyList<string> paths, string? userAgent, int hits, DateTime firstSeen, DateTime lastSeen)
+    {
+        // 1. Path-based inference — what they're scanning tells us who they are
+        var pathSet = string.Join(" ", paths).ToLowerInvariant();
+
+        if (WpPathRegex.IsMatch(pathSet))
+            return ("WordPress Scanner", "Scraper");
+        if (ConfigPathRegex.IsMatch(pathSet))
+            return ("Config Scanner", "Scraper");
+        if (ExploitPathRegex.IsMatch(pathSet))
+            return ("Exploit Scanner", "Scraper");
+        if (DbPathRegex.IsMatch(pathSet))
+            return ("Database Scanner", "Scraper");
+        if (ApiPathRegex.IsMatch(pathSet))
+            return ("API Prober", "Scraper");
+        if (CmsPathRegex.IsMatch(pathSet))
+            return ("CMS Scanner", "Scraper");
+
+        // 2. UA-based inference — extract identity from user-agent string
+        if (!string.IsNullOrEmpty(userAgent))
+        {
+            var ua = userAgent;
+            // AI bots
+            if (Regex.IsMatch(ua, @"GPTBot|ChatGPT|CCBot|anthropic-ai|ClaudeBot|Google-Extended|PerplexityBot|Bytespider|Applebot-Extended|cohere-ai|FacebookBot|Meta-ExternalAgent", RegexOptions.IgnoreCase))
+                return (ExtractUaBotName(ua) ?? "AI Crawler", "AiBot");
+            // Search engines
+            if (Regex.IsMatch(ua, @"Googlebot|bingbot|YandexBot|Baiduspider|DuckDuckBot|Slurp|Sogou|Applebot(?!-Extended)", RegexOptions.IgnoreCase))
+                return (ExtractUaBotName(ua) ?? "Search Bot", "SearchEngine");
+            // SEO/marketing tools
+            if (Regex.IsMatch(ua, @"SemrushBot|AhrefsBot|MJ12bot|DotBot|PetalBot|MegaIndex|SerpstatBot|Sistrix|Screaming", RegexOptions.IgnoreCase))
+                return (ExtractUaBotName(ua) ?? "SEO Crawler", "Scraper");
+            // Monitoring
+            if (Regex.IsMatch(ua, @"UptimeRobot|Pingdom|Site24x7|StatusCake|Datadog|NewRelic|GTmetrix|PageSpeed|Lighthouse", RegexOptions.IgnoreCase))
+                return (ExtractUaBotName(ua) ?? "Monitor", "MonitoringBot");
+            // HTTP libraries
+            if (Regex.IsMatch(ua, @"python-requests|python-urllib|python-httpx|aiohttp", RegexOptions.IgnoreCase))
+                return ("Python Bot", "Scraper");
+            if (Regex.IsMatch(ua, @"^curl/", RegexOptions.IgnoreCase))
+                return ("curl", "Scraper");
+            if (Regex.IsMatch(ua, @"^wget/", RegexOptions.IgnoreCase))
+                return ("wget", "Scraper");
+            if (Regex.IsMatch(ua, @"Go-http-client|golang", RegexOptions.IgnoreCase))
+                return ("Go Bot", "Scraper");
+            if (Regex.IsMatch(ua, @"Java/|Apache-HttpClient|okhttp", RegexOptions.IgnoreCase))
+                return ("Java Bot", "Scraper");
+            if (Regex.IsMatch(ua, @"node-fetch|axios|undici", RegexOptions.IgnoreCase))
+                return ("Node.js Bot", "Scraper");
+            if (Regex.IsMatch(ua, @"Ruby|Faraday|Typhoeus", RegexOptions.IgnoreCase))
+                return ("Ruby Bot", "Scraper");
+            if (Regex.IsMatch(ua, @"PHP/|Guzzle|php-curl", RegexOptions.IgnoreCase))
+                return ("PHP Bot", "Scraper");
+            if (Regex.IsMatch(ua, @"libwww-perl|LWP|Mechanize", RegexOptions.IgnoreCase))
+                return ("Perl Bot", "Scraper");
+            if (Regex.IsMatch(ua, @"Scrapy|Nutch|Heritrix", RegexOptions.IgnoreCase))
+                return ("Web Crawler", "Scraper");
+            // Headless browsers
+            if (Regex.IsMatch(ua, @"HeadlessChrome|Headless", RegexOptions.IgnoreCase))
+                return ("Headless Chrome", "Scraper");
+            if (Regex.IsMatch(ua, @"PhantomJS", RegexOptions.IgnoreCase))
+                return ("PhantomJS", "Scraper");
+            if (Regex.IsMatch(ua, @"Selenium|WebDriver", RegexOptions.IgnoreCase))
+                return ("Selenium Bot", "Scraper");
+            if (Regex.IsMatch(ua, @"Playwright", RegexOptions.IgnoreCase))
+                return ("Playwright Bot", "Scraper");
+            if (Regex.IsMatch(ua, @"Puppeteer", RegexOptions.IgnoreCase))
+                return ("Puppeteer Bot", "Scraper");
+        }
+
+        // 3. Rate-based inference — high hit rate suggests aggressive bot
+        if (hits > 10 && lastSeen > firstSeen)
+        {
+            var seconds = (lastSeen - firstSeen).TotalSeconds;
+            if (seconds > 0)
+            {
+                var rpm = hits / seconds * 60.0;
+                if (rpm > 60)
+                    return ("Aggressive Crawler", "Scraper");
+                if (rpm > 20)
+                    return ("Fast Crawler", "Scraper");
+            }
+        }
+
+        // 4. Fallback — we know it's a bot but can't identify it further
+        return ("Unknown Bot", null);
+    }
+
+    /// <summary>
+    ///     Extract a clean bot name from a user-agent string.
+    ///     E.g. "Mozilla/5.0 (compatible; GPTBot/1.0)" → "GPTBot"
+    /// </summary>
+    private static string? ExtractUaBotName(string ua)
+    {
+        // Try "compatible; BotName/version" pattern
+        var m = Regex.Match(ua, @"compatible;\s*([A-Za-z][\w-]+)", RegexOptions.IgnoreCase);
+        if (m.Success) return m.Groups[1].Value;
+        // Try "BotName/version" at start
+        m = Regex.Match(ua, @"^([A-Za-z][\w-]+)/[\d.]", RegexOptions.IgnoreCase);
+        if (m.Success) return m.Groups[1].Value;
+        return null;
+    }
+
+    // Path pattern regexes for behavioral inference
+    private static readonly Regex WpPathRegex = new(
+        @"wp-admin|wp-login|wp-content|wp-includes|xmlrpc\.php|wp-json|wp-cron",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex ConfigPathRegex = new(
+        @"\.env|\.git|\.aws|\.ssh|\.config|\.htaccess|\.htpasswd|web\.config|appsettings|credentials|\.key|\.pem|\.bak",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex ExploitPathRegex = new(
+        @"/shell|/cmd|/eval|/exec|cgi-bin|/setup|phpunit|vendor/phpunit|/debug|/console|actuator|/solr|struts|/ognl|ThinkPHP",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex DbPathRegex = new(
+        @"phpmyadmin|/pma|/mysql|/adminer|/dbadmin|/sql|/pgadmin|/mongodb",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex ApiPathRegex = new(
+        @"/graphql|/swagger|/openapi|/api-docs|/v1/|/v2/|/rest/",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex CmsPathRegex = new(
+        @"/administrator|/joomla|/drupal|/magento|/shopify|/typo3|/umbraco|/sitecore|/craft",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static bool IsAiBot(CachedVisitor v)
+    {
+        var cat = InferBotCategory(v.BotType, v.BotName);
+        if (cat == "ai") return true;
+        // Also check UA for AI bots when category fell through
+        if (!string.IsNullOrEmpty(v.UserAgent) && Regex.IsMatch(v.UserAgent,
+                @"GPTBot|ChatGPT|CCBot|anthropic-ai|ClaudeBot|Google-Extended|PerplexityBot|Applebot-Extended|cohere-ai|Meta-ExternalAgent",
+                RegexOptions.IgnoreCase))
+            return true;
+        return false;
+    }
+
+    private static bool IsSearchBot(CachedVisitor v)
+    {
+        var cat = InferBotCategory(v.BotType, v.BotName);
+        return cat == "search";
+    }
+
+    private static bool IsToolBot(CachedVisitor v)
+    {
+        var cat = InferBotCategory(v.BotType, v.BotName);
+        return cat == "tools";
+    }
 
     private static int RiskOrder(string? band) => band switch
     {
@@ -332,5 +564,6 @@ public class FilterCounts
     public int Humans { get; set; }
     public int Bots { get; set; }
     public int Ai { get; set; }
+    public int Search { get; set; }
     public int Tools { get; set; }
 }

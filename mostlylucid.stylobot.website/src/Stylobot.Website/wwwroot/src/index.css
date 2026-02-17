@@ -338,6 +338,21 @@ body {
   color: var(--sb-signal-warn);
 }
 
+.status-badge-danger {
+  background: color-mix(in oklab, var(--sb-signal-danger) 18%, transparent);
+  color: var(--sb-signal-danger);
+}
+
+.status-badge-muted {
+  background: color-mix(in oklab, var(--sb-card-subtle) 18%, transparent);
+  color: var(--sb-card-subtle);
+}
+
+.status-badge-info {
+  background: color-mix(in oklab, var(--sb-accent) 18%, transparent);
+  color: var(--sb-accent);
+}
+
 .status-label-live {
   color: var(--sb-accent-strong);
 }

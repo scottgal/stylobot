@@ -24,6 +24,7 @@ public class LlmClassificationCoordinator : BackgroundService
     private readonly ILogger<LlmClassificationCoordinator> _logger;
     private readonly BotDetectionOptions _options;
     private readonly IPatternReputationCache _reputationCache;
+    private readonly PatternReputationUpdater _updater;
     private readonly ILlmResultCallback? _resultCallback;
 
     private long _totalProcessed;
@@ -32,6 +33,7 @@ public class LlmClassificationCoordinator : BackgroundService
         ILogger<LlmClassificationCoordinator> logger,
         LlmDetector detector,
         IPatternReputationCache reputationCache,
+        PatternReputationUpdater updater,
         IOptions<BotDetectionOptions> options,
         ILlmResultCallback? resultCallback = null,
         ILearningEventBus? learningBus = null,
@@ -40,6 +42,7 @@ public class LlmClassificationCoordinator : BackgroundService
         _logger = logger;
         _detector = detector;
         _reputationCache = reputationCache;
+        _updater = updater;
         _options = options.Value;
         _resultCallback = resultCallback;
         _learningBus = learningBus;
@@ -164,18 +167,18 @@ public class LlmClassificationCoordinator : BackgroundService
         // Update ephemeral reputation cache with LLM result for ALL signature vectors.
         // This ensures churn-resistant identity: if IP changes but UA stays the same,
         // the UA vector still carries the LLM result forward.
+        // Use ApplyEvidence to go through proper EWMA blending, state evaluation, and confidence tracking.
+        // LLM evidence weight of 2.0 — authoritative but blended with existing evidence.
+        var llmLabel = result.Confidence > 0.5 ? 1.0 : 0.0;
+        const double llmEvidenceWeight = 2.0;
+
         if (request.SignatureVectors is { Count: > 0 })
         {
             foreach (var (vectorType, vectorHash) in request.SignatureVectors)
             {
                 var patternId = $"{vectorType}:{vectorHash}";
-                var existing = _reputationCache.GetOrCreate(patternId, vectorType, vectorHash);
-                var updated = existing with
-                {
-                    BotScore = result.Confidence,
-                    Support = existing.Support + 1,
-                    LastSeen = DateTimeOffset.UtcNow
-                };
+                var existing = _reputationCache.Get(patternId);
+                var updated = _updater.ApplyEvidence(existing, patternId, vectorType, vectorHash, llmLabel, llmEvidenceWeight);
                 _reputationCache.Update(updated);
             }
         }
@@ -183,13 +186,8 @@ public class LlmClassificationCoordinator : BackgroundService
         {
             // Fallback: single primary signature
             var patternId = $"ua:{request.PrimarySignature}";
-            var existing = _reputationCache.GetOrCreate(patternId, "UserAgent", request.PrimarySignature);
-            var updated = existing with
-            {
-                BotScore = result.Confidence,
-                Support = existing.Support + 1,
-                LastSeen = DateTimeOffset.UtcNow
-            };
+            var existing = _reputationCache.Get(patternId);
+            var updated = _updater.ApplyEvidence(existing, patternId, "UserAgent", request.PrimarySignature, llmLabel, llmEvidenceWeight);
             _reputationCache.Update(updated);
         }
 

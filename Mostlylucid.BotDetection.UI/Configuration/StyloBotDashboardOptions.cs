@@ -50,4 +50,13 @@ public sealed class StyloBotDashboardOptions
     ///     Return true to allow access, false to deny.
     /// </summary>
     public Func<HttpContext, Task<bool>>? AuthorizationFilter { get; set; }
+
+    /// <summary>
+    ///     When true, extract basic browser, protocol, and country info from HTTP headers
+    ///     for ALL detections (including human traffic). This enables browser/protocol/country
+    ///     dashboard stats even when the detection pipeline doesn't write signals for humans.
+    ///     No PII is stored — only browser family, major version, HTTP protocol, and country code.
+    ///     Default: false (privacy-preserving). Enable for demo/marketing dashboards.
+    /// </summary>
+    public bool EnrichHumanSignals { get; set; } = false;
 }

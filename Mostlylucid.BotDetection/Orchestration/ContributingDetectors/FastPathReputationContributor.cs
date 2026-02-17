@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Models;
@@ -186,105 +184,9 @@ public class FastPathReputationContributor : ConfiguredContributorBase
         return new[] { contribution };
     }
 
-    /// <summary>
-    ///     Create pattern ID for User-Agent using simple normalization.
-    ///     Fast path uses simplified normalization for speed.
-    /// </summary>
     private static string CreateUaPatternId(string userAgent)
-    {
-        // Simple normalization for fast path matching
-        var normalized = NormalizeForFastPath(userAgent);
-        var hash = ComputeHash(normalized);
-        return $"ua:{hash}";
-    }
+        => PatternNormalization.CreateUaPatternId(userAgent);
 
-    /// <summary>
-    ///     Create pattern ID for IP (CIDR range).
-    /// </summary>
     private static string CreateIpPatternId(string ip)
-    {
-        var normalized = NormalizeIpToRange(ip);
-        return $"ip:{normalized}";
-    }
-
-    /// <summary>
-    ///     Simple normalization for fast-path matching.
-    ///     Extracts key indicators without expensive regex.
-    /// </summary>
-    private static string NormalizeForFastPath(string ua)
-    {
-        if (string.IsNullOrWhiteSpace(ua))
-            return "empty";
-
-        var lower = ua.ToLowerInvariant().Trim();
-        var indicators = new List<string>(12); // Pre-sized for "12 basic shapes"
-
-        // Browser detection (mutually exclusive)
-        if (lower.Contains("chrome")) indicators.Add("chrome");
-        else if (lower.Contains("firefox")) indicators.Add("firefox");
-        else if (lower.Contains("safari")) indicators.Add("safari");
-        else if (lower.Contains("edge")) indicators.Add("edge");
-
-        // OS detection (mutually exclusive)
-        if (lower.Contains("windows")) indicators.Add("windows");
-        else if (lower.Contains("mac")) indicators.Add("macos");
-        else if (lower.Contains("linux")) indicators.Add("linux");
-        else if (lower.Contains("android")) indicators.Add("android");
-        else if (lower.Contains("iphone") || lower.Contains("ipad")) indicators.Add("ios");
-
-        // Bot indicators (can be multiple)
-        if (lower.Contains("bot")) indicators.Add("bot");
-        if (lower.Contains("crawler")) indicators.Add("crawler");
-        if (lower.Contains("spider")) indicators.Add("spider");
-        if (lower.Contains("scraper")) indicators.Add("scraper");
-        if (lower.Contains("headless")) indicators.Add("headless");
-        if (lower.Contains("python")) indicators.Add("python");
-        if (lower.Contains("curl")) indicators.Add("curl");
-        if (lower.Contains("wget")) indicators.Add("wget");
-
-        // Length bucket
-        var lengthBucket = ua.Length switch
-        {
-            < 20 => "tiny",
-            < 50 => "short",
-            < 150 => "normal",
-            < 300 => "long",
-            _ => "huge"
-        };
-        indicators.Add($"len:{lengthBucket}");
-
-        return string.Join(",", indicators.OrderBy(x => x));
-    }
-
-    /// <summary>
-    ///     Normalize IP to CIDR range for pattern matching.
-    /// </summary>
-    private static string NormalizeIpToRange(string ip)
-    {
-        if (string.IsNullOrWhiteSpace(ip))
-            return "unknown";
-
-        // Handle IPv6
-        if (ip.Contains(':'))
-        {
-            var parts = ip.Split(':');
-            if (parts.Length >= 3) return $"{parts[0]}:{parts[1]}:{parts[2]}::/48";
-            return ip;
-        }
-
-        // Handle IPv4 - normalize to /24
-        var octets = ip.Split('.');
-        if (octets.Length == 4) return $"{octets[0]}.{octets[1]}.{octets[2]}.0/24";
-
-        return ip;
-    }
-
-    /// <summary>
-    ///     Compute SHA256 hash of input, return first 16 chars.
-    /// </summary>
-    private static string ComputeHash(string input)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(bytes)[..16].ToLowerInvariant();
-    }
+        => PatternNormalization.CreateIpPatternId(ip);
 }

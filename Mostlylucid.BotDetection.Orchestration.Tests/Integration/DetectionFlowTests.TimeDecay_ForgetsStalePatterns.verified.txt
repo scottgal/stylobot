@@ -6,9 +6,9 @@
     Support: 200.0
   },
   after: {
-    Phase: After 30-day Decay,
-    State: ConfirmedBad,
+    Phase: After 12-hour Decay,
+    State: Suspect,
     BotScore: 0.51,
-    Support: 23.0
+    Support: 27.0
   }
 }

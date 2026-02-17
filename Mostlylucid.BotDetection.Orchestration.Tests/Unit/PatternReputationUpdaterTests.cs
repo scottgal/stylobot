@@ -315,8 +315,8 @@ public class PatternReputationUpdaterTests
     [Fact]
     public void ApplyTimeDecay_StalePattern_DecaysTowardPrior()
     {
-        // Arrange - pattern not seen for 7 days (168 hours = 1 τ for score)
-        // ScoreDecayTauHours = 168, SupportDecayTauHours = 336
+        // Arrange - pattern not seen for 3 hours (1 τ for score)
+        // ScoreDecayTauHours = 3, SupportDecayTauHours = 6
         var current = new PatternReputation
         {
             PatternId = "ua:test123",
@@ -326,25 +326,25 @@ public class PatternReputationUpdaterTests
             Support = 100,
             State = ReputationState.ConfirmedBad,
             FirstSeen = DateTimeOffset.UtcNow.AddDays(-30),
-            LastSeen = DateTimeOffset.UtcNow.AddDays(-7) // 7 days ago (1 τ for score)
+            LastSeen = DateTimeOffset.UtcNow.AddHours(-3) // 3 hours ago (1 τ for score)
         };
 
         // Act
         var result = _updater.ApplyTimeDecay(current);
 
-        // Assert - score decay: 0.9 + (0.5 - 0.9) * (1 - e^(-168/168)) = 0.9 - 0.4 * 0.632 ≈ 0.647
+        // Assert - score decay: 0.9 + (0.5 - 0.9) * (1 - e^(-3/3)) = 0.9 - 0.4 * 0.632 ≈ 0.647
         Assert.InRange(result.BotScore, 0.60, 0.70);
 
-        // Support decay: 100 * e^(-168/336) = 100 * 0.607 ≈ 60.7
+        // Support decay: 100 * e^(-3/6) = 100 * 0.607 ≈ 60.7
         Assert.InRange(result.Support, 55, 70);
     }
 
     [Fact]
     public void ApplyTimeDecay_VeryStalePattern_NearPrior()
     {
-        // Arrange - pattern not seen for 30 days (720 hours)
-        // ScoreDecayTauHours = 168, so 720/168 ≈ 4.3 τ for score
-        // SupportDecayTauHours = 336, so 720/336 ≈ 2.1 τ for support
+        // Arrange - pattern not seen for 12 hours
+        // ScoreDecayTauHours = 3, so 12/3 = 4 τ for score
+        // SupportDecayTauHours = 6, so 12/6 = 2 τ for support
         var current = new PatternReputation
         {
             PatternId = "ua:test123",
@@ -354,17 +354,17 @@ public class PatternReputationUpdaterTests
             Support = 500,
             State = ReputationState.ConfirmedBad,
             FirstSeen = DateTimeOffset.UtcNow.AddDays(-60),
-            LastSeen = DateTimeOffset.UtcNow.AddDays(-30) // 30 days ago
+            LastSeen = DateTimeOffset.UtcNow.AddHours(-12) // 12 hours ago (4 τ for score)
         };
 
         // Act
         var result = _updater.ApplyTimeDecay(current);
 
-        // Assert - score: 0.95 + (0.5 - 0.95) * (1 - e^(-720/168)) ≈ 0.95 - 0.45 * 0.986 ≈ 0.506
+        // Assert - score: 0.95 + (0.5 - 0.95) * (1 - e^(-12/3)) ≈ 0.95 - 0.45 * 0.982 ≈ 0.508
         Assert.InRange(result.BotScore, 0.5, 0.55);
 
-        // Support: 500 * e^(-720/336) ≈ 500 * 0.117 ≈ 58.5
-        Assert.InRange(result.Support, 50, 70);
+        // Support: 500 * e^(-12/6) ≈ 500 * 0.135 ≈ 67.7
+        Assert.InRange(result.Support, 55, 80);
     }
 
     [Fact]

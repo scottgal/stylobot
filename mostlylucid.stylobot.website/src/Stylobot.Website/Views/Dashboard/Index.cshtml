@@ -257,7 +257,7 @@
 
             <!-- Filter Bar -->
             <div class="flex flex-wrap items-center gap-2 mb-3">
-                <template x-for="f in [{id:'all',label:'All'},{id:'humans',label:'Humans'},{id:'bots',label:'Bots'},{id:'ai',label:'AI'},{id:'tools',label:'Tools'}]">
+                <template x-for="f in [{id:'all',label:'All'},{id:'humans',label:'Humans'},{id:'bots',label:'Bots'},{id:'ai',label:'AI'},{id:'search',label:'Search'},{id:'tools',label:'Tools'}]">
                     <button @@click="visitorFilter = f.id"
                             class="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors"
                             :style="visitorFilter === f.id
@@ -299,7 +299,12 @@
                         </div>
                         <div class="flex items-center gap-3 text-[10px]" style="color: var(--sb-card-subtle);">
                             <span x-text="'Hits: ' + (v.hitCount || 0)"></span>
+                            <span class="font-bold" :class="riskClass(v.riskBand)" x-text="pct(v.botProbability)"></span>
                             <span :class="riskClass(v.riskBand)" x-text="v.riskBand || '—'"></span>
+                            <span x-show="v.action && v.action !== 'Allow'"
+                                  class="px-1 py-0.5 rounded text-[9px] font-semibold font-mono"
+                                  :class="actionBadgeClass(v.action)"
+                                  x-text="v.action"></span>
                             <span x-show="v.botType" class="font-mono" x-text="v.botType"></span>
                             <span class="ml-auto" x-text="timeAgo(v.timestamp)"></span>
                         </div>

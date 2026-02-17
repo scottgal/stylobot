@@ -3,7 +3,7 @@
     PatternId: ua:stale1,
     BotScore: 0.55,
     Support: 37.0,
-    State: ConfirmedBad
+    State: Suspect
   },
   FreshPattern: {
     PatternId: ua:fresh1,

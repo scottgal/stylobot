@@ -203,7 +203,12 @@
       "Bash(npm run build:tw:*)",
       "Bash(wmic process where \"name=''Stylobot.Website.exe''\" get ProcessId)",
       "Bash(wmic process where \"CommandLine like ''%Stylobot.Website%''\" get ProcessId,CommandLine)",
-      "Bash(wmic:*)"
+      "Bash(wmic:*)",
+      "Bash(while read pid)",
+      "Bash(do taskkill //F //PID $pid)",
+      "Bash(done)",
+      "Bash(handle.exe:*)",
+      "Bash(npx vite build)"
     ]
   }
 }

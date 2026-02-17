@@ -128,25 +128,44 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
             INSERT INTO dashboard_signatures (
                 signature_id, timestamp, primary_signature, ip_signature,
                 ua_signature, client_side_signature, factor_count, risk_band,
-                hit_count, is_known_bot, bot_name, metadata
+                hit_count, is_known_bot, bot_name,
+                bot_probability, confidence, processing_time_ms, bot_type,
+                action, last_path, narrative, description, top_reasons,
+                metadata
             ) VALUES (
                 @SignatureId, @Timestamp, @PrimarySignature, @IpSignature,
                 @UaSignature, @ClientSideSignature, @FactorCount, @RiskBand,
-                @HitCount, @IsKnownBot, @BotName, @Metadata::jsonb
+                @HitCount, @IsKnownBot, @BotName,
+                @BotProbability, @Confidence, @ProcessingTimeMs, @BotType,
+                @Action, @LastPath, @Narrative, @Description, @TopReasons::jsonb,
+                @Metadata::jsonb
             )
             ON CONFLICT (primary_signature)
             DO UPDATE SET
                 hit_count = dashboard_signatures.hit_count + 1,
                 timestamp = EXCLUDED.timestamp,
                 risk_band = EXCLUDED.risk_band,
-                is_known_bot = EXCLUDED.is_known_bot,
-                bot_name = EXCLUDED.bot_name,
+                is_known_bot = dashboard_signatures.is_known_bot OR EXCLUDED.is_known_bot,
+                bot_name = COALESCE(EXCLUDED.bot_name, dashboard_signatures.bot_name),
+                bot_probability = EXCLUDED.bot_probability,
+                confidence = EXCLUDED.confidence,
+                processing_time_ms = EXCLUDED.processing_time_ms,
+                bot_type = COALESCE(EXCLUDED.bot_type, dashboard_signatures.bot_type),
+                action = COALESCE(EXCLUDED.action, dashboard_signatures.action),
+                last_path = COALESCE(EXCLUDED.last_path, dashboard_signatures.last_path),
+                narrative = COALESCE(EXCLUDED.narrative, dashboard_signatures.narrative),
+                description = COALESCE(EXCLUDED.description, dashboard_signatures.description),
+                top_reasons = COALESCE(EXCLUDED.top_reasons, dashboard_signatures.top_reasons),
                 updated_at = NOW()
             RETURNING hit_count";
 
         try
         {
             await using var connection = new NpgsqlConnection(_options.ConnectionString);
+            var topReasonsJson = signature.TopReasons is { Count: > 0 }
+                ? JsonSerializer.Serialize(signature.TopReasons)
+                : null;
+
             var hitCount = await connection.ExecuteScalarAsync<int>(sql, new
             {
                 signature.SignatureId,
@@ -160,6 +179,15 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                 signature.HitCount,
                 signature.IsKnownBot,
                 signature.BotName,
+                signature.BotProbability,
+                signature.Confidence,
+                signature.ProcessingTimeMs,
+                signature.BotType,
+                signature.Action,
+                signature.LastPath,
+                signature.Narrative,
+                signature.Description,
+                TopReasons = topReasonsJson,
                 Metadata = "{}" // Empty JSONB for extensibility
             }, commandTimeout: _options.CommandTimeoutSeconds);
 
@@ -598,6 +626,13 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
 
     private static DashboardSignatureEvent MapToSignatureEvent(SignatureRow row)
     {
+        List<string>? topReasons = null;
+        if (!string.IsNullOrEmpty(row.TopReasons))
+        {
+            try { topReasons = JsonSerializer.Deserialize<List<string>>(row.TopReasons); }
+            catch { /* ignore malformed JSON */ }
+        }
+
         return new DashboardSignatureEvent
         {
             SignatureId = row.SignatureId,
@@ -610,7 +645,16 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
             RiskBand = row.RiskBand,
             HitCount = row.HitCount,
             IsKnownBot = row.IsKnownBot,
-            BotName = row.BotName
+            BotName = row.BotName,
+            BotProbability = row.BotProbability,
+            Confidence = row.Confidence,
+            ProcessingTimeMs = row.ProcessingTimeMs,
+            BotType = row.BotType,
+            Action = row.Action,
+            LastPath = row.LastPath,
+            Narrative = row.Narrative,
+            Description = row.Description,
+            TopReasons = topReasons
         };
     }
 
@@ -665,6 +709,15 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         public int HitCount { get; set; }
         public bool IsKnownBot { get; set; }
         public string? BotName { get; set; }
+        public double? BotProbability { get; set; }
+        public double? Confidence { get; set; }
+        public double? ProcessingTimeMs { get; set; }
+        public string? BotType { get; set; }
+        public string? Action { get; set; }
+        public string? LastPath { get; set; }
+        public string? Narrative { get; set; }
+        public string? Description { get; set; }
+        public string? TopReasons { get; set; }
     }
 
     private class TimeSeriesRow

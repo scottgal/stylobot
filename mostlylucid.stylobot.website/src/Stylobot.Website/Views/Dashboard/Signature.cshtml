@@ -43,6 +43,11 @@
                                   :class="riskClass(sig.riskBand)"
                                   :style="'background: color-mix(in oklab, ' + riskColor(sig.riskBand) + ' 12%, transparent);'"
                                   x-text="sig.riskBand || 'Unknown'"></span>
+                            <!-- Action Policy Badge -->
+                            <span x-show="sig.action && sig.action !== 'Allow'"
+                                  class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-semibold font-mono"
+                                  :class="actionBadgeClass(sig.action)"
+                                  x-text="'policy:' + sig.action"></span>
                             <span class="flex items-center gap-1.5 text-xs" :class="connected ? 'signal-positive' : 'signal-muted'">
                                 <span class="relative flex h-2 w-2">
                                     <span x-show="connected" class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
@@ -55,8 +60,11 @@
                     <!-- Key Stats -->
                     <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
                         <div>
-                            <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Probability</div>
-                            <div class="text-sm font-bold" :class="riskClass(sig.riskBand)" x-text="pct(sig.botProbability)"></div>
+                            <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Bot Score</div>
+                            <div class="text-sm font-bold flex items-center gap-1" :class="riskClass(sig.riskBand)">
+                                <span x-text="pct(sig.botProbability)"></span>
+                                <span class="text-base leading-none" :style="botScoreTrendColor" x-text="botScoreTrendArrow" x-show="sparklineData"></span>
+                            </div>
                         </div>
                         <div>
                             <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Confidence</div>
@@ -129,7 +137,10 @@
 
                 <!-- Charts: Bot Probability + Confidence History -->
                 <div class="marketing-card p-4 mb-4">
-                    <h2 class="text-sm font-semibold text-base-content mb-2">Bot Probability &amp; Confidence History</h2>
+                    <h2 class="text-sm font-semibold text-base-content mb-2 flex items-center gap-2">
+                        Bot Probability &amp; Confidence History
+                        <span class="text-lg leading-none" :style="botScoreTrendColor" x-text="botScoreTrendArrow" x-show="sparklineData"></span>
+                    </h2>
                     <div id="prob-history-chart"></div>
                     <div x-show="!sparklineData || ((sparklineData.botProbabilityHistory || []).length === 0 && (sparklineData.confidenceHistory || []).length === 0)"
                          class="flex items-center justify-center h-32 text-sm" style="color: var(--sb-card-subtle);">
@@ -187,8 +198,11 @@
                                         </td>
                                         <td class="py-1.5 pr-3 font-mono" style="color: var(--sb-card-text);"
                                             x-text="g.detection.processingTimeMs ? g.detection.processingTimeMs.toFixed(1) + 'ms' : '—'"></td>
-                                        <td class="py-1.5 font-mono" style="color: var(--sb-card-subtle);"
-                                            x-text="g.detection.action || g.detection.policyName || '—'"></td>
+                                        <td class="py-1.5">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold font-mono"
+                                                  :class="actionBadgeClass(g.detection.action || g.detection.policyName)"
+                                                  x-text="g.detection.action || g.detection.policyName || 'Allow'"></span>
+                                        </td>
                                     </tr>
                                 </template>
                             </tbody>

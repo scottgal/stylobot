@@ -96,6 +96,17 @@ CREATE TABLE IF NOT EXISTS dashboard_signatures (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Migration: add enrichment columns if upgrading from earlier schema
+ALTER TABLE dashboard_signatures ADD COLUMN IF NOT EXISTS bot_probability DOUBLE PRECISION;
+ALTER TABLE dashboard_signatures ADD COLUMN IF NOT EXISTS confidence DOUBLE PRECISION;
+ALTER TABLE dashboard_signatures ADD COLUMN IF NOT EXISTS processing_time_ms DOUBLE PRECISION;
+ALTER TABLE dashboard_signatures ADD COLUMN IF NOT EXISTS bot_type VARCHAR(50);
+ALTER TABLE dashboard_signatures ADD COLUMN IF NOT EXISTS action VARCHAR(50);
+ALTER TABLE dashboard_signatures ADD COLUMN IF NOT EXISTS last_path VARCHAR(500);
+ALTER TABLE dashboard_signatures ADD COLUMN IF NOT EXISTS narrative TEXT;
+ALTER TABLE dashboard_signatures ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE dashboard_signatures ADD COLUMN IF NOT EXISTS top_reasons JSONB;
+
 -- Unique index on primary_signature (update hit_count on conflict)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signatures_primary_unique
     ON dashboard_signatures(primary_signature);

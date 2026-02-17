@@ -10,6 +10,7 @@ using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
@@ -158,6 +159,12 @@ public partial class DetectionBroadcastMiddleware
                         .ToDictionary(s => s.Key, s => s.Value);
                 }
 
+                // Enrich with basic request info when signals are sparse (e.g. human fast-path)
+                // Only when EnrichHumanSignals is enabled — disabled by default for privacy
+                var dashboardOptions = context.RequestServices.GetService<IOptions<StyloBotDashboardOptions>>()?.Value;
+                if (dashboardOptions?.EnrichHumanSignals == true)
+                    EnrichFromRequest(context, importantSignals, ref countryCode);
+
                 var detection = new DashboardDetectionEvent
                 {
                     RequestId = context.TraceIdentifier,
@@ -223,7 +230,7 @@ public partial class DetectionBroadcastMiddleware
                     FactorCount = Math.Max(1, factorCount),
                     RiskBand = evidence.RiskBand.ToString(),
                     HitCount = 1, // Will be incremented by DB on conflict
-                    IsKnownBot = evidence.PrimaryBotType.HasValue,
+                    IsKnownBot = evidence.BotProbability > 0.5,
                     BotName = evidence.PrimaryBotName,
                     BotProbability = evidence.BotProbability,
                     Confidence = evidence.Confidence,
@@ -507,5 +514,92 @@ public partial class DetectionBroadcastMiddleware
 
         var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(combined));
         return Convert.ToHexString(hash)[..16].ToLowerInvariant();
+    }
+
+    /// <summary>
+    ///     Enrich ImportantSignals with basic non-PII request metadata when signals are sparse.
+    ///     Extracts browser family, major version, HTTP protocol version, and country code
+    ///     from HTTP headers. Only called when <see cref="StyloBotDashboardOptions.EnrichHumanSignals"/> is true.
+    /// </summary>
+    private static void EnrichFromRequest(HttpContext context, Dictionary<string, object> signals, ref string? countryCode)
+    {
+        // Browser family + version from User-Agent (non-PII: browser name is not identifying)
+        if (!signals.ContainsKey("ua.browser"))
+        {
+            var ua = context.Request.Headers.UserAgent.ToString();
+            if (!string.IsNullOrEmpty(ua))
+            {
+                var (browser, version) = ParseBrowserFromUa(ua);
+                if (browser != null)
+                {
+                    signals.TryAdd("ua.browser", browser);
+                    if (version != null)
+                        signals.TryAdd("ua.browser_version", version);
+                }
+            }
+        }
+
+        // HTTP protocol version
+        if (!signals.ContainsKey("h2.fingerprint") && !signals.ContainsKey("h3.protocol"))
+        {
+            var protocol = context.Request.Protocol;
+            if (protocol.Contains("3", StringComparison.Ordinal))
+                signals.TryAdd("h3.protocol", "h3");
+            else if (protocol.Contains("2", StringComparison.Ordinal))
+                signals.TryAdd("h2.protocol", "h2");
+            // HTTP/1.1 is the fallback — no signal needed (dashboard infers it)
+        }
+
+        // Country code from GeoLocation context (set by GeoDetection middleware)
+        if (countryCode == null &&
+            context.Items.TryGetValue("GeoLocation", out var geoLocObj) && geoLocObj != null)
+        {
+            var countryProp = CountryCodePropertyCache.GetOrAdd(
+                geoLocObj.GetType(), t => t.GetProperty("CountryCode"));
+            if (countryProp?.GetValue(geoLocObj) is string geoCC && !string.IsNullOrEmpty(geoCC) && geoCC != "LOCAL")
+                countryCode = geoCC;
+        }
+    }
+
+    /// <summary>
+    ///     Lightweight UA parser — extracts browser family and major version.
+    ///     Not a full parser; handles Chrome, Firefox, Safari, Edge, Opera.
+    /// </summary>
+    private static (string? Browser, string? Version) ParseBrowserFromUa(string ua)
+    {
+        // Order matters: Edge before Chrome (Edge contains "Chrome")
+        ReadOnlySpan<char> uaSpan = ua.AsSpan();
+
+        if (ua.Contains("Edg/", StringComparison.Ordinal))
+            return ("Edge", ExtractVersion(uaSpan, "Edg/"));
+        if (ua.Contains("OPR/", StringComparison.Ordinal))
+            return ("Opera", ExtractVersion(uaSpan, "OPR/"));
+        if (ua.Contains("Firefox/", StringComparison.Ordinal))
+            return ("Firefox", ExtractVersion(uaSpan, "Firefox/"));
+        if (ua.Contains("Chrome/", StringComparison.Ordinal) && !ua.Contains("Chromium", StringComparison.Ordinal))
+            return ("Chrome", ExtractVersion(uaSpan, "Chrome/"));
+        if (ua.Contains("Safari/", StringComparison.Ordinal) && ua.Contains("Version/", StringComparison.Ordinal))
+            return ("Safari", ExtractVersion(uaSpan, "Version/"));
+        if (ua.Contains("bot", StringComparison.OrdinalIgnoreCase) ||
+            ua.Contains("crawler", StringComparison.OrdinalIgnoreCase) ||
+            ua.Contains("spider", StringComparison.OrdinalIgnoreCase))
+            return (null, null); // Don't enrich bot UAs — they already have signals
+
+        return (null, null);
+    }
+
+    private static string? ExtractVersion(ReadOnlySpan<char> ua, string token)
+    {
+        var idx = ua.IndexOf(token.AsSpan(), StringComparison.Ordinal);
+        if (idx < 0) return null;
+        var start = idx + token.Length;
+        var end = start;
+        while (end < ua.Length && (char.IsDigit(ua[end]) || ua[end] == '.'))
+            end++;
+        if (end == start) return null;
+        var full = ua[start..end].ToString();
+        // Return major version only (e.g. "131" from "131.0.6778.86")
+        var dot = full.IndexOf('.');
+        return dot > 0 ? full[..dot] : full;
     }
 }

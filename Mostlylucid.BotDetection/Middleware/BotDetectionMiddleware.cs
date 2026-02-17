@@ -241,6 +241,39 @@ public class BotDetectionMiddleware(
             }
         }
 
+        // Fallback: if no action policy was triggered by transitions, but a bot was detected
+        // and DefaultActionPolicyName is configured, execute that as a fallback.
+        // This enables "tarpit all detected bots" without needing per-policy transitions.
+        // When DefaultActionPolicyName fires, it REPLACES the hard block/403 — the tarpit
+        // IS the response. We skip ShouldBlockRequest so bots see a normal (delayed) response.
+        if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
+            && !string.IsNullOrEmpty(_options.DefaultActionPolicyName)
+            && aggregatedResult.BotProbability >= _options.BotThreshold)
+        {
+            var fallbackPolicy = actionPolicyRegistry.GetPolicy(_options.DefaultActionPolicyName);
+            if (fallbackPolicy != null)
+            {
+                // Update the evidence so downstream (dashboard, logging) sees the action
+                aggregatedResult = aggregatedResult with
+                {
+                    TriggeredActionPolicyName = _options.DefaultActionPolicyName
+                };
+                context.Items[AggregatedEvidenceKey] = aggregatedResult;
+
+                _logger.LogInformation(
+                    "[ACTION] Executing default action policy '{ActionPolicy}' for {Path} (risk={Risk:F2})",
+                    _options.DefaultActionPolicyName, context.Request.Path, aggregatedResult.BotProbability);
+
+                await fallbackPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
+
+                // DefaultActionPolicyName replaces ShouldBlockRequest — continue pipeline
+                // after the action (e.g., throttle-stealth adds delay then lets the
+                // request through, appearing normal to the bot).
+                await _next(context);
+                return;
+            }
+        }
+
         // Determine if we should block/throttle
         var shouldBlock = ShouldBlockRequest(aggregatedResult, policy, policyAttr);
 
@@ -961,6 +994,31 @@ public class BotDetectionMiddleware(
                 _logger.LogWarning(
                     "Action policy '{ActionPolicy}' not found in registry ({LogPrefix})",
                     aggregatedResult.TriggeredActionPolicyName, logPrefix);
+            }
+        }
+
+        // Fallback: DefaultActionPolicyName for detected bots without explicit action policy.
+        // When this fires, it replaces the hard block — tarpit IS the response.
+        if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
+            && !string.IsNullOrEmpty(_options.DefaultActionPolicyName)
+            && aggregatedResult.BotProbability >= _options.BotThreshold)
+        {
+            var fallbackPolicy = actionPolicyRegistry.GetPolicy(_options.DefaultActionPolicyName);
+            if (fallbackPolicy != null)
+            {
+                aggregatedResult = aggregatedResult with
+                {
+                    TriggeredActionPolicyName = _options.DefaultActionPolicyName
+                };
+                context.Items[AggregatedEvidenceKey] = aggregatedResult;
+
+                _logger.LogInformation(
+                    "[ACTION] {LogPrefix} executing default action policy '{ActionPolicy}' for {Path} (risk={Risk:F2})",
+                    logPrefix, _options.DefaultActionPolicyName, context.Request.Path, aggregatedResult.BotProbability);
+
+                await fallbackPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
+                // DefaultActionPolicyName replaces ShouldBlockRequest — no 403
+                return false;
             }
         }
 

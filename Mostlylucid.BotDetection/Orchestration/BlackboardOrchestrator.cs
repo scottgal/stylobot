@@ -599,10 +599,18 @@ public class BlackboardOrchestrator
             var isVerifiedEarlyExit = result.EarlyExit &&
                 result.EarlyExitVerdict is EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted;
 
+            // Also skip learning for reputation-driven early exits to break the
+            // positive feedback loop: Reputation → Detection → Learning → Reputation.
+            // Reputation detectors echoing their own prior decisions is circular reasoning.
+            var isReputationDriven = result.EarlyExit &&
+                result.Ledger?.EarlyExitContribution?.DetectorName is "FastPathReputation" or "ReputationBias";
+
             if (!isVerifiedEarlyExit)
             {
-                // Publish learning event with features for similarity learning
-                PublishLearningEvent(result, httpContext, requestId, stopwatch.Elapsed);
+                // Only publish learning events for non-reputation-driven detections.
+                // Reputation-driven results are just echoes of prior beliefs — not new evidence.
+                if (!isReputationDriven)
+                    PublishLearningEvent(result, httpContext, requestId, stopwatch.Elapsed);
 
                 // Extract geo data from signals for country tracking and cluster analysis
                 var geoCountryCode = signals.TryGetValue("geo.country_code", out var ccVal) ? ccVal as string : null;

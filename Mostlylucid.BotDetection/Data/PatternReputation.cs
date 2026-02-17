@@ -137,16 +137,20 @@ public class ReputationOptions
     /// <summary>
     ///     Time constant for BotScore decay toward prior (in hours).
     ///     After τ hours of inactivity, score moves ~63% toward prior.
-    ///     Default: 168 (7 days)
+    ///     Short decay ensures visitors can earn back trust quickly and forces
+    ///     the full detector pipeline to re-evaluate instead of relying on stale reputation.
+    ///     Default: 3 hours
     /// </summary>
-    public double ScoreDecayTauHours { get; set; } = 168;
+    public double ScoreDecayTauHours { get; set; } = 3;
 
     /// <summary>
     ///     Time constant for Support decay (in hours).
     ///     After τ hours of inactivity, support drops ~63%.
-    ///     Default: 336 (14 days)
+    ///     When support drops below promotion thresholds, ConfirmedBad demotes
+    ///     to Suspect/Neutral, disabling fast-path abort and forcing full detection.
+    ///     Default: 6 hours
     /// </summary>
-    public double SupportDecayTauHours { get; set; } = 336;
+    public double SupportDecayTauHours { get; set; } = 6;
 
     /// <summary>
     ///     Prior to decay toward when no new evidence arrives.
@@ -157,9 +161,10 @@ public class ReputationOptions
 
     /// <summary>
     ///     How often to run the decay sweep (in minutes).
-    ///     Default: 60
+    ///     Must be frequent enough to match the fast score/support decay.
+    ///     Default: 15
     /// </summary>
-    public int DecaySweepIntervalMinutes { get; set; } = 60;
+    public int DecaySweepIntervalMinutes { get; set; } = 15;
 
     // ==========================================
     // Promotion/Demotion Thresholds (Hysteresis)
@@ -308,7 +313,8 @@ public class PatternReputationUpdater
         var decayed = ApplyTimeDecay(current);
 
         // EMA update: new_score = (1 - α) * old_score + α * label
-        var alpha = _options.LearningRate * evidenceWeight;
+        // Clamp alpha to [0,1] to preserve EMA semantics (alpha > 1 inverts the old score contribution)
+        var alpha = Math.Min(_options.LearningRate * evidenceWeight, 1.0);
         var newScore = (1 - alpha) * decayed.BotScore + alpha * label;
 
         // Increment support (capped)
@@ -338,14 +344,22 @@ public class PatternReputationUpdater
         if (hoursSinceLastSeen < 1)
             return reputation; // Too recent to decay
 
+        // Confidence modulates decay speed:
+        // High confidence = slower decay (we're sure of this classification)
+        // Low confidence = faster decay (uncertain, give benefit of doubt)
+        // Scale factor: 0.5 (confidence=0) to 1.0 (confidence=1.0)
+        var confidenceScale = 0.5 + reputation.Confidence * 0.5;
+
         // Score decay toward prior
-        // new_score = old_score + (prior - old_score) * (1 - e^(-Δt/τ))
-        var scoreDecayFactor = 1 - Math.Exp(-hoursSinceLastSeen / _options.ScoreDecayTauHours);
+        // new_score = old_score + (prior - old_score) * (1 - e^(-Δt/τ_eff))
+        var effectiveScoreTau = _options.ScoreDecayTauHours * confidenceScale;
+        var scoreDecayFactor = 1 - Math.Exp(-hoursSinceLastSeen / effectiveScoreTau);
         var newScore = reputation.BotScore + (_options.Prior - reputation.BotScore) * scoreDecayFactor;
 
-        // Support decay
-        // new_support = old_support * e^(-Δt/τ)
-        var supportDecayFactor = Math.Exp(-hoursSinceLastSeen / _options.SupportDecayTauHours);
+        // Support decay (also confidence-modulated)
+        // new_support = old_support * e^(-Δt/τ_eff)
+        var effectiveSupportTau = _options.SupportDecayTauHours * confidenceScale;
+        var supportDecayFactor = Math.Exp(-hoursSinceLastSeen / effectiveSupportTau);
         var newSupport = reputation.Support * supportDecayFactor;
 
         var decayed = reputation with
@@ -389,8 +403,12 @@ public class PatternReputationUpdater
                 break;
 
             case ReputationState.ConfirmedBad:
-                // Can demote to Suspect (requires more evidence to forgive)
-                if (score <= _options.DemoteFromBadScore && support >= _options.DemoteFromBadSupport)
+                // Demote to Suspect when score drops (via new human evidence or time decay).
+                // Two paths: (1) enough support to credibly downgrade (high evidence), or
+                // (2) support has decayed below the original promotion threshold — the
+                // "confirmed" status is no longer supported by sufficient observations.
+                if (score <= _options.DemoteFromBadScore &&
+                    (support >= _options.DemoteFromBadSupport || support < _options.PromoteToBadSupport))
                     newState = ReputationState.Suspect;
                 break;
 

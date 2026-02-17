@@ -226,18 +226,22 @@ public class ReputationMaintenanceService : BackgroundService, ILearningEventHan
     {
         var patterns = new List<(string, string, string)>();
 
-        // User-Agent pattern
+        // User-Agent pattern — uses shared PatternNormalization to ensure
+        // written keys match the keys read by FastPathReputation and ReputationBias.
         if (evt.Metadata?.TryGetValue("userAgent", out var uaObj) == true &&
             uaObj is string ua && !string.IsNullOrEmpty(ua))
         {
-            var hash = $"ua:{ua.GetHashCode():X8}";
-            patterns.Add((hash, "UserAgent", ua));
+            var patternId = PatternNormalization.CreateUaPatternId(ua);
+            patterns.Add((patternId, "UserAgent", ua));
         }
 
-        // IP pattern
+        // IP pattern — uses shared CIDR normalization to match contributor lookups.
         if (evt.Metadata?.TryGetValue("ip", out var ipObj) == true &&
             ipObj is string ip && !string.IsNullOrEmpty(ip) && ip != "unknown")
-            patterns.Add(($"ip:{ip}", "IP", ip));
+        {
+            var patternId = PatternNormalization.CreateIpPatternId(ip);
+            patterns.Add((patternId, "IP", ip));
+        }
 
         // Explicit pattern from event
         if (!string.IsNullOrEmpty(evt.Pattern))

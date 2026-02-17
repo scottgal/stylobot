@@ -35,6 +35,112 @@ function riskClass(band: string): string {
     return 'signal-muted';
 }
 
+function actionBadgeClass(action: string | null | undefined): string {
+    const a = (action || 'Allow').toLowerCase();
+    if (a === 'allow') return 'status-badge-human';
+    if (a.includes('throttle') || a.includes('tarpit')) return 'status-badge-warn';
+    if (a.includes('block')) return 'status-badge-danger';
+    if (a.includes('challenge')) return 'status-badge-info';
+    if (a.includes('redirect')) return 'status-badge-warn';
+    if (a.includes('log') || a.includes('shadow')) return 'status-badge-muted';
+    return 'status-badge-warn';
+}
+
+const AI_RE = /\bai\b|gpt|claude|llm|chatbot|copilot|gemini|bard|anthropic|perplexity|cohere/i;
+const SEARCH_RE = /googlebot|bingbot|yandexbot|baiduspider|duckduckbot|slurp|sogou|exabot|ia_archiver|archive\.org|google|bing/i;
+const TOOL_RE = /semrush|ahrefs|mj12|majestic|screaming|dotbot|petalbot|bytespider|yeti|megaindex|serpstat|sistrix|curl|wget|python|go-http|java|ruby|perl|php|node-fetch|axios|scrapy|httpclient|requests|libwww|lwp|mechanize|webdriver|selenium|playwright|puppeteer|phantom|headless|chrome-lighthouse|pagespeed|gtmetrix|pingdom|uptime|monitor|datadog|newrelic|statuspage/i;
+
+// Path-based behavioral patterns for bot type inference
+const WP_PATH_RE = /wp-admin|wp-login|wp-content|wp-includes|xmlrpc\.php|wp-json|wp-cron/i;
+const CONFIG_PATH_RE = /\.env|\.git|\.aws|\.ssh|\.config|\.htaccess|\.htpasswd|web\.config|appsettings|credentials|\.key|\.pem|\.bak/i;
+const EXPLOIT_PATH_RE = /\/shell|\/cmd|\/eval|\/exec|cgi-bin|\/setup|phpunit|vendor\/phpunit|\/debug|\/console|actuator|\/solr|struts|\/ognl|ThinkPHP/i;
+const DB_PATH_RE = /phpmyadmin|\/pma|\/mysql|\/adminer|\/dbadmin|\/sql|\/pgadmin|\/mongodb/i;
+const API_PATH_RE = /\/graphql|\/swagger|\/openapi|\/api-docs|\/v1\/|\/v2\/|\/rest\//i;
+const CMS_PATH_RE = /\/administrator|\/joomla|\/drupal|\/magento|\/shopify|\/typo3|\/umbraco|\/sitecore|\/craft/i;
+
+// UA-based bot identification
+const AI_UA_RE = /GPTBot|ChatGPT|CCBot|anthropic-ai|ClaudeBot|Google-Extended|PerplexityBot|Bytespider|Applebot-Extended|cohere-ai|FacebookBot|Meta-ExternalAgent/i;
+const SEARCH_UA_RE = /Googlebot|bingbot|YandexBot|Baiduspider|DuckDuckBot|Slurp|Sogou|Applebot(?!-Extended)/i;
+const SEO_UA_RE = /SemrushBot|AhrefsBot|MJ12bot|DotBot|PetalBot|MegaIndex|SerpstatBot|Sistrix|Screaming/i;
+const MONITOR_UA_RE = /UptimeRobot|Pingdom|Site24x7|StatusCake|Datadog|NewRelic|GTmetrix|PageSpeed|Lighthouse/i;
+const PYTHON_UA_RE = /python-requests|python-urllib|python-httpx|aiohttp/i;
+const CURL_UA_RE = /^curl\//i;
+const WGET_UA_RE = /^wget\//i;
+const GO_UA_RE = /Go-http-client|golang/i;
+const JAVA_UA_RE = /Java\/|Apache-HttpClient|okhttp/i;
+const NODE_UA_RE = /node-fetch|axios|undici/i;
+const HEADLESS_UA_RE = /HeadlessChrome|Headless|PhantomJS|Selenium|WebDriver|Playwright|Puppeteer/i;
+const CRAWLER_UA_RE = /Scrapy|Nutch|Heritrix/i;
+
+/** Infer bot name and type from behavioral signals when detection didn't provide them. */
+function inferBotIdentity(v: any): { name: string | null; type: string | null } {
+    // Path-based inference
+    const paths = (v.paths || []).join(' ');
+    if (WP_PATH_RE.test(paths)) return { name: 'WordPress Scanner', type: 'Scraper' };
+    if (CONFIG_PATH_RE.test(paths)) return { name: 'Config Scanner', type: 'Scraper' };
+    if (EXPLOIT_PATH_RE.test(paths)) return { name: 'Exploit Scanner', type: 'Scraper' };
+    if (DB_PATH_RE.test(paths)) return { name: 'Database Scanner', type: 'Scraper' };
+    if (API_PATH_RE.test(paths)) return { name: 'API Prober', type: 'Scraper' };
+    if (CMS_PATH_RE.test(paths)) return { name: 'CMS Scanner', type: 'Scraper' };
+
+    // UA-based inference
+    const ua = v.userAgent || '';
+    if (ua) {
+        if (AI_UA_RE.test(ua)) return { name: extractUaBotName(ua) || 'AI Crawler', type: 'AiBot' };
+        if (SEARCH_UA_RE.test(ua)) return { name: extractUaBotName(ua) || 'Search Bot', type: 'SearchEngine' };
+        if (SEO_UA_RE.test(ua)) return { name: extractUaBotName(ua) || 'SEO Crawler', type: 'Scraper' };
+        if (MONITOR_UA_RE.test(ua)) return { name: extractUaBotName(ua) || 'Monitor', type: 'MonitoringBot' };
+        if (PYTHON_UA_RE.test(ua)) return { name: 'Python Bot', type: 'Scraper' };
+        if (CURL_UA_RE.test(ua)) return { name: 'curl', type: 'Scraper' };
+        if (WGET_UA_RE.test(ua)) return { name: 'wget', type: 'Scraper' };
+        if (GO_UA_RE.test(ua)) return { name: 'Go Bot', type: 'Scraper' };
+        if (JAVA_UA_RE.test(ua)) return { name: 'Java Bot', type: 'Scraper' };
+        if (NODE_UA_RE.test(ua)) return { name: 'Node.js Bot', type: 'Scraper' };
+        if (CRAWLER_UA_RE.test(ua)) return { name: 'Web Crawler', type: 'Scraper' };
+        if (HEADLESS_UA_RE.test(ua)) return { name: 'Headless Browser', type: 'Scraper' };
+    }
+
+    // Rate-based inference
+    const hits = v.hitCount || v.hits || 0;
+    if (hits > 10 && v.firstSeen && v.lastSeen) {
+        const secs = (new Date(v.lastSeen).getTime() - new Date(v.firstSeen).getTime()) / 1000;
+        if (secs > 0) {
+            const rpm = hits / secs * 60;
+            if (rpm > 60) return { name: 'Aggressive Crawler', type: 'Scraper' };
+            if (rpm > 20) return { name: 'Fast Crawler', type: 'Scraper' };
+        }
+    }
+
+    return { name: 'Unknown Bot', type: null };
+}
+
+function extractUaBotName(ua: string): string | null {
+    let m = ua.match(/compatible;\s*([A-Za-z][\w-]+)/i);
+    if (m) return m[1];
+    m = ua.match(/^([A-Za-z][\w-]+)\/[\d.]/i);
+    if (m) return m[1];
+    return null;
+}
+
+function inferBotCategory(v: any): string {
+    const t = v.botType || '';
+    if (t === 'AiBot') return 'ai';
+    if (t === 'SearchEngine' || t === 'VerifiedBot' || t === 'GoodBot') return 'search';
+    if (t === 'Scraper' || t === 'MonitoringBot' || t === 'SocialMediaBot') return 'tools';
+    // Infer from name when type is missing
+    const n = v.botName || '';
+    if (n && AI_RE.test(n)) return 'ai';
+    if (n && SEARCH_RE.test(n)) return 'search';
+    if (n && TOOL_RE.test(n)) return 'tools';
+    // Also check UA directly for AI bots
+    const ua = v.userAgent || '';
+    if (ua && AI_UA_RE.test(ua)) return 'ai';
+    if (ua && SEARCH_UA_RE.test(ua)) return 'search';
+    if (ua && (SEO_UA_RE.test(ua) || MONITOR_UA_RE.test(ua) || PYTHON_UA_RE.test(ua) ||
+        CURL_UA_RE.test(ua) || GO_UA_RE.test(ua) || HEADLESS_UA_RE.test(ua))) return 'tools';
+    return 'other';
+}
+
 function pct(v: number | null | undefined): string {
     if (v == null) return '\u2014';
     return Math.round(v * 100) + '%';
@@ -152,9 +258,10 @@ function aggregateSignalStats(detections: any[]): SignalStats {
             }
         }
 
-        // Protocol
+        // Protocol — check detector signals (h2.fingerprint, h2.settings_hash) AND
+        // enriched protocol signals (h2.protocol, h3.protocol) from DetectionBroadcastMiddleware
         if (sigs['h3.protocol'] || sigs['h3.version']) stats.protocols['HTTP/3'] = (stats.protocols['HTTP/3'] || 0) + 1;
-        else if (sigs['h2.fingerprint'] || sigs['h2.settings_hash']) stats.protocols['HTTP/2'] = (stats.protocols['HTTP/2'] || 0) + 1;
+        else if (sigs['h2.fingerprint'] || sigs['h2.settings_hash'] || sigs['h2.protocol']) stats.protocols['HTTP/2'] = (stats.protocols['HTTP/2'] || 0) + 1;
         else stats.protocols['HTTP/1.1'] = (stats.protocols['HTTP/1.1'] || 0) + 1;
 
         // TLS
@@ -348,6 +455,14 @@ function dashboardApp() {
                 }
                 if (sigsRes.ok) {
                     const sigs = toCamel(await sigsRes.json());
+                    // Infer bot identity for signatures without names
+                    for (const s of sigs) {
+                        if (s.isKnownBot && !s.botName) {
+                            const identity = inferBotIdentity(s);
+                            if (identity.name) s.botName = identity.name;
+                            if (identity.type) s.botType = identity.type;
+                        }
+                    }
                     this.topBots = sigs
                         .filter((s: any) => s.isKnownBot)
                         .sort((a: any, b: any) => (b.hitCount ?? 0) - (a.hitCount ?? 0))
@@ -376,7 +491,18 @@ function dashboardApp() {
         async loadVisitors() {
             try {
                 const res = await fetch('/_stylobot/api/signatures?limit=100');
-                if (res.ok) this.visitors = toCamel(await res.json());
+                if (res.ok) {
+                    const visitors = toCamel(await res.json());
+                    // Infer bot identity for visitors without names
+                    for (const v of visitors) {
+                        if (v.isKnownBot && !v.botName) {
+                            const identity = inferBotIdentity(v);
+                            if (identity.name) v.botName = identity.name;
+                            if (identity.type) v.botType = identity.type;
+                        }
+                    }
+                    this.visitors = visitors;
+                }
             } catch (e) {
                 console.warn('[Dashboard] Failed to load visitors:', e);
             }
@@ -416,8 +542,9 @@ function dashboardApp() {
             let list = this.visitors;
             if (this.visitorFilter === 'bots') list = list.filter((v: any) => v.isKnownBot);
             else if (this.visitorFilter === 'humans') list = list.filter((v: any) => !v.isKnownBot);
-            else if (this.visitorFilter === 'ai') list = list.filter((v: any) => v.botType === 'AI');
-            else if (this.visitorFilter === 'tools') list = list.filter((v: any) => v.botType === 'Tool' || v.botType === 'Scraper');
+            else if (this.visitorFilter === 'ai') list = list.filter((v: any) => v.isKnownBot && inferBotCategory(v) === 'ai');
+            else if (this.visitorFilter === 'search') list = list.filter((v: any) => v.isKnownBot && inferBotCategory(v) === 'search');
+            else if (this.visitorFilter === 'tools') list = list.filter((v: any) => v.isKnownBot && inferBotCategory(v) === 'tools');
 
             const dir = this.visitorSortDir === 'asc' ? 1 : -1;
             const key = this.visitorSort;
@@ -432,8 +559,9 @@ function dashboardApp() {
             if (type === 'all') return this.visitors.length;
             if (type === 'bots') return this.visitors.filter((v: any) => v.isKnownBot).length;
             if (type === 'humans') return this.visitors.filter((v: any) => !v.isKnownBot).length;
-            if (type === 'ai') return this.visitors.filter((v: any) => v.botType === 'AI').length;
-            if (type === 'tools') return this.visitors.filter((v: any) => v.botType === 'Tool' || v.botType === 'Scraper').length;
+            if (type === 'ai') return this.visitors.filter((v: any) => v.isKnownBot && inferBotCategory(v) === 'ai').length;
+            if (type === 'search') return this.visitors.filter((v: any) => v.isKnownBot && inferBotCategory(v) === 'search').length;
+            if (type === 'tools') return this.visitors.filter((v: any) => v.isKnownBot && inferBotCategory(v) === 'tools').length;
             return 0;
         },
 
@@ -542,12 +670,28 @@ function dashboardApp() {
                 // Skip static assets from live feed
                 if (isStaticAsset(d)) continue;
 
+                // Infer bot identity from behavior when detection didn't provide it
+                if (d.isBot && !d.botName) {
+                    const identity = inferBotIdentity(d);
+                    if (identity.name) d.botName = identity.name;
+                    if (identity.type) d.botType = identity.type;
+                }
+
                 this.recentDetections.unshift(d);
 
                 // Update visitor in list if exists
                 const idx = this.visitors.findIndex((v: any) => v.primarySignature === d.primarySignature);
                 if (idx >= 0) {
-                    this.visitors[idx] = { ...this.visitors[idx], ...d };
+                    const existing = this.visitors[idx];
+                    this.visitors[idx] = { ...existing, ...d };
+                    // Re-infer if name was "Unknown Bot" and we now have more paths
+                    if (this.visitors[idx].botName === 'Unknown Bot' || !this.visitors[idx].botName) {
+                        const identity = inferBotIdentity(this.visitors[idx]);
+                        if (identity.name && identity.name !== 'Unknown Bot') {
+                            this.visitors[idx].botName = identity.name;
+                            if (identity.type) this.visitors[idx].botType = identity.type;
+                        }
+                    }
                 }
 
                 // Update "you" if matches
@@ -688,6 +832,8 @@ function dashboardApp() {
         riskColor,
         countryFlag,
         timeAgo,
+        actionBadgeClass,
+        inferBotCategory,
     };
 }
 
@@ -722,14 +868,21 @@ function signatureDetailApp() {
                 this.loadDetections(),
             ]);
 
-            // Fill missing sig fields from most recent detection
+            // Always update sig fields from most recent detection (signature cache may be stale)
             if (this.sig && this.detections.length > 0) {
                 const latest = this.detections[0];
-                if (this.sig.botProbability == null) this.sig.botProbability = latest.botProbability;
-                if (this.sig.confidence == null) this.sig.confidence = latest.confidence;
+                // These always reflect the latest detection state
+                this.sig.botProbability = latest.botProbability ?? this.sig.botProbability;
+                this.sig.confidence = latest.confidence ?? this.sig.confidence;
+                this.sig.riskBand = latest.riskBand || this.sig.riskBand;
+                this.sig.isKnownBot = latest.isBot ?? this.sig.isKnownBot;
+                this.sig.action = latest.action || latest.policyName || this.sig.action;
+                // These fill gaps only
                 if (!this.sig.botType) this.sig.botType = latest.botType;
-                if (!this.sig.action) this.sig.action = latest.action || latest.policyName;
+                if (!this.sig.botName) this.sig.botName = latest.botName;
                 if (!this.sig.lastPath) this.sig.lastPath = latest.path;
+                if (!this.sig.narrative) this.sig.narrative = latest.narrative;
+                if (!this.sig.topReasons || this.sig.topReasons.length === 0) this.sig.topReasons = latest.topReasons;
             }
 
             // Build sparkline from detections if API returned nothing
@@ -956,6 +1109,37 @@ function signatureDetailApp() {
             if (this.timingChart) this.renderTimingChart();
         },
 
+        // ===== Bot Score Trend (computed from sparkline history) =====
+
+        get botScoreTrend(): 'up' | 'down' | 'flat' {
+            const h = this.sparklineData?.botProbabilityHistory as number[] | undefined;
+            if (!h || h.length < 3) return 'flat';
+            // Compare average of last 3 values vs previous 3 values for stability
+            const recent = h.slice(-3);
+            const prior = h.slice(-6, -3);
+            if (prior.length === 0) return 'flat';
+            const recentAvg = recent.reduce((a, b) => a + b, 0) / recent.length;
+            const priorAvg = prior.reduce((a, b) => a + b, 0) / prior.length;
+            const delta = recentAvg - priorAvg;
+            if (delta > 0.03) return 'up';
+            if (delta < -0.03) return 'down';
+            return 'flat';
+        },
+
+        get botScoreTrendArrow(): string {
+            const t = this.botScoreTrend;
+            if (t === 'up') return '\u2197';   // arrow upper-right (getting more bot-like)
+            if (t === 'down') return '\u2198';  // arrow lower-right (getting more human-like)
+            return '\u2192';                    // arrow right (stable)
+        },
+
+        get botScoreTrendColor(): string {
+            const t = this.botScoreTrend;
+            if (t === 'up') return 'color: var(--sb-signal-danger, #ef4444)';
+            if (t === 'down') return 'color: var(--sb-signal-pos, #22c55e)';
+            return 'color: var(--sb-card-subtle)';
+        },
+
         // ===== Signal Categories (computed) =====
 
         get signalCategories(): SignalCategory[] {
@@ -971,6 +1155,7 @@ function signatureDetailApp() {
         riskColor,
         countryFlag,
         timeAgo,
+        actionBadgeClass,
         categorizeSignals,
     };
 }

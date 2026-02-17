@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Data;
@@ -216,115 +214,21 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
         };
     }
 
-    /// <summary>
-    ///     Create pattern ID for User-Agent (normalized hash).
-    ///     Uses same normalization as SignatureFeedbackHandler for consistency.
-    /// </summary>
     private static string CreateUaPatternId(string userAgent)
-    {
-        // Normalize: lowercase, trim, remove version numbers for broader matching
-        var normalized = NormalizeUserAgent(userAgent);
-        var hash = ComputeHash(normalized);
-        return $"ua:{hash}";
-    }
+        => PatternNormalization.CreateUaPatternId(userAgent);
 
-    /// <summary>
-    ///     Create pattern ID for IP (CIDR range).
-    ///     Uses /24 for IPv4, /48 for IPv6 - same as SignatureFeedbackHandler.
-    /// </summary>
     private static string CreateIpPatternId(string ip)
-    {
-        var normalized = NormalizeIpToRange(ip);
-        return $"ip:{normalized}";
-    }
+        => PatternNormalization.CreateIpPatternId(ip);
 
-    /// <summary>
-    ///     Create pattern ID for combined signature (UA + IP + Path).
-    /// </summary>
     private static string CreateCombinedPatternId(string userAgent, string ip, string path)
     {
-        var uaNorm = NormalizeUserAgent(userAgent);
-        var ipNorm = NormalizeIpToRange(ip);
+        var uaNorm = PatternNormalization.NormalizeUserAgent(userAgent);
+        var ipNorm = PatternNormalization.NormalizeIpToRange(ip);
         var pathNorm = NormalizePath(path);
 
         var combined = $"{uaNorm}|{ipNorm}|{pathNorm}";
-        var hash = ComputeHash(combined);
+        var hash = PatternNormalization.ComputeHash(combined);
         return $"combined:{hash}";
-    }
-
-    /// <summary>
-    ///     Normalize User-Agent for pattern matching.
-    ///     Removes version numbers, normalizes casing, extracts key indicators.
-    /// </summary>
-    private static string NormalizeUserAgent(string ua)
-    {
-        if (string.IsNullOrWhiteSpace(ua))
-            return "empty";
-
-        var lower = ua.ToLowerInvariant().Trim();
-
-        // Extract key indicators
-        var indicators = new List<string>();
-
-        // Browser detection
-        if (lower.Contains("chrome")) indicators.Add("chrome");
-        else if (lower.Contains("firefox")) indicators.Add("firefox");
-        else if (lower.Contains("safari") && !lower.Contains("chrome")) indicators.Add("safari");
-        else if (lower.Contains("edge")) indicators.Add("edge");
-
-        // OS detection
-        if (lower.Contains("windows")) indicators.Add("windows");
-        else if (lower.Contains("mac os") || lower.Contains("macintosh")) indicators.Add("macos");
-        else if (lower.Contains("linux")) indicators.Add("linux");
-        else if (lower.Contains("android")) indicators.Add("android");
-        else if (lower.Contains("iphone") || lower.Contains("ipad")) indicators.Add("ios");
-
-        // Bot indicators
-        if (lower.Contains("bot")) indicators.Add("bot");
-        if (lower.Contains("crawler")) indicators.Add("crawler");
-        if (lower.Contains("spider")) indicators.Add("spider");
-        if (lower.Contains("scraper")) indicators.Add("scraper");
-        if (lower.Contains("headless")) indicators.Add("headless");
-        if (lower.Contains("python")) indicators.Add("python");
-        if (lower.Contains("curl")) indicators.Add("curl");
-        if (lower.Contains("wget")) indicators.Add("wget");
-
-        // Length bucket (for anomaly detection)
-        var lengthBucket = ua.Length switch
-        {
-            < 20 => "tiny",
-            < 50 => "short",
-            < 150 => "normal",
-            < 300 => "long",
-            _ => "huge"
-        };
-        indicators.Add($"len:{lengthBucket}");
-
-        return string.Join(",", indicators.OrderBy(x => x));
-    }
-
-    /// <summary>
-    ///     Normalize IP to CIDR range for pattern matching.
-    /// </summary>
-    private static string NormalizeIpToRange(string ip)
-    {
-        if (string.IsNullOrWhiteSpace(ip))
-            return "unknown";
-
-        // Handle IPv6
-        if (ip.Contains(':'))
-        {
-            // Simplify: just take first 3 groups for /48
-            var parts = ip.Split(':');
-            if (parts.Length >= 3) return $"{parts[0]}:{parts[1]}:{parts[2]}::/48";
-            return ip;
-        }
-
-        // Handle IPv4 - normalize to /24
-        var octets = ip.Split('.');
-        if (octets.Length == 4) return $"{octets[0]}.{octets[1]}.{octets[2]}.0/24";
-
-        return ip;
     }
 
     /// <summary>
@@ -345,15 +249,6 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
         normalized = NumericIdRegex().Replace(normalized, "/{id}$1");
 
         return normalized;
-    }
-
-    /// <summary>
-    ///     Compute SHA256 hash of input, return first 16 chars.
-    /// </summary>
-    private static string ComputeHash(string input)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(bytes)[..16].ToLowerInvariant();
     }
 
     [GeneratedRegex(@"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")]

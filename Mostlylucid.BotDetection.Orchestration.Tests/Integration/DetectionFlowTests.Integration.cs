@@ -96,7 +96,9 @@ public class DetectionFlowTests
     [Fact]
     public async Task TimeDecay_ForgetsStalePatterns()
     {
-        // Create a pattern that was confirmed bad but hasn't been seen
+        // Create a pattern that was confirmed bad but hasn't been seen for 12 hours
+        // ScoreDecayTauHours = 3, so 12/3 = 4 τ (nearly full decay)
+        // SupportDecayTauHours = 6, so 12/6 = 2 τ (significant support loss)
         var current = new PatternReputation
         {
             PatternId = "ua:StaleBot",
@@ -106,7 +108,7 @@ public class DetectionFlowTests
             Support = 200,
             State = ReputationState.ConfirmedBad,
             FirstSeen = DateTimeOffset.UtcNow.AddDays(-90),
-            LastSeen = DateTimeOffset.UtcNow.AddDays(-30) // Not seen for 30 days
+            LastSeen = DateTimeOffset.UtcNow.AddHours(-12) // Not seen for 12 hours
         };
 
         var before = new
@@ -121,7 +123,7 @@ public class DetectionFlowTests
 
         var after = new
         {
-            Phase = "After 30-day Decay",
+            Phase = "After 12-hour Decay",
             State = decayed.State.ToString(),
             BotScore = Math.Round(decayed.BotScore, 2),
             Support = Math.Round(decayed.Support, 0)
@@ -305,7 +307,7 @@ public class DetectionFlowTests
             Support = 100,
             State = ReputationState.ConfirmedBad,
             FirstSeen = DateTimeOffset.UtcNow.AddDays(-60),
-            LastSeen = DateTimeOffset.UtcNow.AddDays(-14) // 14 days = 2 weeks stale
+            LastSeen = DateTimeOffset.UtcNow.AddHours(-6) // 6 hours stale (1 τ for support)
         };
         _cache.Update(stalePattern);
 
@@ -318,7 +320,7 @@ public class DetectionFlowTests
             Support = 100,
             State = ReputationState.ConfirmedBad,
             FirstSeen = DateTimeOffset.UtcNow.AddDays(-7),
-            LastSeen = DateTimeOffset.UtcNow.AddHours(-1) // Recently seen
+            LastSeen = DateTimeOffset.UtcNow.AddMinutes(-10) // Recently seen (no decay)
         };
         _cache.Update(freshPattern);
 

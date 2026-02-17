@@ -119,9 +119,15 @@ builder.Services.AddBotDetection(options =>
 
     // Detection thresholds
     options.BotThreshold = GetConfigDouble("BotDetection:Threshold", "BOTDETECTION_THRESHOLD", 0.7);
-    options.BlockDetectedBots = GetConfigBool("BotDetection:BlockDetectedBots", "BOTDETECTION_BLOCK_BOTS", false);
+    options.BlockDetectedBots = false; // Never hard-block; use policy-based throttling instead
     options.LogDetailedReasons = GetConfigBool("BotDetection:LogDetailedReasons", "BOTDETECTION_LOG_DETAILED", true);
     options.LogAllRequests = GetConfigBool("BotDetection:LogAllRequests", "BOTDETECTION_LOG_ALL_REQUESTS", true);
+
+    // Tarpit detected bots with stealth throttle (silent delay, high jitter, no giveaway headers).
+    // This applies to ALL detected bots (probability >= BotThreshold) as a fallback
+    // when no per-policy transition explicitly triggers an action.
+    // Built-in "throttle-stealth": 300ms base delay, risk-scaled, invisible to the bot.
+    options.DefaultActionPolicyName = GetConfig("BotDetection:DefaultActionPolicy", "BOTDETECTION_ACTION_POLICY", "throttle-stealth");
 
     // Response headers
     options.ResponseHeaders.Enabled = GetConfigBool("BotDetection:ResponseHeaders:Enabled", "BOTDETECTION_HEADERS_ENABLED", true);
@@ -181,6 +187,7 @@ builder.Services.AddStyloBotDashboard(options =>
     options.BasePath = GetConfig("StyloBotDashboard:BasePath", "STYLOBOT_DASHBOARD_PATH", "/_stylobot");
     options.HubPath = GetConfig("StyloBotDashboard:BasePath", "STYLOBOT_DASHBOARD_PATH", "/_stylobot") + "/hub"; // SignalR hub path
     options.MaxEventsInMemory = GetConfigInt("StyloBotDashboard:MaxEventsInMemory", "STYLOBOT_DASHBOARD_MAX_EVENTS", 1000);
+    options.EnrichHumanSignals = GetConfigBool("StyloBotDashboard:EnrichHumanSignals", "STYLOBOT_ENRICH_HUMAN_SIGNALS", true);
     var dashboardPublic = GetConfigBool("StyloBotDashboard:Public", "STYLOBOT_DASHBOARD_PUBLIC", builder.Environment.IsDevelopment());
     var dashboardSecret = GetConfig("StyloBotDashboard:AccessSecret", "STYLOBOT_DASHBOARD_SECRET", "");
 

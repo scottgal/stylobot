@@ -766,6 +766,10 @@ public class StyloBotDashboardMiddleware
         if (bool.TryParse(query["highRiskOnly"].FirstOrDefault(), out var highRisk))
             filter = filter with { HighRiskOnly = highRisk };
 
+        var signatureId = query["signatureId"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(signatureId))
+            filter = filter with { SignatureId = signatureId };
+
         if (int.TryParse(query["limit"].FirstOrDefault(), out var limit))
             filter = filter with { Limit = Math.Clamp(limit, 1, 1000) };
 
