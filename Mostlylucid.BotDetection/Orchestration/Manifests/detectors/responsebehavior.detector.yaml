@@ -1,0 +1,178 @@
+# Response Behavior Detector - Historical response pattern analysis
+name: ResponseBehaviorContributor
+priority: 12  # Early wave 0 — provides feedback from previous requests
+enabled: true
+description: Analyzes historical response patterns (404 scanning, honeypot hits, auth brute-forcing, error harvesting)
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: responsebehavior
+
+taxonomy:
+  kind: analyzer
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with client signature (IP:UA hash)
+      signal_pattern: request.*
+
+  required_signals:
+    - request.ip
+    - request.headers.user-agent
+
+  optional_signals:
+    - response.historical_score
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Response behavior analysis contribution
+
+  signals:
+    - key: response.coordinator_available
+      entity_type: boolean
+      salience: 0.3
+    - key: response.has_history
+      entity_type: boolean
+      salience: 0.5
+    - key: response.total_responses
+      entity_type: integer
+      salience: 0.4
+    - key: response.historical_score
+      entity_type: double
+      salience: 0.8
+    - key: response.honeypot_hits
+      entity_type: integer
+      salience: 1.0
+    - key: response.scan_pattern_detected
+      entity_type: boolean
+      salience: 0.9
+    - key: response.count_404
+      entity_type: integer
+      salience: 0.7
+    - key: response.unique_404_paths
+      entity_type: integer
+      salience: 0.7
+    - key: response.auth_struggle
+      entity_type: string
+      salience: 0.8
+    - key: response.error_harvesting
+      entity_type: boolean
+      salience: 0.8
+    - key: response.rate_limit_violations
+      entity_type: integer
+      salience: 0.7
+
+triggers:
+  requires: []  # No dependencies - runs in Wave 0
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.responsebehavior.started
+  on_complete:
+    - key: response.has_history
+      type: bool
+    - key: response.historical_score
+      type: double
+  on_failure:
+    - detector.responsebehavior.failed
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 120
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:ResponseBehaviorContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.5
+    human_signal: 1.3
+    verified: 0.0       # N/A
+    early_exit: 0.0      # N/A
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.5
+    human_indicated: -0.15
+    strong_signal: 0.85
+    high_threshold: 0.8
+    low_threshold: 0.2
+    escalation_threshold: 0.0
+
+  timing:
+    timeout_ms: 50       # In-memory lookup, very fast
+    cache_refresh_sec: 0  # Managed by ResponseCoordinator
+
+  features:
+    detailed_logging: true
+    enable_cache: true
+    can_early_exit: false
+    can_escalate: false
+
+  # ============================================
+  # ResponseBehavior-specific parameters
+  # All thresholds tunable via appsettings.json
+  # ============================================
+  parameters:
+    # --- 404 Scanning Thresholds ---
+    # Real humans almost never hit multiple unique 404 paths.
+    # A single 404 from a stale bookmark is normal; 3+ unique paths is scanning.
+
+    # HEAVY: Systematic vulnerability scanning
+    scan_heavy_count_404: 8         # Total 404s required
+    scan_heavy_unique_paths: 5      # Unique 404 paths required
+    scan_heavy_weight: 2.0          # Contribution weight
+
+    # MODERATE: Probable scanning
+    scan_moderate_count_404: 4      # Total 404s required
+    scan_moderate_unique_paths: 3   # Unique 404 paths required
+    scan_moderate_confidence: 0.4   # Confidence delta
+    scan_moderate_weight: 1.5       # Contribution weight
+
+    # LIGHT: Early signal (not stale bookmarks)
+    scan_light_unique_paths: 2      # Unique 404 paths required
+    scan_light_confidence: 0.15     # Confidence delta
+    scan_light_weight: 1.2          # Contribution weight
+
+    # --- Auth Brute-Force Thresholds ---
+    auth_severe_threshold: 20       # 401/403 count for severe
+    auth_moderate_threshold: 10     # 401/403 count for moderate
+    auth_mild_threshold: 5          # 401/403 count for mild
+
+    # --- Error Harvesting Thresholds ---
+    error_harvesting_high_threshold: 10
+    error_harvesting_moderate_threshold: 5
+
+    # --- Rate Limit Thresholds ---
+    rate_limit_high_threshold: 5
+    rate_limit_moderate_threshold: 2
+
+    # --- Overall Response Score Thresholds ---
+    high_response_score_threshold: 0.8
+    medium_response_score_threshold: 0.6
+    low_response_score_threshold: 0.4
+    clean_history_threshold: 0.2
+    clean_history_min_responses: 5
+
+tags:
+  - fast-path
+  - response-analysis
+  - feedback-loop
+  - scanning-detection
+  - honeypot
+  - stage-0

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
@@ -18,32 +19,53 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     - Rate limit violations (429 responses)
 ///     - Response time anomalies (too fast = cached/automated)
 ///     This runs early (wave 0) to provide feedback for current request based on past behavior.
-///     Raises signals:
-///     - response.historical_score
-///     - response.honeypot_hits
-///     - response.scan_pattern_detected
-///     - response.auth_struggle
-///     - response.error_harvesting
-///     - response.rate_limit_violations
+///     Configuration loaded from: responsebehavior.detector.yaml
+///     Override via: appsettings.json → BotDetection:Detectors:ResponseBehaviorContributor:*
 /// </summary>
-public class ResponseBehaviorContributor : ContributingDetectorBase
+public class ResponseBehaviorContributor : ConfiguredContributorBase
 {
     private readonly ResponseCoordinator? _coordinator;
     private readonly ILogger<ResponseBehaviorContributor> _logger;
 
     public ResponseBehaviorContributor(
         ILogger<ResponseBehaviorContributor> logger,
+        IDetectorConfigProvider configProvider,
         ResponseCoordinator? coordinator = null)
+        : base(configProvider)
     {
         _logger = logger;
         _coordinator = coordinator;
     }
 
     public override string Name => "ResponseBehavior";
-    public override int Priority => 12; // Run early to provide feedback
+    public override int Priority => Manifest?.Priority ?? 12;
 
     // No triggers - runs in first wave
     public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
+
+    // Config-driven thresholds — no magic numbers
+    private int ScanHeavyCount404 => GetParam("scan_heavy_count_404", 8);
+    private int ScanHeavyUniquePaths => GetParam("scan_heavy_unique_paths", 5);
+    private int ScanModerateCount404 => GetParam("scan_moderate_count_404", 4);
+    private int ScanModerateUniquePaths => GetParam("scan_moderate_unique_paths", 3);
+    private int ScanLightUniquePaths => GetParam("scan_light_unique_paths", 2);
+    private double ScanHeavyWeight => GetParam("scan_heavy_weight", 2.0);
+    private double ScanModerateConfidence => GetParam("scan_moderate_confidence", 0.4);
+    private double ScanModerateWeight => GetParam("scan_moderate_weight", 1.5);
+    private double ScanLightConfidence => GetParam("scan_light_confidence", 0.15);
+    private double ScanLightWeight => GetParam("scan_light_weight", 1.2);
+    private int AuthSevereThreshold => GetParam("auth_severe_threshold", 20);
+    private int AuthModerateThreshold => GetParam("auth_moderate_threshold", 10);
+    private int AuthMildThreshold => GetParam("auth_mild_threshold", 5);
+    private int ErrorHarvestingHighThreshold => GetParam("error_harvesting_high_threshold", 10);
+    private int ErrorHarvestingModerateThreshold => GetParam("error_harvesting_moderate_threshold", 5);
+    private int RateLimitHighThreshold => GetParam("rate_limit_high_threshold", 5);
+    private int RateLimitModerateThreshold => GetParam("rate_limit_moderate_threshold", 2);
+    private double HighResponseScoreThreshold => GetParam("high_response_score_threshold", 0.8);
+    private double MediumResponseScoreThreshold => GetParam("medium_response_score_threshold", 0.6);
+    private double LowResponseScoreThreshold => GetParam("low_response_score_threshold", 0.4);
+    private double CleanHistoryThreshold => GetParam("clean_history_threshold", 0.2);
+    private int CleanHistoryMinResponses => GetParam("clean_history_min_responses", 5);
 
     public override async Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
@@ -166,30 +188,47 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
             new(SignalKeys.ResponseUnique404Paths, behavior.UniqueNotFoundPaths)
         ]);
 
-        // Many 404s across unique paths = scanning behavior
-        if (behavior.Count404 > 15 && behavior.UniqueNotFoundPaths > 10)
+        // Real humans almost never hit multiple unique 404 paths.
+        // A single 404 from a stale bookmark is normal; 3+ unique 404 paths is scanning.
+
+        // HEAVY: Systematic vulnerability scanning — many unique 404 paths
+        if (behavior.Count404 > ScanHeavyCount404 && behavior.UniqueNotFoundPaths > ScanHeavyUniquePaths)
         {
             state.WriteSignal(SignalKeys.ResponseScanPatternDetected, true);
 
-            var scanIntensity = Math.Min(1.0, behavior.UniqueNotFoundPaths / 50.0);
-            var confidence = 0.5 + scanIntensity * 0.4; // 0.5 to 0.9
+            var scanIntensity = Math.Min(1.0, behavior.UniqueNotFoundPaths / 20.0);
+            var confidence = 0.6 + scanIntensity * 0.3; // 0.6 to 0.9
 
             contributions.Add(DetectionContribution.Bot(
                 Name, "Response", confidence,
                 $"Systematic scanning detected: {behavior.Count404} 404s across {behavior.UniqueNotFoundPaths} unique paths",
-                weight: 1.7,
+                weight: ScanHeavyWeight,
                 botType: BotType.Scraper.ToString()));
         }
-        // Moderate 404 pattern
-        else if (behavior.Count404 > 10 && behavior.UniqueNotFoundPaths > 5)
+        // MODERATE: Probable scanning — several unique 404 paths
+        else if (behavior.Count404 >= ScanModerateCount404 && behavior.UniqueNotFoundPaths >= ScanModerateUniquePaths)
+        {
+            state.WriteSignal(SignalKeys.ResponseScanPatternDetected, true);
+
+            contributions.Add(new DetectionContribution
+            {
+                DetectorName = Name,
+                Category = "Response",
+                ConfidenceDelta = ScanModerateConfidence,
+                Weight = ScanModerateWeight,
+                Reason = $"Probable scanning: {behavior.Count404} page-not-found errors across {behavior.UniqueNotFoundPaths} different URLs"
+            });
+        }
+        // LIGHT: Early signal — a couple of 404s on unique paths (not stale bookmarks)
+        else if (behavior.UniqueNotFoundPaths >= ScanLightUniquePaths)
         {
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,
                 Category = "Response",
-                ConfidenceDelta = 0.25,
-                Weight = 1.3,
-                Reason = $"Possible scanning: {behavior.Count404} page-not-found errors across {behavior.UniqueNotFoundPaths} different URLs"
+                ConfidenceDelta = ScanLightConfidence,
+                Weight = ScanLightWeight,
+                Reason = $"Multiple 404s on distinct paths: {behavior.Count404} errors on {behavior.UniqueNotFoundPaths} unique URLs"
             });
         }
     }
@@ -204,7 +243,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
     {
         state.WriteSignal(SignalKeys.ResponseAuthFailures, behavior.AuthFailures);
 
-        if (behavior.AuthFailures > 20)
+        if (behavior.AuthFailures > AuthSevereThreshold)
         {
             state.WriteSignal(SignalKeys.ResponseAuthStruggle, "severe");
 
@@ -214,7 +253,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 weight: 1.9,
                 botType: BotType.MaliciousBot.ToString()));
         }
-        else if (behavior.AuthFailures > 10)
+        else if (behavior.AuthFailures > AuthModerateThreshold)
         {
             state.WriteSignal(SignalKeys.ResponseAuthStruggle, "moderate");
 
@@ -227,7 +266,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Reason = $"Repeated login failures: {behavior.AuthFailures} failed attempts"
             });
         }
-        else if (behavior.AuthFailures > 5)
+        else if (behavior.AuthFailures > AuthMildThreshold)
         {
             state.WriteSignal(SignalKeys.ResponseAuthStruggle, "mild");
 
@@ -258,7 +297,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
 
         state.WriteSignal(SignalKeys.ResponseErrorPatternCount, errorPatternCount);
 
-        if (errorPatternCount > 10)
+        if (errorPatternCount > ErrorHarvestingHighThreshold)
         {
             state.WriteSignal(SignalKeys.ResponseErrorHarvesting, true);
 
@@ -268,7 +307,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 weight: 1.6,
                 botType: BotType.Scraper.ToString()));
         }
-        else if (errorPatternCount > 5)
+        else if (errorPatternCount > ErrorHarvestingModerateThreshold)
         {
             contributions.Add(new DetectionContribution
             {
@@ -296,13 +335,13 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
 
         state.WriteSignal(SignalKeys.ResponseRateLimitViolations, rateLimitCount);
 
-        if (rateLimitCount > 5)
+        if (rateLimitCount > RateLimitHighThreshold)
             contributions.Add(DetectionContribution.Bot(
                 Name, "Response", 0.75,
                 $"Multiple rate limit violations: {rateLimitCount} occurrences",
                 weight: 1.7,
                 botType: BotType.Scraper.ToString()));
-        else if (rateLimitCount > 2)
+        else if (rateLimitCount > RateLimitModerateThreshold)
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,
@@ -322,13 +361,13 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
         List<DetectionContribution> contributions)
     {
         // The ResponseCoordinator already computed a comprehensive score
-        if (behavior.ResponseScore > 0.8)
+        if (behavior.ResponseScore > HighResponseScoreThreshold)
             contributions.Add(DetectionContribution.Bot(
                 Name, "Response", 0.85,
                 $"Very high response score: {behavior.ResponseScore:F2}",
                 weight: 1.8,
                 botType: BotType.MaliciousBot.ToString()));
-        else if (behavior.ResponseScore > 0.6)
+        else if (behavior.ResponseScore > MediumResponseScoreThreshold)
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,
@@ -337,7 +376,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Weight = 1.5,
                 Reason = "Response patterns strongly suggest automated access"
             });
-        else if (behavior.ResponseScore > 0.4)
+        else if (behavior.ResponseScore > LowResponseScoreThreshold)
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,
@@ -347,7 +386,7 @@ public class ResponseBehaviorContributor : ContributingDetectorBase
                 Reason = "Response patterns show some signs of automated access"
             });
         // Low score = likely human
-        else if (behavior.ResponseScore < 0.2 && behavior.TotalResponses >= 5)
+        else if (behavior.ResponseScore < CleanHistoryThreshold && behavior.TotalResponses >= CleanHistoryMinResponses)
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,

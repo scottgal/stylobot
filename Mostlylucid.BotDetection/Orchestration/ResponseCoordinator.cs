@@ -68,13 +68,41 @@ public sealed class ResponseCoordinatorOptions
     /// <summary>
     ///     Honeypot endpoints (paths that should never be accessed)
     /// </summary>
+    /// <summary>
+    ///     Honeypot path patterns — glob wildcards (* and ?) supported.
+    ///     Paths without wildcards match as prefix.
+    ///     Override via appsettings.json: BotDetection:ResponseCoordinator:HoneypotPaths
+    ///     Examples: "/wp-*" matches /wp-admin, /wp-login.php, /wp-config.php
+    /// </summary>
     public List<string> HoneypotPaths { get; set; } = new()
     {
+        // Explicit honeypot
         "/__test-hp",
-        "/.git/",
-        "/.env",
-        "/wp-admin/install.php",
-        "/phpmyadmin"
+        // WordPress probes (glob catches all /wp-* paths)
+        "/wp-*",
+        "/xmlrpc.php",
+        // Version control / config exposure
+        "/.git*",
+        "/.env*",
+        "/.DS_Store",
+        "/.svn*",
+        // Database / backup exposure
+        "/backup*",
+        "/*.sql",
+        "/db*",
+        "/dump*",
+        // Admin panels
+        "/phpmyadmin*",
+        "/admin*",
+        "/cpanel*",
+        "/manager*",
+        // Server info / config
+        "/server-status",
+        "/server-info",
+        "/config.*",
+        "/web.config",
+        // PHP probes on non-PHP sites
+        "/*.php",
     };
 
     /// <summary>
@@ -89,7 +117,7 @@ public sealed class ResponseCoordinatorOptions
 public sealed class ResponseFeatureWeights
 {
     public double FourXxRatio { get; set; } = 0.2;
-    public double FourOhFourScan { get; set; } = 0.35;
+    public double FourOhFourScan { get; set; } = 0.5;
     public double FiveXxAnomaly { get; set; } = 0.3;
     public double AuthStruggle { get; set; } = 0.2;
     public double HoneypotHit { get; set; } = 0.8;
@@ -451,9 +479,10 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
         // Count auth failures (401/403)
         var authFailures = responseList.Count(r => r.StatusCode == 401 || r.StatusCode == 403);
 
-        // Count honeypot hits
+        // Count honeypot hits — patterns support * and ? glob wildcards
+        // e.g. "/wp-*" matches /wp-admin, /wp-login.php, /wp-config.php
         var honeypotHits = responseList.Count(r =>
-            _options.HoneypotPaths.Any(hp => r.Path.StartsWith(hp, StringComparison.OrdinalIgnoreCase)));
+            _options.HoneypotPaths.Any(hp => MatchesHoneypotPattern(r.Path, hp)));
 
         // Count pattern matches
         var patternCounts = new Dictionary<string, int>();
@@ -516,15 +545,16 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
         var score = 0.0;
         var weights = _options.FeatureWeights;
 
-        // 4xx ratio (excluding normal 404s from old links)
+        // 4xx ratio — high proportion of client errors is unusual for real browsers
         var fourXxRatio = (double)count4xx / total;
-        if (fourXxRatio > 0.7)
+        if (fourXxRatio > 0.4)
             score += weights.FourXxRatio * fourXxRatio;
 
-        // 404 scan pattern (many unique 404 paths)
-        if (count404 > 15 && unique404Paths > 10)
+        // 404 scan pattern — real humans rarely hit multiple unique 404 paths
+        // 3+ unique 404 paths is suspicious, 5+ is scanning
+        if (unique404Paths >= 3)
         {
-            var scanScore = Math.Min(1.0, unique404Paths / 50.0);
+            var scanScore = Math.Min(1.0, unique404Paths / 10.0);
             score += weights.FourOhFourScan * scanScore;
         }
 
@@ -557,5 +587,21 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
             score += weights.AbuseFeedback * Math.Min(1.0, abusePatterns / 5.0);
 
         return Math.Min(score, 1.0);
+    }
+
+    /// <summary>
+    ///     Match a request path against a honeypot pattern.
+    ///     Supports glob wildcards: * matches any sequence of characters, ? matches a single character.
+    ///     Patterns without wildcards match as prefix (backward compatible).
+    ///     Examples: "/wp-*" matches /wp-admin, /wp-login.php; "/.git/*" matches /.git/config
+    /// </summary>
+    private static bool MatchesHoneypotPattern(string path, string pattern)
+    {
+        if (pattern.Contains('*') || pattern.Contains('?'))
+            return System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(
+                pattern, path, ignoreCase: true);
+
+        // No wildcards — treat as prefix match (backward compatible with old StartsWith behavior)
+        return path.StartsWith(pattern, StringComparison.OrdinalIgnoreCase);
     }
 }
