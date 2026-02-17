@@ -238,6 +238,17 @@ public static class ServiceCollectionExtensions
         // Add HttpClient factory for bot list fetching
         services.AddHttpClient();
 
+        // Named HttpClient for VerifiedBotContributor (fetches published IP range lists)
+        services.AddHttpClient("VerifiedBot", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(10);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("StyloBot/1.0 (+https://stylobot.net; stylobot@mostlylucid.net)");
+        });
+
+        // VerifiedBotRegistry options — configurable via appsettings.json: BotDetection:VerifiedBotRegistry
+        services.AddOptions<VerifiedBotRegistryOptions>()
+            .BindConfiguration("BotDetection:VerifiedBotRegistry");
+
         // Add memory cache if not already registered
         services.AddMemoryCache();
 
@@ -401,6 +412,11 @@ public static class ServiceCollectionExtensions
         // PRE-Wave 0 - Fast path reputation check (can short-circuit ALL processing)
         // Checks for ConfirmedBad/ManuallyBlocked patterns before any analysis
         services.AddSingleton<IContributingDetector, FastPathReputationContributor>();
+        // Verified bot identity check (priority 4) - IP range + FCrDNS verification
+        // Runs after FastPathReputation, before UserAgent. Catches spoofed bot UAs.
+        services.TryAddSingleton<VerifiedBotRegistry>();
+        services.AddHostedService(sp => sp.GetRequiredService<VerifiedBotRegistry>());
+        services.AddSingleton<IContributingDetector, VerifiedBotContributor>();
         // TimescaleDB historical reputation - runs early (priority 15)
         // Gracefully no-ops if ITimescaleReputationProvider is not registered
         services.AddSingleton<IContributingDetector, TimescaleReputationContributor>();

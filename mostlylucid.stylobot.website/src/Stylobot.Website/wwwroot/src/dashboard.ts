@@ -35,6 +35,21 @@ function riskClass(band: string): string {
     return 'signal-muted';
 }
 
+function actionDisplayName(action: string | null | undefined): string {
+    const a = (action || 'Allow').toLowerCase();
+    if (a === 'allow') return 'Allow';
+    if (a.includes('throttle-stealth') || a.includes('tarpit')) return 'Tar Pit';
+    if (a.includes('throttle-aggressive')) return 'Hard Throttle';
+    if (a.includes('throttle')) return 'Throttle';
+    if (a.includes('block-hard')) return 'Hard Block';
+    if (a.includes('block')) return 'Block';
+    if (a.includes('challenge')) return 'Challenge';
+    if (a.includes('redirect-honeypot')) return 'Honeypot';
+    if (a.includes('redirect')) return 'Redirect';
+    if (a.includes('log') || a.includes('shadow')) return 'Shadow';
+    return action || 'Allow';
+}
+
 function actionBadgeClass(action: string | null | undefined): string {
     const a = (action || 'Allow').toLowerCase();
     if (a === 'allow') return 'status-badge-human';
@@ -363,6 +378,7 @@ const SIGNAL_CATEGORIES: { prefix: string; label: string; icon: string }[] = [
     { prefix: 'honeypot.', label: 'Honeypot', icon: '\uD83C\uDF6F' },
     { prefix: 'similarity.', label: 'Similarity', icon: '\uD83D\uDD0D' },
     { prefix: 'ts.', label: 'TimescaleDB History', icon: '\uD83D\uDCC5' },
+    { prefix: 'verifiedbot.', label: 'Verified Bot', icon: '\u2705' },
 ];
 
 function categorizeSignals(signals: Record<string, any>): SignalCategory[] {
@@ -404,8 +420,10 @@ function dashboardApp() {
 
         visitors: [] as any[],
         visitorFilter: 'all',
-        visitorSort: 'timestamp',
-        visitorSortDir: 'desc',
+        visitorPage: 1,
+        visitorPageSize: 50,
+        visitorHasMore: true,
+        visitorLoading: false,
 
         clusters: [] as any[],
 
@@ -488,12 +506,18 @@ function dashboardApp() {
             }
         },
 
-        async loadVisitors() {
+        async loadVisitors(page?: number) {
+            if (this.visitorLoading) return;
+            this.visitorLoading = true;
             try {
-                const res = await fetch('/_stylobot/api/signatures?limit=100');
+                if (page !== undefined) this.visitorPage = page;
+                const offset = (this.visitorPage - 1) * this.visitorPageSize;
+                // Fetch one extra to detect if there's a next page
+                const res = await fetch(`/_stylobot/api/signatures?limit=${this.visitorPageSize + 1}&offset=${offset}${this.visitorApiParams}`);
                 if (res.ok) {
-                    const visitors = toCamel(await res.json());
-                    // Infer bot identity for visitors without names
+                    const raw = toCamel(await res.json());
+                    this.visitorHasMore = raw.length > this.visitorPageSize;
+                    const visitors = raw.slice(0, this.visitorPageSize);
                     for (const v of visitors) {
                         if (v.isKnownBot && !v.botName) {
                             const identity = inferBotIdentity(v);
@@ -505,6 +529,8 @@ function dashboardApp() {
                 }
             } catch (e) {
                 console.warn('[Dashboard] Failed to load visitors:', e);
+            } finally {
+                this.visitorLoading = false;
             }
         },
 
@@ -531,38 +557,32 @@ function dashboardApp() {
 
         async switchTab(t: string) {
             this.tab = t as any;
-            if (t === 'visitors' && this.visitors.length === 0) await this.loadVisitors();
+            if (t === 'visitors') await this.loadVisitors();
             if (t === 'clusters' && this.clusters.length === 0) await this.loadClusters();
             if (t === 'countries' && this.countries.length === 0) await this.loadCountries();
         },
 
         // ===== Visitor Filtering & Sorting =====
 
-        get filteredVisitors() {
-            let list = this.visitors;
-            if (this.visitorFilter === 'bots') list = list.filter((v: any) => v.isKnownBot);
-            else if (this.visitorFilter === 'humans') list = list.filter((v: any) => !v.isKnownBot);
-            else if (this.visitorFilter === 'ai') list = list.filter((v: any) => v.isKnownBot && inferBotCategory(v) === 'ai');
-            else if (this.visitorFilter === 'search') list = list.filter((v: any) => v.isKnownBot && inferBotCategory(v) === 'search');
-            else if (this.visitorFilter === 'tools') list = list.filter((v: any) => v.isKnownBot && inferBotCategory(v) === 'tools');
-
-            const dir = this.visitorSortDir === 'asc' ? 1 : -1;
-            const key = this.visitorSort;
-            return [...list].sort((a: any, b: any) => {
-                if (key === 'botProbability' || key === 'hitCount') return ((a[key] ?? 0) - (b[key] ?? 0)) * dir;
-                if (key === 'timestamp') return (new Date(a[key] || 0).getTime() - new Date(b[key] || 0).getTime()) * dir;
-                return String(a[key] || '').localeCompare(String(b[key] || '')) * dir;
-            });
+        setVisitorFilter(id: string) {
+            this.visitorFilter = id;
+            this.visitorPage = 1;
+            this.loadVisitors();
         },
 
-        filterCount(type: string): number {
-            if (type === 'all') return this.visitors.length;
-            if (type === 'bots') return this.visitors.filter((v: any) => v.isKnownBot).length;
-            if (type === 'humans') return this.visitors.filter((v: any) => !v.isKnownBot).length;
-            if (type === 'ai') return this.visitors.filter((v: any) => v.isKnownBot && inferBotCategory(v) === 'ai').length;
-            if (type === 'search') return this.visitors.filter((v: any) => v.isKnownBot && inferBotCategory(v) === 'search').length;
-            if (type === 'tools') return this.visitors.filter((v: any) => v.isKnownBot && inferBotCategory(v) === 'tools').length;
-            return 0;
+        async visitorPrev() {
+            if (this.visitorPage > 1) await this.loadVisitors(this.visitorPage - 1);
+        },
+
+        async visitorNext() {
+            if (this.visitorHasMore) await this.loadVisitors(this.visitorPage + 1);
+        },
+
+        get visitorApiParams(): string {
+            const f = this.visitorFilter;
+            if (f === 'bots') return '&isBot=true';
+            if (f === 'humans') return '&isBot=false';
+            return '';
         },
 
         visitorUrl(v: any): string {
@@ -833,6 +853,7 @@ function dashboardApp() {
         countryFlag,
         timeAgo,
         actionBadgeClass,
+        actionDisplayName,
         inferBotCategory,
     };
 }
@@ -1156,6 +1177,7 @@ function signatureDetailApp() {
         countryFlag,
         timeAgo,
         actionBadgeClass,
+        actionDisplayName,
         categorizeSignals,
     };
 }

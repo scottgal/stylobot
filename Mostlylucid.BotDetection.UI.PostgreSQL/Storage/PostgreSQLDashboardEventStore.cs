@@ -297,19 +297,18 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         }
     }
 
-    public async Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100)
+    public async Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100, int offset = 0, bool? isBot = null)
     {
         if (IsCircuitOpen) return [];
 
-        const string sql = @"
-            SELECT * FROM dashboard_signatures
-            ORDER BY timestamp DESC
-            LIMIT @Limit";
+        var sql = isBot.HasValue
+            ? @"SELECT * FROM dashboard_signatures WHERE is_known_bot = @IsBot ORDER BY timestamp DESC LIMIT @Limit OFFSET @Offset"
+            : @"SELECT * FROM dashboard_signatures ORDER BY timestamp DESC LIMIT @Limit OFFSET @Offset";
 
         try
         {
             await using var connection = new NpgsqlConnection(_options.ConnectionString);
-            var results = await connection.QueryAsync<SignatureRow>(sql, new { Limit = limit },
+            var results = await connection.QueryAsync<SignatureRow>(sql, new { Limit = limit, Offset = offset, IsBot = isBot },
                 commandTimeout: _options.CommandTimeoutSeconds);
 
             return results.Select(MapToSignatureEvent).ToList();

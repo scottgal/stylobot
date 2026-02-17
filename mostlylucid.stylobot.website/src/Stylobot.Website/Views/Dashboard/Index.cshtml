@@ -257,35 +257,25 @@
 
             <!-- Filter Bar -->
             <div class="flex flex-wrap items-center gap-2 mb-3">
-                <template x-for="f in [{id:'all',label:'All'},{id:'humans',label:'Humans'},{id:'bots',label:'Bots'},{id:'ai',label:'AI'},{id:'search',label:'Search'},{id:'tools',label:'Tools'}]">
-                    <button @@click="visitorFilter = f.id"
+                <template x-for="f in [{id:'all',label:'All'},{id:'humans',label:'Humans'},{id:'bots',label:'Bots'}]">
+                    <button @@click="setVisitorFilter(f.id)"
                             class="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors"
                             :style="visitorFilter === f.id
                                 ? 'background: var(--sb-accent); color: white; border-color: var(--sb-accent);'
-                                : 'border-color: var(--sb-card-divider); color: var(--sb-card-subtle);'">
-                        <span x-text="f.label"></span>
-                        <span class="ml-1 opacity-70" x-text="'(' + filterCount(f.id) + ')'"></span>
+                                : 'border-color: var(--sb-card-divider); color: var(--sb-card-subtle);'"
+                            x-text="f.label">
                     </button>
                 </template>
 
                 <div class="ml-auto flex items-center gap-2">
-                    <select @@change="visitorSort = $event.target.value"
-                            class="select select-xs bg-base-200 border" style="border-color: var(--sb-card-divider); color: var(--sb-card-text);">
-                        <option value="timestamp">Last Seen</option>
-                        <option value="hitCount">Hits</option>
-                        <option value="botProbability">Risk</option>
-                        <option value="botName">Name</option>
-                    </select>
-                    <button @@click="visitorSortDir = visitorSortDir === 'asc' ? 'desc' : 'asc'"
-                            class="btn btn-xs btn-ghost" style="color: var(--sb-card-subtle);">
-                        <span x-text="visitorSortDir === 'asc' ? '\u2191' : '\u2193'"></span>
-                    </button>
+                    <span class="text-xs" style="color: var(--sb-card-subtle);"
+                          x-text="'Page ' + visitorPage"></span>
                 </div>
             </div>
 
             <!-- Visitor List -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                <template x-for="v in filteredVisitors" :key="v.primarySignature">
+                <template x-for="v in pagedVisitors" :key="v.primarySignature">
                     <a :href="visitorUrl(v)"
                        class="p-3 rounded-lg border transition-colors hover:border-current group"
                        style="background: var(--sb-card-bg); border-color: var(--sb-card-divider);"
@@ -304,15 +294,36 @@
                             <span x-show="v.action && v.action !== 'Allow'"
                                   class="px-1 py-0.5 rounded text-[9px] font-semibold font-mono"
                                   :class="actionBadgeClass(v.action)"
-                                  x-text="v.action"></span>
+                                  x-text="actionDisplayName(v.action)"></span>
                             <span x-show="v.botType" class="font-mono" x-text="v.botType"></span>
                             <span class="ml-auto" x-text="timeAgo(v.timestamp)"></span>
                         </div>
                     </a>
                 </template>
             </div>
-            <div x-show="filteredVisitors.length === 0" class="text-sm py-8 text-center" style="color: var(--sb-card-subtle);">
+            <div x-show="visitors.length === 0 && !visitorLoading" class="text-sm py-8 text-center" style="color: var(--sb-card-subtle);">
                 No visitors match this filter
+            </div>
+            <div x-show="visitorLoading" class="text-sm py-8 text-center" style="color: var(--sb-card-subtle);">
+                Loading...
+            </div>
+
+            <!-- Pagination -->
+            <div x-show="visitors.length > 0" class="flex items-center justify-between mt-4 text-xs" style="color: var(--sb-card-subtle);">
+                <span x-text="'Showing ' + ((visitorPage - 1) * visitorPageSize + 1) + '–' + ((visitorPage - 1) * visitorPageSize + visitors.length)"></span>
+                <div class="flex items-center gap-1">
+                    <button @@click="visitorPrev()" :disabled="visitorPage <= 1"
+                            class="btn btn-xs btn-ghost" :class="visitorPage <= 1 ? 'btn-disabled opacity-30' : ''"
+                            style="color: var(--sb-card-subtle);">
+                        &larr; Prev
+                    </button>
+                    <span class="px-2 font-mono" x-text="visitorPage"></span>
+                    <button @@click="visitorNext()" :disabled="!visitorHasMore"
+                            class="btn btn-xs btn-ghost" :class="!visitorHasMore ? 'btn-disabled opacity-30' : ''"
+                            style="color: var(--sb-card-subtle);">
+                        Next &rarr;
+                    </button>
+                </div>
             </div>
         </div>
 

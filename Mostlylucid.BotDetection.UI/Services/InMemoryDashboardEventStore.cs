@@ -91,12 +91,12 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
         return Task.FromResult(result.ToList());
     }
 
-    public Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100)
+    public Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100, int offset = 0, bool? isBot = null)
     {
-        return Task.FromResult(_signatures
-            .OrderByDescending(s => s.Timestamp)
-            .Take(limit)
-            .ToList());
+        IEnumerable<DashboardSignatureEvent> query = _signatures.OrderByDescending(s => s.Timestamp);
+        if (isBot.HasValue) query = query.Where(s => s.IsKnownBot == isBot.Value);
+        if (offset > 0) query = query.Skip(offset);
+        return Task.FromResult(query.Take(limit).ToList());
     }
 
     public Task<DashboardSummary> GetSummaryAsync()

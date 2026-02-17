@@ -635,4 +635,24 @@ public static class SignalKeys
 
     /// <summary>Int: Number of rate limit (429) or block responses received</summary>
     public const string ResponseRateLimitViolations = "response.rate_limit_violations";
+
+    // ==========================================
+    // Verified bot identity signals
+    // Set by VerifiedBotContributor after IP range / FCrDNS verification
+    // ==========================================
+
+    /// <summary>Boolean: true if verified bot check was performed</summary>
+    public const string VerifiedBotChecked = "verifiedbot.checked";
+
+    /// <summary>Boolean: true if bot identity was confirmed via IP range or FCrDNS</summary>
+    public const string VerifiedBotConfirmed = "verifiedbot.confirmed";
+
+    /// <summary>String: Verified or claimed bot name (e.g., "Googlebot")</summary>
+    public const string VerifiedBotName = "verifiedbot.name";
+
+    /// <summary>String: Verification method used ("ip_range", "fcrdns", "none")</summary>
+    public const string VerifiedBotMethod = "verifiedbot.method";
+
+    /// <summary>Boolean: true if UA claims bot identity but IP doesn't verify (spoofed)</summary>
+    public const string VerifiedBotSpoofed = "verifiedbot.spoofed";
 }

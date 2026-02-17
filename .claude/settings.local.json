@@ -208,7 +208,17 @@
       "Bash(do taskkill //F //PID $pid)",
       "Bash(done)",
       "Bash(handle.exe:*)",
-      "Bash(npx vite build)"
+      "Bash(npx vite build)",
+      "WebFetch(domain:support.apple.com)",
+      "WebFetch(domain:developers.google.com)",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:ahrefs.com)",
+      "WebFetch(domain:yandex.com)",
+      "WebFetch(domain:help.pinterest.com)",
+      "WebFetch(domain:support.claude.com)",
+      "WebFetch(domain:www.bing.com)",
+      "WebFetch(domain:openai.com)",
+      "WebFetch(domain:duckduckgo.com)"
     ]
   }
 }

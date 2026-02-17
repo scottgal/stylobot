@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -354,9 +353,5 @@ public class SignatureFeedbackHandler : ILearningEventHandler
     ///     Compute a short hash of a string.
     /// </summary>
     private static string ComputeShortHash(string input)
-    {
-        var bytes = Encoding.UTF8.GetBytes(input);
-        var hash = SHA256.HashData(bytes);
-        return Convert.ToHexString(hash[..8]).ToLowerInvariant();
-    }
+        => PatternNormalization.ComputeHash(input);
 }

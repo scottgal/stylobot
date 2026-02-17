@@ -1,7 +1,5 @@
 using System.Collections.Frozen;
 using System.Numerics.Tensors;
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -720,8 +718,7 @@ public class BotClusterService : BackgroundService
     internal static string ComputeClusterId(List<string> sortedSignatures)
     {
         var combined = string.Join("|", sortedSignatures);
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(combined));
-        return $"cluster-{Convert.ToHexString(hash[..8]).ToLowerInvariant()}";
+        return $"cluster-{Data.PatternNormalization.ComputeHash(combined)}";
     }
 
     #endregion

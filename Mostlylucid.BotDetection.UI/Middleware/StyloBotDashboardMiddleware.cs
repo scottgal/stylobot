@@ -398,7 +398,13 @@ public class StyloBotDashboardMiddleware
         var limitStr = context.Request.Query["limit"].FirstOrDefault();
         var limit = int.TryParse(limitStr, out var l) ? Math.Clamp(l, 1, 1000) : 100;
 
-        var signatures = await _eventStore.GetSignaturesAsync(limit);
+        var offsetStr = context.Request.Query["offset"].FirstOrDefault();
+        var offset = int.TryParse(offsetStr, out var o) ? Math.Max(0, o) : 0;
+
+        var isBotStr = context.Request.Query["isBot"].FirstOrDefault();
+        bool? isBot = bool.TryParse(isBotStr, out var b) ? b : null;
+
+        var signatures = await _eventStore.GetSignaturesAsync(limit, offset, isBot);
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, signatures);

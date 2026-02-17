@@ -47,7 +47,7 @@
                             <span x-show="sig.action && sig.action !== 'Allow'"
                                   class="inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-semibold font-mono"
                                   :class="actionBadgeClass(sig.action)"
-                                  x-text="'policy:' + sig.action"></span>
+                                  x-text="actionDisplayName(sig.action)"></span>
                             <span class="flex items-center gap-1.5 text-xs" :class="connected ? 'signal-positive' : 'signal-muted'">
                                 <span class="relative flex h-2 w-2">
                                     <span x-show="connected" class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
@@ -80,7 +80,7 @@
                         </div>
                         <div>
                             <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Action</div>
-                            <div class="text-sm font-bold text-base-content" x-text="sig.action || '—'"></div>
+                            <div class="text-sm font-bold text-base-content" x-text="actionDisplayName(sig.action)"></div>
                         </div>
                         <div>
                             <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Last Path</div>
@@ -201,7 +201,7 @@
                                         <td class="py-1.5">
                                             <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold font-mono"
                                                   :class="actionBadgeClass(g.detection.action || g.detection.policyName)"
-                                                  x-text="g.detection.action || g.detection.policyName || 'Allow'"></span>
+                                                  x-text="actionDisplayName(g.detection.action || g.detection.policyName)"></span>
                                         </td>
                                     </tr>
                                 </template>

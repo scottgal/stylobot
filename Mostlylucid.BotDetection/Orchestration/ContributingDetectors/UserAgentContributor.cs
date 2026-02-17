@@ -62,7 +62,9 @@ public partial class UserAgentContributor : ConfiguredContributorBase
 
         var contributions = new List<DetectionContribution>();
 
-        // Check for known good bots (whitelisted)
+        // Check for known bot UA patterns (previously whitelisted for early exit).
+        // Now emits a regular bot contribution — actual IP/DNS verification is
+        // handled by VerifiedBotContributor. UA alone is trivially spoofable.
         var (isWhitelisted, whitelistName) = CheckWhitelist(userAgent);
         if (isWhitelisted)
         {
@@ -72,13 +74,15 @@ public partial class UserAgentContributor : ConfiguredContributorBase
                 new(SignalKeys.UserAgentBotType, BotType.SearchEngine.ToString()),
                 new(SignalKeys.UserAgentBotName, whitelistName!)
             ]);
-            return Task.FromResult(Single(DetectionContribution.VerifiedGoodBot(
-                    Name,
-                    $"Whitelisted bot pattern: {whitelistName}",
-                    whitelistName!)
+            return Task.FromResult(Single(BotContribution(
+                    "UserAgent",
+                    $"Known bot UA pattern: {whitelistName}",
+                    confidenceOverride: PatternMatchConfidence,
+                    botType: BotType.SearchEngine.ToString(),
+                    botName: whitelistName)
                 with
                 {
-                    Weight = WeightVerified
+                    Weight = WeightBotSignal
                 }));
         }
 

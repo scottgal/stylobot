@@ -26,7 +26,7 @@ public interface IDashboardEventStore
     /// <summary>
     ///     Get recent signatures.
     /// </summary>
-    Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100);
+    Task<List<DashboardSignatureEvent>> GetSignaturesAsync(int limit = 100, int offset = 0, bool? isBot = null);
 
     /// <summary>
     ///     Get summary statistics.

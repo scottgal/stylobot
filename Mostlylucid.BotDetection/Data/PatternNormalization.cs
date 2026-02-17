@@ -1,5 +1,6 @@
-using System.Security.Cryptography;
+using System.IO.Hashing;
 using System.Text;
+using SysBitOps = System.Numerics.BitOperations;
 
 namespace Mostlylucid.BotDetection.Data;
 
@@ -11,57 +12,144 @@ namespace Mostlylucid.BotDetection.Data;
 ///     - ReputationBiasContributor (reads)
 ///     - ReputationMaintenanceService (writes)
 ///     - LlmClassificationCoordinator (writes)
+///     Optimized for hot-path use (called per-request in Wave 0).
 /// </summary>
 public static class PatternNormalization
 {
+    // Indicator flags — bit positions are in ALPHABETICAL order so iterating
+    // set bits low→high emits an already-sorted sequence. No LINQ OrderBy needed.
+    [Flags]
+    private enum Indicator : uint
+    {
+        Android   = 1 << 0,
+        Bot       = 1 << 1,
+        Chrome    = 1 << 2,
+        Crawler   = 1 << 3,
+        Curl      = 1 << 4,
+        Edge      = 1 << 5,
+        Firefox   = 1 << 6,
+        Headless  = 1 << 7,
+        Ios       = 1 << 8,
+        LenHuge   = 1 << 9,
+        LenLong   = 1 << 10,
+        LenNormal = 1 << 11,
+        LenShort  = 1 << 12,
+        LenTiny   = 1 << 13,
+        Linux     = 1 << 14,
+        Macos     = 1 << 15,
+        Python    = 1 << 16,
+        Safari    = 1 << 17,
+        Scraper   = 1 << 18,
+        Spider    = 1 << 19,
+        Wget      = 1 << 20,
+        Windows   = 1 << 21
+    }
+
+    // Lookup: bit position → indicator string (alphabetical order matches bit order)
+    private static readonly string[] IndicatorStrings =
+    [
+        "android",    // 0
+        "bot",        // 1
+        "chrome",     // 2
+        "crawler",    // 3
+        "curl",       // 4
+        "edge",       // 5
+        "firefox",    // 6
+        "headless",   // 7
+        "ios",        // 8
+        "len:huge",   // 9
+        "len:long",   // 10
+        "len:normal", // 11
+        "len:short",  // 12
+        "len:tiny",   // 13
+        "linux",      // 14
+        "macos",      // 15
+        "python",     // 16
+        "safari",     // 17
+        "scraper",    // 18
+        "spider",     // 19
+        "wget",       // 20
+        "windows"     // 21
+    ];
+
     /// <summary>
     ///     Normalize User-Agent for pattern matching.
     ///     Extracts key indicators (browser, OS, bot signals, length bucket),
-    ///     sorts alphabetically, and joins with commas.
+    ///     outputs them in alphabetical order joined with commas.
+    ///     Uses OrdinalIgnoreCase to avoid ToLowerInvariant() allocation,
+    ///     and bitmask approach to avoid List + LINQ OrderBy allocations.
     /// </summary>
     public static string NormalizeUserAgent(string ua)
     {
         if (string.IsNullOrWhiteSpace(ua))
             return "empty";
 
-        var lower = ua.ToLowerInvariant().Trim();
-        var indicators = new List<string>(12);
+        var flags = (Indicator)0;
 
         // Browser detection (mutually exclusive, order matters)
-        if (lower.Contains("chrome")) indicators.Add("chrome");
-        else if (lower.Contains("firefox")) indicators.Add("firefox");
-        else if (lower.Contains("safari")) indicators.Add("safari");
-        else if (lower.Contains("edge")) indicators.Add("edge");
+        if (ua.Contains("chrome", StringComparison.OrdinalIgnoreCase))
+            flags |= Indicator.Chrome;
+        else if (ua.Contains("firefox", StringComparison.OrdinalIgnoreCase))
+            flags |= Indicator.Firefox;
+        else if (ua.Contains("safari", StringComparison.OrdinalIgnoreCase))
+            flags |= Indicator.Safari;
+        else if (ua.Contains("edge", StringComparison.OrdinalIgnoreCase))
+            flags |= Indicator.Edge;
 
         // OS detection (mutually exclusive)
-        if (lower.Contains("windows")) indicators.Add("windows");
-        else if (lower.Contains("mac")) indicators.Add("macos");
-        else if (lower.Contains("linux")) indicators.Add("linux");
-        else if (lower.Contains("android")) indicators.Add("android");
-        else if (lower.Contains("iphone") || lower.Contains("ipad")) indicators.Add("ios");
+        if (ua.Contains("windows", StringComparison.OrdinalIgnoreCase))
+            flags |= Indicator.Windows;
+        else if (ua.Contains("mac", StringComparison.OrdinalIgnoreCase))
+            flags |= Indicator.Macos;
+        else if (ua.Contains("linux", StringComparison.OrdinalIgnoreCase))
+            flags |= Indicator.Linux;
+        else if (ua.Contains("android", StringComparison.OrdinalIgnoreCase))
+            flags |= Indicator.Android;
+        else if (ua.Contains("iphone", StringComparison.OrdinalIgnoreCase) ||
+                 ua.Contains("ipad", StringComparison.OrdinalIgnoreCase))
+            flags |= Indicator.Ios;
 
         // Bot indicators (can be multiple)
-        if (lower.Contains("bot")) indicators.Add("bot");
-        if (lower.Contains("crawler")) indicators.Add("crawler");
-        if (lower.Contains("spider")) indicators.Add("spider");
-        if (lower.Contains("scraper")) indicators.Add("scraper");
-        if (lower.Contains("headless")) indicators.Add("headless");
-        if (lower.Contains("python")) indicators.Add("python");
-        if (lower.Contains("curl")) indicators.Add("curl");
-        if (lower.Contains("wget")) indicators.Add("wget");
+        if (ua.Contains("bot", StringComparison.OrdinalIgnoreCase)) flags |= Indicator.Bot;
+        if (ua.Contains("crawler", StringComparison.OrdinalIgnoreCase)) flags |= Indicator.Crawler;
+        if (ua.Contains("spider", StringComparison.OrdinalIgnoreCase)) flags |= Indicator.Spider;
+        if (ua.Contains("scraper", StringComparison.OrdinalIgnoreCase)) flags |= Indicator.Scraper;
+        if (ua.Contains("headless", StringComparison.OrdinalIgnoreCase)) flags |= Indicator.Headless;
+        if (ua.Contains("python", StringComparison.OrdinalIgnoreCase)) flags |= Indicator.Python;
+        if (ua.Contains("curl", StringComparison.OrdinalIgnoreCase)) flags |= Indicator.Curl;
+        if (ua.Contains("wget", StringComparison.OrdinalIgnoreCase)) flags |= Indicator.Wget;
 
         // Length bucket
-        var lengthBucket = ua.Length switch
+        flags |= ua.Length switch
         {
-            < 20 => "tiny",
-            < 50 => "short",
-            < 150 => "normal",
-            < 300 => "long",
-            _ => "huge"
+            < 20 => Indicator.LenTiny,
+            < 50 => Indicator.LenShort,
+            < 150 => Indicator.LenNormal,
+            < 300 => Indicator.LenLong,
+            _ => Indicator.LenHuge
         };
-        indicators.Add($"len:{lengthBucket}");
 
-        return string.Join(",", indicators.OrderBy(x => x));
+        return BuildSortedString(flags);
+    }
+
+    /// <summary>
+    ///     Build comma-separated sorted indicator string from bitmask.
+    ///     Bits are in alphabetical order, so iterating low→high emits sorted output.
+    /// </summary>
+    private static string BuildSortedString(Indicator flags)
+    {
+        var sb = new StringBuilder(48);
+        var bits = (uint)flags;
+
+        while (bits != 0)
+        {
+            var pos = SysBitOps.TrailingZeroCount(bits);
+            if (sb.Length > 0) sb.Append(',');
+            sb.Append(IndicatorStrings[pos]);
+            bits &= bits - 1; // clear lowest set bit
+        }
+
+        return sb.ToString();
     }
 
     /// <summary>
@@ -81,22 +169,25 @@ public static class PatternNormalization
             return ip;
         }
 
-        // Handle IPv4 - normalize to /24
-        var octets = ip.Split('.');
-        if (octets.Length == 4) return $"{octets[0]}.{octets[1]}.{octets[2]}.0/24";
+        // Handle IPv4 - normalize to /24 without Split allocation
+        var first = ip.IndexOf('.');
+        if (first < 0) return ip;
+        var second = ip.IndexOf('.', first + 1);
+        if (second < 0) return ip;
+        var third = ip.IndexOf('.', second + 1);
+        if (third < 0) return ip;
 
-        return ip;
+        return string.Concat(ip.AsSpan(0, third), ".0/24");
     }
 
     /// <summary>
     ///     Create a pattern ID for a User-Agent string.
-    ///     Returns "ua:{first16charsOfSHA256}".
+    ///     Returns "ua:{16charXxHash64}".
     /// </summary>
     public static string CreateUaPatternId(string userAgent)
     {
         var normalized = NormalizeUserAgent(userAgent);
-        var hash = ComputeHash(normalized);
-        return $"ua:{hash}";
+        return string.Concat("ua:", ComputeHash(normalized));
     }
 
     /// <summary>
@@ -106,15 +197,24 @@ public static class PatternNormalization
     public static string CreateIpPatternId(string ip)
     {
         var normalized = NormalizeIpToRange(ip);
-        return $"ip:{normalized}";
+        return string.Concat("ip:", normalized);
     }
 
     /// <summary>
-    ///     Compute SHA256 hash of input, return first 16 hex chars.
+    ///     Compute non-cryptographic hash for pattern ID generation.
+    ///     Uses XxHash64 (~10x faster than SHA256) — we need collision resistance
+    ///     for cache keys, not cryptographic strength.
+    ///     Returns 16 lowercase hex chars (full 64-bit hash).
     /// </summary>
     public static string ComputeHash(string input)
     {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(bytes)[..16].ToLowerInvariant();
+        var byteCount = Encoding.UTF8.GetByteCount(input);
+        Span<byte> inputBytes = byteCount <= 512
+            ? stackalloc byte[byteCount]
+            : new byte[byteCount];
+        Encoding.UTF8.GetBytes(input, inputBytes);
+
+        var hash = XxHash64.HashToUInt64(inputBytes);
+        return hash.ToString("x16");
     }
 }

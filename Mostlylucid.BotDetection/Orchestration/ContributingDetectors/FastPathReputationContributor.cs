@@ -116,6 +116,9 @@ public class FastPathReputationContributor : ConfiguredContributorBase
 
     /// <summary>
     ///     Creates a fast-path ALLOW contribution for known good patterns.
+    ///     Uses a strong human signal (NOT VerifiedGoodBot early exit) because
+    ///     reputation-confirmed "good" patterns are typically real humans, not verified bots.
+    ///     VerifiedGoodBot should only be used for cryptographically verified bots (Googlebot, Bingbot etc).
     /// </summary>
     private IReadOnlyList<DetectionContribution> CreateFastAllowContribution(
         BlackboardState state,
@@ -136,15 +139,18 @@ public class FastPathReputationContributor : ConfiguredContributorBase
             new($"reputation.fastpath.{mtLower}.support", matchedPattern.Support)
         ]);
 
-        // Derive a friendly bot name from the pattern
-        var botName = matchedPattern.PatternId.StartsWith("ua:")
-            ? "Verified Good Bot"
-            : $"Trusted IP ({matchedPattern.PatternId})";
-
-        var contribution = DetectionContribution.VerifiedGoodBot(
-                Name,
-                $"Previously verified as safe ({matchType} seen {matchedPattern.Support:F0} times)",
-                botName);
+        // Strong human contribution — NOT an early exit.
+        // Reputation says this pattern is known-good (likely human), so contribute
+        // a strong negative (human) signal that will pull probability down during
+        // normal aggregation. Other detectors still run for full coverage.
+        var contribution = HumanContribution(
+                "FastPathReputation",
+                $"Previously verified as safe ({matchType} seen {matchedPattern.Support:F0} times)")
+            with
+            {
+                Weight = 2.5,
+                ConfidenceDelta = -0.8
+            };
 
         return new[] { contribution };
     }

@@ -183,6 +183,10 @@ try
     // Admin secret middleware (if configured)
     app.UseAdminSecretMiddleware();
 
+    // Geo routing - enriches requests with country code from IP (cached per IP)
+    // Must run BEFORE bot detection so country data is available for detection + dashboard
+    app.UseGeoRouting();
+
     // Bot Detection middleware - runs on every request
     app.UseBotDetection();
 

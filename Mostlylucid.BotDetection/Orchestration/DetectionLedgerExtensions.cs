@@ -87,7 +87,14 @@ public static class DetectionLedgerExtensions
             Ledger = ledger,
             BotProbability = isBot ? 1.0 : 0.0,
             Confidence = 1.0,
-            RiskBand = isGood ? RiskBand.Verified : RiskBand.VeryHigh,
+            RiskBand = verdict switch
+            {
+                EarlyExitVerdict.VerifiedGoodBot => RiskBand.VeryLow,
+                EarlyExitVerdict.Whitelisted => RiskBand.VeryLow,
+                EarlyExitVerdict.VerifiedBadBot => RiskBand.VeryHigh,
+                EarlyExitVerdict.Blacklisted => RiskBand.VeryHigh,
+                _ => RiskBand.Medium
+            },
             EarlyExit = true,
             EarlyExitVerdict = verdict,
             PrimaryBotType = ParseBotType(exitContrib.BotType),

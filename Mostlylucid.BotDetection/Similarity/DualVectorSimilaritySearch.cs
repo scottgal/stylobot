@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+using System.IO.Hashing;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
@@ -316,9 +316,20 @@ public sealed class DualVectorSimilaritySearch : ISignatureSimilaritySearch
         }
     }
 
+    /// <summary>
+    ///     Convert a signatureId string to a deterministic GUID for Qdrant point ID.
+    ///     Uses XxHash128 (~10x faster than SHA256) — we need deterministic mapping, not crypto.
+    /// </summary>
     private static Guid ToGuid(string signatureId)
     {
-        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(signatureId));
-        return new Guid(hash.AsSpan(0, 16));
+        var byteCount = Encoding.UTF8.GetByteCount(signatureId);
+        Span<byte> inputBytes = byteCount <= 512
+            ? stackalloc byte[byteCount]
+            : new byte[byteCount];
+        Encoding.UTF8.GetBytes(signatureId, inputBytes);
+
+        Span<byte> hashBytes = stackalloc byte[16];
+        XxHash128.Hash(inputBytes, hashBytes);
+        return new Guid(hashBytes);
     }
 }

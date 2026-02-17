@@ -116,14 +116,20 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
                 new(SignalKeys.HoneypotDaysSinceLastActivity, result.DaysSinceLastActivity)
             ]);
 
-            // Search engines get a pass (type 0)
+            // Search engines get a strong human signal (type 0).
+            // Note: this is NOT VerifiedGoodBot because Project Honeypot is a third-party opinion,
+            // not cryptographic proof. VerifiedBotContributor handles IP/DNS verification.
             if (result.VisitorType == HoneypotVisitorType.SearchEngine)
             {
                 _logger.LogDebug("IP {Ip} identified as search engine by Project Honeypot", MaskIp(clientIp));
-                contributions.Add(DetectionContribution.VerifiedGoodBot(
-                        Name,
-                        "IP verified as search engine by Project Honeypot",
-                        "Search Engine (Project Honeypot)"));
+                contributions.Add(new DetectionContribution
+                {
+                    DetectorName = Name,
+                    Category = "ProjectHoneypot",
+                    ConfidenceDelta = -0.4,
+                    Weight = 1.5,
+                    Reason = "IP classified as search engine by Project Honeypot HTTP:BL"
+                });
                 return contributions;
             }
 
@@ -161,7 +167,7 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogDebug(ex, "Project Honeypot lookup failed for IP: {Ip}", clientIp);
+            _logger.LogDebug(ex, "Project Honeypot lookup failed for IP: {Ip}", MaskIp(clientIp));
             return None();
         }
     }

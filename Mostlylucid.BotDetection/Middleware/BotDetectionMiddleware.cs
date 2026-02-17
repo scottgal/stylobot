@@ -200,7 +200,7 @@ public class BotDetectionMiddleware(
         PopulateContextFromAggregated(context, aggregatedResult, policy.Name);
 
         // Feed country reputation and cluster services with detection results
-        FeedDetectionServices(aggregatedResult);
+        FeedDetectionServices(context, aggregatedResult);
 
         // Register response recording BEFORE any early exits (blocked, action policy, etc.)
         // so all response codes (403, 404, 500) are captured for behavioral analysis.
@@ -248,7 +248,8 @@ public class BotDetectionMiddleware(
         // IS the response. We skip ShouldBlockRequest so bots see a normal (delayed) response.
         if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
             && !string.IsNullOrEmpty(_options.DefaultActionPolicyName)
-            && aggregatedResult.BotProbability >= _options.BotThreshold)
+            && aggregatedResult.BotProbability >= _options.BotThreshold
+            && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
         {
             var fallbackPolicy = actionPolicyRegistry.GetPolicy(_options.DefaultActionPolicyName);
             if (fallbackPolicy != null)
@@ -293,22 +294,40 @@ public class BotDetectionMiddleware(
     ///     Feeds detection data to CountryReputationTracker and BotClusterService.
     ///     Called after both local and test-mode detections.
     /// </summary>
-    private void FeedDetectionServices(AggregatedEvidence aggregated)
+    private void FeedDetectionServices(HttpContext context, AggregatedEvidence aggregated)
     {
         // Feed country reputation tracker
-        if (countryTracker != null && aggregated.Signals != null)
+        if (countryTracker != null)
         {
             string? countryCode = null;
-            if (aggregated.Signals.TryGetValue("geo.country_code", out var ccObj))
-                countryCode = ccObj as string ?? ccObj?.ToString();
+            string? countryName = null;
+
+            // Try blackboard signals first (from GeoContributor if registered)
+            if (aggregated.Signals != null)
+            {
+                if (aggregated.Signals.TryGetValue("geo.country_code", out var ccObj))
+                    countryCode = ccObj as string ?? ccObj?.ToString();
+                if (aggregated.Signals.TryGetValue("geo.country_name", out var cnObj))
+                    countryName = cnObj as string ?? cnObj?.ToString();
+            }
+
+            // Fallback: read from GeoRouting middleware context items
+            // (used when GeoContributor is not in the detection pipeline)
+            if (string.IsNullOrEmpty(countryCode) &&
+                context.Items.TryGetValue("GeoLocation", out var geoLocObj) &&
+                geoLocObj != null)
+            {
+                var geoType = geoLocObj.GetType();
+                var ccProp = geoType.GetProperty("CountryCode");
+                if (ccProp?.GetValue(geoLocObj) is string geoCC && !string.IsNullOrEmpty(geoCC))
+                    countryCode = geoCC;
+                var cnProp = geoType.GetProperty("CountryName");
+                if (cnProp?.GetValue(geoLocObj) is string geoCN && !string.IsNullOrEmpty(geoCN))
+                    countryName = geoCN;
+            }
 
             if (!string.IsNullOrEmpty(countryCode) && countryCode != "LOCAL")
             {
-                // Get country name if available, fall back to code
-                string? countryName = null;
-                if (aggregated.Signals.TryGetValue("geo.country_name", out var cnObj))
-                    countryName = cnObj as string ?? cnObj?.ToString();
-
                 countryTracker.RecordDetection(
                     countryCode,
                     countryName ?? countryCode,
@@ -923,7 +942,7 @@ public class BotDetectionMiddleware(
             policy = ResolvePolicy(context, endpoint, policyRegistry);
             aggregatedResult = await orchestrator.DetectWithPolicyAsync(context, policy, context.RequestAborted);
             PopulateContextFromAggregated(context, aggregatedResult, policy.Name);
-            FeedDetectionServices(aggregatedResult);
+            FeedDetectionServices(context, aggregatedResult);
 
             context.Response.Headers.TryAdd("X-Test-Mode", testModeHeader);
             context.Response.Headers.TryAdd(uaHeader.Name, uaHeader.Value);
@@ -1001,7 +1020,8 @@ public class BotDetectionMiddleware(
         // When this fires, it replaces the hard block — tarpit IS the response.
         if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
             && !string.IsNullOrEmpty(_options.DefaultActionPolicyName)
-            && aggregatedResult.BotProbability >= _options.BotThreshold)
+            && aggregatedResult.BotProbability >= _options.BotThreshold
+            && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
         {
             var fallbackPolicy = actionPolicyRegistry.GetPolicy(_options.DefaultActionPolicyName);
             if (fallbackPolicy != null)

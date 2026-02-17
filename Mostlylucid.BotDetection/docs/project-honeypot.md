@@ -136,12 +136,19 @@ Response `127.5.75.6`:
 
 ### Search Engines
 
-If the IP is identified as a search engine (type = 0), it receives a positive bias:
+If the IP is identified as a search engine (type = 0), it receives a strong human-leaning signal
+(negative confidence delta) rather than a VerifiedGoodBot early exit, since Project Honeypot's
+search engine classification is based on IP type flags, not cryptographic verification:
 
 ```csharp
-DetectionContribution.VerifiedGoodBot(
-    Name, "Search Engine (Project Honeypot)",
-    "IP verified as search engine by Project Honeypot")
+new DetectionContribution
+{
+    DetectorName = Name,
+    Category = "ProjectHoneypot",
+    ConfidenceDelta = -0.4,
+    Weight = 1.5,
+    Reason = "IP classified as search engine by Project Honeypot HTTP:BL"
+};
 ```
 
 ### High Threat Scores

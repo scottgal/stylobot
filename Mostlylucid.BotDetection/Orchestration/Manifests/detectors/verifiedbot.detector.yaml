@@ -1,0 +1,157 @@
+# Verified Bot Identity Detector - IP range + FCrDNS verification
+name: VerifiedBotContributor
+priority: 4  # After FastPathReputation (3), before UserAgent (10)
+enabled: true
+description: Verifies bot identity claims via published IP ranges and Forward-Confirmed reverse DNS
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: verifiedbot
+
+taxonomy:
+  kind: gatekeeper  # Controls early exit for verified bots
+  determinism: deterministic
+  persistence: ephemeral
+
+# Input contract
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with User-Agent and client IP
+      signal_pattern: request.*
+
+  required_signals:
+    - request.headers.user-agent
+    - request.ip
+
+  optional_signals: []
+
+# Output contract
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Verified bot identity contribution (may trigger early exit)
+
+  signals:
+    - key: verifiedbot.checked
+      entity_type: boolean
+      salience: 0.5
+      description: Whether verification was attempted
+    - key: verifiedbot.confirmed
+      entity_type: boolean
+      salience: 1.0
+      description: Whether bot identity was confirmed
+    - key: verifiedbot.name
+      entity_type: string
+      salience: 0.9
+      description: Name of the verified bot
+    - key: verifiedbot.method
+      entity_type: string
+      salience: 0.7
+      description: Verification method used (ip_range, fcrdns, none)
+    - key: verifiedbot.spoofed
+      entity_type: boolean
+      salience: 1.0
+      description: Whether UA claims bot identity but IP doesn't verify
+
+triggers:
+  requires: []  # No dependencies - runs in Wave 0
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.verifiedbot.started
+
+  on_complete:
+    - key: verifiedbot.checked
+      type: bool
+      description: Whether verification was attempted
+
+    - key: verifiedbot.confirmed
+      type: bool
+      description: Whether bot identity was confirmed via IP or DNS
+
+    - key: verifiedbot.name
+      type: string
+      description: Name of the verified bot
+
+    - key: verifiedbot.method
+      type: string
+      description: Verification method (ip_range, fcrdns, none)
+
+    - key: verifiedbot.spoofed
+      type: bool
+      description: Whether UA claims bot identity but IP doesn't verify
+
+  on_failure:
+    - detector.verifiedbot.failed
+
+  conditional:
+    - key: detection.early_exit.allow
+      type: bool
+      when: verifiedbot.confirmed == true
+      description: Signal to allow verified good bot immediately
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 180  # High priority - runs early
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:VerifiedBotContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 2.0        # Weight for spoofed UA detection
+    human_signal: 0.0      # N/A - this detects bots, not humans
+    verified: 3.0           # Weight for verified good bot early exit
+    early_exit: 5.0         # Maximum weight for early exit
+
+  confidence:
+    neutral: 0.0            # UA doesn't claim to be a known bot
+    bot_detected: 0.85      # Spoofed UA - high confidence bot
+    human_indicated: 0.0    # N/A
+    strong_signal: 0.95     # Verified good bot - very high confidence
+    high_threshold: 0.8
+    low_threshold: 0.2
+    escalation_threshold: 0.0  # Never escalates
+
+  timing:
+    timeout_ms: 100         # DNS lookups may take time, but IP range is instant
+    cache_refresh_sec: 0    # Managed by VerifiedBotRegistry background service
+
+  features:
+    detailed_logging: true
+    enable_cache: true       # DNS results cached per-IP
+    can_early_exit: true     # Verified bots trigger early exit
+    can_escalate: false
+
+  # VerifiedBot-specific parameters
+  parameters:
+    # Confidence for spoofed UA detection
+    spoofed_ua_confidence: 0.85
+    # DNS lookup timeout (ms)
+    dns_timeout_ms: 5000
+    # DNS cache TTL — verified bot DNS entries are stable for years (Google, Bing, etc.)
+    # Verified results cached 24h, failed results cached 1h
+    dns_verified_cache_ttl_hours: 24
+    dns_failed_cache_ttl_hours: 1
+    # IP range refresh interval (hours)
+    ip_range_refresh_hours: 24
+
+tags:
+  - fast-path
+  - verification
+  - dns
+  - ip-range
+  - early-exit
+  - stage-0
