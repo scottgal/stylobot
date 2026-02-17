@@ -196,7 +196,9 @@
       "Bash(pip install:*)",
       "Bash(claude plugin:*)",
       "Bash(claude plugins:*)",
-      "Bash(claude install:*)"
+      "Bash(claude install:*)",
+      "Bash(# Verify nonce in HTML body script tags curl -s http://localhost:5062/_stylobot)",
+      "Bash(# Kill the background website process pkill -f \"\"Stylobot.Website\"\" ; tasklist)"
     ]
   }
 }

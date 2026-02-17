@@ -189,9 +189,12 @@ public class StyloBotDashboardMiddleware
         context.Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
         // Replace restrictive CSP with dashboard-appropriate one
         context.Response.Headers.Remove("Content-Security-Policy");
-        var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj)
-            ? nonceObj?.ToString() ?? string.Empty
-            : string.Empty;
+        // Use existing nonce from upstream CSP middleware, or generate one if not present
+        // (e.g. when the host app skips its CSP for /_stylobot paths).
+        var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj) && nonceObj is string s && s.Length > 0
+            ? s
+            : Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+        context.Items["CspNonce"] = cspNonce;
         var dashboardCsp = string.Join("; ",
             "default-src 'self'",
             "base-uri 'self'",

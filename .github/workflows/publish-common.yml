@@ -40,17 +40,21 @@ jobs:
           exit 1
         fi
 
-    - name: Extract version
+    - name: Extract version and create MinVer tag
       id: get_version
       run: |
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           VERSION="${{ github.event.inputs.version }}"
+          # Create a local tag that MinVer will recognize
+          git tag "common-v${VERSION}"
         else
           TAG=${GITHUB_REF#refs/tags/}
           if [[ "$TAG" == common-v* ]]; then
             VERSION=${TAG#common-v}
           else
             VERSION=${TAG#allbot-v}
+            # Create a local tag that MinVer will recognize
+            git tag "common-v${VERSION}"
           fi
         fi
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT

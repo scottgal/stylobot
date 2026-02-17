@@ -1,5 +1,10 @@
 @using Mostlylucid.BotDetection.UI.Models
 @model DashboardViewModel
+@{
+    // Dashboard is a standalone HTML page rendered by middleware (not MVC).
+    // Suppress any _ViewStart layout from the hosting application.
+    Layout = null;
+}
 @functions {
     /// <summary>Escape &lt;/ sequences to prevent script tag breakout in embedded JSON.</summary>
     private static string SafeJson(string json) => json.Replace("</", "<\\/");

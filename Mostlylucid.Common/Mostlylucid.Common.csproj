@@ -12,8 +12,8 @@
         <Description>Shared abstractions, base classes, and utilities for Mostlylucid NuGet packages</Description>
         <Authors>Scott Galloway</Authors>
         <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
-        <PackageProjectUrl>https://github.com/scottgal/mostlylucid.nugetpackages</PackageProjectUrl>
-        <RepositoryUrl>https://github.com/scottgal/mostlylucid.nugetpackages</RepositoryUrl>
+        <PackageProjectUrl>https://github.com/scottgal/stylobot</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/scottgal/stylobot</RepositoryUrl>
         <PackageTags>common;utilities;caching;middleware;aspnetcore</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
 
