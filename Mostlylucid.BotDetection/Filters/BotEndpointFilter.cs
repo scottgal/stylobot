@@ -32,6 +32,7 @@ public class BlockBotsEndpointFilter : IEndpointFilter
     private readonly bool _allowGoodBots;
     private readonly bool _allowScrapers;
     private readonly bool _allowMaliciousBots;
+    private readonly bool _allowTools;
     private readonly double _minConfidence;
     private readonly int _statusCode;
     private readonly string? _blockCountries;
@@ -57,7 +58,8 @@ public class BlockBotsEndpointFilter : IEndpointFilter
         bool blockVpn = false,
         bool blockProxy = false,
         bool blockDatacenter = false,
-        bool blockTor = false)
+        bool blockTor = false,
+        bool allowTools = false)
     {
         _allowVerifiedBots = allowVerifiedBots;
         _allowSearchEngines = allowSearchEngines;
@@ -67,6 +69,7 @@ public class BlockBotsEndpointFilter : IEndpointFilter
         _allowGoodBots = allowGoodBots;
         _allowScrapers = allowScrapers;
         _allowMaliciousBots = allowMaliciousBots;
+        _allowTools = allowTools;
         _minConfidence = minConfidence;
         _statusCode = statusCode;
         _blockCountries = blockCountries;
@@ -102,7 +105,7 @@ public class BlockBotsEndpointFilter : IEndpointFilter
         if (BotTypeFilter.IsBotTypeAllowed(result.BotType,
                 _allowVerifiedBots, _allowSearchEngines, _allowSocialMediaBots,
                 _allowMonitoringBots, _allowAiBots, _allowGoodBots,
-                _allowScrapers, _allowMaliciousBots))
+                _allowScrapers, _allowMaliciousBots, _allowTools))
             return await next(context);
 
         return Results.Json(new

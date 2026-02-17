@@ -122,6 +122,24 @@ public class GeoRoutingMiddleware
             return;
         }
 
+        // If local geo returned "Private Network" but a trusted upstream gateway forwarded
+        // the real country code, prefer that (handles gateway → website proxy scenario)
+        if (IsPrivateNetworkResult(location))
+        {
+            var gatewayCountry = context.Request.Headers["X-Bot-Detection-Country"].ToString();
+            if (!string.IsNullOrEmpty(gatewayCountry) && gatewayCountry != "LOCAL")
+            {
+                location = new Models.GeoLocation
+                {
+                    CountryCode = gatewayCountry,
+                    CountryName = gatewayCountry, // Name not available from header, code is sufficient
+                    IsVpn = location.IsVpn,
+                    IsHosting = location.IsHosting
+                };
+                _logger.LogDebug("Using gateway-forwarded country {Country} instead of Private Network", gatewayCountry);
+            }
+        }
+
         // Store in context for downstream use
         if (_options.StoreInContext) context.Items[GeoLocationKey] = location;
 
@@ -252,6 +270,17 @@ public class GeoRoutingMiddleware
 
         // Fall back to connection remote IP
         return context.Connection.RemoteIpAddress?.ToString();
+    }
+
+    private static bool IsPrivateNetworkResult(Models.GeoLocation location)
+    {
+        if (string.IsNullOrEmpty(location.CountryCode) || location.CountryCode == "XX")
+            return true;
+        if (location.CountryName?.Contains("Private", StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        if (location.CountryName?.Contains("Reserved", StringComparison.OrdinalIgnoreCase) == true)
+            return true;
+        return false;
     }
 
     private bool IsWhitelisted(string ipAddress, string[] whitelist)

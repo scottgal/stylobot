@@ -167,6 +167,13 @@ public class BotDetectionOptions
     /// </summary>
     public bool AllowMonitoringBots { get; set; } = true;
 
+    /// <summary>
+    ///     Allow developer HTTP tools (curl, wget, httpie, python-requests, etc.) through even when blocking.
+    ///     Tools are still subject to rate limiting via action policies (throttle-stealth, etc.).
+    ///     Default is false.
+    /// </summary>
+    public bool AllowTools { get; set; }
+
     // ==========================================
     // Legacy Ollama Settings (use AiDetection section instead)
     // ==========================================

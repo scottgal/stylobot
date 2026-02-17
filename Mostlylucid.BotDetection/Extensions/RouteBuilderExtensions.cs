@@ -52,6 +52,7 @@ public static class RouteBuilderExtensions
         bool allowGoodBots = false,
         bool allowScrapers = false,
         bool allowMaliciousBots = false,
+        bool allowTools = false,
         double minConfidence = 0.0,
         int statusCode = 403,
         string? blockCountries = null,
@@ -67,7 +68,8 @@ public static class RouteBuilderExtensions
             allowScrapers, allowMaliciousBots,
             minConfidence, statusCode,
             blockCountries, allowCountries,
-            blockVpn, blockProxy, blockDatacenter, blockTor));
+            blockVpn, blockProxy, blockDatacenter, blockTor,
+            allowTools));
     }
 
     /// <summary>

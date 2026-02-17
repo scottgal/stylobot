@@ -275,7 +275,7 @@
 
             <!-- Visitor List -->
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                <template x-for="v in pagedVisitors" :key="v.primarySignature">
+                <template x-for="v in visitors" :key="v.primarySignature">
                     <a :href="visitorUrl(v)"
                        class="p-3 rounded-lg border transition-colors hover:border-current group"
                        style="background: var(--sb-card-bg); border-color: var(--sb-card-divider);"
@@ -381,6 +381,15 @@
 
         <!-- ==================== COUNTRIES TAB ==================== -->
         <div x-show="tab === 'countries'" x-cloak>
+            <!-- World Map -->
+            <div class="marketing-card p-4 mb-3">
+                <h3 class="text-sm font-semibold text-base-content mb-2">Global Traffic Map</h3>
+                <div id="world-map" class="w-full"></div>
+                <div x-show="countries.length === 0" class="flex items-center justify-center h-48 text-sm" style="color: var(--sb-card-subtle);">
+                    No country data yet
+                </div>
+            </div>
+
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <!-- Chart -->
                 <div class="marketing-card p-4">

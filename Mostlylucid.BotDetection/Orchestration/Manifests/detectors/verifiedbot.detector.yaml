@@ -139,6 +139,12 @@ defaults:
   parameters:
     # Confidence for spoofed UA detection
     spoofed_ua_confidence: 0.85
+    # Confidence for honest bot (UA domain matches rDNS) - lower than spoofed because
+    # honest bots are still bots, just transparent about it
+    honest_bot_confidence: 0.3
+    # Confidence for rDNS mismatch (UA claims domain but rDNS resolves to different domain)
+    # Low confidence because rDNS can legitimately differ (CDNs, shared hosting, etc.)
+    rdns_mismatch_confidence: 0.25
     # DNS lookup timeout (ms)
     dns_timeout_ms: 5000
     # DNS cache TTL — verified bot DNS entries are stable for years (Google, Bing, etc.)

@@ -48,6 +48,9 @@ public sealed class MultiFactorSignatureService
         // Extract plugin signature from headers (if available)
         var pluginSignature = ExtractPluginSignature(httpContext);
 
+        // Extract country code from GeoLocation (set by GeoRoutingMiddleware)
+        var countryCode = ExtractCountryCode(httpContext);
+
         // Generate all signature factors
         var signatures = new MultiFactorSignatures
         {
@@ -60,6 +63,9 @@ public sealed class MultiFactorSignatureService
             ClientSideSignature = clientFingerprint != null ? _hasher.ComputeSignature(clientFingerprint) : null,
             PluginSignature = pluginSignature != null ? _hasher.ComputeSignature(pluginSignature) : null,
 
+            // Geo signature: country code (NOT PII, stored raw for drift detection)
+            GeoSignature = countryCode,
+
             // Additional composite signatures for different scenarios
             IpUaSignature = _hasher.ComputeSignature(ip, userAgent), // Same as primary
             IpClientSignature = clientFingerprint != null ? _hasher.ComputeSignature(ip, clientFingerprint) : null,
@@ -69,17 +75,18 @@ public sealed class MultiFactorSignatureService
 
             // Metadata (non-PII)
             Timestamp = DateTime.UtcNow,
-            FactorCount = CountFactors(ip, userAgent, clientFingerprint, pluginSignature)
+            FactorCount = CountFactors(ip, userAgent, clientFingerprint, pluginSignature, countryCode)
         };
 
         _logger.LogDebug(
-            "Generated multi-factor signatures with {FactorCount} factors: Primary={Primary}, IP={HasIp}, UA={HasUa}, Client={HasClient}, Plugin={HasPlugin}",
+            "Generated multi-factor signatures with {FactorCount} factors: Primary={Primary}, IP={HasIp}, UA={HasUa}, Client={HasClient}, Plugin={HasPlugin}, Geo={Geo}",
             signatures.FactorCount,
             signatures.PrimarySignature.Substring(0, Math.Min(8, signatures.PrimarySignature.Length)),
             signatures.IpSignature != null,
             signatures.UaSignature != null,
             signatures.ClientSideSignature != null,
-            signatures.PluginSignature != null);
+            signatures.PluginSignature != null,
+            signatures.GeoSignature ?? "none");
 
         return signatures;
     }
@@ -112,6 +119,9 @@ public sealed class MultiFactorSignatureService
 
         if (current.IpSubnetSignature != null && current.IpSubnetSignature == stored.IpSubnetSignature)
             matchedFactors.Add("IpSubnet");
+
+        if (current.GeoSignature != null && current.GeoSignature == stored.GeoSignature)
+            matchedFactors.Add("Geo");
 
         // Calculate confidence based on matched factors
         var confidence = CalculateMatchConfidence(matchedFactors, current.FactorCount, stored.FactorCount);
@@ -207,13 +217,34 @@ public sealed class MultiFactorSignatureService
         return string.Join("|", components);
     }
 
-    private int CountFactors(string? ip, string? ua, string? clientFp, string? pluginSig)
+    /// <summary>
+    ///     Extract country code from GeoLocation stored by GeoRoutingMiddleware.
+    ///     Country code (e.g. "US", "CN") is NOT PII — it's a coarse geographic signal
+    ///     more resistant to IP rotation than IP-based signatures.
+    /// </summary>
+    private static string? ExtractCountryCode(HttpContext httpContext)
+    {
+        // GeoRoutingMiddleware stores GeoLocation in Items["GeoLocation"]
+        if (httpContext.Items.TryGetValue("GeoLocation", out var geoObj) && geoObj != null)
+        {
+            // Use reflection-free duck typing: the GeoLocation model has a CountryCode property
+            var countryProp = geoObj.GetType().GetProperty("CountryCode");
+            var countryCode = countryProp?.GetValue(geoObj) as string;
+            if (!string.IsNullOrEmpty(countryCode))
+                return countryCode;
+        }
+
+        return null;
+    }
+
+    private static int CountFactors(string? ip, string? ua, string? clientFp, string? pluginSig, string? countryCode = null)
     {
         var count = 0;
         if (!string.IsNullOrEmpty(ip)) count++;
         if (!string.IsNullOrEmpty(ua)) count++;
         if (!string.IsNullOrEmpty(clientFp)) count++;
         if (!string.IsNullOrEmpty(pluginSig)) count++;
+        if (!string.IsNullOrEmpty(countryCode)) count++;
         return count;
     }
 
@@ -250,6 +281,9 @@ public sealed class MultiFactorSignatureService
 
         if (matchedFactors.Contains("IpSubnet") && matchedFactors.Count >= 2)
             return MatchType.NetworkIdentity;
+
+        if (matchedFactors.Contains("Geo") && matchedFactors.Count >= 2)
+            return MatchType.GeoIdentity;
 
         if (matchedFactors.Count >= 2)
             return MatchType.Partial;
@@ -290,6 +324,9 @@ public sealed class MultiFactorSignatures
 
     /// <summary>IP subnet (/24) signature - for network-level grouping</summary>
     public string? IpSubnetSignature { get; set; }
+
+    /// <summary>Country code (NOT PII) - raw ISO 3166-1 alpha-2 for geo drift detection</summary>
+    public string? GeoSignature { get; set; }
 
     /// <summary>Timestamp when signatures were generated</summary>
     public DateTime Timestamp { get; set; } = DateTime.UtcNow;
@@ -340,5 +377,8 @@ public enum MatchType
     ClientIdentity,
 
     /// <summary>Network identity matches (same network, different client)</summary>
-    NetworkIdentity
+    NetworkIdentity,
+
+    /// <summary>Geographic identity matches (same country, different IP - resistant to IP rotation)</summary>
+    GeoIdentity
 }

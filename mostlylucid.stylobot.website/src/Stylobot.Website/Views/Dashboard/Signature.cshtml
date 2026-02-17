@@ -116,6 +116,16 @@
                     </div>
                 </div>
 
+                <!-- Location Map -->
+                <div class="marketing-card p-4 mb-4" x-show="countryCode">
+                    <div class="flex items-center justify-between mb-2">
+                        <h2 class="text-sm font-semibold text-base-content">Location</h2>
+                        <span class="text-xs font-medium" style="color: var(--sb-card-subtle);"
+                              x-text="countryFlag(countryCode) + ' ' + countryCode"></span>
+                    </div>
+                    <div id="location-map" class="w-full" style="max-height: 200px; overflow: hidden;"></div>
+                </div>
+
                 <!-- Narrative + Reasons -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
                     <div class="marketing-card p-4" x-show="sig.narrative || sig.description">

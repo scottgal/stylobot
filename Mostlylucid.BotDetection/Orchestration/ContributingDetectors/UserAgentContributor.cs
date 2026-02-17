@@ -46,6 +46,8 @@ public partial class UserAgentContributor : ConfiguredContributorBase
     private double MissingUaConfidence => GetParam("missing_ua_confidence", 0.8);
     private double PatternMatchConfidence => GetParam("pattern_match_confidence", 0.9);
     private double SuspiciousConfidence => GetParam("suspicious_confidence", 0.6);
+    private double ToolHeaderMatchConfidence => GetParam("tool_header_match_confidence", 0.7);
+    private double ToolHeaderMismatchConfidence => GetParam("tool_header_mismatch_confidence", 0.5);
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
@@ -91,6 +93,10 @@ public partial class UserAgentContributor : ConfiguredContributorBase
 
         if (isBot)
         {
+            // For tool-type UAs, verify headers match the tool's expected fingerprint
+            if (botType == BotType.Tool)
+                confidence = VerifyToolHeaders(state, confidence, botName, out reason);
+
             state.WriteSignals([
                 new(SignalKeys.UserAgent, userAgent),
                 new(SignalKeys.UserAgentIsBot, true),
@@ -168,15 +174,28 @@ public partial class UserAgentContributor : ConfiguredContributorBase
         return (false, 0.0, null, null, "Normal user agent");
     }
 
+    // Browser-only headers that real HTTP tools never send.
+    // Used to verify tool UA claims — if these are present, the UA is likely spoofed.
+    private static readonly string[] BrowserOnlyHeaders =
+        ["Sec-Fetch-Mode", "Sec-Fetch-Site", "Sec-Fetch-Dest"];
+
     private static readonly (string pattern, BotType type, string name)[] CommonBotPatterns =
     [
-        // Automation / scraping tools
-        ("curl/", BotType.Scraper, "curl"),
-        ("wget/", BotType.Scraper, "wget"),
-        ("python-requests", BotType.Scraper, "python-requests"),
-        ("python-urllib", BotType.Scraper, "python-urllib"),
-        ("python-httpx", BotType.Scraper, "python-httpx"),
-        ("aiohttp", BotType.Scraper, "aiohttp"),
+        // Developer HTTP tools (libraries/CLIs — not automation frameworks)
+        ("curl/", BotType.Tool, "curl"),
+        ("wget/", BotType.Tool, "wget"),
+        ("python-requests", BotType.Tool, "python-requests"),
+        ("python-urllib", BotType.Tool, "python-urllib"),
+        ("python-httpx", BotType.Tool, "python-httpx"),
+        ("aiohttp", BotType.Tool, "aiohttp"),
+        ("httpie", BotType.Tool, "HTTPie"),
+        ("java/", BotType.Tool, "Java HTTP client"),
+        ("apache-httpclient", BotType.Tool, "Apache HttpClient"),
+        ("okhttp", BotType.Tool, "OkHttp"),
+        ("go-http-client", BotType.Tool, "Go HTTP client"),
+        ("node-fetch", BotType.Tool, "node-fetch"),
+        ("axios/", BotType.Tool, "axios"),
+        // Automation / scraping frameworks
         ("scrapy", BotType.Scraper, "Scrapy"),
         ("selenium", BotType.Scraper, "Selenium"),
         ("headless", BotType.Scraper, "Headless browser"),
@@ -185,13 +204,6 @@ public partial class UserAgentContributor : ConfiguredContributorBase
         ("playwright", BotType.Scraper, "Playwright"),
         ("httrack", BotType.Scraper, "HTTrack"),
         ("libwww-perl", BotType.Scraper, "libwww-perl"),
-        ("java/", BotType.Scraper, "Java HTTP client"),
-        ("apache-httpclient", BotType.Scraper, "Apache HttpClient"),
-        ("okhttp", BotType.Scraper, "OkHttp"),
-        ("go-http-client", BotType.Scraper, "Go HTTP client"),
-        ("node-fetch", BotType.Scraper, "node-fetch"),
-        ("axios/", BotType.Scraper, "axios"),
-        ("httpie", BotType.Scraper, "HTTPie"),
         ("colly", BotType.Scraper, "Colly"),
         // Search engines (when not whitelisted)
         ("Googlebot", BotType.SearchEngine, "Googlebot"),
@@ -327,6 +339,38 @@ public partial class UserAgentContributor : ConfiguredContributorBase
     private static string Truncate(string value, int maxLength)
     {
         return value.Length <= maxLength ? value : value[..(maxLength - 3)] + "...";
+    }
+
+    /// <summary>
+    ///     Verifies that a tool UA claim is consistent with the tool's expected header fingerprint.
+    ///     Real HTTP tools (curl, wget, etc.) don't send browser-specific headers like Sec-Fetch-*.
+    ///     If browser-only headers are present, the UA is likely spoofed → higher confidence.
+    /// </summary>
+    private double VerifyToolHeaders(BlackboardState state, double baseConfidence, string? toolName, out string reason)
+    {
+        var headers = state.HttpContext.Request.Headers;
+
+        // Count browser-only headers present — real tools send 0 of these
+        var browserHeaderCount = 0;
+        foreach (var header in BrowserOnlyHeaders)
+            if (headers.ContainsKey(header))
+                browserHeaderCount++;
+
+        // Also check Accept-Language with locale (e.g., "en-US,en;q=0.9") — tools don't send this
+        var acceptLang = headers["Accept-Language"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(acceptLang) && acceptLang.Contains(','))
+            browserHeaderCount++;
+
+        if (browserHeaderCount > 0)
+        {
+            // Browser headers present with tool UA → likely spoofed
+            reason = $"Tool UA ({toolName}) with {browserHeaderCount} browser-only header(s) — likely spoofed";
+            return ToolHeaderMismatchConfidence + (browserHeaderCount * 0.05);
+        }
+
+        // Headers consistent with tool fingerprint
+        reason = $"Confirmed tool: {toolName} (headers match expected fingerprint)";
+        return ToolHeaderMatchConfidence;
     }
 
     [GeneratedRegex(@"\b(bot|crawler|spider|scraper)\b", RegexOptions.IgnoreCase)]

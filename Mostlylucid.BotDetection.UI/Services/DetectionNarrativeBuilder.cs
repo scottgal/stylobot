@@ -39,7 +39,8 @@ public static class DetectionNarrativeBuilder
         ["AiScraper"] = "AI scraper detection",
         ["TimescaleReputation"] = "historical reputation",
         ["ClusterContributor"] = "bot cluster detection",
-        ["ConvergedFamily"] = "signature convergence"
+        ["ConvergedFamily"] = "signature convergence",
+        ["GeoChange"] = "geographic drift detection"
     };
 
     private static readonly Dictionary<string, string> DetectorCategories = new(StringComparer.OrdinalIgnoreCase)
@@ -73,7 +74,8 @@ public static class DetectionNarrativeBuilder
         ["AiScraper"] = "AI",
         ["TimescaleReputation"] = "Reputation",
         ["ClusterContributor"] = "Cross-Request",
-        ["ConvergedFamily"] = "Cross-Request"
+        ["ConvergedFamily"] = "Cross-Request",
+        ["GeoChange"] = "Geographic"
     };
 
     private static readonly Dictionary<string, string> BotTypeFriendlyNames = new(StringComparer.OrdinalIgnoreCase)

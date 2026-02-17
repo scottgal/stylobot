@@ -159,6 +159,9 @@ public partial class DetectionBroadcastMiddleware
                         .ToDictionary(s => s.Key, s => s.Value);
                 }
 
+                // Always enrich HTTP protocol version — it's non-PII metadata needed for dashboard stats
+                EnrichProtocol(context, importantSignals);
+
                 // Enrich with basic request info when signals are sparse (e.g. human fast-path)
                 // Only when EnrichHumanSignals is enabled — disabled by default for privacy
                 var dashboardOptions = context.RequestServices.GetService<IOptions<StyloBotDashboardOptions>>()?.Value;
@@ -514,6 +517,25 @@ public partial class DetectionBroadcastMiddleware
 
         var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(combined));
         return Convert.ToHexString(hash)[..16].ToLowerInvariant();
+    }
+
+    /// <summary>
+    ///     Always enrich protocol version — non-PII metadata the dashboard needs for protocol stats.
+    ///     Sets h3.protocol, h2.protocol signals when not already present from fingerprint detectors.
+    /// </summary>
+    private static void EnrichProtocol(HttpContext context, Dictionary<string, object> signals)
+    {
+        if (signals.ContainsKey("h3.protocol") || signals.ContainsKey("h3.version") ||
+            signals.ContainsKey("h2.fingerprint") || signals.ContainsKey("h2.settings_hash") ||
+            signals.ContainsKey("h2.protocol"))
+            return; // Already enriched by fingerprint detectors
+
+        var protocol = context.Request.Protocol;
+        if (protocol.Contains("3", StringComparison.Ordinal))
+            signals.TryAdd("h3.protocol", "h3");
+        else if (protocol.Contains("2", StringComparison.Ordinal))
+            signals.TryAdd("h2.protocol", "h2");
+        // HTTP/1.1 is the fallback — dashboard infers it when no h2/h3 signal present
     }
 
     /// <summary>

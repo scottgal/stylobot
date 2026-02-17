@@ -216,6 +216,8 @@ public static class SignalKeys
     public const string IpIsDatacenter = "ip.is_datacenter";
     public const string IpIsLocal = "ip.is_local";
     public const string IpProvider = "ip.provider";
+    public const string IpAsn = "ip.asn";
+    public const string IpAsnOrg = "ip.asn_org";
 
     public const string FingerprintHash = "fingerprint.hash";
     public const string FingerprintHeadlessScore = "fingerprint.headless_score";
@@ -554,7 +556,7 @@ public static class SignalKeys
 
     // ==========================================
     // Country reputation signals
-    // Set by ClusterContributor from CountryReputationTracker
+    // Set by GeoChangeContributor from CountryReputationTracker
     // ==========================================
 
     /// <summary>Double: Decayed bot rate for the visitor's country (0.0 to 1.0)</summary>
@@ -562,6 +564,32 @@ public static class SignalKeys
 
     /// <summary>Int: Country rank by bot rate (1-based, lower = more bots)</summary>
     public const string GeoCountryBotRank = "geo.country_bot_rank";
+
+    // ==========================================
+    // Geographic drift signals
+    // Set by GeoChangeContributor for country change detection
+    // ==========================================
+
+    /// <summary>Boolean: Whether geo change was checked for this signature</summary>
+    public const string GeoChangeChecked = "geo.change.checked";
+
+    /// <summary>Int: Number of distinct countries seen for this signature</summary>
+    public const string GeoChangeDistinctCountries = "geo.change.distinct_countries";
+
+    /// <summary>Int: Total number of country changes for this signature</summary>
+    public const string GeoChangeTotalChanges = "geo.change.total_changes";
+
+    /// <summary>Boolean: Whether country drift was detected</summary>
+    public const string GeoChangeDriftDetected = "geo.change.drift_detected";
+
+    /// <summary>String: Previous country code before drift</summary>
+    public const string GeoChangePreviousCountry = "geo.change.previous_country";
+
+    /// <summary>Boolean: Whether rapid country switching was detected (proxy rotation)</summary>
+    public const string GeoChangeRapidDrift = "geo.change.rapid_drift";
+
+    /// <summary>String: Country reputation level (high, very_high)</summary>
+    public const string GeoChangeReputationLevel = "geo.change.reputation_level";
 
     // ==========================================
     // Signature convergence signals
@@ -655,4 +683,15 @@ public static class SignalKeys
 
     /// <summary>Boolean: true if UA claims bot identity but IP doesn't verify (spoofed)</summary>
     public const string VerifiedBotSpoofed = "verifiedbot.spoofed";
+
+    /// <summary>Boolean: true if rDNS resolved but doesn't match domain claimed in UA</summary>
+    public const string VerifiedBotRdnsMismatch = "verifiedbot.rdns_mismatch";
+
+    // ==========================================
+    // ISP / residential IP signals
+    // Set by IpContributor when ASN resolves to non-datacenter
+    // ==========================================
+
+    /// <summary>Boolean: true if IP belongs to an ISP/residential network (not a datacenter)</summary>
+    public const string IpIsIsp = "ip.is_isp";
 }

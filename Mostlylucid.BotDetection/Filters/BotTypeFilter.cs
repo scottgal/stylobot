@@ -25,7 +25,8 @@ public static class BotTypeFilter
         bool allowAiBots = false,
         bool allowGoodBots = false,
         bool allowScrapers = false,
-        bool allowMaliciousBots = false) => botType switch
+        bool allowMaliciousBots = false,
+        bool allowTools = false) => botType switch
     {
         BotType.VerifiedBot => allowVerifiedBots || allowSearchEngines,
         BotType.SearchEngine => allowSearchEngines,
@@ -35,6 +36,7 @@ public static class BotTypeFilter
         BotType.GoodBot => allowGoodBots,
         BotType.Scraper => allowScrapers,
         BotType.MaliciousBot => allowMaliciousBots,
+        BotType.Tool => allowTools,
         _ => false // Unknown always blocked
     };
 

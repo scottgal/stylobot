@@ -70,5 +70,6 @@ public enum BotType
     MaliciousBot,
     GoodBot,
     VerifiedBot,
-    AiBot
+    AiBot,
+    Tool
 }

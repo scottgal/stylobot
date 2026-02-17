@@ -1,5 +1,6 @@
 import Alpine from 'alpinejs';
 import ApexCharts from 'apexcharts';
+import { renderWorldMap, renderCountryPin, type MapDataPoint } from './worldmap';
 
 // ===== Shared Utilities =====
 
@@ -429,6 +430,7 @@ function dashboardApp() {
 
         countries: [] as any[],
         countryChart: null as ApexCharts | null,
+        worldMapRendered: false,
 
         recentDetections: [] as any[],
 
@@ -545,10 +547,13 @@ function dashboardApp() {
 
         async loadCountries() {
             try {
-                const res = await fetch('/_stylobot/api/countries?count=20');
+                const res = await fetch('/_stylobot/api/countries?count=50');
                 if (res.ok) {
                     this.countries = toCamel(await res.json());
-                    this.$nextTick(() => this.renderCountryChart());
+                    this.$nextTick(() => {
+                        this.renderCountryChart();
+                        this.renderWorldMapChart();
+                    });
                 }
             } catch (e) {
                 console.warn('[Dashboard] Failed to load countries:', e);
@@ -665,8 +670,42 @@ function dashboardApp() {
                     this.summary = toCamel(raw);
                 });
 
+                this.connection.on('BroadcastSignature', (raw: any) => {
+                    const sig = toCamel(raw);
+                    const idx = this.visitors.findIndex((v: any) => v.primarySignature === sig.primarySignature);
+                    if (idx >= 0) {
+                        this.visitors[idx] = { ...this.visitors[idx], ...sig };
+                    }
+                    // Update top bots
+                    const botIdx = this.topBots.findIndex((b: any) => b.primarySignature === sig.primarySignature);
+                    if (botIdx >= 0) {
+                        this.topBots[botIdx] = { ...this.topBots[botIdx], ...sig };
+                    }
+                });
+
                 this.connection.on('BroadcastClusters', (raw: any) => {
                     this.clusters = toCamel(raw);
+                });
+
+                this.connection.on('BroadcastSignatureDescriptionUpdate', (signature: string, name: string, description: string) => {
+                    const idx = this.visitors.findIndex((v: any) => v.primarySignature === signature);
+                    if (idx >= 0) {
+                        this.visitors[idx].botName = name;
+                        this.visitors[idx].description = description;
+                    }
+                    const botIdx = this.topBots.findIndex((b: any) => b.primarySignature === signature);
+                    if (botIdx >= 0) {
+                        this.topBots[botIdx].botName = name;
+                        this.topBots[botIdx].description = description;
+                    }
+                });
+
+                this.connection.on('BroadcastClusterDescriptionUpdate', (clusterId: string, label: string, description: string) => {
+                    const idx = this.clusters.findIndex((c: any) => c.clusterId === clusterId);
+                    if (idx >= 0) {
+                        this.clusters[idx].label = label;
+                        this.clusters[idx].description = description;
+                    }
                 });
 
                 this.connection.onclose(() => { this.connected = false; });
@@ -841,9 +880,25 @@ function dashboardApp() {
             }
         },
 
+        renderWorldMapChart() {
+            const el = document.getElementById('world-map');
+            if (!el || this.countries.length === 0) return;
+
+            const mapData: MapDataPoint[] = this.countries.map((co: any) => ({
+                code: co.countryCode,
+                totalCount: co.totalCount || 0,
+                botRate: co.botRate || 0,
+                label: co.countryName || co.countryCode,
+            }));
+
+            renderWorldMap(el, mapData, { dark: isDark() });
+            this.worldMapRendered = true;
+        },
+
         onThemeChange() {
             if (this.timeChart) this.renderTimeChart();
             if (this.countryChart) this.renderCountryChart();
+            if (this.worldMapRendered) this.renderWorldMapChart();
         },
 
         // ===== Helpers exposed to template =====
@@ -875,6 +930,7 @@ function signatureDetailApp() {
 
         probChart: null as ApexCharts | null,
         timingChart: null as ApexCharts | null,
+        countryCode: '' as string,
 
         // Debounced sparkline refresh
         _refreshTimer: null as ReturnType<typeof setTimeout> | null,
@@ -916,11 +972,18 @@ function signatureDetailApp() {
                 };
             }
 
+            // Extract country code from latest detection signals
+            if (this.detections.length > 0) {
+                const sigs = this.detections[0].importantSignals || {};
+                this.countryCode = sigs['geo.country_code'] || sigs['geo.country'] || '';
+            }
+
             this.loading = false;
 
             this.$nextTick(() => {
                 this.renderProbChart();
                 this.renderTimingChart();
+                this.renderLocationMap();
             });
 
             await this.connectSignalR();
@@ -986,6 +1049,17 @@ function signatureDetailApp() {
                         // Re-group page loads
                         this._groupedDetections = groupPageLoads(this._allDetections);
 
+                        // Update sig with latest detection values
+                        if (this.sig) {
+                            this.sig.botProbability = d.botProbability ?? this.sig.botProbability;
+                            this.sig.confidence = d.confidence ?? this.sig.confidence;
+                            this.sig.riskBand = d.riskBand || this.sig.riskBand;
+                            this.sig.isKnownBot = d.isBot ?? this.sig.isKnownBot;
+                            this.sig.action = d.action || d.policyName || this.sig.action;
+                            this.sig.lastPath = d.path || this.sig.lastPath;
+                            this.sig.timestamp = d.timestamp || this.sig.timestamp;
+                        }
+
                         // Debounce sparkline refresh (500ms) to avoid hammering API during bursts
                         if (this._refreshTimer) clearTimeout(this._refreshTimer);
                         this._refreshTimer = setTimeout(() => {
@@ -996,6 +1070,28 @@ function signatureDetailApp() {
                                 });
                             });
                         }, 500);
+                    }
+                });
+
+                // Live signature updates (hit count, bot name, description)
+                this.connection.on('BroadcastSignature', (raw: any) => {
+                    const s = toCamel(raw);
+                    if (s.primarySignature === this.signature && this.sig) {
+                        this.sig.hitCount = s.hitCount ?? this.sig.hitCount;
+                        this.sig.botName = s.botName || this.sig.botName;
+                        this.sig.botType = s.botType || this.sig.botType;
+                        this.sig.botProbability = s.botProbability ?? this.sig.botProbability;
+                        this.sig.confidence = s.confidence ?? this.sig.confidence;
+                        this.sig.riskBand = s.riskBand || this.sig.riskBand;
+                        this.sig.isKnownBot = s.isKnownBot ?? this.sig.isKnownBot;
+                    }
+                });
+
+                // Live description updates from LLM
+                this.connection.on('BroadcastSignatureDescriptionUpdate', (sigId: string, name: string, description: string) => {
+                    if (sigId === this.signature && this.sig) {
+                        this.sig.botName = name || this.sig.botName;
+                        this.sig.narrative = description || this.sig.narrative;
                     }
                 });
 
@@ -1125,9 +1221,16 @@ function signatureDetailApp() {
             }
         },
 
+        renderLocationMap() {
+            const el = document.getElementById('location-map');
+            if (!el || !this.countryCode) return;
+            renderCountryPin(el, this.countryCode, isDark());
+        },
+
         onThemeChange() {
             if (this.probChart) this.renderProbChart();
             if (this.timingChart) this.renderTimingChart();
+            this.renderLocationMap();
         },
 
         // ===== Bot Score Trend (computed from sparkline history) =====

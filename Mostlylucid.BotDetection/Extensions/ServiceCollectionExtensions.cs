@@ -266,6 +266,9 @@ public static class ServiceCollectionExtensions
             return new BotListDatabase(fetcher, logger, options.DatabasePath);
         });
 
+        // Register ASN lookup service (Team Cymru DNS-based IP→ASN mapping)
+        services.TryAddSingleton<IAsnLookupService, AsnLookupService>();
+
         // Register core bot detection service
         services.TryAddSingleton<IBotDetectionService, BotDetectionService>();
 
@@ -443,6 +446,8 @@ public static class ServiceCollectionExtensions
         // Response behavior feedback - runs early to provide historical feedback
         services.AddSingleton<IContributingDetector, ResponseBehaviorContributor>();
         // Wave 1+ detectors (triggered by signals from Wave 0)
+        // Geo change detection - country drift and country reputation (triggered by geo.country_code)
+        services.AddSingleton<IContributingDetector, GeoChangeContributor>();
         services.AddSingleton<IContributingDetector, VersionAgeContributor>();
         services.AddSingleton<IContributingDetector, InconsistencyContributor>();
         // Project Honeypot IP reputation (triggered by IP signal)

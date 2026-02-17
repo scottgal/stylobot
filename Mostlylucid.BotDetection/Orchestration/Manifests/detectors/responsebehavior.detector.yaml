@@ -153,14 +153,32 @@ defaults:
     auth_severe_threshold: 20       # 401/403 count for severe
     auth_moderate_threshold: 10     # 401/403 count for moderate
     auth_mild_threshold: 5          # 401/403 count for mild
+    auth_severe_confidence: 0.85    # Confidence delta for severe
+    auth_severe_weight: 1.9         # Weight for severe
+    auth_moderate_confidence: 0.5   # Confidence delta for moderate
+    auth_moderate_weight: 1.5       # Weight for moderate
+    auth_mild_confidence: 0.2       # Confidence delta for mild
+    auth_mild_weight: 1.2           # Weight for mild
+
+    # --- Honeypot Thresholds ---
+    honeypot_confidence: 0.9        # ANY honeypot hit is very strong
+    honeypot_weight: 2.0
 
     # --- Error Harvesting Thresholds ---
     error_harvesting_high_threshold: 10
     error_harvesting_moderate_threshold: 5
+    error_harvesting_high_confidence: 0.7
+    error_harvesting_high_weight: 1.6
+    error_harvesting_moderate_confidence: 0.3
+    error_harvesting_moderate_weight: 1.3
 
     # --- Rate Limit Thresholds ---
     rate_limit_high_threshold: 5
     rate_limit_moderate_threshold: 2
+    rate_limit_high_confidence: 0.75
+    rate_limit_high_weight: 1.7
+    rate_limit_moderate_confidence: 0.4
+    rate_limit_moderate_weight: 1.4
 
     # --- Overall Response Score Thresholds ---
     high_response_score_threshold: 0.8
@@ -168,6 +186,14 @@ defaults:
     low_response_score_threshold: 0.4
     clean_history_threshold: 0.2
     clean_history_min_responses: 5
+    high_score_confidence: 0.85
+    high_score_weight: 1.8
+    medium_score_confidence: 0.5
+    medium_score_weight: 1.5
+    low_score_confidence: 0.2
+    low_score_weight: 1.2
+    clean_history_confidence: -0.15
+    clean_history_weight: 1.3
 
 tags:
   - fast-path

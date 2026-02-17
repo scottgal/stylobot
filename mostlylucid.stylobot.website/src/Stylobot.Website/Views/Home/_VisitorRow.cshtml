@@ -3,9 +3,7 @@
 
 <tr id="visitor-@Model.PrimarySignature" hx-swap-oob="true"
     class="cursor-pointer hover:bg-base-300/30 transition-colors @(Model.IsBot ? "bg-error/5" : "")"
-    hx-get="/Home/LiveDemo/Visitor/@Model.PrimarySignature"
-    hx-target="#visitor-detail"
-    hx-swap="innerHTML">
+    onclick="window.location.href='/dashboard/signature/@Uri.EscapeDataString(Model.PrimarySignature)'">
     <td class="px-3 py-2">
         <div class="flex items-center gap-2">
             <span class="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white @(Model.IsBot ? "bg-error" : "bg-success")">

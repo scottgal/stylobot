@@ -140,6 +140,8 @@ defaults:
       Hetzner: ["65.21.", "95.216.", "135.181.", "168.119."]
     # Datacenter IP base confidence
     datacenter_confidence: 0.6
+    # ISP/residential IP human confidence (weak positive human signal)
+    isp_human_confidence: 0.15
 
 tags:
   - fast-path

@@ -67,6 +67,40 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
     private double CleanHistoryThreshold => GetParam("clean_history_threshold", 0.2);
     private int CleanHistoryMinResponses => GetParam("clean_history_min_responses", 5);
 
+    // Honeypot confidence/weight
+    private double HoneypotConfidence => GetParam("honeypot_confidence", 0.9);
+    private double HoneypotWeight => GetParam("honeypot_weight", 2.0);
+
+    // Auth brute-force confidence/weight per tier
+    private double AuthSevereConfidence => GetParam("auth_severe_confidence", 0.85);
+    private double AuthSevereWeight => GetParam("auth_severe_weight", 1.9);
+    private double AuthModerateConfidence => GetParam("auth_moderate_confidence", 0.5);
+    private double AuthModerateWeight => GetParam("auth_moderate_weight", 1.5);
+    private double AuthMildConfidence => GetParam("auth_mild_confidence", 0.2);
+    private double AuthMildWeight => GetParam("auth_mild_weight", 1.2);
+
+    // Error harvesting confidence/weight
+    private double ErrorHarvestingHighConfidence => GetParam("error_harvesting_high_confidence", 0.7);
+    private double ErrorHarvestingHighWeight => GetParam("error_harvesting_high_weight", 1.6);
+    private double ErrorHarvestingModerateConfidence => GetParam("error_harvesting_moderate_confidence", 0.3);
+    private double ErrorHarvestingModerateWeight => GetParam("error_harvesting_moderate_weight", 1.3);
+
+    // Rate limit confidence/weight
+    private double RateLimitHighConfidence => GetParam("rate_limit_high_confidence", 0.75);
+    private double RateLimitHighWeight => GetParam("rate_limit_high_weight", 1.7);
+    private double RateLimitModerateConfidence => GetParam("rate_limit_moderate_confidence", 0.4);
+    private double RateLimitModerateWeight => GetParam("rate_limit_moderate_weight", 1.4);
+
+    // Overall score confidence/weight
+    private double HighScoreConfidence => GetParam("high_score_confidence", 0.85);
+    private double HighScoreWeight => GetParam("high_score_weight", 1.8);
+    private double MediumScoreConfidence => GetParam("medium_score_confidence", 0.5);
+    private double MediumScoreWeight => GetParam("medium_score_weight", 1.5);
+    private double LowScoreConfidence => GetParam("low_score_confidence", 0.2);
+    private double LowScoreWeight => GetParam("low_score_weight", 1.2);
+    private double CleanHistoryConfidence => GetParam("clean_history_confidence", -0.15);
+    private double CleanHistoryWeight => GetParam("clean_history_weight", 1.3);
+
     public override async Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
         CancellationToken cancellationToken = default)
@@ -169,9 +203,9 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
 
         // ANY honeypot hit is a very strong bot signal
         contributions.Add(DetectionContribution.Bot(
-            Name, "Response", 0.9,
+            Name, "Response", HoneypotConfidence,
             $"Client accessed {behavior.HoneypotHits} honeypot path(s) in previous requests",
-            weight: 2.0,
+            weight: HoneypotWeight,
             botType: BotType.Scraper.ToString()));
     }
 
@@ -248,9 +282,9 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
             state.WriteSignal(SignalKeys.ResponseAuthStruggle, "severe");
 
             contributions.Add(DetectionContribution.Bot(
-                Name, "Response", 0.85,
+                Name, "Response", AuthSevereConfidence,
                 $"Severe login brute-forcing: {behavior.AuthFailures} failed login attempts",
-                weight: 1.9,
+                weight: AuthSevereWeight,
                 botType: BotType.MaliciousBot.ToString()));
         }
         else if (behavior.AuthFailures > AuthModerateThreshold)
@@ -261,8 +295,8 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
             {
                 DetectorName = Name,
                 Category = "Response",
-                ConfidenceDelta = 0.5,
-                Weight = 1.5,
+                ConfidenceDelta = AuthModerateConfidence,
+                Weight = AuthModerateWeight,
                 Reason = $"Repeated login failures: {behavior.AuthFailures} failed attempts"
             });
         }
@@ -274,8 +308,8 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
             {
                 DetectorName = Name,
                 Category = "Response",
-                ConfidenceDelta = 0.2,
-                Weight = 1.2,
+                ConfidenceDelta = AuthMildConfidence,
+                Weight = AuthMildWeight,
                 Reason = $"Some login failures: {behavior.AuthFailures} failed attempts"
             });
         }
@@ -302,9 +336,9 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
             state.WriteSignal(SignalKeys.ResponseErrorHarvesting, true);
 
             contributions.Add(DetectionContribution.Bot(
-                Name, "Response", 0.7,
+                Name, "Response", ErrorHarvestingHighConfidence,
                 $"Error harvesting detected: {errorPatternCount} error/stack trace patterns",
-                weight: 1.6,
+                weight: ErrorHarvestingHighWeight,
                 botType: BotType.Scraper.ToString()));
         }
         else if (errorPatternCount > ErrorHarvestingModerateThreshold)
@@ -313,8 +347,8 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
             {
                 DetectorName = Name,
                 Category = "Response",
-                ConfidenceDelta = 0.3,
-                Weight = 1.3,
+                ConfidenceDelta = ErrorHarvestingModerateConfidence,
+                Weight = ErrorHarvestingModerateWeight,
                 Reason = $"Triggering errors: {errorPatternCount} error patterns"
             });
         }
@@ -337,17 +371,17 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
 
         if (rateLimitCount > RateLimitHighThreshold)
             contributions.Add(DetectionContribution.Bot(
-                Name, "Response", 0.75,
+                Name, "Response", RateLimitHighConfidence,
                 $"Multiple rate limit violations: {rateLimitCount} occurrences",
-                weight: 1.7,
+                weight: RateLimitHighWeight,
                 botType: BotType.Scraper.ToString()));
         else if (rateLimitCount > RateLimitModerateThreshold)
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,
                 Category = "Response",
-                ConfidenceDelta = 0.4,
-                Weight = 1.4,
+                ConfidenceDelta = RateLimitModerateConfidence,
+                Weight = RateLimitModerateWeight,
                 Reason = $"Exceeded request speed limits {rateLimitCount} times"
             });
     }
@@ -363,17 +397,17 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
         // The ResponseCoordinator already computed a comprehensive score
         if (behavior.ResponseScore > HighResponseScoreThreshold)
             contributions.Add(DetectionContribution.Bot(
-                Name, "Response", 0.85,
+                Name, "Response", HighScoreConfidence,
                 $"Very high response score: {behavior.ResponseScore:F2}",
-                weight: 1.8,
+                weight: HighScoreWeight,
                 botType: BotType.MaliciousBot.ToString()));
         else if (behavior.ResponseScore > MediumResponseScoreThreshold)
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,
                 Category = "Response",
-                ConfidenceDelta = 0.5,
-                Weight = 1.5,
+                ConfidenceDelta = MediumScoreConfidence,
+                Weight = MediumScoreWeight,
                 Reason = "Response patterns strongly suggest automated access"
             });
         else if (behavior.ResponseScore > LowResponseScoreThreshold)
@@ -381,8 +415,8 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
             {
                 DetectorName = Name,
                 Category = "Response",
-                ConfidenceDelta = 0.2,
-                Weight = 1.2,
+                ConfidenceDelta = LowScoreConfidence,
+                Weight = LowScoreWeight,
                 Reason = "Response patterns show some signs of automated access"
             });
         // Low score = likely human
@@ -391,8 +425,8 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
             {
                 DetectorName = Name,
                 Category = "Response",
-                ConfidenceDelta = -0.15,
-                Weight = 1.3,
+                ConfidenceDelta = CleanHistoryConfidence,
+                Weight = CleanHistoryWeight,
                 Reason =
                     $"Clean response history: {behavior.TotalResponses} responses, score {behavior.ResponseScore:F2}"
             });

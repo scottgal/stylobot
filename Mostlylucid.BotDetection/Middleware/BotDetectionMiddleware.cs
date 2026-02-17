@@ -728,7 +728,8 @@ public class BotDetectionMiddleware(
                     allowSearchEngines: _options.AllowVerifiedSearchEngines,
                     allowSocialMediaBots: _options.AllowSocialMediaBots,
                     allowMonitoringBots: _options.AllowMonitoringBots,
-                    allowVerifiedBots: _options.AllowVerifiedSearchEngines))
+                    allowVerifiedBots: _options.AllowVerifiedSearchEngines,
+                    allowTools: _options.AllowTools))
                 return (false, BotBlockAction.Default);
 
             return (true, BotBlockAction.StatusCode);

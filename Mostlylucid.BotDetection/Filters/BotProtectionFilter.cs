@@ -99,6 +99,13 @@ public class BlockBotsAttribute : ActionFilterAttribute
     public bool AllowMaliciousBots { get; set; }
 
     /// <summary>
+    ///     If true, developer HTTP tools (curl, wget, httpie, python-requests, etc.) are allowed through.
+    ///     Tools are still subject to rate limiting via action policies.
+    ///     Default is false.
+    /// </summary>
+    public bool AllowTools { get; set; }
+
+    /// <summary>
     ///     Minimum confidence score required to block. Default is 0.0 (block any detected bot).
     ///     Set higher (e.g., 0.8) to only block high-confidence detections.
     /// </summary>
@@ -182,7 +189,7 @@ public class BlockBotsAttribute : ActionFilterAttribute
         if (BotTypeFilter.IsBotTypeAllowed(result.BotType,
                 AllowVerifiedBots, AllowSearchEngines, AllowSocialMediaBots,
                 AllowMonitoringBots, AllowAiBots, AllowGoodBots,
-                AllowScrapers, AllowMaliciousBots))
+                AllowScrapers, AllowMaliciousBots, AllowTools))
         {
             base.OnActionExecuting(context);
             return;

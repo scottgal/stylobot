@@ -66,9 +66,6 @@ public sealed class ResponseCoordinatorOptions
     };
 
     /// <summary>
-    ///     Honeypot endpoints (paths that should never be accessed)
-    /// </summary>
-    /// <summary>
     ///     Honeypot path patterns — glob wildcards (* and ?) supported.
     ///     Paths without wildcards match as prefix.
     ///     Override via appsettings.json: BotDetection:ResponseCoordinator:HoneypotPaths

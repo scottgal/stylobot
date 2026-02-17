@@ -136,6 +136,10 @@ defaults:
     missing_ua_confidence: 0.8 # Confidence penalty for missing UA
     pattern_match_confidence: 0.9  # Confidence for known bot pattern matches
     suspicious_confidence: 0.6     # Confidence for suspicious patterns
+    # Tool header verification: when UA claims to be a tool (curl, wget, etc.),
+    # check if HTTP headers match the tool's expected fingerprint
+    tool_header_match_confidence: 0.7   # Tool UA + matching headers = confirmed tool
+    tool_header_mismatch_confidence: 0.5  # Tool UA + browser headers = likely spoofed
     known_bot_patterns:        # Patterns that auto-verify
       - "googlebot"
       - "bingbot"
