@@ -25,6 +25,28 @@ public partial class DetectionBroadcastMiddleware
 {
     private static readonly ConcurrentDictionary<Type, PropertyInfo?> CountryCodePropertyCache = new();
 
+    /// <summary>Signal key prefixes allowed through to dashboard (non-PII).</summary>
+    private static readonly string[] AllowedSignalPrefixes =
+    [
+        "ua.", "header.", "client.", "geo.", "ip.", "behavioral.",
+        "detection.", "request.", "h2.", "tls.", "tcp.", "h3.",
+        "cluster.", "reputation.", "honeypot.", "similarity.",
+        "attack.", "ato."
+    ];
+
+    /// <summary>Signal keys that must never reach the dashboard.</summary>
+    private static readonly HashSet<string> BlockedSignalKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ua.raw", "ip.address", "client_ip", "ip_address",
+        "email", "phone", "session_id", "cookie", "authorization"
+    };
+
+    /// <summary>Maximum number of signals forwarded to dashboard per detection.</summary>
+    private const int MaxSignalsPerDetection = 80;
+
+    /// <summary>Maximum accepted length for X-Bot-Detection-Signals header (16 KB).</summary>
+    private const int MaxUpstreamSignalsHeaderLength = 16_384;
+
     [System.Text.RegularExpressions.GeneratedRegex(@"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")]
     private static partial System.Text.RegularExpressions.Regex EmailPattern();
     private readonly ILogger<DetectionBroadcastMiddleware> _logger;
@@ -147,19 +169,10 @@ public partial class DetectionBroadcastMiddleware
                 var importantSignals = new Dictionary<string, object>();
                 if (evidence.Signals is { Count: > 0 })
                 {
-                    var allowedPrefixes = new[]
-                    {
-                        "ua.", "header.", "client.", "geo.", "ip.", "behavioral.",
-                        "detection.", "request.", "h2.", "tls.", "tcp.", "h3.",
-                        "cluster.", "reputation.", "honeypot.", "similarity."
-                    };
-                    var blockedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                        { "ua.raw", "ip.address", "client_ip", "ip_address", "email", "phone", "session_id", "cookie", "authorization" };
-
                     importantSignals = evidence.Signals
-                        .Where(s => allowedPrefixes.Any(p => s.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))
-                                    && !blockedKeys.Contains(s.Key))
-                        .Take(80)
+                        .Where(s => AllowedSignalPrefixes.Any(p => s.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))
+                                    && !BlockedSignalKeys.Contains(s.Key))
+                        .Take(MaxSignalsPerDetection)
                         .ToDictionary(s => s.Key, s => s.Value);
                 }
 
@@ -353,6 +366,54 @@ public partial class DetectionBroadcastMiddleware
         // Prevents "Human Visitor" rows showing "Type: Scraper" at 46% probability
         var botType = result.IsBot ? result.BotType?.ToString() : null;
 
+        // Build ImportantSignals for upstream detections — needed for dashboard widgets
+        // (browser, protocol, etc.) since upstream path doesn't run full detector pipeline
+        var importantSignals = new Dictionary<string, object>();
+
+        // Read forwarded signals from upstream gateway headers if available
+        var upstreamSignalsHeader = context.Request.Headers["X-Bot-Detection-Signals"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(upstreamSignalsHeader) && upstreamSignalsHeader.Length <= MaxUpstreamSignalsHeaderLength)
+        {
+            try
+            {
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(upstreamSignalsHeader);
+                if (parsed != null)
+                {
+                    var count = 0;
+                    foreach (var kvp in parsed)
+                    {
+                        if (count >= MaxSignalsPerDetection) break;
+                        if (BlockedSignalKeys.Contains(kvp.Key)) continue;
+                        if (!AllowedSignalPrefixes.Any(p => kvp.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))) continue;
+
+                        // Convert JsonElement to appropriate CLR type
+                        object value = kvp.Value.ValueKind switch
+                        {
+                            System.Text.Json.JsonValueKind.String => kvp.Value.GetString()!,
+                            System.Text.Json.JsonValueKind.Number => kvp.Value.TryGetInt64(out var l) ? l : kvp.Value.GetDouble(),
+                            System.Text.Json.JsonValueKind.True => true,
+                            System.Text.Json.JsonValueKind.False => false,
+                            _ => kvp.Value.ToString()
+                        };
+                        importantSignals[kvp.Key] = value;
+                        count++;
+                    }
+                }
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                _logger.LogDebug(ex, "Failed to deserialize upstream signals header");
+            }
+        }
+
+        // Always enrich protocol version from request metadata
+        EnrichProtocol(context, importantSignals);
+
+        // Enrich browser info when EnrichHumanSignals is enabled
+        var dashboardOptions = context.RequestServices.GetService<IOptions<StyloBotDashboardOptions>>()?.Value;
+        if (dashboardOptions?.EnrichHumanSignals == true)
+            EnrichFromRequest(context, importantSignals, ref upstreamCountry);
+
         var detection = new DashboardDetectionEvent
         {
             RequestId = context.TraceIdentifier,
@@ -372,7 +433,8 @@ public partial class DetectionBroadcastMiddleware
             PrimarySignature = sigValue,
             CountryCode = upstreamCountry,
             UserAgent = result.IsBot ? SanitizeUserAgent(context.Request.Headers.UserAgent.ToString()) : null,
-            TopReasons = topReasons
+            TopReasons = topReasons,
+            ImportantSignals = importantSignals
         };
 
         detection = detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };
@@ -566,13 +628,14 @@ public partial class DetectionBroadcastMiddleware
 
     /// <summary>
     ///     Enrich ImportantSignals with basic non-PII request metadata when signals are sparse.
-    ///     Extracts browser family, major version, HTTP protocol version, and country code
-    ///     from HTTP headers. Only called when <see cref="StyloBotDashboardOptions.EnrichHumanSignals"/> is true.
+    ///     Extracts browser family, major version, and country code from HTTP headers.
+    ///     Protocol enrichment is handled by <see cref="EnrichProtocol"/> which runs unconditionally.
+    ///     Only called when <see cref="StyloBotDashboardOptions.EnrichHumanSignals"/> is true.
     /// </summary>
     private static void EnrichFromRequest(HttpContext context, Dictionary<string, object> signals, ref string? countryCode)
     {
         // Browser family + version from User-Agent (non-PII: browser name is not identifying)
-        if (!signals.ContainsKey("ua.browser"))
+        if (!signals.ContainsKey("ua.browser") && !signals.ContainsKey("ua.family"))
         {
             var ua = context.Request.Headers.UserAgent.ToString();
             if (!string.IsNullOrEmpty(ua))
@@ -585,17 +648,6 @@ public partial class DetectionBroadcastMiddleware
                         signals.TryAdd("ua.browser_version", version);
                 }
             }
-        }
-
-        // HTTP protocol version
-        if (!signals.ContainsKey("h2.fingerprint") && !signals.ContainsKey("h3.protocol"))
-        {
-            var protocol = context.Request.Protocol;
-            if (protocol.Contains("3", StringComparison.Ordinal))
-                signals.TryAdd("h3.protocol", "h3");
-            else if (protocol.Contains("2", StringComparison.Ordinal))
-                signals.TryAdd("h2.protocol", "h2");
-            // HTTP/1.1 is the fallback — no signal needed (dashboard infers it)
         }
 
         // Country code from GeoLocation context (set by GeoDetection middleware)

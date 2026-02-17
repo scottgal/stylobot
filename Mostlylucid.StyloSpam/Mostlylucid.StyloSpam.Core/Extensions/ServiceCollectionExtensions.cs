@@ -21,6 +21,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEmailScoreContributor, AuthenticationSignalsContributor>();
         services.AddSingleton<IEmailScoreContributor, UrlPatternContributor>();
         services.AddSingleton<IEmailScoreContributor, SpamPhraseContributor>();
+        services.AddSingleton<IEmailScoreContributor, LocalLlmSemanticContributor>();
         services.AddSingleton<IEmailScoreContributor, AttachmentRiskContributor>();
         services.AddSingleton<IEmailScoreContributor, RecipientSpreadContributor>();
         services.AddSingleton<IEmailScoreContributor, OutgoingVelocityContributor>();

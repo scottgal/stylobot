@@ -1,0 +1,270 @@
+# Haxxor Detector - Detects attack payloads, injection attempts, and scanning patterns
+name: HaxxorContributor
+priority: 7  # Runs very early - before SecurityTool (8), catches payloads regardless of UA
+enabled: true
+description: Detects SQL injection, XSS, path traversal, command injection, SSRF, SSTI, webshell probes, config exposure scans, and encoding evasion
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: haxxor
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for attack pattern matching
+      signal_pattern: request.*
+
+  required_signals: []
+  optional_signals:
+    - request.path
+    - request.query_string
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Attack pattern detection contribution
+
+  signals:
+    - key: attack.detected
+      entity_type: boolean
+      salience: 1.0
+      description: Whether an attack pattern was detected
+    - key: attack.categories
+      entity_type: string
+      salience: 0.95
+      description: Comma-separated list of matched attack categories
+    - key: attack.severity
+      entity_type: string
+      salience: 0.9
+      description: Attack severity (low, medium, high, critical)
+
+triggers:
+  requires: []  # No dependencies - runs first wave
+
+emits:
+  on_start:
+    - detector.haxxor.started
+  on_complete:
+    - key: attack.detected
+      type: bool
+      description: Whether an attack pattern was detected
+    - key: attack.categories
+      type: string
+      description: Matched attack categories
+    - key: attack.severity
+      type: string
+      description: Attack severity level
+  on_failure:
+    - detector.haxxor.failed
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 160  # Higher than SecurityTool (150)
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:HaxxorContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 2.0
+    human_signal: 0.0
+    verified: 2.5
+    early_exit: 3.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.85
+    human_indicated: 0.0
+    strong_signal: 0.95
+    high_threshold: 0.9
+    low_threshold: 0.0
+    escalation_threshold: 0.0
+
+  timing:
+    timeout_ms: 200
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: true
+    enable_cache: true
+    can_early_exit: true
+    can_escalate: false
+
+  parameters:
+    # Confidence levels per attack category
+    sqli_confidence: 0.95
+    xss_confidence: 0.90
+    traversal_confidence: 0.90
+    cmdi_confidence: 0.95
+    ssrf_confidence: 0.90
+    ssti_confidence: 0.90
+    path_probe_confidence: 0.75
+    config_exposure_confidence: 0.80
+    webshell_probe_confidence: 0.85
+    backup_scan_confidence: 0.75
+    admin_scan_confidence: 0.70
+    debug_exposure_confidence: 0.80
+    encoding_evasion_confidence: 0.85
+
+    # Compound scoring
+    compound_bonus_per_category: 0.05
+    max_compound_confidence: 0.99
+
+    # Regex safety
+    regex_timeout_ms: 100
+    max_input_length: 8192
+
+    # ============================================
+    # Path-based patterns (glob-style)
+    # ============================================
+
+    path_probes:
+      - "/wp-admin*"
+      - "/wp-login.php"
+      - "/wp-content/plugins*"
+      - "/wp-includes*"
+      - "/xmlrpc.php"
+      - "/wp-cron.php"
+      - "/wp-json/wp/v2/users"
+      - "/.env*"
+      - "/.git*"
+      - "/phpmyadmin*"
+      - "/pma*"
+      - "/myadmin*"
+      - "/.htaccess"
+      - "/.htpasswd"
+      - "/cgi-bin*"
+      - "/test.php"
+      - "/info.php"
+      - "/phpinfo.php"
+      - "/.well-known/security.txt"
+      - "/robots.txt"
+      - "/sitemap.xml"
+      - "/.DS_Store"
+      - "/Thumbs.db"
+      - "/.svn*"
+      - "/.hg*"
+
+    webshell_patterns:
+      - "/c99.php"
+      - "/r57.php"
+      - "/shell.php"
+      - "/wso.php"
+      - "/wso2.php"
+      - "/b374k.php"
+      - "/alfa.php"
+      - "/backdoor.php"
+      - "/cmd.php"
+      - "/eval.php"
+      - "/upload.php"
+      - "/filemanager.php"
+
+    backup_patterns:
+      - "/backup.sql"
+      - "/dump.sql"
+      - "/database.sql"
+      - "/db.sql"
+      - "/.sql"
+      - "/backup.zip"
+      - "/backup.tar.gz"
+      - "/site.tar.gz"
+
+    admin_patterns:
+      - "/admin"
+      - "/administrator*"
+      - "/cpanel*"
+      - "/grafana*"
+      - "/jenkins*"
+      - "/kibana*"
+      - "/portainer*"
+      - "/adminer*"
+      - "/manager/html"
+      - "/solr*"
+
+    debug_patterns:
+      - "/actuator*"
+      - "/server-status"
+      - "/server-info"
+      - "/debug*"
+      - "/elmah.axd"
+      - "/trace.axd"
+      - "/_profiler*"
+      - "/debug/pprof*"
+      - "/metrics"
+      - "/healthz"
+      - "/api/swagger*"
+
+    config_patterns:
+      - "/.env"
+      - "/.env.local"
+      - "/.env.production"
+      - "/.env.backup"
+      - "/appsettings.json"
+      - "/appsettings.Development.json"
+      - "/web.config"
+      - "/docker-compose.yml"
+      - "/docker-compose.yaml"
+      - "/Dockerfile"
+      - "/.dockerenv"
+      - "/composer.json"
+      - "/package.json"
+      - "/yarn.lock"
+      - "/Gemfile"
+      - "/requirements.txt"
+      - "/config.yml"
+      - "/config.yaml"
+      - "/.aws/credentials"
+      - "/.ssh/id_rsa"
+
+    # ============================================
+    # Regex-based injection patterns (compiled)
+    # ============================================
+
+    sqli_patterns:
+      - "(?i)(union\\s+(all\\s+)?select|;\\s*(drop|alter|truncate|exec)\\s)"
+      - "(?i)('\\s*(or|and)\\s+['\"]?\\d.*?=|sleep\\s*\\(\\d|waitfor\\s+delay)"
+      - "(?i)(\\b(select|insert|update|delete|drop|alter|create|truncate)\\s+.*(from|into|table|database))"
+      - "(?i)(information_schema|sys\\.databases|pg_catalog)"
+      - "(?i)(benchmark\\s*\\(|load_file\\s*\\(|into\\s+(out|dump)file)"
+
+    xss_patterns:
+      - "(?i)(<\\s*script[\\s>]|on(error|load|click|mouseover|focus|blur|submit|change)\\s*=|javascript\\s*:)"
+      - "(?i)(<\\s*img[^>]+on\\w+\\s*=|<\\s*svg[^>]+on\\w+\\s*=|<\\s*body[^>]+on\\w+\\s*=)"
+      - "(?i)(document\\.(cookie|location|write)|window\\.(location|open)|eval\\s*\\()"
+      - "(?i)(<\\s*iframe|<\\s*embed|<\\s*object|<\\s*applet)"
+
+    traversal_patterns:
+      - "(?i)(\\.{2,}[\\/\\\\]|\\.{2,}%2[fF]|%2[eE]%2[eE])"
+      - "(?i)(\\/etc\\/(passwd|shadow|hosts|issue)|\\/proc\\/self)"
+      - "(?i)(\\/windows\\/(system32|win\\.ini)|boot\\.ini)"
+
+    cmdi_patterns:
+      - "(?i)([;|&`]\\s*(ls|cat|whoami|id|wget|curl|bash|sh|python|perl|ruby|nc|ncat)\\b)"
+      - "(?i)(\\$\\(\\s*\\w|\\x60[^\\x60]+\\x60)"
+      - "(?i)(\\|\\s*(cat|less|more|head|tail|grep|find)\\b)"
+
+    ssrf_patterns:
+      - "(?i)(https?:\\/\\/\\s*(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|\\[::1\\]|169\\.254\\.169\\.254|metadata\\.google))"
+      - "(?i)((gopher|file|dict|ftp):\\/\\/)"
+      - "(?i)(https?:\\/\\/10\\.|https?:\\/\\/172\\.(1[6-9]|2\\d|3[01])\\.|https?:\\/\\/192\\.168\\.)"
+
+    ssti_patterns:
+      - "(?i)(\\{\\{.*?(config|__class__|__import__|system|exec|popen|\\[)|\\$\\{.*?(Runtime|exec|system|getClass))"
+      - "(?i)(#\\{.*?(exec|system|runtime)|<%.*?(exec|system|runtime))"
+
+tags:
+  - fast-path
+  - security
+  - attack-detection
+  - stage-0
+  - early-exit

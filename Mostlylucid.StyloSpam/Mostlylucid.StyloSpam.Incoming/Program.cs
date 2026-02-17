@@ -5,6 +5,7 @@ using Mostlylucid.StyloSpam.Incoming.Configuration;
 using Mostlylucid.StyloSpam.Incoming.Connectors;
 using Mostlylucid.StyloSpam.Incoming.Models;
 using Mostlylucid.StyloSpam.Incoming.Services;
+using Mostlylucid.StyloSpam.Incoming.Smtp;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -12,11 +13,22 @@ builder.Services.Configure<StyloSpamIncomingOptions>(builder.Configuration.GetSe
 builder.Services.AddStyloSpamScoring(options => options.DefaultMode = EmailFlowMode.Incoming);
 builder.Services.Configure<EmailScoringOptions>(builder.Configuration.GetSection("EmailScoring"));
 
+builder.Services.AddHttpClient("gmail");
+builder.Services.AddHttpClient("outlook");
+
 builder.Services.AddSingleton<IIncomingConnector, SmtpIncomingConnector>();
 builder.Services.AddSingleton<IIncomingConnector, ImapIncomingConnector>();
 builder.Services.AddSingleton<IIncomingConnector, GmailIncomingConnector>();
 builder.Services.AddSingleton<IIncomingConnector, OutlookIncomingConnector>();
+
+builder.Services.AddSingleton<IncomingSmtpRelayService>();
+builder.Services.AddSingleton<StyloSpamSmtpMessageStore>();
+
 builder.Services.AddHostedService<IncomingConnectorHostedService>();
+builder.Services.AddHostedService<SmtpProxyHostedService>();
+builder.Services.AddHostedService<ImapPollingHostedService>();
+builder.Services.AddHostedService<GmailPollingHostedService>();
+builder.Services.AddHostedService<OutlookPollingHostedService>();
 
 var app = builder.Build();
 

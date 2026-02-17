@@ -1,42 +1,52 @@
 # Mostlylucid.StyloSpam
 
-StyloSpam is the email-security sibling to StyloBot, focused on spam/phishing scoring and campaign-aware filtering.
+StyloSpam is the email-security sibling to StyloBot, focused on spam/phishing scoring, semantic filtering, and campaign-aware controls.
+It is the implementation track for the broader `lucidMAIL` roadmap area.
 
 ## Projects
 
 - `Mostlylucid.StyloSpam.Core`
-  - Shared scoring engine, envelope models, and detector contributors.
+  - Shared scoring engine, envelope models, parser helpers, and contributors.
 - `Mostlylucid.StyloSpam.Incoming`
-  - Incoming mode service for SMTP/IMAP/Gmail/Outlook ingestion paths.
+  - Incoming mode service for SMTP proxy + IMAP/Gmail/Outlook ingestion.
 - `Mostlylucid.StyloSpam.Outgoing`
-  - Outgoing pass-through semantic filter to prevent platform users from sending spam.
+  - Outgoing pass-through semantic filter to stop users abusing platform send pipelines.
 - `Mostlylucid.StyloSpam.Tool`
-  - CLI `.NET tool` (`stylospam-score`) for offline scoring of MIME emails.
+  - CLI `.NET tool` (`stylospam-score`) for offline MIME scoring.
 
 ## Incoming Mode
 
-Key endpoints:
+Runtime components:
+
+- SMTP proxy hosted service (receive -> score -> policy -> optional upstream relay).
+- IMAP polling service (unread pull + scoring).
+- Gmail API polling service (token-based message pull + scoring).
+- Outlook Graph polling service (token-based message pull + scoring).
+- Optional small local LLM semantic contributor (Ollama-compatible endpoint).
+
+API endpoints:
 
 - `GET /capabilities`
 - `POST /incoming/score/raw`
 - `POST /incoming/score/simple`
 
-Connector scaffolding includes:
-
-- SMTP proxy connector
-- IMAP connector
-- Gmail API connector
-- Outlook Graph connector
-
 ## Outgoing Mode
 
-Key endpoints:
+Runtime components:
+
+- Scoring + user send-velocity tracking.
+- Repeated-offender abuse guard (temporary block window after strike threshold).
+- Filter-only endpoints for pre-send gating.
+- Filter-and-relay endpoints with policy-aware SMTP relay behavior.
+- Optional small local LLM semantic contributor (Ollama-compatible endpoint).
+
+API endpoints:
 
 - `POST /outgoing/filter/raw`
 - `POST /outgoing/filter/simple`
+- `POST /outgoing/filter-and-relay/raw`
+- `POST /outgoing/filter-and-relay/simple`
 - `GET /outgoing/users/{tenantId}/{userId}/stats`
-
-Outgoing mode includes per-user send-velocity tracking to guard against abusive platform senders.
 
 ## CLI Tool
 
@@ -55,3 +65,11 @@ Supported file formats:
 - `.eml`
 - `.mime`
 - `.mbox` (first message)
+
+## Specs
+
+- `Specs/README.md`
+- `Specs/SPEC_StyloSpam_Vision.md`
+- `Specs/SPEC_StyloSpam_ProxyModes.md`
+- `Specs/SPEC_StyloSpam_Detectors.md`
+- `ContributingDetectors/README.md`

@@ -924,7 +924,8 @@ public class BotDetectionOptions
     /// </example>
     public Dictionary<string, string> BotTypeActionPolicies { get; set; } = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Tool"] = "throttle-tools"
+        ["Tool"] = "throttle-tools",
+        ["MaliciousBot"] = "block-hard"
     };
 
     // ==========================================

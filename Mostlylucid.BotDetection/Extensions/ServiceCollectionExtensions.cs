@@ -430,6 +430,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, IpContributor>();
         services.AddSingleton<IContributingDetector, BehavioralContributor>();
         services.AddSingleton<IContributingDetector, ClientSideContributor>();
+        // Attack payload detection - runs before SecurityTool, catches injection/scanning patterns
+        services.AddSingleton<IContributingDetector, HaxxorContributor>();
         // Security tool detection - runs early with UA analysis
         services.AddSingleton<IContributingDetector, SecurityToolContributor>();
         // AI scraper detection - known AI bots, Cloudflare signals, Web Bot Auth
@@ -446,6 +448,8 @@ public static class ServiceCollectionExtensions
         // Response behavior feedback - runs early to provide historical feedback
         services.AddSingleton<IContributingDetector, ResponseBehaviorContributor>();
         // Wave 1+ detectors (triggered by signals from Wave 0)
+        // Account takeover detection - credential stuffing, brute force, ATO drift (triggered by ua.family/waveform.signature)
+        services.AddSingleton<IContributingDetector, AccountTakeoverContributor>();
         // Geo change detection - country drift and country reputation (triggered by geo.country_code)
         services.AddSingleton<IContributingDetector, GeoChangeContributor>();
         services.AddSingleton<IContributingDetector, VersionAgeContributor>();

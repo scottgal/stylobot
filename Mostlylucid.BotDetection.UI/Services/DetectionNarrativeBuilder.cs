@@ -40,7 +40,9 @@ public static class DetectionNarrativeBuilder
         ["TimescaleReputation"] = "historical reputation",
         ["ClusterContributor"] = "bot cluster detection",
         ["ConvergedFamily"] = "signature convergence",
-        ["GeoChange"] = "geographic drift detection"
+        ["GeoChange"] = "geographic drift detection",
+        ["Haxxor"] = "attack payload detection",
+        ["AccountTakeover"] = "account takeover detection"
     };
 
     private static readonly Dictionary<string, string> DetectorCategories = new(StringComparer.OrdinalIgnoreCase)
@@ -75,7 +77,9 @@ public static class DetectionNarrativeBuilder
         ["TimescaleReputation"] = "Reputation",
         ["ClusterContributor"] = "Cross-Request",
         ["ConvergedFamily"] = "Cross-Request",
-        ["GeoChange"] = "Geographic"
+        ["GeoChange"] = "Geographic",
+        ["Haxxor"] = "Security",
+        ["AccountTakeover"] = "Security"
     };
 
     private static readonly Dictionary<string, string> BotTypeFriendlyNames = new(StringComparer.OrdinalIgnoreCase)

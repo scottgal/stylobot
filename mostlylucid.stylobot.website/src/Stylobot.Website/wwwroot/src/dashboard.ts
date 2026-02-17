@@ -247,8 +247,10 @@ function aggregateSignalStats(detections: any[]): SignalStats {
         const sigs = d.importantSignals || {};
 
         // Browser from UA signals
-        const browser = sigs['ua.browser'] || sigs['ua.browser_family'];
-        const version = sigs['ua.browser_version'] || sigs['ua.version'] || sigs['ua.major_version'];
+        // Detector-first order: ua.family is what UserAgentContributor writes;
+        // ua.browser is what EnrichFromRequest writes (when EnrichHumanSignals=true)
+        const browser = sigs['ua.family'] || sigs['ua.browser'] || sigs['ua.browser_family'];
+        const version = sigs['ua.family_version'] || sigs['ua.browser_version'] || sigs['ua.version'] || sigs['ua.major_version'];
         if (browser) {
             const b = String(browser);
             stats.browsers[b] = (stats.browsers[b] || 0) + 1;
@@ -280,8 +282,8 @@ function aggregateSignalStats(detections: any[]): SignalStats {
         else if (sigs['h2.fingerprint'] || sigs['h2.settings_hash'] || sigs['h2.protocol']) stats.protocols['HTTP/2'] = (stats.protocols['HTTP/2'] || 0) + 1;
         else stats.protocols['HTTP/1.1'] = (stats.protocols['HTTP/1.1'] || 0) + 1;
 
-        // TLS
-        const tlsVer = sigs['tls.version'] || sigs['tls.protocol_version'];
+        // TLS — tls.protocol is what TlsFingerprintContributor writes (SignalKeys.TlsProtocol)
+        const tlsVer = sigs['tls.protocol'] || sigs['tls.version'] || sigs['tls.protocol_version'];
         if (tlsVer) {
             const t = String(tlsVer);
             stats.tlsVersions[t] = (stats.tlsVersions[t] || 0) + 1;
@@ -811,7 +813,7 @@ function dashboardApp() {
                 });
 
                 this.connection.on('BroadcastDescriptionUpdate', (requestId: string, description: string) => {
-                    const det = this.detections.find((d: any) => d.requestId === requestId);
+                    const det = this.recentDetections.find((d: any) => d.requestId === requestId);
                     if (det) det.description = description;
                 });
 

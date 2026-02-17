@@ -34,6 +34,17 @@ public class IndividualDetectorBenchmarks
     // Individual detectors
     private UserAgentContributor _userAgentDetector = null!;
 
+    // Attack detectors
+    private HaxxorContributor _haxxorDetector = null!;
+    private BlackboardState _haxxorCleanState = null!;
+    private BlackboardState _haxxorSqliState = null!;
+    private BlackboardState _haxxorPathProbeState = null!;
+
+    // ATO detectors
+    private AccountTakeoverContributor _atoDetector = null!;
+    private BlackboardState _atoCleanState = null!;
+    private BlackboardState _atoLoginState = null!;
+
     [GlobalSetup]
     public void GlobalSetup()
     {
@@ -64,12 +75,19 @@ public class IndividualDetectorBenchmarks
         _heuristicDetector = allDetectors.OfType<HeuristicContributor>().First();
         _http3Detector = allDetectors.OfType<Http3FingerprintContributor>().First();
         _aiScraperDetector = allDetectors.OfType<AiScraperContributor>().First();
+        _haxxorDetector = allDetectors.OfType<HaxxorContributor>().First();
+        _atoDetector = allDetectors.OfType<AccountTakeoverContributor>().First();
 
         // Setup test states
         _humanState = CreateHumanState();
         _botState = CreateBotState();
         _http3State = CreateHttp3State();
         _aiScraperState = CreateAiScraperState();
+        _haxxorCleanState = CreateHaxxorCleanState();
+        _haxxorSqliState = CreateHaxxorSqliState();
+        _haxxorPathProbeState = CreateHaxxorPathProbeState();
+        _atoCleanState = CreateAtoCleanState();
+        _atoLoginState = CreateAtoLoginState();
     }
 
     private BlackboardState CreateHumanState()
@@ -207,6 +225,164 @@ public class IndividualDetectorBenchmarks
             FailedDetectors = new HashSet<string>(),
             Contributions = new List<DetectionContribution>(),
             RequestId = "test-request",
+            Elapsed = TimeSpan.Zero
+        };
+    }
+
+    // ===== Haxxor Benchmarks =====
+
+    [Benchmark(Description = "Haxxor: Clean Path (zero alloc)")]
+    public async Task<IReadOnlyList<DetectionContribution>> HaxxorCleanPath()
+    {
+        return await _haxxorDetector.ContributeAsync(_haxxorCleanState, CancellationToken.None);
+    }
+
+    [Benchmark(Description = "Haxxor: SQLi Attack")]
+    public async Task<IReadOnlyList<DetectionContribution>> HaxxorSqliAttack()
+    {
+        return await _haxxorDetector.ContributeAsync(_haxxorSqliState, CancellationToken.None);
+    }
+
+    [Benchmark(Description = "Haxxor: Path Probe (/wp-admin)")]
+    public async Task<IReadOnlyList<DetectionContribution>> HaxxorPathProbe()
+    {
+        return await _haxxorDetector.ContributeAsync(_haxxorPathProbeState, CancellationToken.None);
+    }
+
+    // ===== ATO Benchmarks =====
+
+    [Benchmark(Description = "ATO: Clean Path (zero alloc)")]
+    public async Task<IReadOnlyList<DetectionContribution>> AtoCleanPath()
+    {
+        return await _atoDetector.ContributeAsync(_atoCleanState, CancellationToken.None);
+    }
+
+    [Benchmark(Description = "ATO: Login POST")]
+    public async Task<IReadOnlyList<DetectionContribution>> AtoLoginPost()
+    {
+        return await _atoDetector.ContributeAsync(_atoLoginState, CancellationToken.None);
+    }
+
+    // ===== State creation helpers =====
+
+    /// <summary>Normal GET to / — should be zero-allocation fast path.</summary>
+    private BlackboardState CreateHaxxorCleanState()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Headers.UserAgent =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36";
+        context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.42");
+        context.Request.Method = "GET";
+        context.Request.Path = "/products/widget-123";
+        context.Request.QueryString = new QueryString("?color=blue&size=large");
+
+        return new BlackboardState
+        {
+            HttpContext = context,
+            Signals = new Dictionary<string, object>(),
+            CurrentRiskScore = 0.0,
+            CompletedDetectors = new HashSet<string>(),
+            FailedDetectors = new HashSet<string>(),
+            Contributions = new List<DetectionContribution>(),
+            RequestId = "test-haxxor-clean",
+            Elapsed = TimeSpan.Zero
+        };
+    }
+
+    /// <summary>SQL injection in query string — should trigger detection.</summary>
+    private BlackboardState CreateHaxxorSqliState()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Headers.UserAgent = "curl/8.4.0";
+        context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.50");
+        context.Request.Method = "GET";
+        context.Request.Path = "/search";
+        context.Request.QueryString = new QueryString("?q=1' UNION SELECT username,password FROM users--");
+
+        return new BlackboardState
+        {
+            HttpContext = context,
+            Signals = new Dictionary<string, object>(),
+            CurrentRiskScore = 0.0,
+            CompletedDetectors = new HashSet<string>(),
+            FailedDetectors = new HashSet<string>(),
+            Contributions = new List<DetectionContribution>(),
+            RequestId = "test-haxxor-sqli",
+            Elapsed = TimeSpan.Zero
+        };
+    }
+
+    /// <summary>WordPress admin probe — should trigger path probe detection.</summary>
+    private BlackboardState CreateHaxxorPathProbeState()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Headers.UserAgent = "python-requests/2.31.0";
+        context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.60");
+        context.Request.Method = "GET";
+        context.Request.Path = "/wp-admin/install.php";
+
+        return new BlackboardState
+        {
+            HttpContext = context,
+            Signals = new Dictionary<string, object>(),
+            CurrentRiskScore = 0.0,
+            CompletedDetectors = new HashSet<string>(),
+            FailedDetectors = new HashSet<string>(),
+            Contributions = new List<DetectionContribution>(),
+            RequestId = "test-haxxor-probe",
+            Elapsed = TimeSpan.Zero
+        };
+    }
+
+    /// <summary>Normal GET — no waveform signature signal, returns immediately.</summary>
+    private BlackboardState CreateAtoCleanState()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Headers.UserAgent =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36";
+        context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.42");
+        context.Request.Method = "GET";
+        context.Request.Path = "/dashboard";
+
+        return new BlackboardState
+        {
+            HttpContext = context,
+            Signals = new Dictionary<string, object>
+            {
+                [Models.SignalKeys.UserAgentFamily] = "Chrome",
+                [Models.SignalKeys.WaveformSignature] = "sig_benchmark_clean"
+            },
+            CurrentRiskScore = 0.0,
+            CompletedDetectors = new HashSet<string>(),
+            FailedDetectors = new HashSet<string>(),
+            Contributions = new List<DetectionContribution>(),
+            RequestId = "test-ato-clean",
+            Elapsed = TimeSpan.Zero
+        };
+    }
+
+    /// <summary>POST to /login — triggers login tracking.</summary>
+    private BlackboardState CreateAtoLoginState()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Headers.UserAgent = "python-requests/2.31.0";
+        context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.70");
+        context.Request.Method = "POST";
+        context.Request.Path = "/login";
+
+        return new BlackboardState
+        {
+            HttpContext = context,
+            Signals = new Dictionary<string, object>
+            {
+                [Models.SignalKeys.UserAgentFamily] = "Python",
+                [Models.SignalKeys.WaveformSignature] = "sig_benchmark_login"
+            },
+            CurrentRiskScore = 0.0,
+            CompletedDetectors = new HashSet<string>(),
+            FailedDetectors = new HashSet<string>(),
+            Contributions = new List<DetectionContribution>(),
+            RequestId = "test-ato-login",
             Elapsed = TimeSpan.Zero
         };
     }

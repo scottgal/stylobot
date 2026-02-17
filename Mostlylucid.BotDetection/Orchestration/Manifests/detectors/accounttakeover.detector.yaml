@@ -1,0 +1,219 @@
+# Account Takeover Detector - Detects credential stuffing, brute force, and ATO patterns
+name: AccountTakeoverContributor
+priority: 25  # Wave 1 — runs after UA, IP, Geo, Behavioral
+enabled: true
+description: Detects credential stuffing, brute force attacks, phishing-sourced account takeover, geographic velocity anomalies, and post-login behavioral drift with decay-aware baselines
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: accounttakeover
+
+taxonomy:
+  kind: sensor
+  determinism: stateful
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for login/ATO pattern analysis
+
+  required_signals: []
+  optional_signals:
+    - ua.family
+    - waveform.signature
+    - geo.country_code
+    - geo.change.drift_detected
+    - behavioral.anomaly
+    - response.auth_failures
+    - correlation.anomaly_count
+    - waveform.timing_regularity_score
+    - waveform.path_diversity
+    - waveform.burst_detected
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: ATO detection contribution
+
+  signals:
+    - key: ato.detected
+      entity_type: boolean
+      salience: 1.0
+      description: Whether an ATO pattern was detected
+    - key: ato.drift_score
+      entity_type: number
+      salience: 0.9
+      description: Composite behavioral drift score (0.0-1.0)
+
+triggers:
+  requires:
+    - ua.family
+    - waveform.signature
+  mode: any  # Any of the triggers is sufficient
+
+emits:
+  on_start:
+    - detector.accounttakeover.started
+  on_complete:
+    - key: ato.detected
+      type: bool
+      description: Whether an ATO pattern was detected
+    - key: ato.drift_score
+      type: float
+      description: Behavioral drift score
+  on_failure:
+    - detector.accounttakeover.failed
+
+lane:
+  name: normal
+  max_concurrency: 4
+  priority: 80
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:AccountTakeoverContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 2.0
+    human_signal: 0.5
+    verified: 2.5
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.85
+    human_indicated: -0.1
+    strong_signal: 0.92
+    high_threshold: 0.85
+    low_threshold: 0.3
+    escalation_threshold: 0.7
+
+  timing:
+    timeout_ms: 500
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: true
+    enable_cache: true
+    can_early_exit: false
+    can_escalate: true
+
+  parameters:
+    # ============================================
+    # Login path patterns (glob-style)
+    # ============================================
+    login_paths:
+      - "/login*"
+      - "/signin*"
+      - "/sign-in*"
+      - "/auth*"
+      - "/api/auth*"
+      - "/api/login*"
+      - "/api/v1/auth*"
+      - "/api/v2/auth*"
+      - "/api/v1/login*"
+      - "/api/v2/login*"
+      - "/oauth/token*"
+      - "/api/sessions*"
+      - "/wp-login.php"
+      - "/user/login*"
+      - "/account/login*"
+      - "/j_security_check"
+      - "/.auth/login*"
+      - "/connect/token"
+
+    # Sensitive action paths (post-login targets that indicate ATO)
+    sensitive_paths:
+      - "/settings/password*"
+      - "/settings/email*"
+      - "/settings/security*"
+      - "/settings/2fa*"
+      - "/account/password*"
+      - "/account/email*"
+      - "/api/password*"
+      - "/api/email*"
+      - "/profile/edit*"
+      - "/admin/users*"
+      - "/api-keys*"
+      - "/tokens*"
+      - "/api/v1/users/me/password*"
+      - "/api/v2/users/me/password*"
+      - "/account/recovery*"
+      - "/account/deactivate*"
+
+    # ============================================
+    # Detection thresholds
+    # ============================================
+
+    # Credential stuffing
+    failed_login_threshold: 5
+    failed_login_window_minutes: 5
+
+    # Brute force
+    brute_force_threshold: 10
+    brute_force_window_minutes: 5
+
+    # ATO patterns
+    rapid_change_threshold_seconds: 60
+
+    # Sliding window
+    window_size_minutes: 30
+    max_tracked_signatures: 10000
+
+    # ============================================
+    # Confidence levels per ATO pattern
+    # ============================================
+    stuffing_confidence: 0.90
+    enumeration_confidence: 0.85
+    spray_confidence: 0.85
+    phishing_ato_confidence: 0.92
+    geo_velocity_confidence: 0.88
+    brute_force_confidence: 0.90
+    direct_post_confidence: 0.60
+    rapid_change_confidence: 0.85
+    session_anomaly_confidence: 0.75
+
+    # ============================================
+    # Drift score weights (should sum to ~1.0)
+    # ============================================
+    drift_weight_geo: 0.30
+    drift_weight_fingerprint: 0.25
+    drift_weight_timing: 0.15
+    drift_weight_path: 0.20
+    drift_weight_velocity: 0.10
+
+    # ============================================
+    # Decay-aware baselines
+    # ============================================
+
+    # Half-life in days for baseline trust decay.
+    # After this many days of absence, baseline confidence halves.
+    # Prevents flagging returning users whose behavior naturally evolved.
+    # 14 days: user gone 2 weeks -> baseline trust 50%
+    # 28 days: user gone 4 weeks -> baseline trust 25%
+    # 56 days: user gone 8 weeks -> baseline trust ~6% (effectively no baseline)
+    baseline_half_life_days: 14.0
+
+    # ============================================
+    # Drift score thresholds
+    # ============================================
+    # < 0.3  — Normal variance, no action
+    # 0.3-0.6 — Elevated, log + increase monitoring
+    # 0.6-0.8 — Suspicious, trigger challenge action
+    # > 0.8  — High confidence ATO, trigger block-soft (429)
+    drift_threshold_elevated: 0.3
+    drift_threshold_suspicious: 0.6
+    drift_threshold_ato: 0.8
+
+tags:
+  - wave-1
+  - security
+  - ato-detection
+  - credential-stuffing
+  - behavioral-drift
+  - decay-aware

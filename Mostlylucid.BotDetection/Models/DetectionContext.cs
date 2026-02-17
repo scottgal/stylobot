@@ -696,4 +696,116 @@ public static class SignalKeys
 
     /// <summary>Boolean: true if IP belongs to an ISP/residential network (not a datacenter)</summary>
     public const string IpIsIsp = "ip.is_isp";
+
+    // ==========================================
+    // Attack pattern signals (HaxxorContributor)
+    // Detects injection attempts, path probing, webshell scans, encoding evasion
+    // ==========================================
+
+    /// <summary>Boolean: true if any attack pattern was detected in request</summary>
+    public const string AttackDetected = "attack.detected";
+
+    /// <summary>String: comma-separated list of matched attack categories (e.g., "sqli,xss")</summary>
+    public const string AttackCategories = "attack.categories";
+
+    /// <summary>String: attack severity level (low, medium, high, critical)</summary>
+    public const string AttackSeverity = "attack.severity";
+
+    /// <summary>Boolean: SQL injection pattern detected</summary>
+    public const string AttackSqli = "attack.sqli";
+
+    /// <summary>Boolean: cross-site scripting pattern detected</summary>
+    public const string AttackXss = "attack.xss";
+
+    /// <summary>Boolean: path traversal pattern detected</summary>
+    public const string AttackTraversal = "attack.traversal";
+
+    /// <summary>Boolean: command injection pattern detected</summary>
+    public const string AttackCmdi = "attack.cmdi";
+
+    /// <summary>Boolean: server-side request forgery pattern detected</summary>
+    public const string AttackSsrf = "attack.ssrf";
+
+    /// <summary>Boolean: server-side template injection pattern detected</summary>
+    public const string AttackSsti = "attack.ssti";
+
+    /// <summary>Boolean: known vulnerable path probe detected (wp-admin, phpmyadmin, etc.)</summary>
+    public const string AttackPathProbe = "attack.path_probe";
+
+    /// <summary>Boolean: config file exposure scan detected (.env, appsettings.json, etc.)</summary>
+    public const string AttackConfigExposure = "attack.config_exposure";
+
+    /// <summary>Boolean: webshell probe detected (c99.php, r57.php, etc.)</summary>
+    public const string AttackWebshellProbe = "attack.webshell_probe";
+
+    /// <summary>Boolean: backup/dump file scan detected (.sql, .bak, etc.)</summary>
+    public const string AttackBackupScan = "attack.backup_scan";
+
+    /// <summary>Boolean: admin panel scan detected (/admin, /cpanel, /jenkins, etc.)</summary>
+    public const string AttackAdminScan = "attack.admin_scan";
+
+    /// <summary>Boolean: debug/actuator endpoint exposure detected</summary>
+    public const string AttackDebugExposure = "attack.debug_exposure";
+
+    /// <summary>Boolean: encoding evasion detected (double-encoding, null bytes, overlong UTF-8)</summary>
+    public const string AttackEncodingEvasion = "attack.encoding_evasion";
+
+    // ==========================================
+    // Account takeover signals (AccountTakeoverContributor)
+    // Detects credential stuffing, brute force, phishing ATO, behavioral drift
+    // ==========================================
+
+    /// <summary>Boolean: true if any ATO pattern was detected</summary>
+    public const string AtoDetected = "ato.detected";
+
+    /// <summary>Boolean: credential stuffing detected (high rate of failed logins)</summary>
+    public const string AtoCredentialStuffing = "ato.credential_stuffing";
+
+    /// <summary>Boolean: username enumeration detected (many unique usernames from same source)</summary>
+    public const string AtoUsernameEnumeration = "ato.username_enumeration";
+
+    /// <summary>Boolean: password spray detected (same password hash across many signatures)</summary>
+    public const string AtoPasswordSpray = "ato.password_spray";
+
+    /// <summary>Boolean: phishing-sourced ATO detected (new fingerprint + immediate sensitive action)</summary>
+    public const string AtoPhishingTakeover = "ato.phishing_takeover";
+
+    /// <summary>Boolean: geographic velocity anomaly (impossible travel between logins)</summary>
+    public const string AtoGeoVelocity = "ato.geo_velocity";
+
+    /// <summary>Boolean: brute force detected (many login attempts from same source)</summary>
+    public const string AtoBruteForce = "ato.brute_force";
+
+    /// <summary>Boolean: direct POST to login without prior GET (skipped form page)</summary>
+    public const string AtoDirectPost = "ato.direct_post";
+
+    /// <summary>Boolean: rapid credential change after login (login -> password change < threshold)</summary>
+    public const string AtoRapidCredentialChange = "ato.rapid_credential_change";
+
+    /// <summary>Boolean: session behavioral anomaly detected post-login</summary>
+    public const string AtoSessionAnomaly = "ato.session_anomaly";
+
+    /// <summary>Int: number of failed login attempts in current window</summary>
+    public const string AtoLoginFailedCount = "ato.login_failed_count";
+
+    /// <summary>Int: number of unique username hashes seen in current window</summary>
+    public const string AtoUniqueUsernameCount = "ato.unique_username_count";
+
+    /// <summary>Double: composite behavioral drift score (0.0-1.0), decay-adjusted</summary>
+    public const string AtoDriftScore = "ato.drift_score";
+
+    /// <summary>Boolean: geographic drift component of drift score</summary>
+    public const string AtoDriftGeo = "ato.drift_geo";
+
+    /// <summary>Boolean: fingerprint drift component (TLS/TCP mismatch)</summary>
+    public const string AtoDriftFingerprint = "ato.drift_fingerprint";
+
+    /// <summary>Double: timing drift component (request timing deviation)</summary>
+    public const string AtoDriftTiming = "ato.drift_timing";
+
+    /// <summary>Double: path drift component (navigation pattern change)</summary>
+    public const string AtoDriftPath = "ato.drift_path";
+
+    /// <summary>Double: velocity drift component (request rate deviation)</summary>
+    public const string AtoDriftVelocity = "ato.drift_velocity";
 }

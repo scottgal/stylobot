@@ -27,4 +27,17 @@ public sealed class EmailScoringOptions
 
     public int OutgoingVelocityWarnThresholdPerHour { get; set; } = 100;
     public int OutgoingVelocityQuarantineThresholdPerHour { get; set; } = 300;
+
+    public LocalLlmSemanticOptions LocalLlm { get; set; } = new();
+}
+
+public sealed class LocalLlmSemanticOptions
+{
+    public bool Enabled { get; set; } = false;
+    public string Endpoint { get; set; } = "http://localhost:11434/api/generate";
+    public string Model { get; set; } = "qwen2.5:3b";
+    public int TimeoutMs { get; set; } = 4000;
+    public double MinSuspiciousProbability { get; set; } = 0.65;
+    public double MaxScoreDelta { get; set; } = 0.45;
+    public int MaxBodyChars { get; set; } = 4000;
 }

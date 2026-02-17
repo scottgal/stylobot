@@ -28,4 +28,14 @@ public sealed record OutgoingFilterDecision(
     double SpamScore,
     double Confidence,
     IReadOnlyList<string> Reasons,
-    int MessagesSentLastHour);
+    int MessagesSentLastHour,
+    bool GuardBlocked,
+    string? GuardReason,
+    DateTimeOffset? GuardBlockedUntilUtc,
+    int GuardStrikeCount);
+
+public sealed record OutgoingRelayDecision(
+    OutgoingFilterDecision Decision,
+    bool RelayAttempted,
+    bool Relayed,
+    string RelayStatus);
