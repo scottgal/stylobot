@@ -240,7 +240,7 @@ public class HeuristicDetector : IDetector, IDisposable
             if (isBot)
             {
                 result.Confidence = (probability - 0.5) * 2; // Scale 0.5-1.0 to 0-1
-                result.BotType = BotType.Scraper;
+                result.BotType = InferBotType(features, evidence);
                 result.Reasons.Add(new DetectionReason
                 {
                     Category = "Heuristic",
@@ -363,6 +363,37 @@ public class HeuristicDetector : IDetector, IDisposable
         var probability = 1.0 / (1.0 + Math.Exp(-score));
 
         return (probability > 0.5, probability);
+    }
+
+    /// <summary>
+    ///     Infers the bot type from active features and prior evidence.
+    ///     In full mode, defers to the PrimaryBotType already determined by upstream detectors.
+    ///     In early mode, checks which UA features fired to distinguish tools from scrapers.
+    /// </summary>
+    private static BotType InferBotType(Dictionary<string, float> features, AggregatedEvidence? evidence)
+    {
+        // Full mode: upstream detectors (UserAgent, VerifiedBot, etc.) already identified the type
+        if (evidence?.PrimaryBotType is { } upstream and not BotType.Unknown)
+            return upstream;
+
+        // Early mode: infer from UA features
+        // Tool UAs (curl, wget, python-requests, etc.) → BotType.Tool
+        if (features.TryGetValue("ua:curl", out var curl) && curl > 0 ||
+            features.TryGetValue("ua:wget", out var wget) && wget > 0 ||
+            features.TryGetValue("ua:httpx", out var httpx) && httpx > 0 ||
+            features.TryGetValue("ua:aiohttp", out var aiohttp) && aiohttp > 0 ||
+            features.TryGetValue("ua:requests", out var requests) && requests > 0)
+            return BotType.Tool;
+
+        // Automation/scraping frameworks → BotType.Scraper
+        if (features.TryGetValue("ua:scrapy", out var scrapy) && scrapy > 0 ||
+            features.TryGetValue("ua:selenium", out var selenium) && selenium > 0 ||
+            features.TryGetValue("ua:headless", out var headless) && headless > 0 ||
+            features.TryGetValue("ua:phantomjs", out var phantomjs) && phantomjs > 0)
+            return BotType.Scraper;
+
+        // Default fallback
+        return BotType.Scraper;
     }
 
     /// <summary>

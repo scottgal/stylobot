@@ -113,6 +113,24 @@ public class HeuristicLateContributor : ContributingDetectorBase
     }
 
     /// <summary>
+    ///     Infers the primary bot type from upstream contributions.
+    ///     Uses the highest-weighted contribution that has a BotType set.
+    /// </summary>
+    private static BotType? InferPrimaryBotType(BlackboardState state)
+    {
+        var botTypeStr = state.Contributions
+            .Where(c => !string.IsNullOrEmpty(c.BotType))
+            .OrderByDescending(c => c.Weight)
+            .Select(c => c.BotType)
+            .FirstOrDefault();
+
+        if (botTypeStr != null && Enum.TryParse<BotType>(botTypeStr, true, out var bt))
+            return bt;
+
+        return null;
+    }
+
+    /// <summary>
     ///     Build a temporary AggregatedEvidence from the blackboard state.
     ///     This allows the HeuristicDetector to see "full mode" with all prior contributions.
     /// </summary>
@@ -143,8 +161,12 @@ public class HeuristicLateContributor : ContributingDetectorBase
             BotProbability = state.CurrentRiskScore,
             Confidence = 0.5, // Intermediate confidence - will be recalculated
             RiskBand = RiskBand.Medium, // Intermediate - will be recalculated
-            PrimaryBotType = null,
-            PrimaryBotName = null,
+            PrimaryBotType = InferPrimaryBotType(state),
+            PrimaryBotName = state.Contributions
+                .Where(c => !string.IsNullOrEmpty(c.BotName))
+                .OrderByDescending(c => c.Weight)
+                .Select(c => c.BotName)
+                .FirstOrDefault(),
             Signals = signals,
             TotalProcessingTimeMs = state.Elapsed.TotalMilliseconds,
             CategoryBreakdown = tempLedger.CategoryBreakdown,

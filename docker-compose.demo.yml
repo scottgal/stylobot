@@ -52,6 +52,7 @@ services:
       timeout: 5s
       retries: 3
 
+
   # ===========================================
   # YARP Gateway - Bot Detection Layer
   # ===========================================
