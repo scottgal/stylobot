@@ -408,7 +408,7 @@ function categorizeSignals(signals: Record<string, any>): SignalCategory[] {
 
 function dashboardApp() {
     return {
-        tab: 'overview' as 'overview' | 'visitors' | 'clusters' | 'countries',
+        tab: 'overview' as 'overview' | 'visitors' | 'clusters' | 'countries' | 'useragents',
         connected: false,
         connection: null as any,
 
@@ -431,6 +431,11 @@ function dashboardApp() {
         countries: [] as any[],
         countryChart: null as ApexCharts | null,
         worldMapRendered: false,
+
+        useragents: [] as any[],
+        uaFilter: 'all',
+        selectedUA: null as any,
+        uaChart: null as ApexCharts | null,
 
         recentDetections: [] as any[],
 
@@ -560,11 +565,112 @@ function dashboardApp() {
             }
         },
 
+        async loadUserAgents() {
+            try {
+                const res = await fetch('/_stylobot/api/useragents');
+                if (res.ok) {
+                    this.useragents = toCamel(await res.json());
+                }
+            } catch (e) {
+                console.warn('[Dashboard] Failed to load user agents:', e);
+            }
+        },
+
+        get filteredUAs(): any[] {
+            if (this.uaFilter === 'all') return this.useragents;
+            return this.useragents.filter((ua: any) => ua.category === this.uaFilter);
+        },
+
+        get uaStats() {
+            const uas = this.useragents;
+            return {
+                total: uas.length,
+                browsers: uas.filter((u: any) => u.category === 'browser').length,
+                bots: uas.filter((u: any) => u.category === 'search' || u.category === 'ai').length,
+                tools: uas.filter((u: any) => u.category === 'tool').length,
+            };
+        },
+
+        setUAFilter(f: string) {
+            this.uaFilter = f;
+            this.selectedUA = null;
+            if (this.uaChart) { this.uaChart.destroy(); this.uaChart = null; }
+        },
+
+        selectUA(ua: any) {
+            this.selectedUA = this.selectedUA?.family === ua.family ? null : ua;
+            this.$nextTick(() => this.renderUAVersionChart());
+        },
+
+        renderUAVersionChart() {
+            const el = document.getElementById('ua-version-chart');
+            if (!el || !this.selectedUA) return;
+            const versions = this.selectedUA.versions || {};
+            const entries = Object.entries(versions)
+                .sort((a: any, b: any) => b[1] - a[1])
+                .slice(0, 8) as [string, number][];
+            if (entries.length === 0) {
+                if (this.uaChart) { this.uaChart.destroy(); this.uaChart = null; }
+                return;
+            }
+            const c = chartColors();
+            const opts: ApexCharts.ApexOptions = {
+                chart: { type: 'donut', height: 200, background: c.bg, fontFamily: 'Inter, system-ui, sans-serif' },
+                series: entries.map(([_, count]) => count),
+                labels: entries.map(([ver]) => 'v' + ver),
+                colors: [c.accent, c.human, c.bot, c.warn, c.confidence, c.uncertain, '#6366f1', '#ec4899'],
+                legend: { position: 'right', labels: { colors: c.text }, fontSize: '11px' },
+                tooltip: { theme: isDark() ? 'dark' : 'light' },
+                dataLabels: { enabled: true, style: { fontSize: '10px' } },
+                plotOptions: { pie: { donut: { size: '55%' } } },
+                stroke: { show: false },
+            };
+            if (this.uaChart) {
+                this.uaChart.updateOptions(opts);
+            } else {
+                this.uaChart = new ApexCharts(el, opts);
+                this.uaChart.render();
+            }
+        },
+
+        uaCategoryBadge(cat: string): string {
+            if (cat === 'browser') return 'status-badge-human';
+            if (cat === 'search') return 'status-badge-info';
+            if (cat === 'ai') return 'status-badge-warn';
+            if (cat === 'tool') return 'status-badge-muted';
+            return 'status-badge-muted';
+        },
+
+        uaCategoryLabel(cat: string): string {
+            if (cat === 'browser') return 'Browser';
+            if (cat === 'search') return 'Search';
+            if (cat === 'ai') return 'AI';
+            if (cat === 'tool') return 'Tool';
+            return 'Unknown';
+        },
+
+        topVersion(ua: any): string {
+            const v = ua.versions || {};
+            const entries = Object.entries(v);
+            if (entries.length === 0) return '\u2014';
+            entries.sort((a: any, b: any) => b[1] - a[1]);
+            return 'v' + entries[0][0];
+        },
+
+        topCountry(ua: any): string {
+            const c = ua.countries || {};
+            const entries = Object.entries(c);
+            if (entries.length === 0) return '\u2014';
+            entries.sort((a: any, b: any) => b[1] - a[1]);
+            return countryFlag(entries[0][0] as string) + ' ' + entries[0][0];
+        },
+
         async switchTab(t: string) {
             this.tab = t as any;
             if (t === 'visitors') await this.loadVisitors();
             if (t === 'clusters' && this.clusters.length === 0) await this.loadClusters();
             if (t === 'countries' && this.countries.length === 0) await this.loadCountries();
+            if (t === 'useragents' && this.useragents.length === 0) await this.loadUserAgents();
         },
 
         // ===== Visitor Filtering & Sorting =====
@@ -899,6 +1005,7 @@ function dashboardApp() {
             if (this.timeChart) this.renderTimeChart();
             if (this.countryChart) this.renderCountryChart();
             if (this.worldMapRendered) this.renderWorldMapChart();
+            if (this.uaChart) this.renderUAVersionChart();
         },
 
         // ===== Helpers exposed to template =====

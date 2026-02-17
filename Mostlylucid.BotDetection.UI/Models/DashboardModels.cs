@@ -150,6 +150,24 @@ public sealed record DashboardFilter
 }
 
 /// <summary>
+///     User agent family summary for the UA tab.
+/// </summary>
+public sealed record DashboardUserAgentSummary
+{
+    public required string Family { get; init; }
+    public required string Category { get; init; }
+    public required int TotalCount { get; init; }
+    public required int BotCount { get; init; }
+    public required int HumanCount { get; init; }
+    public required double BotRate { get; init; }
+    public required Dictionary<string, int> Versions { get; init; }
+    public required Dictionary<string, int> Countries { get; init; }
+    public required double AvgConfidence { get; init; }
+    public required double AvgProcessingTimeMs { get; init; }
+    public required DateTime LastSeen { get; init; }
+}
+
+/// <summary>
 ///     Cluster summary for dashboard display.
 ///     Broadcast when clusters are updated (before LLM descriptions arrive).
 /// </summary>

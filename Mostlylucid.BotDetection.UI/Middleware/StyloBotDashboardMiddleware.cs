@@ -129,6 +129,10 @@ public class StyloBotDashboardMiddleware
                 await ServeClustersApiAsync(context);
                 break;
 
+            case "api/useragents":
+                await ServeUserAgentsApiAsync(context);
+                break;
+
             case "api/me":
                 await ServeMeApiAsync(context);
                 break;
@@ -649,6 +653,117 @@ public class StyloBotDashboardMiddleware
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, clusters,
             new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    }
+
+    private async Task ServeUserAgentsApiAsync(HttpContext context)
+    {
+        var filter = new DashboardFilter { Limit = 500 };
+        var detections = await _eventStore.GetDetectionsAsync(filter);
+
+        // Aggregate by UA family
+        var uaGroups = new Dictionary<string, (int total, int bot, int human, double confSum, double procSum,
+            DateTime lastSeen, Dictionary<string, int> versions, Dictionary<string, int> countries)>(
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var d in detections)
+        {
+            var signals = d.ImportantSignals;
+            string? family = null;
+            string? version = null;
+
+            if (signals != null)
+            {
+                if (signals.TryGetValue("ua.browser", out var fb)) family = fb?.ToString();
+                else if (signals.TryGetValue("ua.browser_family", out var ff)) family = ff?.ToString();
+                if (signals.TryGetValue("ua.browser_version", out var fv)) version = fv?.ToString();
+                else if (signals.TryGetValue("ua.version", out var fv2)) version = fv2?.ToString();
+            }
+
+            // Lightweight fallback from raw UA string
+            if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(d.UserAgent))
+                family = ExtractBrowserFamily(d.UserAgent);
+
+            if (string.IsNullOrEmpty(family))
+                family = "Unknown";
+
+            if (!uaGroups.TryGetValue(family, out var group))
+                group = (0, 0, 0, 0, 0, DateTime.MinValue, new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                    new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase));
+
+            group.total++;
+            if (d.IsBot) group.bot++;
+            else group.human++;
+            group.confSum += d.Confidence;
+            group.procSum += d.ProcessingTimeMs;
+            if (d.Timestamp > group.lastSeen) group.lastSeen = d.Timestamp;
+
+            if (!string.IsNullOrEmpty(version))
+            {
+                group.versions.TryGetValue(version, out var vc);
+                group.versions[version] = vc + 1;
+            }
+
+            if (!string.IsNullOrEmpty(d.CountryCode))
+            {
+                group.countries.TryGetValue(d.CountryCode, out var cc);
+                group.countries[d.CountryCode] = cc + 1;
+            }
+
+            uaGroups[family] = group;
+        }
+
+        var result = uaGroups
+            .Select(kv => new DashboardUserAgentSummary
+            {
+                Family = kv.Key,
+                Category = InferUaCategory(kv.Key),
+                TotalCount = kv.Value.total,
+                BotCount = kv.Value.bot,
+                HumanCount = kv.Value.human,
+                BotRate = kv.Value.total > 0 ? Math.Round((double)kv.Value.bot / kv.Value.total, 4) : 0,
+                Versions = kv.Value.versions,
+                Countries = kv.Value.countries,
+                AvgConfidence = kv.Value.total > 0 ? Math.Round(kv.Value.confSum / kv.Value.total, 4) : 0,
+                AvgProcessingTimeMs = kv.Value.total > 0 ? Math.Round(kv.Value.procSum / kv.Value.total, 2) : 0,
+                LastSeen = kv.Value.lastSeen,
+            })
+            .OrderByDescending(u => u.TotalCount)
+            .ToList();
+
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, result,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    }
+
+    private static string ExtractBrowserFamily(string ua)
+    {
+        if (ua.Contains("Edg/", StringComparison.Ordinal)) return "Edge";
+        if (ua.Contains("OPR/", StringComparison.Ordinal) || ua.Contains("Opera", StringComparison.Ordinal)) return "Opera";
+        if (ua.Contains("Firefox/", StringComparison.Ordinal)) return "Firefox";
+        if (ua.Contains("Chrome/", StringComparison.Ordinal)) return "Chrome";
+        if (ua.Contains("Safari/", StringComparison.Ordinal) && !ua.Contains("Chrome/", StringComparison.Ordinal)) return "Safari";
+        if (ua.Contains("curl/", StringComparison.OrdinalIgnoreCase)) return "curl";
+        if (ua.Contains("python", StringComparison.OrdinalIgnoreCase)) return "Python";
+        if (ua.Contains("Go-http-client", StringComparison.Ordinal)) return "Go";
+        if (ua.Contains("Googlebot", StringComparison.OrdinalIgnoreCase)) return "Googlebot";
+        if (ua.Contains("bingbot", StringComparison.OrdinalIgnoreCase)) return "Bingbot";
+        if (ua.Contains("GPTBot", StringComparison.OrdinalIgnoreCase)) return "GPTBot";
+        if (ua.Contains("ClaudeBot", StringComparison.OrdinalIgnoreCase)) return "ClaudeBot";
+        return "Other";
+    }
+
+    private static string InferUaCategory(string family)
+    {
+        var f = family.ToLowerInvariant();
+        if (f is "chrome" or "firefox" or "safari" or "edge" or "opera" or "brave" or "vivaldi" or "samsung internet")
+            return "browser";
+        if (f is "googlebot" or "bingbot" or "yandexbot" or "baiduspider" or "duckduckbot")
+            return "search";
+        if (f is "gptbot" or "claudebot" or "ccbot" or "perplexitybot" or "bytespider")
+            return "ai";
+        if (f is "curl" or "python" or "go" or "java" or "node" or "wget" or "other")
+            return "tool";
+        return "unknown";
     }
 
     private static string GetCountryFlag(string? code)

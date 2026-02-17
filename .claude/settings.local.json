@@ -218,7 +218,12 @@
       "WebFetch(domain:support.claude.com)",
       "WebFetch(domain:www.bing.com)",
       "WebFetch(domain:openai.com)",
-      "WebFetch(domain:duckduckgo.com)"
+      "WebFetch(domain:duckduckgo.com)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:registry.npmjs.org)",
+      "WebFetch(domain:jvm-docs.vercel.app)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:cdn.jsdelivr.net)"
     ]
   }
 }

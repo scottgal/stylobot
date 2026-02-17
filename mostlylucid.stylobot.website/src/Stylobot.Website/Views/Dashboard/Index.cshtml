@@ -23,7 +23,7 @@
         <!-- Tabs -->
         <div class="border-b mb-4" style="border-color: var(--sb-card-divider);">
             <nav class="flex gap-0 -mb-px overflow-x-auto">
-                <template x-for="t in [{id:'overview',label:'Overview'},{id:'visitors',label:'Visitors'},{id:'clusters',label:'Clusters'},{id:'countries',label:'Countries'}]">
+                <template x-for="t in [{id:'overview',label:'Overview'},{id:'visitors',label:'Visitors'},{id:'clusters',label:'Clusters'},{id:'countries',label:'Countries'},{id:'useragents',label:'User Agents'}]">
                     <button @@click="switchTab(t.id)"
                             class="px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap"
                             :class="tab === t.id
@@ -420,6 +420,168 @@
                     </div>
                     <div x-show="countries.length === 0" class="text-sm py-4 text-center" style="color: var(--sb-card-subtle);">
                         No country data available
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== USER AGENTS TAB ==================== -->
+        <div x-show="tab === 'useragents'" x-cloak>
+
+            <!-- Top Stats -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                <div class="marketing-card p-3">
+                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Total UAs</div>
+                    <div class="text-lg font-bold text-base-content" x-text="uaStats.total"></div>
+                </div>
+                <div class="marketing-card p-3">
+                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Browsers</div>
+                    <div class="text-lg font-bold signal-positive" x-text="uaStats.browsers"></div>
+                </div>
+                <div class="marketing-card p-3">
+                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Bot UAs</div>
+                    <div class="text-lg font-bold signal-danger" x-text="uaStats.bots"></div>
+                </div>
+                <div class="marketing-card p-3">
+                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Tools</div>
+                    <div class="text-lg font-bold" style="color: var(--sb-accent);" x-text="uaStats.tools"></div>
+                </div>
+            </div>
+
+            <!-- Filter Pills -->
+            <div class="flex flex-wrap items-center gap-2 mb-3">
+                <template x-for="f in [{id:'all',label:'All'},{id:'browser',label:'Browsers'},{id:'search',label:'Search'},{id:'ai',label:'AI'},{id:'tool',label:'Tools'}]">
+                    <button @@click="setUAFilter(f.id)"
+                            class="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors"
+                            :style="uaFilter === f.id
+                                ? 'background: var(--sb-accent); color: white; border-color: var(--sb-accent);'
+                                : 'border-color: var(--sb-card-divider); color: var(--sb-card-subtle);'"
+                            x-text="f.label">
+                    </button>
+                </template>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                <!-- UA Table -->
+                <div class="marketing-card p-4 lg:col-span-2">
+                    <h3 class="text-sm font-semibold text-base-content mb-2">User Agent Families</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr style="color: var(--sb-card-subtle);">
+                                    <th class="text-left py-1.5 px-2 font-medium">UA Family</th>
+                                    <th class="text-left py-1.5 px-1 font-medium">Category</th>
+                                    <th class="text-right py-1.5 px-1 font-medium">Requests</th>
+                                    <th class="text-right py-1.5 px-1 font-medium">Bot Rate</th>
+                                    <th class="text-left py-1.5 px-1 font-medium">Top Version</th>
+                                    <th class="text-left py-1.5 px-1 font-medium">Top Country</th>
+                                    <th class="text-right py-1.5 px-1 font-medium">Confidence</th>
+                                    <th class="text-right py-1.5 px-1 font-medium">Last Seen</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="ua in filteredUAs" :key="ua.family">
+                                    <tr class="border-t cursor-pointer hover:bg-base-100 transition-colors"
+                                        style="border-color: var(--sb-card-divider);"
+                                        :class="selectedUA?.family === ua.family ? 'bg-base-100' : ''"
+                                        @@click="selectUA(ua)">
+                                        <td class="py-1.5 px-2 font-medium" style="color: var(--sb-card-text);" x-text="ua.family"></td>
+                                        <td class="py-1.5 px-1">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                                                  :class="uaCategoryBadge(ua.category)"
+                                                  x-text="uaCategoryLabel(ua.category)"></span>
+                                        </td>
+                                        <td class="py-1.5 px-1 text-right font-mono" style="color: var(--sb-card-text);"
+                                            x-text="ua.totalCount.toLocaleString()"></td>
+                                        <td class="py-1.5 px-1 text-right font-bold"
+                                            :class="ua.botRate > 0.5 ? 'signal-danger' : ua.botRate > 0.25 ? 'signal-warning' : 'signal-positive'"
+                                            x-text="Math.round(ua.botRate * 100) + '%'"></td>
+                                        <td class="py-1.5 px-1 font-mono" style="color: var(--sb-card-subtle);"
+                                            x-text="topVersion(ua)"></td>
+                                        <td class="py-1.5 px-1" style="color: var(--sb-card-text);"
+                                            x-text="topCountry(ua)"></td>
+                                        <td class="py-1.5 px-1 text-right font-mono" style="color: var(--sb-card-subtle);"
+                                            x-text="Math.round(ua.avgConfidence * 100) + '%'"></td>
+                                        <td class="py-1.5 px-1 text-right" style="color: var(--sb-card-subtle);"
+                                            x-text="timeAgo(ua.lastSeen)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div x-show="filteredUAs.length === 0" class="text-sm py-8 text-center" style="color: var(--sb-card-subtle);">
+                        No user agent data yet
+                    </div>
+                </div>
+
+                <!-- Detail Panel -->
+                <div class="marketing-card p-4">
+                    <template x-if="selectedUA">
+                        <div>
+                            <h3 class="text-sm font-semibold text-base-content mb-3" x-text="selectedUA.family + ' Details'"></h3>
+
+                            <!-- Bot vs Human ratio -->
+                            <div class="grid grid-cols-3 gap-2 mb-3">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Total</div>
+                                    <div class="text-sm font-bold text-base-content" x-text="selectedUA.totalCount.toLocaleString()"></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Human</div>
+                                    <div class="text-sm font-bold signal-positive" x-text="selectedUA.humanCount.toLocaleString()"></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Bot</div>
+                                    <div class="text-sm font-bold signal-danger" x-text="selectedUA.botCount.toLocaleString()"></div>
+                                </div>
+                            </div>
+
+                            <!-- Bot/Human bar -->
+                            <div class="h-2 rounded-full bg-base-300 overflow-hidden mb-3">
+                                <div class="h-full rounded-full signal-positive"
+                                     style="background: var(--sb-signal-pos);"
+                                     :style="'width:' + Math.round((1 - selectedUA.botRate) * 100) + '%'"></div>
+                            </div>
+
+                            <!-- Avg Stats -->
+                            <div class="grid grid-cols-2 gap-2 mb-3">
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Avg Confidence</div>
+                                    <div class="text-sm font-bold text-base-content" x-text="Math.round(selectedUA.avgConfidence * 100) + '%'"></div>
+                                </div>
+                                <div>
+                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Avg Latency</div>
+                                    <div class="text-sm font-bold text-base-content" x-text="selectedUA.avgProcessingTimeMs.toFixed(1) + 'ms'"></div>
+                                </div>
+                            </div>
+
+                            <!-- Version Distribution Chart -->
+                            <div class="border-t pt-3 mb-3" style="border-color: var(--sb-card-divider);">
+                                <div class="text-[10px] uppercase tracking-wide mb-2" style="color: var(--sb-card-subtle);">Version Distribution</div>
+                                <div id="ua-version-chart"></div>
+                            </div>
+
+                            <!-- Country Breakdown -->
+                            <div class="border-t pt-3" style="border-color: var(--sb-card-divider);">
+                                <div class="text-[10px] uppercase tracking-wide mb-2" style="color: var(--sb-card-subtle);">Countries</div>
+                                <div class="space-y-1">
+                                    <template x-for="[code, count] in Object.entries(selectedUA.countries || {}).sort((a,b) => b[1] - a[1]).slice(0, 8)">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-xs" x-text="countryFlag(code)"></span>
+                                            <span class="text-xs flex-1" style="color: var(--sb-card-text);" x-text="code"></span>
+                                            <div class="flex-1 h-1.5 rounded-full bg-base-300 overflow-hidden">
+                                                <div class="h-full rounded-full" style="background: var(--sb-accent);"
+                                                     :style="'width:' + Math.min(100, Math.round(count / Math.max(...Object.values(selectedUA.countries || {})) * 100)) + '%'"></div>
+                                            </div>
+                                            <span class="text-[10px] font-mono w-6 text-right" style="color: var(--sb-card-subtle);" x-text="count"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                    <div x-show="!selectedUA" class="flex items-center justify-center h-48 text-sm" style="color: var(--sb-card-subtle);">
+                        Click a user agent to see details
                     </div>
                 </div>
             </div>

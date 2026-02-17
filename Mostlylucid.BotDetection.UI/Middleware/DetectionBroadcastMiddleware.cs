@@ -125,6 +125,10 @@ public partial class DetectionBroadcastMiddleware
                         countryCode = geoCC;
                 }
 
+                // Fallback: upstream gateway may have resolved geo via X-Country header
+                if (countryCode == null)
+                    countryCode = ResolveCountryFromHeaders(context);
+
                 // Build detector contributions map for drill-down
                 var detectorContributions = evidence.Contributions
                     .GroupBy(c => c.DetectorName)
@@ -341,8 +345,9 @@ public partial class DetectionBroadcastMiddleware
             .Select(r => r.Detail!)
             .ToList();
 
-        // Read upstream country code
-        var upstreamCountry = context.Request.Headers["X-Bot-Detection-Country"].FirstOrDefault();
+        // Read upstream country code (try multiple header sources and context items)
+        var upstreamCountry = context.Request.Headers["X-Bot-Detection-Country"].FirstOrDefault()
+                              ?? ResolveCountryFromHeaders(context);
 
         // Only show BotType when probability >= 0.5 (consistent with DetectionLedgerExtensions)
         // Prevents "Human Visitor" rows showing "Type: Scraper" at 46% probability
@@ -499,6 +504,27 @@ public partial class DetectionBroadcastMiddleware
     ///     Strips email addresses that some crawlers embed (e.g. "MyBot/1.0 (+mailto:admin@example.com)").
     ///     UA strings themselves are public HTTP headers, not PII — only embedded emails need redacting.
     /// </summary>
+    /// <summary>
+    ///     Resolve country code from upstream headers and HttpContext items.
+    ///     Checks X-Country, CF-IPCountry (Cloudflare), and GeoDetection.CountryCode context item.
+    /// </summary>
+    private static string? ResolveCountryFromHeaders(HttpContext context)
+    {
+        // Common upstream gateway headers
+        var country = context.Request.Headers["X-Country"].FirstOrDefault()
+                      ?? context.Request.Headers["CF-IPCountry"].FirstOrDefault();
+
+        if (!string.IsNullOrEmpty(country) && country != "XX" && country != "LOCAL")
+            return country;
+
+        // GeoDetection middleware context item (set by Mostlylucid.GeoDetection)
+        if (context.Items.TryGetValue("GeoDetection.CountryCode", out var geoCtx) &&
+            geoCtx is string geoCountry && !string.IsNullOrEmpty(geoCountry) && geoCountry != "LOCAL")
+            return geoCountry;
+
+        return null;
+    }
+
     private static string? SanitizeUserAgent(string? ua)
     {
         if (string.IsNullOrWhiteSpace(ua)) return null;
@@ -581,6 +607,10 @@ public partial class DetectionBroadcastMiddleware
             if (countryProp?.GetValue(geoLocObj) is string geoCC && !string.IsNullOrEmpty(geoCC) && geoCC != "LOCAL")
                 countryCode = geoCC;
         }
+
+        // Fallback: upstream gateway headers (X-Country, CF-IPCountry, etc.)
+        if (countryCode == null)
+            countryCode = ResolveCountryFromHeaders(context);
     }
 
     /// <summary>

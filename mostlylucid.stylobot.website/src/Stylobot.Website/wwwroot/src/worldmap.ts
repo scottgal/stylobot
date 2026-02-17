@@ -1,75 +1,12 @@
 /**
- * Lightweight SVG world map renderer using country centroids.
- * Equirectangular projection on a 1000x500 viewBox.
- * No external dependencies — pure SVG.
+ * World map renderer using jsvectormap.
+ * Proper vector country outlines with region coloring by bot rate
+ * and markers sized by request volume.
  */
 
-// Country centroids: [x, y] in equirectangular projection (1000x500 viewBox)
-// Formula: x = (lng + 180) / 360 * 1000, y = (90 - lat) / 180 * 500
-const CENTROIDS: Record<string, [number, number]> = {
-    // North America
-    US: [228, 142], CA: [233, 94], MX: [197, 185],
-
-    // Central America & Caribbean
-    GT: [200, 204], HN: [210, 204], CR: [215, 217], PA: [223, 222],
-    CU: [222, 190], JM: [227, 199], DO: [241, 199], PR: [246, 199],
-
-    // South America
-    BR: [367, 267], AR: [337, 339], CL: [314, 327], CO: [267, 220],
-    VE: [260, 213], PE: [280, 255], EC: [264, 241], UY: [347, 333],
-    PY: [340, 305], BO: [310, 282],
-
-    // Western Europe
-    GB: [494, 103], IE: [486, 101], FR: [506, 122], DE: [528, 108],
-    NL: [514, 103], BE: [512, 109], LU: [515, 112], CH: [520, 119],
-    AT: [532, 119], ES: [493, 136], PT: [484, 135], IT: [531, 130],
-
-    // Northern Europe
-    SE: [540, 78], NO: [528, 78], DK: [525, 96], FI: [556, 72],
-    IS: [468, 72],
-
-    // Eastern Europe
-    PL: [542, 104], CZ: [535, 111], HU: [542, 119], RO: [551, 122],
-    BG: [551, 130], UA: [563, 111], BY: [556, 101], SK: [541, 115],
-    HR: [538, 124], RS: [545, 126], BA: [540, 126], ME: [542, 130],
-    AL: [543, 134], MK: [546, 133], MD: [559, 118], LT: [551, 96],
-    LV: [551, 92], EE: [551, 88],
-
-    // Russia & Central Asia
-    RU: [778, 78], KZ: [700, 111], UZ: [693, 131], TM: [680, 139],
-    KG: [711, 131], TJ: [700, 139],
-
-    // Middle East
-    TR: [569, 139], IL: [569, 165], SA: [610, 175], AE: [633, 172],
-    QA: [627, 173], KW: [615, 161], BH: [623, 168], OM: [644, 178],
-    IQ: [601, 155], IR: [631, 150], JO: [575, 165], LB: [572, 158],
-    SY: [577, 155], YE: [616, 195],
-
-    // South Asia
-    IN: [719, 183], PK: [683, 158], BD: [740, 180], LK: [724, 212],
-    NP: [722, 168],
-
-    // Southeast Asia
-    TH: [756, 195], VN: [762, 195], MY: [758, 222], SG: [757, 228],
-    ID: [778, 239], PH: [783, 200], MM: [744, 188], KH: [758, 202],
-    LA: [755, 192],
-
-    // East Asia
-    CN: [792, 147], JP: [883, 147], KR: [844, 147], TW: [818, 178],
-    HK: [806, 183], MO: [804, 185], MN: [778, 119],
-
-    // Africa
-    NG: [519, 217], EG: [564, 167], ZA: [567, 333], KE: [578, 244],
-    GH: [497, 218], MA: [490, 159], DZ: [508, 161], TN: [525, 153],
-    TZ: [575, 261], ET: [578, 220], UG: [567, 244], CM: [530, 225],
-    CI: [492, 218], SN: [473, 204], AO: [540, 276], MZ: [575, 298],
-    ZW: [561, 296], CD: [551, 250], SD: [563, 195], LY: [540, 167],
-    RW: [563, 247], ML: [492, 199], NE: [519, 199], BF: [497, 207],
-    GN: [477, 211], MW: [574, 284], ZM: [558, 284], BW: [551, 307],
-
-    // Oceania
-    AU: [869, 318], NZ: [935, 355], PG: [878, 261], FJ: [950, 293],
-};
+import jsVectorMap from 'jsvectormap';
+import 'jsvectormap/dist/maps/world';
+import 'jsvectormap/dist/jsvectormap.css';
 
 export interface MapDataPoint {
     code: string;
@@ -84,143 +21,243 @@ export interface MapOptions {
     minRadius?: number;
     maxRadius?: number;
     showLabels?: boolean;
-    highlightCode?: string;  // single country to highlight (for signature detail)
+    highlightCode?: string;
     dark?: boolean;
 }
 
+// Track instances by container for cleanup (supports multiple maps on page)
+const instances = new WeakMap<HTMLElement, any>();
+let idCounter = 0;
+
+// Country centroids for marker placement [lat, lng]
+// jsvectormap markers use [lat, lng] format
+const CENTROIDS: Record<string, [number, number]> = {
+    US: [39.8, -98.5], CA: [56.1, -106.3], MX: [23.6, -102.5],
+    BR: [-14.2, -51.9], AR: [-38.4, -63.6], CL: [-35.7, -71.5], CO: [4.6, -74.3],
+    GB: [55.4, -3.4], IE: [53.4, -8.2], FR: [46.2, 2.2], DE: [51.2, 10.4],
+    NL: [52.1, 5.3], BE: [50.5, 4.5], CH: [46.8, 8.2], AT: [47.5, 14.6],
+    ES: [40.5, -3.7], PT: [39.4, -8.2], IT: [41.9, 12.6],
+    SE: [60.1, 18.6], NO: [60.5, 8.5], DK: [56.3, 9.5], FI: [61.9, 25.7],
+    PL: [51.9, 19.1], CZ: [49.8, 15.5], HU: [47.2, 19.5], RO: [45.9, 25.0],
+    UA: [48.4, 31.2], BG: [42.7, 25.5], GR: [39.1, 21.8],
+    RU: [61.5, 105.3], KZ: [48.0, 68.0], TR: [39.0, 35.2],
+    IL: [31.0, 34.9], SA: [23.9, 45.1], AE: [23.4, 53.8], IR: [32.4, 53.7],
+    IN: [20.6, 79.0], PK: [30.4, 69.3], BD: [23.7, 90.4],
+    TH: [15.9, 100.9], VN: [14.1, 108.3], MY: [4.2, 101.9], SG: [1.4, 103.8],
+    ID: [-0.8, 113.9], PH: [12.9, 121.8],
+    CN: [35.9, 104.2], JP: [36.2, 138.3], KR: [35.9, 127.8], TW: [23.7, 121.0],
+    AU: [-25.3, 133.8], NZ: [-40.9, 174.9],
+    NG: [9.1, 8.7], EG: [26.8, 30.8], ZA: [-30.6, 22.9], KE: [-0.0, 37.9],
+    GH: [7.9, -1.0], MA: [31.8, -7.1], DZ: [28.0, 1.7], TZ: [-6.4, 34.9],
+};
+
 /**
- * Interpolate between green and red based on bot rate (0-1).
- * 0 = green (#22c55e), 0.5 = amber (#f59e0b), 1 = red (#ef4444)
+ * 3-stop color scale: green (0) -> amber (0.5) -> red (1)
+ * Returns hex color for use in tooltips and markers.
  */
-function botRateColor(rate: number, alpha: number = 0.85): string {
-    const r = rate < 0.5 ? Math.round(34 + rate * 2 * (245 - 34)) : Math.round(245 + (rate - 0.5) * 2 * (239 - 245));
-    const g = rate < 0.5 ? Math.round(197 + rate * 2 * (158 - 197)) : Math.round(158 + (rate - 0.5) * 2 * (68 - 158));
-    const b = rate < 0.5 ? Math.round(94 + rate * 2 * (11 - 94)) : Math.round(11 + (rate - 0.5) * 2 * (68 - 11));
-    return `rgba(${r},${g},${b},${alpha})`;
+function botRateHex(rate: number): string {
+    const clamped = Math.max(0, Math.min(1, rate));
+    let r: number, g: number, b: number;
+    if (clamped < 0.5) {
+        const t = clamped * 2; // 0..1 within green->amber
+        r = Math.round(34 + t * (245 - 34));
+        g = Math.round(197 + t * (158 - 197));
+        b = Math.round(94 + t * (11 - 94));
+    } else {
+        const t = (clamped - 0.5) * 2; // 0..1 within amber->red
+        r = Math.round(245 + t * (239 - 245));
+        g = Math.round(158 + t * (68 - 158));
+        b = Math.round(11 + t * (68 - 11));
+    }
+    return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
 }
 
 /**
- * Render a world dot map into the given container element.
+ * Render a world map into the given container element using jsvectormap.
  */
 export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opts: MapOptions = {}): void {
-    const w = opts.width ?? 1000;
-    const h = opts.height ?? 500;
-    const minR = opts.minRadius ?? 4;
-    const maxR = opts.maxRadius ?? 22;
     const dark = opts.dark ?? false;
 
-    const maxCount = Math.max(...data.map(d => d.totalCount), 1);
+    // Destroy previous instance for this container
+    const prev = instances.get(container);
+    if (prev) {
+        try { prev.destroy(); } catch (_) {}
+        instances.delete(container);
+    }
+    container.innerHTML = '';
 
-    // Build data lookup
+    // Unique ID per instance so multiple maps can coexist
+    const mapId = 'jsvectormap-' + (++idCounter);
+    const mapEl = document.createElement('div');
+    mapEl.id = mapId;
+    mapEl.style.width = '100%';
+    mapEl.style.height = (opts.height ?? 440) + 'px';
+    container.appendChild(mapEl);
+
+    // Build region values (country code -> botRate for coloring)
+    const regionValues: Record<string, number> = {};
     const dataMap = new Map<string, MapDataPoint>();
-    for (const d of data) dataMap.set(d.code, d);
-
-    // SVG construction
-    const lines: string[] = [];
-    lines.push(`<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" class="w-full h-auto" style="max-height:${h}px">`);
-
-    // Background with subtle land mass outline (simplified continent shapes)
-    const bgColor = dark ? 'rgba(148,163,184,0.04)' : 'rgba(15,23,42,0.03)';
-    const gridColor = dark ? 'rgba(148,163,184,0.08)' : 'rgba(15,23,42,0.05)';
-    lines.push(`<rect width="${w}" height="${h}" fill="transparent"/>`);
-
-    // Grid lines (longitude)
-    for (let lng = -120; lng <= 180; lng += 60) {
-        const x = ((lng + 180) / 360) * w;
-        lines.push(`<line x1="${x}" y1="0" x2="${x}" y2="${h}" stroke="${gridColor}" stroke-width="0.5"/>`);
-    }
-    // Grid lines (latitude)
-    for (let lat = -60; lat <= 60; lat += 30) {
-        const y = ((90 - lat) / 180) * h;
-        lines.push(`<line x1="0" y1="${y}" x2="${w}" y2="${y}" stroke="${gridColor}" stroke-width="0.5"/>`);
+    for (const d of data) {
+        regionValues[d.code] = d.botRate;
+        dataMap.set(d.code, d);
     }
 
-    // Equator
-    const eqY = (90 / 180) * h;
-    lines.push(`<line x1="0" y1="${eqY}" x2="${w}" y2="${eqY}" stroke="${gridColor}" stroke-width="1" stroke-dasharray="4,4"/>`);
+    // Build markers sized by request volume (sqrt scale for better visual distribution)
+    const maxCount = Math.max(...data.map(d => d.totalCount), 1);
+    const minR = opts.minRadius ?? 4;
+    const maxR = opts.maxRadius ?? 18;
 
-    // Plot all known countries as faint dots first
-    const faintColor = dark ? 'rgba(148,163,184,0.12)' : 'rgba(15,23,42,0.06)';
-    for (const [code, [cx, cy]] of Object.entries(CENTROIDS)) {
-        if (!dataMap.has(code)) {
-            lines.push(`<circle cx="${cx}" cy="${cy}" r="2.5" fill="${faintColor}"/>`);
+    const markers = data
+        .filter(d => CENTROIDS[d.code])
+        .map(d => ({
+            name: d.label,
+            coords: CENTROIDS[d.code],
+            // stash data for styling
+            _botRate: d.botRate,
+            _totalCount: d.totalCount,
+            _scale: Math.sqrt(d.totalCount / maxCount),
+        }));
+
+    const map = new jsVectorMap({
+        selector: '#' + mapId,
+        map: 'world',
+        zoomButtons: true,
+        zoomOnScroll: true,
+        zoomOnScrollSpeed: 3,
+        zoomMax: 12,
+        zoomMin: 1,
+        zoomAnimate: true,
+        showTooltip: true,
+        backgroundColor: 'transparent',
+
+        regionStyle: {
+            initial: {
+                fill: dark ? '#1e293b' : '#e2e8f0',
+                'fill-opacity': 1,
+                stroke: dark ? '#334155' : '#cbd5e1',
+                'stroke-width': 0.5,
+                'stroke-opacity': 1,
+            },
+            hover: {
+                'fill-opacity': 0.85,
+                cursor: 'pointer',
+            },
+            selected: {
+                fill: dark ? '#475569' : '#94a3b8',
+            },
+        },
+
+        // 3-stop scale via jsvectormap's gradient (green -> amber -> red)
+        series: {
+            regions: [{
+                attribute: 'fill',
+                scale: dark
+                    ? ['#166534', '#92400e', '#991b1b']
+                    : ['#22c55e', '#f59e0b', '#ef4444'],
+                values: regionValues,
+                min: 0,
+                max: 1,
+            }],
+        },
+
+        markers,
+
+        markerStyle: {
+            initial: {
+                r: 5,
+                fill: dark ? '#94a3b8' : '#64748b',
+                'fill-opacity': 0.7,
+                stroke: dark ? '#1e293b' : '#ffffff',
+                'stroke-width': 1.5,
+                'stroke-opacity': 0.9,
+            },
+            hover: {
+                'fill-opacity': 1,
+                stroke: dark ? '#e2e8f0' : '#1e293b',
+                cursor: 'pointer',
+            },
+        },
+
+        onRegionTooltipShow(_evt: any, tooltip: any, code: string) {
+            const d = dataMap.get(code);
+            if (d) {
+                const color = botRateHex(d.botRate);
+                tooltip.text(
+                    `<div style="padding:6px 10px;font-size:12px;line-height:1.5;">` +
+                    `<strong>${d.label}</strong><br/>` +
+                    `<span style="font-variant-numeric:tabular-nums;">${d.totalCount.toLocaleString()}</span> requests<br/>` +
+                    `<span style="color:${color};font-weight:600;">${Math.round(d.botRate * 100)}%</span> bots` +
+                    `</div>`,
+                    true
+                );
+            }
+        },
+
+        onMarkerTooltipShow(_evt: any, tooltip: any, index: number) {
+            const m = markers[index];
+            if (m) {
+                const color = botRateHex(m._botRate);
+                tooltip.text(
+                    `<div style="padding:6px 10px;font-size:12px;line-height:1.5;">` +
+                    `<strong>${m.name}</strong><br/>` +
+                    `<span style="font-variant-numeric:tabular-nums;">${m._totalCount.toLocaleString()}</span> requests<br/>` +
+                    `<span style="color:${color};font-weight:600;">${Math.round(m._botRate * 100)}%</span> bots` +
+                    `</div>`,
+                    true
+                );
+            }
+        },
+    });
+
+    // Style markers individually: size by volume, color by bot rate
+    if (map._markers) {
+        for (const [idx, marker] of Object.entries(map._markers) as [string, any][]) {
+            const m = markers[Number(idx)];
+            if (m && marker.element) {
+                const radius = minR + m._scale * (maxR - minR);
+                const color = botRateHex(m._botRate);
+                const el = marker.element.shape;
+                if (el) {
+                    el.node.setAttribute('r', String(radius));
+                    el.node.setAttribute('fill', color);
+                    el.node.setAttribute('fill-opacity', '0.75');
+                }
+            }
         }
     }
 
-    // Sort data by total count ascending so largest circles render on top
-    const sorted = [...data].sort((a, b) => a.totalCount - b.totalCount);
-
-    for (const d of sorted) {
-        const pos = CENTROIDS[d.code];
-        if (!pos) continue;
-        const [cx, cy] = pos;
-
-        // Radius based on total count (sqrt scale)
-        const scale = Math.sqrt(d.totalCount / maxCount);
-        const r = minR + scale * (maxR - minR);
-
-        const fill = botRateColor(d.botRate);
-        const stroke = botRateColor(d.botRate, 1);
-        const isHighlighted = opts.highlightCode === d.code;
-
-        lines.push(`<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="${stroke}" stroke-width="${isHighlighted ? 2 : 0.5}" class="worldmap-dot" data-code="${d.code}">`);
-        lines.push(`<title>${d.label}: ${d.totalCount} requests, ${Math.round(d.botRate * 100)}% bots</title>`);
-        lines.push(`</circle>`);
-
-        // Country code label for larger dots
-        if ((opts.showLabels !== false && r > 8) || isHighlighted) {
-            const textColor = dark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)';
-            lines.push(`<text x="${cx}" y="${cy + r + 11}" text-anchor="middle" fill="${textColor}" font-size="9" font-family="Inter,system-ui,sans-serif" font-weight="600">${d.code}</text>`);
-        }
-    }
-
-    // Legend
-    const legendY = h - 20;
-    const legendItems = [
-        { rate: 0, label: 'Low bot %' },
-        { rate: 0.5, label: 'Medium' },
-        { rate: 1, label: 'High bot %' },
-    ];
-    let legendX = 20;
-    for (const item of legendItems) {
-        lines.push(`<circle cx="${legendX}" cy="${legendY}" r="5" fill="${botRateColor(item.rate)}"/>`);
-        const labelColor = dark ? 'rgba(148,163,184,0.7)' : 'rgba(15,23,42,0.5)';
-        lines.push(`<text x="${legendX + 10}" y="${legendY + 3.5}" fill="${labelColor}" font-size="9" font-family="Inter,system-ui,sans-serif">${item.label}</text>`);
-        legendX += 90;
-    }
-
-    // Size legend
-    legendX = w - 150;
-    const sizeLabel = dark ? 'rgba(148,163,184,0.5)' : 'rgba(15,23,42,0.4)';
-    lines.push(`<text x="${legendX}" y="${legendY + 3.5}" fill="${sizeLabel}" font-size="9" font-family="Inter,system-ui,sans-serif">Size = request volume</text>`);
-
-    lines.push('</svg>');
-
-    container.innerHTML = lines.join('');
+    instances.set(container, map);
 }
 
 /**
- * Render a small map highlighting a single country (for signature detail).
+ * Render a small map highlighting and focusing on a single country.
  */
 export function renderCountryPin(container: HTMLElement, countryCode: string, dark: boolean = false): void {
-    const pos = CENTROIDS[countryCode?.toUpperCase()];
-    if (!pos) {
+    if (!countryCode) {
         container.innerHTML = `<div class="text-xs text-center py-4" style="color: var(--sb-card-subtle);">Location unknown</div>`;
         return;
     }
 
+    const code = countryCode.toUpperCase();
+
     renderWorldMap(container, [{
-        code: countryCode.toUpperCase(),
+        code,
         totalCount: 1,
         botRate: 0.5,
-        label: countryCode,
+        label: code,
     }], {
-        width: 600,
-        height: 300,
-        minRadius: 8,
-        maxRadius: 8,
-        showLabels: true,
-        highlightCode: countryCode.toUpperCase(),
+        height: 250,
+        highlightCode: code,
         dark,
     });
+
+    // Focus/zoom the map to the highlighted country
+    const map = instances.get(container);
+    if (map) {
+        try {
+            map.setFocus({ region: code, animate: true });
+        } catch (_) {
+            // Region code may not exist in jsvectormap's world map
+        }
+    }
 }
