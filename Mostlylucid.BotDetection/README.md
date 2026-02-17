@@ -11,13 +11,18 @@ learning**, auto-updated blocklists, YARP integration, and full observability.
 
 ## Key Features
 
-- **Multi-signal detection**: User-Agent + headers + IP ranges + behavioral analysis + client-side fingerprinting
-- **AI-powered classification**: Heuristic model (<1ms) with optional LLM escalation for complex cases
+- **28 detectors in 4 waves**: User-Agent, headers, IP, behavioral, protocol fingerprinting, AI classification, cluster detection, and more
+- **Protocol-deep fingerprinting**: JA3/JA4 TLS, p0f TCP/IP, AKAMAI HTTP/2, QUIC HTTP/3 — catch bots even when they spoof everything
+- **AI-powered classification**: Heuristic model (<1ms, ~50 features) with optional LLM escalation for complex cases
 - **Continuous learning**: Heuristic weights adapt over time based on detection feedback
+- **Bot network discovery**: Leiden clustering finds coordinated campaigns across thousands of signatures
+- **Geo intelligence**: Country reputation, geographic drift detection, VPN/proxy/Tor/datacenter identification
 - **Composable policies**: Separate detection (WHAT) from action (HOW) for maximum flexibility
 - **Stealth responses**: Throttle, challenge, or honeypot bots without revealing detection
+- **Real-time dashboard**: World map, country stats, cluster visualization, user agent breakdown, live signature feed
+- **Zero PII**: All persistence uses HMAC-SHA256 hashed signatures — no raw IPs or user agents stored
 - **Auto-updated threat intel**: Pulls isbot patterns and cloud IP ranges automatically
-- **First-class YARP support**: Bot-aware routing and header injection
+- **First-class YARP support**: Bot-aware routing and header injection for any-language backends
 - **Full observability**: OpenTelemetry traces and metrics baked in
 
 ## Why Use This?
@@ -135,36 +140,62 @@ app.MapPost("/api/submit", () => "ok")
 public IActionResult Index() => View();
 ```
 
-## Detection Methods (26 Detectors)
+## Detection Methods (28 Detectors)
 
-| Method                    | Description                                              | Latency  |
-|---------------------------|----------------------------------------------------------|----------|
-| **User-Agent**            | Pattern matching against known bots                      | <1ms     |
-| **Headers**               | Suspicious/missing header detection                      | <1ms     |
-| **IP**                    | Datacenter IP range identification                       | <1ms     |
-| **Version Age**           | Browser/OS version staleness detection                   | <1ms     |
-| **Security Tools**        | Penetration testing tool detection (Nikto, sqlmap, etc.) | <1ms     |
-| **Cache Behavior**        | HTTP cache header interaction analysis                   | <1ms     |
-| **Response Behavior**     | Bot-specific response handling patterns                  | <1ms     |
-| **Fast Path Reputation**  | Cached reputation from previous detections               | <1ms     |
-| **Reputation Bias**       | Signature-based reputation tracking                      | <1ms     |
-| **AI Scraper**            | Detects AI training data scrapers                        | <1ms     |
-| **Project Honeypot**      | HTTP:BL IP reputation via DNS lookup                     | ~100ms   |
-| **Behavioral**            | Rate limiting + anomaly detection                        | 1-5ms    |
-| **Advanced Behavioral**   | Deep behavioral pattern analysis                         | 1-5ms    |
-| **Behavioral Waveform**   | FFT-based spectral fingerprinting of request timing      | 1-5ms    |
-| **Client-Side**           | Headless browser detection via JS fingerprinting         | 1-5ms    |
-| **Inconsistency**         | Cross-signal mismatch detection                          | 1-5ms    |
-| **Multi-Layer Correlation** | Cross-detector signal correlation                      | 1-5ms    |
-| **Similarity**            | Fuzzy signature matching via HNSW/Qdrant vector search   | 1-10ms   |
-| **Cluster**               | Bot network detection with Leiden community detection    | 1-10ms   |
-| **Timescale Reputation**  | Time-series IP/signature reputation aggregation          | 1-10ms   |
-| **TLS Fingerprint**       | JA3/JA4 TLS fingerprint analysis                         | <1ms     |
-| **TCP/IP Fingerprint**    | p0f-style passive OS fingerprinting                      | <1ms     |
-| **HTTP/2 Fingerprint**    | AKAMAI-style HTTP/2 fingerprinting                       | <1ms     |
-| **Heuristic AI**          | Feature-weighted classification with learning            | <1ms     |
-| **LLM**                   | Full reasoning (escalation only, qwen3:0.6b)             | 50-500ms |
-| **HeuristicLate**         | Post-AI refinement with all evidence                     | <1ms     |
+All detectors execute in a wave-based pipeline. Fast-path detectors run in parallel in <1ms. Advanced detectors fire only when triggered by upstream signals.
+
+### Wave 0 — Fast Path (<1ms)
+
+| Detector | Description |
+|----------|-------------|
+| **UserAgent** | Pattern matching against 1000+ known bot signatures with category classification |
+| **Header** | Suspicious/missing header detection (Accept-Language, encoding, connection patterns) |
+| **IP** | Datacenter, cloud provider, and known botnet IP range identification |
+| **SecurityTool** | Penetration testing tool detection (Nikto, sqlmap, Burp Suite, Metasploit) |
+| **CacheBehavior** | HTTP cache header interaction analysis (ETag, If-Modified-Since, gzip) |
+| **VersionAge** | Browser/OS version staleness detection (outdated clients = suspicious) |
+| **AiScraper** | AI training bot detection (GPTBot, ClaudeBot, PerplexityBot, Google-Extended) |
+| **FastPathReputation** | Ultra-fast cached reputation from previous detections (ConfirmedGood/Bad) |
+| **ReputationBias** | Signature-based reputation tracking from historical patterns |
+| **VerifiedBot** | DNS-verified identification of Googlebot, Bingbot, and 30+ legitimate crawlers |
+
+### Wave 1 — Behavioral (1-5ms)
+
+| Detector | Description |
+|----------|-------------|
+| **Behavioral** | Rate limiting, request pattern analysis, timing anomalies |
+| **AdvancedBehavioral** | Deep statistical analysis — entropy, Markov chains, anomaly detection |
+| **BehavioralWaveform** | FFT-based spectral fingerprinting of request timing patterns |
+| **ClientSide** | Headless browser detection via JavaScript fingerprinting signals |
+| **GeoChange** | Geographic drift detection, country reputation, origin verification |
+| **ResponseBehavior** | Honeypot path detection, response-side behavioral patterns |
+
+### Wave 2 — Protocol Fingerprinting (<1ms)
+
+| Detector | Description |
+|----------|-------------|
+| **TLS Fingerprint** | JA3/JA4 TLS fingerprint analysis — identifies client libraries |
+| **TCP/IP Fingerprint** | p0f-style passive OS fingerprinting via TCP stack behavior |
+| **HTTP/2 Fingerprint** | AKAMAI-style HTTP/2 frame analysis (settings, priorities, pseudo-headers) |
+| **HTTP/3 Fingerprint** | QUIC transport parameter fingerprinting and version negotiation analysis |
+| **MultiLayerCorrelation** | Cross-layer consistency analysis (does TLS match TCP match HTTP match UA?) |
+
+### Wave 3 — AI + Learning (1-500ms)
+
+| Detector | Description |
+|----------|-------------|
+| **Heuristic** | Feature-weighted classification extracting ~50 features with online learning |
+| **HeuristicLate** | Post-AI refinement with full evidence from all prior waves |
+| **Similarity** | Fuzzy signature matching via HNSW/Qdrant vector search |
+| **Cluster** | Bot network detection with Leiden community discovery |
+| **TimescaleReputation** | Time-series IP/signature reputation aggregation |
+| **LLM** | Full reasoning via Ollama (escalation only, e.g., qwen3:0.6b) — 50-500ms |
+
+### Slow Path
+
+| Detector | Description |
+|----------|-------------|
+| **ProjectHoneypot** | HTTP:BL IP reputation via DNS lookup (~100ms) |
 
 ## AI Detection & Learning (Key Differentiator)
 
@@ -316,8 +347,10 @@ For advanced similarity-based detection, embeddings support named vectors:
 
 | Feature                        | Description                               | Docs                                                                |
 |--------------------------------|-------------------------------------------|---------------------------------------------------------------------|
+| **Quick Start**                | Two-line setup, all 28 detectors          | [quickstart.md](docs/quickstart.md)                                 |
 | **Configuration**              | Full options reference                    | [configuration.md](docs/configuration.md)                           |
 | **AI Detection**               | Heuristic model, LLM escalation, learning | [ai-detection.md](docs/ai-detection.md)                             |
+| **AI Scraper Detection**       | GPTBot, ClaudeBot, PerplexityBot          | [ai-scraper-detection.md](docs/ai-scraper-detection.md)             |
 | **Learning & Reputation**      | Pattern learning, drift detection         | [learning-and-reputation.md](docs/learning-and-reputation.md)       |
 | **Action Policies**            | Block, throttle, challenge, redirect      | [action-policies.md](docs/action-policies.md)                       |
 | **Detection Policies**         | Path-based detection configuration        | [policies.md](docs/policies.md)                                     |
@@ -329,12 +362,16 @@ For advanced similarity-based detection, embeddings support named vectors:
 | **Security Tools Detection**   | Penetration testing tool detection        | [security-tools-detection.md](docs/security-tools-detection.md)     |
 | **Project Honeypot**           | HTTP:BL IP reputation checking            | [project-honeypot.md](docs/project-honeypot.md)                     |
 | **Behavioral Analysis**        | Rate limiting and anomaly detection       | [behavioral-analysis.md](docs/behavioral-analysis.md)               |
+| **Advanced Behavioral**        | Entropy, Markov chains, anomalies         | [advanced-behavioral-detection.md](docs/advanced-behavioral-detection.md) |
+| **Behavioral Waveform**        | FFT spectral request timing analysis      | [behavioral-waveform.md](docs/behavioral-waveform.md)               |
 | **Client-Side Fingerprinting** | Headless browser detection                | [client-side-fingerprinting.md](docs/client-side-fingerprinting.md) |
-| **Cluster Detection**          | Leiden clustering and bot networks        | [cluster-detection.md](docs/cluster-detection.md)                   |
-| **Cache Behavior**             | HTTP cache header analysis                | [cache-behavior.md](docs/cache-behavior.md)                         |
-| **Response Behavior**          | Response handling pattern detection       | [response-behavior.md](docs/response-behavior.md)                   |
-| **TCP/IP Fingerprint**         | Passive OS fingerprinting                 | [tcp-ip-fingerprint.md](docs/tcp-ip-fingerprint.md)                 |
-| **Behavioral Waveform**        | Spectral request timing analysis          | [behavioral-waveform.md](docs/behavioral-waveform.md)               |
+| **Cache Behavior**             | HTTP cache header analysis                | [cache-behavior-detection.md](docs/cache-behavior-detection.md)     |
+| **Response Behavior**          | Honeypot and response-side patterns       | [response-behavior.md](docs/response-behavior.md)                   |
+| **TLS/TCP/HTTP2 Fingerprinting** | JA3/JA4, p0f, AKAMAI fingerprints      | [AdvancedFingerprintingDetectors.md](docs/AdvancedFingerprintingDetectors.md) |
+| **HTTP/3 Fingerprinting**      | QUIC transport parameter analysis         | [http3-fingerprinting.md](docs/http3-fingerprinting.md)             |
+| **Multi-Layer Correlation**    | Cross-layer consistency analysis          | [multi-layer-correlation.md](docs/multi-layer-correlation.md)       |
+| **Cluster Detection**          | Leiden clustering for bot networks        | [cluster-detection.md](docs/cluster-detection.md)                   |
+| **TCP/IP Fingerprint**         | Passive OS fingerprinting (p0f)           | [tcp-ip-fingerprint.md](docs/tcp-ip-fingerprint.md)                 |
 | **Timescale Reputation**       | Time-series reputation aggregation        | [timescale-reputation.md](docs/timescale-reputation.md)             |
 | **YARP Integration**           | Bot-aware reverse proxy                   | [yarp-integration.md](docs/yarp-integration.md)                     |
 | **Telemetry**                  | OpenTelemetry traces and metrics          | [telemetry-and-metrics.md](docs/telemetry-and-metrics.md)           |

@@ -1,6 +1,6 @@
 # Enterprise Bot Detection with Minimal Code
 
-StyloBot gives you 27-detector bot detection in two lines of code. No external services, no database setup, no API keys. It runs entirely self-contained with file-based storage and in-process similarity search.
+StyloBot gives you 28-detector bot detection in two lines of code. No external services, no database setup, no API keys. It runs entirely self-contained with file-based storage and in-process similarity search.
 
 ```
 NuGet: dotnet add package Mostlylucid.BotDetection
@@ -57,7 +57,7 @@ Every detected bot gets a 403. Search engines, social media previews, and monito
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddBotDetection();          // ← registers all 27 detectors
+builder.Services.AddBotDetection();          // ← registers all 28 detectors
 
 var app = builder.Build();
 app.UseBotDetection();                       // ← detection middleware
@@ -349,7 +349,7 @@ No `appsettings.json` section needed. Defaults:
 
 ## Dashboard & Monitoring
 
-The StyloBot Dashboard provides a real-time UI with SignalR live updates, plus JSON API endpoints for programmatic access. It's part of the `Mostlylucid.BotDetection.UI` package.
+The StyloBot Dashboard provides a real-time monitoring UI with SignalR live updates, an interactive world map, country/cluster/user-agent analytics, and JSON API endpoints for programmatic access. It's part of the `Mostlylucid.BotDetection.UI` package.
 
 ### Setup
 
@@ -398,8 +398,10 @@ All endpoints are under `{BasePath}/api/`:
 | `/stylobot/api/detections` | GET | Recent detection events with filtering |
 | `/stylobot/api/signatures` | GET | Unique visitor signatures |
 | `/stylobot/api/timeseries` | GET | Time-bucketed detection counts |
+| `/stylobot/api/topbots` | GET | Top detected bots ranked by hit count |
 | `/stylobot/api/countries` | GET | Top bot source countries with reputation data |
 | `/stylobot/api/clusters` | GET | Leiden bot clusters with similarity scores |
+| `/stylobot/api/useragents` | GET | User agent family aggregation with version/country breakdown |
 | `/stylobot/api/sparkline/{sig}` | GET | Sparkline history for a specific signature |
 | `/stylobot/api/export` | GET | Export detections as CSV/JSON |
 | `/stylobot/api/diagnostics` | GET | Comprehensive diagnostics (rate-limited: 10/min) |
@@ -514,11 +516,11 @@ StyloBot is designed to start with zero dependencies and scale to a full product
 Your App + AddBotDetection()
     └── SQLite (auto-created botdetection.db)
     └── In-process HNSW similarity search
-    └── 27 detectors, <1ms per request
+    └── 28 detectors, <1ms per request
     └── No external services
 ```
 
-**What runs:** All 27 detectors execute in a wave-based pipeline. Fast-path detectors (UserAgent, Header, IP, Behavioral, TLS fingerprint, etc.) run in parallel in <1ms. Heuristic scoring extracts ~50 features and runs a lightweight scoring model. Everything persists to SQLite for learning across restarts.
+**What runs:** All 28 detectors execute in a wave-based pipeline. Fast-path detectors (UserAgent, Header, IP, SecurityTool, VersionAge, AiScraper, VerifiedBot, etc.) run in parallel in <1ms. Protocol fingerprinting (TLS, TCP/IP, HTTP/2, HTTP/3) catches bots that spoof everything else. Heuristic scoring extracts ~50 features and runs a lightweight scoring model. Everything persists to SQLite for learning across restarts.
 
 **Good for:** Single app, <100K requests/day, getting started.
 

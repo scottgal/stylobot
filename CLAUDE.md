@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**StyloBot** is an enterprise-grade bot detection framework for ASP.NET Core. It uses a blackboard architecture (via StyloFlow) with 27 detectors, AI-powered classification, Leiden clustering for bot network discovery, and zero-PII design. The system combines fast-path detection (<1ms) with optional LLM escalation for complex cases.
+**StyloBot** is an enterprise-grade bot detection framework for ASP.NET Core. It uses a blackboard architecture (via StyloFlow) with 28 detectors in 4 waves, AI-powered classification, Leiden clustering for bot network discovery, and zero-PII design. The system combines fast-path detection (<1ms) with optional LLM escalation for complex cases. The real-time dashboard features an interactive world map, country analytics, cluster visualization, user agent breakdown, and live signature feed.
 
 ## Build Commands
 

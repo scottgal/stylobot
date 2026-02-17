@@ -223,7 +223,9 @@
       "WebFetch(domain:registry.npmjs.org)",
       "WebFetch(domain:jvm-docs.vercel.app)",
       "WebFetch(domain:api.github.com)",
-      "WebFetch(domain:cdn.jsdelivr.net)"
+      "WebFetch(domain:cdn.jsdelivr.net)",
+      "Bash(for file in /d/Source/mostlylucid.stylobot/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/*Contributor.cs)",
+      "Bash(do basename \"$file\" .cs)"
     ]
   }
 }

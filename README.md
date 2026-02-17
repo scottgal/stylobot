@@ -1,7 +1,7 @@
 # StyloBot
 by ***mostly*lucid**
 
-Bot detection framework for ASP.NET Core with wave-based detection, adaptive learning, and reverse-proxy integration.
+Enterprise bot detection framework for ASP.NET Core. 28 detectors, wave-based orchestration, adaptive AI learning, real-time dashboard with world map, and reverse-proxy integration — all in two lines of code.
 
 <img src="https://raw.githubusercontent.com/scottgal/stylobot/refs/heads/main/mostlylucid.stylobot.website/src/Stylobot.Website/wwwroot/img/stylowall.svg?raw=true" alt="StyloBot" style="max-width:200px; height:auto;" />
 
@@ -54,20 +54,29 @@ curl http://localhost:8080/admin/health
 
 If `ADMIN_SECRET` is configured, include header `X-Admin-Secret` for `/admin/*` endpoints.
 
-## Detection Surface
+## Detection Surface — 28 Detectors
 
-The default policy runs fast contributors first and can escalate based on policy config. In demo and gateway configs, the active policies include contributors such as:
+All detectors run in a wave-based pipeline. Fast-path detectors execute in parallel in <1ms; advanced detectors fire only when triggered by upstream signals.
 
-- User-Agent, Header, IP, SecurityTool
-- Behavioral, AdvancedBehavioral, CacheBehavior
-- ClientSide, Inconsistency, VersionAge, ReputationBias
-- FastPathReputation, ProjectHoneypot, HoneypotLink
-- TLS/TCP/HTTP2 fingerprinting and cross-layer correlation
-- Cluster detection (label propagation + FFT spectral analysis)
-- Country reputation tracking (time-decayed bot rates)
-- Heuristic scoring (and optional LLM path when configured)
+| Wave | Detectors | Latency |
+|------|-----------|---------|
+| **Wave 0 — Fast Path** | UserAgent, Header, IP, SecurityTool, CacheBehavior, VersionAge, AiScraper, FastPathReputation, ReputationBias, VerifiedBot | <1ms |
+| **Wave 1 — Behavioral** | Behavioral, AdvancedBehavioral, BehavioralWaveform, ClientSide, GeoChange, ResponseBehavior | 1-5ms |
+| **Wave 2 — Fingerprinting** | TLS (JA3/JA4), TCP/IP (p0f), HTTP/2 (AKAMAI), HTTP/3 (QUIC), MultiLayerCorrelation | <1ms |
+| **Wave 3 — AI + Learning** | Heuristic, HeuristicLate, Similarity, Cluster (Leiden), TimescaleReputation, LLM (optional) | 1-500ms |
+| **Slow Path** | ProjectHoneypot (DNS lookup) | ~100ms |
 
 Real contributor lists are controlled by `BotDetection:Policies` in each app config.
+
+### Key Capabilities
+
+- **Protocol-level fingerprinting**: JA3/JA4 TLS, p0f TCP/IP, AKAMAI HTTP/2, QUIC HTTP/3 — detect bots even when they spoof headers perfectly
+- **Bot network discovery**: Leiden clustering finds coordinated bot campaigns across thousands of signatures
+- **Adaptive AI**: Heuristic model extracts ~50 features per request and learns from feedback — detection improves over time
+- **Geo intelligence**: Country reputation tracking, geographic drift detection, VPN/proxy/Tor/datacenter identification
+- **Verified bot authentication**: DNS-verified identification of Googlebot, Bingbot, and 30+ legitimate crawlers
+- **AI scraper detection**: GPTBot, ClaudeBot, PerplexityBot, Google-Extended and Cloudflare AI signals
+- **Zero PII**: All persistence uses HMAC-SHA256 hashed signatures — no raw IPs or user agents stored
 
 ### Training Data API
 
@@ -86,12 +95,34 @@ curl http://localhost:5080/bot-detection/training/countries
 
 Register with `app.MapBotTrainingEndpoints()`. See [Training Data API docs](Mostlylucid.BotDetection/docs/training-data-api.md).
 
+## Real-Time Dashboard
+
+The built-in dashboard (`Mostlylucid.BotDetection.UI`) provides live monitoring via SignalR:
+
+- **Overview**: Total/bot/human request counts, bot rate, unique signatures, top bots
+- **World Map**: jsvectormap with countries colored by bot rate (green→amber→red) and markers sized by traffic volume
+- **Countries Tab**: Country-level bot rates, reputation scores, request volumes
+- **Clusters Tab**: Leiden-detected bot networks with similarity scores and campaign analysis
+- **User Agents Tab**: UA family breakdown with category badges, version distribution, country per UA
+- **Visitors Tab**: Live signature feed with risk bands, sparkline histories, drill-down details
+- **Detections Tab**: Full detection event log with per-detector contributions and signal breakdown
+
+All data updates in real-time via SignalR. JSON API endpoints available for programmatic access.
+
+```csharp
+builder.Services.AddBotDetection();
+builder.Services.AddStyloBotDashboard();
+app.UseStyloBotDashboard();  // Dashboard at /_stylobot/
+```
+
 ## Core Product Differentiators
 
-- Speed with intelligence: low-latency request handling with explainable detector evidence.
-- Temporal behavior resolution: cross-request, windowed signal correlation for stronger bot/human discrimination.
-- Powered by `mostlylucid.ephemeral`: efficient ephemeral state and coordinator patterns that enable across-time analysis without heavy per-request latency.
-- Operator-first control: you decide policy actions and rollout strategy.
+- **Speed with intelligence**: <1ms fast path across 28 detectors with explainable evidence per decision
+- **Protocol-deep fingerprinting**: TLS, TCP/IP, HTTP/2, HTTP/3 fingerprints catch bots that spoof everything else
+- **Temporal behavior resolution**: cross-request, windowed signal correlation for stronger bot/human discrimination
+- **Adaptive learning**: Heuristic weights evolve based on detection outcomes — gets smarter over time
+- **Powered by `mostlylucid.ephemeral`**: efficient ephemeral state and coordinator patterns that enable across-time analysis without heavy per-request latency
+- **Operator-first control**: composable action policies — you decide how to respond (block, throttle, challenge, honeypot, log)
 
 ## Common Dev Commands
 
@@ -140,19 +171,28 @@ Library and component docs:
 - [`Mostlylucid.BotDetection/docs/detection-strategies.md`](Mostlylucid.BotDetection/docs/detection-strategies.md)
 - [`Mostlylucid.BotDetection/docs/action-policies.md`](Mostlylucid.BotDetection/docs/action-policies.md)
 
-Detector docs:
+Detector docs (28 detectors):
 
-- [`Mostlylucid.BotDetection/docs/user-agent-detection.md`](Mostlylucid.BotDetection/docs/user-agent-detection.md)
-- [`Mostlylucid.BotDetection/docs/header-detection.md`](Mostlylucid.BotDetection/docs/header-detection.md)
-- [`Mostlylucid.BotDetection/docs/ip-detection.md`](Mostlylucid.BotDetection/docs/ip-detection.md)
-- [`Mostlylucid.BotDetection/docs/behavioral-analysis.md`](Mostlylucid.BotDetection/docs/behavioral-analysis.md)
-- [`Mostlylucid.BotDetection/docs/advanced-behavioral-detection.md`](Mostlylucid.BotDetection/docs/advanced-behavioral-detection.md)
-- [`Mostlylucid.BotDetection/docs/client-side-fingerprinting.md`](Mostlylucid.BotDetection/docs/client-side-fingerprinting.md)
-- [`Mostlylucid.BotDetection/docs/version-age-detection.md`](Mostlylucid.BotDetection/docs/version-age-detection.md)
-- [`Mostlylucid.BotDetection/docs/security-tools-detection.md`](Mostlylucid.BotDetection/docs/security-tools-detection.md)
-- [`Mostlylucid.BotDetection/docs/ai-detection.md`](Mostlylucid.BotDetection/docs/ai-detection.md)
-- [`Mostlylucid.BotDetection/docs/cluster-detection.md`](Mostlylucid.BotDetection/docs/cluster-detection.md)
-- [`Mostlylucid.BotDetection/docs/training-data-api.md`](Mostlylucid.BotDetection/docs/training-data-api.md)
+- [`user-agent-detection.md`](Mostlylucid.BotDetection/docs/user-agent-detection.md) — UA parsing, bot pattern matching
+- [`header-detection.md`](Mostlylucid.BotDetection/docs/header-detection.md) — HTTP header anomalies
+- [`ip-detection.md`](Mostlylucid.BotDetection/docs/ip-detection.md) — Datacenter, botnet, proxy IP ranges
+- [`behavioral-analysis.md`](Mostlylucid.BotDetection/docs/behavioral-analysis.md) — Request pattern analysis
+- [`advanced-behavioral-detection.md`](Mostlylucid.BotDetection/docs/advanced-behavioral-detection.md) — Entropy, Markov chains, anomaly detection
+- [`behavioral-waveform.md`](Mostlylucid.BotDetection/docs/behavioral-waveform.md) — FFT spectral timing fingerprinting
+- [`client-side-fingerprinting.md`](Mostlylucid.BotDetection/docs/client-side-fingerprinting.md) — Headless browser detection via JS
+- [`version-age-detection.md`](Mostlylucid.BotDetection/docs/version-age-detection.md) — Browser/OS version freshness
+- [`security-tools-detection.md`](Mostlylucid.BotDetection/docs/security-tools-detection.md) — Burp, Metasploit, sqlmap, etc.
+- [`cache-behavior-detection.md`](Mostlylucid.BotDetection/docs/cache-behavior-detection.md) — ETag, gzip, cache header analysis
+- [`response-behavior.md`](Mostlylucid.BotDetection/docs/response-behavior.md) — Honeypot and response-side patterns
+- [`ai-detection.md`](Mostlylucid.BotDetection/docs/ai-detection.md) — Heuristic model + LLM escalation
+- [`ai-scraper-detection.md`](Mostlylucid.BotDetection/docs/ai-scraper-detection.md) — GPTBot, ClaudeBot, PerplexityBot
+- [`cluster-detection.md`](Mostlylucid.BotDetection/docs/cluster-detection.md) — Leiden clustering for bot networks
+- [`AdvancedFingerprintingDetectors.md`](Mostlylucid.BotDetection/docs/AdvancedFingerprintingDetectors.md) — TLS (JA3/JA4), TCP/IP (p0f), HTTP/2 (AKAMAI)
+- [`http3-fingerprinting.md`](Mostlylucid.BotDetection/docs/http3-fingerprinting.md) — QUIC transport fingerprinting
+- [`multi-layer-correlation.md`](Mostlylucid.BotDetection/docs/multi-layer-correlation.md) — Cross-layer consistency
+- [`learning-and-reputation.md`](Mostlylucid.BotDetection/docs/learning-and-reputation.md) — Adaptive learning system
+- [`timescale-reputation.md`](Mostlylucid.BotDetection/docs/timescale-reputation.md) — TimescaleDB reputation tracking
+- [`training-data-api.md`](Mostlylucid.BotDetection/docs/training-data-api.md) — ML training data export
 
 ## Notes on Existing Docs
 
