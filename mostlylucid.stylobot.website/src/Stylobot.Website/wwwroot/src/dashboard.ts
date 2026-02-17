@@ -463,11 +463,11 @@ function dashboardApp() {
 
         async loadOverview() {
             try {
-                const [summaryRes, timeRes, meRes, sigsRes] = await Promise.all([
+                const [summaryRes, timeRes, meRes, topBotsRes] = await Promise.all([
                     fetch('/_stylobot/api/summary'),
                     fetch('/_stylobot/api/timeseries?bucket=60'),
                     fetch('/_stylobot/api/me'),
-                    fetch('/_stylobot/api/signatures?limit=50'),
+                    fetch('/_stylobot/api/topbots?count=10'),
                 ]);
 
                 if (summaryRes.ok) this.summary = toCamel(await summaryRes.json());
@@ -478,20 +478,8 @@ function dashboardApp() {
                         this.yourDetection = toCamel(JSON.parse(raw));
                     }
                 }
-                if (sigsRes.ok) {
-                    const sigs = toCamel(await sigsRes.json());
-                    // Infer bot identity for signatures without names
-                    for (const s of sigs) {
-                        if (s.isKnownBot && !s.botName) {
-                            const identity = inferBotIdentity(s);
-                            if (identity.name) s.botName = identity.name;
-                            if (identity.type) s.botType = identity.type;
-                        }
-                    }
-                    this.topBots = sigs
-                        .filter((s: any) => s.isKnownBot)
-                        .sort((a: any, b: any) => (b.hitCount ?? 0) - (a.hitCount ?? 0))
-                        .slice(0, 10);
+                if (topBotsRes.ok) {
+                    this.topBots = toCamel(await topBotsRes.json());
                 }
 
                 this.$nextTick(() => this.renderTimeChart());
@@ -782,11 +770,8 @@ function dashboardApp() {
                     if (idx >= 0) {
                         this.visitors[idx] = { ...this.visitors[idx], ...sig };
                     }
-                    // Update top bots
-                    const botIdx = this.topBots.findIndex((b: any) => b.primarySignature === sig.primarySignature);
-                    if (botIdx >= 0) {
-                        this.topBots[botIdx] = { ...this.topBots[botIdx], ...sig };
-                    }
+                    // Rebuild top bots: update existing or insert new
+                    this.updateTopBots(sig);
                 });
 
                 this.connection.on('BroadcastClusters', (raw: any) => {
@@ -824,6 +809,28 @@ function dashboardApp() {
                 console.warn('[Dashboard] SignalR failed:', err);
                 this.connected = false;
             }
+        },
+
+        updateTopBots(sig: any) {
+            if (!sig.isKnownBot && !sig.isBot) return;
+
+            // Infer identity if missing
+            if (!sig.botName) {
+                const identity = inferBotIdentity(sig);
+                if (identity.name) sig.botName = identity.name;
+                if (identity.type) sig.botType = identity.type;
+            }
+
+            const botIdx = this.topBots.findIndex((b: any) => b.primarySignature === sig.primarySignature);
+            if (botIdx >= 0) {
+                this.topBots[botIdx] = { ...this.topBots[botIdx], ...sig };
+            } else {
+                // New bot — add it
+                this.topBots.push(sig);
+            }
+            // Re-sort by hit count and trim to top 10
+            this.topBots.sort((a: any, b: any) => (b.hitCount ?? 0) - (a.hitCount ?? 0));
+            if (this.topBots.length > 10) this.topBots.length = 10;
         },
 
         flushDetectionBatch() {

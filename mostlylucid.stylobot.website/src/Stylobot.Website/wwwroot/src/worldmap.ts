@@ -30,7 +30,6 @@ const instances = new WeakMap<HTMLElement, any>();
 let idCounter = 0;
 
 // Country centroids for marker placement [lat, lng]
-// jsvectormap markers use [lat, lng] format
 const CENTROIDS: Record<string, [number, number]> = {
     US: [39.8, -98.5], CA: [56.1, -106.3], MX: [23.6, -102.5],
     BR: [-14.2, -51.9], AR: [-38.4, -63.6], CL: [-35.7, -71.5], CO: [4.6, -74.3],
@@ -52,22 +51,39 @@ const CENTROIDS: Record<string, [number, number]> = {
 };
 
 /**
- * 3-stop color scale: green (0) -> amber (0.5) -> red (1)
- * Returns hex color for use in tooltips and markers.
+ * 3-stop color scale: green (0) -> amber (0.5) -> red (1).
+ * jsvectormap only supports 2-stop gradients internally,
+ * so we compute per-region colors ourselves.
  */
-function botRateHex(rate: number): string {
+function botRateHex(rate: number, dark: boolean = false): string {
     const clamped = Math.max(0, Math.min(1, rate));
     let r: number, g: number, b: number;
-    if (clamped < 0.5) {
-        const t = clamped * 2; // 0..1 within green->amber
-        r = Math.round(34 + t * (245 - 34));
-        g = Math.round(197 + t * (158 - 197));
-        b = Math.round(94 + t * (11 - 94));
+
+    // Dark mode uses muted palette, light mode uses vibrant
+    if (dark) {
+        if (clamped < 0.5) {
+            const t = clamped * 2;
+            r = Math.round(22 + t * (146 - 22));
+            g = Math.round(101 + t * (64 - 101));
+            b = Math.round(52 + t * (14 - 52));
+        } else {
+            const t = (clamped - 0.5) * 2;
+            r = Math.round(146 + t * (153 - 146));
+            g = Math.round(64 + t * (27 - 64));
+            b = Math.round(14 + t * (27 - 14));
+        }
     } else {
-        const t = (clamped - 0.5) * 2; // 0..1 within amber->red
-        r = Math.round(245 + t * (239 - 245));
-        g = Math.round(158 + t * (68 - 158));
-        b = Math.round(11 + t * (68 - 11));
+        if (clamped < 0.5) {
+            const t = clamped * 2;
+            r = Math.round(34 + t * (245 - 34));
+            g = Math.round(197 + t * (158 - 197));
+            b = Math.round(94 + t * (11 - 94));
+        } else {
+            const t = (clamped - 0.5) * 2;
+            r = Math.round(245 + t * (239 - 245));
+            g = Math.round(158 + t * (68 - 158));
+            b = Math.round(11 + t * (68 - 11));
+        }
     }
     return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
 }
@@ -86,6 +102,8 @@ export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opt
     }
     container.innerHTML = '';
 
+    if (data.length === 0) return;
+
     // Unique ID per instance so multiple maps can coexist
     const mapId = 'jsvectormap-' + (++idCounter);
     const mapEl = document.createElement('div');
@@ -94,15 +112,18 @@ export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opt
     mapEl.style.height = (opts.height ?? 440) + 'px';
     container.appendChild(mapEl);
 
-    // Build region values (country code -> botRate for coloring)
-    const regionValues: Record<string, number> = {};
+    // Build data lookup
     const dataMap = new Map<string, MapDataPoint>();
+    for (const d of data) dataMap.set(d.code, d);
+
+    // Pre-compute per-region fill colors (3-stop scale computed client-side)
+    // setAttributes expects code -> color string (not object)
+    const regionAttrs: Record<string, string> = {};
     for (const d of data) {
-        regionValues[d.code] = d.botRate;
-        dataMap.set(d.code, d);
+        regionAttrs[d.code] = botRateHex(d.botRate, dark);
     }
 
-    // Build markers sized by request volume (sqrt scale for better visual distribution)
+    // Build markers sized by request volume (sqrt scale)
     const maxCount = Math.max(...data.map(d => d.totalCount), 1);
     const minR = opts.minRadius ?? 4;
     const maxR = opts.maxRadius ?? 18;
@@ -112,7 +133,6 @@ export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opt
         .map(d => ({
             name: d.label,
             coords: CENTROIDS[d.code],
-            // stash data for styling
             _botRate: d.botRate,
             _totalCount: d.totalCount,
             _scale: Math.sqrt(d.totalCount / maxCount),
@@ -142,21 +162,14 @@ export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opt
                 'fill-opacity': 0.85,
                 cursor: 'pointer',
             },
-            selected: {
-                fill: dark ? '#475569' : '#94a3b8',
-            },
         },
 
-        // 3-stop scale via jsvectormap's gradient (green -> amber -> red)
+        // Apply per-region colors directly via series attributes
+        // (bypasses jsvectormap's 2-stop gradient limitation)
         series: {
             regions: [{
                 attribute: 'fill',
-                scale: dark
-                    ? ['#166534', '#92400e', '#991b1b']
-                    : ['#22c55e', '#f59e0b', '#ef4444'],
-                values: regionValues,
-                min: 0,
-                max: 1,
+                attributes: regionAttrs,
             }],
         },
 
@@ -215,7 +228,7 @@ export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opt
             const m = markers[Number(idx)];
             if (m && marker.element) {
                 const radius = minR + m._scale * (maxR - minR);
-                const color = botRateHex(m._botRate);
+                const color = botRateHex(m._botRate, dark);
                 const el = marker.element.shape;
                 if (el) {
                     el.node.setAttribute('r', String(radius));

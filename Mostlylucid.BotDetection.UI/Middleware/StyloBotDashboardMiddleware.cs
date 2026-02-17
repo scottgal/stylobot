@@ -133,6 +133,10 @@ public class StyloBotDashboardMiddleware
                 await ServeUserAgentsApiAsync(context);
                 break;
 
+            case "api/topbots":
+                await ServeTopBotsApiAsync(context);
+                break;
+
             case "api/me":
                 await ServeMeApiAsync(context);
                 break;
@@ -652,6 +656,39 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, clusters,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+    }
+
+    private async Task ServeTopBotsApiAsync(HttpContext context)
+    {
+        var visitorCache = context.RequestServices
+            .GetService(typeof(VisitorListCache)) as VisitorListCache;
+
+        var countParam = context.Request.Query["count"].FirstOrDefault();
+        var count = int.TryParse(countParam, out var c) && c is > 0 and <= 50 ? c : 10;
+
+        var topBots = visitorCache?.GetTopBots(count);
+
+        var result = topBots?.Select(b => new
+        {
+            b.PrimarySignature,
+            HitCount = b.Hits,
+            b.BotName,
+            b.BotType,
+            b.RiskBand,
+            b.BotProbability,
+            b.Confidence,
+            b.Action,
+            b.CountryCode,
+            b.ProcessingTimeMs,
+            topReasons = b.TopReasons,
+            b.LastSeen,
+            b.Narrative,
+            b.Description,
+        }) ?? Enumerable.Empty<object>();
+
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, result,
             new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
     }
 
