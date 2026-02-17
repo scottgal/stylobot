@@ -9,7 +9,7 @@
         <PackageId>mostlylucid.geodetection</PackageId>
         <Authors>Scott Galloway</Authors>
         <PackageIcon>icon.png</PackageIcon>
-        <RepositoryUrl>https://github.com/scottgal/mostlylucidweb/tree/main/Mostlylucid.GeoDetection</RepositoryUrl>
+        <RepositoryUrl>https://github.com/scottgal/stylobot</RepositoryUrl>
         <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
         <PackageTags>geolocation;geo-routing;middleware;aspnetcore;ip-location;country</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
