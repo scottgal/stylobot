@@ -230,9 +230,9 @@
                                     <div class="text-xs p-2 rounded-lg bg-base-100">
                                         <div class="font-medium text-base-content truncate" x-text="name"></div>
                                         <div class="flex flex-col gap-0.5 mt-0.5" style="color: var(--sb-card-subtle);">
-                                            <span x-text="'Delta: ' + (contrib.confidenceDelta > 0 ? '+' : '') + contrib.confidenceDelta.toFixed(2)"></span>
-                                            <span x-text="'Weight: ' + contrib.contribution.toFixed(3)"></span>
-                                            <span x-show="contrib.executionTimeMs > 0" class="text-[10px]" x-text="contrib.executionTimeMs.toFixed(1) + 'ms'"></span>
+                                            <span x-text="'Delta: ' + ((contrib.confidenceDelta ?? 0) > 0 ? '+' : '') + (contrib.confidenceDelta ?? 0).toFixed(2)"></span>
+                                            <span x-text="'Weight: ' + (contrib.contribution ?? 0).toFixed(3)"></span>
+                                            <span x-show="(contrib.executionTimeMs ?? 0) > 0" class="text-[10px]" x-text="(contrib.executionTimeMs ?? 0).toFixed(1) + 'ms'"></span>
                                         </div>
                                         <div x-show="contrib.reason" class="text-[10px] mt-1 truncate" style="color: var(--sb-card-text);" x-text="contrib.reason"></div>
                                     </div>

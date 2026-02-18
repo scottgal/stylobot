@@ -18,6 +18,7 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 public class StyloBotDashboardMiddleware
 {
     private readonly IDashboardEventStore _eventStore;
+    private readonly DashboardAggregateCache _aggregateCache;
     private readonly ILogger<StyloBotDashboardMiddleware> _logger;
     private readonly RequestDelegate _next;
     private readonly StyloBotDashboardOptions _options;
@@ -40,12 +41,14 @@ public class StyloBotDashboardMiddleware
         RequestDelegate next,
         StyloBotDashboardOptions options,
         IDashboardEventStore eventStore,
+        DashboardAggregateCache aggregateCache,
         RazorViewRenderer razorViewRenderer,
         ILogger<StyloBotDashboardMiddleware> logger)
     {
         _next = next;
         _options = options;
         _eventStore = eventStore;
+        _aggregateCache = aggregateCache;
         _razorViewRenderer = razorViewRenderer;
         _logger = logger;
     }
@@ -257,25 +260,16 @@ public class StyloBotDashboardMiddleware
 
         try
         {
-            var dbCountries = await _eventStore.GetCountryStatsAsync(10);
-            var tracker = context.RequestServices.GetService(typeof(CountryReputationTracker))
-                as CountryReputationTracker;
-            var trackerLookup = tracker?.GetTopBotCountries(50)
-                .ToDictionary(cr => cr.CountryCode, cr => cr, StringComparer.OrdinalIgnoreCase);
-
-            var countries = dbCountries.Select(db =>
+            var cached = _aggregateCache.Current.Countries;
+            var dbCountries = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(10);
+            var countries = dbCountries.Take(10).Select(db => new
             {
-                CountryReputation? cr = null;
-                trackerLookup?.TryGetValue(db.CountryCode, out cr);
-                return new
-                {
-                    countryCode = db.CountryCode,
-                    countryName = cr?.CountryName ?? db.CountryName,
-                    botRate = cr != null ? Math.Round(cr.BotRate, 3) : db.BotRate,
-                    botCount = cr != null ? (int)Math.Round(cr.DecayedBotCount) : db.BotCount,
-                    totalCount = cr != null ? (int)Math.Round(cr.DecayedTotalCount) : db.TotalCount,
-                    flag = GetCountryFlag(db.CountryCode)
-                };
+                countryCode = db.CountryCode,
+                countryName = db.CountryName,
+                botRate = db.BotRate,
+                botCount = db.BotCount,
+                totalCount = db.TotalCount,
+                flag = GetCountryFlag(db.CountryCode)
             }).ToList();
             countriesJson = JsonSerializer.Serialize(countries, jsonOpts);
         }
@@ -607,30 +601,20 @@ public class StyloBotDashboardMiddleware
         var countStr = context.Request.Query["count"].FirstOrDefault();
         var count = int.TryParse(countStr, out var c) ? Math.Clamp(c, 1, 50) : 20;
 
-        // DB as primary source — survives restarts
-        var dbCountries = await _eventStore.GetCountryStatsAsync(count);
-
-        // Enrich with time-decayed rates from CountryReputationTracker if available
-        var tracker = context.RequestServices.GetService(typeof(CountryReputationTracker))
-            as CountryReputationTracker;
-
-        var trackerLookup = tracker?.GetTopBotCountries(50)
-            .ToDictionary(cr => cr.CountryCode, cr => cr, StringComparer.OrdinalIgnoreCase);
-
-        var countries = dbCountries.Select(db =>
-        {
-            CountryReputation? cr = null;
-            trackerLookup?.TryGetValue(db.CountryCode, out cr);
-            return new
+        // Serve from periodic cache (computed by DashboardSummaryBroadcaster)
+        var cached = _aggregateCache.Current.Countries;
+        var countries = (cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(count))
+            .Take(count)
+            .Select(db => new
             {
                 countryCode = db.CountryCode,
-                countryName = cr?.CountryName ?? db.CountryName,
-                botRate = cr != null ? Math.Round(cr.BotRate, 3) : db.BotRate,
-                botCount = cr != null ? (int)Math.Round(cr.DecayedBotCount) : db.BotCount,
-                totalCount = cr != null ? (int)Math.Round(cr.DecayedTotalCount) : db.TotalCount,
+                countryName = db.CountryName,
+                botRate = db.BotRate,
+                botCount = db.BotCount,
+                totalCount = db.TotalCount,
                 flag = GetCountryFlag(db.CountryCode)
-            };
-        }).ToList();
+            })
+            .ToList();
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, countries, CamelCaseJson);
@@ -673,149 +657,75 @@ public class StyloBotDashboardMiddleware
         var countParam = context.Request.Query["count"].FirstOrDefault();
         var count = int.TryParse(countParam, out var c) && c is > 0 and <= 50 ? c : 10;
 
-        // DB as primary source — survives restarts
-        var topBots = await _eventStore.GetTopBotsAsync(count);
+        // Serve from periodic cache (computed by DashboardSummaryBroadcaster)
+        var cached = _aggregateCache.Current.TopBots;
+        var topBots = (cached.Count > 0 ? cached : await _eventStore.GetTopBotsAsync(count))
+            .Take(count);
 
-        // Enrich with real-time sparkline data from in-memory cache if available
-        var visitorCache = context.RequestServices
-            .GetService(typeof(VisitorListCache)) as VisitorListCache;
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, topBots, CamelCaseJson);
+    }
 
-        var result = topBots.Select(b =>
-        {
-            var visitor = visitorCache?.Get(b.PrimarySignature);
-            return new
-            {
-                b.PrimarySignature,
-                b.HitCount,
-                b.BotName,
-                b.BotType,
-                b.RiskBand,
-                b.BotProbability,
-                b.Confidence,
-                b.Action,
-                CountryCode = visitor?.CountryCode ?? b.CountryCode,
-                ProcessingTimeMs = visitor?.ProcessingTimeMs ?? b.ProcessingTimeMs,
-                TopReasons = visitor?.TopReasons ?? b.TopReasons,
-                LastSeen = visitor?.LastSeen ?? b.LastSeen,
-                Narrative = visitor?.Narrative ?? b.Narrative,
-                Description = visitor?.Description ?? b.Description,
-            };
-        });
+    private async Task ServeUserAgentsApiAsync(HttpContext context)
+    {
+        // Serve from periodic cache (computed by DashboardSummaryBroadcaster)
+        var cached = _aggregateCache.Current.UserAgents;
+        var result = cached.Count > 0
+            ? cached
+            : await ComputeUserAgentsFallbackAsync();
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, result, CamelCaseJson);
     }
 
-    private async Task ServeUserAgentsApiAsync(HttpContext context)
+    /// <summary>Fallback for first request before beacon has run.</summary>
+    private async Task<List<DashboardUserAgentSummary>> ComputeUserAgentsFallbackAsync()
     {
-        var filter = new DashboardFilter { Limit = 500 };
-        var detections = await _eventStore.GetDetectionsAsync(filter);
-
-        // Aggregate by UA family
+        var detections = await _eventStore.GetDetectionsAsync(new DashboardFilter { Limit = 500 });
         var uaGroups = new Dictionary<string, (int total, int bot, int human, double confSum, double procSum,
             DateTime lastSeen, Dictionary<string, int> versions, Dictionary<string, int> countries)>(
             StringComparer.OrdinalIgnoreCase);
 
         foreach (var d in detections)
         {
-            var signals = d.ImportantSignals;
             string? family = null;
             string? version = null;
-
-            if (signals != null)
+            if (d.ImportantSignals != null)
             {
-                if (signals.TryGetValue("ua.family", out var ff)) family = ff?.ToString();
-                if (signals.TryGetValue("ua.family_version", out var fv)) version = fv?.ToString();
-                // Fallback to bot name for bot-type UAs
-                if (string.IsNullOrEmpty(family) && signals.TryGetValue("ua.bot_name", out var bn))
+                if (d.ImportantSignals.TryGetValue("ua.family", out var ff)) family = ff?.ToString();
+                if (d.ImportantSignals.TryGetValue("ua.family_version", out var fv)) version = fv?.ToString();
+                if (string.IsNullOrEmpty(family) && d.ImportantSignals.TryGetValue("ua.bot_name", out var bn))
                     family = bn?.ToString();
             }
-
-            // Lightweight fallback from raw UA string (only populated for bots)
             if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(d.UserAgent))
-                family = ExtractBrowserFamily(d.UserAgent);
+                family = DashboardSummaryBroadcaster.ExtractBrowserFamily(d.UserAgent);
+            if (string.IsNullOrEmpty(family)) family = "Unknown";
 
-            if (string.IsNullOrEmpty(family))
-                family = "Unknown";
-
-            if (!uaGroups.TryGetValue(family, out var group))
-                group = (0, 0, 0, 0, 0, DateTime.MinValue, new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+            if (!uaGroups.TryGetValue(family, out var g))
+                g = (0, 0, 0, 0, 0, DateTime.MinValue,
+                    new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
                     new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase));
-
-            group.total++;
-            if (d.IsBot) group.bot++;
-            else group.human++;
-            group.confSum += d.Confidence;
-            group.procSum += d.ProcessingTimeMs;
-            if (d.Timestamp > group.lastSeen) group.lastSeen = d.Timestamp;
-
-            if (!string.IsNullOrEmpty(version))
-            {
-                group.versions.TryGetValue(version, out var vc);
-                group.versions[version] = vc + 1;
-            }
-
-            if (!string.IsNullOrEmpty(d.CountryCode))
-            {
-                group.countries.TryGetValue(d.CountryCode, out var cc);
-                group.countries[d.CountryCode] = cc + 1;
-            }
-
-            uaGroups[family] = group;
+            g.total++;
+            if (d.IsBot) g.bot++; else g.human++;
+            g.confSum += d.Confidence;
+            g.procSum += d.ProcessingTimeMs;
+            if (d.Timestamp > g.lastSeen) g.lastSeen = d.Timestamp;
+            if (!string.IsNullOrEmpty(version)) { g.versions.TryGetValue(version, out var vc); g.versions[version] = vc + 1; }
+            if (!string.IsNullOrEmpty(d.CountryCode)) { g.countries.TryGetValue(d.CountryCode, out var cc); g.countries[d.CountryCode] = cc + 1; }
+            uaGroups[family] = g;
         }
 
-        var result = uaGroups
-            .Select(kv => new DashboardUserAgentSummary
-            {
-                Family = kv.Key,
-                Category = InferUaCategory(kv.Key),
-                TotalCount = kv.Value.total,
-                BotCount = kv.Value.bot,
-                HumanCount = kv.Value.human,
-                BotRate = kv.Value.total > 0 ? Math.Round((double)kv.Value.bot / kv.Value.total, 4) : 0,
-                Versions = kv.Value.versions,
-                Countries = kv.Value.countries,
-                AvgConfidence = kv.Value.total > 0 ? Math.Round(kv.Value.confSum / kv.Value.total, 4) : 0,
-                AvgProcessingTimeMs = kv.Value.total > 0 ? Math.Round(kv.Value.procSum / kv.Value.total, 2) : 0,
-                LastSeen = kv.Value.lastSeen,
-            })
-            .OrderByDescending(u => u.TotalCount)
-            .ToList();
-
-        context.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(context.Response.Body, result,
-            CamelCaseJson);
-    }
-
-    private static string ExtractBrowserFamily(string ua)
-    {
-        if (ua.Contains("Edg/", StringComparison.Ordinal)) return "Edge";
-        if (ua.Contains("OPR/", StringComparison.Ordinal) || ua.Contains("Opera", StringComparison.Ordinal)) return "Opera";
-        if (ua.Contains("Firefox/", StringComparison.Ordinal)) return "Firefox";
-        if (ua.Contains("Chrome/", StringComparison.Ordinal)) return "Chrome";
-        if (ua.Contains("Safari/", StringComparison.Ordinal) && !ua.Contains("Chrome/", StringComparison.Ordinal)) return "Safari";
-        if (ua.Contains("curl/", StringComparison.OrdinalIgnoreCase)) return "curl";
-        if (ua.Contains("python", StringComparison.OrdinalIgnoreCase)) return "Python";
-        if (ua.Contains("Go-http-client", StringComparison.Ordinal)) return "Go";
-        if (ua.Contains("Googlebot", StringComparison.OrdinalIgnoreCase)) return "Googlebot";
-        if (ua.Contains("bingbot", StringComparison.OrdinalIgnoreCase)) return "Bingbot";
-        if (ua.Contains("GPTBot", StringComparison.OrdinalIgnoreCase)) return "GPTBot";
-        if (ua.Contains("ClaudeBot", StringComparison.OrdinalIgnoreCase)) return "ClaudeBot";
-        return "Other";
-    }
-
-    private static string InferUaCategory(string family)
-    {
-        var f = family.ToLowerInvariant();
-        if (f is "chrome" or "firefox" or "safari" or "edge" or "opera" or "brave" or "vivaldi" or "samsung internet")
-            return "browser";
-        if (f is "googlebot" or "bingbot" or "yandexbot" or "baiduspider" or "duckduckbot")
-            return "search";
-        if (f is "gptbot" or "claudebot" or "ccbot" or "perplexitybot" or "bytespider")
-            return "ai";
-        if (f is "curl" or "python" or "go" or "java" or "node" or "wget" or "other")
-            return "tool";
-        return "unknown";
+        return uaGroups.Select(kv => new DashboardUserAgentSummary
+        {
+            Family = kv.Key,
+            Category = DashboardSummaryBroadcaster.InferUaCategory(kv.Key),
+            TotalCount = kv.Value.total, BotCount = kv.Value.bot, HumanCount = kv.Value.human,
+            BotRate = kv.Value.total > 0 ? Math.Round((double)kv.Value.bot / kv.Value.total, 4) : 0,
+            Versions = kv.Value.versions, Countries = kv.Value.countries,
+            AvgConfidence = kv.Value.total > 0 ? Math.Round(kv.Value.confSum / kv.Value.total, 4) : 0,
+            AvgProcessingTimeMs = kv.Value.total > 0 ? Math.Round(kv.Value.procSum / kv.Value.total, 2) : 0,
+            LastSeen = kv.Value.lastSeen,
+        }).OrderByDescending(u => u.TotalCount).ToList();
     }
 
     private static string GetCountryFlag(string? code)
@@ -841,24 +751,46 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
+        var decodedSignature = Uri.UnescapeDataString(signatureId);
+
+        // Try in-memory cache first (real-time data)
         var visitorCache = context.RequestServices
             .GetService(typeof(VisitorListCache)) as VisitorListCache;
-
-        var visitor = visitorCache?.Get(Uri.UnescapeDataString(signatureId));
-        if (visitor == null)
-        {
-            context.Response.StatusCode = 404;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync("{}");
-            return;
-        }
+        var visitor = visitorCache?.Get(decodedSignature);
 
         List<double> processingTimes, botProbabilities, confidences;
-        lock (visitor.SyncRoot)
+
+        if (visitor != null)
         {
-            processingTimes = visitor.ProcessingTimeHistory.ToList();
-            botProbabilities = visitor.BotProbabilityHistory.ToList();
-            confidences = visitor.ConfidenceHistory.ToList();
+            lock (visitor.SyncRoot)
+            {
+                processingTimes = visitor.ProcessingTimeHistory.ToList();
+                botProbabilities = visitor.BotProbabilityHistory.ToList();
+                confidences = visitor.ConfidenceHistory.ToList();
+            }
+        }
+        else
+        {
+            // Fallback: build sparkline from DB detections
+            var detections = await _eventStore.GetDetectionsAsync(new DashboardFilter
+            {
+                SignatureId = decodedSignature,
+                Limit = 50
+            });
+
+            if (detections.Count == 0)
+            {
+                context.Response.StatusCode = 404;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsync("{}");
+                return;
+            }
+
+            // Detections come newest-first; reverse for chronological sparkline
+            detections.Reverse();
+            processingTimes = detections.Select(d => d.ProcessingTimeMs).ToList();
+            botProbabilities = detections.Select(d => d.BotProbability).ToList();
+            confidences = detections.Select(d => d.Confidence).ToList();
         }
 
         var sparkline = new

@@ -46,7 +46,7 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
     // Config-driven parameters from YAML
     private double ConfirmedBadWeight => GetParam("confirmed_bad_weight", 2.5);
     private double CombinedPatternMultiplier => GetParam("combined_pattern_multiplier", 1.5);
-    private double ReputationWeightMultiplier => GetParam("reputation_weight_multiplier", 1.5);
+    private double ReputationWeightMultiplier => GetParam("reputation_weight_multiplier", 1.0);
 
     // Trigger when we have the basic signals extracted
     public override IReadOnlyList<TriggerCondition> TriggerConditions =>

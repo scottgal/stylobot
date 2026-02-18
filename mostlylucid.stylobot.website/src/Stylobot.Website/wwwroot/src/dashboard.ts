@@ -668,8 +668,8 @@ function dashboardApp() {
             if (t === 'visitors') await this.loadVisitors();
             if (t === 'clusters' && this.clusters.length === 0) await this.loadClusters();
             if (t === 'countries') {
-                await this.loadCountries();
-                this.$nextTick(() => { this.renderCountryChart(); this.renderWorldMapChart(); });
+                if (this.countries.length === 0) await this.loadCountries();
+                else this.$nextTick(() => { this.renderCountryChart(); this.renderWorldMapChart(); });
             }
             if (t === 'useragents' && this.useragents.length === 0) await this.loadUserAgents();
         },
@@ -1093,7 +1093,29 @@ function signatureDetailApp() {
                 this.loadDetections(),
             ]);
 
-            // Always update sig fields from most recent detection (signature cache may be stale)
+            // Construct sig from detections if no signature/topbot record exists
+            if (!this.sig && this.detections.length > 0) {
+                const latest = this.detections[0];
+                this.sig = {
+                    primarySignature: this.signature,
+                    hitCount: this.detections.length,
+                    botProbability: latest.botProbability ?? 0,
+                    confidence: latest.confidence ?? 0,
+                    riskBand: latest.riskBand || 'Unknown',
+                    isKnownBot: latest.isBot ?? false,
+                    botType: latest.botType,
+                    botName: latest.botName,
+                    action: latest.action || latest.policyName,
+                    lastPath: latest.path,
+                    narrative: latest.narrative,
+                    description: latest.description,
+                    topReasons: latest.topReasons || [],
+                    timestamp: latest.timestamp,
+                    countryCode: latest.countryCode,
+                };
+            }
+
+            // Update sig fields from most recent detection (signature cache may be stale)
             if (this.sig && this.detections.length > 0) {
                 const latest = this.detections[0];
                 // These always reflect the latest detection state
@@ -1120,10 +1142,12 @@ function signatureDetailApp() {
                 };
             }
 
-            // Extract country code from latest detection signals
-            if (this.detections.length > 0) {
+            // Extract country code from sig or latest detection signals
+            if (this.sig?.countryCode) {
+                this.countryCode = this.sig.countryCode;
+            } else if (this.detections.length > 0) {
                 const sigs = this.detections[0].importantSignals || {};
-                this.countryCode = sigs['geo.country_code'] || sigs['geo.country'] || '';
+                this.countryCode = this.detections[0].countryCode || sigs['geo.country_code'] || sigs['geo.country'] || '';
             }
 
             this.loading = false;
@@ -1142,12 +1166,24 @@ function signatureDetailApp() {
 
         async loadSignature() {
             try {
+                // Try signatures endpoint first
                 const res = await fetch('/_stylobot/api/signatures?limit=1000');
                 if (res.ok) {
                     const sigs = toCamel(await res.json());
                     this.sig = sigs.find((s: any) => s.primarySignature === this.signature) || null;
                 }
             } catch (_) {}
+
+            // Fallback: try topbots API (queries detections grouped by signature)
+            if (!this.sig) {
+                try {
+                    const res = await fetch('/_stylobot/api/topbots?count=50');
+                    if (res.ok) {
+                        const bots = toCamel(await res.json());
+                        this.sig = bots.find((b: any) => b.primarySignature === this.signature) || null;
+                    }
+                } catch (_) {}
+            }
         },
 
         async loadSparkline() {

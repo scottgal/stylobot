@@ -865,6 +865,7 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         public double? ProcessingTimeMs { get; set; }
         public string? TopReasons { get; set; }
         public DateTime LastSeen { get; set; }
+        public string? LastPath { get; set; }
         public string? Narrative { get; set; }
         public string? Description { get; set; }
         public bool IsKnownBot { get; set; }

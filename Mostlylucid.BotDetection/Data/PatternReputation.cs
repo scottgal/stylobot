@@ -86,12 +86,12 @@ public record PatternReputation
     /// </summary>
     public double FastPathWeight => State switch
     {
-        ReputationState.ConfirmedBad => BotScore * 1.0, // Full weight
-        ReputationState.Suspect => BotScore * 0.5, // Half weight
-        ReputationState.Neutral => BotScore * 0.1, // Minimal weight
+        ReputationState.ConfirmedBad => Math.Min(BotScore * 0.6, 0.5), // Capped — can't dominate alone
+        ReputationState.Suspect => Math.Min(BotScore * 0.3, 0.25), // Moderate bias, never overwhelming
+        ReputationState.Neutral => BotScore * 0.05, // Negligible
         ReputationState.ConfirmedGood => -0.2, // Reduces suspicion
-        ReputationState.ManuallyBlocked => 1.0, // Always max
-        ReputationState.ManuallyAllowed => -1.0, // Always trusted
+        ReputationState.ManuallyBlocked => 1.0, // Always max (admin intent)
+        ReputationState.ManuallyAllowed => -1.0, // Always trusted (admin intent)
         _ => 0
     };
 

@@ -79,7 +79,26 @@ public partial class DetectionBroadcastMiddleware
                 context.Items.TryGetValue(BotDetectionMiddleware.BotDetectionResultKey, out var upstreamObj) &&
                 upstreamObj is BotDetectionResult upstreamResult)
             {
-                await BroadcastUpstreamResult(context, upstreamResult, hubContext, eventStore, visitorListCache);
+                var options = optionsAccessor.Value;
+                if (options.ExcludeLocalIpFromBroadcast && IsLocalIp(context.Connection.RemoteIpAddress))
+                {
+                    _logger.LogDebug("Skipping upstream broadcast for local IP {Ip}", context.Connection.RemoteIpAddress);
+                    return;
+                }
+
+                var detection = BuildDetectionFromUpstream(context, upstreamResult);
+                var updatedSignature = await StoreDetectionAndSignatureAsync(context, detection, eventStore);
+
+                visitorListCache.Upsert(detection);
+                await hubContext.Clients.All.BroadcastDetection(detection);
+                await hubContext.Clients.All.BroadcastSignature(updatedSignature);
+
+                _logger.LogDebug(
+                    "Broadcast upstream detection: {Path} sig={Signature} prob={Probability:F2} hits={HitCount}",
+                    detection.Path,
+                    detection.PrimarySignature?[..Math.Min(8, detection.PrimarySignature.Length)],
+                    detection.BotProbability,
+                    updatedSignature.HitCount);
                 return;
             }
 
@@ -94,192 +113,29 @@ public partial class DetectionBroadcastMiddleware
                     return;
                 }
 
+                var detection = BuildDetectionFromEvidence(context, evidence);
+                var updatedSignature = await StoreDetectionAndSignatureAsync(context, detection, eventStore);
+
                 // Filter out local/private IP detections from broadcast if configured
                 var options = optionsAccessor.Value;
                 if (options.ExcludeLocalIpFromBroadcast && IsLocalIp(context.Connection.RemoteIpAddress))
                 {
                     _logger.LogDebug("Skipping broadcast for local IP {Ip}", context.Connection.RemoteIpAddress);
-                    // Still store detection for analysis, just don't broadcast to live feed
-                    await StoreDetectionOnly(context, evidence, eventStore);
-                    return;
-                }
-                // Get signature from context
-                string? primarySignature = null;
-                if (context.Items.TryGetValue("BotDetection.Signatures", out var sigObj) &&
-                    sigObj is string sigJson)
-                {
-                    try
-                    {
-                        var sigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(sigJson);
-                        primarySignature = sigs?.GetValueOrDefault("primary");
-                    }
-                    catch (System.Text.Json.JsonException ex)
-                    {
-                        _logger.LogDebug(ex, "Failed to deserialize primary signature JSON");
-                    }
+                    return; // Stored to DB above, just don't broadcast to live feed
                 }
 
-                var sigValue = primarySignature ?? GenerateFallbackSignature(context);
-
-                // Build detection event
-                var topReasons = evidence.Contributions
-                    .Where(c => !string.IsNullOrEmpty(c.Reason))
-                    .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
-                    .Take(5)
-                    .Select(c => c.Reason!)
-                    .ToList();
-
-                // Extract country code from geo signals if available
-                string? countryCode = null;
-                if (evidence.Signals != null &&
-                    evidence.Signals.TryGetValue("geo.country_code", out var ccObj) &&
-                    ccObj is string cc && cc != "LOCAL")
-                    countryCode = cc;
-
-                // Fallback: read from GeoRouting middleware context (avoids need for GeoContributor)
-                if (countryCode == null &&
-                    context.Items.TryGetValue("GeoLocation", out var geoLocObj) &&
-                    geoLocObj != null)
-                {
-                    var countryProp = CountryCodePropertyCache.GetOrAdd(
-                        geoLocObj.GetType(), t => t.GetProperty("CountryCode"));
-                    if (countryProp?.GetValue(geoLocObj) is string geoCC && !string.IsNullOrEmpty(geoCC) && geoCC != "LOCAL")
-                        countryCode = geoCC;
-                }
-
-                // Fallback: upstream gateway may have resolved geo via X-Country header
-                if (countryCode == null)
-                    countryCode = ResolveCountryFromHeaders(context);
-
-                // Build detector contributions map for drill-down
-                var detectorContributions = evidence.Contributions
-                    .GroupBy(c => c.DetectorName)
-                    .ToDictionary(
-                        g => g.Key,
-                        g => new DashboardDetectorContribution
-                        {
-                            ConfidenceDelta = g.Sum(c => c.ConfidenceDelta),
-                            Contribution = g.Sum(c => c.ConfidenceDelta * c.Weight),
-                            Reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r))),
-                            ExecutionTimeMs = g.Sum(c => c.ProcessingTimeMs),
-                            Priority = g.First().Priority
-                        });
-
-                // Build non-PII signals for debugging — allowlist of safe prefixes only
-                var importantSignals = new Dictionary<string, object>();
-                if (evidence.Signals is { Count: > 0 })
-                {
-                    importantSignals = evidence.Signals
-                        .Where(s => AllowedSignalPrefixes.Any(p => s.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))
-                                    && !BlockedSignalKeys.Contains(s.Key))
-                        .Take(MaxSignalsPerDetection)
-                        .ToDictionary(s => s.Key, s => s.Value);
-                }
-
-                // Always enrich HTTP protocol version — it's non-PII metadata needed for dashboard stats
-                EnrichProtocol(context, importantSignals);
-
-                // Enrich with basic request info when signals are sparse (e.g. human fast-path)
-                // Only when EnrichHumanSignals is enabled — disabled by default for privacy
-                var dashboardOptions = context.RequestServices.GetService<IOptions<StyloBotDashboardOptions>>()?.Value;
-                if (dashboardOptions?.EnrichHumanSignals == true)
-                    EnrichFromRequest(context, importantSignals, ref countryCode);
-
-                var detection = new DashboardDetectionEvent
-                {
-                    RequestId = context.TraceIdentifier,
-                    Timestamp = DateTime.UtcNow,
-                    IsBot = evidence.BotProbability > 0.5,
-                    BotProbability = evidence.BotProbability,
-                    Confidence = evidence.Confidence,
-                    RiskBand = evidence.RiskBand.ToString(),
-                    BotType = evidence.PrimaryBotType?.ToString(),
-                    BotName = evidence.PrimaryBotName,
-                    Action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName ?? "Allow",
-                    PolicyName = evidence.PolicyName ?? "Default",
-                    Method = context.Request.Method,
-                    Path = context.Request.Path.Value ?? "/",
-                    StatusCode = context.Response.StatusCode,
-                    ProcessingTimeMs = evidence.TotalProcessingTimeMs,
-                    PrimarySignature = sigValue,
-                    CountryCode = countryCode,
-                    UserAgent = evidence.BotProbability > 0.5 ? SanitizeUserAgent(context.Request.Headers.UserAgent.ToString()) : null,
-                    TopReasons = topReasons,
-                    DetectorContributions = detectorContributions.Count > 0 ? detectorContributions : null,
-                    ImportantSignals = importantSignals
-                };
-
-                // Build instant marketing-friendly narrative (no LLM, every request)
-                detection = detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };
-
-                // Store detection event in event store
-                await eventStore.AddDetectionAsync(detection);
-
-                // Upsert signature ledger (hit_count increments on conflict)
-                // Extract individual signature factors if available
-                string? ipSig = null, uaSig = null, clientSig = null;
-                int factorCount = 1;
-                if (context.Items.TryGetValue("BotDetection.Signatures", out var allSigsObj) &&
-                    allSigsObj is string allSigsJson)
-                {
-                    try
-                    {
-                        var allSigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(allSigsJson);
-                        if (allSigs != null)
-                        {
-                            ipSig = allSigs.GetValueOrDefault("ip");
-                            uaSig = allSigs.GetValueOrDefault("ua");
-                            clientSig = allSigs.GetValueOrDefault("clientSide");
-                            factorCount = allSigs.Count(s => !string.IsNullOrEmpty(s.Value) && s.Key != "primary");
-                        }
-                    }
-                    catch (System.Text.Json.JsonException ex)
-                    {
-                        _logger.LogDebug(ex, "Failed to deserialize signature factors JSON");
-                    }
-                }
-
-                var signature = new DashboardSignatureEvent
-                {
-                    SignatureId = Guid.NewGuid().ToString("N")[..12],
-                    Timestamp = DateTime.UtcNow,
-                    PrimarySignature = sigValue,
-                    IpSignature = ipSig,
-                    UaSignature = uaSig,
-                    ClientSideSignature = clientSig,
-                    FactorCount = Math.Max(1, factorCount),
-                    RiskBand = evidence.RiskBand.ToString(),
-                    HitCount = 1, // Will be incremented by DB on conflict
-                    IsKnownBot = evidence.BotProbability > 0.5,
-                    BotName = evidence.PrimaryBotName,
-                    BotProbability = evidence.BotProbability,
-                    Confidence = evidence.Confidence,
-                    ProcessingTimeMs = evidence.TotalProcessingTimeMs,
-                    BotType = evidence.PrimaryBotType?.ToString(),
-                    Action = detection.Action,
-                    LastPath = detection.Path,
-                    Narrative = detection.Narrative,
-                    Description = detection.Description,
-                    TopReasons = detection.TopReasons.ToList()
-                };
-
-                var updatedSignature = await eventStore.AddSignatureAsync(signature);
-
-                // Update server-side visitor cache for HTMX rendering
-                var visitor = visitorListCache.Upsert(detection);
-
-                // Broadcast detection and signature to all connected clients
-                // Sparkline history is served via API on-demand, not broadcast via SignalR
+                // Update server-side visitor cache and broadcast
+                visitorListCache.Upsert(detection);
                 await hubContext.Clients.All.BroadcastDetection(detection);
                 await hubContext.Clients.All.BroadcastSignature(updatedSignature);
 
                 // Feed signature to SignatureDescriptionService for LLM name/description synthesis
                 if (signatureDescriptionService != null && detection.IsBot &&
-                    !string.IsNullOrEmpty(sigValue) && evidence.Signals is { Count: > 0 })
+                    !string.IsNullOrEmpty(detection.PrimarySignature) && evidence.Signals is { Count: > 0 })
                 {
                     var nullableSignals = evidence.Signals.ToDictionary(
                         s => s.Key, s => (object?)s.Value);
-                    signatureDescriptionService.TrackSignature(sigValue, nullableSignals);
+                    signatureDescriptionService.TrackSignature(detection.PrimarySignature, nullableSignals);
                 }
 
                 _logger.LogDebug(
@@ -296,36 +152,112 @@ public partial class DetectionBroadcastMiddleware
         }
     }
 
+    // ─── Shared storage: ONE path for detection + signature ───────────────
+
     /// <summary>
-    ///     Broadcast a lightweight upstream-trusted detection result.
-    ///     Used when TrustUpstreamDetection is enabled and no AggregatedEvidence exists.
+    ///     Single method that stores both detection and signature to the event store.
+    ///     Every code path calls this — no duplication.
     /// </summary>
-    private async Task BroadcastUpstreamResult(
+    private async Task<DashboardSignatureEvent> StoreDetectionAndSignatureAsync(
         HttpContext context,
-        BotDetectionResult result,
-        IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
-        IDashboardEventStore eventStore,
-        VisitorListCache visitorListCache)
+        DashboardDetectionEvent detection,
+        IDashboardEventStore eventStore)
     {
-        var options = context.RequestServices.GetService<IOptions<BotDetectionOptions>>()?.Value;
-        if (options?.ExcludeLocalIpFromBroadcast == true && IsLocalIp(context.Connection.RemoteIpAddress))
-        {
-            _logger.LogDebug("Skipping upstream broadcast for local IP {Ip}", context.Connection.RemoteIpAddress);
-            return;
-        }
+        await eventStore.AddDetectionAsync(detection);
 
-        string? primarySignature = null;
-        if (context.Items.TryGetValue("BotDetection.Signatures", out var sigObj) && sigObj is string sigJson)
+        var factors = ParseSignatureFactors(context);
+        var signature = new DashboardSignatureEvent
         {
-            try
-            {
-                var sigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(sigJson);
-                primarySignature = sigs?.GetValueOrDefault("primary");
-            }
-            catch { /* ignore */ }
-        }
+            SignatureId = Guid.NewGuid().ToString("N")[..12],
+            Timestamp = DateTime.UtcNow,
+            PrimarySignature = detection.PrimarySignature,
+            IpSignature = factors.IpSig,
+            UaSignature = factors.UaSig,
+            ClientSideSignature = factors.ClientSig,
+            FactorCount = factors.FactorCount,
+            RiskBand = detection.RiskBand,
+            HitCount = 1, // DB increments on conflict
+            IsKnownBot = detection.IsBot,
+            BotName = detection.BotName,
+            BotProbability = detection.BotProbability,
+            Confidence = detection.Confidence,
+            ProcessingTimeMs = detection.ProcessingTimeMs,
+            BotType = detection.BotType,
+            Action = detection.Action,
+            LastPath = detection.Path,
+            Narrative = detection.Narrative,
+            Description = detection.Description,
+            TopReasons = detection.TopReasons?.ToList()
+        };
 
-        var sigValue = primarySignature ?? GenerateFallbackSignature(context);
+        return await eventStore.AddSignatureAsync(signature);
+    }
+
+    // ─── Detection builders ──────────────────────────────────────────────
+
+    /// <summary>
+    ///     Build a DashboardDetectionEvent from full AggregatedEvidence (local detection path).
+    /// </summary>
+    private DashboardDetectionEvent BuildDetectionFromEvidence(HttpContext context, AggregatedEvidence evidence)
+    {
+        var sigValue = ResolvePrimarySignature(context);
+        var countryCode = ResolveCountryCode(context, evidence.Signals);
+
+        var topReasons = evidence.Contributions
+            .Where(c => !string.IsNullOrEmpty(c.Reason))
+            .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
+            .Take(5)
+            .Select(c => c.Reason!)
+            .ToList();
+
+        var detectorContributions = evidence.Contributions
+            .GroupBy(c => c.DetectorName)
+            .ToDictionary(
+                g => g.Key,
+                g => new DashboardDetectorContribution
+                {
+                    ConfidenceDelta = g.Sum(c => c.ConfidenceDelta),
+                    Contribution = g.Sum(c => c.ConfidenceDelta * c.Weight),
+                    Reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r))),
+                    ExecutionTimeMs = g.Sum(c => c.ProcessingTimeMs),
+                    Priority = g.First().Priority
+                });
+
+        var importantSignals = BuildImportantSignals(context, evidence.Signals, ref countryCode);
+
+        var detection = new DashboardDetectionEvent
+        {
+            RequestId = context.TraceIdentifier,
+            Timestamp = DateTime.UtcNow,
+            IsBot = evidence.BotProbability > 0.5,
+            BotProbability = evidence.BotProbability,
+            Confidence = evidence.Confidence,
+            RiskBand = evidence.RiskBand.ToString(),
+            BotType = evidence.PrimaryBotType?.ToString(),
+            BotName = evidence.PrimaryBotName,
+            Action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName ?? "Allow",
+            PolicyName = evidence.PolicyName ?? "Default",
+            Method = context.Request.Method,
+            Path = context.Request.Path.Value ?? "/",
+            StatusCode = context.Response.StatusCode,
+            ProcessingTimeMs = evidence.TotalProcessingTimeMs,
+            PrimarySignature = sigValue,
+            CountryCode = countryCode,
+            UserAgent = evidence.BotProbability > 0.5 ? SanitizeUserAgent(context.Request.Headers.UserAgent.ToString()) : null,
+            TopReasons = topReasons,
+            DetectorContributions = detectorContributions.Count > 0 ? detectorContributions : null,
+            ImportantSignals = importantSignals
+        };
+
+        return detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };
+    }
+
+    /// <summary>
+    ///     Build a DashboardDetectionEvent from upstream-trusted BotDetectionResult (no AggregatedEvidence).
+    /// </summary>
+    private DashboardDetectionEvent BuildDetectionFromUpstream(HttpContext context, BotDetectionResult result)
+    {
+        var sigValue = ResolvePrimarySignature(context);
         var botProbability = result.ConfidenceScore; // Legacy field: actually holds bot probability
         var riskBand = botProbability switch
         {
@@ -336,8 +268,7 @@ public partial class DetectionBroadcastMiddleware
             _ => "VeryLow"
         };
 
-        // Get actual detection confidence from AggregatedEvidence if available
-        var detectionConfidence = botProbability; // Default: match probability for backward compat
+        var detectionConfidence = botProbability;
         if (context.Items.TryGetValue(BotDetectionMiddleware.DetectionConfidenceKey, out var confObj) &&
             confObj is double parsedConf)
             detectionConfidence = parsedConf;
@@ -345,71 +276,25 @@ public partial class DetectionBroadcastMiddleware
                  evidenceObj is AggregatedEvidence upstreamEvidence)
             detectionConfidence = upstreamEvidence.Confidence;
 
-        // Read gateway processing time from forwarded header
         double upstreamProcessingMs = 0;
         if (context.Request.Headers.TryGetValue("X-Bot-Detection-ProcessingMs", out var procHeader))
             double.TryParse(procHeader.ToString(), System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out upstreamProcessingMs);
 
-        // Read upstream reasons
         var topReasons = result.Reasons
             .Where(r => !string.IsNullOrEmpty(r.Detail))
             .Take(5)
             .Select(r => r.Detail!)
             .ToList();
 
-        // Read upstream country code (try multiple header sources and context items)
         var upstreamCountry = context.Request.Headers["X-Bot-Detection-Country"].FirstOrDefault()
                               ?? ResolveCountryFromHeaders(context);
 
-        // Only show BotType when probability >= 0.5 (consistent with DetectionLedgerExtensions)
-        // Prevents "Human Visitor" rows showing "Type: Scraper" at 46% probability
         var botType = result.IsBot ? result.BotType?.ToString() : null;
 
-        // Build ImportantSignals for upstream detections — needed for dashboard widgets
-        // (browser, protocol, etc.) since upstream path doesn't run full detector pipeline
-        var importantSignals = new Dictionary<string, object>();
-
-        // Read forwarded signals from upstream gateway headers if available
-        var upstreamSignalsHeader = context.Request.Headers["X-Bot-Detection-Signals"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(upstreamSignalsHeader) && upstreamSignalsHeader.Length <= MaxUpstreamSignalsHeaderLength)
-        {
-            try
-            {
-                var parsed = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(upstreamSignalsHeader);
-                if (parsed != null)
-                {
-                    var count = 0;
-                    foreach (var kvp in parsed)
-                    {
-                        if (count >= MaxSignalsPerDetection) break;
-                        if (BlockedSignalKeys.Contains(kvp.Key)) continue;
-                        if (!AllowedSignalPrefixes.Any(p => kvp.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))) continue;
-
-                        // Convert JsonElement to appropriate CLR type
-                        object value = kvp.Value.ValueKind switch
-                        {
-                            System.Text.Json.JsonValueKind.String => kvp.Value.GetString()!,
-                            System.Text.Json.JsonValueKind.Number => kvp.Value.TryGetInt64(out var l) ? l : kvp.Value.GetDouble(),
-                            System.Text.Json.JsonValueKind.True => true,
-                            System.Text.Json.JsonValueKind.False => false,
-                            _ => kvp.Value.ToString()
-                        };
-                        importantSignals[kvp.Key] = value;
-                        count++;
-                    }
-                }
-            }
-            catch (System.Text.Json.JsonException ex)
-            {
-                _logger.LogDebug(ex, "Failed to deserialize upstream signals header");
-            }
-        }
-
-        // Always enrich protocol version from request metadata
+        var importantSignals = ParseUpstreamSignals(context);
         EnrichProtocol(context, importantSignals);
 
-        // Enrich browser info when EnrichHumanSignals is enabled
         var dashboardOptions = context.RequestServices.GetService<IOptions<StyloBotDashboardOptions>>()?.Value;
         if (dashboardOptions?.EnrichHumanSignals == true)
             EnrichFromRequest(context, importantSignals, ref upstreamCountry);
@@ -437,19 +322,157 @@ public partial class DetectionBroadcastMiddleware
             ImportantSignals = importantSignals
         };
 
-        detection = detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };
-
-        await eventStore.AddDetectionAsync(detection);
-        visitorListCache.Upsert(detection);
-        // Sparkline history served via API, not broadcast via SignalR
-        await hubContext.Clients.All.BroadcastDetection(detection);
-
-        _logger.LogDebug(
-            "Broadcast upstream detection: {Path} sig={Signature} prob={Probability:F2}",
-            detection.Path,
-            sigValue[..Math.Min(8, sigValue.Length)],
-            detection.BotProbability);
+        return detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };
     }
+
+    // ─── Shared helpers (used by all paths) ──────────────────────────────
+
+    /// <summary>
+    ///     Parse signature factors from HttpContext.Items — ONE place, not three.
+    /// </summary>
+    private record SignatureFactors(string? IpSig, string? UaSig, string? ClientSig, int FactorCount);
+
+    private static SignatureFactors ParseSignatureFactors(HttpContext context)
+    {
+        if (context.Items.TryGetValue("BotDetection.Signatures", out var allSigsObj) &&
+            allSigsObj is string allSigsJson)
+        {
+            try
+            {
+                var allSigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(allSigsJson);
+                if (allSigs != null)
+                {
+                    return new SignatureFactors(
+                        allSigs.GetValueOrDefault("ip"),
+                        allSigs.GetValueOrDefault("ua"),
+                        allSigs.GetValueOrDefault("clientSide"),
+                        Math.Max(1, allSigs.Count(s => !string.IsNullOrEmpty(s.Value) && s.Key != "primary")));
+                }
+            }
+            catch (System.Text.Json.JsonException) { }
+        }
+
+        return new SignatureFactors(null, null, null, 1);
+    }
+
+    /// <summary>
+    ///     Resolve the primary signature from HttpContext, falling back to hash-based generation.
+    /// </summary>
+    private string ResolvePrimarySignature(HttpContext context)
+    {
+        if (context.Items.TryGetValue("BotDetection.Signatures", out var sigObj) &&
+            sigObj is string sigJson)
+        {
+            try
+            {
+                var sigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(sigJson);
+                var primary = sigs?.GetValueOrDefault("primary");
+                if (!string.IsNullOrEmpty(primary)) return primary;
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                _logger.LogDebug(ex, "Failed to deserialize primary signature JSON");
+            }
+        }
+
+        return GenerateFallbackSignature(context);
+    }
+
+    /// <summary>
+    ///     Resolve country code from evidence signals, GeoLocation context, and headers.
+    /// </summary>
+    private static string? ResolveCountryCode(HttpContext context, IReadOnlyDictionary<string, object>? signals)
+    {
+        // From detection signals
+        if (signals != null &&
+            signals.TryGetValue("geo.country_code", out var ccObj) &&
+            ccObj is string cc && cc != "LOCAL")
+            return cc;
+
+        // From GeoLocation middleware context
+        if (context.Items.TryGetValue("GeoLocation", out var geoLocObj) && geoLocObj != null)
+        {
+            var countryProp = CountryCodePropertyCache.GetOrAdd(
+                geoLocObj.GetType(), t => t.GetProperty("CountryCode"));
+            if (countryProp?.GetValue(geoLocObj) is string geoCC && !string.IsNullOrEmpty(geoCC) && geoCC != "LOCAL")
+                return geoCC;
+        }
+
+        // From upstream headers
+        return ResolveCountryFromHeaders(context);
+    }
+
+    /// <summary>
+    ///     Build filtered non-PII signals dictionary from evidence signals.
+    /// </summary>
+    private static Dictionary<string, object> BuildImportantSignals(
+        HttpContext context,
+        IReadOnlyDictionary<string, object>? signals,
+        ref string? countryCode)
+    {
+        var importantSignals = new Dictionary<string, object>();
+        if (signals is { Count: > 0 })
+        {
+            importantSignals = signals
+                .Where(s => AllowedSignalPrefixes.Any(p => s.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))
+                            && !BlockedSignalKeys.Contains(s.Key))
+                .Take(MaxSignalsPerDetection)
+                .ToDictionary(s => s.Key, s => s.Value);
+        }
+
+        EnrichProtocol(context, importantSignals);
+
+        var dashboardOptions = context.RequestServices.GetService<IOptions<StyloBotDashboardOptions>>()?.Value;
+        if (dashboardOptions?.EnrichHumanSignals == true)
+            EnrichFromRequest(context, importantSignals, ref countryCode);
+
+        return importantSignals;
+    }
+
+    /// <summary>
+    ///     Parse upstream gateway signals from X-Bot-Detection-Signals header.
+    /// </summary>
+    private Dictionary<string, object> ParseUpstreamSignals(HttpContext context)
+    {
+        var importantSignals = new Dictionary<string, object>();
+        var upstreamSignalsHeader = context.Request.Headers["X-Bot-Detection-Signals"].FirstOrDefault();
+        if (string.IsNullOrEmpty(upstreamSignalsHeader) || upstreamSignalsHeader.Length > MaxUpstreamSignalsHeaderLength)
+            return importantSignals;
+
+        try
+        {
+            var parsed = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(upstreamSignalsHeader);
+            if (parsed != null)
+            {
+                var count = 0;
+                foreach (var kvp in parsed)
+                {
+                    if (count >= MaxSignalsPerDetection) break;
+                    if (BlockedSignalKeys.Contains(kvp.Key)) continue;
+                    if (!AllowedSignalPrefixes.Any(p => kvp.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))) continue;
+
+                    object value = kvp.Value.ValueKind switch
+                    {
+                        System.Text.Json.JsonValueKind.String => kvp.Value.GetString()!,
+                        System.Text.Json.JsonValueKind.Number => kvp.Value.TryGetInt64(out var l) ? l : kvp.Value.GetDouble(),
+                        System.Text.Json.JsonValueKind.True => true,
+                        System.Text.Json.JsonValueKind.False => false,
+                        _ => kvp.Value.ToString()
+                    };
+                    importantSignals[kvp.Key] = value;
+                    count++;
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            _logger.LogDebug(ex, "Failed to deserialize upstream signals header");
+        }
+
+        return importantSignals;
+    }
+
+    // ─── Static utilities ────────────────────────────────────────────────
 
     /// <summary>
     ///     Check if an IP address is a local/private network address.
@@ -460,25 +483,18 @@ public partial class DetectionBroadcastMiddleware
         if (ip == null) return false;
         if (IPAddress.IsLoopback(ip)) return true;
 
-        // IPv6 link-local (fe80::/10)
         if (ip.IsIPv6LinkLocal) return true;
-
-        // IPv6 site-local (fec0::/10 — deprecated but still used)
         if (ip.IsIPv6SiteLocal) return true;
 
-        // IPv6 unique local address (fc00::/7 — ULA, equivalent to RFC 1918)
         if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
         {
             var bytes = ip.GetAddressBytes();
-            // fc00::/7 means first byte is 0xFC or 0xFD
             if ((bytes[0] & 0xFE) == 0xFC) return true;
         }
 
-        // Map IPv6-mapped IPv4 to IPv4 for private range checks
         if (ip.IsIPv4MappedToIPv6)
             ip = ip.MapToIPv4();
 
-        // IPv4 private ranges
         if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
         {
             var bytes = ip.GetAddressBytes();
@@ -496,130 +512,14 @@ public partial class DetectionBroadcastMiddleware
         return false;
     }
 
-    /// <summary>
-    ///     Store a detection event without broadcasting to SignalR (for local IP filtering).
-    /// </summary>
-    private async Task StoreDetectionOnly(HttpContext context, AggregatedEvidence evidence, IDashboardEventStore eventStore)
-    {
-        try
-        {
-            string? primarySignature = null;
-            if (context.Items.TryGetValue("BotDetection.Signatures", out var sigObj) &&
-                sigObj is string sigJson)
-            {
-                try
-                {
-                    var sigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(sigJson);
-                    primarySignature = sigs?.GetValueOrDefault("primary");
-                }
-                catch { }
-            }
-
-            var topReasons = evidence.Contributions
-                .Where(c => !string.IsNullOrEmpty(c.Reason))
-                .OrderByDescending(c => Math.Abs(c.ConfidenceDelta * c.Weight))
-                .Take(5)
-                .Select(c => c.Reason!)
-                .ToList();
-
-            // Build non-PII signals (same filtering as full broadcast path)
-            var importantSignals = new Dictionary<string, object>();
-            if (evidence.Signals is { Count: > 0 })
-            {
-                importantSignals = evidence.Signals
-                    .Where(s => AllowedSignalPrefixes.Any(p => s.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))
-                                && !BlockedSignalKeys.Contains(s.Key))
-                    .Take(MaxSignalsPerDetection)
-                    .ToDictionary(s => s.Key, s => s.Value);
-            }
-
-            // Enrich with protocol info
-            EnrichProtocol(context, importantSignals);
-
-            // Build detector contributions map
-            var detectorContributions = evidence.Contributions
-                .GroupBy(c => c.DetectorName)
-                .ToDictionary(
-                    g => g.Key,
-                    g => new DashboardDetectorContribution
-                    {
-                        ConfidenceDelta = g.Sum(c => c.ConfidenceDelta),
-                        Contribution = g.Sum(c => c.ConfidenceDelta * c.Weight),
-                        Reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r))),
-                        ExecutionTimeMs = g.Sum(c => c.ProcessingTimeMs),
-                        Priority = g.First().Priority
-                    });
-
-            // Extract country code from geo signals
-            string? countryCode = null;
-            if (evidence.Signals != null &&
-                evidence.Signals.TryGetValue("geo.country_code", out var ccObj) &&
-                ccObj is string cc && cc != "LOCAL")
-                countryCode = cc;
-            countryCode ??= ResolveCountryFromHeaders(context);
-
-            var detection = new DashboardDetectionEvent
-            {
-                RequestId = context.TraceIdentifier,
-                Timestamp = DateTime.UtcNow,
-                IsBot = evidence.BotProbability > 0.5,
-                BotProbability = evidence.BotProbability,
-                Confidence = evidence.Confidence,
-                RiskBand = evidence.RiskBand.ToString(),
-                BotType = evidence.PrimaryBotType?.ToString(),
-                BotName = evidence.PrimaryBotName,
-                Action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName ?? "Allow",
-                PolicyName = evidence.PolicyName ?? "Default",
-                Method = context.Request.Method,
-                Path = context.Request.Path.Value ?? "/",
-                StatusCode = context.Response.StatusCode,
-                ProcessingTimeMs = evidence.TotalProcessingTimeMs,
-                PrimarySignature = primarySignature ?? GenerateFallbackSignature(context),
-                CountryCode = countryCode,
-                TopReasons = topReasons,
-                DetectorContributions = detectorContributions.Count > 0 ? detectorContributions : null,
-                ImportantSignals = importantSignals,
-                Narrative = DetectionNarrativeBuilder.Build(new DashboardDetectionEvent
-                {
-                    RequestId = context.TraceIdentifier,
-                    Timestamp = DateTime.UtcNow,
-                    IsBot = evidence.BotProbability > 0.5,
-                    BotProbability = evidence.BotProbability,
-                    Confidence = evidence.Confidence,
-                    RiskBand = evidence.RiskBand.ToString(),
-                    Method = context.Request.Method,
-                    Path = context.Request.Path.Value ?? "/",
-                    TopReasons = topReasons
-                })
-            };
-
-            await eventStore.AddDetectionAsync(detection);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to store local detection");
-        }
-    }
-
-    /// <summary>
-    ///     Sanitize a User-Agent string for broadcast to dashboard clients.
-    ///     Strips email addresses that some crawlers embed (e.g. "MyBot/1.0 (+mailto:admin@example.com)").
-    ///     UA strings themselves are public HTTP headers, not PII — only embedded emails need redacting.
-    /// </summary>
-    /// <summary>
-    ///     Resolve country code from upstream headers and HttpContext items.
-    ///     Checks X-Country, CF-IPCountry (Cloudflare), and GeoDetection.CountryCode context item.
-    /// </summary>
     private static string? ResolveCountryFromHeaders(HttpContext context)
     {
-        // Common upstream gateway headers
         var country = context.Request.Headers["X-Country"].FirstOrDefault()
                       ?? context.Request.Headers["CF-IPCountry"].FirstOrDefault();
 
         if (!string.IsNullOrEmpty(country) && country != "XX" && country != "LOCAL")
             return country;
 
-        // GeoDetection middleware context item (set by Mostlylucid.GeoDetection)
         if (context.Items.TryGetValue("GeoDetection.CountryCode", out var geoCtx) &&
             geoCtx is string geoCountry && !string.IsNullOrEmpty(geoCountry) && geoCountry != "LOCAL")
             return geoCountry;
@@ -630,13 +530,9 @@ public partial class DetectionBroadcastMiddleware
     private static string? SanitizeUserAgent(string? ua)
     {
         if (string.IsNullOrWhiteSpace(ua)) return null;
-        // Strip email addresses that some crawlers embed (e.g. "MyBot/1.0 (+mailto:admin@example.com)")
         return EmailPattern().Replace(ua, "[email-redacted]");
     }
 
-    /// <summary>
-    ///     Generate a fallback signature if the real one isn't available.
-    /// </summary>
     private string GenerateFallbackSignature(HttpContext context)
     {
         var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
@@ -647,34 +543,22 @@ public partial class DetectionBroadcastMiddleware
         return Convert.ToHexString(hash)[..16].ToLowerInvariant();
     }
 
-    /// <summary>
-    ///     Always enrich protocol version — non-PII metadata the dashboard needs for protocol stats.
-    ///     Sets h3.protocol, h2.protocol signals when not already present from fingerprint detectors.
-    /// </summary>
     private static void EnrichProtocol(HttpContext context, Dictionary<string, object> signals)
     {
         if (signals.ContainsKey("h3.protocol") || signals.ContainsKey("h3.version") ||
             signals.ContainsKey("h2.fingerprint") || signals.ContainsKey("h2.settings_hash") ||
             signals.ContainsKey("h2.protocol"))
-            return; // Already enriched by fingerprint detectors
+            return;
 
         var protocol = context.Request.Protocol;
         if (protocol.Contains("3", StringComparison.Ordinal))
             signals.TryAdd("h3.protocol", "h3");
         else if (protocol.Contains("2", StringComparison.Ordinal))
             signals.TryAdd("h2.protocol", "h2");
-        // HTTP/1.1 is the fallback — dashboard infers it when no h2/h3 signal present
     }
 
-    /// <summary>
-    ///     Enrich ImportantSignals with basic non-PII request metadata when signals are sparse.
-    ///     Extracts browser family, major version, and country code from HTTP headers.
-    ///     Protocol enrichment is handled by <see cref="EnrichProtocol"/> which runs unconditionally.
-    ///     Only called when <see cref="StyloBotDashboardOptions.EnrichHumanSignals"/> is true.
-    /// </summary>
     private static void EnrichFromRequest(HttpContext context, Dictionary<string, object> signals, ref string? countryCode)
     {
-        // Browser family + version from User-Agent (non-PII: browser name is not identifying)
         if (!signals.ContainsKey("ua.browser") && !signals.ContainsKey("ua.family"))
         {
             var ua = context.Request.Headers.UserAgent.ToString();
@@ -690,7 +574,6 @@ public partial class DetectionBroadcastMiddleware
             }
         }
 
-        // Country code from GeoLocation context (set by GeoDetection middleware)
         if (countryCode == null &&
             context.Items.TryGetValue("GeoLocation", out var geoLocObj) && geoLocObj != null)
         {
@@ -700,18 +583,12 @@ public partial class DetectionBroadcastMiddleware
                 countryCode = geoCC;
         }
 
-        // Fallback: upstream gateway headers (X-Country, CF-IPCountry, etc.)
         if (countryCode == null)
             countryCode = ResolveCountryFromHeaders(context);
     }
 
-    /// <summary>
-    ///     Lightweight UA parser — extracts browser family and major version.
-    ///     Not a full parser; handles Chrome, Firefox, Safari, Edge, Opera.
-    /// </summary>
     private static (string? Browser, string? Version) ParseBrowserFromUa(string ua)
     {
-        // Order matters: Edge before Chrome (Edge contains "Chrome")
         ReadOnlySpan<char> uaSpan = ua.AsSpan();
 
         if (ua.Contains("Edg/", StringComparison.Ordinal))
@@ -727,7 +604,7 @@ public partial class DetectionBroadcastMiddleware
         if (ua.Contains("bot", StringComparison.OrdinalIgnoreCase) ||
             ua.Contains("crawler", StringComparison.OrdinalIgnoreCase) ||
             ua.Contains("spider", StringComparison.OrdinalIgnoreCase))
-            return (null, null); // Don't enrich bot UAs — they already have signals
+            return (null, null);
 
         return (null, null);
     }
@@ -742,7 +619,6 @@ public partial class DetectionBroadcastMiddleware
             end++;
         if (end == start) return null;
         var full = ua[start..end].ToString();
-        // Return major version only (e.g. "131" from "131.0.6778.86")
         var dot = full.IndexOf('.');
         return dot > 0 ? full[..dot] : full;
     }

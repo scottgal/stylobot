@@ -46,7 +46,10 @@ public static class StyloBotDashboardServiceExtensions
         // Event store for in-memory history
         services.AddSingleton<IDashboardEventStore, InMemoryDashboardEventStore>();
 
-        // Background service for summary updates
+        // Aggregate cache — populated by beacon, read by API endpoints
+        services.AddSingleton<DashboardAggregateCache>();
+
+        // Background beacon — computes all dashboard aggregates periodically
         services.AddHostedService<DashboardSummaryBroadcaster>();
 
         // Server-side visitor cache for HTMX rendering
@@ -153,6 +156,9 @@ public static class StyloBotDashboardServiceExtensions
 
         // Event store (in-memory by default, replaced by PostgreSQL when configured)
         services.TryAddSingleton<IDashboardEventStore, InMemoryDashboardEventStore>();
+
+        // Aggregate cache — populated by beacon, read by API endpoints
+        services.TryAddSingleton<DashboardAggregateCache>();
 
         // Server-side visitor cache (needed by broadcast middleware)
         services.TryAddSingleton<VisitorListCache>();
