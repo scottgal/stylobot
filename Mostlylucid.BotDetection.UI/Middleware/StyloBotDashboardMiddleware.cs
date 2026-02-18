@@ -33,6 +33,9 @@ public class StyloBotDashboardMiddleware
     private static readonly TimeSpan RateLimitWindow = TimeSpan.FromMinutes(1);
     private static int _cleanupRunning;
 
+    /// <summary>Shared JSON options: camelCase to match SSR initial page load and JS frontend expectations.</summary>
+    private static readonly JsonSerializerOptions CamelCaseJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
     public StyloBotDashboardMiddleware(
         RequestDelegate next,
         StyloBotDashboardOptions options,
@@ -222,7 +225,7 @@ public class StyloBotDashboardMiddleware
 
         // Gather all dashboard data server-side so the page renders fully on first load.
         // SignalR then provides live updates — no XHR waterfall needed.
-        var jsonOpts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+        var jsonOpts = CamelCaseJson;
 
         var summaryJson = "null";
         var detectionsJson = "[]";
@@ -254,23 +257,27 @@ public class StyloBotDashboardMiddleware
 
         try
         {
+            var dbCountries = await _eventStore.GetCountryStatsAsync(10);
             var tracker = context.RequestServices.GetService(typeof(CountryReputationTracker))
                 as CountryReputationTracker;
-            if (tracker != null)
+            var trackerLookup = tracker?.GetTopBotCountries(50)
+                .ToDictionary(cr => cr.CountryCode, cr => cr, StringComparer.OrdinalIgnoreCase);
+
+            var countries = dbCountries.Select(db =>
             {
-                var countries = tracker.GetTopBotCountries(10)
-                    .Select(cr => new
-                    {
-                        countryCode = cr.CountryCode,
-                        countryName = cr.CountryName,
-                        botRate = Math.Round(cr.BotRate, 3),
-                        botCount = (int)Math.Round(cr.DecayedBotCount),
-                        totalCount = (int)Math.Round(cr.DecayedTotalCount),
-                        flag = GetCountryFlag(cr.CountryCode)
-                    })
-                    .ToList();
-                countriesJson = JsonSerializer.Serialize(countries, jsonOpts);
-            }
+                CountryReputation? cr = null;
+                trackerLookup?.TryGetValue(db.CountryCode, out cr);
+                return new
+                {
+                    countryCode = db.CountryCode,
+                    countryName = cr?.CountryName ?? db.CountryName,
+                    botRate = cr != null ? Math.Round(cr.BotRate, 3) : db.BotRate,
+                    botCount = cr != null ? (int)Math.Round(cr.DecayedBotCount) : db.BotCount,
+                    totalCount = cr != null ? (int)Math.Round(cr.DecayedTotalCount) : db.TotalCount,
+                    flag = GetCountryFlag(db.CountryCode)
+                };
+            }).ToList();
+            countriesJson = JsonSerializer.Serialize(countries, jsonOpts);
         }
         catch (Exception ex) { _logger.LogDebug(ex, "Dashboard: failed to load countries"); }
 
@@ -372,7 +379,7 @@ public class StyloBotDashboardMiddleware
             };
 
             return JsonSerializer.Serialize(yourDetection,
-                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+                CamelCaseJson);
         }
         catch (Exception ex)
         {
@@ -398,7 +405,7 @@ public class StyloBotDashboardMiddleware
         var detections = await _eventStore.GetDetectionsAsync(filter);
 
         context.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(context.Response.Body, detections);
+        await JsonSerializer.SerializeAsync(context.Response.Body, detections, CamelCaseJson);
     }
 
     private async Task ServeSignaturesApiAsync(HttpContext context)
@@ -415,7 +422,7 @@ public class StyloBotDashboardMiddleware
         var signatures = await _eventStore.GetSignaturesAsync(limit, offset, isBot);
 
         context.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(context.Response.Body, signatures);
+        await JsonSerializer.SerializeAsync(context.Response.Body, signatures, CamelCaseJson);
     }
 
     private async Task ServeSummaryApiAsync(HttpContext context)
@@ -423,7 +430,7 @@ public class StyloBotDashboardMiddleware
         var summary = await _eventStore.GetSummaryAsync();
 
         context.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(context.Response.Body, summary);
+        await JsonSerializer.SerializeAsync(context.Response.Body, summary, CamelCaseJson);
     }
 
     private async Task ServeTimeSeriesApiAsync(HttpContext context)
@@ -448,7 +455,7 @@ public class StyloBotDashboardMiddleware
             var timeSeries = await _eventStore.GetTimeSeriesAsync(startTime, endTime, bucketSize);
 
             context.Response.ContentType = "application/json";
-            await JsonSerializer.SerializeAsync(context.Response.Body, timeSeries);
+            await JsonSerializer.SerializeAsync(context.Response.Body, timeSeries, CamelCaseJson);
         }
         catch (Exception ex)
         {
@@ -480,7 +487,7 @@ public class StyloBotDashboardMiddleware
         {
             context.Response.ContentType = "application/json";
             context.Response.Headers["Content-Disposition"] = "attachment; filename=detections.json";
-            await JsonSerializer.SerializeAsync(context.Response.Body, detections);
+            await JsonSerializer.SerializeAsync(context.Response.Body, detections, CamelCaseJson);
         }
     }
 
@@ -592,7 +599,7 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, diagnostics,
-            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+            CamelCaseJson);
     }
 
     private async Task ServeCountriesApiAsync(HttpContext context)
@@ -600,50 +607,33 @@ public class StyloBotDashboardMiddleware
         var countStr = context.Request.Query["count"].FirstOrDefault();
         var count = int.TryParse(countStr, out var c) ? Math.Clamp(c, 1, 50) : 20;
 
-        // Try CountryReputationTracker first (best source — time-decayed stats)
+        // DB as primary source — survives restarts
+        var dbCountries = await _eventStore.GetCountryStatsAsync(count);
+
+        // Enrich with time-decayed rates from CountryReputationTracker if available
         var tracker = context.RequestServices.GetService(typeof(CountryReputationTracker))
             as CountryReputationTracker;
 
-        var countries = tracker?.GetTopBotCountries(count)
-            .Select(cr => new
-            {
-                countryCode = cr.CountryCode,
-                countryName = cr.CountryName,
-                botRate = Math.Round(cr.BotRate, 3),
-                botCount = (int)Math.Round(cr.DecayedBotCount),
-                totalCount = (int)Math.Round(cr.DecayedTotalCount),
-                flag = GetCountryFlag(cr.CountryCode)
-            })
-            .ToList();
+        var trackerLookup = tracker?.GetTopBotCountries(50)
+            .ToDictionary(cr => cr.CountryCode, cr => cr, StringComparer.OrdinalIgnoreCase);
 
-        // Fallback: aggregate from recent detections when tracker is empty or unavailable
-        if (countries == null || countries.Count == 0)
+        var countries = dbCountries.Select(db =>
         {
-            var detections = await _eventStore.GetDetectionsAsync(new DashboardFilter { Limit = 500 });
-            var countryGroups = detections
-                .Where(d => !string.IsNullOrEmpty(d.CountryCode)
-                            && d.CountryCode != "XX"
-                            && d.CountryCode != "LOCAL")
-                .GroupBy(d => d.CountryCode!.ToUpperInvariant())
-                .Select(g => new
-                {
-                    countryCode = g.Key,
-                    countryName = g.Key, // We don't have a name lookup here
-                    botRate = g.Count() > 0 ? Math.Round((double)g.Count(d => d.IsBot) / g.Count(), 3) : 0.0,
-                    botCount = g.Count(d => d.IsBot),
-                    totalCount = g.Count(),
-                    flag = GetCountryFlag(g.Key)
-                })
-                .OrderByDescending(c => c.totalCount)
-                .Take(count)
-                .ToList();
-
-            countries = countryGroups;
-        }
+            CountryReputation? cr = null;
+            trackerLookup?.TryGetValue(db.CountryCode, out cr);
+            return new
+            {
+                countryCode = db.CountryCode,
+                countryName = cr?.CountryName ?? db.CountryName,
+                botRate = cr != null ? Math.Round(cr.BotRate, 3) : db.BotRate,
+                botCount = cr != null ? (int)Math.Round(cr.DecayedBotCount) : db.BotCount,
+                totalCount = cr != null ? (int)Math.Round(cr.DecayedTotalCount) : db.TotalCount,
+                flag = GetCountryFlag(db.CountryCode)
+            };
+        }).ToList();
 
         context.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(context.Response.Body, countries,
-            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        await JsonSerializer.SerializeAsync(context.Response.Body, countries, CamelCaseJson);
     }
 
     private async Task ServeClustersApiAsync(HttpContext context)
@@ -675,40 +665,45 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, clusters,
-            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+            CamelCaseJson);
     }
 
     private async Task ServeTopBotsApiAsync(HttpContext context)
     {
-        var visitorCache = context.RequestServices
-            .GetService(typeof(VisitorListCache)) as VisitorListCache;
-
         var countParam = context.Request.Query["count"].FirstOrDefault();
         var count = int.TryParse(countParam, out var c) && c is > 0 and <= 50 ? c : 10;
 
-        var topBots = visitorCache?.GetTopBots(count);
+        // DB as primary source — survives restarts
+        var topBots = await _eventStore.GetTopBotsAsync(count);
 
-        var result = topBots?.Select(b => new
+        // Enrich with real-time sparkline data from in-memory cache if available
+        var visitorCache = context.RequestServices
+            .GetService(typeof(VisitorListCache)) as VisitorListCache;
+
+        var result = topBots.Select(b =>
         {
-            b.PrimarySignature,
-            HitCount = b.Hits,
-            b.BotName,
-            b.BotType,
-            b.RiskBand,
-            b.BotProbability,
-            b.Confidence,
-            b.Action,
-            b.CountryCode,
-            b.ProcessingTimeMs,
-            topReasons = b.TopReasons,
-            b.LastSeen,
-            b.Narrative,
-            b.Description,
-        }) ?? Enumerable.Empty<object>();
+            var visitor = visitorCache?.Get(b.PrimarySignature);
+            return new
+            {
+                b.PrimarySignature,
+                b.HitCount,
+                b.BotName,
+                b.BotType,
+                b.RiskBand,
+                b.BotProbability,
+                b.Confidence,
+                b.Action,
+                CountryCode = visitor?.CountryCode ?? b.CountryCode,
+                ProcessingTimeMs = visitor?.ProcessingTimeMs ?? b.ProcessingTimeMs,
+                TopReasons = visitor?.TopReasons ?? b.TopReasons,
+                LastSeen = visitor?.LastSeen ?? b.LastSeen,
+                Narrative = visitor?.Narrative ?? b.Narrative,
+                Description = visitor?.Description ?? b.Description,
+            };
+        });
 
         context.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(context.Response.Body, result,
-            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        await JsonSerializer.SerializeAsync(context.Response.Body, result, CamelCaseJson);
     }
 
     private async Task ServeUserAgentsApiAsync(HttpContext context)
@@ -789,7 +784,7 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, result,
-            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+            CamelCaseJson);
     }
 
     private static string ExtractBrowserFamily(string ua)
@@ -876,7 +871,7 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, sparkline,
-            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+            CamelCaseJson);
     }
 
     private static (bool Allowed, int Remaining) CheckRateLimit(string clientIp, DateTime now)

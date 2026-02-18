@@ -40,4 +40,14 @@ public interface IDashboardEventStore
         DateTime startTime,
         DateTime endTime,
         TimeSpan bucketSize);
+
+    /// <summary>
+    ///     Get top bot signatures ordered by hit count descending.
+    /// </summary>
+    Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10);
+
+    /// <summary>
+    ///     Get country-level statistics (total requests, bot count, bot rate) for the last 24 hours.
+    /// </summary>
+    Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20);
 }

@@ -1324,6 +1324,38 @@ public class BotDetectionMiddleware(
             }
         }
 
+        // Parse forwarded signals from upstream gateway (X-Bot-Detection-Signals JSON header)
+        IReadOnlyDictionary<string, object> upstreamSignals = new Dictionary<string, object>();
+        var signalsHeader = context.Request.Headers["X-Bot-Detection-Signals"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(signalsHeader) && signalsHeader.Length <= 16_384)
+        {
+            try
+            {
+                var parsed = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, System.Text.Json.JsonElement>>(signalsHeader);
+                if (parsed != null)
+                {
+                    var dict = new Dictionary<string, object>(parsed.Count, StringComparer.OrdinalIgnoreCase);
+                    foreach (var kvp in parsed)
+                    {
+                        object value = kvp.Value.ValueKind switch
+                        {
+                            System.Text.Json.JsonValueKind.String => kvp.Value.GetString()!,
+                            System.Text.Json.JsonValueKind.Number => kvp.Value.TryGetInt64(out var l) ? l : kvp.Value.GetDouble(),
+                            System.Text.Json.JsonValueKind.True => true,
+                            System.Text.Json.JsonValueKind.False => false,
+                            _ => kvp.Value.ToString()
+                        };
+                        dict[kvp.Key] = value;
+                    }
+                    upstreamSignals = dict;
+                }
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                _logger.LogDebug(ex, "Failed to parse upstream signals header");
+            }
+        }
+
         // Build AggregatedEvidence with ledger so Contributions property works
         var evidence = new AggregatedEvidence
         {
@@ -1333,6 +1365,7 @@ public class BotDetectionMiddleware(
             RiskBand = riskBand,
             PrimaryBotType = botType,
             PrimaryBotName = botName,
+            Signals = upstreamSignals,
             TotalProcessingTimeMs = processingMs,
             PolicyName = "upstream",
             TriggeredActionPolicyName = actionName,

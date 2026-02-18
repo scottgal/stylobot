@@ -566,6 +566,114 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         }
     }
 
+    public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10)
+    {
+        if (IsCircuitOpen) return [];
+
+        const string sql = @"
+            SELECT
+                primary_signature,
+                hit_count,
+                bot_name,
+                bot_type,
+                risk_band,
+                bot_probability,
+                confidence,
+                action,
+                processing_time_ms,
+                top_reasons,
+                timestamp AS last_seen,
+                narrative,
+                description,
+                is_known_bot
+            FROM dashboard_signatures
+            WHERE is_known_bot = true
+            ORDER BY hit_count DESC
+            LIMIT @Count";
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(_options.ConnectionString);
+            var rows = await connection.QueryAsync<TopBotRow>(sql, new { Count = count },
+                commandTimeout: _options.CommandTimeoutSeconds);
+
+            return rows.Select(r => new DashboardTopBotEntry
+            {
+                PrimarySignature = r.PrimarySignature,
+                HitCount = r.HitCount,
+                BotName = r.BotName,
+                BotType = r.BotType,
+                RiskBand = r.RiskBand,
+                BotProbability = r.BotProbability ?? 0,
+                Confidence = r.Confidence ?? 0,
+                Action = r.Action,
+                CountryCode = null, // Not stored on signatures table
+                ProcessingTimeMs = r.ProcessingTimeMs ?? 0,
+                TopReasons = DeserializeJsonOrNull<List<string>>(r.TopReasons),
+                LastSeen = r.LastSeen,
+                Narrative = r.Narrative,
+                Description = r.Description,
+                IsKnownBot = r.IsKnownBot
+            }).ToList();
+        }
+        catch (Exception ex) when (ex is NpgsqlException or System.Net.Sockets.SocketException)
+        {
+            TripCircuit();
+            _logger.LogError(ex, "Failed to get top bots from PostgreSQL");
+            return [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get top bots from PostgreSQL");
+            throw;
+        }
+    }
+
+    public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20)
+    {
+        if (IsCircuitOpen) return [];
+
+        const string sql = @"
+            SELECT
+                country_code,
+                COUNT(*)::int AS total_count,
+                COUNT(*) FILTER (WHERE is_bot)::int AS bot_count
+            FROM dashboard_detections
+            WHERE timestamp > NOW() - INTERVAL '24 hours'
+              AND country_code IS NOT NULL
+              AND country_code NOT IN ('XX', 'LOCAL')
+            GROUP BY country_code
+            ORDER BY total_count DESC
+            LIMIT @Count";
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(_options.ConnectionString);
+            var rows = await connection.QueryAsync<CountryStatsRow>(sql, new { Count = count },
+                commandTimeout: _options.CommandTimeoutSeconds);
+
+            return rows.Select(r => new DashboardCountryStats
+            {
+                CountryCode = r.CountryCode,
+                CountryName = r.CountryCode, // Name resolution happens at display layer
+                TotalCount = r.TotalCount,
+                BotCount = r.BotCount,
+                BotRate = r.TotalCount > 0 ? Math.Round((double)r.BotCount / r.TotalCount, 3) : 0
+            }).ToList();
+        }
+        catch (Exception ex) when (ex is NpgsqlException or System.Net.Sockets.SocketException)
+        {
+            TripCircuit();
+            _logger.LogError(ex, "Failed to get country stats from PostgreSQL");
+            return [];
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get country stats from PostgreSQL");
+            throw;
+        }
+    }
+
     /// <summary>
     /// Maps a TimeSpan bucket size to the nearest PostgreSQL date_trunc unit.
     /// </summary>
@@ -736,5 +844,30 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         public double AverageProcessingTimeMs { get; set; }
         public double LastProcessingTimeMs { get; set; }
         public int UniqueSignatures { get; set; }
+    }
+
+    private class TopBotRow
+    {
+        public string PrimarySignature { get; set; } = string.Empty;
+        public int HitCount { get; set; }
+        public string? BotName { get; set; }
+        public string? BotType { get; set; }
+        public string? RiskBand { get; set; }
+        public double? BotProbability { get; set; }
+        public double? Confidence { get; set; }
+        public string? Action { get; set; }
+        public double? ProcessingTimeMs { get; set; }
+        public string? TopReasons { get; set; }
+        public DateTime LastSeen { get; set; }
+        public string? Narrative { get; set; }
+        public string? Description { get; set; }
+        public bool IsKnownBot { get; set; }
+    }
+
+    private class CountryStatsRow
+    {
+        public string CountryCode { get; set; } = string.Empty;
+        public int TotalCount { get; set; }
+        public int BotCount { get; set; }
     }
 }

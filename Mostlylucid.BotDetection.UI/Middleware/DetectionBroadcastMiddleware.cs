@@ -522,6 +522,42 @@ public partial class DetectionBroadcastMiddleware
                 .Select(c => c.Reason!)
                 .ToList();
 
+            // Build non-PII signals (same filtering as full broadcast path)
+            var importantSignals = new Dictionary<string, object>();
+            if (evidence.Signals is { Count: > 0 })
+            {
+                importantSignals = evidence.Signals
+                    .Where(s => AllowedSignalPrefixes.Any(p => s.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))
+                                && !BlockedSignalKeys.Contains(s.Key))
+                    .Take(MaxSignalsPerDetection)
+                    .ToDictionary(s => s.Key, s => s.Value);
+            }
+
+            // Enrich with protocol info
+            EnrichProtocol(context, importantSignals);
+
+            // Build detector contributions map
+            var detectorContributions = evidence.Contributions
+                .GroupBy(c => c.DetectorName)
+                .ToDictionary(
+                    g => g.Key,
+                    g => new DashboardDetectorContribution
+                    {
+                        ConfidenceDelta = g.Sum(c => c.ConfidenceDelta),
+                        Contribution = g.Sum(c => c.ConfidenceDelta * c.Weight),
+                        Reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r))),
+                        ExecutionTimeMs = g.Sum(c => c.ProcessingTimeMs),
+                        Priority = g.First().Priority
+                    });
+
+            // Extract country code from geo signals
+            string? countryCode = null;
+            if (evidence.Signals != null &&
+                evidence.Signals.TryGetValue("geo.country_code", out var ccObj) &&
+                ccObj is string cc && cc != "LOCAL")
+                countryCode = cc;
+            countryCode ??= ResolveCountryFromHeaders(context);
+
             var detection = new DashboardDetectionEvent
             {
                 RequestId = context.TraceIdentifier,
@@ -533,12 +569,16 @@ public partial class DetectionBroadcastMiddleware
                 BotType = evidence.PrimaryBotType?.ToString(),
                 BotName = evidence.PrimaryBotName,
                 Action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName ?? "Allow",
+                PolicyName = evidence.PolicyName ?? "Default",
                 Method = context.Request.Method,
                 Path = context.Request.Path.Value ?? "/",
                 StatusCode = context.Response.StatusCode,
                 ProcessingTimeMs = evidence.TotalProcessingTimeMs,
                 PrimarySignature = primarySignature ?? GenerateFallbackSignature(context),
+                CountryCode = countryCode,
                 TopReasons = topReasons,
+                DetectorContributions = detectorContributions.Count > 0 ? detectorContributions : null,
+                ImportantSignals = importantSignals,
                 Narrative = DetectionNarrativeBuilder.Build(new DashboardDetectionEvent
                 {
                     RequestId = context.TraceIdentifier,

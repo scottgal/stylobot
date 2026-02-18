@@ -151,6 +151,68 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
         return Task.FromResult(summary);
     }
 
+    public Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10)
+    {
+        // Group signatures by PrimarySignature, keep the latest entry per signature,
+        // filter to bots only, and return top N by hit count.
+        var topBots = _signatures
+            .Where(s => s.IsKnownBot)
+            .GroupBy(s => s.PrimarySignature)
+            .Select(g =>
+            {
+                var latest = g.OrderByDescending(s => s.Timestamp).First();
+                // Use the hit count from our authoritative tracking dictionary
+                var hitCount = _signatureHitCounts.GetValueOrDefault(latest.PrimarySignature, latest.HitCount);
+                return new DashboardTopBotEntry
+                {
+                    PrimarySignature = latest.PrimarySignature,
+                    HitCount = hitCount,
+                    BotName = latest.BotName,
+                    BotType = latest.BotType,
+                    RiskBand = latest.RiskBand,
+                    BotProbability = latest.BotProbability ?? 0,
+                    Confidence = latest.Confidence ?? 0,
+                    Action = latest.Action,
+                    CountryCode = null, // Not tracked on signatures
+                    ProcessingTimeMs = latest.ProcessingTimeMs ?? 0,
+                    TopReasons = latest.TopReasons,
+                    LastSeen = latest.Timestamp,
+                    Narrative = latest.Narrative,
+                    Description = latest.Description,
+                    IsKnownBot = latest.IsKnownBot
+                };
+            })
+            .OrderByDescending(b => b.HitCount)
+            .Take(count)
+            .ToList();
+
+        return Task.FromResult(topBots);
+    }
+
+    public Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20)
+    {
+        var countryStats = _detections
+            .Where(d => !string.IsNullOrEmpty(d.CountryCode)
+                        && d.CountryCode != "XX"
+                        && d.CountryCode != "LOCAL")
+            .GroupBy(d => d.CountryCode!.ToUpperInvariant())
+            .Select(g => new DashboardCountryStats
+            {
+                CountryCode = g.Key,
+                CountryName = g.Key, // No name lookup in-memory
+                TotalCount = g.Count(),
+                BotCount = g.Count(d => d.IsBot),
+                BotRate = g.Count() > 0
+                    ? Math.Round((double)g.Count(d => d.IsBot) / g.Count(), 3)
+                    : 0
+            })
+            .OrderByDescending(c => c.TotalCount)
+            .Take(count)
+            .ToList();
+
+        return Task.FromResult(countryStats);
+    }
+
     public Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(
         DateTime startTime,
         DateTime endTime,

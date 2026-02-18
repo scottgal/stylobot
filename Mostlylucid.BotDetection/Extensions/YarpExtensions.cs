@@ -15,6 +15,24 @@ namespace Mostlylucid.BotDetection.Extensions;
 /// </remarks>
 public static class YarpExtensions
 {
+    /// <summary>Signal key prefixes allowed through to downstream (non-PII).</summary>
+    private static readonly string[] AllowedSignalPrefixes =
+    [
+        "ua.", "header.", "client.", "geo.", "ip.", "behavioral.",
+        "detection.", "request.", "h2.", "tls.", "tcp.", "h3.",
+        "cluster.", "reputation.", "honeypot.", "similarity.",
+        "attack.", "ato."
+    ];
+
+    /// <summary>Signal keys that must never leave the gateway.</summary>
+    private static readonly HashSet<string> BlockedSignalKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ua.raw", "ip.address", "client_ip", "ip_address",
+        "email", "phone", "session_id", "cookie", "authorization"
+    };
+
+    /// <summary>Maximum signals forwarded per detection.</summary>
+    private const int MaxSignals = 80;
     /// <summary>
     ///     Adds bot detection result headers to an outgoing request.
     ///     Call this from a YARP request transform to pass bot info to backend services.
@@ -194,6 +212,33 @@ public static class YarpExtensions
             var action = evidence.PolicyAction?.ToString() ?? evidence.TriggeredActionPolicyName;
             if (!string.IsNullOrEmpty(action))
                 addHeader("X-Bot-Detection-Action", action);
+
+            // Serialize filtered signals as JSON for downstream dashboard
+            if (evidence.Signals is { Count: > 0 })
+            {
+                var filtered = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+                foreach (var (key, value) in evidence.Signals)
+                {
+                    if (filtered.Count >= MaxSignals) break;
+                    if (BlockedSignalKeys.Contains(key)) continue;
+                    if (!AllowedSignalPrefixes.Any(p => key.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    // Scrub values that look like emails or raw IPs
+                    if (value is string sv &&
+                        (sv.Contains('@') || System.Net.IPAddress.TryParse(sv, out _)))
+                        continue;
+
+                    filtered[key] = value;
+                }
+
+                if (filtered.Count > 0)
+                {
+                    var json = JsonSerializer.Serialize(filtered);
+                    if (json.Length <= 16_384)
+                        addHeader("X-Bot-Detection-Signals", json);
+                }
+            }
         }
 
         // Add signature ID if available (for demo/debug mode)
