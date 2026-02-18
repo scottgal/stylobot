@@ -102,7 +102,7 @@ export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opt
     }
     container.innerHTML = '';
 
-    if (data.length === 0) return;
+    // Always render the map — even with no data, the map outline should be visible
 
     // Unique ID per instance so multiple maps can coexist
     const mapId = 'jsvectormap-' + (++idCounter);

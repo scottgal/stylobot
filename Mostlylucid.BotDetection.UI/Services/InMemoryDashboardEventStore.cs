@@ -153,33 +153,31 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
 
     public Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10)
     {
-        // Group signatures by PrimarySignature, keep the latest entry per signature,
-        // filter to bots only, and return top N by hit count.
-        var topBots = _signatures
-            .Where(s => s.IsKnownBot)
-            .GroupBy(s => s.PrimarySignature)
+        // Group detections by signature — works even when signatures aren't stored
+        // (e.g. upstream-trusted mode where only detections are recorded).
+        var topBots = _detections
+            .Where(d => d.IsBot && !string.IsNullOrEmpty(d.PrimarySignature))
+            .GroupBy(d => d.PrimarySignature!)
             .Select(g =>
             {
-                var latest = g.OrderByDescending(s => s.Timestamp).First();
-                // Use the hit count from our authoritative tracking dictionary
-                var hitCount = _signatureHitCounts.GetValueOrDefault(latest.PrimarySignature, latest.HitCount);
+                var latest = g.OrderByDescending(d => d.Timestamp).First();
                 return new DashboardTopBotEntry
                 {
-                    PrimarySignature = latest.PrimarySignature,
-                    HitCount = hitCount,
+                    PrimarySignature = g.Key,
+                    HitCount = g.Count(),
                     BotName = latest.BotName,
                     BotType = latest.BotType,
                     RiskBand = latest.RiskBand,
-                    BotProbability = latest.BotProbability ?? 0,
-                    Confidence = latest.Confidence ?? 0,
+                    BotProbability = latest.BotProbability,
+                    Confidence = latest.Confidence,
                     Action = latest.Action,
-                    CountryCode = null, // Not tracked on signatures
-                    ProcessingTimeMs = latest.ProcessingTimeMs ?? 0,
+                    CountryCode = latest.CountryCode,
+                    ProcessingTimeMs = latest.ProcessingTimeMs,
                     TopReasons = latest.TopReasons,
                     LastSeen = latest.Timestamp,
                     Narrative = latest.Narrative,
                     Description = latest.Description,
-                    IsKnownBot = latest.IsKnownBot
+                    IsKnownBot = true
                 };
             })
             .OrderByDescending(b => b.HitCount)

@@ -570,24 +570,30 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
     {
         if (IsCircuitOpen) return [];
 
+        // Query detections grouped by signature — works even when dashboard_signatures
+        // is empty (e.g. upstream-trusted mode where signatures aren't stored separately).
+        // Falls back to dashboard_signatures only if detections have no bot data.
         const string sql = @"
             SELECT
                 primary_signature,
-                hit_count,
-                bot_name,
-                bot_type,
-                risk_band,
-                bot_probability,
-                confidence,
-                action,
-                processing_time_ms,
-                top_reasons,
-                timestamp AS last_seen,
-                narrative,
-                description,
-                is_known_bot
-            FROM dashboard_signatures
-            WHERE is_known_bot = true
+                COUNT(*)::int AS hit_count,
+                (array_agg(bot_name ORDER BY timestamp DESC))[1] AS bot_name,
+                (array_agg(bot_type ORDER BY timestamp DESC))[1] AS bot_type,
+                (array_agg(risk_band ORDER BY timestamp DESC))[1] AS risk_band,
+                (array_agg(bot_probability ORDER BY timestamp DESC))[1] AS bot_probability,
+                (array_agg(confidence ORDER BY timestamp DESC))[1] AS confidence,
+                (array_agg(action ORDER BY timestamp DESC))[1] AS action,
+                AVG(processing_time_ms) AS processing_time_ms,
+                (array_agg(top_reasons ORDER BY timestamp DESC))[1] AS top_reasons,
+                MAX(timestamp) AS last_seen,
+                (array_agg(narrative ORDER BY timestamp DESC))[1] AS narrative,
+                (array_agg(description ORDER BY timestamp DESC))[1] AS description,
+                (array_agg(country_code ORDER BY timestamp DESC))[1] AS country_code
+            FROM dashboard_detections
+            WHERE is_bot = true
+              AND primary_signature IS NOT NULL
+              AND timestamp > NOW() - INTERVAL '24 hours'
+            GROUP BY primary_signature
             ORDER BY hit_count DESC
             LIMIT @Count";
 
@@ -607,13 +613,13 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                 BotProbability = r.BotProbability ?? 0,
                 Confidence = r.Confidence ?? 0,
                 Action = r.Action,
-                CountryCode = null, // Not stored on signatures table
+                CountryCode = r.CountryCode,
                 ProcessingTimeMs = r.ProcessingTimeMs ?? 0,
                 TopReasons = DeserializeJsonOrNull<List<string>>(r.TopReasons),
                 LastSeen = r.LastSeen,
                 Narrative = r.Narrative,
                 Description = r.Description,
-                IsKnownBot = r.IsKnownBot
+                IsKnownBot = true
             }).ToList();
         }
         catch (Exception ex) when (ex is NpgsqlException or System.Net.Sockets.SocketException)
@@ -862,6 +868,7 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         public string? Narrative { get; set; }
         public string? Description { get; set; }
         public bool IsKnownBot { get; set; }
+        public string? CountryCode { get; set; }
     }
 
     private class CountryStatsRow

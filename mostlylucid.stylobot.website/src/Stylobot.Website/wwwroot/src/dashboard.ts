@@ -668,8 +668,8 @@ function dashboardApp() {
             if (t === 'visitors') await this.loadVisitors();
             if (t === 'clusters' && this.clusters.length === 0) await this.loadClusters();
             if (t === 'countries') {
-                if (this.countries.length === 0) await this.loadCountries();
-                else this.$nextTick(() => { this.renderCountryChart(); this.renderWorldMapChart(); });
+                await this.loadCountries();
+                this.$nextTick(() => { this.renderCountryChart(); this.renderWorldMapChart(); });
             }
             if (t === 'useragents' && this.useragents.length === 0) await this.loadUserAgents();
         },
@@ -1013,7 +1013,7 @@ function dashboardApp() {
 
         renderWorldMapChart() {
             const el = document.getElementById('world-map');
-            if (!el || this.countries.length === 0) return;
+            if (!el) return;
 
             const mapData: MapDataPoint[] = this.countries.map((co: any) => ({
                 code: co.countryCode,
@@ -1028,7 +1028,7 @@ function dashboardApp() {
 
         renderOverviewMap() {
             const el = document.getElementById('overview-world-map');
-            if (!el || this.countries.length === 0) return;
+            if (!el) return;
 
             const mapData: MapDataPoint[] = this.countries.map((co: any) => ({
                 code: co.countryCode,

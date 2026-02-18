@@ -1,5 +1,5 @@
-@using Mostlylucid.BotDetection.UI.Services
-@model IReadOnlyList<CachedVisitor>
+@using Mostlylucid.BotDetection.UI.Models
+@model List<DashboardTopBotEntry>
 
 @functions {
     static string CountryFlag(string? code)
@@ -20,12 +20,12 @@
         {
             var name = bot.BotName ?? bot.PrimarySignature[..Math.Min(8, bot.PrimarySignature.Length)];
             var prob = (int)Math.Round(bot.BotProbability * 100);
-            var reason = bot.TopReasons.FirstOrDefault();
+            var reason = bot.TopReasons?.FirstOrDefault();
             var typeBadge = bot.BotType ?? "Bot";
             var barColor = prob >= 85 ? "bg-error" : prob >= 60 ? "bg-warning" : "bg-info";
             var textColor = prob >= 85 ? "text-error" : prob >= 60 ? "text-warning" : "text-info";
             var flag = CountryFlag(bot.CountryCode);
-            <a href="/Home/LiveDemo?sig=@bot.PrimarySignature"
+            <a href="/dashboard/signature/@Uri.EscapeDataString(bot.PrimarySignature)"
                class="block rounded-md border border-base-content/10 bg-base-content/[0.03] hover:bg-base-content/[0.07] transition-colors no-underline p-1.5 group">
                 <div class="flex items-center justify-between gap-1.5 mb-0.5">
                     <div class="flex items-center gap-1.5 min-w-0">
@@ -42,7 +42,7 @@
                     </div>
                     <div class="flex items-center gap-1.5 shrink-0">
                         <span class="text-[10px] font-bold @textColor">@(prob)%</span>
-                        <span class="text-[9px] text-base-content/30 tabular-nums">@bot.Hits×</span>
+                        <span class="text-[9px] text-base-content/30 tabular-nums">@bot.HitCount×</span>
                     </div>
                 </div>
                 <!-- probability bar -->

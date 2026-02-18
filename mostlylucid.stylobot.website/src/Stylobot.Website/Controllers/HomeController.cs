@@ -17,6 +17,7 @@ public class HomeController : Controller
     private readonly SeoService _seoService;
     private readonly IGeoLocationService _geoService;
     private readonly VisitorListCache _visitorListCache;
+    private readonly IDashboardEventStore _eventStore;
     private readonly CountryReputationTracker? _countryTracker;
     private readonly BotClusterService? _clusterService;
     private readonly bool _exposeDiagnostics;
@@ -25,6 +26,7 @@ public class HomeController : Controller
         SeoService seoService,
         IGeoLocationService geoService,
         VisitorListCache visitorListCache,
+        IDashboardEventStore eventStore,
         IConfiguration configuration,
         IWebHostEnvironment environment,
         CountryReputationTracker? countryTracker = null,
@@ -33,6 +35,7 @@ public class HomeController : Controller
         _seoService = seoService;
         _geoService = geoService;
         _visitorListCache = visitorListCache;
+        _eventStore = eventStore;
         _countryTracker = countryTracker;
         _clusterService = clusterService;
         _exposeDiagnostics = environment.IsDevelopment() ||
@@ -191,9 +194,9 @@ public class HomeController : Controller
     }
 
     [HttpGet("Home/TopBots")]
-    public IActionResult TopBots(int count = 5)
+    public async Task<IActionResult> TopBots(int count = 5)
     {
-        var bots = _visitorListCache.GetTopBots(count);
+        var bots = await _eventStore.GetTopBotsAsync(count);
         return PartialView("_TopBots", bots);
     }
 
