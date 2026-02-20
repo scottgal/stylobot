@@ -129,11 +129,11 @@ public sealed class InMemoryApiKeyStore : IApiKeyStore
     {
         // Format: "HH:mm-HH:mm" UTC
         var parts = window.Split('-');
-        if (parts.Length != 2) return true; // Invalid format = allow
+        if (parts.Length != 2) return false; // Invalid format = deny (fail closed)
 
         if (!TimeOnly.TryParse(parts[0].Trim(), out var start) ||
             !TimeOnly.TryParse(parts[1].Trim(), out var end))
-            return true; // Invalid format = allow
+            return false; // Invalid format = deny (fail closed)
 
         var now = TimeOnly.FromDateTime(DateTime.UtcNow);
 
@@ -189,7 +189,7 @@ public sealed class InMemoryApiKeyStore : IApiKeyStore
         if (normalizedPattern.EndsWith("/**"))
         {
             var prefix = normalizedPattern[..^3]; // Remove /**
-            return normalizedPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+            return StartsWithPathSegment(normalizedPath, prefix);
         }
 
         // Handle /* suffix (match single segment)
@@ -203,7 +203,21 @@ public sealed class InMemoryApiKeyStore : IApiKeyStore
         }
 
         // StartsWith for simple prefix matching
-        return normalizedPath.StartsWith(normalizedPattern, StringComparison.OrdinalIgnoreCase);
+        return StartsWithPathSegment(normalizedPath, normalizedPattern);
+    }
+
+    private static bool StartsWithPathSegment(string path, string prefix)
+    {
+        if (string.IsNullOrEmpty(prefix) || prefix == "/")
+            return true;
+
+        if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        if (path.Length == prefix.Length)
+            return true;
+
+        return path[prefix.Length] == '/';
     }
 
     private bool CheckRateLimit(string keyId, ApiKeyConfig config)

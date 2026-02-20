@@ -76,14 +76,18 @@ public static class StyloBotDashboardServiceExtensions
             var policyName = options.DataApiDetectionPolicy;
             var basePath = options.BasePath.TrimEnd('/');
 
-            // Register the detection policy (only if not already defined by user config)
-            if (!opts.Policies.ContainsKey(policyName))
+            // Ensure a policy exists, and always lock action policy override for dashboard data APIs.
+            // This prevents API keys from weakening dashboard data API protection, even if the policy
+            // was preconfigured by the host application.
+            if (!opts.Policies.TryGetValue(policyName, out var policyConfig) || policyConfig == null)
             {
-                opts.Policies[policyName] = new DetectionPolicyConfig
-                {
-                    ActionPolicyName = options.DataApiActionPolicyName
-                };
+                policyConfig = new DetectionPolicyConfig();
+                opts.Policies[policyName] = policyConfig;
             }
+
+            if (string.IsNullOrWhiteSpace(policyConfig.ActionPolicyName))
+                policyConfig.ActionPolicyName = options.DataApiActionPolicyName;
+            policyConfig.ActionPolicyOverridable = false;
 
             // Map dashboard data API paths to the detection policy
             opts.PathPolicies[$"{basePath}/api/**"] = policyName;

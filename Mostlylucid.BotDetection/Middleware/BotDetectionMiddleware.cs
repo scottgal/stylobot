@@ -96,7 +96,8 @@ public class BotDetectionMiddleware(
         BlackboardOrchestrator orchestrator,
         IPolicyRegistry policyRegistry,
         IActionPolicyRegistry actionPolicyRegistry,
-        ResponseCoordinator responseCoordinator)
+        ResponseCoordinator responseCoordinator,
+        BotDetection.Telemetry.BotDetectionInstrumentation? telemetryInstrumentation = null)
     {
         // Check if bot detection is globally enabled
         if (!_options.Enabled)
@@ -129,6 +130,18 @@ public class BotDetectionMiddleware(
         {
             if (apiKeyContext.DisablesAllDetectors)
             {
+                if (!_options.AllowFullDetectorBypassApiKeys)
+                {
+                    context.Items["BotDetection.ApiKeyRejection"] =
+                        new ApiKeyRejection(ApiKeyRejectionReason.Disabled,
+                            "Full detector bypass is disabled");
+                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    _logger.LogWarning(
+                        "API key '{KeyName}' requested full detector bypass but AllowFullDetectorBypassApiKeys is false",
+                        apiKeyContext.KeyName);
+                    return;
+                }
+
                 // Key disables all detectors — equivalent to legacy bypass
                 context.Items[IsBotKey] = false;
                 context.Items[BotProbabilityKey] = 0.0;
@@ -159,7 +172,7 @@ public class BotDetectionMiddleware(
         else
         {
             // Legacy API key bypass: trusted keys skip detection entirely
-            if (HasValidApiBypassKey(context))
+            if (_options.EnableLegacyApiBypassKeys && HasValidApiBypassKey(context))
             {
                 context.Items[IsBotKey] = false;
                 context.Items[BotProbabilityKey] = 0.0;
@@ -249,6 +262,10 @@ public class BotDetectionMiddleware(
 
         // Compute multi-vector signatures for dashboard and bot identity tracking
         ComputeAndStoreSignature(context);
+
+        // Record OTel telemetry (spans, metrics, score journey) if instrumentation is registered
+        telemetryInstrumentation?.Record(
+            System.Diagnostics.Activity.Current, aggregatedResult, context);
 
         // Feed country reputation and cluster services with detection results
         FeedDetectionServices(context, aggregatedResult);
@@ -772,9 +789,10 @@ public class BotDetectionMiddleware(
         if (result != null)
             return result.Context;
 
-        if (rejection != null && rejection.Reason != ApiKeyRejectionReason.NotFound)
+        if (rejection != null &&
+            (_options.RejectUnknownApiKeys || rejection.Reason != ApiKeyRejectionReason.NotFound))
         {
-            // Key was found but rejected — store rejection for the caller
+            // Key was rejected (or unknown keys are configured to reject) — store rejection for the caller
             context.Items["BotDetection.ApiKeyRejection"] = rejection;
         }
 

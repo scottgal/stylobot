@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
@@ -32,6 +33,18 @@ public class StyloBotDashboardMiddleware
     private const int DiagnosticsRateLimit = 10;
     private const int MaxRateLimitEntries = 10_000; // hard cap to prevent memory exhaustion
     private static readonly TimeSpan RateLimitWindow = TimeSpan.FromMinutes(1);
+    private static readonly HashSet<string> DataApiPaths = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "api/detections",
+        "api/signatures",
+        "api/summary",
+        "api/timeseries",
+        "api/export",
+        "api/countries",
+        "api/clusters",
+        "api/useragents",
+        "api/topbots"
+    };
 
     private const string CountryDetailPrefix = "api/countries/";
 
@@ -79,10 +92,21 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        // Route the request.
-        // Bot protection for data API paths is handled by BotDetectionMiddleware via
-        // PathPolicies registered in AddStyloBotDashboard() — no manual checking needed here.
         var relativePath = path.Substring(_options.BasePath.Length).TrimStart('/');
+
+        // High-value dashboard data APIs are hard-blocked for detected bots.
+        // This check intentionally does not bypass on API keys.
+        var isDataApi = DataApiPaths.Contains(relativePath)
+                        || relativePath.StartsWith(CountryDetailPrefix, StringComparison.OrdinalIgnoreCase);
+        if (isDataApi && context.IsBot())
+        {
+            _logger.LogInformation("Blocked bot from dashboard data API: {Path} (probability={Probability:F2})",
+                context.Request.Path, context.GetBotProbability());
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Access denied\"}");
+            return;
+        }
 
         switch (relativePath.ToLowerInvariant())
         {

@@ -651,6 +651,59 @@ public class BotDetectionOptionsTests
 
     #endregion
 
+    #region API Key Hardening Tests
+
+    [Fact]
+    public void Constructor_ApiKeyBypassDefaults_AreSecure()
+    {
+        var options = new BotDetectionOptions();
+
+        Assert.False(options.EnableLegacyApiBypassKeys);
+        Assert.False(options.AllowFullDetectorBypassApiKeys);
+        Assert.True(options.RejectUnknownApiKeys);
+    }
+
+    [Fact]
+    public void Validate_FullBypassKeyRejected_WhenBypassDisabled()
+    {
+        var options = new BotDetectionOptions
+        {
+            AllowFullDetectorBypassApiKeys = false
+        };
+        options.ApiKeys["SB-BYPASS"] = new ApiKeyConfig
+        {
+            Name = "Bypass",
+            DisabledDetectors = ["*"]
+        };
+
+        var validator = new BotDetectionOptionsValidator();
+        var result = validator.Validate(null!, options);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Failures, failure =>
+            failure.Contains("AllowFullDetectorBypassApiKeys", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_InvalidApiKeyTimeWindow_Fails()
+    {
+        var options = new BotDetectionOptions();
+        options.ApiKeys["SB-TIME"] = new ApiKeyConfig
+        {
+            Name = "Time Window",
+            AllowedTimeWindow = "invalid"
+        };
+
+        var validator = new BotDetectionOptionsValidator();
+        var result = validator.Validate(null!, options);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Failures, failure =>
+            failure.Contains("AllowedTimeWindow", StringComparison.OrdinalIgnoreCase));
+    }
+
+    #endregion
+
     #region ClientSideOptions Tests
 
     [Fact]

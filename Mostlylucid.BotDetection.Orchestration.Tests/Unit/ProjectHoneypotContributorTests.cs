@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Moq;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration.Tests.Unit;
@@ -34,9 +35,13 @@ public class ProjectHoneypotContributorTests
 
     private ProjectHoneypotContributor CreateContributor()
     {
+        var lookupService = new ProjectHoneypotLookupService(
+            new Mock<ILogger<ProjectHoneypotLookupService>>().Object,
+            Options.Create(_options));
         return new ProjectHoneypotContributor(
             _loggerMock.Object,
-            Options.Create(_options));
+            Options.Create(_options),
+            lookupService);
     }
 
     private BlackboardState CreateState(string? clientIp, bool isLocal = false)

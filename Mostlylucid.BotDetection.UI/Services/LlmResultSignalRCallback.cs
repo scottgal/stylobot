@@ -34,4 +34,11 @@ public class LlmResultSignalRCallback : ILlmResultCallback
         _logger.LogDebug("Broadcast signature description for {Signature}: '{Name}'",
             signature[..Math.Min(8, signature.Length)], name);
     }
+
+    public async Task OnScoreNarrativeAsync(string signature, string narrative, CancellationToken ct = default)
+    {
+        await _hubContext.Clients.All.BroadcastScoreNarrative(signature, narrative);
+        _logger.LogDebug("Broadcast score narrative for {Signature}",
+            signature[..Math.Min(8, signature.Length)]);
+    }
 }

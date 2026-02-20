@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Clustering;
+using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Similarity;
@@ -37,6 +38,8 @@ public class BotClusterService : BackgroundService
     private readonly ClusterOptions _options;
     private readonly SignatureCoordinator _signatureCoordinator;
     private readonly IEmbeddingProvider? _embeddingProvider;
+    private readonly MarkovTracker? _markovTracker;
+    private readonly AdaptiveSimilarityWeighter? _adaptiveWeighter;
 
     // Event-driven trigger: counts new bot detections since last clustering run
     private int _botDetectionsSinceLastRun;
@@ -52,12 +55,16 @@ public class BotClusterService : BackgroundService
         ILogger<BotClusterService> logger,
         IOptions<BotDetectionOptions> options,
         SignatureCoordinator signatureCoordinator,
-        IEmbeddingProvider? embeddingProvider = null)
+        IEmbeddingProvider? embeddingProvider = null,
+        MarkovTracker? markovTracker = null,
+        AdaptiveSimilarityWeighter? adaptiveWeighter = null)
     {
         _logger = logger;
         _options = options.Value.Cluster;
         _signatureCoordinator = signatureCoordinator;
         _embeddingProvider = embeddingProvider;
+        _markovTracker = markovTracker;
+        _adaptiveWeighter = adaptiveWeighter;
 
         if (_options.EnableSemanticEmbeddings && _embeddingProvider != null)
             _logger.LogInformation(
@@ -191,9 +198,14 @@ public class BotClusterService : BackgroundService
 
         if (behaviors.Count < _options.MinClusterSize)
         {
-            _logger.LogDebug(
-                "Too few bot signatures ({Count}) for clustering (filtered from {Total} total), need at least {Min}",
-                behaviors.Count, allBehaviors.Count, _options.MinClusterSize);
+            _logger.LogInformation(
+                "Clustering: {BotCount} bot signatures (from {Total} total) below MinClusterSize={Min}. " +
+                "Top bot probs: [{TopProbs}]",
+                behaviors.Count, allBehaviors.Count, _options.MinClusterSize,
+                string.Join(", ", allBehaviors
+                    .OrderByDescending(b => b.AverageBotProbability)
+                    .Take(5)
+                    .Select(b => $"{b.AverageBotProbability:F2}")));
             return;
         }
 
@@ -208,8 +220,33 @@ public class BotClusterService : BackgroundService
                 spectralBuilder[f.Signature] = f.Spectral;
         }
 
+        // 2.6. Compute adaptive weights for this cycle
+        if (_adaptiveWeighter != null && features.Count >= 3)
+        {
+            _currentWeights = _adaptiveWeighter.ComputeWeights(features);
+            _logger.LogDebug("Adaptive weights computed for {Count} features, top: {Top}",
+                _currentWeights.Count,
+                string.Join(", ", _currentWeights
+                    .OrderByDescending(w => w.Value)
+                    .Take(3)
+                    .Select(w => $"{w.Key}={w.Value:P1}")));
+        }
+        else
+        {
+            _currentWeights = null; // Fall back to defaults
+        }
+
         // 3. Compute similarity matrix and build graph
         var adjacency = BuildSimilarityGraph(features);
+
+        // Log graph density for diagnostics
+        var edgeCount = adjacency.Values.Sum(e => e.Count) / 2;
+        var maxEdges = features.Count * (features.Count - 1) / 2;
+        _logger.LogInformation(
+            "Clustering graph: {Nodes} nodes, {Edges}/{MaxEdges} edges (density={Density:P1}), threshold={Threshold}",
+            features.Count, edgeCount, maxEdges,
+            maxEdges > 0 ? (double)edgeCount / maxEdges : 0,
+            _options.SimilarityThreshold);
 
         // 4. Run community detection algorithm
         int[] labels;
@@ -265,9 +302,10 @@ public class BotClusterService : BackgroundService
         {
             var productCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotProduct);
             var networkCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotNetwork);
+            var emergentCount = newClusters.Values.Count(c => c.Type == BotClusterType.Emergent);
             _logger.LogInformation(
-                "BotClusterService: discovered {Total} clusters ({Product} product, {Network} network) from {BotSignatures} bot signatures using {Algorithm} (filtered from {TotalSignatures} total)",
-                newClusters.Count, productCount, networkCount, behaviors.Count,
+                "BotClusterService: discovered {Total} clusters ({Product} product, {Network} network, {Emergent} emergent) from {BotSignatures} bot signatures using {Algorithm} (filtered from {TotalSignatures} total)",
+                newClusters.Count, productCount, networkCount, emergentCount, behaviors.Count,
                 useLeiden ? "Leiden" : "LabelPropagation",
                 allBehaviors.Count);
 
@@ -296,6 +334,21 @@ public class BotClusterService : BackgroundService
 
         /// <summary>384-dim semantic embedding from ONNX model, or null if unavailable.</summary>
         public float[]? SemanticEmbedding { get; init; }
+
+        // Enriched geo fields
+        public double? Latitude { get; init; }
+        public double? Longitude { get; init; }
+        public string? ContinentCode { get; init; }
+        public string? RegionCode { get; init; }
+        public bool IsVpn { get; init; }
+
+        // Markov drift signals
+        public double SelfDrift { get; init; }
+        public double HumanDrift { get; init; }
+        public double TransitionNovelty { get; init; }
+        public double EntropyDelta { get; init; }
+        public double LoopScore { get; init; }
+        public double SequenceSurprise { get; init; }
     }
 
     internal List<FeatureVector> BuildFeatureVectors(IReadOnlyList<SignatureBehavior> behaviors)
@@ -340,6 +393,10 @@ public class BotClusterService : BackgroundService
                 embedding = _embeddingProvider!.GenerateEmbedding(embeddingText);
             }
 
+            // Get Markov drift signals (single call per signature)
+            var drift = _markovTracker?.GetDriftSignals(
+                b.Signature, b.IsDatacenter, false) ?? Markov.DriftSignals.Empty;
+
             return new FeatureVector
             {
                 Signature = b.Signature,
@@ -355,7 +412,20 @@ public class BotClusterService : BackgroundService
                 LastSeen = b.LastSeen,
                 Spectral = spectral,
                 Intervals = intervals,
-                SemanticEmbedding = embedding
+                SemanticEmbedding = embedding,
+                // Enriched geo
+                Latitude = b.Latitude,
+                Longitude = b.Longitude,
+                ContinentCode = b.ContinentCode,
+                RegionCode = b.RegionCode,
+                IsVpn = b.IsVpn,
+                // Markov drift (populated by MarkovTracker if available)
+                SelfDrift = drift.SelfDrift,
+                HumanDrift = drift.HumanDrift,
+                TransitionNovelty = drift.TransitionNovelty,
+                EntropyDelta = drift.EntropyDelta,
+                LoopScore = drift.LoopScore,
+                SequenceSurprise = drift.SequenceSurprise
             };
         }).ToList();
     }
@@ -364,9 +434,15 @@ public class BotClusterService : BackgroundService
 
     #region Similarity
 
+    /// <summary>
+    ///     Cached adaptive weights for current clustering cycle.
+    ///     Recomputed each RunClustering() call.
+    /// </summary>
+    private Dictionary<string, double>? _currentWeights;
+
     internal double ComputeBlendedSimilarity(FeatureVector a, FeatureVector b)
     {
-        var heuristicSim = ComputeSimilarity(a, b);
+        var heuristicSim = ComputeSimilarity(a, b, _currentWeights);
 
         // If both have semantic embeddings, blend with heuristic
         if (a.SemanticEmbedding != null && b.SemanticEmbedding != null)
@@ -380,8 +456,11 @@ public class BotClusterService : BackgroundService
         return heuristicSim;
     }
 
-    internal static double ComputeSimilarity(FeatureVector a, FeatureVector b)
+    internal static double ComputeSimilarity(FeatureVector a, FeatureVector b,
+        Dictionary<string, double>? weights = null)
     {
+        weights ??= AdaptiveSimilarityWeighter.GetDefaultWeights();
+
         // Continuous features: normalized absolute difference
         var timingSim = 1.0 - NormalizedDiff(a.TimingRegularity, b.TimingRegularity);
         var rateSim = 1.0 - NormalizedDiff(a.RequestRate, b.RequestRate);
@@ -389,8 +468,10 @@ public class BotClusterService : BackgroundService
         var entropySim = 1.0 - NormalizedDiff(a.PathEntropy, b.PathEntropy);
         var botProbSim = 1.0 - NormalizedDiff(a.AvgBotProbability, b.AvgBotProbability);
 
-        // Categorical features: exact match
-        var countrySim = string.Equals(a.CountryCode, b.CountryCode, StringComparison.OrdinalIgnoreCase) ? 1.0 : 0.0;
+        // Geographic proximity: hierarchical scoring instead of binary country match
+        var geoSim = ComputeGeoSimilarity(a, b);
+
+        // Categorical features
         var datacenterSim = a.IsDatacenter == b.IsDatacenter ? 1.0 : 0.0;
         var asnSim = !string.IsNullOrEmpty(a.Asn) && string.Equals(a.Asn, b.Asn, StringComparison.OrdinalIgnoreCase) ? 1.0 : 0.0;
 
@@ -409,20 +490,112 @@ public class BotClusterService : BackgroundService
             dominantFreqSim = 1.0 - NormalizedDiff(sa.DominantFrequency, sb.DominantFrequency);
         }
 
-        // Weighted sum (weights sum to 1.0)
-        return timingSim * 0.12 +
-               rateSim * 0.10 +
-               pathDivSim * 0.08 +
-               entropySim * 0.08 +
-               botProbSim * 0.12 +
-               countrySim * 0.08 +
-               datacenterSim * 0.07 +
-               asnSim * 0.08 +
-               spectralEntropySim * 0.09 +
-               harmonicSim * 0.06 +
-               peakToAvgSim * 0.07 +
-               dominantFreqSim * 0.05;
+        // Markov drift signals: similarity = 1 - normalized diff
+        var selfDriftSim = 1.0 - NormalizedDiff(a.SelfDrift, b.SelfDrift);
+        var humanDriftSim = 1.0 - NormalizedDiff(a.HumanDrift, b.HumanDrift);
+        var loopScoreSim = 1.0 - NormalizedDiff(a.LoopScore, b.LoopScore);
+        var surpriseSim = 1.0 - NormalizedDiff(a.SequenceSurprise, b.SequenceSurprise);
+        var noveltySim = 1.0 - NormalizedDiff(a.TransitionNovelty, b.TransitionNovelty);
+        var entropyDeltaSim = 1.0 - NormalizedDiff(Math.Abs(a.EntropyDelta), Math.Abs(b.EntropyDelta));
+
+        // Weighted sum using adaptive weights (sum to ~1.0)
+        return timingSim * weights.GetValueOrDefault("timing", 0.08) +
+               rateSim * weights.GetValueOrDefault("rate", 0.07) +
+               pathDivSim * weights.GetValueOrDefault("pathDiv", 0.05) +
+               entropySim * weights.GetValueOrDefault("entropy", 0.05) +
+               botProbSim * weights.GetValueOrDefault("botProb", 0.08) +
+               geoSim * weights.GetValueOrDefault("geo", 0.08) +
+               datacenterSim * weights.GetValueOrDefault("datacenter", 0.05) +
+               asnSim * weights.GetValueOrDefault("asn", 0.06) +
+               spectralEntropySim * weights.GetValueOrDefault("spectralEntropy", 0.06) +
+               harmonicSim * weights.GetValueOrDefault("harmonic", 0.04) +
+               peakToAvgSim * weights.GetValueOrDefault("peakToAvg", 0.05) +
+               dominantFreqSim * weights.GetValueOrDefault("dominantFreq", 0.03) +
+               selfDriftSim * weights.GetValueOrDefault("selfDrift", 0.06) +
+               humanDriftSim * weights.GetValueOrDefault("humanDrift", 0.06) +
+               loopScoreSim * weights.GetValueOrDefault("loopScore", 0.05) +
+               surpriseSim * weights.GetValueOrDefault("surprise", 0.05) +
+               noveltySim * weights.GetValueOrDefault("novelty", 0.04) +
+               entropyDeltaSim * weights.GetValueOrDefault("entropyDelta", 0.04);
     }
+
+    /// <summary>
+    ///     Hierarchical geographic proximity scoring using Haversine distance.
+    ///     Same city ≈ 1.0, same region ≈ 0.85, same country ≈ 0.7,
+    ///     within 500km ≈ 0.6, same continent ≈ 0.4, distant ≈ 0.0.
+    /// </summary>
+    internal static double ComputeGeoSimilarity(FeatureVector a, FeatureVector b)
+    {
+        // If both have lat/lon, use Haversine distance for fine-grained proximity
+        if (a.Latitude.HasValue && a.Longitude.HasValue &&
+            b.Latitude.HasValue && b.Longitude.HasValue)
+        {
+            var distanceKm = HaversineDistanceKm(
+                a.Latitude.Value, a.Longitude.Value,
+                b.Latitude.Value, b.Longitude.Value);
+
+            // Same city (< 50km)
+            if (distanceKm < 50) return 1.0;
+            // Same metro area (< 150km)
+            if (distanceKm < 150) return 0.9;
+            // Same region (< 300km)
+            if (distanceKm < 300) return 0.85;
+            // Nearby (< 500km)
+            if (distanceKm < 500) return 0.7;
+            // Same time zone range (< 1500km)
+            if (distanceKm < 1500) return 0.5;
+            // Distant (< 5000km)
+            if (distanceKm < 5000) return 0.3;
+            // Very distant
+            return 0.1;
+        }
+
+        // Fallback to hierarchical categorical matching (no lat/lon available)
+        var sameCountry = !string.IsNullOrEmpty(a.CountryCode) &&
+                          string.Equals(a.CountryCode, b.CountryCode, StringComparison.OrdinalIgnoreCase);
+
+        if (sameCountry)
+        {
+            // Same country + same region = strong match
+            if (!string.IsNullOrEmpty(a.RegionCode) && !string.IsNullOrEmpty(b.RegionCode) &&
+                string.Equals(a.RegionCode, b.RegionCode, StringComparison.OrdinalIgnoreCase))
+                return 1.0;
+
+            // Same country, no region data or different regions
+            // When neither has lat/lon, country is our best data — score high
+            var neitherHasLatLon = !a.Latitude.HasValue && !b.Latitude.HasValue;
+            return neitherHasLatLon ? 1.0 : 0.7;
+        }
+
+        if (!string.IsNullOrEmpty(a.ContinentCode) &&
+            string.Equals(a.ContinentCode, b.ContinentCode, StringComparison.OrdinalIgnoreCase))
+            return 0.4;
+
+        // No geo data available for either — neutral (no penalty, no bonus)
+        if (string.IsNullOrEmpty(a.CountryCode) && string.IsNullOrEmpty(b.CountryCode))
+            return 1.0;
+
+        // One has geo, other doesn't — slight penalty
+        return 0.3;
+    }
+
+    /// <summary>
+    ///     Haversine formula for great-circle distance between two lat/lon points.
+    ///     Returns distance in kilometers.
+    /// </summary>
+    private static double HaversineDistanceKm(double lat1, double lon1, double lat2, double lon2)
+    {
+        const double earthRadiusKm = 6371.0;
+        var dLat = DegreesToRadians(lat2 - lat1);
+        var dLon = DegreesToRadians(lon2 - lon1);
+        var a = Math.Sin(dLat / 2) * Math.Sin(dLat / 2) +
+                Math.Cos(DegreesToRadians(lat1)) * Math.Cos(DegreesToRadians(lat2)) *
+                Math.Sin(dLon / 2) * Math.Sin(dLon / 2);
+        var c = 2 * Math.Atan2(Math.Sqrt(a), Math.Sqrt(1 - a));
+        return earthRadiusKm * c;
+    }
+
+    private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180.0;
 
     private static double CosineSimilarity(float[] a, float[] b)
     {
@@ -583,9 +756,13 @@ public class BotClusterService : BackgroundService
             }
         }
 
-        // For pairs not in the adjacency graph (below threshold), count as 0 similarity
+        // Average similarity across connected pairs only (not all possible pairs).
+        // Dividing by all-pairs dilutes the average because non-edges are below the
+        // similarity threshold, not zero-similarity — using connected pairs gives
+        // a truthful representation of intra-cluster cohesion.
         var totalPossiblePairs = memberIndices.Count * (memberIndices.Count - 1) / 2;
-        var avgSimilarity = totalPossiblePairs > 0 ? totalSim / totalPossiblePairs : 0;
+        var avgSimilarity = simCount > 0 ? totalSim / simCount : 0;
+        var connectedness = totalPossiblePairs > 0 ? (double)simCount / totalPossiblePairs : 0;
 
         // Compute temporal density: what fraction of members were active in the same 5-minute window?
         var temporalDensity = ComputeTemporalDensity(members);
@@ -612,13 +789,11 @@ public class BotClusterService : BackgroundService
         }
         else
         {
-            // Not clearly a bot cluster
-            clusterType = BotClusterType.Unknown;
+            // Emergent cluster: community detection grouped these bots together but they
+            // don't yet meet strict BotProduct/BotNetwork thresholds. Still valuable —
+            // these may be evolving campaigns, new bot software, or DDoS participants.
+            clusterType = BotClusterType.Emergent;
         }
-
-        // Only report bot clusters, not unknown ones
-        if (clusterType == BotClusterType.Unknown)
-            return null;
 
         // Determine dominant country/ASN
         var dominantCountry = features
@@ -648,6 +823,7 @@ public class BotClusterService : BackgroundService
             MemberCount = sortedSigs.Count,
             AverageBotProbability = avgBotProb,
             AverageSimilarity = avgSimilarity,
+            Connectedness = connectedness,
             TemporalDensity = temporalDensity,
             DominantCountry = dominantCountry,
             DominantAsn = dominantAsn,
@@ -705,6 +881,9 @@ public class BotClusterService : BackgroundService
             BotClusterType.BotNetwork when temporalDensity > 0.8 => "Burst-Campaign",
             BotClusterType.BotNetwork when members.Count > 10 => "Large-Botnet",
             BotClusterType.BotNetwork => "Coordinated-Campaign",
+            BotClusterType.Emergent when avgInterval < 2.0 => "Emerging-Rapid-Pattern",
+            BotClusterType.Emergent when avgBotProb > 0.8 => "High-Confidence-Group",
+            BotClusterType.Emergent => "Emerging-Pattern",
             _ => "Unknown-Cluster"
         };
     }

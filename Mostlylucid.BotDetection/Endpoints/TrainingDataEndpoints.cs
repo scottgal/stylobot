@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
@@ -82,7 +84,7 @@ public static partial class TrainingDataEndpoints
                 if (config.RequireApiKey)
                 {
                     if (!context.HttpContext.Request.Headers.TryGetValue("X-Training-Api-Key", out var apiKey)
-                        || !config.ApiKeys.Contains(apiKey.ToString()))
+                        || !HasValidTrainingApiKey(apiKey.ToString(), config.ApiKeys))
                     {
                         var logger = context.HttpContext.RequestServices
                             .GetService(typeof(ILogger<BotDetectionOptions>)) as ILogger;
@@ -148,6 +150,28 @@ public static partial class TrainingDataEndpoints
     }
 
     #region Rate Limiting
+
+    private static bool HasValidTrainingApiKey(string providedKey, IReadOnlyList<string> configuredKeys)
+    {
+        if (configuredKeys.Count == 0 || string.IsNullOrEmpty(providedKey))
+            return false;
+
+        var providedBytes = Encoding.UTF8.GetBytes(providedKey);
+        var isMatch = false;
+
+        // Constant-time compare across all configured keys to avoid timing side-channels.
+        foreach (var key in configuredKeys)
+        {
+            if (string.IsNullOrEmpty(key))
+                continue;
+
+            var keyBytes = Encoding.UTF8.GetBytes(key);
+            isMatch |= keyBytes.Length == providedBytes.Length &&
+                       CryptographicOperations.FixedTimeEquals(providedBytes, keyBytes);
+        }
+
+        return isMatch;
+    }
 
     private static bool CheckRateLimit(string clientIp, int maxPerMinute)
     {

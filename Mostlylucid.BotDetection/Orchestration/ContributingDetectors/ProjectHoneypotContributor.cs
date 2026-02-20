@@ -1,9 +1,9 @@
-using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
@@ -15,26 +15,24 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     Query Format: [AccessKey].[Reversed IP].dnsbl.httpbl.org
 ///     Response: 127.[Days].[ThreatScore].[Type]
 ///     Requires a free API key from Project Honeypot.
-///     This contributor runs in Wave 2 (after initial IP analysis).
+///     This contributor is excluded from the default synchronous pipeline
+///     but runs in Learning/Demo policies. For the default policy, background
+///     enrichment handles honeypot lookups asynchronously via BackgroundEnrichmentService.
 /// </summary>
 public class ProjectHoneypotContributor : ContributingDetectorBase
 {
-    // Cache for DNS lookups to avoid repeated queries
-    private static readonly ConcurrentDictionary<string, (HoneypotResult Result, DateTime Expires)> _cache = new();
-    private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(30);
-    private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(5);
-    private const int MaxCacheSize = 10_000;
-    private static DateTime _lastCleanup = DateTime.UtcNow;
-    private static readonly object _cleanupLock = new();
     private readonly ILogger<ProjectHoneypotContributor> _logger;
+    private readonly ProjectHoneypotLookupService _lookupService;
     private readonly BotDetectionOptions _options;
 
     public ProjectHoneypotContributor(
         ILogger<ProjectHoneypotContributor> logger,
-        IOptions<BotDetectionOptions> options)
+        IOptions<BotDetectionOptions> options,
+        ProjectHoneypotLookupService lookupService)
     {
         _logger = logger;
         _options = options.Value;
+        _lookupService = lookupService;
     }
 
     public override string Name => "ProjectHoneypot";
@@ -61,8 +59,7 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
         }
 
         // Check if Project Honeypot is enabled and configured
-        if (!_options.ProjectHoneypot.Enabled ||
-            string.IsNullOrWhiteSpace(_options.ProjectHoneypot.AccessKey))
+        if (!_lookupService.IsConfigured)
         {
             var reason = !_options.ProjectHoneypot.Enabled
                 ? "Skipped: ProjectHoneypot is disabled in configuration"
@@ -83,13 +80,14 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
         // Only IPv4 is supported by HTTP:BL
         if (ipAddress.AddressFamily != AddressFamily.InterNetwork)
         {
-            _logger.LogDebug("Skipping Project Honeypot lookup for IPv6 address: {Ip}", MaskIp(clientIp));
+            _logger.LogDebug("Skipping Project Honeypot lookup for IPv6 address: {Ip}",
+                ProjectHoneypotLookupService.MaskIp(clientIp));
             return None();
         }
 
         try
         {
-            var result = await LookupIpAsync(clientIp, cancellationToken);
+            var result = await _lookupService.LookupIpAsync(clientIp, cancellationToken);
 
             if (result == null || !result.IsListed)
                 // IP not found in database - slight positive signal
@@ -121,7 +119,8 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
             // not cryptographic proof. VerifiedBotContributor handles IP/DNS verification.
             if (result.VisitorType == HoneypotVisitorType.SearchEngine)
             {
-                _logger.LogDebug("IP {Ip} identified as search engine by Project Honeypot", MaskIp(clientIp));
+                _logger.LogDebug("IP {Ip} identified as search engine by Project Honeypot",
+                    ProjectHoneypotLookupService.MaskIp(clientIp));
                 contributions.Add(new DetectionContribution
                 {
                     DetectorName = Name,
@@ -140,7 +139,8 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
 
             _logger.LogWarning(
                 "IP {Ip} listed in Project Honeypot: Type={Type}, ThreatScore={Score}, DaysAgo={Days}",
-                MaskIp(clientIp), result.VisitorType, result.ThreatScore, result.DaysSinceLastActivity);
+                ProjectHoneypotLookupService.MaskIp(clientIp), result.VisitorType, result.ThreatScore,
+                result.DaysSinceLastActivity);
 
             // High threat scores trigger early exit
             if (result.ThreatScore >= _options.ProjectHoneypot.HighThreatThreshold)
@@ -167,137 +167,10 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogDebug(ex, "Project Honeypot lookup failed for IP: {Ip}", MaskIp(clientIp));
+            _logger.LogDebug(ex, "Project Honeypot lookup failed for IP: {Ip}",
+                ProjectHoneypotLookupService.MaskIp(clientIp));
             return None();
         }
-    }
-
-    private async Task<HoneypotResult?> LookupIpAsync(string ip, CancellationToken cancellationToken)
-    {
-        // Check cache first
-        if (_cache.TryGetValue(ip, out var cached))
-        {
-            if (cached.Expires > DateTime.UtcNow)
-            {
-                CleanupExpiredEntries();
-                return cached.Result;
-            }
-
-            // Remove the stale entry instead of just ignoring it
-            _cache.TryRemove(ip, out _);
-        }
-
-        CleanupExpiredEntries();
-
-        // Build DNS query: [key].[reversed-ip].dnsbl.httpbl.org
-        var parts = ip.Split('.');
-        Array.Reverse(parts);
-        var reversedIp = string.Join(".", parts);
-        var query = $"{_options.ProjectHoneypot.AccessKey}.{reversedIp}.dnsbl.httpbl.org";
-
-        try
-        {
-            var addresses = await Dns.GetHostAddressesAsync(query, cancellationToken);
-
-            if (addresses.Length == 0)
-            {
-                // Cache the "not found" result
-                _cache[ip] = (new HoneypotResult { IsListed = false }, DateTime.UtcNow.Add(CacheDuration));
-                return null;
-            }
-
-            // Parse the response: 127.[days].[threat].[type]
-            var response = addresses[0].GetAddressBytes();
-
-            // First octet must be 127 for valid response
-            if (response[0] != 127)
-            {
-                _logger.LogWarning("Invalid Project Honeypot response for {Ip}: first octet is {Octet}", ip,
-                    response[0]);
-                return null;
-            }
-
-            var result = new HoneypotResult
-            {
-                IsListed = true,
-                DaysSinceLastActivity = response[1],
-                ThreatScore = response[2],
-                VisitorType = ParseVisitorType(response[3])
-            };
-
-            // Cache the result
-            _cache[ip] = (result, DateTime.UtcNow.Add(CacheDuration));
-
-            return result;
-        }
-        catch (SocketException)
-        {
-            // NXDOMAIN means IP is not in the database
-            _cache[ip] = (new HoneypotResult { IsListed = false }, DateTime.UtcNow.Add(CacheDuration));
-            return null;
-        }
-    }
-
-    /// <summary>
-    ///     Periodically removes expired entries from the static cache.
-    ///     Runs at most once every <see cref="CleanupInterval"/> (5 minutes).
-    ///     Forces an immediate full sweep if the cache exceeds <see cref="MaxCacheSize"/>.
-    /// </summary>
-    private static void CleanupExpiredEntries()
-    {
-        var now = DateTime.UtcNow;
-        var forceCleanup = _cache.Count > MaxCacheSize;
-
-        if (!forceCleanup && now - _lastCleanup < CleanupInterval)
-            return;
-
-        // Use a lock to prevent multiple threads from running cleanup concurrently.
-        // The lock is non-blocking: if another thread is already cleaning, we skip.
-        if (!Monitor.TryEnter(_cleanupLock))
-            return;
-
-        try
-        {
-            // Double-check after acquiring the lock (another thread may have just finished)
-            if (!forceCleanup && now - _lastCleanup < CleanupInterval)
-                return;
-
-            foreach (var kvp in _cache)
-            {
-                if (kvp.Value.Expires <= now)
-                    _cache.TryRemove(kvp.Key, out _);
-            }
-
-            _lastCleanup = now;
-        }
-        finally
-        {
-            Monitor.Exit(_cleanupLock);
-        }
-    }
-
-    private static HoneypotVisitorType ParseVisitorType(byte typeByte)
-    {
-        // The type byte is a bitset:
-        // 0 = Search Engine
-        // 1 = Suspicious
-        // 2 = Harvester
-        // 4 = Comment Spammer
-        // Combinations possible (e.g., 3 = Suspicious + Harvester)
-
-        if (typeByte == 0)
-            return HoneypotVisitorType.SearchEngine;
-
-        var type = HoneypotVisitorType.None;
-
-        if ((typeByte & 1) != 0)
-            type |= HoneypotVisitorType.Suspicious;
-        if ((typeByte & 2) != 0)
-            type |= HoneypotVisitorType.Harvester;
-        if ((typeByte & 4) != 0)
-            type |= HoneypotVisitorType.CommentSpammer;
-
-        return type;
     }
 
     private double CalculateConfidence(HoneypotResult result)
@@ -458,14 +331,6 @@ public class ProjectHoneypotContributor : ContributingDetectorBase
                     botType: botType.ToString()));
 
         return contributions;
-    }
-
-    private static string MaskIp(string ip)
-    {
-        var parts = ip.Split('.');
-        if (parts.Length == 4)
-            return $"{parts[0]}.{parts[1]}.{parts[2]}.xxx";
-        return ip.Length > 10 ? ip[..10] + "..." : ip;
     }
 }
 

@@ -8,16 +8,16 @@ using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 
 /// <summary>
-///     LLM (Ollama) contributor - emits an informational zero-weight contribution
+///     LLM contributor - emits an informational zero-weight contribution
 ///     indicating LLM background classification availability.
-///     Actual LLM enqueue logic has moved to <see cref="BlackboardOrchestrator" />
-///     which runs after detection completes and has access to AggregatedEvidence.
+///     Checks for ILlmProvider registration (from plugin packages) to determine availability.
 ///
 ///     Configuration loaded from: llm.detector.yaml
-///     Override via: appsettings.json → BotDetection:Detectors:LlmContributor:*
+///     Override via: appsettings.json -> BotDetection:Detectors:LlmContributor:*
 /// </summary>
 public class LlmContributor : ConfiguredContributorBase
 {
+    private readonly IServiceProvider _serviceProvider;
     private readonly LlmClassificationCoordinator? _coordinator;
     private readonly ILogger<LlmContributor> _logger;
     private readonly BotDetectionOptions _options;
@@ -26,11 +26,13 @@ public class LlmContributor : ConfiguredContributorBase
         ILogger<LlmContributor> logger,
         IOptions<BotDetectionOptions> options,
         IDetectorConfigProvider configProvider,
+        IServiceProvider serviceProvider,
         LlmClassificationCoordinator? coordinator = null)
         : base(configProvider)
     {
         _logger = logger;
         _options = options.Value;
+        _serviceProvider = serviceProvider;
         _coordinator = coordinator;
     }
 
@@ -39,7 +41,6 @@ public class LlmContributor : ConfiguredContributorBase
 
     public override TimeSpan ExecutionTimeout => TimeSpan.FromMilliseconds(100);
 
-    // Run when UserAgent signal exists (basic info available)
     public override IReadOnlyList<TriggerCondition> TriggerConditions =>
     [
         Triggers.WhenSignalExists(SignalKeys.UserAgent)
@@ -49,7 +50,11 @@ public class LlmContributor : ConfiguredContributorBase
         BlackboardState state,
         CancellationToken cancellationToken = default)
     {
-        var isAvailable = _coordinator != null && _options.EnableLlmDetection;
+        // Check if an ILlmProvider is registered (from Llm plugin packages)
+        var llmProviderType = Type.GetType("Mostlylucid.BotDetection.Llm.ILlmProvider, Mostlylucid.BotDetection.Llm");
+        var hasProvider = llmProviderType != null && _serviceProvider.GetService(llmProviderType) != null;
+
+        var isAvailable = (_coordinator != null || hasProvider) && _options.EnableLlmDetection;
 
         var reason = isAvailable
             ? "LLM background classification available"

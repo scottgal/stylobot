@@ -34,7 +34,6 @@ public class SignalDrivenDetectionService
     private readonly InconsistencyDetector _inconsistencyAnalyzer;
     private readonly IpDetector _ipAnalyzer;
     private readonly ILearningEventBus? _learningBus;
-    private readonly LlmDetector? _llmAnalyzer;
     private readonly ILogger<SignalDrivenDetectionService> _logger;
     private readonly BotDetectionMetrics? _metrics;
     private readonly BotDetectionOptions _options;
@@ -53,7 +52,6 @@ public class SignalDrivenDetectionService
         InconsistencyDetector inconsistencyAnalyzer,
         ClientSideDetector? clientSideAnalyzer = null,
         HeuristicDetector? heuristicAnalyzer = null,
-        LlmDetector? llmAnalyzer = null,
         ILearningEventBus? learningBus = null,
         BotDetectionMetrics? metrics = null)
     {
@@ -67,7 +65,6 @@ public class SignalDrivenDetectionService
         _clientSideAnalyzer = clientSideAnalyzer;
         _inconsistencyAnalyzer = inconsistencyAnalyzer;
         _heuristicAnalyzer = heuristicAnalyzer;
-        _llmAnalyzer = llmAnalyzer;
         _learningBus = learningBus;
         _metrics = metrics;
     }
@@ -130,8 +127,7 @@ public class SignalDrivenDetectionService
             {
                 if (_options.AiDetection.Provider == AiProvider.Heuristic && _heuristicAnalyzer != null)
                     await RunDetectorAsync(_heuristicAnalyzer, httpContext, context, bus, ct);
-                else if (_options.AiDetection.Provider == AiProvider.Ollama && _llmAnalyzer != null)
-                    await RunDetectorAsync(_llmAnalyzer, httpContext, context, bus, ct);
+                // LLM detection now handled by background LlmClassificationCoordinator via plugin packages
                 bus.TryPublish(BotSignalType.AiClassificationCompleted, "Orchestrator");
             }
             else

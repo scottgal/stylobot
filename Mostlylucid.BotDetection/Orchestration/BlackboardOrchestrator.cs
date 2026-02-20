@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
+using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
@@ -235,12 +236,14 @@ public class BlackboardOrchestrator
 
     // Circuit breaker state per detector
     private readonly ConcurrentDictionary<string, CircuitState> _circuitStates = new();
+    private readonly BackgroundEnrichmentService? _enrichmentService;
     private readonly BotClusterService? _clusterService;
     private readonly CountryReputationTracker? _countryTracker;
     private readonly IContributingDetector[] _sortedDetectors;
     private readonly ILearningEventBus? _learningBus;
     private readonly LlmClassificationCoordinator? _llmCoordinator;
     private readonly ILogger<BlackboardOrchestrator> _logger;
+    private readonly MarkovTracker? _markovTracker;
     private readonly BotDetectionOptions _fullOptions;
     private readonly OrchestratorOptions _options;
     private readonly PiiHasher _piiHasher;
@@ -261,7 +264,9 @@ public class BlackboardOrchestrator
         SignatureCoordinator? signatureCoordinator = null,
         LlmClassificationCoordinator? llmCoordinator = null,
         CountryReputationTracker? countryTracker = null,
-        BotClusterService? clusterService = null)
+        BotClusterService? clusterService = null,
+        BackgroundEnrichmentService? enrichmentService = null,
+        MarkovTracker? markovTracker = null)
     {
         _logger = logger;
         _fullOptions = options.Value;
@@ -275,6 +280,8 @@ public class BlackboardOrchestrator
         _llmCoordinator = llmCoordinator;
         _countryTracker = countryTracker;
         _clusterService = clusterService;
+        _enrichmentService = enrichmentService;
+        _markovTracker = markovTracker;
     }
 
     /// <summary>
@@ -658,6 +665,17 @@ public class BlackboardOrchestrator
                             asn: geoAsn,
                             isDatacenter: geoIsDatacenter,
                             ipHash: ipHash);
+
+                        // Record path transition in Markov chain (non-blocking)
+                        if (_markovTracker != null)
+                        {
+                            var isBot = result.BotProbability > 0.5;
+                            var isReturning = signals.TryGetValue("ts.is_new", out var tsNew) && tsNew is false;
+                            var clusterId = _clusterService?.FindCluster(signature)?.ClusterId;
+                            _markovTracker.RecordTransition(
+                                signature, path, DateTime.UtcNow,
+                                isBot, geoIsDatacenter, isReturning, clusterId);
+                        }
                     }
                     catch (Exception ex)
                     {
@@ -669,6 +687,9 @@ public class BlackboardOrchestrator
                 // Enqueue for background LLM classification if appropriate
                 if (_llmCoordinator != null && _fullOptions.EnableLlmDetection)
                     TryEnqueueLlmClassification(httpContext, result, signals);
+
+                // Enqueue for background enrichment (ProjectHoneypot DNS lookup) when confidence is low
+                TryEnqueueBackgroundEnrichment(httpContext, result);
             }
 
             _logger.LogDebug(
@@ -993,6 +1014,44 @@ public class BlackboardOrchestrator
         // Use injected PiiHasher for HMAC-SHA256 (cryptographic, non-reversible)
         // Key is managed via DI configuration (from config/vault)
         return _piiHasher.ComputeSignature(clientIp, userAgent);
+    }
+
+    #endregion
+
+    #region Background Enrichment Enqueue
+
+    /// <summary>
+    ///     Enqueue low-confidence detections for background enrichment (DNS lookups, etc.).
+    ///     Results feed into the reputation cache so the next request benefits immediately.
+    /// </summary>
+    private void TryEnqueueBackgroundEnrichment(HttpContext httpContext, AggregatedEvidence result)
+    {
+        if (_enrichmentService == null)
+            return;
+
+        var enrichmentOptions = _fullOptions.BackgroundEnrichment;
+
+        // Only enqueue when confidence is low and probability is meaningful
+        if (result.Confidence >= enrichmentOptions.ConfidenceThreshold ||
+            result.BotProbability < enrichmentOptions.MinBotProbability)
+            return;
+
+        var clientIp = httpContext.Connection.RemoteIpAddress?.ToString();
+        if (string.IsNullOrEmpty(clientIp))
+            return;
+
+        var signature = _piiHasher.ComputeSignature(
+            clientIp,
+            httpContext.Request.Headers.UserAgent.ToString());
+
+        _enrichmentService.TryEnqueue(new EnrichmentRequest
+        {
+            ClientIp = clientIp,
+            SignatureHash = signature,
+            BotProbability = result.BotProbability,
+            Confidence = result.Confidence,
+            RequestId = httpContext.TraceIdentifier
+        });
     }
 
     #endregion

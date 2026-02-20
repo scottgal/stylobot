@@ -4,7 +4,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
-using OllamaSharp;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -13,31 +12,31 @@ namespace Mostlylucid.BotDetection.Services;
 ///     Subscribes to BotClusterService.ClustersUpdated events and processes clusters asynchronously.
 ///     NEVER runs in the request pipeline - only fires after background clustering completes.
 ///     Pushes updates via IClusterDescriptionCallback (SignalR) so dashboard users see live updates.
+///     Uses ILlmProvider (from plugin packages) if available; otherwise skips LLM descriptions.
 /// </summary>
 public class BotClusterDescriptionService : IDisposable
 {
     private readonly ILogger<BotClusterDescriptionService> _logger;
     private readonly BotClusterService _clusterService;
     private readonly ClusterOptions _options;
-    private readonly BotDetectionOptions _botOptions;
+    private readonly IServiceProvider _serviceProvider;
     private readonly IClusterDescriptionCallback? _callback;
-    private IOllamaApiClient? _ollama;
-    private bool _ollamaChecked;
+    private object? _llmProvider;
+    private bool _providerChecked;
 
     public BotClusterDescriptionService(
         ILogger<BotClusterDescriptionService> logger,
         BotClusterService clusterService,
         IOptions<BotDetectionOptions> options,
+        IServiceProvider serviceProvider,
         IClusterDescriptionCallback? callback = null)
     {
         _logger = logger;
         _clusterService = clusterService;
         _options = options.Value.Cluster;
-        _botOptions = options.Value;
+        _serviceProvider = serviceProvider;
         _callback = callback;
 
-        // Always subscribe to cluster updates if we have a callback (to broadcast cluster list to dashboard)
-        // LLM descriptions are gated separately inside ProcessClustersAsync
         if (_options.EnableLlmDescriptions || _callback != null)
         {
             _clusterService.ClustersUpdated += OnClustersUpdated;
@@ -52,7 +51,6 @@ public class BotClusterDescriptionService : IDisposable
 
     private void OnClustersUpdated(IReadOnlyList<BotCluster> clusters, IReadOnlyList<SignatureBehavior> behaviors)
     {
-        // Fire-and-forget background processing - don't block the clustering thread
         _ = Task.Run(async () =>
         {
             try
@@ -71,7 +69,6 @@ public class BotClusterDescriptionService : IDisposable
         IReadOnlyList<SignatureBehavior> behaviors,
         CancellationToken ct)
     {
-        // Broadcast the full cluster list immediately (before LLM descriptions)
         if (_callback != null)
         {
             try
@@ -84,10 +81,10 @@ public class BotClusterDescriptionService : IDisposable
             }
         }
 
-        var client = GetOllamaClient();
-        if (client == null)
+        var provider = GetLlmProvider();
+        if (provider == null)
         {
-            _logger.LogDebug("Ollama not available, skipping cluster descriptions");
+            _logger.LogDebug("No LLM provider available, skipping cluster descriptions");
             return;
         }
 
@@ -97,7 +94,6 @@ public class BotClusterDescriptionService : IDisposable
         {
             if (ct.IsCancellationRequested) break;
 
-            // Skip if cluster already has a description from a previous run
             if (!string.IsNullOrEmpty(cluster.Description))
                 continue;
 
@@ -110,10 +106,9 @@ public class BotClusterDescriptionService : IDisposable
 
                 if (members.Count == 0) continue;
 
-                var result = await GenerateDescriptionAsync(client, cluster, members, ct);
+                var result = await GenerateDescriptionAsync(provider, cluster, members, ct);
                 if (result == null) continue;
 
-                // Update the cluster in the service (atomic snapshot swap)
                 _clusterService.UpdateClusterDescription(
                     cluster.ClusterId,
                     result.Value.Name,
@@ -123,7 +118,6 @@ public class BotClusterDescriptionService : IDisposable
                     "LLM described cluster {ClusterId}: '{Name}' ({Confidence:F2})",
                     cluster.ClusterId[..16], result.Value.Name, result.Value.Confidence);
 
-                // Push live update via SignalR
                 if (_callback != null)
                 {
                     await _callback.OnClusterDescriptionUpdatedAsync(
@@ -141,7 +135,7 @@ public class BotClusterDescriptionService : IDisposable
     }
 
     private async Task<ClusterDescription?> GenerateDescriptionAsync(
-        IOllamaApiClient client,
+        dynamic provider,
         BotCluster cluster,
         List<SignatureBehavior> members,
         CancellationToken ct)
@@ -198,18 +192,25 @@ public class BotClusterDescriptionService : IDisposable
 
         try
         {
-            var chat = new Chat(client)
-            {
-                Options = new OllamaSharp.Models.RequestOptions { Temperature = 0.7f },
-                Think = false
-            };
-            client.SelectedModel = _options.DescriptionModel;
+            // Use ILlmProvider.CompleteAsync via dynamic dispatch
+            var requestType = Type.GetType("Mostlylucid.BotDetection.Llm.LlmRequest, Mostlylucid.BotDetection.Llm");
+            if (requestType == null) return null;
 
-            var responseBuilder = new StringBuilder();
-            await foreach (var token in chat.SendAsync(prompt, ct))
-                responseBuilder.Append(token);
+            var request = Activator.CreateInstance(requestType);
+            if (request == null) return null;
 
-            return ParseResponse(responseBuilder.ToString());
+            requestType.GetProperty("Prompt")!.SetValue(request, prompt);
+            requestType.GetProperty("Temperature")!.SetValue(request, 0.7f);
+            requestType.GetProperty("MaxTokens")!.SetValue(request, 300);
+            requestType.GetProperty("TimeoutMs")!.SetValue(request, 15000);
+
+            var completeMethod = provider.GetType().GetMethod("CompleteAsync");
+            if (completeMethod == null) return null;
+
+            Task<string> task = completeMethod.Invoke(provider, new[] { request, ct });
+            var response = await task;
+
+            return ParseResponse(response);
         }
         catch (Exception ex)
         {
@@ -222,7 +223,6 @@ public class BotClusterDescriptionService : IDisposable
     {
         try
         {
-            // Try to extract JSON from the response (LLM may add extra text)
             var jsonStart = response.IndexOf('{');
             var jsonEnd = response.LastIndexOf('}');
             if (jsonStart < 0 || jsonEnd < jsonStart) return null;
@@ -245,24 +245,23 @@ public class BotClusterDescriptionService : IDisposable
         }
     }
 
-    private IOllamaApiClient? GetOllamaClient()
+    private object? GetLlmProvider()
     {
-        if (_ollama != null) return _ollama;
-        if (_ollamaChecked) return null;
-        _ollamaChecked = true;
+        if (_llmProvider != null) return _llmProvider;
+        if (_providerChecked) return null;
+        _providerChecked = true;
 
         try
         {
-            var endpoint = _options.DescriptionEndpoint
-                           ?? _botOptions.AiDetection.Ollama.Endpoint;
-            if (string.IsNullOrEmpty(endpoint)) return null;
+            var providerType = Type.GetType("Mostlylucid.BotDetection.Llm.ILlmProvider, Mostlylucid.BotDetection.Llm");
+            if (providerType == null) return null;
 
-            _ollama = new OllamaApiClient(new Uri(endpoint));
-            return _ollama;
+            _llmProvider = _serviceProvider.GetService(providerType);
+            return _llmProvider;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Failed to create Ollama client for cluster descriptions");
+            _logger.LogDebug(ex, "Failed to resolve ILlmProvider for cluster descriptions");
             return null;
         }
     }
@@ -277,17 +276,12 @@ public class BotClusterDescriptionService : IDisposable
 
 /// <summary>
 ///     Callback interface for live cluster description updates via SignalR.
-///     Implemented by the UI project's SignalR hub.
 /// </summary>
 public interface IClusterDescriptionCallback
 {
     Task OnClusterDescriptionUpdatedAsync(
         string clusterId, string label, string description, CancellationToken ct = default);
 
-    /// <summary>
-    ///     Called when the full cluster list is refreshed (before LLM descriptions).
-    ///     Default implementation does nothing for backward compatibility.
-    /// </summary>
     Task OnClustersRefreshedAsync(
         IReadOnlyList<BotCluster> clusters, CancellationToken ct = default)
         => Task.CompletedTask;

@@ -2,9 +2,6 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Models;
 using OllamaSharp;
 
@@ -280,154 +277,6 @@ public class OllamaGeneratedBotTests : IAsyncLifetime
 
     #endregion
 
-    #region LLM Detector Integration Tests
-
-    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
-    public async Task LlmDetector_WithOllama_ClassifiesGeneratedBots()
-    {
-        if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
-
-        // Arrange
-        var detector = CreateLlmDetector();
-        var generatedBot = await GenerateBotUserAgentAsync();
-
-        if (Skip.If(string.IsNullOrEmpty(generatedBot), "Failed to generate bot user-agent")) return;
-
-        var context = CreateHttpContext(generatedBot!);
-
-        // Act
-        var result = await detector.DetectAsync(context);
-
-        // Assert - LLM should detect the bot with some confidence
-        Console.WriteLine($"Generated bot: {generatedBot}");
-        Console.WriteLine($"LLM Detection: IsBot={result.Confidence > 0}, Confidence={result.Confidence}");
-
-        // Note: LLM detection might not always agree with pattern matching
-        // This test is more about verifying the integration works
-        Assert.True(result.Confidence >= 0, "Should return a valid confidence score");
-    }
-
-    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
-    public async Task LlmDetector_WithOllama_ClassifiesGeneratedHumans()
-    {
-        if (Skip.If(!_ollamaAvailable, "Ollama not available or ministral:8b not installed")) return;
-
-        // Arrange
-        var detector = CreateLlmDetector();
-        var generatedHuman = await GenerateHumanUserAgentAsync();
-
-        if (Skip.If(string.IsNullOrEmpty(generatedHuman), "Failed to generate human user-agent")) return;
-
-        var context = CreateHttpContext(generatedHuman!);
-
-        // Act
-        var result = await detector.DetectAsync(context);
-
-        // Assert
-        Console.WriteLine($"Generated human: {generatedHuman}");
-        Console.WriteLine($"LLM Detection: Confidence={result.Confidence}");
-
-        // Human UAs should have lower confidence than obvious bots
-        // Note: LLM behavior is non-deterministic, so we allow up to 0.8
-        Assert.True(result.Confidence <= 0.8,
-            $"Human UA should have moderate or low confidence, got {result.Confidence}");
-    }
-
-    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
-    public async Task LlmDetector_WithGemma_ReturnsValidJsonResponse()
-    {
-        if (Skip.If(!_ollamaAvailable, "Ollama not available")) return;
-
-        // Arrange - use gemma3:1b (the default model for bot detection)
-        var options = Options.Create(new BotDetectionOptions
-        {
-            EnableLlmDetection = true,
-            AiDetection = new AiDetectionOptions
-            {
-                Provider = AiProvider.Ollama,
-                TimeoutMs = 5000,
-                Ollama = new OllamaOptions
-                {
-                    Endpoint = OllamaEndpoint,
-                    Model = "gemma3:1b", // The default small model for bot detection
-                    Enabled = true
-                }
-            }
-        });
-
-        var detector = new LlmDetector(
-            NullLogger<LlmDetector>.Instance,
-            options);
-
-        // Real browser user-agent
-        var context = CreateHttpContext(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-
-        // Act
-        var result = await detector.DetectAsync(context);
-
-        // Assert - should return valid result with reasons (either bot or human classification)
-        Console.WriteLine($"Detection result: Confidence={result.Confidence}");
-        Console.WriteLine($"Reasons count: {result.Reasons.Count}");
-        foreach (var reason in result.Reasons)
-            Console.WriteLine($"  - {reason.Category}: {reason.Detail} (impact: {reason.ConfidenceImpact})");
-
-        // The detector should return a valid response with reasons
-        // For human classification: Reasons.Count > 0 with negative ConfidenceImpact
-        // For bot classification: Reasons.Count > 0 with positive ConfidenceImpact
-        Assert.True(result.Reasons.Count > 0 || result.Confidence == 0,
-            "LLM should return a valid result with reasons or zero confidence (disabled)");
-    }
-
-    [Fact(Skip = "AI test: requires local Ollama. Run with --filter explicitly.")]
-    public async Task LlmDetector_WithGemma_ClassifiesRealBotUserAgent()
-    {
-        if (Skip.If(!_ollamaAvailable, "Ollama not available")) return;
-
-        // Arrange
-        var options = Options.Create(new BotDetectionOptions
-        {
-            EnableLlmDetection = true,
-            AiDetection = new AiDetectionOptions
-            {
-                Provider = AiProvider.Ollama,
-                TimeoutMs = 5000,
-                Ollama = new OllamaOptions
-                {
-                    Endpoint = OllamaEndpoint,
-                    Model = "gemma3:1b",
-                    Enabled = true
-                }
-            }
-        });
-
-        var detector = new LlmDetector(
-            NullLogger<LlmDetector>.Instance,
-            options);
-
-        // Obvious bot user-agent
-        var context = CreateHttpContext("curl/8.4.0");
-
-        // Act
-        var result = await detector.DetectAsync(context);
-
-        // Assert
-        Console.WriteLine($"curl/8.4.0 detection: Confidence={result.Confidence}");
-        foreach (var reason in result.Reasons)
-            Console.WriteLine($"  - {reason.Category}: {reason.Detail} (impact: {reason.ConfidenceImpact})");
-
-        // curl should be detected as a bot or have some signal
-        // Note: Small models like gemma3:1b may not always provide reasons
-        // The key test is that the LLM was called and returned something
-        Assert.True(result.Reasons.Count > 0 || result.Confidence >= 0,
-            "LLM should return reasons for curl user-agent or have valid confidence");
-        // For bot detection, confidence impact should be positive
-        var llmReason = result.Reasons.FirstOrDefault(r => r.Category == "LLM Analysis");
-        if (llmReason != null) Console.WriteLine($"LLM classified as bot: {llmReason.ConfidenceImpact > 0}");
-    }
-
-    #endregion
-
     #region Helper Methods
 
     private async Task<string?> GenerateBotUserAgentAsync()
@@ -592,31 +441,6 @@ User-Agent:";
                 return false;
             }
         });
-    }
-
-    private LlmDetector CreateLlmDetector()
-    {
-        var options = Options.Create(new BotDetectionOptions
-        {
-            EnableLlmDetection = true,
-            AiDetection = new AiDetectionOptions
-            {
-                Provider = AiProvider.Ollama,
-                TimeoutMs = 10000,
-                Ollama = new OllamaOptions
-                {
-                    Endpoint = OllamaEndpoint,
-                    Model = OllamaModel
-                }
-            },
-            OllamaEndpoint = OllamaEndpoint,
-            OllamaModel = OllamaModel,
-            LlmTimeoutMs = 10000
-        });
-
-        return new LlmDetector(
-            NullLogger<LlmDetector>.Instance,
-            options);
     }
 
     private static HttpContext CreateHttpContext(string userAgent)

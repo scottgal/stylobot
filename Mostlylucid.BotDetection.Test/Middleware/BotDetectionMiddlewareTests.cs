@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
@@ -8,6 +9,7 @@ using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Policies;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Test.Helpers;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
@@ -60,7 +62,7 @@ public class BotDetectionMiddlewareTests
 
     private static Mock<BlackboardOrchestrator> CreateMockOrchestrator(AggregatedEvidence? result = null)
     {
-        // Constructor: logger, options, detectors, piiHasher, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?, llmCoordinator?, countryTracker?
+        // Constructor: logger, options, detectors, piiHasher, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?, llmCoordinator?, countryTracker?, clusterService?, enrichmentService?, markovTracker?
         var mock = new Mock<BlackboardOrchestrator>(
             Mock.Of<ILogger<BlackboardOrchestrator>>(),
             Options.Create(new BotDetectionOptions()),
@@ -72,7 +74,9 @@ public class BotDetectionMiddlewareTests
             null, // signatureCoordinator
             null, // llmCoordinator
             null, // countryTracker
-            null // clusterService
+            null, // clusterService
+            null, // enrichmentService
+            null  // markovTracker
         );
 
         var evidence = result ?? CreateEvidence();
@@ -777,7 +781,7 @@ public class BotDetectionMiddlewareTests
         RequestDelegate next = _ => Task.CompletedTask;
         CancellationToken capturedToken = default;
 
-        // Constructor: logger, options, detectors, piiHasher, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?, llmCoordinator?, countryTracker?
+        // Constructor: logger, options, detectors, piiHasher, learningBus?, policyRegistry?, policyEvaluator?, signatureCoordinator?, llmCoordinator?, countryTracker?, clusterService?, enrichmentService?, markovTracker?
         var mockOrchestrator = new Mock<BlackboardOrchestrator>(
             Mock.Of<ILogger<BlackboardOrchestrator>>(),
             Options.Create(new BotDetectionOptions()),
@@ -789,7 +793,9 @@ public class BotDetectionMiddlewareTests
             null, // signatureCoordinator
             null, // llmCoordinator
             null, // countryTracker
-            null // clusterService
+            null, // clusterService
+            null, // enrichmentService
+            null  // markovTracker
         );
 
         mockOrchestrator.Setup(o => o.DetectWithPolicyAsync(
@@ -817,6 +823,140 @@ public class BotDetectionMiddlewareTests
 
         // Assert
         Assert.Equal(cts.Token, capturedToken);
+    }
+
+    #endregion
+
+    #region API Key Security Tests
+
+    [Fact]
+    public async Task InvokeAsync_UnknownApiKey_WhenRejectUnknownEnabled_ReturnsForbidden()
+    {
+        var nextCalled = false;
+        RequestDelegate next = _ =>
+        {
+            nextCalled = true;
+            return Task.CompletedTask;
+        };
+
+        var options = new BotDetectionOptions
+        {
+            RejectUnknownApiKeys = true
+        };
+        options.ApiKeys["SB-VALID-KEY"] = new ApiKeyConfig
+        {
+            Name = "Valid Key"
+        };
+
+        var apiKeyStore = new InMemoryApiKeyStore(
+            Options.Create(options),
+            Mock.Of<ILogger<InMemoryApiKeyStore>>());
+        var services = new ServiceCollection()
+            .AddSingleton<IApiKeyStore>(apiKeyStore)
+            .BuildServiceProvider();
+
+        var middleware = CreateMiddleware(next, options);
+        var mockOrchestrator = CreateMockOrchestrator();
+        var mockPolicyRegistry = CreateMockPolicyRegistry();
+        var mockActionPolicyRegistry = CreateMockActionPolicyRegistry();
+
+        var context = MockHttpContext.CreateWithHeaders(new Dictionary<string, string>
+        {
+            { options.ApiBypassHeaderName, "SB-UNKNOWN-KEY" }
+        });
+        context.RequestServices = services;
+
+        await middleware.InvokeAsync(context, mockOrchestrator.Object, mockPolicyRegistry.Object,
+            mockActionPolicyRegistry.Object, null);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+        Assert.False(nextCalled);
+        mockOrchestrator.Verify(
+            o => o.DetectWithPolicyAsync(It.IsAny<HttpContext>(), It.IsAny<DetectionPolicy>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_FullBypassRichKey_WhenDisabled_ReturnsForbidden()
+    {
+        var nextCalled = false;
+        RequestDelegate next = _ =>
+        {
+            nextCalled = true;
+            return Task.CompletedTask;
+        };
+
+        var options = new BotDetectionOptions
+        {
+            AllowFullDetectorBypassApiKeys = false
+        };
+        options.ApiKeys["SB-BYPASS"] = new ApiKeyConfig
+        {
+            Name = "Bypass Key",
+            DisabledDetectors = ["*"]
+        };
+
+        var apiKeyStore = new InMemoryApiKeyStore(
+            Options.Create(options),
+            Mock.Of<ILogger<InMemoryApiKeyStore>>());
+        var services = new ServiceCollection()
+            .AddSingleton<IApiKeyStore>(apiKeyStore)
+            .BuildServiceProvider();
+
+        var middleware = CreateMiddleware(next, options);
+        var mockOrchestrator = CreateMockOrchestrator();
+        var mockPolicyRegistry = CreateMockPolicyRegistry();
+        var mockActionPolicyRegistry = CreateMockActionPolicyRegistry();
+
+        var context = MockHttpContext.CreateWithHeaders(new Dictionary<string, string>
+        {
+            { options.ApiBypassHeaderName, "SB-BYPASS" }
+        });
+        context.RequestServices = services;
+
+        await middleware.InvokeAsync(context, mockOrchestrator.Object, mockPolicyRegistry.Object,
+            mockActionPolicyRegistry.Object, null);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+        Assert.False(nextCalled);
+        mockOrchestrator.Verify(
+            o => o.DetectWithPolicyAsync(It.IsAny<HttpContext>(), It.IsAny<DetectionPolicy>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task InvokeAsync_LegacyBypassKey_WhenFeatureDisabled_DoesNotBypassDetection()
+    {
+        var nextCalled = false;
+        RequestDelegate next = _ =>
+        {
+            nextCalled = true;
+            return Task.CompletedTask;
+        };
+
+        var options = new BotDetectionOptions
+        {
+            EnableLegacyApiBypassKeys = false,
+            ApiBypassKeys = ["SB-LEGACY-BYPASS"]
+        };
+
+        var middleware = CreateMiddleware(next, options);
+        var mockOrchestrator = CreateMockOrchestrator();
+        var mockPolicyRegistry = CreateMockPolicyRegistry();
+        var mockActionPolicyRegistry = CreateMockActionPolicyRegistry();
+
+        var context = MockHttpContext.CreateWithHeaders(new Dictionary<string, string>
+        {
+            { options.ApiBypassHeaderName, "SB-LEGACY-BYPASS" }
+        });
+
+        await middleware.InvokeAsync(context, mockOrchestrator.Object, mockPolicyRegistry.Object,
+            mockActionPolicyRegistry.Object, null);
+
+        Assert.True(nextCalled);
+        mockOrchestrator.Verify(
+            o => o.DetectWithPolicyAsync(It.IsAny<HttpContext>(), It.IsAny<DetectionPolicy>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     #endregion

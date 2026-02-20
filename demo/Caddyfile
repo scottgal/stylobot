@@ -1,5 +1,6 @@
 # Demo Caddyfile - routes all traffic through the Stylobot Gateway
 # The gateway handles bot detection and proxies to the demo website.
+# Grafana and Prometheus are available at /grafana and /prometheus.
 
 {
     # Use internal CA for local demo (no Let's Encrypt)
@@ -8,6 +9,17 @@
 
 # HTTPS entry point - all traffic goes through the gateway
 :443 {
+    # Grafana dashboard (public read-only via anonymous access)
+    handle_path /grafana/* {
+        reverse_proxy grafana:3000
+    }
+
+    # Prometheus UI (optional, for debugging metrics)
+    handle_path /prometheus/* {
+        reverse_proxy prometheus:9090
+    }
+
+    # Everything else goes through the gateway
     reverse_proxy gateway:8080 {
         health_uri /admin/alive
         health_interval 10s
@@ -32,6 +44,16 @@
 
 # HTTP fallback (redirects to HTTPS or serves directly for local dev)
 :80 {
+    # Grafana
+    handle_path /grafana/* {
+        reverse_proxy grafana:3000
+    }
+
+    # Prometheus
+    handle_path /prometheus/* {
+        reverse_proxy prometheus:9090
+    }
+
     reverse_proxy gateway:8080 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}

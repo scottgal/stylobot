@@ -1,13 +1,19 @@
 // k6 Soak Test for StyloBot Demo Stack
-// Tests: mixed traffic (human browsers, bots, attack payloads)
+// Tests: mixed traffic (human browsers, bots, attack payloads, API key scenarios)
 // Run: k6 run k6-soak.js
 //
 // Profiles against the Caddy frontend on localhost (port 80)
 // or set BASE_URL env var to target a different endpoint.
+//
+// API Key env vars (set to match docker-compose.demo.yml values):
+//   DASHBOARD_API_KEY     — dashboard monitor key (default: SB-DASHBOARD-MONITOR)
+//   FULL_DETECTION_KEY    — all detectors enabled, logonly (default: SB-K6-FULL-DETECTION)
+//   BYPASS_KEY            — all detectors disabled, latency baseline (default: SB-K6-BYPASS)
+//   NO_BEHAVIORAL_KEY     — behavioral detectors disabled (default: SB-K6-NO-BEHAVIORAL)
 
 import http from 'k6/http';
 import { check, sleep } from 'k6';
-import { Rate, Trend } from 'k6/metrics';
+import { Rate, Trend, Counter } from 'k6/metrics';
 
 // Custom metrics
 const botDetected = new Rate('bot_detected');
@@ -15,8 +21,18 @@ const attackBlocked = new Rate('attack_blocked');
 const detectionTime = new Trend('detection_time_ms', true);
 const errorRate = new Rate('errors');
 const dashboardOk = new Rate('dashboard_ok');
+const fullDetectionDetectors = new Trend('full_detection_detector_count', true);
+const bypassLatency = new Trend('bypass_baseline_latency_ms', true);
+const noBehavioralDetectors = new Trend('no_behavioral_detector_count', true);
+const detectorsReported = new Counter('detectors_reported');
 
 const BASE = __ENV.BASE_URL || 'http://localhost';
+
+// API keys (match docker-compose.demo.yml defaults)
+const DASHBOARD_KEY = __ENV.DASHBOARD_API_KEY || 'SB-DASHBOARD-MONITOR';
+const FULL_DETECTION_KEY = __ENV.FULL_DETECTION_KEY || 'SB-K6-FULL-DETECTION';
+const BYPASS_KEY = __ENV.BYPASS_KEY || 'SB-K6-BYPASS';
+const NO_BEHAVIORAL_KEY = __ENV.NO_BEHAVIORAL_KEY || 'SB-K6-NO-BEHAVIORAL';
 
 export const options = {
     scenarios: {
@@ -64,7 +80,7 @@ export const options = {
             maxVUs: 10,
             exec: 'credentialStuffing',
         },
-        // Dashboard API polling (verify widgets populate)
+        // Dashboard API polling (uses dashboard-monitor API key)
         dashboard_polling: {
             executor: 'constant-arrival-rate',
             rate: 1,
@@ -74,13 +90,55 @@ export const options = {
             maxVUs: 5,
             exec: 'dashboardPolling',
         },
+        // Full detection — ALL detectors, verifies every detector fires
+        full_detection_test: {
+            executor: 'constant-arrival-rate',
+            rate: 2,
+            timeUnit: '1s',
+            duration: '5m',
+            preAllocatedVUs: 5,
+            maxVUs: 10,
+            exec: 'fullDetectionTest',
+        },
+        // Bypass baseline — ALL detectors disabled, measures raw proxy latency
+        bypass_baseline: {
+            executor: 'constant-arrival-rate',
+            rate: 2,
+            timeUnit: '1s',
+            duration: '5m',
+            preAllocatedVUs: 5,
+            maxVUs: 10,
+            exec: 'bypassBaseline',
+        },
+        // No-behavioral — only fingerprint/header detectors, isolates detection layers
+        no_behavioral_test: {
+            executor: 'constant-arrival-rate',
+            rate: 2,
+            timeUnit: '1s',
+            duration: '5m',
+            preAllocatedVUs: 5,
+            maxVUs: 10,
+            exec: 'noBehavioralTest',
+        },
     },
     thresholds: {
         http_req_duration: ['p(95)<2000'],
         errors: ['rate<0.05'],
         dashboard_ok: ['rate>0.95'],
+        bypass_baseline_latency_ms: ['p(95)<500'],  // Proxy-only should be fast
     },
 };
+
+// ===== Helpers =====
+
+function parseDetectionHeaders(res) {
+    const isBot = res.headers['X-Bot-Detection'] === 'True' ||
+                  res.headers['X-Bot-Risk-Score'] > '0.5';
+    const procTime = parseFloat(res.headers['X-Bot-Detection-ProcessingMs'] || '0');
+    const detectors = res.headers['X-Bot-Detectors'] || '';
+    const detectorCount = detectors ? detectors.split(',').length : 0;
+    return { isBot, procTime, detectors, detectorCount };
+}
 
 // ===== Human Browser Scenarios =====
 
@@ -111,12 +169,9 @@ export function humanBrowsing() {
         tags: { scenario: 'human' },
     });
 
-    const isBot = res.headers['X-Bot-Detection'] === 'True' ||
-                  res.headers['X-Bot-Risk-Score'] > '0.5';
+    const { isBot, procTime } = parseDetectionHeaders(res);
     botDetected.add(isBot ? 1 : 0);
     errorRate.add(res.status >= 500 ? 1 : 0);
-
-    const procTime = parseFloat(res.headers['X-Bot-Detection-ProcessingMs'] || '0');
     if (procTime > 0) detectionTime.add(procTime);
 
     check(res, {
@@ -158,12 +213,9 @@ export function botScraping() {
         tags: { scenario: 'bot' },
     });
 
-    const isBot = res.headers['X-Bot-Detection'] === 'True' ||
-                  res.headers['X-Bot-Risk-Score'] > '0.5';
+    const { isBot, procTime } = parseDetectionHeaders(res);
     botDetected.add(isBot ? 1 : 0);
     errorRate.add(res.status >= 500 ? 1 : 0);
-
-    const procTime = parseFloat(res.headers['X-Bot-Detection-ProcessingMs'] || '0');
     if (procTime > 0) detectionTime.add(procTime);
 
     check(res, {
@@ -271,7 +323,7 @@ export function credentialStuffing() {
     });
 }
 
-// ===== Dashboard API Polling =====
+// ===== Dashboard API Polling (uses dashboard-monitor API key) =====
 
 const DASHBOARD_ENDPOINTS = [
     '/_stylobot/api/summary',
@@ -286,18 +338,13 @@ const DASHBOARD_ENDPOINTS = [
 
 export function dashboardPolling() {
     const endpoint = DASHBOARD_ENDPOINTS[Math.floor(Math.random() * DASHBOARD_ENDPOINTS.length)];
-    const apiKey = __ENV.DASHBOARD_API_KEY || '';
-
-    const headers = {
-        'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    };
-    if (apiKey) {
-        headers['X-Api-Key'] = apiKey;
-    }
 
     const res = http.get(`${BASE}${endpoint}`, {
-        headers: headers,
+        headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'X-SB-Api-Key': DASHBOARD_KEY,
+        },
         tags: { scenario: 'dashboard' },
     });
 
@@ -327,4 +374,97 @@ export function dashboardPolling() {
     }
 
     sleep(0.5);
+}
+
+// ===== Full Detection Test (ALL detectors, API key: SB-K6-FULL-DETECTION) =====
+// Uses bot-like traffic WITH the full-detection API key to verify every detector fires.
+// The key sets action to logonly so we get detection headers without being blocked.
+
+export function fullDetectionTest() {
+    const ua = BOT_UAS[Math.floor(Math.random() * BOT_UAS.length)];
+    const path = HUMAN_PATHS[Math.floor(Math.random() * HUMAN_PATHS.length)];
+
+    const res = http.get(`${BASE}${path}`, {
+        headers: {
+            'User-Agent': ua,
+            'Accept': '*/*',
+            'X-SB-Api-Key': FULL_DETECTION_KEY,
+        },
+        tags: { scenario: 'full_detection' },
+    });
+
+    const { isBot, procTime, detectors, detectorCount } = parseDetectionHeaders(res);
+    errorRate.add(res.status >= 500 ? 1 : 0);
+    if (procTime > 0) detectionTime.add(procTime);
+    if (detectorCount > 0) {
+        fullDetectionDetectors.add(detectorCount);
+        detectorsReported.add(detectorCount);
+    }
+
+    check(res, {
+        'full-detect: status < 500': (r) => r.status < 500,
+        'full-detect: has detection headers': (r) => r.headers['X-Bot-Detection'] !== undefined,
+        'full-detect: has detectors header': (r) => r.headers['X-Bot-Detectors'] !== undefined,
+        'full-detect: multiple detectors ran': () => detectorCount >= 3,
+    });
+
+    // Log which detectors fired (visible in k6 output with --verbose)
+    if (detectors && __ENV.K6_VERBOSE) {
+        console.log(`Full detection: ${detectorCount} detectors: ${detectors}`);
+    }
+}
+
+// ===== Bypass Baseline (ALL detectors disabled, API key: SB-K6-BYPASS) =====
+// Measures raw YARP proxy latency with zero detection overhead.
+
+export function bypassBaseline() {
+    const path = HUMAN_PATHS[Math.floor(Math.random() * HUMAN_PATHS.length)];
+
+    const res = http.get(`${BASE}${path}`, {
+        headers: {
+            'User-Agent': HUMAN_UAS[0],
+            'Accept': 'text/html',
+            'X-SB-Api-Key': BYPASS_KEY,
+        },
+        tags: { scenario: 'bypass_baseline' },
+    });
+
+    bypassLatency.add(res.timings.duration);
+    errorRate.add(res.status >= 500 ? 1 : 0);
+
+    check(res, {
+        'bypass: status < 500': (r) => r.status < 500,
+        'bypass: no bot detection header': (r) => r.headers['X-Bot-Detection'] === undefined,
+    });
+}
+
+// ===== No-Behavioral Test (behavioral detectors disabled, API key: SB-K6-NO-BEHAVIORAL) =====
+// Isolates fingerprint + header + static detectors from behavioral analysis.
+
+export function noBehavioralTest() {
+    const ua = BOT_UAS[Math.floor(Math.random() * BOT_UAS.length)];
+    const path = HUMAN_PATHS[Math.floor(Math.random() * HUMAN_PATHS.length)];
+
+    const res = http.get(`${BASE}${path}`, {
+        headers: {
+            'User-Agent': ua,
+            'Accept': '*/*',
+            'X-SB-Api-Key': NO_BEHAVIORAL_KEY,
+        },
+        tags: { scenario: 'no_behavioral' },
+    });
+
+    const { isBot, procTime, detectors, detectorCount } = parseDetectionHeaders(res);
+    errorRate.add(res.status >= 500 ? 1 : 0);
+    if (procTime > 0) detectionTime.add(procTime);
+    if (detectorCount > 0) noBehavioralDetectors.add(detectorCount);
+
+    // Verify behavioral detectors are NOT in the list
+    const detectorList = detectors.toLowerCase();
+    check(res, {
+        'no-behavioral: status < 500': (r) => r.status < 500,
+        'no-behavioral: no Behavioral detector': () => !detectorList.includes('behavioral'),
+        'no-behavioral: no BehavioralWaveform detector': () => !detectorList.includes('behavioralwaveform'),
+        'no-behavioral: has detection headers': (r) => r.headers['X-Bot-Detection'] !== undefined,
+    });
 }

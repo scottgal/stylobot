@@ -20,8 +20,11 @@ public sealed record BotCluster
     /// <summary>Average bot probability across all cluster members.</summary>
     public double AverageBotProbability { get; init; }
 
-    /// <summary>Average pairwise similarity within the cluster.</summary>
+    /// <summary>Average pairwise similarity within the cluster (connected pairs only).</summary>
     public double AverageSimilarity { get; init; }
+
+    /// <summary>Fraction of possible pairs that are connected (above similarity threshold). 1.0 = fully connected.</summary>
+    public double Connectedness { get; init; }
 
     /// <summary>How tightly clustered in time (0.0 = spread out, 1.0 = all active simultaneously).</summary>
     public double TemporalDensity { get; init; }
@@ -57,5 +60,9 @@ public enum BotClusterType
     BotProduct,
 
     /// <summary>Temporally correlated different behaviors = coordinated campaign.</summary>
-    BotNetwork
+    BotNetwork,
+
+    /// <summary>Emergent cluster: bots grouped by community detection but not yet meeting
+    /// the strict thresholds for BotProduct or BotNetwork. Still valuable for monitoring.</summary>
+    Emergent
 }

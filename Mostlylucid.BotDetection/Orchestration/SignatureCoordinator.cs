@@ -114,6 +114,11 @@ public record SignatureBehavior
     public string? CountryCode { get; init; }
     public string? Asn { get; init; }
     public bool IsDatacenter { get; init; }
+    public double? Latitude { get; init; }
+    public double? Longitude { get; init; }
+    public string? ContinentCode { get; init; }
+    public string? RegionCode { get; init; }
+    public bool IsVpn { get; init; }
 }
 
 /// <summary>
@@ -152,6 +157,11 @@ internal record SignatureGeoContext
     public string? CountryCode { get; init; }
     public string? Asn { get; init; }
     public bool IsDatacenter { get; init; }
+    public double? Latitude { get; init; }
+    public double? Longitude { get; init; }
+    public string? ContinentCode { get; init; }
+    public string? RegionCode { get; init; }
+    public bool IsVpn { get; init; }
 }
 
 /// <summary>
@@ -284,15 +294,32 @@ public class SignatureCoordinator : IAsyncDisposable
             Escalated = false
         };
 
+        // Extract enriched geo context from signals dict
+        var latitude = signals.TryGetValue("geo.latitude", out var latVal) && latVal is double lat ? lat : (double?)null;
+        var longitude = signals.TryGetValue("geo.longitude", out var lonVal) && lonVal is double lon ? lon : (double?)null;
+        var continentCode = signals.TryGetValue("geo.continent_code", out var ccVal2) ? ccVal2 as string : null;
+        var regionCode = signals.TryGetValue("geo.region_code", out var rcVal) ? rcVal as string : null;
+        var isVpn = signals.TryGetValue("geo.is_vpn", out var vpnVal) && vpnVal is true;
+
         // Track geo context for cluster analysis
         _knownSignatures.AddOrUpdate(
             signature,
-            _ => new SignatureGeoContext { CountryCode = countryCode, Asn = asn, IsDatacenter = isDatacenter },
+            _ => new SignatureGeoContext
+            {
+                CountryCode = countryCode, Asn = asn, IsDatacenter = isDatacenter,
+                Latitude = latitude, Longitude = longitude,
+                ContinentCode = continentCode, RegionCode = regionCode, IsVpn = isVpn
+            },
             (_, existing) => new SignatureGeoContext
             {
                 CountryCode = countryCode ?? existing.CountryCode,
                 Asn = asn ?? existing.Asn,
-                IsDatacenter = isDatacenter || existing.IsDatacenter
+                IsDatacenter = isDatacenter || existing.IsDatacenter,
+                Latitude = latitude ?? existing.Latitude,
+                Longitude = longitude ?? existing.Longitude,
+                ContinentCode = continentCode ?? existing.ContinentCode,
+                RegionCode = regionCode ?? existing.RegionCode,
+                IsVpn = isVpn || existing.IsVpn
             });
 
         // Index IP hash -> signature for convergence analysis
@@ -551,7 +578,12 @@ public class SignatureCoordinator : IAsyncDisposable
                 IsAberrant = memberBehaviors.Any(b => b.IsAberrant),
                 CountryCode = geo.CountryCode,
                 Asn = geo.Asn,
-                IsDatacenter = geo.IsDatacenter
+                IsDatacenter = geo.IsDatacenter,
+                Latitude = geo.Latitude,
+                Longitude = geo.Longitude,
+                ContinentCode = geo.ContinentCode,
+                RegionCode = geo.RegionCode,
+                IsVpn = geo.IsVpn
             });
         }
 
@@ -584,7 +616,12 @@ public class SignatureCoordinator : IAsyncDisposable
                     {
                         CountryCode = geoContext.CountryCode,
                         Asn = geoContext.Asn,
-                        IsDatacenter = geoContext.IsDatacenter
+                        IsDatacenter = geoContext.IsDatacenter,
+                        Latitude = geoContext.Latitude,
+                        Longitude = geoContext.Longitude,
+                        ContinentCode = geoContext.ContinentCode,
+                        RegionCode = geoContext.RegionCode,
+                        IsVpn = geoContext.IsVpn
                     });
                 }
             }

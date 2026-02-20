@@ -229,7 +229,13 @@
       "Bash(MSYS_NO_PATHCONV=1 docker exec:*)",
       "Bash(npx tsc:*)",
       "Bash(git stash:*)",
-      "Bash(tr:*)"
+      "Bash(tr:*)",
+      "Bash(dotnet-counters:*)",
+      "Bash(dottrace --version:*)",
+      "Bash(MSYS_NO_PATHCONV=1 curl -s -o /dev/null -w \"%{http_code}\" -H \"X-SB-Api-Key: SB-K6-BYPASS\" http://localhost/)",
+      "Bash(MSYS_NO_PATHCONV=1 curl -s -D - -o /dev/null -H \"X-SB-Api-Key: SB-K6-BYPASS\" http://localhost/)",
+      "Bash(MSYS_NO_PATHCONV=1 curl -s -D - -o /dev/null -H \"X-SB-Api-Key: SB-K6-NO-BEHAVIORAL\" -H \"User-Agent: curl/8.4.0\" http://localhost/)",
+      "Bash(MSYS_NO_PATHCONV=1 docker cp:*)"
     ]
   }
 }

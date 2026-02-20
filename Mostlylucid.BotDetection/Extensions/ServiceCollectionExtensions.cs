@@ -10,10 +10,12 @@ using Mostlylucid.BotDetection.ClientSide;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Detectors;
+// LlmDetector removed — now in Mostlylucid.BotDetection.Llm.Ollama/LlamaSharp packages
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Events.Listeners;
 using Mostlylucid.BotDetection.Metrics;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Telemetry;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -297,7 +299,6 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<HeaderDetector>();
         services.TryAddSingleton<BehavioralDetector>();
         services.TryAddSingleton<IpDetector>();
-        services.TryAddSingleton<LlmDetector>();
         services.TryAddSingleton<HeuristicDetector>();
         services.TryAddSingleton<ClientSideDetector>();
         services.TryAddSingleton<InconsistencyDetector>();
@@ -308,7 +309,6 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDetector>(sp => sp.GetRequiredService<HeaderDetector>());
         services.AddSingleton<IDetector>(sp => sp.GetRequiredService<BehavioralDetector>());
         services.AddSingleton<IDetector>(sp => sp.GetRequiredService<IpDetector>());
-        services.AddSingleton<IDetector>(sp => sp.GetRequiredService<LlmDetector>());
         services.AddSingleton<IDetector>(sp => sp.GetRequiredService<HeuristicDetector>());
         services.AddSingleton<IDetector>(sp => sp.GetRequiredService<ClientSideDetector>());
         services.AddSingleton<IDetector>(sp => sp.GetRequiredService<InconsistencyDetector>());
@@ -462,7 +462,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, GeoChangeContributor>();
         services.AddSingleton<IContributingDetector, VersionAgeContributor>();
         services.AddSingleton<IContributingDetector, InconsistencyContributor>();
+        // Project Honeypot lookup service (shared between contributor and background enrichment)
+        services.TryAddSingleton<ProjectHoneypotLookupService>();
         // Project Honeypot IP reputation (triggered by IP signal)
+        // Excluded from default policy — runs via BackgroundEnrichmentService for async DNS lookups.
+        // Still runs synchronously in Learning/Demo policies.
         services.AddSingleton<IContributingDetector, ProjectHoneypotContributor>();
         // Reputation bias - runs AFTER basic detectors extract signals, BEFORE heuristic scoring
         // Provides learned pattern bias from PatternReputationCache
@@ -473,6 +477,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, MultiLayerCorrelationContributor>();
         // Behavioral waveform analysis - analyzes patterns across multiple requests
         services.AddSingleton<IContributingDetector, BehavioralWaveformContributor>();
+        // Markov chain path learning and drift detection
+        services.TryAddSingleton<Markov.MarkovTracker>();
+        services.TryAddSingleton<Clustering.AdaptiveSimilarityWeighter>();
+        services.AddHostedService<Markov.PopulationMarkovService>();
+
         // Bot cluster detection - discovers bot products and coordinated campaigns
         services.TryAddSingleton<CountryReputationTracker>();
         services.TryAddSingleton<BotClusterService>();
@@ -485,20 +494,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<BotClusterDescriptionService>();
 
         // ==========================================
-        // Bot Name Synthesizer (LLamaSharp or Ollama)
+        // Bot Name Synthesizer (provided by LLM plugin packages)
         // ==========================================
-        // Synthesizes human-readable bot names from detection signals
-        services.AddSingleton<IBotNameSynthesizer>(sp =>
-        {
-            var opts = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
-            var logger = sp.GetRequiredService<ILogger<LlamaSharpBotNameSynthesizer>>();
-
-            return opts.AiDetection.Provider switch
-            {
-                AiProvider.LlamaSharp => new LlamaSharpBotNameSynthesizer(logger, sp.GetRequiredService<IOptions<BotDetectionOptions>>()),
-                _ => new LlamaSharpBotNameSynthesizer(logger, sp.GetRequiredService<IOptions<BotDetectionOptions>>())
-            };
-        });
+        // Default no-op synthesizer — replaced by Mostlylucid.BotDetection.Llm.* packages
+        services.TryAddSingleton<IBotNameSynthesizer, NoOpBotNameSynthesizer>();
 
         // ==========================================
         // Signature Description Service (Background)
@@ -514,6 +513,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, LlmContributor>();
         // Heuristic late - runs AFTER AI (or after all static if no AI), consumes all evidence
         services.AddSingleton<IContributingDetector, HeuristicLateContributor>();
+
+        // ==========================================
+        // Background Enrichment Service (async DNS lookups for ProjectHoneypot)
+        // ==========================================
+        services.AddSingleton<BackgroundEnrichmentService>();
+        services.AddHostedService(sp => sp.GetRequiredService<BackgroundEnrichmentService>());
 
         // ==========================================
         // Background LLM Classification Coordinator
@@ -609,5 +614,37 @@ public static class ServiceCollectionExtensions
 
         // Register action policy registry (holds named action policies)
         services.TryAddSingleton<IActionPolicyRegistry, ActionPolicyRegistry>();
+    }
+
+    /// <summary>
+    ///     Add OpenTelemetry instrumentation for bot detection.
+    ///     Automatically exports detection signals as spans, metrics, and span events.
+    ///     Wire up the OTel SDK in the host application to consume these.
+    /// </summary>
+    /// <example>
+    ///     builder.Services.AddBotDetection();
+    ///     builder.Services.AddBotDetectionTelemetry(opts =&gt; {
+    ///         opts.EnableMetrics = true;
+    ///         opts.EnableTracing = true;
+    ///         opts.EnableScoreJourney = true;
+    ///     });
+    ///
+    ///     // Then in OTel SDK setup:
+    ///     builder.Services.AddOpenTelemetry()
+    ///         .WithMetrics(m =&gt; m.AddMeter("Mostlylucid.BotDetection.Signals"))
+    ///         .WithTracing(t =&gt; t.AddSource("Mostlylucid.BotDetection"));
+    /// </example>
+    public static IServiceCollection AddBotDetectionTelemetry(
+        this IServiceCollection services,
+        Action<BotDetectionTelemetryOptions>? configure = null)
+    {
+        services.AddOptions<BotDetectionTelemetryOptions>()
+            .BindConfiguration("BotDetection:Telemetry")
+            .Configure(opts => configure?.Invoke(opts));
+
+        services.TryAddSingleton<BotDetectionSignalMeter>();
+        services.TryAddSingleton<BotDetectionInstrumentation>();
+
+        return services;
     }
 }

@@ -23,9 +23,11 @@ COPY Mostlylucid.BotDetection.UI.PostgreSQL/ Mostlylucid.BotDetection.UI.Postgre
 COPY Mostlylucid.Common/ Mostlylucid.Common/
 COPY Mostlylucid.GeoDetection/ Mostlylucid.GeoDetection/
 COPY Mostlylucid.GeoDetection.Contributor/ Mostlylucid.GeoDetection.Contributor/
-RUN dotnet publish Stylobot.Gateway/Stylobot.Gateway.csproj -c Release -o /app \
-    /p:DebugType=none \
-    /p:DebugSymbols=false
+RUN dotnet publish Stylobot.Gateway/Stylobot.Gateway.csproj -c Release -o /app
+
+# Install dotnet-trace into the build output so it's available at runtime
+RUN dotnet tool install --tool-path /app/tools dotnet-trace && \
+    dotnet tool install --tool-path /app/tools dotnet-counters
 
 # Stage 2: Runtime (Alpine-based, smallest practical image)
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime

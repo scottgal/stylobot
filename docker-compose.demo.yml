@@ -65,6 +65,9 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
+      # Enable .NET diagnostics for profiling
+      - DOTNET_EnableDiagnostics=1
+      - COMPlus_EnableDiagnostics=1
       # Trust all forwarded headers from Caddy (internal Docker network)
       - TRUST_ALL_FORWARDED_PROXIES=true
       # Gateway configuration
@@ -94,16 +97,49 @@ services:
       - BotDetection__ResponseHeaders__IncludeDetectors=true
       - BotDetection__ResponseHeaders__IncludeProcessingTime=true
       # Legacy API bypass keys (for trusted tooling / dev access)
+      - BotDetection__EnableLegacyApiBypassKeys=true
       - BotDetection__ApiBypassKeys__0=${BOTDETECTION_API_BYPASS_KEY:-}
-      # Rich API keys with per-key detection overlay
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__Name=Dashboard Monitor
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__DisabledDetectors__0=BehavioralWaveform
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__DisabledDetectors__1=Behavioral
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__DisabledDetectors__2=AdvancedBehavioral
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__AllowedPaths__0=/_stylobot/**
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__RateLimitPerMinute=120
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__Tags__0=monitoring
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__Tags__1=dashboard
+      # Explicit opt-in for benchmark-only full bypass key
+      - BotDetection__AllowFullDetectorBypassApiKeys=true
+      # ---------------------------------------------------------------
+      # Rich API keys — detection policy overlays
+      # DEMO ONLY: The SB-* defaults are insecure placeholders for local
+      # dev/testing. They are NOT used in production. API keys are for
+      # your own automation (CI, k6, monitoring) — not system-to-system.
+      # For internet-facing deployments, replace with cryptographically
+      # random secrets via .env or a secrets manager.
+      # ---------------------------------------------------------------
+      # 1. Dashboard monitor — disables behavioral detectors (dashboard polling is repetitive)
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Name=Dashboard Monitor
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__DisabledDetectors__0=BehavioralWaveform
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__DisabledDetectors__1=Behavioral
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__DisabledDetectors__2=AdvancedBehavioral
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__AllowedPaths__0=/_stylobot/**
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__RateLimitPerMinute=120
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Tags__0=monitoring
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Tags__1=dashboard
+      # 2. Full detection — ALL detectors enabled, no exclusions (tests complete pipeline)
+      - BotDetection__ApiKeys__${BOTDETECTION_FULL_DETECTION_KEY:-SB-K6-FULL-DETECTION}__Name=k6 Full Detection
+      - BotDetection__ApiKeys__${BOTDETECTION_FULL_DETECTION_KEY:-SB-K6-FULL-DETECTION}__ActionPolicyName=logonly
+      - BotDetection__ApiKeys__${BOTDETECTION_FULL_DETECTION_KEY:-SB-K6-FULL-DETECTION}__RateLimitPerMinute=600
+      - BotDetection__ApiKeys__${BOTDETECTION_FULL_DETECTION_KEY:-SB-K6-FULL-DETECTION}__Tags__0=testing
+      - BotDetection__ApiKeys__${BOTDETECTION_FULL_DETECTION_KEY:-SB-K6-FULL-DETECTION}__Tags__1=k6
+      # 3. Bypass — disables ALL detectors (latency baseline measurement)
+      - BotDetection__ApiKeys__${BOTDETECTION_BYPASS_KEY:-SB-K6-BYPASS}__Name=k6 Bypass Baseline
+      - BotDetection__ApiKeys__${BOTDETECTION_BYPASS_KEY:-SB-K6-BYPASS}__DisabledDetectors__0=*
+      - BotDetection__ApiKeys__${BOTDETECTION_BYPASS_KEY:-SB-K6-BYPASS}__RateLimitPerMinute=600
+      - BotDetection__ApiKeys__${BOTDETECTION_BYPASS_KEY:-SB-K6-BYPASS}__Tags__0=testing
+      - BotDetection__ApiKeys__${BOTDETECTION_BYPASS_KEY:-SB-K6-BYPASS}__Tags__1=baseline
+      # 4. No-behavioral — disables only behavioral detectors (isolate fingerprint/header detection)
+      - BotDetection__ApiKeys__${BOTDETECTION_NO_BEHAVIORAL_KEY:-SB-K6-NO-BEHAVIORAL}__Name=k6 No Behavioral
+      - BotDetection__ApiKeys__${BOTDETECTION_NO_BEHAVIORAL_KEY:-SB-K6-NO-BEHAVIORAL}__DisabledDetectors__0=Behavioral
+      - BotDetection__ApiKeys__${BOTDETECTION_NO_BEHAVIORAL_KEY:-SB-K6-NO-BEHAVIORAL}__DisabledDetectors__1=AdvancedBehavioral
+      - BotDetection__ApiKeys__${BOTDETECTION_NO_BEHAVIORAL_KEY:-SB-K6-NO-BEHAVIORAL}__DisabledDetectors__2=BehavioralWaveform
+      - BotDetection__ApiKeys__${BOTDETECTION_NO_BEHAVIORAL_KEY:-SB-K6-NO-BEHAVIORAL}__DisabledDetectors__3=AccountTakeover
+      - BotDetection__ApiKeys__${BOTDETECTION_NO_BEHAVIORAL_KEY:-SB-K6-NO-BEHAVIORAL}__ActionPolicyName=logonly
+      - BotDetection__ApiKeys__${BOTDETECTION_NO_BEHAVIORAL_KEY:-SB-K6-NO-BEHAVIORAL}__RateLimitPerMinute=600
+      - BotDetection__ApiKeys__${BOTDETECTION_NO_BEHAVIORAL_KEY:-SB-K6-NO-BEHAVIORAL}__Tags__0=testing
+      - BotDetection__ApiKeys__${BOTDETECTION_NO_BEHAVIORAL_KEY:-SB-K6-NO-BEHAVIORAL}__Tags__1=fingerprint-only
       # Use demo policy with all detectors
       - BotDetection__PathPolicies__/*=demo
       # Upstream routing (to demo website)
@@ -167,14 +203,15 @@ services:
       - BOTDETECTION_SIGNATURE_HASH_KEY=${BOTDETECTION_SIGNATURE_HASH_KEY:-}
       - BOTDETECTION_CLIENTSIDE_TOKEN_SECRET=${BOTDETECTION_CLIENTSIDE_TOKEN_SECRET:-}
       # Legacy API bypass keys (for trusted tooling / dev access)
+      - BotDetection__EnableLegacyApiBypassKeys=true
       - BotDetection__ApiBypassKeys__0=${BOTDETECTION_API_BYPASS_KEY:-}
       # Rich API keys (same dashboard monitor key as gateway)
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__Name=Dashboard Monitor
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__DisabledDetectors__0=BehavioralWaveform
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__DisabledDetectors__1=Behavioral
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__DisabledDetectors__2=AdvancedBehavioral
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__AllowedPaths__0=/_stylobot/**
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__RateLimitPerMinute=120
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Name=Dashboard Monitor
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__DisabledDetectors__0=BehavioralWaveform
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__DisabledDetectors__1=Behavioral
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__DisabledDetectors__2=AdvancedBehavioral
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__AllowedPaths__0=/_stylobot/**
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__RateLimitPerMinute=120
       # Dashboard
       - STYLOBOT_DASHBOARD_PUBLIC=true
       - STYLOBOT_DASHBOARD_PATH=${STYLOBOT_DASHBOARD_PATH:-/_stylobot}
@@ -283,6 +320,57 @@ services:
       retries: 3
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme}
 
+  # ===========================================
+  # Prometheus - Metrics Collection
+  # ===========================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: stylobot-prometheus
+    volumes:
+      - ./demo/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - stylobot-demo
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/-/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ===========================================
+  # Grafana - Dashboards & Visualization
+  # ===========================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: stylobot-grafana
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-stylobot}
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+    volumes:
+      - ./demo/grafana/provisioning/datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./demo/grafana/provisioning/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./demo/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - stylobot-demo
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 # ===========================================
 # Networks
 # ===========================================
@@ -331,4 +419,12 @@ volumes:
 
   # Redis cache
   redis-data:
+    driver: local
+
+  # Prometheus metrics storage
+  prometheus-data:
+    driver: local
+
+  # Grafana dashboards and config
+  grafana-data:
     driver: local

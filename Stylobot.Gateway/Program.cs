@@ -1,12 +1,16 @@
 using System.Net;
 using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Metrics;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Middleware;
+using Mostlylucid.BotDetection.Telemetry;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.UI.PostgreSQL.Extensions;
 using Mostlylucid.GeoDetection.Extensions;
 using Mostlylucid.GeoDetection.Models;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using Stylobot.Gateway.Configuration;
 using Stylobot.Gateway.Data;
 using Stylobot.Gateway.Endpoints;
@@ -113,6 +117,20 @@ try
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
 
+    // Add OpenTelemetry instrumentation for bot detection signals
+    builder.Services.AddBotDetectionTelemetry();
+
+    // Wire up OTel SDK — Prometheus exporter for /metrics scraping
+    builder.Services.AddOpenTelemetry()
+        .WithMetrics(metrics => metrics
+            .AddAspNetCoreInstrumentation()
+            .AddMeter(BotDetectionMetrics.MeterName)
+            .AddMeter(BotDetectionSignalMeter.MeterName)
+            .AddPrometheusExporter())
+        .WithTracing(tracing => tracing
+            .AddAspNetCoreInstrumentation()
+            .AddSource(BotDetectionTelemetry.ActivitySourceName));
+
     // Add geo detection services (IP lookup via ip-api.com fallback)
     builder.Services.AddGeoRouting(
         configureRouting: options =>
@@ -199,6 +217,9 @@ try
 
     // Admin API endpoints
     app.MapAdminEndpoints();
+
+    // Prometheus metrics endpoint for scraping
+    app.MapPrometheusScrapingEndpoint();
 
     // YARP reverse proxy
     app.MapReverseProxy();

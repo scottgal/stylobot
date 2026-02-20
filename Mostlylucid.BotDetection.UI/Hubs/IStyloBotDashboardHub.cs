@@ -57,4 +57,8 @@ public interface IStyloBotDashboardHub
     /// </summary>
     Task BroadcastCountries(List<DashboardCountryStats> countries);
 
+    /// <summary>
+    ///     Broadcast a score change narrative for a signature.
+    /// </summary>
+    Task BroadcastScoreNarrative(string signature, string narrative);
 }

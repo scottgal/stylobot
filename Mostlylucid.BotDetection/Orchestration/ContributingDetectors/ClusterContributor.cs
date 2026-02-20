@@ -134,6 +134,23 @@ public class ClusterContributor : ConfiguredContributorBase
                                 botType: "MaliciousBot"));
                             break;
                         }
+                        case BotClusterType.Emergent:
+                        {
+                            // Light confidence boost: grouped by community detection but not
+                            // yet meeting strict product/network thresholds
+                            var delta = NetworkConfidenceDelta * 0.5 *
+                                        Math.Min(1.0, cluster.AverageBotProbability);
+                            var reason = $"Part of emerging bot cluster '{cluster.Label}' ({cluster.MemberCount} members, similarity={cluster.AverageSimilarity:F2})";
+                            if (!string.IsNullOrEmpty(cluster.Description))
+                                reason += $". {cluster.Description}";
+                            contributions.Add(BotContribution(
+                                "Cluster",
+                                reason,
+                                confidenceOverride: delta,
+                                weightMultiplier: WeightBotSignal * 0.7,
+                                botType: "Scraper"));
+                            break;
+                        }
                     }
                 }
             }

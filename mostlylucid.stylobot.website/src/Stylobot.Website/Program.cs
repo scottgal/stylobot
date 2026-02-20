@@ -5,12 +5,16 @@ using System.Text;
 using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.ClientSide;
 using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Metrics;
 using Mostlylucid.BotDetection.Middleware;
+using Mostlylucid.BotDetection.Telemetry;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.UI.PostgreSQL.Extensions;
 using Mostlylucid.GeoDetection.Contributor.Extensions;
 using Mostlylucid.GeoDetection.Extensions;
 using Mostlylucid.GeoDetection.Models;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using Stylobot.Website.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -168,6 +172,20 @@ builder.Services.AddBotDetection(options =>
         options.AiDetection.Provider = Mostlylucid.BotDetection.Models.AiProvider.Heuristic;
     }
 });
+
+// Add OpenTelemetry instrumentation for bot detection signals
+builder.Services.AddBotDetectionTelemetry();
+
+// Wire up OTel SDK — Prometheus exporter for /metrics scraping
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddMeter(BotDetectionMetrics.MeterName)
+        .AddMeter(BotDetectionSignalMeter.MeterName)
+        .AddPrometheusExporter())
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation()
+        .AddSource(BotDetectionTelemetry.ActivitySourceName));
 
 // Add geo-detection contributor for geo-based bot signals
 // Enables country tracking, bot origin verification, and geo-inconsistency detection
@@ -362,6 +380,9 @@ app.UseStyloBotDashboard();
 app.UseAuthorization();
 
 app.MapStaticAssets();
+
+// Prometheus metrics endpoint for scraping
+app.MapPrometheusScrapingEndpoint();
 
 app.MapBotDetectionFingerprintEndpoint();
 

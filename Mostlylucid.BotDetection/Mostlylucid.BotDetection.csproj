@@ -20,7 +20,7 @@
         <TargetFrameworks>net10.0</TargetFrameworks>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 
-        <!-- Not AOT/trimming compatible due to Ollama, SQLite, and dynamic JSON usage -->
+        <!-- Not AOT/trimming compatible due to SQLite and dynamic JSON usage -->
         <IsTrimmable>false</IsTrimmable>
         <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
     </PropertyGroup>
@@ -30,6 +30,7 @@
     <ItemGroup>
         <InternalsVisibleTo Include="Mostlylucid.BotDetection.Test" />
         <InternalsVisibleTo Include="Mostlylucid.BotDetection.Orchestration.Tests" />
+        <InternalsVisibleTo Include="Mostlylucid.BotDetection.Benchmarks" />
     </ItemGroup>
     <PropertyGroup>
         <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
@@ -45,9 +46,7 @@
         <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.3" />
         <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" />
         <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.3" />
-        <PackageReference Include="OllamaSharp" Version="5.4.16" />
-        <PackageReference Include="LLamaSharp" Version="0.26.0" />
-        <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.26.0" />
+        <!-- LLM packages moved to Mostlylucid.BotDetection.Llm.Ollama / LlamaSharp projects -->
         <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.3" />
         <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.2" />
         <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.3" />

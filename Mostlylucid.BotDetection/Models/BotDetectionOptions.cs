@@ -108,6 +108,13 @@ public class BotDetectionOptions
     public LlmCoordinatorOptions LlmCoordinator { get; set; } = new();
 
     /// <summary>
+    ///     Configuration for background enrichment (post-detection DNS lookups, etc.).
+    ///     When confidence is low, enrichment requests are queued for async processing.
+    ///     Results feed back into the reputation system for future requests.
+    /// </summary>
+    public BackgroundEnrichmentOptions BackgroundEnrichment { get; set; } = new();
+
+    /// <summary>
     ///     When true, detections from local/private IPs are excluded from SignalR broadcasts
     ///     and the live feed. Prevents self-detection from contaminating production data.
     ///     Default: true (set to false for local development/testing).
@@ -396,6 +403,11 @@ public class BotDetectionOptions
     ///     Configuration for bot cluster detection (label propagation clustering).
     /// </summary>
     public ClusterOptions Cluster { get; set; } = new();
+
+    /// <summary>
+    ///     Configuration for Markov chain path learning and drift detection.
+    /// </summary>
+    public Markov.MarkovOptions Markov { get; set; } = new();
 
     /// <summary>
     ///     Configuration for per-country bot rate tracking with decay.
@@ -970,6 +982,25 @@ public class BotDetectionOptions
     public List<string> ApiBypassKeys { get; set; } = [];
 
     /// <summary>
+    ///     Whether legacy <see cref="ApiBypassKeys"/> are honored.
+    ///     Default: false (secure by default). When disabled, configured bypass keys are ignored.
+    /// </summary>
+    public bool EnableLegacyApiBypassKeys { get; set; }
+
+    /// <summary>
+    ///     Whether rich API keys are allowed to disable all detectors via <c>DisabledDetectors=["*"]</c>.
+    ///     Default: false (secure by default).
+    /// </summary>
+    public bool AllowFullDetectorBypassApiKeys { get; set; }
+
+    /// <summary>
+    ///     Whether requests that present an API key header but don't match any configured rich key
+    ///     should be rejected.
+    ///     Default: true (prevents silent key probing against endpoint surfaces).
+    /// </summary>
+    public bool RejectUnknownApiKeys { get; set; } = true;
+
+    /// <summary>
     ///     Rich API key configurations with per-key detection policy overlays.
     ///     Each key maps to an <see cref="ApiKeyConfig"/> with detector enable/disable,
     ///     weight overrides, path restrictions, rate limits, and lifecycle controls.
@@ -991,9 +1022,9 @@ public class BotDetectionOptions
 
     /// <summary>
     ///     Header name used for API key bypass authentication.
-    ///     Default: "X-Api-Key"
+    ///     Default: "X-SB-Api-Key"
     /// </summary>
-    public string ApiBypassHeaderName { get; set; } = "X-Api-Key";
+    public string ApiBypassHeaderName { get; set; } = "X-SB-Api-Key";
 
     /// <summary>
     ///     Paths where only signature generation runs (no detection pipeline).
@@ -2023,7 +2054,7 @@ public class BehavioralOptions
 {
     /// <summary>
     ///     HTTP header name to extract API key from for per-API-key rate limiting.
-    ///     Example: "X-Api-Key", "Authorization"
+    ///     Example: "X-SB-Api-Key", "Authorization"
     ///     Leave empty to disable API key tracking.
     /// </summary>
     public string? ApiKeyHeader { get; set; }
@@ -2444,6 +2475,42 @@ public class LlmCoordinatorOptions
 
     /// <summary>Skip enqueue if TimescaleDB says conclusive AND last LLM run was within this window. Default: 1 hour</summary>
     public TimeSpan ConclusiveSkipWindow { get; set; } = TimeSpan.FromHours(1);
+}
+
+/// <summary>
+///     Configuration for background enrichment service.
+///     Runs expensive detectors (DNS lookups, etc.) asynchronously after detection completes.
+///     Results feed back into the reputation system so the next request benefits immediately.
+/// </summary>
+public class BackgroundEnrichmentOptions
+{
+    /// <summary>
+    ///     Maximum detection confidence below which to enqueue for background enrichment.
+    ///     Only low-confidence detections benefit from additional enrichment.
+    ///     Default: 0.6
+    /// </summary>
+    public double ConfidenceThreshold { get; set; } = 0.6;
+
+    /// <summary>
+    ///     Minimum bot probability to enqueue for background enrichment.
+    ///     Very low probability requests are clearly human and don't need enrichment.
+    ///     Default: 0.3
+    /// </summary>
+    public double MinBotProbability { get; set; } = 0.3;
+
+    /// <summary>
+    ///     Maximum number of concurrent enrichment lookups.
+    ///     Higher values = more DNS queries in parallel but more resource usage.
+    ///     Default: 2
+    /// </summary>
+    public int MaxConcurrency { get; set; } = 2;
+
+    /// <summary>
+    ///     Maximum number of pending enrichment requests in the channel.
+    ///     When full, oldest requests are dropped (BoundedChannelFullMode.DropOldest).
+    ///     Default: 500
+    /// </summary>
+    public int ChannelCapacity { get; set; } = 500;
 }
 
 /// <summary>
@@ -3071,20 +3138,20 @@ public class ClusterOptions
     /// <summary>How often to re-run clustering (seconds). Default: 30</summary>
     public int ClusterIntervalSeconds { get; set; } = 30;
 
-    /// <summary>Minimum pairwise similarity to create an edge. Default: 0.75</summary>
-    public double SimilarityThreshold { get; set; } = 0.75;
+    /// <summary>Minimum pairwise similarity to create an edge. Default: 0.55</summary>
+    public double SimilarityThreshold { get; set; } = 0.55;
 
-    /// <summary>Minimum cluster size to report. Default: 3</summary>
-    public int MinClusterSize { get; set; } = 3;
+    /// <summary>Minimum cluster size to report. Default: 2</summary>
+    public int MinClusterSize { get; set; } = 2;
 
     /// <summary>Max label propagation iterations. Default: 10</summary>
     public int MaxIterations { get; set; } = 10;
 
-    /// <summary>Behavioral similarity threshold for "Bot Product" classification. Default: 0.85</summary>
-    public double ProductSimilarityThreshold { get; set; } = 0.85;
+    /// <summary>Behavioral similarity threshold for "Bot Product" classification. Default: 0.75</summary>
+    public double ProductSimilarityThreshold { get; set; } = 0.75;
 
-    /// <summary>Temporal density threshold for "Bot Network" classification. Default: 0.6</summary>
-    public double NetworkTemporalDensityThreshold { get; set; } = 0.6;
+    /// <summary>Temporal density threshold for "Bot Network" classification. Default: 0.4</summary>
+    public double NetworkTemporalDensityThreshold { get; set; } = 0.4;
 
     /// <summary>Minimum avg bot probability for a signature to enter clustering. Default: 0.5</summary>
     public double MinBotProbabilityForClustering { get; set; } = 0.5;
@@ -3216,6 +3283,42 @@ public class BotDetectionOptionsValidator : IValidateOptions<BotDetectionOptions
             warnings.Add(
                 "TrustUpstreamDetection is enabled without HMAC signature verification (UpstreamSignatureHeader/Secret). " +
                 "Any client can forge X-Bot-Detected headers. Configure HMAC unless backend is network-isolated.");
+
+        if (string.IsNullOrWhiteSpace(options.ApiBypassHeaderName))
+            errors.Add("ApiBypassHeaderName cannot be empty");
+
+        if (options.ApiBypassKeys.Count > 0 && !options.EnableLegacyApiBypassKeys)
+            warnings.Add("ApiBypassKeys are configured but EnableLegacyApiBypassKeys is false; legacy bypass keys are ignored.");
+
+        foreach (var (keyId, keyConfig) in options.ApiKeys)
+        {
+            if (string.IsNullOrWhiteSpace(keyId))
+                errors.Add("ApiKeys contains an empty key id");
+
+            if (string.IsNullOrWhiteSpace(keyConfig.Name))
+                errors.Add($"ApiKeys['{keyId}'].Name is required");
+
+            if (keyConfig.RateLimitPerMinute < 0)
+                errors.Add($"ApiKeys['{keyId}'].RateLimitPerMinute cannot be negative");
+
+            if (keyConfig.RateLimitPerHour < 0)
+                errors.Add($"ApiKeys['{keyId}'].RateLimitPerHour cannot be negative");
+
+            if (!string.IsNullOrWhiteSpace(keyConfig.AllowedTimeWindow))
+            {
+                var parts = keyConfig.AllowedTimeWindow.Split('-', StringSplitOptions.TrimEntries);
+                if (parts.Length != 2 ||
+                    !TimeOnly.TryParse(parts[0], out _) ||
+                    !TimeOnly.TryParse(parts[1], out _))
+                    errors.Add($"ApiKeys['{keyId}'].AllowedTimeWindow must be 'HH:mm-HH:mm' in UTC");
+            }
+
+            if (!options.AllowFullDetectorBypassApiKeys &&
+                keyConfig.DisabledDetectors.Count == 1 &&
+                keyConfig.DisabledDetectors[0] == "*")
+                errors.Add(
+                    $"ApiKeys['{keyId}'] disables all detectors but AllowFullDetectorBypassApiKeys is false");
+        }
 
         // Validate BehavioralOptions
         ValidateBehavioralOptions(options.Behavioral, errors, warnings);

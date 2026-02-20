@@ -3,7 +3,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
-using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Models;
 
@@ -14,11 +13,12 @@ namespace Mostlylucid.BotDetection.Services;
 ///     Uses a bounded Channel&lt;T&gt; with DropOldest backpressure.
 ///     Fire-and-forget from the detection pipeline — no parallelism, one at a time.
 ///     Tracks queue depth and provides adaptive sampling rates.
+///     When no LlmClassificationService is registered (no LLM provider), becomes a no-op.
 /// </summary>
 public class LlmClassificationCoordinator : BackgroundService
 {
     private readonly Channel<LlmClassificationRequest> _channel;
-    private readonly LlmDetector _detector;
+    private readonly IServiceProvider _serviceProvider;
     private readonly IBotNameSynthesizer? _nameSynthesizer;
     private readonly ILearningEventBus? _learningBus;
     private readonly ILogger<LlmClassificationCoordinator> _logger;
@@ -31,7 +31,7 @@ public class LlmClassificationCoordinator : BackgroundService
 
     public LlmClassificationCoordinator(
         ILogger<LlmClassificationCoordinator> logger,
-        LlmDetector detector,
+        IServiceProvider serviceProvider,
         IPatternReputationCache reputationCache,
         PatternReputationUpdater updater,
         IOptions<BotDetectionOptions> options,
@@ -40,7 +40,7 @@ public class LlmClassificationCoordinator : BackgroundService
         IBotNameSynthesizer? nameSynthesizer = null)
     {
         _logger = logger;
-        _detector = detector;
+        _serviceProvider = serviceProvider;
         _reputationCache = reputationCache;
         _updater = updater;
         _options = options.Value;
@@ -68,8 +68,6 @@ public class LlmClassificationCoordinator : BackgroundService
 
     /// <summary>
     ///     Returns the current adaptive sample rate based on queue utilization.
-    ///     When queue is empty → higher rate (keep Ollama busy).
-    ///     When queue is filling → lower rate (avoid dropping).
     /// </summary>
     public double GetAdaptiveSampleRate()
     {
@@ -78,17 +76,16 @@ public class LlmClassificationCoordinator : BackgroundService
 
         return utilization switch
         {
-            < 0.1 => baseRate * 3.0,   // Queue nearly empty — sample aggressively
-            < 0.3 => baseRate * 2.0,   // Queue low — sample more
-            < 0.6 => baseRate,         // Normal — base rate
-            < 0.8 => baseRate * 0.5,   // Queue filling — reduce sampling
-            _ => baseRate * 0.1        // Queue nearly full — minimal sampling
+            < 0.1 => baseRate * 3.0,
+            < 0.3 => baseRate * 2.0,
+            < 0.6 => baseRate,
+            < 0.8 => baseRate * 0.5,
+            _ => baseRate * 0.1
         };
     }
 
     /// <summary>
     ///     Try to enqueue a detection snapshot for background LLM classification.
-    ///     Returns false if the channel is full (request dropped).
     /// </summary>
     public bool TryEnqueue(LlmClassificationRequest request)
     {
@@ -135,7 +132,7 @@ public class LlmClassificationCoordinator : BackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Normal shutdown — ReadAllAsync throws when token is cancelled
+            // Normal shutdown
         }
 
         _logger.LogInformation("LlmClassificationCoordinator stopped");
@@ -145,18 +142,33 @@ public class LlmClassificationCoordinator : BackgroundService
     {
         _logger.LogDebug("Processing LLM classification for {RequestId}", request.RequestId);
 
-        var result = await _detector.DetectFromSnapshotAsync(request.PreBuiltRequestInfo, ct);
+        // Try to resolve LlmClassificationService from DI (provided by Llm plugin packages)
+        var classificationService = _serviceProvider.GetService(
+            Type.GetType("Mostlylucid.BotDetection.Llm.Services.LlmClassificationService, Mostlylucid.BotDetection.Llm"));
 
-        if (result.Reasons.Count == 0)
+        Detectors.DetectorResult? result = null;
+
+        if (classificationService != null)
         {
-            // Ollama returned nothing — try LlamaSharp name synthesizer as fallback
+            // Use reflection-free approach: the service type has a ClassifyAsync method
+            var classifyMethod = classificationService.GetType().GetMethod("ClassifyAsync");
+            if (classifyMethod != null)
+            {
+                var task = (Task<Detectors.DetectorResult>)classifyMethod.Invoke(classificationService, [request.PreBuiltRequestInfo, ct])!;
+                result = await task;
+            }
+        }
+
+        if (result == null || result.Reasons.Count == 0)
+        {
+            // Fallback to IBotNameSynthesizer
             if (_nameSynthesizer != null && _nameSynthesizer.IsReady)
             {
                 await FallbackToNameSynthesizerAsync(request, ct);
             }
             else
             {
-                _logger.LogDebug("LLM returned no classification for {RequestId} (no fallback available)", request.RequestId);
+                _logger.LogDebug("No LLM provider available for {RequestId}", request.RequestId);
             }
             return;
         }
@@ -164,31 +176,61 @@ public class LlmClassificationCoordinator : BackgroundService
         var reason = result.Reasons.First();
         var description = reason.Detail;
 
-        // Update ephemeral reputation cache with LLM result for ALL signature vectors.
-        // This ensures churn-resistant identity: if IP changes but UA stays the same,
-        // the UA vector still carries the LLM result forward.
-        // Use ApplyEvidence to go through proper EWMA blending, state evaluation, and confidence tracking.
-        // LLM evidence weight of 2.0 — authoritative but blended with existing evidence.
+        // Update ephemeral reputation cache with LLM result
         var llmLabel = result.Confidence > 0.5 ? 1.0 : 0.0;
         const double llmEvidenceWeight = 2.0;
 
+        var previousScore = 0.0;
         if (request.SignatureVectors is { Count: > 0 })
         {
             foreach (var (vectorType, vectorHash) in request.SignatureVectors)
             {
                 var patternId = $"{vectorType}:{vectorHash}";
                 var existing = _reputationCache.Get(patternId);
+                if (vectorType == "primary" || vectorType == "ua")
+                    previousScore = existing.BotScore;
                 var updated = _updater.ApplyEvidence(existing, patternId, vectorType, vectorHash, llmLabel, llmEvidenceWeight);
                 _reputationCache.Update(updated);
             }
         }
         else
         {
-            // Fallback: single primary signature
             var patternId = $"ua:{request.PrimarySignature}";
             var existing = _reputationCache.Get(patternId);
+            previousScore = existing.BotScore;
             var updated = _updater.ApplyEvidence(existing, patternId, "UserAgent", request.PrimarySignature, llmLabel, llmEvidenceWeight);
             _reputationCache.Update(updated);
+        }
+
+        // Score change narrative — if score changed by >0.2, generate a narrative
+        var scoreChange = Math.Abs(result.Confidence - previousScore);
+        if (scoreChange > 0.2 && _resultCallback != null)
+        {
+            // Try to resolve IScoreNarrativeService from DI
+            var narrativeServiceType = Type.GetType("Mostlylucid.BotDetection.Llm.Services.IScoreNarrativeService, Mostlylucid.BotDetection.Llm");
+            var narrativeService = narrativeServiceType != null ? _serviceProvider.GetService(narrativeServiceType) : null;
+
+            if (narrativeService != null)
+            {
+                try
+                {
+                    var generateMethod = narrativeService.GetType().GetMethod("GenerateNarrativeAsync");
+                    if (generateMethod != null)
+                    {
+                        var task = (Task<string?>)generateMethod.Invoke(narrativeService,
+                            [request.PrimarySignature, previousScore, result.Confidence, (IReadOnlyDictionary<string, object?>?)request.Signals?.ToDictionary(k => k.Key, v => (object?)v.Value), ct])!;
+                        var narrative = await task;
+                        if (!string.IsNullOrWhiteSpace(narrative))
+                        {
+                            await _resultCallback.OnScoreNarrativeAsync(request.PrimarySignature, narrative, ct);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Score narrative generation failed");
+                }
+            }
         }
 
         // Publish drift event if this was a drift/confirmation sample
@@ -241,15 +283,10 @@ public class LlmClassificationCoordinator : BackgroundService
             request.RequestId, reason.ConfidenceImpact > 0, result.Confidence);
     }
 
-    /// <summary>
-    ///     Fallback: use IBotNameSynthesizer (LlamaSharp) when Ollama is not configured.
-    ///     Generates a description from request signals and broadcasts via callback.
-    /// </summary>
     private async Task FallbackToNameSynthesizerAsync(LlmClassificationRequest request, CancellationToken ct)
     {
         try
         {
-            // Build minimal signals from the pre-built request info
             var signals = new Dictionary<string, object?>
             {
                 ["detection.useragent.source"] = request.PreBuiltRequestInfo,
@@ -257,7 +294,6 @@ public class LlmClassificationCoordinator : BackgroundService
                 ["detection.heuristic.probability"] = request.HeuristicProbability
             };
 
-            // Add signature vectors as signals
             if (request.SignatureVectors is { Count: > 0 })
             {
                 foreach (var (vectorType, vectorHash) in request.SignatureVectors)
@@ -274,13 +310,13 @@ public class LlmClassificationCoordinator : BackgroundService
                     description,
                     ct);
 
-                _logger.LogDebug("LlamaSharp fallback generated description for {RequestId}: {Name}",
+                _logger.LogDebug("Fallback generated description for {RequestId}: {Name}",
                     request.RequestId, name ?? "(unnamed)");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "LlamaSharp fallback failed for {RequestId}", request.RequestId);
+            _logger.LogDebug(ex, "Fallback failed for {RequestId}", request.RequestId);
         }
     }
 }

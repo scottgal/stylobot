@@ -16,4 +16,11 @@ public interface ILlmResultCallback
     ///     Broadcasts the name/description to all dashboard clients for that signature.
     /// </summary>
     Task OnSignatureDescriptionAsync(string signature, string name, string description, CancellationToken ct = default);
+
+    /// <summary>
+    ///     Called when a score change narrative is generated for a signature.
+    ///     Default no-op for backward compatibility.
+    /// </summary>
+    Task OnScoreNarrativeAsync(string signature, string narrative, CancellationToken ct = default)
+        => Task.CompletedTask;
 }

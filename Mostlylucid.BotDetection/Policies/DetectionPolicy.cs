@@ -174,6 +174,8 @@ public sealed record DetectionPolicy
         // Wave 0 (no triggers): FastPathReputation, TimescaleReputation, UserAgent, Header, Ip, SecurityTool, Behavioral, CacheBehavior
         // Wave 1 (trigger on ua.raw): Inconsistency, VersionAge, Heuristic, HeuristicLate, ReputationBias
         // Wave 1+ (trigger on fingerprint): ClientSide
+        // NOTE: ProjectHoneypot is EXCLUDED from default — DNS lookups run via BackgroundEnrichmentService
+        // and feed results into reputation for next request. Still runs in Learning/Demo policies.
         FastPathDetectors =
         [
             "FastPathReputation", "TimescaleReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Behavioral", "ClientSide",
@@ -182,6 +184,7 @@ public sealed record DetectionPolicy
         SlowPathDetectors = [],
         AiPathDetectors = [], // Empty by default - add ONNX/LLM/others via JSON config
         ResponsePathDetectors = ["ResponseBehavior"], // Track response patterns for learning
+        ExcludedDetectors = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ProjectHoneypot"), // DNS lookups moved to background enrichment
         UseFastPath = true,
         ForceSlowPath = false,
         EscalateToAi = false, // Off by default - enable via JSON with AI detectors
