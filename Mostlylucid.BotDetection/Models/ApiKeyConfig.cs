@@ -10,7 +10,7 @@ public class ApiKeyConfig
     /// <summary>
     ///     Human-readable name for this key (e.g., "CI Pipeline", "Claude Test Harness").
     /// </summary>
-    public required string Name { get; set; }
+    public string Name { get; set; } = string.Empty;
 
     /// <summary>
     ///     Optional description of what this key is used for.
