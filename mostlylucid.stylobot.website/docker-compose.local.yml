@@ -39,6 +39,9 @@ services:
   caddy:
     image: caddy:latest
     container_name: stylobot-caddy
+    environment:
+      - SITE_DOMAIN=${SITE_DOMAIN:?Set SITE_DOMAIN in .env (e.g. stylobot.net)}
+      - SITE_EMAIL=${SITE_EMAIL:-scott.galloway+sb@gmail.com}
     expose:
       - "80"
       - "443"

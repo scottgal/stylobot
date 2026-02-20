@@ -1,8 +1,11 @@
 # ============================================================
 # Caddyfile for Stylobot
-# Automatic HTTPS via Let's Encrypt for stylobot.net
-# Fallback routing for any other host (local dev, testing, etc)
+# Automatic HTTPS via Let's Encrypt
 # ============================================================
+#
+# Environment variables:
+#   SITE_DOMAIN  - bare domain (e.g. stylobot.net)
+#   SITE_EMAIL   - ACME email for Let's Encrypt
 #
 # Architecture:
 #   Internet → Caddy (TLS) → YARP Gateway (bot detection) → Website
@@ -17,7 +20,7 @@
 # ============================================================
 
 {
-	email scott.galloway+sb@gmail.com
+	email {$SITE_EMAIL:scott.galloway+sb@gmail.com}
 }
 
 # Define shared routing logic for all hosts
@@ -94,13 +97,12 @@
 	}
 }
 
-# Production domains with HTTPS via Let's Encrypt
-stylobot.net, www.stylobot.net {
-	import common_routes
+# Redirect bare domain to www
+{$SITE_DOMAIN} {
+	redir https://www.{$SITE_DOMAIN}{uri} permanent
 }
 
-# Wildcard matcher for any other hostname (localhost, IPs, internal domains, etc)
-# Caddy will handle TLS appropriately based on the host
-:443, :80 {
+# Production domain with HTTPS via Let's Encrypt
+www.{$SITE_DOMAIN} {
 	import common_routes
 }
