@@ -1,0 +1,151 @@
+# Transport Protocol Detector - WebSocket, gRPC, GraphQL, SSE protocol analysis
+name: TransportProtocolContributor
+priority: 5  # Run early — protocol type informs other detectors
+enabled: true
+description: Detects transport protocol (WebSocket, gRPC, GraphQL, SSE) and validates protocol-specific headers
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: transport
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with potential protocol upgrade or non-HTTP transport
+      signal_pattern: request.transport.*
+
+  required_signals: []
+
+  optional_signals:
+    - h2.protocol
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Transport protocol analysis contribution
+
+  signals:
+    - key: transport.protocol
+      entity_type: string
+      salience: 0.8
+      description: Detected transport protocol (http, websocket, grpc, grpc-web, graphql, sse)
+    - key: transport.is_upgrade
+      entity_type: boolean
+      salience: 0.6
+      description: Whether request is a protocol upgrade
+    - key: transport.websocket_version
+      entity_type: string
+      salience: 0.5
+      description: Sec-WebSocket-Version header value
+    - key: transport.websocket_origin
+      entity_type: boolean
+      salience: 0.5
+      description: Whether Origin header present on WebSocket upgrade
+    - key: transport.grpc_content_type
+      entity_type: string
+      salience: 0.6
+      description: gRPC content-type value
+    - key: transport.graphql_introspection
+      entity_type: boolean
+      salience: 0.7
+      description: Whether GraphQL introspection query detected
+    - key: transport.graphql_batch
+      entity_type: boolean
+      salience: 0.5
+      description: Whether GraphQL batch query detected
+    - key: transport.sse
+      entity_type: boolean
+      salience: 0.4
+      description: Whether SSE request detected
+
+triggers:
+  requires: []
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.transport.started
+
+  on_complete:
+    - key: transport.protocol
+      type: string
+      description: Detected transport protocol
+
+  on_failure:
+    - detector.transport.failed
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 100
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:TransportProtocolContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.4
+    human_signal: 1.0
+    verified: 1.6
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.35
+    human_indicated: -0.1
+    strong_signal: 0.7
+    high_threshold: 0.7
+    low_threshold: 0.2
+    escalation_threshold: 0.5
+
+  timing:
+    timeout_ms: 15  # Very fast - header inspection only
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # WebSocket validation (RFC 6455)
+    missing_ws_headers_confidence: 0.6
+    invalid_ws_version_confidence: 0.5
+    missing_ws_origin_confidence: 0.3
+    ws_origin_mismatch_confidence: 0.5  # CSWSH detection
+    # gRPC validation (gRPC spec §6.4)
+    grpc_browser_ua_confidence: 0.5
+    grpc_missing_te_confidence: 0.4
+    grpc_reflection_confidence: 0.4  # reflection endpoint probing
+    # GraphQL validation (GraphQL over HTTP spec)
+    graphql_introspection_confidence: 0.3
+    graphql_batch_confidence: 0.15
+    graphql_get_mutation_confidence: 0.5  # GET with mutation = spec violation
+    # SSE validation (WHATWG EventSource spec)
+    sse_missing_cache_control_confidence: 0.15
+    sse_history_replay_confidence: 0.3  # Last-Event-ID: 0/-1
+    # GraphQL path patterns
+    graphql_paths:
+      - "/graphql"
+      - "/gql"
+      - "/api/graphql"
+
+tags:
+  - fast-path
+  - protocol
+  - stage-0

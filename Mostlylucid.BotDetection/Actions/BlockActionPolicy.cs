@@ -80,24 +80,32 @@ public class BlockActionPolicy : IActionPolicy
         // Add custom headers
         foreach (var header in _options.Headers) context.Response.Headers.TryAdd(header.Key, header.Value);
 
-        // Build response body
-        object responseBody;
-        if (_options.IncludeRiskScore)
-            responseBody = new
-            {
-                error = _options.Message,
-                riskScore = evidence.BotProbability,
-                riskBand = evidence.RiskBand.ToString(),
-                policy = Name,
-                timestamp = DateTimeOffset.UtcNow
-            };
+        // For non-JSON content types (e.g., fake HTML) or raw message mode, write the message directly
+        if (_options.WriteRawMessage || !_options.ContentType.Contains("json", StringComparison.OrdinalIgnoreCase))
+        {
+            await context.Response.WriteAsync(_options.Message, cancellationToken);
+        }
         else
-            responseBody = new
-            {
-                error = _options.Message
-            };
+        {
+            // Build JSON response body
+            object responseBody;
+            if (_options.IncludeRiskScore)
+                responseBody = new
+                {
+                    error = _options.Message,
+                    riskScore = evidence.BotProbability,
+                    riskBand = evidence.RiskBand.ToString(),
+                    policy = Name,
+                    timestamp = DateTimeOffset.UtcNow
+                };
+            else
+                responseBody = new
+                {
+                    error = _options.Message
+                };
 
-        await context.Response.WriteAsJsonAsync(responseBody, cancellationToken);
+            await context.Response.WriteAsJsonAsync(responseBody, cancellationToken);
+        }
 
         return ActionResult.Blocked(_options.StatusCode, $"Blocked by {Name}: {_options.Message}");
     }
@@ -135,6 +143,13 @@ public class BlockActionOptions
     public bool IncludeRiskScore { get; set; }
 
     /// <summary>
+    ///     When true, writes the Message directly to the response body without JSON wrapping.
+    ///     Useful for fake success/HTML responses where the message IS the complete response body.
+    ///     Default: false
+    /// </summary>
+    public bool WriteRawMessage { get; set; }
+
+    /// <summary>
     ///     Additional headers to add to the response.
     ///     Example: { "X-Block-Reason": "bot-detection" }
     /// </summary>
@@ -157,6 +172,31 @@ public class BlockActionOptions
     {
         StatusCode = 403,
         Message = "Access denied",
+        IncludeRiskScore = false
+    };
+
+    /// <summary>
+    ///     Creates options for a "fake success" block — returns 200 with empty JSON data.
+    ///     Bots think they succeeded but receive no useful content.
+    /// </summary>
+    public static BlockActionOptions FakeSuccess => new()
+    {
+        StatusCode = 200,
+        Message = "{\"data\":[],\"total\":0,\"page\":1}",
+        ContentType = "application/json",
+        IncludeRiskScore = false,
+        WriteRawMessage = true
+    };
+
+    /// <summary>
+    ///     Creates options for a "fake HTML" block — returns 200 with empty HTML.
+    ///     Bots think the page loaded but receive no useful content.
+    /// </summary>
+    public static BlockActionOptions FakeHtml => new()
+    {
+        StatusCode = 200,
+        Message = "<html><body></body></html>",
+        ContentType = "text/html",
         IncludeRiskScore = false
     };
 
@@ -206,6 +246,9 @@ public class BlockActionPolicyFactory : IActionPolicyFactory
 
         if (options.TryGetValue("IncludeRiskScore", out var includeRisk))
             blockOptions.IncludeRiskScore = Convert.ToBoolean(includeRisk);
+
+        if (options.TryGetValue("WriteRawMessage", out var writeRaw))
+            blockOptions.WriteRawMessage = Convert.ToBoolean(writeRaw);
 
         if (options.TryGetValue("Headers", out var headers) && headers is IDictionary<string, object> headerDict)
             foreach (var kvp in headerDict)

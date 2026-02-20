@@ -100,9 +100,10 @@ public sealed class MarkdownDocsService : IMarkdownDocsService
             "running-locally" => 3,
             "live-demo" => 4,
             "deploy-on-server" => 5,
-            "frequently-asked-questions" => 6,
-            "glossary" => 7,
-            "github-docs-map" => 8,
+            "connected-signature-exchange-spec" => 6,
+            "frequently-asked-questions" => 7,
+            "glossary" => 8,
+            "github-docs-map" => 9,
             _ => 100
         };
     }

@@ -51,4 +51,10 @@ public interface IStyloBotDashboardHub
     ///     Sent immediately when background clustering completes (before LLM descriptions).
     /// </summary>
     Task BroadcastClusters(List<DashboardClusterEvent> clusters);
+
+    /// <summary>
+    ///     Broadcast updated country statistics to connected clients.
+    /// </summary>
+    Task BroadcastCountries(List<DashboardCountryStats> countries);
+
 }

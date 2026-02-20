@@ -42,7 +42,9 @@ public static class DetectionNarrativeBuilder
         ["ConvergedFamily"] = "signature convergence",
         ["GeoChange"] = "geographic drift detection",
         ["Haxxor"] = "attack payload detection",
-        ["AccountTakeover"] = "account takeover detection"
+        ["AccountTakeover"] = "account takeover detection",
+        ["ResponseStatusBoost"] = "response status analysis",
+        ["TransportProtocol"] = "transport protocol analysis"
     };
 
     private static readonly Dictionary<string, string> DetectorCategories = new(StringComparer.OrdinalIgnoreCase)
@@ -79,7 +81,9 @@ public static class DetectionNarrativeBuilder
         ["ConvergedFamily"] = "Cross-Request",
         ["GeoChange"] = "Geographic",
         ["Haxxor"] = "Security",
-        ["AccountTakeover"] = "Security"
+        ["AccountTakeover"] = "Security",
+        ["ResponseStatusBoost"] = "Response",
+        ["TransportProtocol"] = "Protocol"
     };
 
     private static readonly Dictionary<string, string> BotTypeFriendlyNames = new(StringComparer.OrdinalIgnoreCase)

@@ -17,20 +17,24 @@ public class DashboardSummaryBroadcaster : BackgroundService
 {
     private readonly IDashboardEventStore _eventStore;
     private readonly DashboardAggregateCache _cache;
+    private readonly SignatureAggregateCache _signatureCache;
     private readonly IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> _hubContext;
     private readonly ILogger<DashboardSummaryBroadcaster> _logger;
     private readonly StyloBotDashboardOptions _options;
+    private bool _seeded;
 
     public DashboardSummaryBroadcaster(
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
         IDashboardEventStore eventStore,
         DashboardAggregateCache cache,
+        SignatureAggregateCache signatureCache,
         StyloBotDashboardOptions options,
         ILogger<DashboardSummaryBroadcaster> logger)
     {
         _hubContext = hubContext;
         _eventStore = eventStore;
         _cache = cache;
+        _signatureCache = signatureCache;
         _options = options;
         _logger = logger;
     }
@@ -51,24 +55,39 @@ public class DashboardSummaryBroadcaster : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
             try
             {
-                // Compute all aggregates from DB in parallel
+                // Seed SignatureAggregateCache from DB on first iteration
+                if (!_seeded)
+                {
+                    _seeded = true;
+                    try
+                    {
+                        var seedBots = await _eventStore.GetTopBotsAsync(100);
+                        _signatureCache.SeedFromTopBots(seedBots);
+                        _logger.LogInformation("Seeded SignatureAggregateCache with {Count} entries from DB", seedBots.Count);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to seed SignatureAggregateCache from DB");
+                    }
+                }
+
+                // Compute aggregates from DB in parallel (no TopBots — handled by write-through cache)
                 var summaryTask = _eventStore.GetSummaryAsync();
-                var topBotsTask = _eventStore.GetTopBotsAsync(50);
                 var countriesTask = _eventStore.GetCountryStatsAsync(50);
                 var userAgentsTask = ComputeUserAgentsAsync();
 
-                await Task.WhenAll(summaryTask, topBotsTask, countriesTask, userAgentsTask);
+                await Task.WhenAll(summaryTask, countriesTask, userAgentsTask);
 
                 // Update cache atomically
                 _cache.Update(new DashboardAggregateCache.AggregateSnapshot
                 {
-                    TopBots = await topBotsTask,
                     Countries = await countriesTask,
                     UserAgents = await userAgentsTask
                 });
 
-                // Broadcast summary to connected clients
+                // Broadcast summary and countries to connected clients
                 await _hubContext.Clients.All.BroadcastSummary(await summaryTask);
+                await _hubContext.Clients.All.BroadcastCountries(await countriesTask);
 
                 await Task.Delay(
                     TimeSpan.FromSeconds(_options.SummaryBroadcastIntervalSeconds),

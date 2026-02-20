@@ -12,9 +12,7 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
 {
     private readonly ConcurrentQueue<DashboardDetectionEvent> _detections = new();
     private readonly int _maxEvents;
-    private readonly ConcurrentDictionary<string, int> _signatureHitCounts = new();
     private readonly ConcurrentQueue<DashboardSignatureEvent> _signatures = new();
-    private int _totalDetections;
 
     public InMemoryDashboardEventStore(StyloBotDashboardOptions options)
     {
@@ -24,11 +22,6 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
     public Task AddDetectionAsync(DashboardDetectionEvent detection)
     {
         _detections.Enqueue(detection);
-        Interlocked.Increment(ref _totalDetections);
-
-        // Track signature hit counts (single source of truth — AddSignatureAsync reads only)
-        if (!string.IsNullOrEmpty(detection.PrimarySignature))
-            _signatureHitCounts.AddOrUpdate(detection.PrimarySignature, 1, (_, count) => count + 1);
 
         // Trim if over limit
         while (_detections.Count > _maxEvents) _detections.TryDequeue(out _);
@@ -38,16 +31,12 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
 
     public Task<DashboardSignatureEvent> AddSignatureAsync(DashboardSignatureEvent signature)
     {
-        // Read hit count from detection tracking (don't increment again — that would double-count)
-        var hitCount = _signatureHitCounts.GetOrAdd(signature.PrimarySignature, 1);
-
-        var updatedSignature = signature with { HitCount = hitCount };
-        _signatures.Enqueue(updatedSignature);
+        _signatures.Enqueue(signature);
 
         // Trim if over limit
         while (_signatures.Count > _maxEvents) _signatures.TryDequeue(out _);
 
-        return Task.FromResult(updatedSignature);
+        return Task.FromResult(signature);
     }
 
     public Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null)
@@ -145,17 +134,24 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
             TopActions = topActions,
             AverageProcessingTimeMs = avgProcessingTime,
             LastProcessingTimeMs = lastProcessingTime,
-            UniqueSignatures = _signatureHitCounts.Count
+            UniqueSignatures = detections
+                .Where(d => !string.IsNullOrEmpty(d.PrimarySignature))
+                .Select(d => d.PrimarySignature)
+                .Distinct()
+                .Count()
         };
 
         return Task.FromResult(summary);
     }
 
-    public Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10)
+    public Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null)
     {
         // Group detections by signature — works even when signatures aren't stored
         // (e.g. upstream-trusted mode where only detections are recorded).
-        var topBots = _detections
+        IEnumerable<DashboardDetectionEvent> source = _detections;
+        if (startTime.HasValue) source = source.Where(d => d.Timestamp >= startTime.Value);
+        if (endTime.HasValue) source = source.Where(d => d.Timestamp <= endTime.Value);
+        var topBots = source
             .Where(d => d.IsBot && !string.IsNullOrEmpty(d.PrimarySignature))
             .GroupBy(d => d.PrimarySignature!)
             .Select(g =>
@@ -187,9 +183,13 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
         return Task.FromResult(topBots);
     }
 
-    public Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20)
+    public Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
     {
-        var countryStats = _detections
+        IEnumerable<DashboardDetectionEvent> source = _detections;
+        if (startTime.HasValue) source = source.Where(d => d.Timestamp >= startTime.Value);
+        if (endTime.HasValue) source = source.Where(d => d.Timestamp <= endTime.Value);
+
+        var countryStats = source
             .Where(d => !string.IsNullOrEmpty(d.CountryCode)
                         && d.CountryCode != "XX"
                         && d.CountryCode != "LOCAL")
@@ -209,6 +209,79 @@ public class InMemoryDashboardEventStore : IDashboardEventStore
             .ToList();
 
         return Task.FromResult(countryStats);
+    }
+
+    public Task<DashboardCountryDetail?> GetCountryDetailAsync(string countryCode, DateTime? startTime = null, DateTime? endTime = null)
+    {
+        var code = countryCode.ToUpperInvariant();
+        IEnumerable<DashboardDetectionEvent> source = _detections;
+        if (startTime.HasValue) source = source.Where(d => d.Timestamp >= startTime.Value);
+        if (endTime.HasValue) source = source.Where(d => d.Timestamp <= endTime.Value);
+
+        var countryDetections = source
+            .Where(d => string.Equals(d.CountryCode, code, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (countryDetections.Count == 0)
+            return Task.FromResult<DashboardCountryDetail?>(null);
+
+        var totalCount = countryDetections.Count;
+        var botCount = countryDetections.Count(d => d.IsBot);
+
+        var topBotTypes = countryDetections
+            .Where(d => d.BotType != null)
+            .GroupBy(d => d.BotType!)
+            .OrderByDescending(g => g.Count())
+            .Take(10)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var topActions = countryDetections
+            .Where(d => d.Action != null)
+            .GroupBy(d => d.Action!)
+            .OrderByDescending(g => g.Count())
+            .Take(10)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var topBots = countryDetections
+            .Where(d => d.IsBot && !string.IsNullOrEmpty(d.PrimarySignature))
+            .GroupBy(d => d.PrimarySignature!)
+            .Select(g =>
+            {
+                var latest = g.OrderByDescending(d => d.Timestamp).First();
+                return new DashboardTopBotEntry
+                {
+                    PrimarySignature = g.Key,
+                    HitCount = g.Count(),
+                    BotName = latest.BotName,
+                    BotType = latest.BotType,
+                    RiskBand = latest.RiskBand,
+                    BotProbability = latest.BotProbability,
+                    Confidence = latest.Confidence,
+                    Action = latest.Action,
+                    CountryCode = latest.CountryCode,
+                    ProcessingTimeMs = latest.ProcessingTimeMs,
+                    TopReasons = latest.TopReasons,
+                    LastSeen = latest.Timestamp,
+                    IsKnownBot = true
+                };
+            })
+            .OrderByDescending(b => b.HitCount)
+            .Take(10)
+            .ToList();
+
+        var detail = new DashboardCountryDetail
+        {
+            CountryCode = code,
+            CountryName = code,
+            TotalCount = totalCount,
+            BotCount = botCount,
+            BotRate = totalCount > 0 ? Math.Round((double)botCount / totalCount, 3) : 0,
+            TopBotTypes = topBotTypes,
+            TopActions = topActions,
+            TopBots = topBots
+        };
+
+        return Task.FromResult<DashboardCountryDetail?>(detail);
     }
 
     public Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(

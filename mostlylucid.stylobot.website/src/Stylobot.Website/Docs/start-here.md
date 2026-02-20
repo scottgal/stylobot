@@ -50,6 +50,7 @@ For a detailed walkthrough of this pipeline, read [How StyloBot Works](/docs/how
 - [Detectors In Depth](/docs/detectors-in-depth): what each detector checks and how to tune it
 - [Live Demo Guide](/docs/live-demo): how to present and interpret live output
 - [Deploy on Server](/docs/deploy-on-server): practical production rollout
+- [Connected Signature Exchange Spec](/docs/connected-signature-exchange-spec): endpoint contract, delta sync, merge reputation, and zero-PII controls
 - [GitHub Docs Map](/docs/github-docs-map): deeper technical docs in the GitHub repo
 
 ## Safe rollout defaults

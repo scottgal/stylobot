@@ -808,4 +808,33 @@ public static class SignalKeys
 
     /// <summary>Double: velocity drift component (request rate deviation)</summary>
     public const string AtoDriftVelocity = "ato.drift_velocity";
+
+    // ==========================================
+    // Transport protocol signals
+    // Set by TransportProtocolContributor when analyzing upgrade/protocol headers
+    // ==========================================
+
+    /// <summary>String: detected transport protocol (http, websocket, grpc, grpc-web, graphql, sse)</summary>
+    public const string TransportProtocol = "transport.protocol";
+
+    /// <summary>Boolean: true if request is a protocol upgrade (WebSocket)</summary>
+    public const string TransportIsUpgrade = "transport.is_upgrade";
+
+    /// <summary>String: Sec-WebSocket-Version value from upgrade request</summary>
+    public const string TransportWebSocketVersion = "transport.websocket_version";
+
+    /// <summary>Boolean: true if Origin header is present on WebSocket upgrade</summary>
+    public const string TransportWebSocketOrigin = "transport.websocket_origin";
+
+    /// <summary>String: gRPC content-type value (application/grpc, application/grpc+proto)</summary>
+    public const string TransportGrpcContentType = "transport.grpc_content_type";
+
+    /// <summary>Boolean: true if GraphQL introspection query detected (__schema, __type)</summary>
+    public const string TransportGraphqlIntrospection = "transport.graphql_introspection";
+
+    /// <summary>Boolean: true if GraphQL batch query detected (array body)</summary>
+    public const string TransportGraphqlBatch = "transport.graphql_batch";
+
+    /// <summary>Boolean: true if SSE request detected (Accept: text/event-stream)</summary>
+    public const string TransportSse = "transport.sse";
 }

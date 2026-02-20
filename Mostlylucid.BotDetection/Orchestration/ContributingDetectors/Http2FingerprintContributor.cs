@@ -129,8 +129,21 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
 
         try
         {
-            var protocol = state.HttpContext.Request.Protocol;
+            // Behind a reverse proxy (e.g. Caddy, nginx), the backend connection is typically HTTP/1.1.
+            // Check X-HTTP-Protocol header first for the original client protocol.
+            var rawProtocol = state.HttpContext.Request.Protocol;
+            var protocol = rawProtocol;
+            var behindProxy = false;
+
+            if (state.HttpContext.Request.Headers.TryGetValue("X-HTTP-Protocol", out var originalProtocol)
+                && !string.IsNullOrEmpty(originalProtocol.ToString()))
+            {
+                protocol = originalProtocol.ToString();
+                behindProxy = true;
+            }
+
             state.WriteSignal(SignalKeys.H2Protocol, protocol);
+            state.WriteSignal("h2.behind_proxy", behindProxy);
 
             // Check if HTTP/2 is being used
             var isHttp2 = protocol.Equals("HTTP/2", StringComparison.OrdinalIgnoreCase) ||
@@ -151,6 +164,8 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
 
                 // HTTP/1.x usage could be legitimate or suspicious depending on context
                 // Modern browsers support HTTP/2, but some automation tools don't
+                // However, if we're behind a proxy and the original protocol was HTTP/1.x,
+                // the penalty still applies (client genuinely connected with HTTP/1.x)
                 if (protocol.StartsWith("HTTP/1"))
                     contributions.Add(BotContribution(
                         "HTTP/2",

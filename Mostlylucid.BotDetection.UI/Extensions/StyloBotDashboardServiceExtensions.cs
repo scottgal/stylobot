@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
@@ -49,6 +50,9 @@ public static class StyloBotDashboardServiceExtensions
         // Aggregate cache — populated by beacon, read by API endpoints
         services.AddSingleton<DashboardAggregateCache>();
 
+        // Write-through signature cache — single source of truth for top bots
+        services.AddSingleton<SignatureAggregateCache>();
+
         // Background beacon — computes all dashboard aggregates periodically
         services.AddHostedService<DashboardSummaryBroadcaster>();
 
@@ -64,6 +68,27 @@ public static class StyloBotDashboardServiceExtensions
         // Cluster description callback for background LLM cluster naming
         services.TryAddSingleton<IClusterDescriptionCallback, ClusterDescriptionSignalRCallback>();
 
+        // Register dashboard data API paths with the bot detection policy system.
+        // BotDetectionMiddleware will resolve the detection policy for these paths
+        // and apply the configured action policy automatically — no manual bot-checking needed.
+        services.PostConfigure<BotDetectionOptions>(opts =>
+        {
+            var policyName = options.DataApiDetectionPolicy;
+            var basePath = options.BasePath.TrimEnd('/');
+
+            // Register the detection policy (only if not already defined by user config)
+            if (!opts.Policies.ContainsKey(policyName))
+            {
+                opts.Policies[policyName] = new DetectionPolicyConfig
+                {
+                    ActionPolicyName = options.DataApiActionPolicyName
+                };
+            }
+
+            // Map dashboard data API paths to the detection policy
+            opts.PathPolicies[$"{basePath}/api/**"] = policyName;
+        });
+
         return services;
     }
 
@@ -78,18 +103,8 @@ public static class StyloBotDashboardServiceExtensions
 
         if (!options.Enabled) return app;
 
-        // Ensure dashboard path gets signature-only treatment
-        // (signature is computed for "Your Detection" panel, but no detection runs)
-        var botOptions = app.ApplicationServices.GetService<IOptions<BotDetectionOptions>>()?.Value;
-        if (botOptions != null && !botOptions.ExcludedPaths.Any(p =>
-                options.BasePath.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
-        {
-            lock (botOptions.SignatureOnlyPaths)
-            {
-                if (!botOptions.SignatureOnlyPaths.Contains(options.BasePath))
-                    botOptions.SignatureOnlyPaths.Add(options.BasePath);
-            }
-        }
+        // Let bot detection run on dashboard paths too (dogfooding).
+        // Detection results are used to block confirmed bots from data API endpoints.
 
         // Broadcast REAL detections to SignalR - must be BEFORE UseEndpoints
         // This runs for ALL requests to capture detection results
@@ -159,6 +174,9 @@ public static class StyloBotDashboardServiceExtensions
 
         // Aggregate cache — populated by beacon, read by API endpoints
         services.TryAddSingleton<DashboardAggregateCache>();
+
+        // Write-through signature cache — single source of truth for top bots
+        services.TryAddSingleton<SignatureAggregateCache>();
 
         // Server-side visitor cache (needed by broadcast middleware)
         services.TryAddSingleton<VisitorListCache>();

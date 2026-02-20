@@ -122,6 +122,54 @@ public class BotDetectionMiddleware(
             return;
         }
 
+        // Rich API key: per-key detection overlay (detection still runs, but with detector exclusions)
+        var apiKeyStore = context.RequestServices?.GetService<IApiKeyStore>();
+        var apiKeyContext = TryValidateRichApiKey(context, apiKeyStore);
+        if (apiKeyContext != null)
+        {
+            if (apiKeyContext.DisablesAllDetectors)
+            {
+                // Key disables all detectors — equivalent to legacy bypass
+                context.Items[IsBotKey] = false;
+                context.Items[BotProbabilityKey] = 0.0;
+                context.Items["BotDetection.ApiKeyBypass"] = true;
+                context.Items["BotDetection.ApiKeyContext"] = apiKeyContext;
+                _logger.LogDebug("Skipping bot detection for {Path} (API key '{KeyName}' disables all detectors)",
+                    context.Request.Path, apiKeyContext.KeyName);
+                await _next(context);
+                return;
+            }
+
+            // Store context for downstream use — detection will run with overlay
+            context.Items["BotDetection.ApiKeyContext"] = apiKeyContext;
+            _logger.LogDebug("Using API key '{KeyName}' overlay for {Path} (disabled: {Disabled})",
+                apiKeyContext.KeyName, context.Request.Path,
+                string.Join(", ", apiKeyContext.DisabledDetectors));
+        }
+        else if (context.Items.ContainsKey("BotDetection.ApiKeyRejection"))
+        {
+            // Key was found but rejected (expired, rate limited, path denied)
+            var rejection = (ApiKeyRejection)context.Items["BotDetection.ApiKeyRejection"]!;
+            var statusCode = rejection.Reason == ApiKeyRejectionReason.RateLimitExceeded ? 429 : 403;
+            context.Response.StatusCode = statusCode;
+            _logger.LogWarning("API key rejected: {Reason} ({Detail}) for {Path}",
+                rejection.Reason, rejection.Detail, context.Request.Path);
+            return;
+        }
+        else
+        {
+            // Legacy API key bypass: trusted keys skip detection entirely
+            if (HasValidApiBypassKey(context))
+            {
+                context.Items[IsBotKey] = false;
+                context.Items[BotProbabilityKey] = 0.0;
+                context.Items["BotDetection.ApiKeyBypass"] = true;
+                _logger.LogDebug("Skipping bot detection for {Path} (legacy API key bypass)", context.Request.Path);
+                await _next(context);
+                return;
+            }
+        }
+
         // Signature-only paths: compute signature for cache lookups but skip detection
         if (IsSignatureOnlyPath(context.Request.Path))
         {
@@ -199,6 +247,9 @@ public class BotDetectionMiddleware(
         var aggregatedResult = await orchestrator.DetectWithPolicyAsync(context, policy, context.RequestAborted);
         PopulateContextFromAggregated(context, aggregatedResult, policy.Name);
 
+        // Compute multi-vector signatures for dashboard and bot identity tracking
+        ComputeAndStoreSignature(context);
+
         // Feed country reputation and cluster services with detection results
         FeedDetectionServices(context, aggregatedResult);
 
@@ -207,7 +258,9 @@ public class BotDetectionMiddleware(
         var requestStartTime = DateTime.UtcNow;
         context.Response.OnCompleted(async () =>
         {
-            await RecordResponseAsync(context, aggregatedResult, responseCoordinator, requestStartTime);
+            // Read final evidence from context (may have been boosted by ApplyResponseStatusBoost)
+            var finalEvidence = context.Items[AggregatedEvidenceKey] as AggregatedEvidence ?? aggregatedResult;
+            await RecordResponseAsync(context, finalEvidence, responseCoordinator, requestStartTime);
         });
 
         // Log detection result
@@ -215,6 +268,18 @@ public class BotDetectionMiddleware(
 
         // Add response headers if enabled
         if (_options.ResponseHeaders.Enabled) AddResponseHeaders(context, aggregatedResult, policy.Name);
+
+        // API key action policy override (e.g., "logonly" for monitoring keys)
+        // Respect the policy's ActionPolicyOverridable flag — locked policies cannot be overridden by API keys
+        if (apiKeyContext != null && !string.IsNullOrEmpty(apiKeyContext.ActionPolicyName)
+            && policy.ActionPolicyOverridable)
+        {
+            aggregatedResult = aggregatedResult with
+            {
+                TriggeredActionPolicyName = apiKeyContext.ActionPolicyName
+            };
+            context.Items[AggregatedEvidenceKey] = aggregatedResult;
+        }
 
         // Check for triggered action policy first (takes precedence over built-in actions)
         if (!string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName))
@@ -271,6 +336,7 @@ public class BotDetectionMiddleware(
                 // after the action (e.g., throttle-stealth adds delay then lets the
                 // request through, appearing normal to the bot).
                 await _next(context);
+                ApplyResponseStatusBoost(context);
                 return;
             }
         }
@@ -286,6 +352,9 @@ public class BotDetectionMiddleware(
 
         // Continue pipeline
         await _next(context);
+
+        // Fail2ban-style: after response, check status code and boost/reduce detection
+        ApplyResponseStatusBoost(context);
     }
 
     #region Detection Service Feeds
@@ -590,8 +659,51 @@ public class BotDetectionMiddleware(
                 policyAttr.PolicyName);
         }
 
+        // 1b. Check for sandbox/probation policy override (set by sandbox action on previous request)
+        if (context.Items.TryGetValue("BotDetection.SandboxPolicy", out var sandboxPolicyObj) &&
+            sandboxPolicyObj is string sandboxPolicyName)
+        {
+            var sandboxPolicy = policyRegistry.GetPolicy(sandboxPolicyName);
+            if (sandboxPolicy != null)
+            {
+                // If LLM sampling is disabled for this request, exclude the LLM detector
+                if (context.Items.TryGetValue("BotDetection.SandboxUseLlm", out var useLlmObj) &&
+                    useLlmObj is false)
+                {
+                    sandboxPolicy = sandboxPolicy with
+                    {
+                        ExcludedDetectors = sandboxPolicy.ExcludedDetectors.Add("Llm")
+                    };
+                }
+
+                _logger.LogDebug("Using sandbox policy '{Policy}' for {Path} (probation mode)",
+                    sandboxPolicy.Name, context.Request.Path);
+                return sandboxPolicy;
+            }
+        }
+
         // 2. Fall back to path-based policy resolution
-        return policyRegistry.GetPolicyForPath(context.Request.Path);
+        var resolvedPolicy = policyRegistry.GetPolicyForPath(context.Request.Path);
+
+        // 3. Apply API key overlay if present
+        if (context.Items.TryGetValue("BotDetection.ApiKeyContext", out var keyCtxObj) &&
+            keyCtxObj is ApiKeyContext keyCtx)
+        {
+            // If key specifies a detection policy, use that instead
+            if (!string.IsNullOrEmpty(keyCtx.DetectionPolicyName))
+            {
+                var keyPolicy = policyRegistry.GetPolicy(keyCtx.DetectionPolicyName);
+                if (keyPolicy != null)
+                    resolvedPolicy = keyPolicy;
+            }
+
+            // Apply detector exclusions and weight overrides
+            resolvedPolicy = resolvedPolicy.WithApiKeyOverlay(keyCtx);
+            _logger.LogDebug("Applied API key overlay '{KeyName}' to policy '{Policy}'",
+                keyCtx.KeyName, resolvedPolicy.Name);
+        }
+
+        return resolvedPolicy;
     }
 
     private bool ShouldSkipPath(PathString path)
@@ -610,6 +722,63 @@ public class BotDetectionMiddleware(
                 return true;
 
         return false;
+    }
+
+    /// <summary>
+    ///     Checks if the request carries a valid API bypass key.
+    ///     Uses constant-time comparison to prevent timing attacks.
+    /// </summary>
+    private bool HasValidApiBypassKey(HttpContext context)
+    {
+        if (_options.ApiBypassKeys.Count == 0)
+            return false;
+
+        var headerName = _options.ApiBypassHeaderName;
+        if (!context.Request.Headers.TryGetValue(headerName, out var headerValue) ||
+            string.IsNullOrEmpty(headerValue.ToString()))
+            return false;
+
+        var providedKey = headerValue.ToString();
+        var providedBytes = Encoding.UTF8.GetBytes(providedKey);
+
+        foreach (var validKey in _options.ApiBypassKeys)
+        {
+            var validBytes = Encoding.UTF8.GetBytes(validKey);
+            if (System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(providedBytes, validBytes))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    ///     Tries to validate a rich API key from the request header.
+    ///     Returns the ApiKeyContext if valid, or null if no rich key matched.
+    ///     Stores rejection reason in HttpContext.Items if key was found but rejected.
+    /// </summary>
+    private ApiKeyContext? TryValidateRichApiKey(HttpContext context, IApiKeyStore? apiKeyStore)
+    {
+        if (apiKeyStore == null || _options.ApiKeys.Count == 0)
+            return null;
+
+        var headerName = _options.ApiBypassHeaderName;
+        if (!context.Request.Headers.TryGetValue(headerName, out var headerValue) ||
+            string.IsNullOrEmpty(headerValue.ToString()))
+            return null;
+
+        var providedKey = headerValue.ToString();
+        var (result, rejection) = apiKeyStore.ValidateKeyWithReason(providedKey, context.Request.Path);
+
+        if (result != null)
+            return result.Context;
+
+        if (rejection != null && rejection.Reason != ApiKeyRejectionReason.NotFound)
+        {
+            // Key was found but rejected — store rejection for the caller
+            context.Items["BotDetection.ApiKeyRejection"] = rejection;
+        }
+
+        return null;
     }
 
     private bool IsSignatureOnlyPath(PathString path)
@@ -996,6 +1165,7 @@ public class BotDetectionMiddleware(
             return;
 
         await _next(context);
+        ApplyResponseStatusBoost(context);
     }
 
     /// <summary>
@@ -1385,6 +1555,20 @@ public class BotDetectionMiddleware(
         if (!string.IsNullOrEmpty(category))
             context.Items[BotCategoryKey] = category;
 
+        // Use upstream multi-factor signatures if forwarded by the gateway
+        var upstreamPrimarySig = context.Request.Headers["X-Bot-Detection-PrimarySignature"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(upstreamPrimarySig))
+        {
+            var upstreamSigs = new Dashboard.MultiFactorSignatures
+            {
+                PrimarySignature = upstreamPrimarySig,
+                IpSignature = context.Request.Headers["X-Bot-Detection-IpSignature"].FirstOrDefault(),
+                UaSignature = context.Request.Headers["X-Bot-Detection-UaSignature"].FirstOrDefault(),
+                ClientSideSignature = context.Request.Headers["X-Bot-Detection-ClientSideSignature"].FirstOrDefault(),
+            };
+            context.Items["BotDetection.Signatures"] = upstreamSigs;
+        }
+
         // Create legacy result for compatibility with views/TagHelpers/extension methods
         var legacyResult = new BotDetectionResult
         {
@@ -1486,6 +1670,124 @@ public class BotDetectionMiddleware(
             var primaryReason = result.Reasons.OrderByDescending(r => r.ConfidenceImpact).First();
             context.Items[BotCategoryKey] = primaryReason.Category;
         }
+    }
+
+    #endregion
+
+    #region Post-Response Status Analysis
+
+    /// <summary>
+    ///     Fail2ban-style post-response analysis.
+    ///     After next() returns, the response status code is available.
+    ///     Suspicious status codes (404, 401, 500, etc.) boost the detection score.
+    ///     Authenticated successful responses reduce suspicion for marginal cases only.
+    ///     Updates AggregatedEvidence in HttpContext.Items so downstream middleware
+    ///     (DetectionBroadcastMiddleware) sees the response-aware score.
+    ///     All thresholds configurable via BotDetection:ResponseStatusBoost in appsettings.json.
+    /// </summary>
+    private void ApplyResponseStatusBoost(HttpContext context)
+    {
+        var boostOpts = _options.ResponseStatusBoost;
+        if (!boostOpts.Enabled)
+            return;
+
+        // Only applies when detection actually ran
+        if (!context.Items.TryGetValue(AggregatedEvidenceKey, out var evidenceObj) ||
+            evidenceObj is not AggregatedEvidence evidence)
+            return;
+
+        var statusCode = context.Response.StatusCode;
+        var isAuthenticated = context.User?.Identity?.IsAuthenticated == true;
+
+        // Compute delta based on response status code (all values from config)
+        var (delta, reason) = statusCode switch
+        {
+            404 => (boostOpts.NotFoundDelta,
+                $"Response 404 Not Found on {context.Request.Path}"),
+            401 when !isAuthenticated => (boostOpts.UnauthorizedDelta,
+                "Response 401 Unauthorized — unauthenticated probe"),
+            403 when !isAuthenticated => (boostOpts.ForbiddenDelta,
+                "Response 403 Forbidden — access denied"),
+            >= 500 and < 600 => (boostOpts.ServerErrorDelta,
+                $"Response {statusCode} Server Error triggered"),
+            410 => (boostOpts.GoneDelta,
+                "Response 410 Gone — probing removed resource"),
+            405 => (boostOpts.MethodNotAllowedDelta,
+                $"Response 405 Method Not Allowed on {context.Request.Path}"),
+            // Authenticated successful response: clear suspicion for MARGINAL cases only.
+            // High-confidence bots (> MaxProbability) are not cleared even if authenticated,
+            // preventing abuse by authenticated bot accounts.
+            >= 200 and < 300 when isAuthenticated
+                && evidence.BotProbability > boostOpts.AuthenticatedClearThreshold
+                && evidence.BotProbability <= boostOpts.AuthenticatedClearMaxProbability
+                => (boostOpts.AuthenticatedClearDelta,
+                    "Authenticated user — successful response clears suspicion"),
+            _ => (0.0, (string?)null)
+        };
+
+        if (delta == 0.0 || reason == null)
+            return;
+
+        var newProbability = Math.Clamp(evidence.BotProbability + delta, 0.0, 1.0);
+
+        // Add contribution to the ledger so it shows in detector breakdown
+        var contribution = new Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger.DetectionContribution
+        {
+            DetectorName = "ResponseStatusBoost",
+            Category = "ResponseStatus",
+            ConfidenceDelta = delta,
+            Weight = 1.0,
+            Reason = reason,
+            ProcessingTimeMs = 0,
+            Priority = 999 // Runs after all other detectors
+        };
+
+        // Recalculate risk band
+        var newRiskBand = newProbability switch
+        {
+            >= 0.85 => RiskBand.VeryHigh,
+            >= 0.7 => RiskBand.High,
+            >= 0.5 => RiskBand.Medium,
+            >= 0.3 => RiskBand.Elevated,
+            >= 0.15 => RiskBand.Low,
+            _ => RiskBand.VeryLow
+        };
+
+        // Build updated signals dictionary (handles immutable Signals safely)
+        var signalDict = new Dictionary<string, object>(evidence.Signals, StringComparer.OrdinalIgnoreCase);
+        signalDict["response.status_code"] = statusCode;
+        signalDict["response.status_boost"] = delta;
+        if (isAuthenticated)
+            signalDict["response.authenticated"] = true;
+
+        // Update the evidence with boosted probability and enriched signals
+        var detectors = new HashSet<string>(evidence.ContributingDetectors, StringComparer.OrdinalIgnoreCase);
+        detectors.Add("ResponseStatusBoost");
+
+        var updatedEvidence = evidence with
+        {
+            BotProbability = newProbability,
+            RiskBand = newRiskBand,
+            ContributingDetectors = detectors,
+            Signals = signalDict
+        };
+
+        // Add contribution to ledger AFTER creating updatedEvidence
+        // (both share same Ledger reference since it's a ref type)
+        updatedEvidence.Ledger?.AddContribution(contribution);
+
+        // Write back to context for DetectionBroadcastMiddleware
+        context.Items[AggregatedEvidenceKey] = updatedEvidence;
+        context.Items[BotProbabilityKey] = newProbability;
+        context.Items[BotConfidenceKey] = newProbability;
+        context.Items[IsBotKey] = newProbability >= _options.BotThreshold;
+
+        _logger.LogInformation(
+            "[RESPONSE-BOOST] {Path} status={Status} delta={Delta:+0.00;-0.00} " +
+            "prob={OldProb:F2}->{NewProb:F2} auth={Auth}: {Reason}",
+            context.Request.Path, statusCode, delta,
+            evidence.BotProbability, newProbability,
+            isAuthenticated, reason);
     }
 
     #endregion

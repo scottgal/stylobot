@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Mostlylucid.BotDetection.Test.Helpers;
 
@@ -9,11 +10,19 @@ namespace Mostlylucid.BotDetection.Test.Helpers;
 public static class MockHttpContext
 {
     /// <summary>
+    ///     Creates a minimal ServiceProvider so middleware can call GetService without NullReferenceException.
+    /// </summary>
+    private static IServiceProvider CreateMinimalServiceProvider()
+    {
+        return new ServiceCollection().BuildServiceProvider();
+    }
+
+    /// <summary>
     ///     Creates a minimal HttpContext with the specified User-Agent header
     /// </summary>
     public static HttpContext CreateWithUserAgent(string? userAgent)
     {
-        var context = new DefaultHttpContext();
+        var context = new DefaultHttpContext { RequestServices = CreateMinimalServiceProvider() };
 
         if (userAgent != null) context.Request.Headers.UserAgent = userAgent;
 
@@ -25,7 +34,7 @@ public static class MockHttpContext
     /// </summary>
     public static HttpContext CreateWithHeaders(Dictionary<string, string> headers)
     {
-        var context = new DefaultHttpContext();
+        var context = new DefaultHttpContext { RequestServices = CreateMinimalServiceProvider() };
 
         foreach (var header in headers) context.Request.Headers[header.Key] = header.Value;
 
@@ -37,7 +46,7 @@ public static class MockHttpContext
     /// </summary>
     public static HttpContext CreateWithIpAddress(string ipAddress, string? userAgent = null)
     {
-        var context = new DefaultHttpContext();
+        var context = new DefaultHttpContext { RequestServices = CreateMinimalServiceProvider() };
 
         // Set RemoteIpAddress
         if (IPAddress.TryParse(ipAddress, out var ip)) context.Connection.RemoteIpAddress = ip;
@@ -52,7 +61,7 @@ public static class MockHttpContext
     /// </summary>
     public static HttpContext CreateRealisticBrowser()
     {
-        var context = new DefaultHttpContext();
+        var context = new DefaultHttpContext { RequestServices = CreateMinimalServiceProvider() };
 
         // Chrome on Windows User-Agent
         context.Request.Headers.UserAgent =
@@ -72,7 +81,7 @@ public static class MockHttpContext
     /// </summary>
     public static HttpContext CreateSuspiciousBot()
     {
-        var context = new DefaultHttpContext();
+        var context = new DefaultHttpContext { RequestServices = CreateMinimalServiceProvider() };
 
         // Short, simple user agent
         context.Request.Headers.UserAgent = "curl/7.68.0";
@@ -85,7 +94,7 @@ public static class MockHttpContext
     /// </summary>
     public static HttpContext CreateGooglebot()
     {
-        var context = new DefaultHttpContext();
+        var context = new DefaultHttpContext { RequestServices = CreateMinimalServiceProvider() };
 
         context.Request.Headers.UserAgent =
             "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";

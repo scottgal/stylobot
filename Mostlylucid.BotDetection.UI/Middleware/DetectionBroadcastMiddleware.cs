@@ -66,6 +66,7 @@ public partial class DetectionBroadcastMiddleware
         IDashboardEventStore eventStore,
         IOptions<BotDetectionOptions> optionsAccessor,
         VisitorListCache visitorListCache,
+        SignatureAggregateCache signatureAggregateCache,
         SignatureDescriptionService? signatureDescriptionService = null)
     {
         // Call next middleware first (so detection runs)
@@ -89,6 +90,7 @@ public partial class DetectionBroadcastMiddleware
                 var detection = BuildDetectionFromUpstream(context, upstreamResult);
                 var updatedSignature = await StoreDetectionAndSignatureAsync(context, detection, eventStore);
 
+                signatureAggregateCache.UpdateFromDetection(detection);
                 visitorListCache.Upsert(detection);
                 await hubContext.Clients.All.BroadcastDetection(detection);
                 await hubContext.Clients.All.BroadcastSignature(updatedSignature);
@@ -115,6 +117,8 @@ public partial class DetectionBroadcastMiddleware
 
                 var detection = BuildDetectionFromEvidence(context, evidence);
                 var updatedSignature = await StoreDetectionAndSignatureAsync(context, detection, eventStore);
+
+                signatureAggregateCache.UpdateFromDetection(detection);
 
                 // Filter out local/private IP detections from broadcast if configured
                 var options = optionsAccessor.Value;
@@ -269,12 +273,32 @@ public partial class DetectionBroadcastMiddleware
         };
 
         var detectionConfidence = botProbability;
+        Dictionary<string, DashboardDetectorContribution>? detectorContributions = null;
+
         if (context.Items.TryGetValue(BotDetectionMiddleware.DetectionConfidenceKey, out var confObj) &&
             confObj is double parsedConf)
             detectionConfidence = parsedConf;
         else if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evidenceObj) &&
                  evidenceObj is AggregatedEvidence upstreamEvidence)
+        {
             detectionConfidence = upstreamEvidence.Confidence;
+
+            // Extract detector contributions from evidence when available
+            var contributions = upstreamEvidence.Contributions
+                .GroupBy(c => c.DetectorName)
+                .ToDictionary(
+                    g => g.Key,
+                    g => new DashboardDetectorContribution
+                    {
+                        ConfidenceDelta = g.Sum(c => c.ConfidenceDelta),
+                        Contribution = g.Sum(c => c.ConfidenceDelta * c.Weight),
+                        Reason = string.Join("; ", g.Select(c => c.Reason).Where(r => !string.IsNullOrEmpty(r))),
+                        ExecutionTimeMs = g.Sum(c => c.ProcessingTimeMs),
+                        Priority = g.First().Priority
+                    });
+            if (contributions.Count > 0)
+                detectorContributions = contributions;
+        }
 
         double upstreamProcessingMs = 0;
         if (context.Request.Headers.TryGetValue("X-Bot-Detection-ProcessingMs", out var procHeader))
@@ -319,6 +343,7 @@ public partial class DetectionBroadcastMiddleware
             CountryCode = upstreamCountry,
             UserAgent = result.IsBot ? SanitizeUserAgent(context.Request.Headers.UserAgent.ToString()) : null,
             TopReasons = topReasons,
+            DetectorContributions = detectorContributions,
             ImportantSignals = importantSignals
         };
 
@@ -334,22 +359,42 @@ public partial class DetectionBroadcastMiddleware
 
     private static SignatureFactors ParseSignatureFactors(HttpContext context)
     {
-        if (context.Items.TryGetValue("BotDetection.Signatures", out var allSigsObj) &&
-            allSigsObj is string allSigsJson)
+        if (context.Items.TryGetValue("BotDetection.Signatures", out var allSigsObj))
         {
-            try
+            // Preferred path: MultiFactorSignatures object
+            if (allSigsObj is Mostlylucid.BotDetection.Dashboard.MultiFactorSignatures mfs)
             {
-                var allSigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(allSigsJson);
-                if (allSigs != null)
-                {
-                    return new SignatureFactors(
-                        allSigs.GetValueOrDefault("ip"),
-                        allSigs.GetValueOrDefault("ua"),
-                        allSigs.GetValueOrDefault("clientSide"),
-                        Math.Max(1, allSigs.Count(s => !string.IsNullOrEmpty(s.Value) && s.Key != "primary")));
-                }
+                var factorCount = 0;
+                if (!string.IsNullOrEmpty(mfs.IpSignature)) factorCount++;
+                if (!string.IsNullOrEmpty(mfs.UaSignature)) factorCount++;
+                if (!string.IsNullOrEmpty(mfs.ClientSideSignature)) factorCount++;
+                if (!string.IsNullOrEmpty(mfs.PluginSignature)) factorCount++;
+                if (!string.IsNullOrEmpty(mfs.IpSubnetSignature)) factorCount++;
+                if (!string.IsNullOrEmpty(mfs.GeoSignature)) factorCount++;
+                return new SignatureFactors(
+                    mfs.IpSignature,
+                    mfs.UaSignature,
+                    mfs.ClientSideSignature,
+                    Math.Max(1, factorCount));
             }
-            catch (System.Text.Json.JsonException) { }
+
+            // Legacy path: JSON string
+            if (allSigsObj is string allSigsJson)
+            {
+                try
+                {
+                    var allSigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(allSigsJson);
+                    if (allSigs != null)
+                    {
+                        return new SignatureFactors(
+                            allSigs.GetValueOrDefault("ip"),
+                            allSigs.GetValueOrDefault("ua"),
+                            allSigs.GetValueOrDefault("clientSide"),
+                            Math.Max(1, allSigs.Count(s => !string.IsNullOrEmpty(s.Value) && s.Key != "primary")));
+                    }
+                }
+                catch (System.Text.Json.JsonException) { }
+            }
         }
 
         return new SignatureFactors(null, null, null, 1);
@@ -360,18 +405,26 @@ public partial class DetectionBroadcastMiddleware
     /// </summary>
     private string ResolvePrimarySignature(HttpContext context)
     {
-        if (context.Items.TryGetValue("BotDetection.Signatures", out var sigObj) &&
-            sigObj is string sigJson)
+        if (context.Items.TryGetValue("BotDetection.Signatures", out var sigObj))
         {
-            try
+            // Preferred path: MultiFactorSignatures object from ComputeAndStoreSignature
+            if (sigObj is Mostlylucid.BotDetection.Dashboard.MultiFactorSignatures mfs &&
+                !string.IsNullOrEmpty(mfs.PrimarySignature))
+                return mfs.PrimarySignature;
+
+            // Legacy path: JSON string (from upstream gateway headers)
+            if (sigObj is string sigJson)
             {
-                var sigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(sigJson);
-                var primary = sigs?.GetValueOrDefault("primary");
-                if (!string.IsNullOrEmpty(primary)) return primary;
-            }
-            catch (System.Text.Json.JsonException ex)
-            {
-                _logger.LogDebug(ex, "Failed to deserialize primary signature JSON");
+                try
+                {
+                    var sigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(sigJson);
+                    var primary = sigs?.GetValueOrDefault("primary");
+                    if (!string.IsNullOrEmpty(primary)) return primary;
+                }
+                catch (System.Text.Json.JsonException ex)
+                {
+                    _logger.LogDebug(ex, "Failed to deserialize primary signature JSON");
+                }
             }
         }
 

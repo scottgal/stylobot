@@ -32,6 +32,25 @@ public static partial class HttpContextExtensions
     }
 
     /// <summary>
+    ///     Gets the API key context for the current request, if a rich API key was validated.
+    /// </summary>
+    public static ApiKeyContext? GetApiKeyContext(this HttpContext context)
+    {
+        return context.Items.TryGetValue("BotDetection.ApiKeyContext", out var ctx)
+            ? ctx as ApiKeyContext
+            : null;
+    }
+
+    /// <summary>
+    ///     Returns true if the current request has a valid API key (rich or legacy bypass).
+    /// </summary>
+    public static bool HasApiKey(this HttpContext context)
+    {
+        return context.Items.ContainsKey("BotDetection.ApiKeyContext")
+            || context.Items.ContainsKey("BotDetection.ApiKeyBypass");
+    }
+
+    /// <summary>
     ///     Returns true if the current request is from a verified good bot (e.g., Googlebot).
     /// </summary>
     public static bool IsVerifiedBot(this HttpContext context)

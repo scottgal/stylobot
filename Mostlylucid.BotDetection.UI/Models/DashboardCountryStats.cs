@@ -9,5 +9,6 @@ public sealed record DashboardCountryStats
     public string? CountryName { get; init; }
     public int TotalCount { get; init; }
     public int BotCount { get; init; }
+    public int HumanCount => TotalCount - BotCount;
     public double BotRate { get; init; }
 }

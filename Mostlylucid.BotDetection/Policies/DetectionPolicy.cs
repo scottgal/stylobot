@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.Policies;
 
@@ -111,6 +112,44 @@ public sealed record DetectionPolicy
     ///     Default: false (respect trigger conditions for optimal performance).
     /// </summary>
     public bool BypassTriggerConditions { get; init; }
+
+    /// <summary>
+    ///     Whether API keys can override the action policy for this detection policy.
+    ///     When false, the policy's ActionPolicyName and transitions take precedence
+    ///     over any API key ActionPolicyName override.
+    ///     Default: true (API keys can override).
+    /// </summary>
+    public bool ActionPolicyOverridable { get; init; } = true;
+
+    /// <summary>
+    ///     Detectors to exclude from this policy's pipeline.
+    ///     Populated by API key overlays to selectively disable detectors per key.
+    ///     Detectors whose name appears in this set are skipped during orchestration.
+    /// </summary>
+    public ImmutableHashSet<string> ExcludedDetectors { get; init; } =
+        ImmutableHashSet<string>.Empty.WithComparer(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Creates a new policy with API key overlay applied (excluded detectors + weight overrides).
+    /// </summary>
+    public DetectionPolicy WithApiKeyOverlay(ApiKeyContext keyCtx)
+    {
+        var mergedWeights = WeightOverrides;
+        if (keyCtx.WeightOverrides.Count > 0)
+        {
+            var builder = mergedWeights.ToBuilder();
+            foreach (var kv in keyCtx.WeightOverrides)
+                builder[kv.Key] = kv.Value;
+            mergedWeights = builder.ToImmutable();
+        }
+
+        return this with
+        {
+            Name = $"{Name}+apikey:{keyCtx.KeyName}",
+            ExcludedDetectors = keyCtx.DisabledDetectors.ToImmutableHashSet(StringComparer.OrdinalIgnoreCase),
+            WeightOverrides = mergedWeights
+        };
+    }
 
     /// <summary>
     ///     Creates the default policy - a sensible baseline that can be overridden via JSON config.

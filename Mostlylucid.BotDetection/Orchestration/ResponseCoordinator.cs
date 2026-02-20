@@ -8,6 +8,48 @@ using Mostlylucid.Ephemeral.Atoms.SlidingCache;
 namespace Mostlylucid.BotDetection.Orchestration;
 
 /// <summary>
+///     Fail2ban-style post-response status code analysis options.
+///     After the endpoint responds, suspicious status codes boost detection score.
+///     Override via appsettings.json: BotDetection:ResponseStatusBoost:*
+/// </summary>
+public sealed class ResponseStatusBoostOptions
+{
+    /// <summary>Enable/disable post-response status code analysis.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Bot probability boost for 404 Not Found (probing for files).</summary>
+    public double NotFoundDelta { get; set; } = 0.15;
+
+    /// <summary>Boost for 401 Unauthorized (unauthenticated probe).</summary>
+    public double UnauthorizedDelta { get; set; } = 0.10;
+
+    /// <summary>Boost for 403 Forbidden (access denied).</summary>
+    public double ForbiddenDelta { get; set; } = 0.08;
+
+    /// <summary>Boost for 5xx server errors (triggering crashes).</summary>
+    public double ServerErrorDelta { get; set; } = 0.08;
+
+    /// <summary>Boost for 410 Gone (probing removed resources).</summary>
+    public double GoneDelta { get; set; } = 0.12;
+
+    /// <summary>Boost for 405 Method Not Allowed.</summary>
+    public double MethodNotAllowedDelta { get; set; } = 0.06;
+
+    /// <summary>Reduction for authenticated user with successful response (human confirmation).</summary>
+    public double AuthenticatedClearDelta { get; set; } = -0.15;
+
+    /// <summary>Only apply authenticated clearing when bot probability exceeds this threshold.</summary>
+    public double AuthenticatedClearThreshold { get; set; } = 0.3;
+
+    /// <summary>
+    ///     Maximum bot probability at which authenticated clearing applies.
+    ///     Prevents clearing for high-confidence bots that happen to be authenticated.
+    ///     Default 0.6 means only marginal cases get cleared.
+    /// </summary>
+    public double AuthenticatedClearMaxProbability { get; set; } = 0.6;
+}
+
+/// <summary>
 ///     Configuration for the response detection coordinator.
 /// </summary>
 public sealed class ResponseCoordinatorOptions

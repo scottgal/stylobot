@@ -162,18 +162,59 @@
     <main class="dashboard-shell px-4 py-4">
 
         <!-- Summary Stats Bar -->
-        <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 mb-4 py-2 bg-base-200 rounded-lg px-4">
-            <span class="text-xs"><span class="text-base-content/40">Requests</span> <span class="font-bold hero-accent-text" x-text="totalCount.toLocaleString()">0</span></span>
+        <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 mb-2 py-2 bg-base-200 rounded-lg px-4">
+            <span class="text-xs"><span class="text-base-content/40">Requests</span> <span class="font-bold hero-accent-text" x-text="displayTotalCount.toLocaleString()">0</span></span>
             <span class="text-base-content/20">|</span>
-            <span class="text-xs"><span class="text-base-content/40">Bots</span> <span class="font-bold text-error" x-text="botCount.toLocaleString()">0</span></span>
+            <span class="text-xs"><span class="text-base-content/40">Bots</span> <span class="font-bold text-error" x-text="displayBotCount.toLocaleString()">0</span></span>
             <span class="text-base-content/20">|</span>
-            <span class="text-xs"><span class="text-base-content/40">Humans</span> <span class="font-bold signal-positive" x-text="humanCount.toLocaleString()">0</span></span>
+            <span class="text-xs"><span class="text-base-content/40">Humans</span> <span class="font-bold signal-positive" x-text="displayHumanCount.toLocaleString()">0</span></span>
             <span class="text-base-content/20">|</span>
-            <span class="text-xs"><span class="text-base-content/40">Bot %</span> <span class="font-bold" :class="parseFloat(botPct) > 30 ? 'signal-danger' : 'signal-warning'" x-text="botPct + '%'">0%</span></span>
+            <span class="text-xs"><span class="text-base-content/40">Bot %</span> <span class="font-bold" :class="parseFloat(displayBotPct) > 30 ? 'signal-danger' : 'signal-warning'" x-text="displayBotPct + '%'">0%</span></span>
             <span class="text-base-content/20">|</span>
             <span class="text-xs"><span class="text-base-content/40">Avg</span> <span class="font-bold hero-accent-text" x-text="avgMs + 'ms'">0ms</span></span>
             <span class="text-base-content/20">|</span>
             <span class="text-xs"><span class="text-base-content/40">Visitors</span> <span class="font-bold" x-text="uniqueSigs.toLocaleString()">0</span></span>
+        </div>
+
+        <!-- Time Range Selector + Area Chart -->
+        <div class="mb-4 bg-base-200 rounded-lg px-4 py-3">
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-[10px] font-bold uppercase tracking-wider text-base-content/40">Request Volume</span>
+                <div class="flex items-center bg-base-300/50 rounded-lg p-0.5 gap-0.5">
+                    <template x-for="r in ['1h','6h','12h','24h','7d','30d','All']" :key="r">
+                        <button class="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
+                                :class="timeRange === r ? 'bg-base-100 shadow-sm text-base-content' : 'text-base-content/40 hover:text-base-content/60'"
+                                @@click="setTimeRange(r)" x-text="r"></button>
+                    </template>
+                </div>
+            </div>
+            <!-- Area Chart -->
+            <div x-show="timeSeriesLoading" class="flex items-center justify-center h-[120px]">
+                <span class="loading loading-spinner loading-sm hero-accent-text"></span>
+            </div>
+            <div x-show="!timeSeriesLoading && timeSeriesData.length > 0" x-cloak>
+                <svg :width="areaChartWidth" height="120" class="w-full" :viewBox="'0 0 ' + areaChartWidth + ' 120'" preserveAspectRatio="none">
+                    <!-- Human area (green) -->
+                    <path :d="humanAreaPath" :fill="alphaColor(themeColor('positive'), 25)" />
+                    <!-- Bot area (red, stacked on top) -->
+                    <path :d="botAreaPath" :fill="alphaColor(themeColor('danger'), 25)" />
+                    <!-- Human line -->
+                    <polyline :points="humanLinePath" fill="none" :stroke="themeColor('positive')" stroke-width="1.5" />
+                    <!-- Bot line (at top of stack) -->
+                    <polyline :points="botLinePath" fill="none" :stroke="themeColor('danger')" stroke-width="1.5" />
+                </svg>
+                <div class="flex justify-between text-[9px] text-base-content/30 mt-1">
+                    <span x-text="areaChartStartLabel"></span>
+                    <div class="flex items-center gap-3">
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full" :style="'background:' + themeColor('positive')"></span> Humans</span>
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full" :style="'background:' + themeColor('danger')"></span> Bots</span>
+                    </div>
+                    <span x-text="areaChartEndLabel"></span>
+                </div>
+            </div>
+            <div x-show="!timeSeriesLoading && timeSeriesData.length === 0" x-cloak class="flex items-center justify-center h-[120px] text-[11px] text-base-content/30">
+                No data for selected time range
+            </div>
         </div>
 
         <!-- Two-Column Layout -->
@@ -441,17 +482,17 @@
                 </div>
 
                 <!-- Risk + Bot Types (compact, side by side) -->
-                <div x-show="summary?.riskBandCounts" x-cloak class="grid grid-cols-2 gap-3">
+                <div x-show="summary?.riskBandCounts || displayRiskBandCounts" x-cloak class="grid grid-cols-2 gap-3">
                     <div class="card bg-base-200">
                         <div class="card-body p-3">
                             <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">Risk Distribution</h3>
                             <template x-for="band in ['VeryLow','Low','Medium','High','VeryHigh']" :key="band">
-                                <div x-show="summary?.riskBandCounts?.[band] > 0" class="flex items-center gap-1.5 mb-1">
+                                <div x-show="displayRiskBandCounts[band] > 0" class="flex items-center gap-1.5 mb-1">
                                     <span class="text-[10px] w-12 font-medium" :class="riskLabelClass(band)" x-text="band"></span>
                                     <div class="flex-1 bg-base-300 rounded-full h-2 overflow-hidden">
-                                        <div class="h-full rounded-full" :style="'width:' + Math.max(((summary?.riskBandCounts?.[band] || 0) / (totalCount || 1)) * 100, 3) + '%; background-color:' + alphaColor(riskColor(band), 42)"></div>
+                                        <div class="h-full rounded-full" :style="'width:' + Math.max(((displayRiskBandCounts[band] || 0) / (displayTotalCount || 1)) * 100, 3) + '%; background-color:' + alphaColor(riskColor(band), 42)"></div>
                                     </div>
-                                    <span class="text-[10px] font-mono w-6 text-right" x-text="summary?.riskBandCounts?.[band] || 0"></span>
+                                    <span class="text-[10px] font-mono w-6 text-right" x-text="displayRiskBandCounts[band] || 0"></span>
                                 </div>
                             </template>
                         </div>
@@ -459,11 +500,11 @@
                     <div class="card bg-base-200">
                         <div class="card-body p-3">
                             <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
-                                <span x-text="summary?.topBotTypes && Object.keys(summary.topBotTypes).length > 0 ? 'Top Bot Types' : 'Actions Taken'"></span>
+                                <span x-text="displayTopBotTypes && Object.keys(displayTopBotTypes).length > 0 ? 'Top Bot Types' : 'Actions Taken'"></span>
                             </h3>
-                            <template x-if="summary?.topBotTypes && Object.keys(summary.topBotTypes).length > 0">
+                            <template x-if="displayTopBotTypes && Object.keys(displayTopBotTypes).length > 0">
                                 <div>
-                                    <template x-for="[type, count] in Object.entries(summary.topBotTypes).sort((a,b) => b[1] - a[1]).slice(0, 5)" :key="type">
+                                    <template x-for="[type, count] in Object.entries(displayTopBotTypes).sort((a,b) => b[1] - a[1]).slice(0, 5)" :key="type">
                                         <div class="flex items-center justify-between mb-1 text-[11px]">
                                             <span x-text="type"></span>
                                             <span class="font-mono opacity-50" x-text="count"></span>
@@ -471,7 +512,7 @@
                                     </template>
                                 </div>
                             </template>
-                            <template x-if="!summary?.topBotTypes || Object.keys(summary.topBotTypes).length === 0">
+                            <template x-if="!displayTopBotTypes || Object.keys(displayTopBotTypes).length === 0">
                                 <div>
                                     <template x-for="[action, count] in Object.entries(summary?.topActions || {}).sort((a,b) => b[1] - a[1])" :key="action">
                                         <div class="flex items-center justify-between mb-1 text-[11px]">
@@ -780,6 +821,10 @@ function dashboard() {
         clusters: [],
         countriesLoading: true,
         clustersLoading: true,
+        timeRange: 'All',
+        timeSeriesData: [],
+        timeSeriesLoading: false,
+        filteredSummary: null,
 
         // --- Computed ---
         get feedItems() {
@@ -835,6 +880,38 @@ function dashboard() {
         get humanCount() { return this.summary ? this.summary.humanRequests || 0 : 0; },
         get totalCount() { return this.summary ? this.summary.totalRequests || 0 : 0; },
         get botPct() { return this.summary ? (this.summary.botPercentage || 0).toFixed(1) : '0.0'; },
+
+        // Time-filtered display stats
+        get displayBotCount() {
+            if (this.timeRange === 'All') return this.botCount;
+            if (!this.filteredSummary) return this.botCount;
+            return this.filteredSummary.botCount;
+        },
+        get displayHumanCount() {
+            if (this.timeRange === 'All') return this.humanCount;
+            if (!this.filteredSummary) return this.humanCount;
+            return this.filteredSummary.humanCount;
+        },
+        get displayTotalCount() {
+            if (this.timeRange === 'All') return this.totalCount;
+            if (!this.filteredSummary) return this.totalCount;
+            return this.filteredSummary.totalCount;
+        },
+        get displayBotPct() {
+            if (this.timeRange === 'All') return this.botPct;
+            if (!this.filteredSummary || this.filteredSummary.totalCount === 0) return '0.0';
+            return ((this.filteredSummary.botCount / this.filteredSummary.totalCount) * 100).toFixed(1);
+        },
+
+        // Time-filtered risk bands and bot types (for left-column panels)
+        get displayRiskBandCounts() {
+            if (this.timeRange === 'All' || !this.filteredSummary) return this.summary?.riskBandCounts || {};
+            return this.filteredSummary.riskBandCounts || {};
+        },
+        get displayTopBotTypes() {
+            if (this.timeRange === 'All' || !this.filteredSummary) return this.summary?.topBotTypes || {};
+            return this.filteredSummary.topBotTypes || {};
+        },
         get avgMs() { return this.summary ? (this.summary.averageProcessingTimeMs || 0).toFixed(0) : '0'; },
         get uniqueSigs() { return this.summary ? this.summary.uniqueSignatures || 0 : 0; },
 
@@ -932,6 +1009,8 @@ function dashboard() {
             this.connectSignalR();
             // If no "Your Detection" on first load, poll sentinel endpoint
             if (!this.yourData) this.fetchMeWithRetry();
+            // Load initial time series
+            this.fetchTimeSeries();
         },
 
         async fetchMeWithRetry(attempt) {
@@ -942,11 +1021,15 @@ function dashboard() {
                 if (resp.ok) {
                     var data = await resp.json();
                     if (data) {
-                        this.yourData = data;
-                        this.signature = data.signature || '';
-                        this.probabilityHistory = [data.botProbability];
-                        this.yourLoading = false;
-                        return;
+                        if (data.signature) this.signature = data.signature;
+                        if (data.isBot !== undefined) {
+                            // Full detection data
+                            this.yourData = data;
+                            this.probabilityHistory = [data.botProbability];
+                            this.yourLoading = false;
+                            return;
+                        }
+                        // Signature-only — keep waiting for SignalR
                     }
                 }
             } catch(e) {}
@@ -959,8 +1042,20 @@ function dashboard() {
         loadEmbeddedData() {
             // Your detection (includes signature for SignalR live updates)
             var yd = this.readEmbeddedJson('your-detection-data');
-            if (yd) { this.yourData = yd; this.signature = yd.signature || ''; this.probabilityHistory = [yd.botProbability]; }
-            this.yourLoading = !yd; // keep loading if no data yet
+            if (yd && yd.signature) {
+                this.signature = yd.signature;
+                if (yd.isBot !== undefined) {
+                    // Full detection data available
+                    this.yourData = yd;
+                    this.probabilityHistory = [yd.botProbability];
+                    this.yourLoading = false;
+                } else {
+                    // Signature only — wait for SignalR to populate
+                    this.yourLoading = true;
+                }
+            } else {
+                this.yourLoading = true;
+            }
 
             // Summary
             var sum = this.readEmbeddedJson('initial-summary');
@@ -1069,11 +1164,26 @@ function dashboard() {
                     var d = toCamel(raw);
                     self.trackEndpoint(d);
                     if (!self.feedPaused) self.upsertVisitor(d);
-                    if (self.signature && d.primarySignature === self.signature && self.yourData) {
-                        Object.assign(self.yourData, {
-                            isBot: d.isBot, botProbability: d.botProbability, confidence: d.confidence,
-                            riskBand: d.riskBand, processingTimeMs: d.processingTimeMs, narrative: d.narrative
-                        });
+                    if (self.signature && d.primarySignature === self.signature) {
+                        if (self.yourData) {
+                            Object.assign(self.yourData, {
+                                isBot: d.isBot, botProbability: d.botProbability, confidence: d.confidence,
+                                riskBand: d.riskBand, processingTimeMs: d.processingTimeMs, narrative: d.narrative
+                            });
+                            if (d.topReasons && d.topReasons.length) self.yourData.topReasons = d.topReasons;
+                        } else {
+                            // First detection for this visitor — create yourData from the event
+                            self.yourData = {
+                                isBot: d.isBot, botProbability: d.botProbability, confidence: d.confidence,
+                                riskBand: d.riskBand, processingTimeMs: d.processingTimeMs,
+                                narrative: d.narrative, topReasons: d.topReasons || [],
+                                contributions: d.detectorContributions ? Object.values(d.detectorContributions) : [],
+                                signals: d.importantSignals || {},
+                                detectorCount: d.detectorContributions ? Object.keys(d.detectorContributions).length : 0,
+                                signature: self.signature
+                            };
+                            self.yourLoading = false;
+                        }
                         self.probabilityHistory.push(d.botProbability);
                         if (self.probabilityHistory.length > 60) self.probabilityHistory.splice(0, self.probabilityHistory.length - 60);
                         self.justUpdated = true;
@@ -1088,7 +1198,11 @@ function dashboard() {
                     if (visitor) { visitor.hits = sig.hitCount; if (sig.botName) visitor.botName = sig.botName; }
                 });
 
-                this.connection.on('BroadcastSummary', function(raw) { self.summary = toCamel(raw); });
+                this.connection.on('BroadcastSummary', function(raw) {
+                    self.summary = toCamel(raw);
+                    // Refresh time series chart on summary updates (throttled — only if not already loading)
+                    if (!self.timeSeriesLoading) self.fetchTimeSeries();
+                });
 
                 this.connection.on('BroadcastDescriptionUpdate', function(requestId, description) {
                     var match = Object.values(self.visitorMap).find(function(v) { return v.lastRequestId === requestId; });
@@ -1119,6 +1233,143 @@ function dashboard() {
             } catch(e) {
                 console.warn('[Dashboard] SignalR failed:', e);
             }
+        },
+
+        // --- Time Range ---
+        timeRangeConfig() {
+            var map = {
+                '1h':  { seconds: 3600,    bucket: 60,    fmt: 'HH:mm' },
+                '6h':  { seconds: 21600,   bucket: 300,   fmt: 'HH:mm' },
+                '12h': { seconds: 43200,   bucket: 600,   fmt: 'HH:mm' },
+                '24h': { seconds: 86400,   bucket: 1800,  fmt: 'HH:mm' },
+                '7d':  { seconds: 604800,  bucket: 3600,  fmt: 'ddd HH:mm' },
+                '30d': { seconds: 2592000, bucket: 86400, fmt: 'MMM dd' },
+                'All': { seconds: 0,       bucket: 3600,  fmt: 'auto' }
+            };
+            return map[this.timeRange] || map['All'];
+        },
+
+        async setTimeRange(r) {
+            this.timeRange = r;
+            await this.fetchTimeSeries();
+            await this.fetchFilteredBots();
+        },
+
+        async fetchTimeSeries() {
+            var cfg = this.timeRangeConfig();
+            var now = new Date();
+            var start, end = now.toISOString(), bucket = cfg.bucket;
+            if (this.timeRange === 'All') {
+                // Use 30 days ago as start for 'All' to get meaningful buckets
+                start = new Date(now.getTime() - 30 * 86400000).toISOString();
+                bucket = 3600;
+            } else {
+                start = new Date(now.getTime() - cfg.seconds * 1000).toISOString();
+            }
+            this.timeSeriesLoading = true;
+            try {
+                var resp = await fetch('@Html.Raw(Model.Options.BasePath)/api/timeseries?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end) + '&bucket=' + bucket);
+                if (resp.ok) {
+                    this.timeSeriesData = (await resp.json()).map(toCamel);
+                    this.computeFilteredSummary();
+                }
+            } catch(e) { console.warn('[Dashboard] fetchTimeSeries failed:', e); }
+            this.timeSeriesLoading = false;
+        },
+
+        computeFilteredSummary() {
+            var ts = this.timeSeriesData;
+            if (!ts.length) { this.filteredSummary = null; return; }
+            var botCount = 0, humanCount = 0, totalCount = 0;
+            var riskBands = {};
+            var botTypes = {};
+            ts.forEach(function(p) {
+                botCount += p.botCount || 0;
+                humanCount += p.humanCount || 0;
+                totalCount += p.totalCount || 0;
+                if (p.riskBandCounts) {
+                    Object.entries(p.riskBandCounts).forEach(function(e) {
+                        riskBands[e[0]] = (riskBands[e[0]] || 0) + e[1];
+                    });
+                }
+            });
+            this.filteredSummary = { botCount: botCount, humanCount: humanCount, totalCount: totalCount, riskBandCounts: riskBands, topBotTypes: botTypes };
+        },
+
+        async fetchFilteredBots() {
+            if (this.timeRange === 'All') return; // All-time bots come from summary
+            var cfg = this.timeRangeConfig();
+            var now = new Date();
+            var start = new Date(now.getTime() - cfg.seconds * 1000).toISOString();
+            var end = now.toISOString();
+            try {
+                var resp = await fetch('@Html.Raw(Model.Options.BasePath)/api/topbots?count=10&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end));
+                if (resp.ok) {
+                    var bots = (await resp.json()).map(toCamel);
+                    // Build topBotTypes from the response
+                    var types = {};
+                    bots.forEach(function(b) { if (b.botType) types[b.botType] = (types[b.botType] || 0) + b.hitCount; });
+                    if (this.filteredSummary) this.filteredSummary.topBotTypes = types;
+                }
+            } catch(e) {}
+        },
+
+        // --- Area Chart Computed ---
+        get areaChartWidth() { return 800; },
+        get areaChartStartLabel() {
+            if (!this.timeSeriesData.length) return '';
+            return this.formatChartTime(this.timeSeriesData[0].timestamp);
+        },
+        get areaChartEndLabel() {
+            if (!this.timeSeriesData.length) return '';
+            return this.formatChartTime(this.timeSeriesData[this.timeSeriesData.length - 1].timestamp);
+        },
+        formatChartTime(ts) {
+            if (!ts) return '';
+            var d = new Date(ts);
+            var cfg = this.timeRangeConfig();
+            if (cfg.fmt === 'HH:mm') return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            if (cfg.fmt === 'ddd HH:mm') return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            if (cfg.fmt === 'MMM dd') return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+            return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        },
+
+        get humanAreaPath() { return this.buildAreaPath('humanCount'); },
+        get botAreaPath() { return this.buildStackedAreaPath(); },
+        get humanLinePath() { return this.buildLinePath('humanCount'); },
+        get botLinePath() { return this.buildStackedLinePath(); },
+
+        buildAreaPath(field) {
+            var ts = this.timeSeriesData; if (ts.length < 2) return '';
+            var w = this.areaChartWidth, h = 110, maxVal = this.chartMaxVal();
+            if (maxVal === 0) return '';
+            var pts = ts.map(function(p, i) { var x = (i / (ts.length - 1)) * w; var y = h - ((p[field] || 0) / maxVal) * h; return x + ',' + y; });
+            return 'M0,' + h + ' L' + pts.join(' L') + ' L' + w + ',' + h + ' Z';
+        },
+        buildStackedAreaPath() {
+            var ts = this.timeSeriesData; if (ts.length < 2) return '';
+            var w = this.areaChartWidth, h = 110, maxVal = this.chartMaxVal();
+            if (maxVal === 0) return '';
+            var pts = ts.map(function(p, i) { var x = (i / (ts.length - 1)) * w; var y = h - (((p.humanCount || 0) + (p.botCount || 0)) / maxVal) * h; return x + ',' + y; });
+            var bottomPts = ts.map(function(p, i) { var x = (i / (ts.length - 1)) * w; var y = h - ((p.humanCount || 0) / maxVal) * h; return x + ',' + y; }).reverse();
+            return 'M' + pts.join(' L') + ' L' + bottomPts.join(' L') + ' Z';
+        },
+        buildLinePath(field) {
+            var ts = this.timeSeriesData; if (ts.length < 2) return '';
+            var w = this.areaChartWidth, h = 110, maxVal = this.chartMaxVal();
+            if (maxVal === 0) return '';
+            return ts.map(function(p, i) { var x = (i / (ts.length - 1)) * w; var y = h - ((p[field] || 0) / maxVal) * h; return x + ',' + y; }).join(' ');
+        },
+        buildStackedLinePath() {
+            var ts = this.timeSeriesData; if (ts.length < 2) return '';
+            var w = this.areaChartWidth, h = 110, maxVal = this.chartMaxVal();
+            if (maxVal === 0) return '';
+            return ts.map(function(p, i) { var x = (i / (ts.length - 1)) * w; var y = h - (((p.humanCount || 0) + (p.botCount || 0)) / maxVal) * h; return x + ',' + y; }).join(' ');
+        },
+        chartMaxVal() {
+            var max = 0;
+            this.timeSeriesData.forEach(function(p) { var t = (p.humanCount || 0) + (p.botCount || 0); if (t > max) max = t; });
+            return max || 1;
         },
 
         // --- Export ---

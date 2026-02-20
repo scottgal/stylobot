@@ -93,6 +93,17 @@ services:
       - BotDetection__ResponseHeaders__IncludeConfidence=true
       - BotDetection__ResponseHeaders__IncludeDetectors=true
       - BotDetection__ResponseHeaders__IncludeProcessingTime=true
+      # Legacy API bypass keys (for trusted tooling / dev access)
+      - BotDetection__ApiBypassKeys__0=${BOTDETECTION_API_BYPASS_KEY:-}
+      # Rich API keys with per-key detection overlay
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__Name=Dashboard Monitor
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__DisabledDetectors__0=BehavioralWaveform
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__DisabledDetectors__1=Behavioral
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__DisabledDetectors__2=AdvancedBehavioral
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__AllowedPaths__0=/_stylobot/**
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__RateLimitPerMinute=120
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__Tags__0=monitoring
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__Tags__1=dashboard
       # Use demo policy with all detectors
       - BotDetection__PathPolicies__/*=demo
       # Upstream routing (to demo website)
@@ -155,6 +166,15 @@ services:
       # Signature & privacy
       - BOTDETECTION_SIGNATURE_HASH_KEY=${BOTDETECTION_SIGNATURE_HASH_KEY:-}
       - BOTDETECTION_CLIENTSIDE_TOKEN_SECRET=${BOTDETECTION_CLIENTSIDE_TOKEN_SECRET:-}
+      # Legacy API bypass keys (for trusted tooling / dev access)
+      - BotDetection__ApiBypassKeys__0=${BOTDETECTION_API_BYPASS_KEY:-}
+      # Rich API keys (same dashboard monitor key as gateway)
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__Name=Dashboard Monitor
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__DisabledDetectors__0=BehavioralWaveform
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__DisabledDetectors__1=Behavioral
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__DisabledDetectors__2=AdvancedBehavioral
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__AllowedPaths__0=/_stylobot/**
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-dashboard-monitor-key}__RateLimitPerMinute=120
       # Dashboard
       - STYLOBOT_DASHBOARD_PUBLIC=true
       - STYLOBOT_DASHBOARD_PATH=${STYLOBOT_DASHBOARD_PATH:-/_stylobot}

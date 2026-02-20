@@ -44,4 +44,5 @@ Use this page to validate behavior or run a product walkthrough.
 
 - `how-stylobot-works`
 - `detectors-in-depth`
+- `connected-signature-exchange-spec`
 - `frequently-asked-questions`

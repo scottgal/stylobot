@@ -156,10 +156,11 @@ public class EphemeralDetectionOrchestrator : IAsyncDisposable
         allPolicyDetectors.UnionWith(policy.SlowPathDetectors);
         allPolicyDetectors.UnionWith(policy.AiPathDetectors);
 
-        // Get enabled detectors (respecting circuit breakers and policy)
+        // Get enabled detectors (respecting circuit breakers, policy, and exclusions)
         var availableDetectors = _detectors
             .Where(d => d.IsEnabled && IsCircuitClosed(d.Name))
             .Where(d => allPolicyDetectors.Count == 0 || allPolicyDetectors.Contains(d.Name))
+            .Where(d => !policy.ExcludedDetectors.Contains(d.Name))
             .OrderBy(d => d.Priority)
             .ToList();
 

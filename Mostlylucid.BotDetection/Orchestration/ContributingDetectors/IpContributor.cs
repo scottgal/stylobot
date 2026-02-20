@@ -106,8 +106,15 @@ public class IpContributor : ConfiguredContributorBase
 
         if (isLocal)
         {
-            // Loopback/private penalties from YAML config
-            var penalty = isLoopback ? LoopbackPenalty : PrivateIpPenalty;
+            // Check if this is a proxy/Docker scenario: private connection IP but
+            // proxy headers present means the real client is behind a reverse proxy.
+            // This is normal infrastructure, not a bot signal.
+            var hasProxyHeaders = state.HttpContext.Request.Headers.ContainsKey("X-Forwarded-For") ||
+                                  state.HttpContext.Request.Headers.ContainsKey("X-Real-IP") ||
+                                  state.HttpContext.Request.Headers.ContainsKey("Forwarded");
+            var isProxied = !isLoopback && hasProxyHeaders;
+
+            var penalty = isLoopback ? LoopbackPenalty : (isProxied ? 0.0 : PrivateIpPenalty);
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,
@@ -116,7 +123,9 @@ public class IpContributor : ConfiguredContributorBase
                 Weight = WeightBase * 0.5,
                 Reason = isLoopback
                     ? $"Localhost/loopback address: {MaskIp(clientIp)} (neutral in dev)"
-                    : $"Private network IP: {MaskIp(clientIp)}"
+                    : isProxied
+                        ? $"Behind reverse proxy: {MaskIp(clientIp)} (proxy headers present)"
+                        : $"Private network IP: {MaskIp(clientIp)}"
             });
         }
 

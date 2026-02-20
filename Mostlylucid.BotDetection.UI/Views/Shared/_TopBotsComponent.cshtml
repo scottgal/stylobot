@@ -1,0 +1,279 @@
+@using Mostlylucid.BotDetection.UI.Models
+@*
+    Shared Top Bots component — used on both dashboard and marketing home page.
+    Renders a sortable, paginated table with inline SVG sparklines.
+
+    Usage:
+    1. HTMX (home page):  <div hx-get="/api/topbots-component" hx-trigger="load, every 30s">
+    2. Alpine.js (dashboard): embedded directly with x-data binding to topBots array
+
+    Data source: /api/topbots?page=1&pageSize=25&sort=hits&country=US
+    The component expects a `topBots` Alpine.js array or Model binding.
+*@
+
+<div x-data="topBotsComponent()" x-init="init()" class="w-full">
+    <!-- Header with sort controls -->
+    <div class="flex items-center justify-between mb-2">
+        <h3 class="text-sm font-semibold text-base-content">Top Bots</h3>
+        <div class="flex items-center gap-1.5">
+            <!-- Country filter -->
+            <select x-model="filterCountry" x-on:change="loadPage(1)"
+                    class="select select-xs select-bordered text-[10px] h-6 min-h-0 pr-6">
+                <option value="">All Countries</option>
+                <template x-for="c in availableCountries" :key="c">
+                    <option :value="c" x-text="c"></option>
+                </template>
+            </select>
+        </div>
+    </div>
+
+    <!-- Table -->
+    <div class="overflow-x-auto">
+        <table class="table table-xs w-full">
+            <thead>
+                <tr class="text-[10px] uppercase tracking-wider text-base-content/50">
+                    <th class="cursor-pointer hover:text-base-content" x-on:click="toggleSort('name')">
+                        Bot <span x-show="sortBy==='name'" x-text="sortDir==='asc'?'\u25B2':'\u25BC'" class="text-[8px]"></span>
+                    </th>
+                    <th class="cursor-pointer hover:text-base-content text-right" x-on:click="toggleSort('hits')">
+                        Hits <span x-show="sortBy==='hits'" x-text="sortDir==='asc'?'\u25B2':'\u25BC'" class="text-[8px]"></span>
+                    </th>
+                    <th class="text-center">Score</th>
+                    <th class="text-center hidden sm:table-cell">Spark</th>
+                    <th class="cursor-pointer hover:text-base-content hidden md:table-cell" x-on:click="toggleSort('country')">
+                        Country <span x-show="sortBy==='country'" x-text="sortDir==='asc'?'\u25B2':'\u25BC'" class="text-[8px]"></span>
+                    </th>
+                    <th class="hidden lg:table-cell">Action</th>
+                    <th class="cursor-pointer hover:text-base-content text-right" x-on:click="toggleSort('lastseen')">
+                        Seen <span x-show="sortBy==='lastseen'" x-text="sortDir==='asc'?'\u25B2':'\u25BC'" class="text-[8px]"></span>
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="bot in bots" :key="bot.primarySignature">
+                    <tr class="hover:bg-base-200/50 transition-colors">
+                        <!-- Bot name -->
+                        <td class="max-w-[140px]">
+                            <div class="flex items-center gap-1">
+                                <span class="text-[11px] font-semibold truncate"
+                                      x-text="bot.botName || bot.primarySignature?.substring(0, 10)"></span>
+                                <span class="text-[8px] px-1 py-px rounded-sm font-semibold uppercase tracking-wider bg-base-content/10 text-base-content/40 shrink-0"
+                                      x-text="bot.botType || 'Bot'"></span>
+                            </div>
+                        </td>
+                        <!-- Hits -->
+                        <td class="text-right">
+                            <span class="text-[11px] font-mono tabular-nums" x-text="formatHits(bot.hitCount)"></span>
+                        </td>
+                        <!-- Score -->
+                        <td class="text-center">
+                            <span class="text-[11px] font-bold"
+                                  :class="bot.botProbability >= 0.85 ? 'text-error' : bot.botProbability >= 0.6 ? 'text-warning' : 'text-info'"
+                                  x-text="Math.round(bot.botProbability * 100) + '%'"></span>
+                        </td>
+                        <!-- Sparkline (programmatic SVG — no x-html to avoid XSS) -->
+                        <td class="text-center hidden sm:table-cell">
+                            <svg width="60" height="20" class="inline-block"
+                                 x-effect="renderSparklineTo($el, bot)"></svg>
+                        </td>
+                        <!-- Country -->
+                        <td class="hidden md:table-cell">
+                            <span class="text-[11px]" x-text="countryFlag(bot.countryCode)"></span>
+                            <span class="text-[10px] text-base-content/50" x-text="bot.countryCode || ''"></span>
+                        </td>
+                        <!-- Action -->
+                        <td class="hidden lg:table-cell">
+                            <span class="text-[9px] px-1.5 py-0.5 rounded-sm font-medium"
+                                  :class="{
+                                      'bg-error/20 text-error': bot.action === 'Block',
+                                      'bg-warning/20 text-warning': bot.action === 'Throttle',
+                                      'bg-info/20 text-info': bot.action === 'Challenge',
+                                      'bg-base-content/10 text-base-content/50': !bot.action || bot.action === 'Allow'
+                                  }"
+                                  x-text="bot.action || 'Allow'"></span>
+                        </td>
+                        <!-- Last seen -->
+                        <td class="text-right">
+                            <span class="text-[10px] text-base-content/40" x-text="timeAgo(bot.lastSeen)"></span>
+                        </td>
+                    </tr>
+                </template>
+                <tr x-show="bots.length === 0">
+                    <td colspan="7" class="text-center text-[11px] text-base-content/30 py-8">
+                        No bot activity detected yet
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    <div x-show="totalPages > 1" class="flex items-center justify-center gap-1 mt-2">
+        <button class="btn btn-xs btn-ghost" :disabled="currentPage <= 1" x-on:click="loadPage(currentPage - 1)">&laquo;</button>
+        <template x-for="p in totalPages" :key="p">
+            <button class="btn btn-xs" :class="p === currentPage ? 'btn-primary' : 'btn-ghost'"
+                    x-on:click="loadPage(p)" x-text="p"></button>
+        </template>
+        <button class="btn btn-xs btn-ghost" :disabled="currentPage >= totalPages" x-on:click="loadPage(currentPage + 1)">&raquo;</button>
+    </div>
+</div>
+
+<script>
+    function topBotsComponent() {
+        return {
+            bots: [],
+            sortBy: 'hits',
+            sortDir: 'desc',
+            currentPage: 1,
+            pageSize: 25,
+            totalPages: 1,
+            filterCountry: '',
+            availableCountries: [],
+            apiBase: '',
+            sparklineCache: {},
+
+            init() {
+                // Detect API base from page context
+                this.apiBase = this.$el.dataset.apiBase || window.__styloBotBasePath || '/_stylobot';
+                // If parent Alpine component has topBots data, use it
+                if (this.$root && this.$root._x_dataStack) {
+                    const parent = this.$root._x_dataStack.find(d => d.topBots);
+                    if (parent && parent.topBots && parent.topBots.length > 0) {
+                        this.bots = parent.topBots;
+                        this.extractCountries();
+                        return;
+                    }
+                }
+                this.loadPage(1);
+            },
+
+            async loadPage(page) {
+                this.currentPage = page;
+                const params = new URLSearchParams({
+                    page: page.toString(),
+                    pageSize: this.pageSize.toString(),
+                    sort: this.sortBy
+                });
+                if (this.filterCountry) params.set('country', this.filterCountry);
+
+                try {
+                    const res = await fetch(`${this.apiBase}/api/topbots?${params}`);
+                    if (res.ok) {
+                        this.bots = await res.json();
+                        this.totalPages = Math.max(1, Math.ceil(100 / this.pageSize)); // estimate
+                        if (this.bots.length < this.pageSize) {
+                            this.totalPages = this.currentPage; // last page
+                        }
+                        this.extractCountries();
+                        this.loadSparklines();
+                    }
+                } catch (e) {
+                    console.warn('Failed to load top bots:', e);
+                }
+            },
+
+            async loadSparklines() {
+                const missing = this.bots.filter(b => !this.sparklineCache[b.primarySignature]);
+                if (missing.length === 0) return;
+                // Fetch in parallel (batch of up to 10 at a time to avoid flooding)
+                const batchSize = 10;
+                for (let i = 0; i < missing.length; i += batchSize) {
+                    const batch = missing.slice(i, i + batchSize);
+                    await Promise.all(batch.map(async (bot) => {
+                        try {
+                            const res = await fetch(`${this.apiBase}/api/sparkline/${encodeURIComponent(bot.primarySignature)}`);
+                            if (res.ok) {
+                                const data = await res.json();
+                                this.sparklineCache[bot.primarySignature] = data.botProbabilityHistory || [];
+                            }
+                        } catch (e) { /* ignore */ }
+                    }));
+                }
+            },
+
+            toggleSort(field) {
+                if (this.sortBy === field) {
+                    this.sortDir = this.sortDir === 'desc' ? 'asc' : 'desc';
+                } else {
+                    this.sortBy = field;
+                    this.sortDir = field === 'name' || field === 'country' ? 'asc' : 'desc';
+                }
+                this.loadPage(1);
+            },
+
+            extractCountries() {
+                const codes = [...new Set(this.bots.map(b => b.countryCode).filter(Boolean))];
+                // Merge with existing without losing selections
+                for (const c of codes) {
+                    if (!this.availableCountries.includes(c)) this.availableCountries.push(c);
+                }
+                this.availableCountries.sort();
+            },
+
+            formatHits(n) {
+                if (!n) return '0';
+                if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+                if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+                return n.toString();
+            },
+
+            countryFlag(code) {
+                if (!code || code.length !== 2) return '';
+                const upper = code.toUpperCase();
+                return String.fromCodePoint(
+                    0x1F1E6 + upper.charCodeAt(0) - 65,
+                    0x1F1E6 + upper.charCodeAt(1) - 65
+                );
+            },
+
+            timeAgo(ts) {
+                if (!ts) return '';
+                const diff = Date.now() - new Date(ts).getTime();
+                if (diff < 60000) return Math.floor(diff / 1000) + 's';
+                if (diff < 3600000) return Math.floor(diff / 60000) + 'm';
+                if (diff < 86400000) return Math.floor(diff / 3600000) + 'h';
+                return Math.floor(diff / 86400000) + 'd';
+            },
+
+            renderSparklineTo(el, bot) {
+                const data = this.sparklineCache[bot.primarySignature] || [];
+                if (data.length < 2) { el.replaceChildren(); return; }
+
+                const w = 60, h = 18, pad = 1;
+                const min = Math.min(...data);
+                const max = Math.max(...data);
+                const range = max - min || 1;
+                const points = data.map((v, i) => {
+                    const x = pad + (i / (data.length - 1)) * (w - 2 * pad);
+                    const y = pad + (1 - (v - min) / range) * (h - 2 * pad);
+                    return `${x.toFixed(1)},${y.toFixed(1)}`;
+                }).join(' ');
+
+                const avg = data.reduce((a, b) => a + b, 0) / data.length;
+                const color = avg >= 0.85 ? '#f87171' : avg >= 0.6 ? '#fbbf24' : '#38bdf8';
+
+                // Programmatic SVG creation — safe, no innerHTML/XSS risk
+                const ns = 'http://www.w3.org/2000/svg';
+                const poly = document.createElementNS(ns, 'polyline');
+                poly.setAttribute('points', points);
+                poly.setAttribute('fill', 'none');
+                poly.setAttribute('stroke', color);
+                poly.setAttribute('stroke-width', '1.5');
+                poly.setAttribute('stroke-linecap', 'round');
+                poly.setAttribute('stroke-linejoin', 'round');
+                el.replaceChildren(poly);
+            },
+
+            // Called by SignalR to update a single bot entry in-place
+            updateBot(botEntry) {
+                const idx = this.bots.findIndex(b => b.primarySignature === botEntry.primarySignature);
+                if (idx >= 0) {
+                    this.bots[idx] = { ...this.bots[idx], ...botEntry };
+                } else if (this.currentPage === 1 && this.bots.length < this.pageSize) {
+                    this.bots.push(botEntry);
+                }
+                this.bots.sort((a, b) => (b.hitCount || 0) - (a.hitCount || 0));
+            }
+        };
+    }
+</script>

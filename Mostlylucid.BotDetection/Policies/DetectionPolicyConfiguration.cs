@@ -213,6 +213,14 @@ public class DetectionPolicyConfig : BaseComponentConfig
     public string? ActionPolicyName { get; set; }
 
     /// <summary>
+    ///     Whether API keys can override the action policy for this detection policy.
+    ///     When false, the policy's ActionPolicyName and transitions take precedence
+    ///     over any API key ActionPolicyName override.
+    ///     Default: true (API keys can override).
+    /// </summary>
+    public bool ActionPolicyOverridable { get; set; } = true;
+
+    /// <summary>
     ///     Fallback action policy name when primary action fails.
     ///     For example, if challenge service is unavailable, fall back to block.
     /// </summary>
@@ -269,7 +277,8 @@ public class DetectionPolicyConfig : BaseComponentConfig
             Transitions = Transitions.Select(t => t.ToTransition()).ToImmutableList(),
             Timeout = TimeSpan.FromMilliseconds(TimeoutMs),
             Enabled = Enabled,
-            BypassTriggerConditions = BypassTriggerConditions
+            BypassTriggerConditions = BypassTriggerConditions,
+            ActionPolicyOverridable = ActionPolicyOverridable
         };
     }
 }

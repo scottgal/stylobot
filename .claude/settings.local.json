@@ -227,7 +227,9 @@
       "Bash(for file in /d/Source/mostlylucid.stylobot/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/*Contributor.cs)",
       "Bash(do basename \"$file\" .cs)",
       "Bash(MSYS_NO_PATHCONV=1 docker exec:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(git stash:*)",
+      "Bash(tr:*)"
     ]
   }
 }

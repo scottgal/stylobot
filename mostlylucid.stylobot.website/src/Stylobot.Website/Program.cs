@@ -112,10 +112,8 @@ builder.Services.AddBotDetection(options =>
     // Trust upstream detection from YARP gateway (skip re-running the full pipeline)
     options.TrustUpstreamDetection = GetConfigBool("BotDetection:TrustUpstreamDetection", "BOTDETECTION_TRUST_UPSTREAM", false);
 
-    // Exclude dashboard paths from bot detection (SignalR hub, API endpoints)
-    // These generate high-frequency polling that falsely triggers bot detection
-    var dashboardPath = GetConfig("StyloBotDashboard:BasePath", "STYLOBOT_DASHBOARD_PATH", "/_stylobot");
-    options.ExcludedPaths.Add(dashboardPath);
+    // Let bot detection run on dashboard paths (dogfooding) — confirmed bots
+    // are blocked from data API endpoints by the dashboard middleware itself.
 
     // Detection thresholds
     options.BotThreshold = GetConfigDouble("BotDetection:Threshold", "BOTDETECTION_THRESHOLD", 0.7);
@@ -346,6 +344,9 @@ app.Use(async (context, next) =>
     context.Response.Headers.TryAdd("Cross-Origin-Resource-Policy", "same-origin");
     await next();
 });
+
+// WebSockets must be enabled before routing for SignalR hub connections
+app.UseWebSockets();
 
 app.UseRouting();
 

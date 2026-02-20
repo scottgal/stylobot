@@ -84,7 +84,7 @@
                         </div>
                         <div>
                             <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Last Path</div>
-                            <div class="text-sm font-bold font-mono text-base-content truncate" x-text="sig.lastPath || '—'"></div>
+                            <div class="text-sm font-bold font-mono text-base-content truncate" :title="sig.lastPath || ''" x-text="sig.lastPath || '—'"></div>
                         </div>
                         <div>
                             <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Last Seen</div>
@@ -126,18 +126,52 @@
                     <div id="location-map" class="w-full" style="max-height: 200px; overflow: hidden;"></div>
                 </div>
 
-                <!-- Narrative + Reasons -->
+                <!-- Why is this a bot? / Analysis -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+                    <!-- LLM / Narrative Analysis -->
                     <div class="marketing-card p-4" x-show="sig.narrative || sig.description">
-                        <h2 class="text-sm font-semibold text-base-content mb-2">Narrative</h2>
-                        <p class="text-xs leading-relaxed" style="color: var(--sb-card-text);" x-text="sig.narrative || sig.description"></p>
+                        <h2 class="text-sm font-semibold text-base-content mb-2 flex items-center gap-2">
+                            <template x-if="sig.isKnownBot">
+                                <span class="text-red-500">Why is this a bot?</span>
+                            </template>
+                            <template x-if="!sig.isKnownBot">
+                                <span class="text-green-500">Why is this human?</span>
+                            </template>
+                            <span x-show="sig.description && sig.description !== sig.narrative"
+                                  class="text-[10px] px-1.5 py-0.5 rounded-full font-normal"
+                                  style="background: color-mix(in oklab, var(--sb-accent) 15%, transparent); color: var(--sb-accent);">
+                                AI Analysis
+                            </span>
+                        </h2>
+                        <!-- LLM description (when available, shows AI-generated plain English) -->
+                        <div x-show="sig.description && sig.description !== sig.narrative" class="mb-2 p-2 rounded-lg text-xs leading-relaxed"
+                             style="background: color-mix(in oklab, var(--sb-accent) 5%, transparent); color: var(--sb-card-text);">
+                            <span x-text="sig.description"></span>
+                        </div>
+                        <!-- Detection narrative (always present) -->
+                        <p class="text-xs leading-relaxed" style="color: var(--sb-card-text);" x-text="sig.narrative"></p>
+                        <!-- Combination explanation for "looks normal but is a bot" cases -->
+                        <div x-show="sig.isKnownBot && sig.botProbability < 0.85 && sig.confidence > 0.5"
+                             class="mt-2 p-2 rounded-lg text-[11px] leading-relaxed"
+                             style="background: color-mix(in oklab, #ef4444 5%, transparent); color: var(--sb-card-text);">
+                            <strong style="color: #ef4444;">Pattern note:</strong>
+                            Individual signals may appear normal, but the <em>combination</em> of signals is statistically
+                            unusual for genuine browsers. Multiple weak indicators compound into a strong detection
+                            when they co-occur in ways real users almost never produce.
+                        </div>
                     </div>
+                    <!-- Evidence list -->
                     <div class="marketing-card p-4" x-show="sig.topReasons && sig.topReasons.length > 0">
-                        <h2 class="text-sm font-semibold text-base-content mb-2">Evidence</h2>
-                        <ul class="space-y-1">
+                        <h2 class="text-sm font-semibold text-base-content mb-2">
+                            Evidence
+                            <span class="text-[10px] font-normal" style="color: var(--sb-card-subtle);"
+                                  x-text="'(' + (sig.topReasons || []).length + ' signals)'"></span>
+                        </h2>
+                        <ul class="space-y-1.5">
                             <template x-for="reason in (sig.topReasons || [])">
-                                <li class="text-xs flex items-start gap-1.5" style="color: var(--sb-card-text);">
-                                    <span style="color: var(--sb-accent);">&#x2022;</span>
+                                <li class="text-xs flex items-start gap-1.5" style="color: var(--sb-card-text);"
+                                    :title="reason">
+                                    <span class="shrink-0 mt-0.5" style="color: var(--sb-accent);">&#x2022;</span>
                                     <span x-text="reason"></span>
                                 </li>
                             </template>
@@ -160,10 +194,12 @@
 
                 <!-- Processing Time History -->
                 <div class="marketing-card p-4 mb-4">
-                    <h2 class="text-sm font-semibold text-base-content mb-2">Processing Time History</h2>
+                    <h2 class="text-sm font-semibold text-base-content mb-2" title="Pure detection time — excludes action delays (tarpitting, throttling). Log scale to show fast and slow detections.">
+                        Detection Time History <span class="text-[10px] font-normal" style="color: var(--sb-card-subtle);">(log scale, excludes action delays)</span>
+                    </h2>
                     <div id="timing-history-chart"></div>
                     <div x-show="!sparklineData || (sparklineData.processingTimeHistory || []).length === 0"
-                         class="flex items-center justify-center h-24 text-sm" style="color: var(--sb-card-subtle);">
+                         class="flex items-center justify-center h-16 text-sm" style="color: var(--sb-card-subtle);">
                         No timing data yet
                     </div>
                 </div>
@@ -180,8 +216,9 @@
                                     <th class="text-left pb-2 pr-3 font-medium">Prob</th>
                                     <th class="text-left pb-2 pr-3 font-medium">Conf</th>
                                     <th class="text-left pb-2 pr-3 font-medium">Risk</th>
+                                    <th class="text-left pb-2 pr-3 font-medium">Status</th>
                                     <th class="text-left pb-2 pr-3 font-medium">Path</th>
-                                    <th class="text-left pb-2 pr-3 font-medium">Latency</th>
+                                    <th class="text-left pb-2 pr-3 font-medium" title="Pure detection time (excludes action delays like tarpitting)">Detection</th>
                                     <th class="text-left pb-2 font-medium">Action</th>
                                 </tr>
                             </thead>
@@ -199,7 +236,13 @@
                                             x-text="pct(g.detection.botProbability)"></td>
                                         <td class="py-1.5 pr-3 font-mono text-base-content" x-text="pct(g.detection.confidence)"></td>
                                         <td class="py-1.5 pr-3" :class="riskClass(g.detection.riskBand)" x-text="g.detection.riskBand || '—'"></td>
-                                        <td class="py-1.5 pr-3 font-mono truncate max-w-[200px]" style="color: var(--sb-card-text);">
+                                        <td class="py-1.5 pr-3 font-mono" style="color: var(--sb-card-text);">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                                                  :class="g.detection.statusCode >= 400 ? 'status-badge-warn' : (g.detection.statusCode >= 300 ? 'status-badge-info' : 'status-badge-human')"
+                                                  x-text="g.detection.statusCode || '—'"></span>
+                                        </td>
+                                        <td class="py-1.5 pr-3 font-mono truncate max-w-[200px]" style="color: var(--sb-card-text);"
+                                            :title="g.detection.path || ''">
                                             <span x-text="g.detection.path || '—'"></span>
                                             <span x-show="g.assetCount > 0"
                                                   class="ml-1 text-[10px] px-1 py-0.5 rounded"
@@ -207,6 +250,7 @@
                                                   x-text="'+' + g.assetCount + ' assets'"></span>
                                         </td>
                                         <td class="py-1.5 pr-3 font-mono" style="color: var(--sb-card-text);"
+                                            :title="'Pure detection time (excludes tarpitting/throttle delays)'"
                                             x-text="g.detection.processingTimeMs ? g.detection.processingTimeMs.toFixed(1) + 'ms' : '—'"></td>
                                         <td class="py-1.5">
                                             <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold font-mono"
@@ -222,19 +266,45 @@
                     <!-- Detection Details Expansion (latest only) -->
                     <template x-if="detections.length > 0 && detections[0].detectorContributions && Object.keys(detections[0].detectorContributions).length > 0">
                         <div class="mt-3 border-t pt-3" style="border-color: var(--sb-card-divider);">
-                            <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color: var(--sb-card-subtle);">
-                                Detector Contributions &mdash; <span class="font-mono" x-text="timeAgo(detections[0].timestamp)"></span>
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">
+                                    All Detector Results (<span x-text="Object.keys(detections[0].detectorContributions || {}).length"></span> fired)
+                                    &mdash; <span class="font-mono" x-text="timeAgo(detections[0].timestamp)"></span>
+                                </div>
+                                <div class="flex items-center gap-2 text-[10px]" style="color: var(--sb-card-subtle);">
+                                    <span class="flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full" style="background: #22c55e;"></span> Human</span>
+                                    <span class="flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full" style="background: #eab308;"></span> Neutral</span>
+                                    <span class="flex items-center gap-1"><span class="inline-block w-2 h-2 rounded-full" style="background: #ef4444;"></span> Bot</span>
+                                </div>
                             </div>
-                            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+                            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
                                 <template x-for="[name, contrib] in Object.entries(detections[0].detectorContributions || {}).sort((a,b) => Math.abs(b[1].contribution) - Math.abs(a[1].contribution))">
-                                    <div class="text-xs p-2 rounded-lg bg-base-100">
-                                        <div class="font-medium text-base-content truncate" x-text="name"></div>
-                                        <div class="flex flex-col gap-0.5 mt-0.5" style="color: var(--sb-card-subtle);">
-                                            <span x-text="'Delta: ' + ((contrib.confidenceDelta ?? 0) > 0 ? '+' : '') + (contrib.confidenceDelta ?? 0).toFixed(2)"></span>
-                                            <span x-text="'Weight: ' + (contrib.contribution ?? 0).toFixed(3)"></span>
-                                            <span x-show="(contrib.executionTimeMs ?? 0) > 0" class="text-[10px]" x-text="(contrib.executionTimeMs ?? 0).toFixed(1) + 'ms'"></span>
+                                    <div class="text-xs p-2 rounded-lg border relative overflow-hidden"
+                                         :style="'border-color: ' + detectorBorderColor(contrib.contribution) + '; background: color-mix(in oklab, ' + detectorBorderColor(contrib.contribution) + ' 8%, var(--sb-card-bg, #fff))'"
+                                         :title="name + '\nDelta: ' + ((contrib.confidenceDelta ?? 0) > 0 ? '+' : '') + (contrib.confidenceDelta ?? 0).toFixed(3) + '\nWeight: ' + (contrib.contribution ?? 0).toFixed(4) + '\nTime: ' + (contrib.executionTimeMs ?? 0).toFixed(1) + 'ms' + (contrib.reason ? '\n\n' + contrib.reason : '')">
+                                        <!-- Color indicator bar at top -->
+                                        <div class="absolute top-0 left-0 right-0 h-0.5" :style="'background: ' + detectorBorderColor(contrib.contribution)"></div>
+                                        <div class="font-medium text-base-content truncate mt-0.5" x-text="name"
+                                             :title="name"></div>
+                                        <div class="flex items-center gap-1.5 mt-1">
+                                            <!-- Impact bar -->
+                                            <div class="flex-1 h-1.5 rounded-full overflow-hidden" style="background: var(--sb-card-divider);">
+                                                <div class="h-full rounded-full transition-all"
+                                                     :style="'width: ' + Math.min(100, Math.abs((contrib.contribution ?? 0)) * 200) + '%; background: ' + detectorBorderColor(contrib.contribution)">
+                                                </div>
+                                            </div>
+                                            <span class="text-[10px] font-mono shrink-0"
+                                                  :style="'color: ' + detectorBorderColor(contrib.contribution)"
+                                                  x-text="((contrib.confidenceDelta ?? 0) >= 0 ? '+' : '') + (contrib.confidenceDelta ?? 0).toFixed(2)"></span>
                                         </div>
-                                        <div x-show="contrib.reason" class="text-[10px] mt-1 truncate" style="color: var(--sb-card-text);" x-text="contrib.reason"></div>
+                                        <div class="flex items-center justify-between mt-0.5">
+                                            <span x-show="(contrib.executionTimeMs ?? 0) > 0" class="text-[10px] font-mono" style="color: var(--sb-card-subtle);"
+                                                  x-text="(contrib.executionTimeMs ?? 0).toFixed(1) + 'ms'"></span>
+                                            <span class="text-[10px] font-mono" style="color: var(--sb-card-subtle);"
+                                                  x-text="'w:' + (contrib.contribution ?? 0).toFixed(3)"></span>
+                                        </div>
+                                        <div x-show="contrib.reason" class="text-[10px] mt-1 line-clamp-2" style="color: var(--sb-card-text);"
+                                             :title="contrib.reason" x-text="contrib.reason"></div>
                                     </div>
                                 </template>
                             </div>
@@ -261,10 +331,12 @@
                                 </div>
                                 <div class="space-y-1">
                                     <template x-for="[key, val] in cat.signals" :key="key">
-                                        <div class="flex items-start gap-2 text-xs">
+                                        <div class="flex items-start gap-2 text-xs" :title="key + ': ' + (typeof val === 'object' ? JSON.stringify(val) : String(val))">
                                             <span class="font-mono text-[10px] min-w-[100px] truncate shrink-0" style="color: var(--sb-card-subtle);"
+                                                  :title="key"
                                                   x-text="key.split('.').slice(1).join('.')"></span>
-                                            <span class="font-medium text-base-content break-all"
+                                            <span class="font-medium text-base-content break-all truncate"
+                                                  :title="typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val)"
                                                   x-text="typeof val === 'boolean' ? (val ? 'Yes' : 'No') : typeof val === 'object' ? JSON.stringify(val) : String(val)"></span>
                                         </div>
                                     </template>

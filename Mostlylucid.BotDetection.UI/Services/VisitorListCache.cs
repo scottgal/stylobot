@@ -68,9 +68,9 @@ public class VisitorListCache
                     ProcessingTimeMs = detection.ProcessingTimeMs,
                     MaxProcessingTimeMs = detection.ProcessingTimeMs,
                     MinProcessingTimeMs = detection.ProcessingTimeMs,
-                    ProcessingTimeHistory = new List<double> { detection.ProcessingTimeMs },
-                    BotProbabilityHistory = new List<double> { detection.BotProbability },
-                    ConfidenceHistory = new List<double> { detection.Confidence },
+                    ProcessingTimeHistory = new Queue<double>([detection.ProcessingTimeMs]),
+                    BotProbabilityHistory = new Queue<double>([detection.BotProbability]),
+                    ConfidenceHistory = new Queue<double>([detection.Confidence]),
                     LastRequestId = detection.RequestId
                 };
             },
@@ -133,16 +133,16 @@ public class VisitorListCache
                     if (detection.ProcessingTimeMs < existing.MinProcessingTimeMs || existing.MinProcessingTimeMs == 0)
                         existing.MinProcessingTimeMs = detection.ProcessingTimeMs;
 
-                    // Push to ring buffers (max 20 entries)
-                    existing.ProcessingTimeHistory.Add(detection.ProcessingTimeMs);
+                    // Push to ring buffers (max 20 entries) — O(1) enqueue/dequeue
+                    existing.ProcessingTimeHistory.Enqueue(detection.ProcessingTimeMs);
                     if (existing.ProcessingTimeHistory.Count > 20)
-                        existing.ProcessingTimeHistory.RemoveAt(0);
-                    existing.BotProbabilityHistory.Add(detection.BotProbability);
+                        existing.ProcessingTimeHistory.Dequeue();
+                    existing.BotProbabilityHistory.Enqueue(detection.BotProbability);
                     if (existing.BotProbabilityHistory.Count > 20)
-                        existing.BotProbabilityHistory.RemoveAt(0);
-                    existing.ConfidenceHistory.Add(detection.Confidence);
+                        existing.BotProbabilityHistory.Dequeue();
+                    existing.ConfidenceHistory.Enqueue(detection.Confidence);
                     if (existing.ConfidenceHistory.Count > 20)
-                        existing.ConfidenceHistory.RemoveAt(0);
+                        existing.ConfidenceHistory.Dequeue();
 
                     existing.LastRequestId = detection.RequestId;
                     if (!string.IsNullOrEmpty(detection.Path) && !existing.Paths.Contains(detection.Path))
@@ -265,9 +265,9 @@ public class VisitorListCache
                     ProcessingTimeMs = v.ProcessingTimeMs,
                     MaxProcessingTimeMs = v.MaxProcessingTimeMs,
                     MinProcessingTimeMs = v.MinProcessingTimeMs,
-                    ProcessingTimeHistory = v.ProcessingTimeHistory.ToList(),
-                    BotProbabilityHistory = v.BotProbabilityHistory.ToList(),
-                    ConfidenceHistory = v.ConfidenceHistory.ToList(),
+                    ProcessingTimeHistory = new Queue<double>(v.ProcessingTimeHistory),
+                    BotProbabilityHistory = new Queue<double>(v.BotProbabilityHistory),
+                    ConfidenceHistory = new Queue<double>(v.ConfidenceHistory),
                     LastRequestId = v.LastRequestId
                 });
             }
@@ -534,11 +534,11 @@ public class CachedVisitor
     public double MinProcessingTimeMs { get; set; }
 
     /// <summary>Ring buffer of recent processing times (last 20 requests) for sparkline.</summary>
-    public List<double> ProcessingTimeHistory { get; set; } = new();
+    public Queue<double> ProcessingTimeHistory { get; set; } = new();
     /// <summary>Ring buffer of recent bot probabilities (last 20 requests) for sparkline.</summary>
-    public List<double> BotProbabilityHistory { get; set; } = new();
+    public Queue<double> BotProbabilityHistory { get; set; } = new();
     /// <summary>Ring buffer of recent confidence values (last 20 requests) for sparkline.</summary>
-    public List<double> ConfidenceHistory { get; set; } = new();
+    public Queue<double> ConfidenceHistory { get; set; } = new();
 
     public string? LastRequestId { get; set; }
 

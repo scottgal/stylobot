@@ -343,16 +343,14 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                     COUNT(*) FILTER (WHERE NOT is_bot AND confidence >= 0.5) as human_requests,
                     COUNT(*) FILTER (WHERE NOT is_bot AND confidence < 0.5) as uncertain_requests,
                     AVG(processing_time_ms) as avg_processing_time,
-                    (SELECT processing_time_ms FROM dashboard_detections WHERE timestamp > NOW() - INTERVAL '24 hours' ORDER BY timestamp DESC LIMIT 1) as last_processing_time
+                    (SELECT processing_time_ms FROM dashboard_detections ORDER BY timestamp DESC LIMIT 1) as last_processing_time
                 FROM dashboard_detections
-                WHERE timestamp > NOW() - INTERVAL '24 hours'
             ),
             risk_bands AS (
                 SELECT
                     risk_band,
                     COUNT(*)::int as count
                 FROM dashboard_detections
-                WHERE timestamp > NOW() - INTERVAL '24 hours'
                 GROUP BY risk_band
             ),
             bot_types AS (
@@ -361,7 +359,6 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                     COUNT(*)::int as count
                 FROM dashboard_detections
                 WHERE bot_type IS NOT NULL
-                    AND timestamp > NOW() - INTERVAL '24 hours'
                 GROUP BY bot_type
                 ORDER BY count DESC
                 LIMIT 5
@@ -372,7 +369,6 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
                     COUNT(*)::int as count
                 FROM dashboard_detections
                 WHERE action IS NOT NULL
-                    AND timestamp > NOW() - INTERVAL '24 hours'
                 GROUP BY action
                 ORDER BY count DESC
                 LIMIT 5
@@ -397,19 +393,19 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
             var summary = await connection.QuerySingleAsync<SummaryRow>(sql,
                 commandTimeout: _options.CommandTimeoutSeconds);
 
-            // Get risk band counts
+            // Get risk band counts (all time)
             var riskBands = await connection.QueryAsync<(string RiskBand, int Count)>(
-                "SELECT risk_band, COUNT(*)::int as count FROM dashboard_detections WHERE timestamp > NOW() - INTERVAL '24 hours' GROUP BY risk_band",
+                "SELECT risk_band, COUNT(*)::int as count FROM dashboard_detections GROUP BY risk_band",
                 commandTimeout: _options.CommandTimeoutSeconds);
 
-            // Get top bot types
+            // Get top bot types (all time)
             var botTypes = await connection.QueryAsync<(string BotType, int Count)>(
-                "SELECT bot_type, COUNT(*)::int as count FROM dashboard_detections WHERE bot_type IS NOT NULL AND timestamp > NOW() - INTERVAL '24 hours' GROUP BY bot_type ORDER BY count DESC LIMIT 5",
+                "SELECT bot_type, COUNT(*)::int as count FROM dashboard_detections WHERE bot_type IS NOT NULL GROUP BY bot_type ORDER BY count DESC LIMIT 5",
                 commandTimeout: _options.CommandTimeoutSeconds);
 
-            // Get top actions
+            // Get top actions (all time)
             var actions = await connection.QueryAsync<(string Action, int Count)>(
-                "SELECT action, COUNT(*)::int as count FROM dashboard_detections WHERE action IS NOT NULL AND timestamp > NOW() - INTERVAL '24 hours' GROUP BY action ORDER BY count DESC LIMIT 5",
+                "SELECT action, COUNT(*)::int as count FROM dashboard_detections WHERE action IS NOT NULL GROUP BY action ORDER BY count DESC LIMIT 5",
                 commandTimeout: _options.CommandTimeoutSeconds);
 
             return new DashboardSummary
@@ -566,14 +562,27 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         }
     }
 
-    public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10)
+    public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null)
     {
         if (IsCircuitOpen) return [];
 
         // Query detections grouped by signature — works even when dashboard_signatures
         // is empty (e.g. upstream-trusted mode where signatures aren't stored separately).
-        // Falls back to dashboard_signatures only if detections have no bot data.
-        const string sql = @"
+        var timeFilter = "";
+        var parameters = new DynamicParameters();
+        parameters.Add("Count", count);
+        if (startTime.HasValue)
+        {
+            timeFilter += " AND timestamp >= @StartTime";
+            parameters.Add("StartTime", startTime.Value);
+        }
+        if (endTime.HasValue)
+        {
+            timeFilter += " AND timestamp <= @EndTime";
+            parameters.Add("EndTime", endTime.Value);
+        }
+
+        var sql = $@"
             SELECT
                 primary_signature,
                 COUNT(*)::int AS hit_count,
@@ -592,7 +601,7 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
             FROM dashboard_detections
             WHERE is_bot = true
               AND primary_signature IS NOT NULL
-              AND timestamp > NOW() - INTERVAL '24 hours'
+              {timeFilter}
             GROUP BY primary_signature
             ORDER BY hit_count DESC
             LIMIT @Count";
@@ -600,7 +609,7 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         try
         {
             await using var connection = new NpgsqlConnection(_options.ConnectionString);
-            var rows = await connection.QueryAsync<TopBotRow>(sql, new { Count = count },
+            var rows = await connection.QueryAsync<TopBotRow>(sql, parameters,
                 commandTimeout: _options.CommandTimeoutSeconds);
 
             return rows.Select(r => new DashboardTopBotEntry
@@ -635,19 +644,33 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         }
     }
 
-    public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20)
+    public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
     {
         if (IsCircuitOpen) return [];
 
-        const string sql = @"
+        var timeFilter = "";
+        var parameters = new DynamicParameters();
+        parameters.Add("Count", count);
+        if (startTime.HasValue)
+        {
+            timeFilter += " AND timestamp >= @StartTime";
+            parameters.Add("StartTime", startTime.Value);
+        }
+        if (endTime.HasValue)
+        {
+            timeFilter += " AND timestamp <= @EndTime";
+            parameters.Add("EndTime", endTime.Value);
+        }
+
+        var sql = $@"
             SELECT
                 country_code,
                 COUNT(*)::int AS total_count,
                 COUNT(*) FILTER (WHERE is_bot)::int AS bot_count
             FROM dashboard_detections
-            WHERE timestamp > NOW() - INTERVAL '24 hours'
-              AND country_code IS NOT NULL
+            WHERE country_code IS NOT NULL
               AND country_code NOT IN ('XX', 'LOCAL')
+              {timeFilter}
             GROUP BY country_code
             ORDER BY total_count DESC
             LIMIT @Count";
@@ -655,7 +678,7 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         try
         {
             await using var connection = new NpgsqlConnection(_options.ConnectionString);
-            var rows = await connection.QueryAsync<CountryStatsRow>(sql, new { Count = count },
+            var rows = await connection.QueryAsync<CountryStatsRow>(sql, parameters,
                 commandTimeout: _options.CommandTimeoutSeconds);
 
             return rows.Select(r => new DashboardCountryStats
@@ -676,6 +699,149 @@ public class PostgreSQLDashboardEventStore : IDashboardEventStore
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get country stats from PostgreSQL");
+            throw;
+        }
+    }
+
+    public async Task<DashboardCountryDetail?> GetCountryDetailAsync(string countryCode, DateTime? startTime = null, DateTime? endTime = null)
+    {
+        if (IsCircuitOpen) return null;
+
+        var timeFilter = "";
+        var parameters = new DynamicParameters();
+        parameters.Add("CountryCode", countryCode.ToUpperInvariant());
+        if (startTime.HasValue)
+        {
+            timeFilter += " AND timestamp >= @StartTime";
+            parameters.Add("StartTime", startTime.Value);
+        }
+        if (endTime.HasValue)
+        {
+            timeFilter += " AND timestamp <= @EndTime";
+            parameters.Add("EndTime", endTime.Value);
+        }
+
+        // Get totals + bot type breakdown + action breakdown in a single round-trip
+        var sql = $@"
+            WITH country_data AS (
+                SELECT * FROM dashboard_detections
+                WHERE UPPER(country_code) = @CountryCode {timeFilter}
+            ),
+            totals AS (
+                SELECT
+                    COUNT(*)::int AS total_count,
+                    COUNT(*) FILTER (WHERE is_bot)::int AS bot_count
+                FROM country_data
+            ),
+            bot_types AS (
+                SELECT bot_type, COUNT(*)::int AS cnt
+                FROM country_data
+                WHERE bot_type IS NOT NULL
+                GROUP BY bot_type
+                ORDER BY cnt DESC
+                LIMIT 10
+            ),
+            actions AS (
+                SELECT action, COUNT(*)::int AS cnt
+                FROM country_data
+                WHERE action IS NOT NULL
+                GROUP BY action
+                ORDER BY cnt DESC
+                LIMIT 10
+            )
+            SELECT
+                (SELECT total_count FROM totals) AS total_count,
+                (SELECT bot_count FROM totals) AS bot_count";
+
+        try
+        {
+            await using var connection = new NpgsqlConnection(_options.ConnectionString);
+            var row = await connection.QuerySingleOrDefaultAsync<(int TotalCount, int BotCount)?>(sql, parameters,
+                commandTimeout: _options.CommandTimeoutSeconds);
+
+            if (row == null || row.Value.TotalCount == 0)
+                return null;
+
+            var totalCount = row.Value.TotalCount;
+            var botCount = row.Value.BotCount;
+
+            // Bot types
+            var botTypesSql = $@"
+                SELECT bot_type, COUNT(*)::int AS cnt
+                FROM dashboard_detections
+                WHERE UPPER(country_code) = @CountryCode AND bot_type IS NOT NULL {timeFilter}
+                GROUP BY bot_type ORDER BY cnt DESC LIMIT 10";
+            var botTypes = await connection.QueryAsync<(string BotType, int Cnt)>(botTypesSql, parameters,
+                commandTimeout: _options.CommandTimeoutSeconds);
+
+            // Actions
+            var actionsSql = $@"
+                SELECT action, COUNT(*)::int AS cnt
+                FROM dashboard_detections
+                WHERE UPPER(country_code) = @CountryCode AND action IS NOT NULL {timeFilter}
+                GROUP BY action ORDER BY cnt DESC LIMIT 10";
+            var actions = await connection.QueryAsync<(string Action, int Cnt)>(actionsSql, parameters,
+                commandTimeout: _options.CommandTimeoutSeconds);
+
+            // Top bots for this country
+            var topBotsSql = $@"
+                SELECT
+                    primary_signature,
+                    COUNT(*)::int AS hit_count,
+                    (array_agg(bot_name ORDER BY timestamp DESC))[1] AS bot_name,
+                    (array_agg(bot_type ORDER BY timestamp DESC))[1] AS bot_type,
+                    (array_agg(risk_band ORDER BY timestamp DESC))[1] AS risk_band,
+                    (array_agg(bot_probability ORDER BY timestamp DESC))[1] AS bot_probability,
+                    (array_agg(confidence ORDER BY timestamp DESC))[1] AS confidence,
+                    (array_agg(action ORDER BY timestamp DESC))[1] AS action,
+                    AVG(processing_time_ms) AS processing_time_ms,
+                    MAX(timestamp) AS last_seen
+                FROM dashboard_detections
+                WHERE UPPER(country_code) = @CountryCode
+                  AND is_bot = true
+                  AND primary_signature IS NOT NULL
+                  {timeFilter}
+                GROUP BY primary_signature
+                ORDER BY hit_count DESC
+                LIMIT 10";
+            var topBotRows = await connection.QueryAsync<TopBotRow>(topBotsSql, parameters,
+                commandTimeout: _options.CommandTimeoutSeconds);
+
+            return new DashboardCountryDetail
+            {
+                CountryCode = countryCode.ToUpperInvariant(),
+                CountryName = countryCode.ToUpperInvariant(),
+                TotalCount = totalCount,
+                BotCount = botCount,
+                BotRate = totalCount > 0 ? Math.Round((double)botCount / totalCount, 3) : 0,
+                TopBotTypes = botTypes.ToDictionary(x => x.BotType, x => x.Cnt),
+                TopActions = actions.ToDictionary(x => x.Action, x => x.Cnt),
+                TopBots = topBotRows.Select(r => new DashboardTopBotEntry
+                {
+                    PrimarySignature = r.PrimarySignature,
+                    HitCount = r.HitCount,
+                    BotName = r.BotName,
+                    BotType = r.BotType,
+                    RiskBand = r.RiskBand,
+                    BotProbability = r.BotProbability ?? 0,
+                    Confidence = r.Confidence ?? 0,
+                    Action = r.Action,
+                    CountryCode = countryCode.ToUpperInvariant(),
+                    ProcessingTimeMs = r.ProcessingTimeMs ?? 0,
+                    LastSeen = r.LastSeen,
+                    IsKnownBot = true
+                }).ToList()
+            };
+        }
+        catch (Exception ex) when (ex is NpgsqlException or System.Net.Sockets.SocketException)
+        {
+            TripCircuit();
+            _logger.LogError(ex, "Failed to get country detail from PostgreSQL for {Country}", countryCode);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get country detail from PostgreSQL for {Country}", countryCode);
             throw;
         }
     }

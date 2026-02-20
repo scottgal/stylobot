@@ -4,6 +4,22 @@ namespace Mostlylucid.BotDetection.UI.Configuration;
 
 /// <summary>
 ///     Configuration options for the Stylobot Dashboard.
+///     <para>
+///     <b>SECURITY WARNING:</b> The dashboard and its API endpoints expose detection data
+///     (bot classifications, signatures, country analytics, cluster info). In production,
+///     you MUST configure <see cref="RequireAuthorizationPolicy"/> or <see cref="AuthorizationFilter"/>
+///     to restrict access. Without authentication, anyone can query your detection data.
+///     </para>
+///     <example>
+///     <code>
+///     // Option 1: Named authorization policy
+///     services.AddStyloBotDashboard(o => o.RequireAuthorizationPolicy = "AdminOnly");
+///
+///     // Option 2: Custom filter
+///     services.AddStyloBotDashboard(o => o.AuthorizationFilter = ctx =>
+///         Task.FromResult(ctx.User.Identity?.IsAuthenticated == true));
+///     </code>
+///     </example>
 /// </summary>
 public sealed class StyloBotDashboardOptions
 {
@@ -59,4 +75,21 @@ public sealed class StyloBotDashboardOptions
     ///     Default: false (privacy-preserving). Enable for demo/marketing dashboards.
     /// </summary>
     public bool EnrichHumanSignals { get; set; } = false;
+
+    /// <summary>
+    ///     Detection policy name registered in <c>BotDetectionOptions.Policies</c> for dashboard data API paths.
+    ///     The dashboard automatically registers this policy via <c>PostConfigure&lt;BotDetectionOptions&gt;</c>
+    ///     and maps all <c>{BasePath}/api/**</c> paths to it.
+    ///     Default: "dashboard-api"
+    /// </summary>
+    public string DataApiDetectionPolicy { get; set; } = "dashboard-api";
+
+    /// <summary>
+    ///     Action policy name to execute when a bot is detected on dashboard data API endpoints.
+    ///     Maps to the <c>ActionPolicyName</c> on the registered detection policy.
+    ///     Uses the bot detection system's own policy registry (e.g., "throttle-stealth",
+    ///     "block", "throttle-tools"). Only bots are affected — human traffic passes through freely.
+    ///     Default: "throttle-stealth"
+    /// </summary>
+    public string DataApiActionPolicyName { get; set; } = "throttle-stealth";
 }

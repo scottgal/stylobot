@@ -43,11 +43,18 @@ public interface IDashboardEventStore
 
     /// <summary>
     ///     Get top bot signatures ordered by hit count descending.
+    ///     When startTime/endTime are provided, only detections within that range are considered.
     /// </summary>
-    Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10);
+    Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null);
 
     /// <summary>
-    ///     Get country-level statistics (total requests, bot count, bot rate) for the last 24 hours.
+    ///     Get country-level statistics (total requests, bot count, bot rate).
+    ///     When startTime/endTime are provided, only detections within that range are considered.
     /// </summary>
-    Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20);
+    Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null);
+
+    /// <summary>
+    ///     Get detailed statistics for a single country, including bot type and signature breakdowns.
+    /// </summary>
+    Task<DashboardCountryDetail?> GetCountryDetailAsync(string countryCode, DateTime? startTime = null, DateTime? endTime = null);
 }

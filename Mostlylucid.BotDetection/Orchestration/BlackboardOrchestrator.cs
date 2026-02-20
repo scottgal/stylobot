@@ -344,13 +344,14 @@ public class BlackboardOrchestrator
             allPolicyDetectors.UnionWith(policy.SlowPathDetectors);
             allPolicyDetectors.UnionWith(policy.AiPathDetectors);
 
-            // Get enabled detectors (respecting circuit breakers and policy)
+            // Get enabled detectors (respecting circuit breakers, policy, and exclusions)
             // _sortedDetectors is pre-sorted at construction time, so no per-request sort.
             var availableDetectors = new List<IContributingDetector>(_sortedDetectors.Length);
             foreach (var d in _sortedDetectors)
             {
                 if (d.IsEnabled && IsCircuitClosed(d.Name) &&
-                    (allPolicyDetectors.Count == 0 || allPolicyDetectors.Contains(d.Name)))
+                    (allPolicyDetectors.Count == 0 || allPolicyDetectors.Contains(d.Name)) &&
+                    !policy.ExcludedDetectors.Contains(d.Name))
                     availableDetectors.Add(d);
             }
 

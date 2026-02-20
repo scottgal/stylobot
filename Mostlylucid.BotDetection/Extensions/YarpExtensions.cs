@@ -93,6 +93,21 @@ public static class YarpExtensions
             addHeader("X-Is-Social-Bot", httpContext.IsSocialMediaBot().ToString().ToLowerInvariant());
         }
 
+        // Forward multi-factor signatures so downstream can match "your detection" and
+        // report accurate factor counts without recomputing from a different vantage point
+        if (httpContext.Items.TryGetValue("BotDetection.Signatures", out var sigsObj) &&
+            sigsObj is Dashboard.MultiFactorSignatures mfs &&
+            !string.IsNullOrEmpty(mfs.PrimarySignature))
+        {
+            addHeader("X-Bot-Detection-PrimarySignature", mfs.PrimarySignature);
+            if (!string.IsNullOrEmpty(mfs.IpSignature))
+                addHeader("X-Bot-Detection-IpSignature", mfs.IpSignature);
+            if (!string.IsNullOrEmpty(mfs.UaSignature))
+                addHeader("X-Bot-Detection-UaSignature", mfs.UaSignature);
+            if (!string.IsNullOrEmpty(mfs.ClientSideSignature))
+                addHeader("X-Bot-Detection-ClientSideSignature", mfs.ClientSideSignature);
+        }
+
         // Always include detection metadata (internal gateway→website headers, not exposed to clients)
         if (evidence != null)
         {

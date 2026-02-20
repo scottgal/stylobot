@@ -1,6 +1,7 @@
 import Alpine from 'alpinejs';
 import ApexCharts from 'apexcharts';
 import { renderWorldMap, renderCountryPin, type MapDataPoint } from './worldmap';
+import { AttackArcRenderer } from './attackarcs';
 
 // ===== Shared Utilities =====
 
@@ -416,10 +417,12 @@ function dashboardApp() {
 
         summary: null as any,
         yourDetection: null as any,
+        yourSignature: '' as string,
         topBots: [] as any[],
 
         timeChart: null as ApexCharts | null,
         timeData: [] as any[],
+        timeRange: 'All' as string,
 
         visitors: [] as any[],
         visitorFilter: 'all',
@@ -434,6 +437,15 @@ function dashboardApp() {
         countryChart: null as ApexCharts | null,
         worldMapRendered: false,
         overviewMapRendered: false,
+
+        selectedCountry: null as string | null,
+        countryDetail: null as any,
+        countryDetailLoading: false,
+
+        // WarGames attack arc renderers
+        _attackArcMap: null as AttackArcRenderer | null,
+        _attackArcOverview: null as AttackArcRenderer | null,
+        threatView: true,
 
         useragents: [] as any[],
         uaFilter: 'all',
@@ -466,9 +478,13 @@ function dashboardApp() {
 
         async loadOverview() {
             try {
+                const tsParams = this.getTimeSeriesParams();
+                let tsUrl = `/_stylobot/api/timeseries?bucket=${tsParams.bucket}`;
+                if (tsParams.start) tsUrl += `&start=${encodeURIComponent(tsParams.start)}`;
+                if (tsParams.end) tsUrl += `&end=${encodeURIComponent(tsParams.end)}`;
                 const [summaryRes, timeRes, meRes, topBotsRes, countriesRes] = await Promise.all([
                     fetch('/_stylobot/api/summary'),
-                    fetch('/_stylobot/api/timeseries?bucket=60'),
+                    fetch(tsUrl),
                     fetch('/_stylobot/api/me'),
                     fetch('/_stylobot/api/topbots?count=10'),
                     fetch('/_stylobot/api/countries?count=50'),
@@ -479,7 +495,16 @@ function dashboardApp() {
                 if (meRes.ok) {
                     const raw = await meRes.text();
                     if (raw && raw !== 'null') {
-                        this.yourDetection = toCamel(JSON.parse(raw));
+                        const parsed = toCamel(JSON.parse(raw));
+                        if (parsed.isBot !== undefined || parsed.botProbability !== undefined) {
+                            this.yourDetection = parsed;
+                            this.yourSignature = parsed.signature || '';
+                        } else if (parsed.signature) {
+                            this.yourSignature = parsed.signature;
+                            // Signature only — visitor cache wasn't populated yet.
+                            // Retry after a short delay to pick up cached detection data.
+                            this.retryFetchMe();
+                        }
                     }
                 }
                 if (topBotsRes.ok) {
@@ -495,6 +520,74 @@ function dashboardApp() {
                 });
             } catch (e) {
                 console.warn('[Dashboard] Failed to load overview:', e);
+            }
+        },
+
+        async retryFetchMe(attempt = 0) {
+            const delays = [2000, 5000];
+            if (attempt >= delays.length || this.yourDetection) return;
+            await new Promise(r => setTimeout(r, delays[attempt]));
+            if (this.yourDetection) return; // SignalR may have populated it
+            try {
+                const res = await fetch('/_stylobot/api/me');
+                if (res.ok) {
+                    const parsed = toCamel(await res.json());
+                    if (parsed.isBot !== undefined || parsed.botProbability !== undefined) {
+                        this.yourDetection = parsed;
+                        this.yourSignature = parsed.signature || '';
+                        return;
+                    }
+                }
+            } catch { /* ignore */ }
+            this.retryFetchMe(attempt + 1);
+        },
+
+        getTimeSeriesParams(): { bucket: number; start?: string; end?: string } {
+            const now = new Date();
+            const rangeMap: Record<string, { hours: number; bucket: number }> = {
+                '1h': { hours: 1, bucket: 60 },
+                '6h': { hours: 6, bucket: 300 },
+                '12h': { hours: 12, bucket: 600 },
+                '24h': { hours: 24, bucket: 1800 },
+                '7d': { hours: 168, bucket: 3600 },
+                '30d': { hours: 720, bucket: 86400 },
+            };
+            const cfg = rangeMap[this.timeRange];
+            if (!cfg) {
+                // "All" — use a 90-day window with hourly buckets; TimescaleDB time_bucket handles this efficiently
+                const start = new Date(now.getTime() - 90 * 24 * 3600000);
+                return { bucket: 3600, start: start.toISOString(), end: now.toISOString() };
+            }
+            const start = new Date(now.getTime() - cfg.hours * 3600000);
+            return { bucket: cfg.bucket, start: start.toISOString(), end: now.toISOString() };
+        },
+
+        async setTimeRange(range: string) {
+            this.timeRange = range;
+            const tsParams = this.getTimeSeriesParams();
+            try {
+                let url = `/_stylobot/api/timeseries?bucket=${tsParams.bucket}`;
+                if (tsParams.start) url += `&start=${encodeURIComponent(tsParams.start)}`;
+                if (tsParams.end) url += `&end=${encodeURIComponent(tsParams.end)}`;
+                const timeRes = await fetch(url);
+                if (timeRes.ok) {
+                    this.timeData = toCamel(await timeRes.json());
+                    this.$nextTick(() => this.renderTimeChart());
+                }
+
+                // Refresh top bots with time filter
+                let botsUrl = '/_stylobot/api/topbots?count=10';
+                if (tsParams.start) botsUrl += `&start=${encodeURIComponent(tsParams.start)}`;
+                if (tsParams.end) botsUrl += `&end=${encodeURIComponent(tsParams.end)}`;
+                const botsRes = await fetch(botsUrl);
+                if (botsRes.ok) {
+                    this.topBots = toCamel(await botsRes.json());
+                }
+
+                // Refresh countries with time filter
+                await this.loadCountries();
+            } catch (e) {
+                console.warn('[Dashboard] Failed to update time range:', e);
             }
         },
 
@@ -550,7 +643,13 @@ function dashboardApp() {
 
         async loadCountries() {
             try {
-                const res = await fetch('/_stylobot/api/countries?count=50');
+                let url = '/_stylobot/api/countries?count=50';
+                const tsParams = this.getTimeSeriesParams();
+                if (this.timeRange !== 'All' && tsParams.start) {
+                    url += `&start=${encodeURIComponent(tsParams.start)}`;
+                    if (tsParams.end) url += `&end=${encodeURIComponent(tsParams.end)}`;
+                }
+                const res = await fetch(url);
                 if (res.ok) {
                     this.countries = toCamel(await res.json());
                     this.$nextTick(() => {
@@ -561,6 +660,38 @@ function dashboardApp() {
             } catch (e) {
                 console.warn('[Dashboard] Failed to load countries:', e);
             }
+        },
+
+        async selectCountry(code: string) {
+            if (this.selectedCountry === code) {
+                this.clearCountryDetail();
+                return;
+            }
+            this.selectedCountry = code;
+            this.countryDetail = null;
+            this.countryDetailLoading = true;
+            try {
+                let url = `/_stylobot/api/countries/${encodeURIComponent(code)}`;
+                const tsParams = this.getTimeSeriesParams();
+                if (this.timeRange !== 'All' && tsParams.start) {
+                    url += `?start=${encodeURIComponent(tsParams.start)}`;
+                    if (tsParams.end) url += `&end=${encodeURIComponent(tsParams.end)}`;
+                }
+                const res = await fetch(url);
+                if (res.ok) {
+                    this.countryDetail = toCamel(await res.json());
+                }
+            } catch (e) {
+                console.warn('[Dashboard] Failed to load country detail:', e);
+            } finally {
+                this.countryDetailLoading = false;
+            }
+        },
+
+        clearCountryDetail() {
+            this.selectedCountry = null;
+            this.countryDetail = null;
+            this.countryDetailLoading = false;
         },
 
         async loadUserAgents() {
@@ -785,10 +916,45 @@ function dashboardApp() {
                     }
                     // Rebuild top bots: update existing or insert new
                     this.updateTopBots(sig);
+
+                    // Update "your detection" if this signature matches the current visitor
+                    if (this.yourSignature && sig.primarySignature === this.yourSignature) {
+                        this.yourDetection = {
+                            signature: this.yourSignature,
+                            isBot: sig.isKnownBot || sig.isBot || false,
+                            botProbability: sig.botProbability || 0,
+                            confidence: sig.confidence || 0,
+                            riskBand: sig.riskBand || 'Unknown',
+                            processingTimeMs: sig.processingTimeMs || 0,
+                            narrative: sig.narrative || '',
+                            topReasons: sig.topReasons || [],
+                        };
+                    }
                 });
 
                 this.connection.on('BroadcastClusters', (raw: any) => {
                     this.clusters = toCamel(raw);
+                });
+
+                this.connection.on('BroadcastCountries', (raw: any) => {
+                    // Only auto-update when viewing "All" time range (no custom filter active)
+                    if (this.timeRange === 'All') {
+                        const updated = toCamel(raw);
+                        // Add flag to each entry
+                        for (const c of updated) {
+                            if (!c.flag) c.flag = countryFlag(c.countryCode);
+                        }
+                        this.countries = updated;
+                        this.$nextTick(() => {
+                            if (this.tab === 'countries') {
+                                this.renderCountryChart();
+                                this.renderWorldMapChart();
+                            }
+                            if (this.tab === 'overview' && this.overviewMapRendered) {
+                                this.renderOverviewMap();
+                            }
+                        });
+                    }
                 });
 
                 this.connection.on('BroadcastSignatureDescriptionUpdate', (signature: string, name: string, description: string) => {
@@ -884,16 +1050,22 @@ function dashboardApp() {
                     }
                 }
 
-                // Update "you" if matches
-                if (this.yourDetection && d.primarySignature === this.yourDetection.signature) {
-                    this.yourDetection = {
-                        ...this.yourDetection,
-                        isBot: d.isBot,
+                // Update "you" if matches — create full detection from event if we only had signature
+                const sigMatch = this.yourSignature && d.primarySignature === this.yourSignature;
+                if (sigMatch && d.isBot !== undefined) {
+                    const update = {
+                        signature: this.yourSignature,
+                        isBot: d.isBot ?? false,
                         botProbability: d.botProbability || 0,
                         confidence: d.confidence || 0,
                         riskBand: d.riskBand || 'Unknown',
                         processingTimeMs: d.processingTimeMs || 0,
+                        narrative: d.narrative || (this.yourDetection?.narrative ?? ''),
+                        topReasons: d.topReasons || (this.yourDetection?.topReasons ?? []),
                     };
+                    this.yourDetection = this.yourDetection
+                        ? { ...this.yourDetection, ...update }
+                        : update;
                 }
             }
 
@@ -904,6 +1076,18 @@ function dashboardApp() {
 
             // Re-aggregate signal stats from updated detections
             this.signalStats = aggregateSignalStats(this.recentDetections);
+
+            // Fire attack arcs for bot detections with country codes
+            if (this.threatView) {
+                for (const d of batch) {
+                    if (d.isBot && d.countryCode && d.countryCode !== 'XX' && d.countryCode !== 'LOCAL') {
+                        const risk = (d.riskBand === 'High' || d.riskBand === 'VeryHigh') ? 'high'
+                            : (d.riskBand === 'Medium' || d.riskBand === 'Elevated') ? 'medium' : 'low';
+                        this._attackArcMap?.fire(d.countryCode, risk);
+                        this._attackArcOverview?.fire(d.countryCode, risk);
+                    }
+                }
+            }
         },
 
         // ===== Charts =====
@@ -1022,8 +1206,15 @@ function dashboardApp() {
                 label: co.countryName || co.countryCode,
             }));
 
-            renderWorldMap(el, mapData, { dark: isDark() });
+            renderWorldMap(el, mapData, {
+                dark: isDark(),
+                onRegionSelected: (code: string) => this.selectCountry(code),
+            });
             this.worldMapRendered = true;
+
+            // Init attack arc overlay
+            this._attackArcMap?.destroy();
+            this._attackArcMap = new AttackArcRenderer(el);
         },
 
         renderOverviewMap() {
@@ -1037,8 +1228,19 @@ function dashboardApp() {
                 label: co.countryName || co.countryCode,
             }));
 
-            renderWorldMap(el, mapData, { height: 300, dark: isDark() });
+            renderWorldMap(el, mapData, {
+                height: 300,
+                dark: isDark(),
+                onRegionSelected: (code: string) => {
+                    this.switchTab('countries');
+                    this.$nextTick(() => this.selectCountry(code));
+                },
+            });
             this.overviewMapRendered = true;
+
+            // Init attack arc overlay
+            this._attackArcOverview?.destroy();
+            this._attackArcOverview = new AttackArcRenderer(el);
         },
 
         onThemeChange() {
@@ -1047,6 +1249,34 @@ function dashboardApp() {
             if (this.worldMapRendered) this.renderWorldMapChart();
             if (this.overviewMapRendered) this.renderOverviewMap();
             if (this.uaChart) this.renderUAVersionChart();
+        },
+
+        // ===== Time range display helpers =====
+
+        get timeRangeLabel(): string {
+            const labels: Record<string, string> = {
+                '1h': 'Last Hour', '6h': 'Last 6 Hours', '12h': 'Last 12 Hours',
+                '24h': 'Last 24 Hours', '7d': 'Last 7 Days', '30d': 'Last 30 Days', 'All': 'All Time',
+            };
+            return labels[this.timeRange] || this.timeRange;
+        },
+
+        get displaySummary(): any {
+            if (this.timeRange === 'All' || !this.timeData || this.timeData.length === 0) return this.summary;
+            // Compute summary from time-series data for the selected range
+            let totalRequests = 0, botRequests = 0, humanRequests = 0;
+            for (const bucket of this.timeData) {
+                totalRequests += (bucket.totalCount ?? 0);
+                botRequests += (bucket.botCount ?? 0);
+                humanRequests += (bucket.humanCount ?? 0);
+            }
+            return {
+                ...this.summary,
+                totalRequests,
+                botRequests,
+                humanRequests,
+                botPercentage: totalRequests > 0 ? (botRequests / totalRequests * 100) : 0,
+            };
         },
 
         // ===== Helpers exposed to template =====
@@ -1370,12 +1600,12 @@ function signatureDetailApp() {
             const opts: ApexCharts.ApexOptions = {
                 chart: {
                     type: 'bar',
-                    height: 160,
+                    height: 100,
                     background: c.bg,
                     toolbar: { show: false },
                     fontFamily: 'Inter, system-ui, sans-serif',
                 },
-                series: [{ name: 'Processing Time', data: timings.map((v: number) => Math.round(v * 100) / 100) }],
+                series: [{ name: 'Detection Time', data: timings.map((v: number) => Math.max(0.1, Math.round(v * 100) / 100)) }],
                 colors: [c.accent],
                 plotOptions: {
                     bar: { borderRadius: 2, columnWidth: '70%' },
@@ -1387,12 +1617,13 @@ function signatureDetailApp() {
                     axisTicks: { show: false },
                 },
                 yaxis: {
-                    labels: { style: { colors: c.text, fontSize: '10px' }, formatter: (v: number) => v + 'ms' },
+                    logarithmic: true,
+                    labels: { style: { colors: c.text, fontSize: '10px' }, formatter: (v: number) => v < 1 ? v.toFixed(1) + 'ms' : Math.round(v) + 'ms' },
                 },
                 grid: { borderColor: c.grid, strokeDashArray: 3 },
                 tooltip: {
                     theme: isDark() ? 'dark' : 'light',
-                    y: { formatter: (v: number) => v + 'ms' },
+                    y: { formatter: (v: number) => v.toFixed(2) + 'ms (detection only, excludes action delays)' },
                 },
                 dataLabels: { enabled: false },
             };
@@ -1466,6 +1697,25 @@ function signatureDetailApp() {
         actionBadgeClass,
         actionDisplayName,
         categorizeSignals,
+
+        /**
+         * Color-code detector contribution: green (human) → yellow (neutral) → red (bot).
+         * Contribution is typically -0.5 to +0.5 range.
+         */
+        detectorBorderColor(contribution: number): string {
+            const v = Math.max(-0.5, Math.min(0.5, contribution ?? 0));
+            if (v < -0.05) {
+                // Human indicator: green
+                const t = Math.min(1, Math.abs(v) * 4);
+                return `rgb(${Math.round(34 + (1 - t) * 200)}, ${Math.round(197 - (1 - t) * 50)}, ${Math.round(94 - (1 - t) * 30)})`;
+            } else if (v > 0.05) {
+                // Bot indicator: red
+                const t = Math.min(1, v * 4);
+                return `rgb(${Math.round(239)}, ${Math.round(68 + (1 - t) * 120)}, ${Math.round(68 + (1 - t) * 120)})`;
+            }
+            // Neutral: amber/yellow
+            return '#eab308';
+        },
     };
 }
 

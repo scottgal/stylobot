@@ -55,3 +55,16 @@ policies:
     return_status: false
     include_headers: false
     include_retry_after: false
+
+  throttle-escalating:
+    type: Throttle
+    description: Progressive delay that escalates with repeat detections
+    tags: [production, anti-scraping, escalating]
+    base_delay_ms: 200
+    max_delay_ms: 30000
+    jitter_percent: 0.3
+    scale_by_risk: true
+    exponential_backoff: true
+    backoff_factor: 3.0
+    return_status: false
+    include_headers: false

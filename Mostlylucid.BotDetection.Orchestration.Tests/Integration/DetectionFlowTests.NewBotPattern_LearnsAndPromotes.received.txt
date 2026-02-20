@@ -1,0 +1,8 @@
+﻿{
+  PatternId: ua:BadBot123,
+  State: ConfirmedBad,
+  BotScore: 1.0,
+  Support: 60.0,
+  CanTriggerFastAbort: true,
+  FastPathWeight: 0.5
+}

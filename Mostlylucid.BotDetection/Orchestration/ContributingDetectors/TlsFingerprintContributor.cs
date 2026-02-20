@@ -97,7 +97,18 @@ public class TlsFingerprintContributor : ConfiguredContributorBase
         try
         {
             // Check if TLS connection (https://)
+            // Behind a reverse proxy (e.g. Caddy, nginx), the backend connection is plain HTTP.
+            // Check X-Forwarded-Proto header first for the original client scheme.
             var isHttps = state.HttpContext.Request.IsHttps;
+
+            if (!isHttps
+                && state.HttpContext.Request.Headers.TryGetValue("X-Forwarded-Proto", out var forwardedProto)
+                && forwardedProto.ToString().Equals("https", StringComparison.OrdinalIgnoreCase))
+            {
+                isHttps = true;
+                state.WriteSignal("tls.behind_proxy", true);
+            }
+
             state.WriteSignal("tls.is_https", isHttps);
 
             if (!isHttps)

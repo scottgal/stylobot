@@ -386,6 +386,13 @@ public class BotDetectionOptions
     public ResponseCoordinatorOptions ResponseCoordinator { get; set; } = new();
 
     /// <summary>
+    ///     Fail2ban-style post-response status code analysis.
+    ///     After the endpoint responds, suspicious status codes boost detection score.
+    ///     Authenticated successful responses clear suspicion.
+    /// </summary>
+    public ResponseStatusBoostOptions ResponseStatusBoost { get; set; } = new();
+
+    /// <summary>
     ///     Configuration for bot cluster detection (label propagation clustering).
     /// </summary>
     public ClusterOptions Cluster { get; set; } = new();
@@ -944,6 +951,49 @@ public class BotDetectionOptions
     ///     </code>
     /// </example>
     public List<string> ExcludedPaths { get; set; } = ["/health", "/metrics"];
+
+    /// <summary>
+    ///     API keys that bypass bot detection entirely.
+    ///     Requests with a matching <c>X-Api-Key</c> header skip the detection pipeline.
+    ///     Use for trusted internal tools, monitoring, CI/CD, or admin API access.
+    ///     Detection still runs in logging mode (results stored but no blocking).
+    /// </summary>
+    /// <example>
+    ///     <code>
+    ///     "ApiBypassKeys": ["my-secret-key-123"]
+    ///     </code>
+    ///     Or via environment variable:
+    ///     <code>
+    ///     BotDetection__ApiBypassKeys__0=my-secret-key-123
+    ///     </code>
+    /// </example>
+    public List<string> ApiBypassKeys { get; set; } = [];
+
+    /// <summary>
+    ///     Rich API key configurations with per-key detection policy overlays.
+    ///     Each key maps to an <see cref="ApiKeyConfig"/> with detector enable/disable,
+    ///     weight overrides, path restrictions, rate limits, and lifecycle controls.
+    ///     The dictionary key is the actual API key value sent in the header.
+    /// </summary>
+    /// <example>
+    ///     <code>
+    ///     "ApiKeys": {
+    ///       "my-test-key": {
+    ///         "Name": "Test Harness",
+    ///         "DisabledDetectors": ["BehavioralWaveform", "Behavioral"],
+    ///         "AllowedPaths": ["/_stylobot/**"],
+    ///         "RateLimitPerMinute": 120
+    ///       }
+    ///     }
+    ///     </code>
+    /// </example>
+    public Dictionary<string, ApiKeyConfig> ApiKeys { get; set; } = new();
+
+    /// <summary>
+    ///     Header name used for API key bypass authentication.
+    ///     Default: "X-Api-Key"
+    /// </summary>
+    public string ApiBypassHeaderName { get; set; } = "X-Api-Key";
 
     /// <summary>
     ///     Paths where only signature generation runs (no detection pipeline).
@@ -2874,11 +2924,14 @@ public class VersionAgeOptions
         ["Windows NT 5.0"] = "ancient", // 2000
 
         // macOS (by version number)
+        // NOTE: Chrome 90+ and Safari 15+ froze the macOS UA string at "Mac OS X 10_15_7"
+        // for ALL macOS versions. So "Mac OS X 10_15" in the UA does NOT mean Catalina —
+        // it's the capped/frozen value reported by modern browsers on any macOS version.
         ["Mac OS X 14"] = "current", // Sonoma
         ["Mac OS X 13"] = "current", // Ventura
-        ["Mac OS X 12"] = "old", // Monterey
-        ["Mac OS X 11"] = "old", // Big Sur
-        ["Mac OS X 10_15"] = "old", // Catalina
+        ["Mac OS X 12"] = "current", // Monterey (still supported)
+        ["Mac OS X 11"] = "current", // Big Sur (frozen UA reports 10_15 anyway)
+        ["Mac OS X 10_15"] = "current", // Frozen UA value — all modern Macs report this
         ["Mac OS X 10_14"] = "very_old", // Mojave
         ["Mac OS X 10_13"] = "very_old", // High Sierra
         ["Mac OS X 10_12"] = "ancient", // Sierra and older

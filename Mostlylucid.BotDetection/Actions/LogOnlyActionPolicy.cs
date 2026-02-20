@@ -115,6 +115,26 @@ public class LogOnlyActionPolicy : IActionPolicy
             context.Items["BotDetection.ShadowMode"] = true;
             context.Items["BotDetection.WouldBlock"] = evidence.BotProbability >= _options.WouldBlockThreshold;
             context.Items["BotDetection.Evidence"] = evidence;
+
+            // Set action marker for downstream middleware (e.g., "degrade", "quarantine", "sandbox")
+            if (!string.IsNullOrEmpty(_options.ActionMarker))
+            {
+                context.Items["BotDetection.Action"] = _options.ActionMarker;
+
+                // Sandbox/probation: force learning policy with optional LLM sampling
+                if (_options.ActionMarker == "sandbox")
+                {
+                    context.Items["BotDetection.SandboxPolicy"] = _options.SandboxPolicy;
+                    context.Items["BotDetection.SandboxSampleRate"] = _options.SandboxSampleRate;
+
+                    // Determine if this specific request should get full LLM analysis
+                    // based on sampling rate (e.g., 5% of sandbox requests get LLM,
+                    // the rest run all detectors except LLM for fast but thorough analysis)
+                    var useLlm = _options.SandboxSampleRate >= 1.0
+                                 || Random.Shared.NextDouble() < _options.SandboxSampleRate;
+                    context.Items["BotDetection.SandboxUseLlm"] = useLlm;
+                }
+            }
         }
 
         // Always continue - this is log-only mode
@@ -246,6 +266,29 @@ public class LogOnlyActionOptions
     public string? MetricName { get; set; }
 
     /// <summary>
+    ///     Optional action marker to set in HttpContext.Items["BotDetection.Action"].
+    ///     Used by downstream middleware to take action (e.g., "degrade", "quarantine", "sandbox").
+    ///     Only set when AddToContextItems is true.
+    /// </summary>
+    public string? ActionMarker { get; set; }
+
+    /// <summary>
+    ///     For sandbox/probation mode: the detection policy name to use on sandboxed requests.
+    ///     Sets HttpContext.Items["BotDetection.SandboxPolicy"] for the policy resolver.
+    ///     Default: "learning" (full pipeline with all detectors + AI).
+    /// </summary>
+    public string SandboxPolicy { get; set; } = "learning";
+
+    /// <summary>
+    ///     For sandbox/probation mode: fraction of sandboxed requests that get full
+    ///     LLM analysis (0.0-1.0). Remaining requests use the fast learning pipeline.
+    ///     Example: 0.05 = 5% of sandbox requests run the full LLM for high-confidence verdicts.
+    ///     Sets HttpContext.Items["BotDetection.SandboxSampleRate"] for downstream use.
+    ///     Default: 1.0 (all sandbox requests get full analysis).
+    /// </summary>
+    public double SandboxSampleRate { get; set; } = 1.0;
+
+    /// <summary>
     ///     Creates options for minimal shadow mode.
     /// </summary>
     public static LogOnlyActionOptions Minimal => new()
@@ -290,6 +333,71 @@ public class LogOnlyActionOptions
         AddResponseHeaders = false,
         AddToContextItems = true,
         WouldBlockThreshold = 0.9
+    };
+
+    /// <summary>
+    ///     Creates options for "degrade" mode — marks request for content degradation.
+    ///     Downstream middleware reads BotDetection.Action = "degrade" from HttpContext.Items.
+    /// </summary>
+    public static LogOnlyActionOptions Degrade => new()
+    {
+        LogLevel = LogLevel.Information,
+        LogFullEvidence = false,
+        AddResponseHeaders = false,
+        AddToContextItems = true,
+        ActionMarker = "degrade"
+    };
+
+    /// <summary>
+    ///     Creates options for "rate-limit-headers" mode — adds RateLimit-* response headers
+    ///     without blocking. Signals to well-behaved bots.
+    /// </summary>
+    public static LogOnlyActionOptions RateLimitHeaders => new()
+    {
+        LogLevel = LogLevel.Information,
+        LogFullEvidence = false,
+        AddResponseHeaders = true,
+        IncludeDetailedHeaders = false,
+        AddToContextItems = true
+    };
+
+    /// <summary>
+    ///     Creates options for "quarantine" mode — allows request through but tags
+    ///     it for manual review downstream.
+    /// </summary>
+    public static LogOnlyActionOptions Quarantine => new()
+    {
+        LogLevel = LogLevel.Warning,
+        LogFullEvidence = true,
+        AddResponseHeaders = false,
+        AddToContextItems = true,
+        WouldBlockThreshold = 0.5,
+        ActionMarker = "quarantine"
+    };
+
+    /// <summary>
+    ///     Creates options for "sandbox" (probation) mode — forces the full learning
+    ///     detection policy on uncertain traffic to build confidence before taking action.
+    ///     The gateway still handles everything — no separate backend needed.
+    ///     Sets HttpContext.Items:
+    ///     <list type="bullet">
+    ///         <item><c>BotDetection.Action = "sandbox"</c></item>
+    ///         <item><c>BotDetection.SandboxPolicy = "learning"</c> — forces full pipeline</item>
+    ///         <item><c>BotDetection.SandboxUseLlm</c> — true/false based on SandboxSampleRate</item>
+    ///     </list>
+    ///     Use SandboxSampleRate (default 0.05 = 5%) to control what fraction of
+    ///     sandboxed requests get the expensive LLM call. The rest run all detectors
+    ///     except LLM for fast but thorough analysis.
+    /// </summary>
+    public static LogOnlyActionOptions Sandbox => new()
+    {
+        LogLevel = LogLevel.Warning,
+        LogFullEvidence = true,
+        AddResponseHeaders = false,
+        AddToContextItems = true,
+        WouldBlockThreshold = 0.5,
+        ActionMarker = "sandbox",
+        SandboxSampleRate = 0.05 // 5% get full LLM, rest get everything else
     };
 
     /// <summary>
@@ -357,6 +465,15 @@ public class LogOnlyActionPolicyFactory : IActionPolicyFactory
 
         if (options.TryGetValue("MetricName", out var metricName))
             logOptions.MetricName = metricName?.ToString();
+
+        if (options.TryGetValue("ActionMarker", out var actionMarker))
+            logOptions.ActionMarker = actionMarker?.ToString();
+
+        if (options.TryGetValue("SandboxPolicy", out var sandboxPolicy))
+            logOptions.SandboxPolicy = sandboxPolicy?.ToString() ?? logOptions.SandboxPolicy;
+
+        if (options.TryGetValue("SandboxSampleRate", out var sandboxRate))
+            logOptions.SandboxSampleRate = Convert.ToDouble(sandboxRate);
 
         return new LogOnlyActionPolicy(name, logOptions, _logger);
     }

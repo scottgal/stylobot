@@ -272,6 +272,9 @@ public static class ServiceCollectionExtensions
         // Register core bot detection service
         services.TryAddSingleton<IBotDetectionService, BotDetectionService>();
 
+        // Register API key store (config-backed, can be overridden for DB-backed)
+        services.TryAddSingleton<IApiKeyStore, InMemoryApiKeyStore>();
+
         // Register bot list update background service
         services.AddHostedService<BotListUpdateService>();
 
@@ -405,6 +408,9 @@ public static class ServiceCollectionExtensions
             return new PiiHasher(PiiHasher.GenerateKey());
         });
 
+        // Register multi-factor signature service for visitor identity correlation
+        services.TryAddSingleton<MultiFactorSignatureService>();
+
         // Register both orchestrators - ephemeral for new architecture, blackboard for compatibility
         services.TryAddSingleton<BlackboardOrchestrator>();
         services.TryAddSingleton<EphemeralDetectionOrchestrator>();
@@ -445,6 +451,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, TcpIpFingerprintContributor>();
         services.AddSingleton<IContributingDetector, Http2FingerprintContributor>();
         services.AddSingleton<IContributingDetector, Http3FingerprintContributor>();
+        // Transport protocol detection (WebSocket, gRPC, GraphQL, SSE)
+        services.AddSingleton<IContributingDetector, TransportProtocolContributor>();
         // Response behavior feedback - runs early to provide historical feedback
         services.AddSingleton<IContributingDetector, ResponseBehaviorContributor>();
         // Wave 1+ detectors (triggered by signals from Wave 0)

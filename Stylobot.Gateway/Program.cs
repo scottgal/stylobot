@@ -177,6 +177,9 @@ try
     // Forward headers FIRST so bot detection sees real client IPs, not Docker bridge IPs
     app.UseForwardedHeaders();
 
+    // WebSockets must be enabled before routing so YARP can proxy SignalR WebSocket connections
+    app.UseWebSockets();
+
     // Routing must be enabled for Bot Detection middleware to resolve endpoints
     app.UseRouting();
 

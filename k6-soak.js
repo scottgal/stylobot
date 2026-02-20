@@ -286,12 +286,18 @@ const DASHBOARD_ENDPOINTS = [
 
 export function dashboardPolling() {
     const endpoint = DASHBOARD_ENDPOINTS[Math.floor(Math.random() * DASHBOARD_ENDPOINTS.length)];
+    const apiKey = __ENV.DASHBOARD_API_KEY || '';
+
+    const headers = {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    };
+    if (apiKey) {
+        headers['X-Api-Key'] = apiKey;
+    }
 
     const res = http.get(`${BASE}${endpoint}`, {
-        headers: {
-            'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        },
+        headers: headers,
         tags: { scenario: 'dashboard' },
     });
 

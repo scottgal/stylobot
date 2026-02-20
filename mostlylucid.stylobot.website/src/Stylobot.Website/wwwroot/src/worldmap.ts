@@ -23,6 +23,7 @@ export interface MapOptions {
     showLabels?: boolean;
     highlightCode?: string;
     dark?: boolean;
+    onRegionSelected?: (code: string) => void;
 }
 
 // Track instances by container for cleanup (supports multiple maps on page)
@@ -33,21 +34,33 @@ let idCounter = 0;
 const CENTROIDS: Record<string, [number, number]> = {
     US: [39.8, -98.5], CA: [56.1, -106.3], MX: [23.6, -102.5],
     BR: [-14.2, -51.9], AR: [-38.4, -63.6], CL: [-35.7, -71.5], CO: [4.6, -74.3],
+    PE: [-9.2, -75.0], VE: [6.4, -66.6], EC: [-1.8, -78.2],
     GB: [55.4, -3.4], IE: [53.4, -8.2], FR: [46.2, 2.2], DE: [51.2, 10.4],
     NL: [52.1, 5.3], BE: [50.5, 4.5], CH: [46.8, 8.2], AT: [47.5, 14.6],
-    ES: [40.5, -3.7], PT: [39.4, -8.2], IT: [41.9, 12.6],
+    ES: [40.5, -3.7], PT: [39.4, -8.2], IT: [41.9, 12.6], LU: [49.8, 6.1],
     SE: [60.1, 18.6], NO: [60.5, 8.5], DK: [56.3, 9.5], FI: [61.9, 25.7],
     PL: [51.9, 19.1], CZ: [49.8, 15.5], HU: [47.2, 19.5], RO: [45.9, 25.0],
-    UA: [48.4, 31.2], BG: [42.7, 25.5], GR: [39.1, 21.8],
+    UA: [48.4, 31.2], BG: [42.7, 25.5], GR: [39.1, 21.8], HR: [45.1, 15.2],
+    RS: [44.0, 21.0], SK: [48.7, 19.7], SI: [46.2, 14.8], LT: [55.2, 23.9],
+    LV: [56.9, 24.1], EE: [58.6, 25.0], BA: [43.9, 17.7], MD: [47.4, 28.4],
     RU: [61.5, 105.3], KZ: [48.0, 68.0], TR: [39.0, 35.2],
     IL: [31.0, 34.9], SA: [23.9, 45.1], AE: [23.4, 53.8], IR: [32.4, 53.7],
-    IN: [20.6, 79.0], PK: [30.4, 69.3], BD: [23.7, 90.4],
+    QA: [25.4, 51.2], KW: [29.3, 47.5], BH: [26.1, 50.6], OM: [21.5, 55.9],
+    IN: [20.6, 79.0], PK: [30.4, 69.3], BD: [23.7, 90.4], LK: [7.9, 80.8],
     TH: [15.9, 100.9], VN: [14.1, 108.3], MY: [4.2, 101.9], SG: [1.4, 103.8],
-    ID: [-0.8, 113.9], PH: [12.9, 121.8],
+    ID: [-0.8, 113.9], PH: [12.9, 121.8], MM: [19.8, 96.7], KH: [12.6, 104.9],
     CN: [35.9, 104.2], JP: [36.2, 138.3], KR: [35.9, 127.8], TW: [23.7, 121.0],
+    HK: [22.3, 114.2], MO: [22.2, 113.5], MN: [46.9, 103.8],
     AU: [-25.3, 133.8], NZ: [-40.9, 174.9],
     NG: [9.1, 8.7], EG: [26.8, 30.8], ZA: [-30.6, 22.9], KE: [-0.0, 37.9],
     GH: [7.9, -1.0], MA: [31.8, -7.1], DZ: [28.0, 1.7], TZ: [-6.4, 34.9],
+    ET: [9.1, 40.5], UG: [-1.4, 32.3], SN: [14.5, -14.5], CI: [7.5, -5.5],
+};
+
+// Map territory ISO codes to jsvectormap region codes for highlighting.
+// jsvectormap doesn't have separate regions for these territories.
+const REGION_MAP: Record<string, string> = {
+    HK: 'CN', MO: 'CN', TW: 'TW',
 };
 
 /**
@@ -118,9 +131,14 @@ export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opt
 
     // Pre-compute per-region fill colors (3-stop scale computed client-side)
     // setAttributes expects code -> color string (not object)
+    // Map territory codes to their jsvectormap parent region for highlighting
     const regionAttrs: Record<string, string> = {};
     for (const d of data) {
-        regionAttrs[d.code] = botRateHex(d.botRate, dark);
+        const regionCode = REGION_MAP[d.code] || d.code;
+        // Only set if not already set, or if this territory has higher bot rate
+        if (!regionAttrs[regionCode]) {
+            regionAttrs[regionCode] = botRateHex(d.botRate, dark);
+        }
     }
 
     // Build markers sized by request volume (sqrt scale)
@@ -218,6 +236,12 @@ export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opt
                     `</div>`,
                     true
                 );
+            }
+        },
+
+        onRegionSelected(_evt: any, code: string) {
+            if (opts.onRegionSelected && dataMap.has(code)) {
+                opts.onRegionSelected(code);
             }
         },
     });

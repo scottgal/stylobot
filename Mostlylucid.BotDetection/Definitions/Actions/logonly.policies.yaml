@@ -96,6 +96,48 @@ policies:
     forward_include_headers: false
     forward_include_reasons: true
 
+  degrade:
+    type: LogOnly
+    description: Mark request for content degradation — downstream reads BotDetection.Action=degrade from HttpContext.Items
+    tags: [production, stealth, degradation]
+    log_level: Information
+    log_full_evidence: false
+    add_response_headers: false
+    add_to_context_items: true
+
+  rate-limit-headers:
+    type: LogOnly
+    description: Add RateLimit-* response headers without blocking — signals to well-behaved bots
+    tags: [production, rate-limiting, headers]
+    log_level: Information
+    log_full_evidence: false
+    add_response_headers: true
+    include_detailed_headers: false
+
+  quarantine:
+    type: LogOnly
+    description: Allow request through but tag for manual review downstream
+    tags: [production, review, quarantine]
+    log_level: Warning
+    log_full_evidence: true
+    add_response_headers: false
+    add_to_context_items: true
+
+  sandbox:
+    type: LogOnly
+    description: >
+      Probation mode — forces the full learning detection policy on uncertain
+      traffic to build confidence before taking definitive action. All detectors
+      run on every request. LLM sampling (default 5%) gives high-confidence
+      verdicts on a fraction of requests without the latency cost on all of them.
+      Reputations decay naturally, so sandbox is never permanent — avoids
+      false positives/negatives lasting forever.
+    tags: [production, probation, sandbox, deep-analysis]
+    log_level: Warning
+    log_full_evidence: true
+    add_response_headers: false
+    add_to_context_items: true
+
   passthrough-internal:
     type: LogOnly
     extends: logonly

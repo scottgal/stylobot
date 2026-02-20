@@ -2,6 +2,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Services;
@@ -19,19 +20,21 @@ public class StyloBotDashboardMiddleware
 {
     private readonly IDashboardEventStore _eventStore;
     private readonly DashboardAggregateCache _aggregateCache;
+    private readonly SignatureAggregateCache _signatureCache;
     private readonly ILogger<StyloBotDashboardMiddleware> _logger;
     private readonly RequestDelegate _next;
     private readonly StyloBotDashboardOptions _options;
     private readonly RazorViewRenderer _razorViewRenderer;
 
-    // Rate limiter: per IP, per minute
+    // Rate limiter: per IP, per minute (used only for diagnostics endpoint)
     private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> _rateLimits = new();
-    private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> _apiRateLimits = new();
     private static volatile bool _authWarningLogged;
     private const int DiagnosticsRateLimit = 10;
-    private const int ApiRateLimit = 60; // general API endpoints
     private const int MaxRateLimitEntries = 10_000; // hard cap to prevent memory exhaustion
     private static readonly TimeSpan RateLimitWindow = TimeSpan.FromMinutes(1);
+
+    private const string CountryDetailPrefix = "api/countries/";
+
     private static int _cleanupRunning;
 
     /// <summary>Shared JSON options: camelCase to match SSR initial page load and JS frontend expectations.</summary>
@@ -42,6 +45,7 @@ public class StyloBotDashboardMiddleware
         StyloBotDashboardOptions options,
         IDashboardEventStore eventStore,
         DashboardAggregateCache aggregateCache,
+        SignatureAggregateCache signatureCache,
         RazorViewRenderer razorViewRenderer,
         ILogger<StyloBotDashboardMiddleware> logger)
     {
@@ -49,6 +53,7 @@ public class StyloBotDashboardMiddleware
         _options = options;
         _eventStore = eventStore;
         _aggregateCache = aggregateCache;
+        _signatureCache = signatureCache;
         _razorViewRenderer = razorViewRenderer;
         _logger = logger;
     }
@@ -74,26 +79,10 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        // Route the request
+        // Route the request.
+        // Bot protection for data API paths is handled by BotDetectionMiddleware via
+        // PathPolicies registered in AddStyloBotDashboard() — no manual checking needed here.
         var relativePath = path.Substring(_options.BasePath.Length).TrimStart('/');
-
-        // Rate limit all API endpoints (diagnostics has its own stricter limit)
-        if (relativePath.StartsWith("api/", StringComparison.OrdinalIgnoreCase)
-            && !relativePath.Equals("api/diagnostics", StringComparison.OrdinalIgnoreCase))
-        {
-            var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-            var (allowed, remaining) = CheckRateLimit(clientIp, DateTime.UtcNow, _apiRateLimits, ApiRateLimit);
-            context.Response.Headers["X-RateLimit-Limit"] = ApiRateLimit.ToString();
-            context.Response.Headers["X-RateLimit-Remaining"] = remaining.ToString();
-
-            if (!allowed)
-            {
-                context.Response.StatusCode = 429;
-                context.Response.ContentType = "application/json";
-                await context.Response.WriteAsync("{\"error\":\"Rate limit exceeded\"}");
-                return;
-            }
-        }
 
         switch (relativePath.ToLowerInvariant())
         {
@@ -145,6 +134,10 @@ public class StyloBotDashboardMiddleware
 
             case "api/me":
                 await ServeMeApiAsync(context);
+                break;
+
+            case var p when p.StartsWith(CountryDetailPrefix, StringComparison.OrdinalIgnoreCase):
+                await ServeCountryDetailApiAsync(context, p.Substring(CountryDetailPrefix.Length));
                 break;
 
             case var p when p.StartsWith("api/sparkline/", StringComparison.OrdinalIgnoreCase):
@@ -268,6 +261,7 @@ public class StyloBotDashboardMiddleware
                 countryName = db.CountryName,
                 botRate = db.BotRate,
                 botCount = db.BotCount,
+                humanCount = db.HumanCount,
                 totalCount = db.TotalCount,
                 flag = GetCountryFlag(db.CountryCode)
             }).ToList();
@@ -340,7 +334,7 @@ public class StyloBotDashboardMiddleware
             var visitor = visitorCache.Get(sigs.PrimarySignature);
 
             if (visitor == null)
-                return "null";
+                return JsonSerializer.Serialize(new { signature = sigs.PrimarySignature }, CamelCaseJson);
 
             var narrativeEvent = new DashboardDetectionEvent
             {
@@ -601,9 +595,25 @@ public class StyloBotDashboardMiddleware
         var countStr = context.Request.Query["count"].FirstOrDefault();
         var count = int.TryParse(countStr, out var c) ? Math.Clamp(c, 1, 50) : 20;
 
-        // Serve from periodic cache (computed by DashboardSummaryBroadcaster)
-        var cached = _aggregateCache.Current.Countries;
-        var countries = (cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(count))
+        var startTimeStr = context.Request.Query["start"].FirstOrDefault();
+        var endTimeStr = context.Request.Query["end"].FirstOrDefault();
+        DateTime? startTime = DateTime.TryParse(startTimeStr, out var st) ? st : null;
+        DateTime? endTime = DateTime.TryParse(endTimeStr, out var et) ? et : null;
+
+        List<DashboardCountryStats> dbCountries;
+        if (startTime.HasValue || endTime.HasValue)
+        {
+            // Time-filtered: always query the store directly
+            dbCountries = await _eventStore.GetCountryStatsAsync(count, startTime, endTime);
+        }
+        else
+        {
+            // No time filter: serve from periodic cache
+            var cached = _aggregateCache.Current.Countries;
+            dbCountries = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(count);
+        }
+
+        var countries = dbCountries
             .Take(count)
             .Select(db => new
             {
@@ -611,6 +621,7 @@ public class StyloBotDashboardMiddleware
                 countryName = db.CountryName,
                 botRate = db.BotRate,
                 botCount = db.BotCount,
+                humanCount = db.HumanCount,
                 totalCount = db.TotalCount,
                 flag = GetCountryFlag(db.CountryCode)
             })
@@ -618,6 +629,34 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, countries, CamelCaseJson);
+    }
+
+    private async Task ServeCountryDetailApiAsync(HttpContext context, string countryCode)
+    {
+        if (string.IsNullOrEmpty(countryCode) || countryCode.Length != 2)
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Invalid country code\"}");
+            return;
+        }
+
+        var startTimeStr = context.Request.Query["start"].FirstOrDefault();
+        var endTimeStr = context.Request.Query["end"].FirstOrDefault();
+        DateTime? startTime = DateTime.TryParse(startTimeStr, out var st) ? st : null;
+        DateTime? endTime = DateTime.TryParse(endTimeStr, out var et) ? et : null;
+
+        var detail = await _eventStore.GetCountryDetailAsync(countryCode, startTime, endTime);
+        if (detail == null)
+        {
+            context.Response.StatusCode = 404;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Country not found\"}");
+            return;
+        }
+
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, detail, CamelCaseJson);
     }
 
     private async Task ServeClustersApiAsync(HttpContext context)
@@ -652,15 +691,48 @@ public class StyloBotDashboardMiddleware
             CamelCaseJson);
     }
 
+    /// <summary>Allowed values for sort parameter on top bots API (input validation).</summary>
+    private static readonly HashSet<string> AllowedSortValues = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "hits", "name", "lastseen", "country", "probability"
+    };
+
     private async Task ServeTopBotsApiAsync(HttpContext context)
     {
-        var countParam = context.Request.Query["count"].FirstOrDefault();
-        var count = int.TryParse(countParam, out var c) && c is > 0 and <= 50 ? c : 10;
+        var startTimeStr = context.Request.Query["start"].FirstOrDefault();
+        var endTimeStr = context.Request.Query["end"].FirstOrDefault();
+        DateTime? startTime = DateTime.TryParse(startTimeStr, out var st) ? st : null;
+        DateTime? endTime = DateTime.TryParse(endTimeStr, out var et) ? et : null;
 
-        // Serve from periodic cache (computed by DashboardSummaryBroadcaster)
-        var cached = _aggregateCache.Current.TopBots;
-        var topBots = (cached.Count > 0 ? cached : await _eventStore.GetTopBotsAsync(count))
-            .Take(count);
+        List<DashboardTopBotEntry> topBots;
+        if (startTime.HasValue || endTime.HasValue)
+        {
+            // Time-filtered: fall back to event store (historical data not in cache)
+            var countParam = context.Request.Query["count"].FirstOrDefault();
+            var count = int.TryParse(countParam, out var c) && c is > 0 and <= 100 ? c : 25;
+            topBots = await _eventStore.GetTopBotsAsync(count, startTime, endTime);
+        }
+        else
+        {
+            // No time filter: read from write-through cache (single source of truth)
+            var pageParam = context.Request.Query["page"].FirstOrDefault();
+            var page = int.TryParse(pageParam, out var p) && p > 0 ? p : 1;
+
+            var pageSizeParam = context.Request.Query["pageSize"].FirstOrDefault();
+            var pageSize = int.TryParse(pageSizeParam, out var ps) && ps is > 0 and <= 100 ? ps : 25;
+
+            var sortBy = context.Request.Query["sort"].FirstOrDefault();
+            // Whitelist sort values to prevent parameter probing
+            if (sortBy != null && !AllowedSortValues.Contains(sortBy))
+                sortBy = null;
+
+            var country = context.Request.Query["country"].FirstOrDefault();
+            // Validate country code format: exactly 2 uppercase letters
+            if (country != null && (country.Length != 2 || !country.All(char.IsLetter)))
+                country = null;
+
+            topBots = _signatureCache.GetTopBots(page, pageSize, sortBy, country);
+        }
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, topBots, CamelCaseJson);
@@ -753,7 +825,30 @@ public class StyloBotDashboardMiddleware
 
         var decodedSignature = Uri.UnescapeDataString(signatureId);
 
-        // Try in-memory cache first (real-time data)
+        // Validate signature format: alphanumeric/hex, max 64 chars
+        if (decodedSignature.Length > 64 || !decodedSignature.All(c => char.IsLetterOrDigit(c)))
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Invalid signature format\"}");
+            return;
+        }
+
+        // Try SignatureAggregateCache first (write-through, always up to date)
+        var sparklineFromCache = _signatureCache.GetSparkline(decodedSignature);
+        if (sparklineFromCache != null)
+        {
+            var cachedSparkline = new
+            {
+                signatureId,
+                botProbabilityHistory = sparklineFromCache
+            };
+            context.Response.ContentType = "application/json";
+            await JsonSerializer.SerializeAsync(context.Response.Body, cachedSparkline, CamelCaseJson);
+            return;
+        }
+
+        // Fall back to VisitorListCache (has richer history with processing times)
         var visitorCache = context.RequestServices
             .GetService(typeof(VisitorListCache)) as VisitorListCache;
         var visitor = visitorCache?.Get(decodedSignature);
@@ -876,7 +971,7 @@ public class StyloBotDashboardMiddleware
             filter = filter with { SignatureId = signatureId };
 
         if (int.TryParse(query["limit"].FirstOrDefault(), out var limit))
-            filter = filter with { Limit = Math.Clamp(limit, 1, 1000) };
+            filter = filter with { Limit = Math.Clamp(limit, 1, 100) };
 
         if (int.TryParse(query["offset"].FirstOrDefault(), out var offset))
             filter = filter with { Offset = Math.Max(0, offset) };

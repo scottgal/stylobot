@@ -236,9 +236,28 @@ public class BehavioralDetector : IDetector
 
         // ===== Session Consistency Checks =====
 
+        // HTMX/fetch sub-requests prove JavaScript execution — strong human signal.
+        // These are AJAX partials triggered by the parent page's JS framework.
+        var isHtmxRequest = context.Request.Headers.ContainsKey("HX-Request");
+        var isFetchRequest = context.Request.Headers["Sec-Fetch-Mode"].FirstOrDefault() == "cors" ||
+                             context.Request.Headers["X-Requested-With"].FirstOrDefault() == "XMLHttpRequest";
+
+        if (isHtmxRequest)
+        {
+            confidence -= 0.15;
+            reasons.Add(new DetectionReason
+            {
+                Category = "Behavioral",
+                Detail = "HTMX sub-request detected (proves JavaScript execution)",
+                ConfidenceImpact = -0.15
+            });
+        }
+
         // Check for no referrer on non-initial requests
         // Skip during warmup as initial page load doesn't have referrer
+        // Skip for HTMX/fetch sub-requests — they may legitimately omit Referer
         if (!isWarmingUp &&
+            !isHtmxRequest && !isFetchRequest &&
             !context.Request.Headers.ContainsKey("Referer") &&
             context.Request.Path != "/" &&
             totalRequestCount > 1) // After first request
@@ -254,7 +273,10 @@ public class BehavioralDetector : IDetector
 
         // Check for missing cookies (bots often don't maintain sessions)
         // Skip during warmup - cookies are set after first response
-        if (!isWarmingUp && !context.Request.Cookies.Any() && totalRequestCount > 2)
+        // Skip for HTMX/fetch sub-requests — many sites don't set cookies at all,
+        // and penalizing cookie-less AJAX from real browsers is a false positive.
+        if (!isWarmingUp && !isHtmxRequest && !isFetchRequest &&
+            !context.Request.Cookies.Any() && totalRequestCount > 2)
         {
             confidence += 0.25;
             reasons.Add(new DetectionReason

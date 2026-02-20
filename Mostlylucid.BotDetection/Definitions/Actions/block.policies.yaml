@@ -49,3 +49,23 @@ policies:
     extends: block-hard
     description: Strict block for high-confidence threats - minimal response
     tags: [production, strict, security, high-risk]
+
+  block-fake-success:
+    type: Block
+    description: Return 200 with empty JSON data — bot thinks it succeeded
+    tags: [production, stealth, anti-scraping]
+    status_code: 200
+    content_type: application/json
+    message: '{"data":[],"total":0,"page":1}'
+    include_headers: false
+    include_risk_score: false
+
+  block-fake-html:
+    type: Block
+    description: Return 200 with empty HTML — bot thinks page loaded
+    tags: [production, stealth, anti-scraping]
+    status_code: 200
+    content_type: text/html
+    message: '<html><body></body></html>'
+    include_headers: false
+    include_risk_score: false

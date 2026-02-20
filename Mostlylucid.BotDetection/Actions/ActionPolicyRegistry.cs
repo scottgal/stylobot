@@ -142,6 +142,10 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
         RegisterPolicy(new BlockActionPolicy("block-soft", BlockActionOptions.Soft));
         RegisterPolicy(new BlockActionPolicy("block-debug", BlockActionOptions.Debug));
 
+        // Block policies - stealth (fake success)
+        RegisterPolicy(new BlockActionPolicy("block-fake-success", BlockActionOptions.FakeSuccess));
+        RegisterPolicy(new BlockActionPolicy("block-fake-html", BlockActionOptions.FakeHtml));
+
         // Throttle policies
         RegisterPolicy(new ThrottleActionPolicy("throttle", ThrottleActionOptions.Moderate));
         RegisterPolicy(new ThrottleActionPolicy("throttle-gentle", ThrottleActionOptions.Gentle));
@@ -149,6 +153,7 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
         RegisterPolicy(new ThrottleActionPolicy("throttle-aggressive", ThrottleActionOptions.Aggressive));
         RegisterPolicy(new ThrottleActionPolicy("throttle-stealth", ThrottleActionOptions.Stealth));
         RegisterPolicy(new ThrottleActionPolicy("throttle-tools", ThrottleActionOptions.Tools));
+        RegisterPolicy(new ThrottleActionPolicy("throttle-escalating", ThrottleActionOptions.Escalating));
 
         // Redirect policies
         RegisterPolicy(new RedirectActionPolicy("redirect", RedirectActionOptions.BlockedPage));
@@ -176,6 +181,14 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
         RegisterPolicy(new LogOnlyActionPolicy("shadow", LogOnlyActionOptions.ShadowWithHeaders));
         RegisterPolicy(new LogOnlyActionPolicy("debug", LogOnlyActionOptions.Debug));
         RegisterPolicy(new LogOnlyActionPolicy("full-log", LogOnlyActionOptions.FullLog));
+
+        // Log-only policies - action markers (set HttpContext.Items for downstream)
+        RegisterPolicy(new LogOnlyActionPolicy("degrade", LogOnlyActionOptions.Degrade));
+        RegisterPolicy(new LogOnlyActionPolicy("rate-limit-headers", LogOnlyActionOptions.RateLimitHeaders));
+        RegisterPolicy(new LogOnlyActionPolicy("quarantine", LogOnlyActionOptions.Quarantine));
+
+        // Log-only policies - sandbox/probation (YARP deep analysis)
+        RegisterPolicy(new LogOnlyActionPolicy("sandbox", LogOnlyActionOptions.Sandbox));
 
         // Log-only policies - specialized (these are templates/examples - override in config)
         // Note: Forward/File logging options require configuration to be useful
