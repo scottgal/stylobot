@@ -25,6 +25,8 @@ WORKDIR /src
 COPY ["mostlylucid.stylobot.website/src/Stylobot.Website/Stylobot.Website.csproj", "mostlylucid.stylobot.website/src/Stylobot.Website/"]
 COPY ["Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj", "Mostlylucid.BotDetection/"]
 COPY ["Mostlylucid.BotDetection/ReleaseNotes.txt", "Mostlylucid.BotDetection/"]
+COPY ["Mostlylucid.BotDetection.Llm/Mostlylucid.BotDetection.Llm.csproj", "Mostlylucid.BotDetection.Llm/"]
+COPY ["Mostlylucid.BotDetection.Llm.LlamaSharp/Mostlylucid.BotDetection.Llm.LlamaSharp.csproj", "Mostlylucid.BotDetection.Llm.LlamaSharp/"]
 COPY ["Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj", "Mostlylucid.BotDetection.UI/"]
 COPY ["Mostlylucid.BotDetection.UI.PostgreSQL/Mostlylucid.BotDetection.UI.PostgreSQL.csproj", "Mostlylucid.BotDetection.UI.PostgreSQL/"]
 COPY ["Mostlylucid.Common/Mostlylucid.Common.csproj", "Mostlylucid.Common/"]

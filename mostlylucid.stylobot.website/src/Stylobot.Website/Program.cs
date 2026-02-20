@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.ClientSide;
 using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Llm.LlamaSharp.Extensions;
 using Mostlylucid.BotDetection.Metrics;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Telemetry;
@@ -172,6 +173,14 @@ builder.Services.AddBotDetection(options =>
         options.AiDetection.Provider = Mostlylucid.BotDetection.Models.AiProvider.Heuristic;
     }
 });
+
+// Add LlamaSharp in-process CPU LLM provider (if configured).
+// Config from BotDetection:AiDetection:LlamaSharp section / env vars.
+var aiProviderForLlm = GetConfig("BotDetection:AiProvider", "BOTDETECTION_AI_PROVIDER", "Heuristic");
+if (aiProviderForLlm.Equals("LlamaSharp", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddStylobotLlamaSharp();
+}
 
 // Add OpenTelemetry instrumentation for bot detection signals
 builder.Services.AddBotDetectionTelemetry();

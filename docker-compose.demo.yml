@@ -83,12 +83,11 @@ services:
       - BotDetection__BlockDetectedBots=false
       - BotDetection__LogDetailedReasons=true
       - BotDetection__LogAllRequests=true
-      # AI detection (uses local CPU-only LLamaSharp)
-      - BotDetection__AiDetection__Provider=LlamaSharp
-      - BotDetection__AiDetection__LlamaSharp__Enabled=true
+      # AI detection (uses local CPU-only LLamaSharp plugin)
       - BotDetection__AiDetection__LlamaSharp__ModelPath=Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf
       - BotDetection__AiDetection__LlamaSharp__ContextSize=512
-      - BotDetection__AiDetection__TimeoutMs=10000
+      - BotDetection__AiDetection__LlamaSharp__TimeoutMs=10000
+      - BotDetection__AiDetection__LlamaSharp__ModelCacheDir=/models
       # Signature description threshold (trigger LLM when signature gets 50 requests)
       - BotDetection__SignatureDescriptionThreshold=50
       # Response headers (show detection info)
@@ -192,13 +191,11 @@ services:
       - BOTDETECTION_LOG_ALL_REQUESTS=${BOTDETECTION_LOG_ALL_REQUESTS:-true}
       # LLM Configuration (LlamaSharp=CPU-only Qwen, Heuristic=fast local, Ollama=external service)
       - BOTDETECTION_AI_PROVIDER=${BOTDETECTION_AI_PROVIDER:-LlamaSharp}
-      - BOTDETECTION_LLAMASHARP_ENABLED=${BOTDETECTION_LLAMASHARP_ENABLED:-true}
-      - BOTDETECTION_LLAMASHARP_CONTEXT_SIZE=${BOTDETECTION_LLAMASHARP_CONTEXT_SIZE:-512}
-      - BOTDETECTION_LLAMASHARP_TIMEOUT_MS=${BOTDETECTION_LLAMASHARP_TIMEOUT_MS:-10000}
-      - BOTDETECTION_SIGNATURE_DESCRIPTION_THRESHOLD=${BOTDETECTION_SIGNATURE_DESCRIPTION_THRESHOLD:-50}
-      # (Optional) Ollama for external LLM service
-      - BOTDETECTION_OLLAMA_ENDPOINT=${BOTDETECTION_OLLAMA_ENDPOINT:-}
-      - BOTDETECTION_OLLAMA_MODEL=${BOTDETECTION_OLLAMA_MODEL:-llama3.2:1b}
+      - BotDetection__AiDetection__LlamaSharp__ModelPath=${BOTDETECTION_LLAMASHARP_MODEL_PATH:-Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf}
+      - BotDetection__AiDetection__LlamaSharp__ContextSize=${BOTDETECTION_LLAMASHARP_CONTEXT_SIZE:-512}
+      - BotDetection__AiDetection__LlamaSharp__TimeoutMs=${BOTDETECTION_LLAMASHARP_TIMEOUT_MS:-10000}
+      - BotDetection__AiDetection__LlamaSharp__ModelCacheDir=${BOTDETECTION_LLAMASHARP_MODEL_CACHE_DIR:-/models}
+      - BotDetection__SignatureDescriptionThreshold=${BOTDETECTION_SIGNATURE_DESCRIPTION_THRESHOLD:-50}
       # Signature & privacy
       - BOTDETECTION_SIGNATURE_HASH_KEY=${BOTDETECTION_SIGNATURE_HASH_KEY:-}
       - BOTDETECTION_CLIENTSIDE_TOKEN_SECRET=${BOTDETECTION_CLIENTSIDE_TOKEN_SECRET:-}

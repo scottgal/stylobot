@@ -10,6 +10,8 @@
   <ItemGroup>
     <!-- Bot Detection from main repo - using project reference for development -->
     <ProjectReference Include="..\..\..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
+    <!-- LLM plugin: in-process CPU LlamaSharp provider -->
+    <ProjectReference Include="..\..\..\Mostlylucid.BotDetection.Llm.LlamaSharp\Mostlylucid.BotDetection.Llm.LlamaSharp.csproj" />
     <ProjectReference Include="..\..\..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
     <ProjectReference Include="..\..\..\Mostlylucid.BotDetection.UI.PostgreSQL\Mostlylucid.BotDetection.UI.PostgreSQL.csproj" />
     <ProjectReference Include="..\..\..\Mostlylucid.GeoDetection\Mostlylucid.GeoDetection.csproj" />

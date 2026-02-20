@@ -167,6 +167,8 @@ export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opt
         zoomAnimate: true,
         showTooltip: true,
         backgroundColor: 'transparent',
+        regionsSelectable: true,
+        regionsSelectableOne: true,
 
         regionStyle: {
             initial: {
@@ -179,6 +181,9 @@ export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opt
             hover: {
                 'fill-opacity': 0.85,
                 cursor: 'pointer',
+            },
+            selected: {
+                'fill-opacity': 0.95,
             },
         },
 
@@ -246,7 +251,8 @@ export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opt
         },
     });
 
-    // Style markers individually: size by volume, color by bot rate
+    // Style markers individually: size by volume, color by bot rate.
+    // We must re-apply on mouseout because jsvectormap reverts to markerStyle.initial.
     if (map._markers) {
         for (const [idx, marker] of Object.entries(map._markers) as [string, any][]) {
             const m = markers[Number(idx)];
@@ -254,10 +260,17 @@ export function renderWorldMap(container: HTMLElement, data: MapDataPoint[], opt
                 const radius = minR + m._scale * (maxR - minR);
                 const color = botRateHex(m._botRate, dark);
                 const el = marker.element.shape;
-                if (el) {
-                    el.node.setAttribute('r', String(radius));
-                    el.node.setAttribute('fill', color);
-                    el.node.setAttribute('fill-opacity', '0.75');
+                if (el && el.node) {
+                    const applyStyle = () => {
+                        el.node.setAttribute('r', String(radius));
+                        el.node.setAttribute('fill', color);
+                        el.node.setAttribute('fill-opacity', '0.75');
+                    };
+                    applyStyle();
+                    // Re-apply after jsvectormap resets styles on hover-out
+                    el.node.addEventListener('mouseout', () => {
+                        requestAnimationFrame(applyStyle);
+                    });
                 }
             }
         }

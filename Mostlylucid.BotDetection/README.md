@@ -11,7 +11,7 @@ learning**, auto-updated blocklists, YARP integration, and full observability.
 
 ## Key Features
 
-- **28 detectors in 4 waves**: User-Agent, headers, IP, behavioral, protocol fingerprinting, AI classification, cluster detection, and more
+- **31 detectors in 4 waves**: User-Agent, headers, IP, behavioral, protocol fingerprinting, AI classification, cluster detection, and more
 - **Protocol-deep fingerprinting**: JA3/JA4 TLS, p0f TCP/IP, AKAMAI HTTP/2, QUIC HTTP/3 — catch bots even when they spoof everything
 - **AI-powered classification**: Heuristic model (<1ms, ~50 features) with optional LLM escalation for complex cases
 - **Continuous learning**: Heuristic weights adapt over time based on detection feedback
@@ -140,7 +140,7 @@ app.MapPost("/api/submit", () => "ok")
 public IActionResult Index() => View();
 ```
 
-## Detection Methods (28 Detectors)
+## Detection Methods (31 Detectors)
 
 All detectors execute in a wave-based pipeline. Fast-path detectors run in parallel in <1ms. Advanced detectors fire only when triggered by upstream signals.
 
@@ -157,6 +157,9 @@ All detectors execute in a wave-based pipeline. Fast-path detectors run in paral
 | **AiScraper** | AI training bot detection (GPTBot, ClaudeBot, PerplexityBot, Google-Extended) |
 | **FastPathReputation** | Ultra-fast cached reputation from previous detections (ConfirmedGood/Bad) |
 | **ReputationBias** | Signature-based reputation tracking from historical patterns |
+| **Haxxor** | SQL injection, XSS, path traversal, command injection detection |
+| **TransportProtocol** | WebSocket, gRPC, GraphQL, SSE protocol violation detection |
+| **Inconsistency** | UA/header mismatch and cross-signal inconsistency detection |
 | **VerifiedBot** | DNS-verified identification of Googlebot, Bingbot, and 30+ legitimate crawlers |
 
 ### Wave 1 — Behavioral (1-5ms)
@@ -168,6 +171,7 @@ All detectors execute in a wave-based pipeline. Fast-path detectors run in paral
 | **BehavioralWaveform** | FFT-based spectral fingerprinting of request timing patterns |
 | **ClientSide** | Headless browser detection via JavaScript fingerprinting signals |
 | **GeoChange** | Geographic drift detection, country reputation, origin verification |
+| **AccountTakeover** | Credential stuffing, brute force, and account takeover detection |
 | **ResponseBehavior** | Honeypot path detection, response-side behavioral patterns |
 
 ### Wave 2 — Protocol Fingerprinting (<1ms)
@@ -189,7 +193,7 @@ All detectors execute in a wave-based pipeline. Fast-path detectors run in paral
 | **Similarity** | Fuzzy signature matching via HNSW/Qdrant vector search |
 | **Cluster** | Bot network detection with Leiden community discovery |
 | **TimescaleReputation** | Time-series IP/signature reputation aggregation |
-| **LLM** | Full reasoning via Ollama (escalation only, e.g., qwen3:0.6b) — 50-500ms |
+| **LLM** | Background classification via LLM plugin (LlamaSharp CPU or Ollama HTTP) |
 
 ### Slow Path
 
@@ -347,7 +351,7 @@ For advanced similarity-based detection, embeddings support named vectors:
 
 | Feature                        | Description                               | Docs                                                                |
 |--------------------------------|-------------------------------------------|---------------------------------------------------------------------|
-| **Quick Start**                | Two-line setup, all 28 detectors          | [quickstart.md](docs/quickstart.md)                                 |
+| **Quick Start**                | Two-line setup, all 31 detectors          | [quickstart.md](docs/quickstart.md)                                 |
 | **Configuration**              | Full options reference                    | [configuration.md](docs/configuration.md)                           |
 | **AI Detection**               | Heuristic model, LLM escalation, learning | [ai-detection.md](docs/ai-detection.md)                             |
 | **AI Scraper Detection**       | GPTBot, ClaudeBot, PerplexityBot          | [ai-scraper-detection.md](docs/ai-scraper-detection.md)             |
@@ -373,6 +377,12 @@ For advanced similarity-based detection, embeddings support named vectors:
 | **Cluster Detection**          | Leiden clustering for bot networks        | [cluster-detection.md](docs/cluster-detection.md)                   |
 | **TCP/IP Fingerprint**         | Passive OS fingerprinting (p0f)           | [tcp-ip-fingerprint.md](docs/tcp-ip-fingerprint.md)                 |
 | **Timescale Reputation**       | Time-series reputation aggregation        | [timescale-reputation.md](docs/timescale-reputation.md)             |
+| **Haxxor Detection**           | SQL injection, XSS, attack payload detection | [haxxor-detection.md](docs/haxxor-detection.md)                  |
+| **Account Takeover**           | Credential stuffing, brute force detection | [account-takeover-detection.md](docs/account-takeover-detection.md) |
+| **Transport Protocol**         | WebSocket, gRPC, GraphQL violation detection | [transport-protocol-detection.md](docs/transport-protocol-detection.md) |
+| **Geo Change Detection**       | Geographic drift, country reputation      | [geo-change-detection.md](docs/geo-change-detection.md)             |
+| **Verified Bot Detection**     | DNS-verified crawler identification       | [verified-bot-detection.md](docs/verified-bot-detection.md)         |
+| **Inconsistency Detection**    | UA/header mismatch detection              | [inconsistency-detection.md](docs/inconsistency-detection.md)       |
 | **YARP Integration**           | Bot-aware reverse proxy                   | [yarp-integration.md](docs/yarp-integration.md)                     |
 | **Telemetry**                  | OpenTelemetry traces and metrics          | [telemetry-and-metrics.md](docs/telemetry-and-metrics.md)           |
 | **Stylobot Gateway**           | Companion Docker gateway                  | [yarp-gateway.md](docs/yarp-gateway.md)                             |
@@ -412,20 +422,23 @@ app.MapBotDetectionEndpoints("/bot-detection");
 ## Service Registration Options
 
 ```csharp
-// Default: all detectors + Heuristic AI with learning
+// Default: all detectors + Heuristic AI with learning (no LLM)
 builder.Services.AddBotDetection();
+
+// Add in-process CPU LLM provider (LlamaSharp, zero external deps)
+builder.Services.AddStylobotLlamaSharp();
+
+// OR: Add external Ollama HTTP provider (GPU capable)
+builder.Services.AddStylobotOllama("http://localhost:11434", "qwen3:0.6b");
 
 // User-agent only (fastest, minimal)
 builder.Services.AddSimpleBotDetection();
-
-// All detectors + LLM escalation (requires Ollama)
-builder.Services.AddAdvancedBotDetection("http://localhost:11434", "qwen3:0.6b");
 ```
 
 ## Requirements
 
 - .NET 10.0
-- Optional: [Ollama](https://ollama.ai/) for LLM-based detection escalation
+- Optional: LlamaSharp (in-process CPU) or Ollama (external HTTP) for LLM classification
 
 ## License
 

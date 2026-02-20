@@ -1,6 +1,7 @@
 using System.Net;
 using Microsoft.AspNetCore.HttpOverrides;
 using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Llm.LlamaSharp.Extensions;
 using Mostlylucid.BotDetection.Metrics;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Middleware;
@@ -116,6 +117,10 @@ try
     // Add Bot Detection - the core feature of this gateway!
     // Uses appsettings.json "BotDetection" section automatically
     builder.Services.AddBotDetection();
+
+    // Add LlamaSharp in-process CPU LLM provider for background classification,
+    // bot naming, and score change narratives. Config from BotDetection:AiDetection:LlamaSharp.
+    builder.Services.AddStylobotLlamaSharp();
 
     // Add OpenTelemetry instrumentation for bot detection signals
     builder.Services.AddBotDetectionTelemetry();

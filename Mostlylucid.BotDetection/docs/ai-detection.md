@@ -313,116 +313,134 @@ var bias = detector.GetCurrentBias();
 
 ---
 
-## LLM Detection (Ollama)
+## LLM Plugin Architecture (v4.0)
 
-For sophisticated bots that evade pattern matching, use LLM-based analysis.
+In v4.0, LLM detection was refactored from a monolithic detector into a **plugin architecture** with swappable providers and three distinct use cases.
 
-### How It Works
+### Architecture
 
-```mermaid
-sequenceDiagram
-    participant R as Request
-    participant D as Detector
-    participant O as Ollama
-    participant M as LLM Model
+The LLM subsystem is split across three NuGet packages:
 
-    R->>D: High-risk request
-    D->>D: Build prompt with request info
-    D->>O: POST /api/generate
-    O->>M: Run inference
-    M->>O: JSON response
-    O->>D: Parse result
-    D->>R: Classification + reasoning
+| Package | Purpose |
+|---------|---------|
+| `Mostlylucid.BotDetection.Llm` | Common abstractions: `ILlmProvider`, prompt builders, response parser |
+| `Mostlylucid.BotDetection.Llm.LlamaSharp` | In-process CPU provider (default for production) |
+| `Mostlylucid.BotDetection.Llm.Ollama` | External HTTP provider (GPU capable via Ollama server) |
+
+All providers implement the `ILlmProvider` interface:
+
+```csharp
+public interface ILlmProvider
+{
+    Task<string> CompleteAsync(LlmRequest request, CancellationToken ct = default);
+    bool IsReady { get; }
+    Task InitializeAsync(CancellationToken ct = default);
+}
 ```
 
-### Setup
+Only one provider is active per application. Shared services (classification, bot naming, score narratives) are registered automatically by the provider's extension method.
 
-1. **Install Ollama:**
-   ```bash
-   # Linux/macOS
-   curl -fsSL https://ollama.ai/install.sh | sh
+### Three LLM Use Cases
 
-   # Windows
-   # Download from https://ollama.ai/download
-   ```
+1. **Background Classification** -- The `LlmClassificationCoordinator` sends ambiguous signatures to the LLM for bot/human classification. This runs asynchronously in the background and **never blocks** the request pipeline. Results feed back into the signature's score on subsequent requests.
 
-2. **Pull a Model:**
-   ```bash
-   # Recommended for bot detection (better reasoning)
-   ollama pull qwen3:0.6b
+2. **Bot Naming** -- When a new bot cluster is identified, the `LlmBotNameSynthesizer` generates a creative name and description from the cluster's detection signals. A ring buffer of recently used names prevents duplicates.
 
-   # Alternatives
-   ollama pull gemma3:1b      # Faster, smaller
-   ollama pull tinyllama      # Fastest, basic
-   ollama pull qwen2.5:1.5b   # Better reasoning
-   ollama pull phi3:mini      # Microsoft's model
-   ```
+3. **Score Change Narratives** -- The `LlmScoreNarrativeService` generates plain English explanations when a signature's bot probability changes significantly (e.g., "This signature jumped from 0.3 to 0.8 because three new datacenter IP signals appeared").
 
-3. **Configure:**
-   ```json
-   {
-     "BotDetection": {
-       "EnableAiDetection": true,
-       "AiDetection": {
-         "Provider": "Ollama",
-         "TimeoutMs": 15000,
-         "Ollama": {
-           "Endpoint": "http://localhost:11434",
-           "Model": "qwen3:0.6b",
-           "UseJsonMode": true
-         }
-       }
-     }
-   }
-   ```
+### Registration
 
-### Configuration Options
+```csharp
+// Option A: In-process CPU (default, zero external deps)
+builder.Services.AddBotDetection();
+builder.Services.AddStylobotLlamaSharp();
+
+// Option B: External Ollama (GPU capable)
+builder.Services.AddBotDetection();
+builder.Services.AddStylobotOllama("http://localhost:11434", "qwen3:0.6b");
+
+// Option C: No LLM (graceful degradation)
+builder.Services.AddBotDetection();
+// Classification, naming, and narratives silently degrade to defaults
+```
+
+### LlamaSharp Provider (Recommended for Production)
+
+Runs inference in-process using LlamaSharp with GGUF models. Zero external dependencies -- the model is downloaded automatically on first use from Hugging Face.
+
+**Configuration** (`BotDetection:AiDetection:LlamaSharp`):
 
 ```json
 {
   "BotDetection": {
     "AiDetection": {
-      "Provider": "Ollama",
-      "TimeoutMs": 15000,
-      "MaxConcurrentRequests": 3,
-      "Ollama": {
-        "Endpoint": "http://localhost:11434",
-        "Model": "qwen3:0.6b",
-        "UseJsonMode": true,
+      "LlamaSharp": {
+        "ModelPath": "Qwen/Qwen2.5-0.5B-Instruct-GGUF/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        "ContextSize": 512,
+        "TimeoutMs": 10000,
+        "ModelCacheDir": null,
+        "ThreadCount": 0,
         "Temperature": 0.1,
-        "MaxTokens": 256,
-        "CustomPrompt": null,
-        "SystemPrompt": null,
-        "RetryCount": 2,
-        "RetryDelayMs": 100
+        "MaxTokens": 150
       }
     }
   }
 }
 ```
 
-| Option         | Type   | Default                  | Description            |
-|----------------|--------|--------------------------|------------------------|
-| `Endpoint`     | string | `http://localhost:11434` | Ollama API endpoint    |
-| `Model`        | string | `qwen3:0.6b`              | Model name             |
-| `UseJsonMode`  | bool   | `true`                   | Request JSON output    |
-| `Temperature`  | double | `0.1`                    | Randomness (0.0-1.0)   |
-| `MaxTokens`    | int    | `256`                    | Max response tokens    |
-| `CustomPrompt` | string | null                     | Custom analysis prompt |
-| `SystemPrompt` | string | null                     | System context prompt  |
-| `RetryCount`   | int    | `2`                      | Retries on failure     |
-| `RetryDelayMs` | int    | `100`                    | Delay between retries  |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `ModelPath` | string | `Qwen/Qwen2.5-0.5B-Instruct-GGUF/...` | GGUF file path or Hugging Face model ID (auto-downloads) |
+| `ContextSize` | int | `512` | Maximum context size in tokens |
+| `TimeoutMs` | int | `10000` | Inference timeout in milliseconds |
+| `ModelCacheDir` | string | `~/.cache/stylobot-models` | Cache directory for downloaded models (or `STYLOBOT_MODEL_CACHE` env var) |
+| `ThreadCount` | int | all cores | CPU threads for inference |
+| `Temperature` | float | `0.1` | Generation randomness (0.0-1.0) |
+| `MaxTokens` | int | `150` | Maximum tokens to generate |
 
-### Recommended Models
+### Ollama Provider (GPU Capable)
 
-| Model          | Size | Context | Speed  | Accuracy | Use Case                    |
-|----------------|------|---------|--------|----------|-----------------------------|
-| `qwen3:0.6b`  | 0.6B | 32K     | ~50ms  | Good     | **Default - fast, lightweight** |
-| `gemma3:1b`   | 1B   | 8K      | ~50ms  | Good     | High throughput             |
-| `tinyllama`    | 1.1B | 2K      | ~20ms  | Basic    | Very high throughput        |
-| `qwen2.5:1.5b` | 1.5B | 32K     | ~80ms  | Better   | Complex patterns            |
-| `phi3:mini`    | 3.8B | 4K      | ~150ms | Best     | Low volume, high accuracy   |
-| `llama3.2:3b`  | 3B   | 8K      | ~200ms | Best     | Research/analysis           |
+Sends inference requests over HTTP to an external Ollama server. Best when GPU acceleration is available or when you want to share a model server across multiple instances.
+
+**Setup:**
+
+1. Install Ollama: https://ollama.ai/download
+2. Pull a model: `ollama pull qwen3:0.6b`
+3. Register the provider:
+
+```csharp
+builder.Services.AddStylobotOllama("http://localhost:11434", "qwen3:0.6b");
+```
+
+**Configuration** (`BotDetection:AiDetection:Ollama`):
+
+```json
+{
+  "BotDetection": {
+    "AiDetection": {
+      "Ollama": {
+        "Endpoint": "http://localhost:11434",
+        "Model": "qwen3:0.6b",
+        "NumThreads": 4
+      }
+    }
+  }
+}
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `Endpoint` | string | `http://localhost:11434` | Ollama API endpoint |
+| `Model` | string | `qwen3:0.6b` | Model name |
+| `NumThreads` | int | `4` | CPU threads for Ollama inference |
+
+### Background-Only Execution
+
+All LLM work runs in the background via `LlmClassificationCoordinator`. The request pipeline is never blocked by LLM inference. When no `ILlmProvider` is registered (Option C above), all three use cases degrade gracefully:
+
+- Classification falls back to heuristic scoring only
+- Bot naming uses the default rule-based name generator
+- Score narratives return `null` (the dashboard omits the narrative field)
 
 ---
 
@@ -437,32 +455,43 @@ flowchart LR
         H4[Pattern-based + learning]
     end
 
+    subgraph LlamaSharp["LlamaSharp Provider"]
+        LS1[Moderate: 50-200ms]
+        LS2[In-process: No server]
+        LS3[Medium: 500MB-1GB RAM]
+        LS4[Full reasoning, CPU]
+    end
+
     subgraph Ollama["Ollama Provider"]
-        L1[Slower: 50-500ms]
-        L2[Local: Ollama server]
+        L1[Moderate: 50-500ms]
+        L2[External: Ollama server]
         L3[Heavy: 1-4GB RAM]
-        L4[Full reasoning]
+        L4[Full reasoning, GPU]
     end
 
     Request([Request]) --> Decision{Choose Provider}
     Decision -->|Default| Heuristic
-    Decision -->|Escalation| Ollama
+    Decision -->|"LLM (prod)"| LlamaSharp
+    Decision -->|"LLM (GPU)"| Ollama
 ```
 
-| Feature          | Heuristic                       | Ollama                |
-|------------------|---------------------------------|-----------------------|
-| **Latency**      | <1ms                            | 50-500ms              |
-| **Accuracy**     | Good (pattern-based + learning) | Best (full reasoning) |
-| **Resources**    | ~10KB memory                    | 1-4GB RAM             |
-| **Dependencies** | None (in-process)               | Ollama server         |
-| **Offline**      | Yes                             | Yes (local)           |
-| **Learning**     | Continuous                      | Static                |
+| Feature          | Heuristic                       | LlamaSharp               | Ollama                |
+|------------------|---------------------------------|--------------------------|-----------------------|
+| **Latency**      | <1ms                            | 50-200ms                 | 50-500ms              |
+| **Accuracy**     | Good (pattern-based + learning) | Best (full reasoning)    | Best (full reasoning) |
+| **Resources**    | ~10KB memory                    | 500MB-1GB RAM            | 1-4GB RAM             |
+| **Dependencies** | None (in-process)               | None (in-process)        | Ollama server         |
+| **GPU Support**  | N/A                             | No (CPU only)            | Yes                   |
+| **Offline**      | Yes                             | Yes                      | Yes (local)           |
+| **Learning**     | Continuous                      | Static                   | Static                |
+| **Use Cases**    | Inline detection                | Classification, naming, narratives | Classification, naming, narratives |
 
 ### Recommendation
 
-1. **Start with Heuristic** - Fast, low overhead, continuously learns
-2. **Add Ollama for escalation** - Catch sophisticated bots
-3. **Enable learning** - Continuous improvement
+1. **Start with Heuristic only** -- Fast, low overhead, continuously learns
+2. **Add LlamaSharp for LLM features** -- Zero external deps, good for production
+3. **Use Ollama when GPU is available** -- Faster inference on GPU hardware
+4. **Enable learning** -- Continuous improvement of heuristic weights
 
 ```json
 {
@@ -474,14 +503,6 @@ flowchart LR
         "Enabled": true,
         "EnableWeightLearning": true
       }
-    },
-    "FastPath": {
-      "SlowPathDetectors": [
-        { "Name": "Heuristic Detector", "Signal": "AiClassificationCompleted", "Wave": 1 }
-      ],
-      "AiPathDetectors": [
-        { "Name": "LLM Detector", "Signal": "LlmCompleted", "Wave": 1 }
-      ]
     },
     "Policies": {
       "strict": {
@@ -677,16 +698,23 @@ Warning: Failed to load weights from store, using defaults
 3. Check `LoadLearnedWeights` is true
 4. Ensure database file exists and is writable
 
-### Ollama Connection Failed
+### LLM Provider Not Ready
 
 ```
-Error: Failed to connect to Ollama at http://localhost:11434
+Debug: LLM provider not ready, skipping classification
 ```
 
-**Solutions:**
+**LlamaSharp solutions:**
+
+1. Check that the GGUF model path or Hugging Face ID in `BotDetection:AiDetection:LlamaSharp:ModelPath` is correct
+2. Verify the model cache directory is writable (default: `~/.cache/stylobot-models`)
+3. On first run, model download may take a few minutes -- check logs for download progress
+4. Ensure sufficient RAM for the model (500MB-1GB for 0.5B models)
+
+**Ollama solutions:**
 
 1. Start Ollama: `ollama serve`
-2. Check endpoint URL
+2. Check endpoint URL in `BotDetection:AiDetection:Ollama:Endpoint`
 3. Verify firewall settings
 4. Pull required model: `ollama pull qwen3:0.6b`
 
