@@ -511,8 +511,14 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
                 weightMultiplier: 1.5,
                 botType: BotType.Unknown.ToString()));
 
+        // WebSocket upgrade requests (RFC 6455) legitimately omit Accept-Language
+        // and Client Hints — browsers don't send these on WS upgrades.
+        var isWebSocketUpgrade = headers.TryGetValue("Upgrade", out var upgradeVal)
+                                 && upgradeVal.ToString().Contains("websocket", StringComparison.OrdinalIgnoreCase);
+
         // Check for missing Accept-Language with browser UA
-        if (LooksLikeBrowser(userAgent) && !headers.ContainsKey("Accept-Language"))
+        // Skip for WebSocket upgrades which don't carry Accept-Language
+        if (LooksLikeBrowser(userAgent) && !headers.ContainsKey("Accept-Language") && !isWebSocketUpgrade)
             contributions.Add(BotContribution(
                 "Inconsistency",
                 "Browser User-Agent without Accept-Language header",
@@ -520,10 +526,11 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
                 botType: BotType.Unknown.ToString()));
 
         // Check for Chrome UA without sec-ch-ua headers
-        // Note: Service worker, fetch API, and some browser configurations may not send Client Hints
-        // Only flag if path doesn't suggest legitimate browser request
+        // Note: Service worker, fetch API, WebSocket upgrades, and some browser configurations
+        // may not send Client Hints. Only flag if path doesn't suggest legitimate browser request.
         var path = state.HttpContext.Request.Path.Value?.ToLowerInvariant() ?? "";
-        var isLegitimateNoHintsRequest = path.Contains("serviceworker") ||
+        var isLegitimateNoHintsRequest = isWebSocketUpgrade ||
+                                         path.Contains("serviceworker") ||
                                          path.Contains("sw.js") ||
                                          path.Contains("worker");
 

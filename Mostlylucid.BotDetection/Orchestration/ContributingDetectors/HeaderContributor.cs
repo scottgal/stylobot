@@ -43,6 +43,11 @@ public class HeaderContributor : ConfiguredContributorBase
         var contributions = new List<DetectionContribution>();
         var headers = state.HttpContext.Request.Headers;
 
+        // WebSocket upgrade requests (RFC 6455) legitimately omit Accept, Accept-Language,
+        // and Accept-Encoding headers. Don't penalize these missing headers on upgrades.
+        var isWebSocketUpgrade = IsWebSocketUpgrade(state.HttpContext.Request);
+        state.WriteSignal("header.is_websocket_upgrade", isWebSocketUpgrade);
+
         // Check for missing essential headers (from YAML: expected_browser_headers)
         var expectedHeaders = GetStringListParam("expected_browser_headers");
         var hasAcceptLanguage = headers.ContainsKey("Accept-Language");
@@ -55,7 +60,8 @@ public class HeaderContributor : ConfiguredContributorBase
         state.WriteSignal("header.count", headers.Count);
 
         // Missing Accept header - confidence from YAML
-        if (!hasAccept)
+        // Skip for WebSocket upgrades which legitimately use Upgrade: websocket instead of Accept
+        if (!hasAccept && !isWebSocketUpgrade)
             contributions.Add(BotContribution(
                     "Header",
                     "Missing Accept header",
@@ -63,12 +69,13 @@ public class HeaderContributor : ConfiguredContributorBase
                     botType: BotType.Unknown.ToString()));
 
         // Missing Accept-Language with browser UA
+        // Skip for WebSocket upgrades which don't carry Accept-Language
         var userAgent = state.UserAgent ?? "";
         var looksLikeBrowser = userAgent.Contains("Mozilla/") &&
                                (userAgent.Contains("Chrome") || userAgent.Contains("Firefox") ||
                                 userAgent.Contains("Safari") || userAgent.Contains("Edge"));
 
-        if (looksLikeBrowser && !hasAcceptLanguage)
+        if (looksLikeBrowser && !hasAcceptLanguage && !isWebSocketUpgrade)
             contributions.Add(BotContribution(
                 "Header",
                 "Browser User-Agent without Accept-Language",
@@ -81,8 +88,9 @@ public class HeaderContributor : ConfiguredContributorBase
         state.WriteSignal("header.has_proxy_headers", hasXForwardedFor || hasVia);
 
         // Check for unusual header count - threshold from YAML parameters
+        // WebSocket upgrades have fewer headers by design (Upgrade, Connection, Sec-WebSocket-*)
         var headerCount = headers.Count;
-        if (headerCount < MinHeaderCount)
+        if (headerCount < MinHeaderCount && !isWebSocketUpgrade)
             contributions.Add(BotContribution(
                 "Header",
                 $"Very few headers ({headerCount})",
@@ -102,8 +110,19 @@ public class HeaderContributor : ConfiguredContributorBase
         if (contributions.Count == 0)
             contributions.Add(HumanContribution(
                 "Header",
-                "Headers appear normal"));
+                isWebSocketUpgrade ? "WebSocket upgrade - header profile expected" : "Headers appear normal"));
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
+    }
+
+    /// <summary>
+    ///     Detects WebSocket upgrade requests (RFC 6455).
+    ///     These legitimately omit Accept, Accept-Language, Accept-Encoding,
+    ///     and Client Hints headers — browsers don't send them on WS upgrades.
+    /// </summary>
+    private static bool IsWebSocketUpgrade(Microsoft.AspNetCore.Http.HttpRequest request)
+    {
+        return request.Headers.TryGetValue("Upgrade", out var upgrade)
+               && upgrade.ToString().Contains("websocket", StringComparison.OrdinalIgnoreCase);
     }
 }
