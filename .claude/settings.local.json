@@ -235,7 +235,8 @@
       "Bash(MSYS_NO_PATHCONV=1 curl -s -o /dev/null -w \"%{http_code}\" -H \"X-SB-Api-Key: SB-K6-BYPASS\" http://localhost/)",
       "Bash(MSYS_NO_PATHCONV=1 curl -s -D - -o /dev/null -H \"X-SB-Api-Key: SB-K6-BYPASS\" http://localhost/)",
       "Bash(MSYS_NO_PATHCONV=1 curl -s -D - -o /dev/null -H \"X-SB-Api-Key: SB-K6-NO-BEHAVIORAL\" -H \"User-Agent: curl/8.4.0\" http://localhost/)",
-      "Bash(MSYS_NO_PATHCONV=1 docker cp:*)"
+      "Bash(MSYS_NO_PATHCONV=1 docker cp:*)",
+      "mcp__plugin_playwright_playwright__browser_close"
     ]
   }
 }

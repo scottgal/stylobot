@@ -475,16 +475,30 @@ function dashboardApp() {
         },
 
         async init() {
-            // Hydrate from SSR data first — the page must never be empty.
+            // Hydrate ALL tabs from SSR data first — the page must NEVER be empty.
+            // XHR and SignalR are UPDATE ONLY — never primary data sources.
             const ssrSummary = toCamel(this._readSsr('ssr-summary'));
             const ssrCountries = toCamel(this._readSsr('ssr-countries'));
             const ssrClusters = toCamel(this._readSsr('ssr-clusters'));
             const ssrTopBots = toCamel(this._readSsr('ssr-topbots'));
+            const ssrVisitors = toCamel(this._readSsr('ssr-visitors'));
+            const ssrUserAgents = toCamel(this._readSsr('ssr-useragents'));
 
             if (ssrSummary) this.summary = ssrSummary;
             if (ssrCountries?.length) this.countries = ssrCountries;
             if (ssrClusters?.length) this.clusters = ssrClusters;
             if (ssrTopBots?.length) this.topBots = ssrTopBots;
+            if (ssrVisitors?.length) {
+                for (const v of ssrVisitors) {
+                    if (v.isKnownBot && !v.botName) {
+                        const identity = inferBotIdentity(v);
+                        if (identity.name) v.botName = identity.name;
+                        if (identity.type) v.botType = identity.type;
+                    }
+                }
+                this.visitors = ssrVisitors;
+            }
+            if (ssrUserAgents?.length) this.useragents = ssrUserAgents;
 
             // Render charts/maps from SSR data immediately
             this.$nextTick(() => {
@@ -646,6 +660,8 @@ function dashboardApp() {
                 const res = await fetch(`/_stylobot/api/signatures?limit=${this.visitorPageSize + 1}&offset=${offset}${this.visitorApiParams}`);
                 if (res.ok) {
                     const raw = toCamel(await res.json());
+                    // Never overwrite SSR data with empty XHR response
+                    if (!raw?.length && this.visitors.length > 0) return;
                     this.visitorHasMore = raw.length > this.visitorPageSize;
                     const visitors = raw.slice(0, this.visitorPageSize);
                     for (const v of visitors) {
@@ -667,7 +683,10 @@ function dashboardApp() {
         async loadClusters() {
             try {
                 const res = await fetch('/_stylobot/api/clusters');
-                if (res.ok) this.clusters = toCamel(await res.json());
+                if (res.ok) {
+                    const data = toCamel(await res.json());
+                    if (data?.length) this.clusters = data;
+                }
             } catch (e) {
                 console.warn('[Dashboard] Failed to load clusters:', e);
             }
@@ -730,7 +749,8 @@ function dashboardApp() {
             try {
                 const res = await fetch('/_stylobot/api/useragents');
                 if (res.ok) {
-                    this.useragents = toCamel(await res.json());
+                    const data = toCamel(await res.json());
+                    if (data?.length) this.useragents = data;
                 }
             } catch (e) {
                 console.warn('[Dashboard] Failed to load user agents:', e);
@@ -828,7 +848,9 @@ function dashboardApp() {
 
         async switchTab(t: string) {
             this.tab = t as any;
-            if (t === 'visitors') await this.loadVisitors();
+            // Only fetch via XHR if we have NO data (SSR didn't provide it).
+            // Never clear existing data — SSR data persists across tab switches.
+            if (t === 'visitors' && this.visitors.length === 0) await this.loadVisitors();
             if (t === 'clusters' && this.clusters.length === 0) await this.loadClusters();
             if (t === 'countries') {
                 if (this.countries.length === 0) await this.loadCountries();
@@ -1345,10 +1367,38 @@ function signatureDetailApp() {
         // Debounced sparkline refresh
         _refreshTimer: null as ReturnType<typeof setTimeout> | null,
 
+        /** Read SSR JSON from a <script type="application/json"> block. */
+        _readSsr(id: string): any {
+            const el = document.getElementById(id);
+            if (!el) return null;
+            try {
+                const raw = el.textContent?.trim();
+                if (!raw || raw === 'null') return null;
+                return JSON.parse(raw);
+            } catch { return null; }
+        },
+
         async init() {
             this.signature = (this.$el as HTMLElement).dataset.signature || '';
             if (!this.signature) return;
 
+            // Hydrate from SSR data first — page must never show a spinner.
+            const ssrSig = toCamel(this._readSsr('ssr-sig'));
+            const ssrDetections = toCamel(this._readSsr('ssr-detections'));
+
+            if (ssrSig) this.sig = ssrSig;
+            if (ssrDetections?.length) {
+                this._allDetections = ssrDetections;
+                this.detections = ssrDetections.filter((d: any) => !isStaticAsset(d));
+                this._groupedDetections = groupPageLoads(ssrDetections);
+            }
+
+            // If SSR gave us data, mark as loaded immediately (no spinner)
+            if (this.sig || this.detections.length > 0) {
+                this.loading = false;
+            }
+
+            // Then fetch live data in background to update/fill gaps
             await Promise.all([
                 this.loadSignature(),
                 this.loadSparkline(),
@@ -1432,7 +1482,8 @@ function signatureDetailApp() {
                 const res = await fetch('/_stylobot/api/signatures?limit=1000');
                 if (res.ok) {
                     const sigs = toCamel(await res.json());
-                    this.sig = sigs.find((s: any) => s.primarySignature === this.signature) || null;
+                    const found = sigs.find((s: any) => s.primarySignature === this.signature);
+                    if (found) { this.sig = found; return; }
                 }
             } catch (_) {}
 
@@ -1442,7 +1493,8 @@ function signatureDetailApp() {
                     const res = await fetch('/_stylobot/api/topbots?count=50');
                     if (res.ok) {
                         const bots = toCamel(await res.json());
-                        this.sig = bots.find((b: any) => b.primarySignature === this.signature) || null;
+                        const found = bots.find((b: any) => b.primarySignature === this.signature);
+                        if (found) this.sig = found;
                     }
                 } catch (_) {}
             }
@@ -1462,7 +1514,8 @@ function signatureDetailApp() {
                 const res = await fetch(`/_stylobot/api/detections?limit=50&signatureId=${encodeURIComponent(this.signature)}`);
                 if (res.ok) {
                     const all = toCamel(await res.json());
-                    // Keep all detections for grouping, separate page loads from assets
+                    // Never overwrite SSR data with empty XHR response
+                    if (!all?.length && this.detections.length > 0) return;
                     this._allDetections = all;
                     this.detections = all.filter((d: any) => !isStaticAsset(d));
                     this._groupedDetections = groupPageLoads(all);

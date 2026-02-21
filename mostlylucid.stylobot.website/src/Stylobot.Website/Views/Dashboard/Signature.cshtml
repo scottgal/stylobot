@@ -1,7 +1,12 @@
 @{
     ViewData["Title"] = "Signature Detail";
     var signature = ViewData["Signature"]?.ToString() ?? "";
+    string SafeJson(string? json) => (json ?? "null").Replace("</", "<\\/");
 }
+
+<!-- SSR data: signature detail renders immediately with server-provided data. -->
+<script type="application/json" id="ssr-sig">@Html.Raw(SafeJson(ViewData["SignatureJson"] as string))</script>
+<script type="application/json" id="ssr-detections">@Html.Raw(SafeJson(ViewData["DetectionsJson"] as string))</script>
 
 <section class="marketing-hero min-h-screen" x-data="signatureDetailApp()" x-init="init()" data-signature="@signature">
     <div class="marketing-container pt-2 pb-6">
@@ -13,12 +18,7 @@
             <span class="text-xs font-mono truncate" style="color: var(--sb-card-subtle);" x-text="signature"></span>
         </div>
 
-        <!-- Loading State -->
-        <div x-show="loading" class="flex items-center justify-center py-20">
-            <span class="loading loading-spinner loading-md" style="color: var(--sb-accent);"></span>
-        </div>
-
-        <!-- Not Found -->
+        <!-- Not Found (only after SSR + XHR both failed) -->
         <div x-show="!loading && !sig" class="marketing-card p-8 text-center" style="color: var(--sb-card-subtle);">
             <div class="text-3xl mb-2">&#x1F50D;</div>
             <div class="text-sm">Signature not found or no data available yet.</div>

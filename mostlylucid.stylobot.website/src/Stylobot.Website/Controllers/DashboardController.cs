@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 using Stylobot.Website.Services;
 
@@ -39,21 +40,28 @@ public class DashboardController : Controller
     {
         ViewData["SeoMetadata"] = _seoService.GetDashboardMetadata();
 
-        // SSR: embed dashboard data so the page is never empty on first load.
-        // XHR + SignalR provide live updates after initial render.
+        // SSR: embed ALL tab data so every tab renders immediately.
+        // XHR + SignalR provide live updates ONLY — never primary data.
         ViewData["SummaryJson"] = await SafeJson(() => LoadSummary());
         ViewData["CountriesJson"] = await SafeJson(() => LoadCountries());
         ViewData["ClustersJson"] = await SafeJson(() => LoadClusters());
         ViewData["TopBotsJson"] = await SafeJson(() => LoadTopBots());
+        ViewData["VisitorsJson"] = await SafeJson(() => LoadVisitors());
+        ViewData["UserAgentsJson"] = await SafeJson(() => LoadUserAgents());
 
         return View();
     }
 
     [HttpGet("signature/{signature}")]
-    public IActionResult Signature(string signature)
+    public async Task<IActionResult> Signature(string signature)
     {
         ViewData["SeoMetadata"] = _seoService.GetDashboardMetadata();
         ViewData["Signature"] = signature;
+
+        // SSR: embed signature data so the page never shows a spinner.
+        ViewData["SignatureJson"] = await SafeJson(() => LoadSignatureDetail(signature));
+        ViewData["DetectionsJson"] = await SafeJson(() => LoadSignatureDetections(signature));
+
         return View();
     }
 
@@ -107,6 +115,46 @@ public class DashboardController : Controller
             .Take(10)
             .ToList();
         return JsonSerializer.Serialize(bots, CamelCase);
+    }
+
+    private async Task<string> LoadVisitors()
+    {
+        var signatures = await _eventStore.GetSignaturesAsync(50);
+        return JsonSerializer.Serialize(signatures, CamelCase);
+    }
+
+    private Task<string> LoadUserAgents()
+    {
+        var cached = _aggregateCache.Current.UserAgents;
+        if (cached.Count == 0) return Task.FromResult("[]");
+        return Task.FromResult(JsonSerializer.Serialize(cached, CamelCase));
+    }
+
+    private async Task<string> LoadSignatureDetail(string signature)
+    {
+        // Find the signature in the signatures list
+        var signatures = await _eventStore.GetSignaturesAsync(1000);
+        var sig = signatures.FirstOrDefault(s =>
+            string.Equals(s.PrimarySignature, signature, StringComparison.Ordinal));
+        if (sig != null) return JsonSerializer.Serialize(sig, CamelCase);
+
+        // Fallback: check top bots
+        var bots = await _eventStore.GetTopBotsAsync(50);
+        var bot = bots.FirstOrDefault(b =>
+            string.Equals(b.PrimarySignature, signature, StringComparison.Ordinal));
+        if (bot != null) return JsonSerializer.Serialize(bot, CamelCase);
+
+        return "null";
+    }
+
+    private async Task<string> LoadSignatureDetections(string signature)
+    {
+        var detections = await _eventStore.GetDetectionsAsync(new DashboardFilter
+        {
+            Limit = 50,
+            SignatureId = signature
+        });
+        return JsonSerializer.Serialize(detections, CamelCase);
     }
 
     private async Task<string> SafeJson(Func<Task<string>> loader)
