@@ -463,7 +463,37 @@ function dashboardApp() {
         _detectionBatch: [] as any[],
         _flushDetections: null as (() => void) | null,
 
+        /** Read SSR JSON from a <script type="application/json"> block embedded in the page. */
+        _readSsr(id: string): any {
+            const el = document.getElementById(id);
+            if (!el) return null;
+            try {
+                const raw = el.textContent?.trim();
+                if (!raw || raw === 'null') return null;
+                return JSON.parse(raw);
+            } catch { return null; }
+        },
+
         async init() {
+            // Hydrate from SSR data first — the page must never be empty.
+            const ssrSummary = toCamel(this._readSsr('ssr-summary'));
+            const ssrCountries = toCamel(this._readSsr('ssr-countries'));
+            const ssrClusters = toCamel(this._readSsr('ssr-clusters'));
+            const ssrTopBots = toCamel(this._readSsr('ssr-topbots'));
+
+            if (ssrSummary) this.summary = ssrSummary;
+            if (ssrCountries?.length) this.countries = ssrCountries;
+            if (ssrClusters?.length) this.clusters = ssrClusters;
+            if (ssrTopBots?.length) this.topBots = ssrTopBots;
+
+            // Render charts/maps from SSR data immediately
+            this.$nextTick(() => {
+                if (this.countries.length > 0) this.renderOverviewMap();
+                if (this.summary) this.renderTimeChart();
+            });
+
+            // Then fetch live data (XHR) to fill in anything SSR didn't cover
+            // (time series, detections, "your detection", etc.)
             await this.loadOverview();
             await this.loadDetections();
             await this.connectSignalR();
@@ -508,10 +538,12 @@ function dashboardApp() {
                     }
                 }
                 if (topBotsRes.ok) {
-                    this.topBots = toCamel(await topBotsRes.json());
+                    const bots = toCamel(await topBotsRes.json());
+                    if (bots?.length) this.topBots = bots;
                 }
                 if (countriesRes.ok) {
-                    this.countries = toCamel(await countriesRes.json());
+                    const c = toCamel(await countriesRes.json());
+                    if (c?.length) this.countries = c;
                 }
 
                 this.$nextTick(() => {

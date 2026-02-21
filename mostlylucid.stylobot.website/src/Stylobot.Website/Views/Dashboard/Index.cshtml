@@ -1,6 +1,15 @@
 @{
     ViewData["Title"] = "Live Dashboard";
+    // Escape </ sequences to prevent script-tag breakout in embedded JSON
+    string SafeJson(string json) => (json ?? "null").Replace("</", "<\\/");
 }
+
+<!-- SSR data: dashboard renders immediately with server-provided data.
+     SignalR provides live updates; XHR is for user-initiated actions (tab switch, time range, etc.) -->
+<script type="application/json" id="ssr-summary">@Html.Raw(SafeJson(ViewData["SummaryJson"] as string))</script>
+<script type="application/json" id="ssr-countries">@Html.Raw(SafeJson(ViewData["CountriesJson"] as string))</script>
+<script type="application/json" id="ssr-clusters">@Html.Raw(SafeJson(ViewData["ClustersJson"] as string))</script>
+<script type="application/json" id="ssr-topbots">@Html.Raw(SafeJson(ViewData["TopBotsJson"] as string))</script>
 
 <section class="marketing-hero min-h-screen" x-data="dashboardApp()" x-init="init()">
     <div class="marketing-container pt-2 pb-6">
