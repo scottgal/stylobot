@@ -214,6 +214,21 @@ public static class SignalKeys
     public const string HeadersMissing = "headers.missing";
     public const string HeadersSuspicious = "headers.suspicious";
 
+    // Sec-Fetch-* headers (W3C Fetch Metadata Request Headers)
+    // Set by HeaderContributor; consumed by InconsistencyContributor, HeuristicFeatureExtractor
+
+    /// <summary>String: value of Sec-Fetch-Site header (e.g., "same-origin", "cross-site")</summary>
+    public const string HeaderSecFetchSite = "header.sec_fetch_site";
+
+    /// <summary>String: value of Sec-Fetch-Mode header (e.g., "cors", "navigate")</summary>
+    public const string HeaderSecFetchMode = "header.sec_fetch_mode";
+
+    /// <summary>String: value of Sec-Fetch-Dest header (e.g., "empty", "document")</summary>
+    public const string HeaderSecFetchDest = "header.sec_fetch_dest";
+
+    /// <summary>Boolean: true if Sec-Fetch-Site is "same-origin" (browser attestation of programmatic fetch)</summary>
+    public const string HeaderSecFetchSameOrigin = "header.sec_fetch_same_origin";
+
     public const string ClientIp = "ip.address";
     public const string IpIsDatacenter = "ip.is_datacenter";
     public const string IpIsLocal = "ip.is_local";
@@ -309,6 +324,9 @@ public static class SignalKeys
 
     /// <summary>Boolean: true if fast-path reputation check found a confirmed pattern (good or bad)</summary>
     public const string ReputationFastPathHit = "reputation.fastpath_hit";
+
+    /// <summary>Boolean: true if fast-path reputation attempted a fast-abort (may be downgraded by browser attestation)</summary>
+    public const string ReputationFastAbortActive = "reputation.fast_abort_active";
 
     // ==========================================
     // TimescaleDB historical reputation signals

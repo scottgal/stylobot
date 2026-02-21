@@ -9,9 +9,9 @@ AMD Ryzen 9 9950X 4.30GHz, 1 CPU, 32 logical and 16 physical cores
 IterationCount=10  RunStrategy=Throughput  WarmupCount=3  
 
 ```
-| Method                                    | Mean      | Error     | StdDev    | Completed Work Items | Lock Contentions | Gen0   | Gen1   | Allocated |
-|------------------------------------------ |----------:|----------:|----------:|---------------------:|-----------------:|-------:|-------:|----------:|
-| &#39;Human request (typical website visitor)&#39; | 221.07 μs | 21.700 μs | 14.353 μs |               3.3662 |                - | 0.9766 | 0.4883 | 173.85 KB |
-| &#39;Obvious bot (curl user-agent)&#39;           | 190.54 μs |  5.241 μs |  3.119 μs |               3.2852 |                - | 0.9766 | 0.4883 | 168.47 KB |
-| &#39;Search engine bot (Googlebot)&#39;           |  66.12 μs |  0.618 μs |  0.409 μs |               0.0138 |                - | 0.6104 |      - |  54.19 KB |
-| &#39;Datacenter IP with browser UA&#39;           | 191.93 μs |  5.956 μs |  3.115 μs |               3.2603 |           0.0005 | 0.9766 | 0.4883 |  171.9 KB |
+| Method                                    | Mean     | Error     | StdDev   | Completed Work Items | Lock Contentions | Gen0   | Gen1   | Allocated |
+|------------------------------------------ |---------:|----------:|---------:|---------------------:|-----------------:|-------:|-------:|----------:|
+| &#39;Human request (typical website visitor)&#39; | 237.6 μs | 107.54 μs | 71.13 μs |               3.4404 |           0.0020 | 0.9766 |      - | 170.46 KB |
+| &#39;Obvious bot (curl user-agent)&#39;           | 253.9 μs |  65.89 μs | 43.58 μs |               3.4111 |                - | 0.9766 |      - | 177.02 KB |
+| &#39;Search engine bot (Googlebot)&#39;           | 224.3 μs |  53.94 μs | 32.10 μs |               3.3330 |           0.0010 | 0.9766 |      - | 178.78 KB |
+| &#39;Datacenter IP with browser UA&#39;           | 183.7 μs |  26.54 μs | 17.55 μs |               3.2705 |           0.0010 | 0.9766 | 0.4883 | 169.83 KB |

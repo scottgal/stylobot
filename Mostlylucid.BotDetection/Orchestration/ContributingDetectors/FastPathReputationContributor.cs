@@ -187,7 +187,7 @@ public class FastPathReputationContributor : ConfiguredContributorBase
         state.WriteSignals([
             new(SignalKeys.ReputationFastPathHit, true),
             new(SignalKeys.ReputationCanAbort, true),
-            new("reputation.fast_abort_active", true),
+            new(SignalKeys.ReputationFastAbortActive, true),
             new($"reputation.fastpath.{mtLower}.pattern_id", matchedPattern.PatternId),
             new($"reputation.fastpath.{mtLower}.state", matchedPattern.State.ToString()),
             new($"reputation.fastpath.{mtLower}.score", matchedPattern.BotScore),

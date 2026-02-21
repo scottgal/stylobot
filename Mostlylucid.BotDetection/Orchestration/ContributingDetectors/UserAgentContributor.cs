@@ -519,7 +519,7 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
 
         // Same-origin fetch (Sec-Fetch-Site: same-origin) legitimately omits Accept-Language
         // and Client Hints — browser fetch() API doesn't always include them.
-        var isSameOriginFetch = state.GetSignal<bool>("header.sec_fetch_same_origin");
+        var isSameOriginFetch = state.GetSignal<bool>(SignalKeys.HeaderSecFetchSameOrigin);
 
         // Check for missing Accept-Language with browser UA
         // Skip for WebSocket upgrades and same-origin fetch which don't carry Accept-Language

@@ -57,10 +57,10 @@ public class HeaderContributor : ConfiguredContributorBase
         var secFetchDest = headers["Sec-Fetch-Dest"].FirstOrDefault();
         var isSameOriginFetch = string.Equals(secFetchSite, "same-origin", StringComparison.OrdinalIgnoreCase);
 
-        state.WriteSignal("header.sec_fetch_site", secFetchSite ?? "");
-        state.WriteSignal("header.sec_fetch_mode", secFetchMode ?? "");
-        state.WriteSignal("header.sec_fetch_dest", secFetchDest ?? "");
-        state.WriteSignal("header.sec_fetch_same_origin", isSameOriginFetch);
+        state.WriteSignal(SignalKeys.HeaderSecFetchSite, secFetchSite ?? "");
+        state.WriteSignal(SignalKeys.HeaderSecFetchMode, secFetchMode ?? "");
+        state.WriteSignal(SignalKeys.HeaderSecFetchDest, secFetchDest ?? "");
+        state.WriteSignal(SignalKeys.HeaderSecFetchSameOrigin, isSameOriginFetch);
 
         // Check for missing essential headers (from YAML: expected_browser_headers)
         var expectedHeaders = GetStringListParam("expected_browser_headers");
@@ -137,11 +137,7 @@ public class HeaderContributor : ConfiguredContributorBase
         if (contributions.Count == 0)
             contributions.Add(HumanContribution(
                 "Header",
-                isWebSocketUpgrade
-                    ? "WebSocket upgrade - header profile expected"
-                    : isSameOriginFetch
-                        ? "Same-origin fetch - header profile expected"
-                        : "Headers appear normal"));
+                isWebSocketUpgrade ? "WebSocket upgrade - header profile expected" : "Headers appear normal"));
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }
