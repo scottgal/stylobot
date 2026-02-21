@@ -673,9 +673,16 @@ public class StyloBotDashboardMiddleware
         var detail = await _eventStore.GetCountryDetailAsync(countryCode, startTime, endTime);
         if (detail == null)
         {
-            context.Response.StatusCode = 404;
+            // Return 200 with empty object instead of 404.
+            // Dashboard calls this for countries in the list; 404s feed responseBehavior detector.
             context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync("{\"error\":\"Country not found\"}");
+            var emptyDetail = new
+            {
+                countryCode,
+                detections = Array.Empty<object>(),
+                totalHits = 0
+            };
+            await JsonSerializer.SerializeAsync(context.Response.Body, emptyDetail, CamelCaseJson);
             return;
         }
 
@@ -849,8 +856,8 @@ public class StyloBotDashboardMiddleware
 
         var decodedSignature = Uri.UnescapeDataString(signatureId);
 
-        // Validate signature format: alphanumeric/hex, max 64 chars
-        if (decodedSignature.Length > 64 || !decodedSignature.All(c => char.IsLetterOrDigit(c)))
+        // Validate signature format: alphanumeric + base64url chars (-_+/=), max 64 chars
+        if (decodedSignature.Length > 64 || !decodedSignature.All(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '+' or '/' or '='))
         {
             context.Response.StatusCode = 400;
             context.Response.ContentType = "application/json";
@@ -899,9 +906,19 @@ public class StyloBotDashboardMiddleware
 
             if (detections.Count == 0)
             {
-                context.Response.StatusCode = 404;
+                // Return 200 with empty arrays instead of 404.
+                // 404s feed the responseBehavior detector — the dashboard calls sparkline
+                // for every signature in the top-bots list, so unknown signatures would
+                // generate hundreds of 404s that poison the user's own detection score.
                 context.Response.ContentType = "application/json";
-                await context.Response.WriteAsync("{}");
+                var emptySparkline = new
+                {
+                    signatureId = decodedSignature,
+                    botProbabilityHistory = Array.Empty<double>(),
+                    processingTimeHistory = Array.Empty<double>(),
+                    confidenceHistory = Array.Empty<double>()
+                };
+                await JsonSerializer.SerializeAsync(context.Response.Body, emptySparkline, CamelCaseJson);
                 return;
             }
 

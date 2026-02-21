@@ -100,6 +100,12 @@ public class CacheBehaviorContributor : ContributingDetectorBase
         }
 
         // 3. Rapid repeated requests for the same resource
+        // Only flag static resources and HTML pages — API endpoints (no file extension,
+        // or Accept: application/json) are designed for repeated calls without cache.
+        // Browsers never send If-None-Match/If-Modified-Since on API calls because
+        // servers don't send ETag/Last-Modified on JSON responses.
+        var isApiRequest = !isStaticResource && IsApiRequest(request);
+
         var timingKey = $"cache_timing:{clientIp}:{path}";
         var lastRequestTime = GetLastRequestTime(timingKey);
         var currentTime = DateTime.UtcNow;
@@ -109,7 +115,8 @@ public class CacheBehaviorContributor : ContributingDetectorBase
             var timeSinceLastRequest = (currentTime - lastRequestTime.Value).TotalSeconds;
 
             // Same resource requested within 5 seconds (without cache validation)
-            if (timeSinceLastRequest < 5 && !hasCacheValidation)
+            // Skip for API requests — these are inherently non-cacheable
+            if (timeSinceLastRequest < 5 && !hasCacheValidation && !isApiRequest)
             {
                 var impact = timeSinceLastRequest < 1 ? 0.4 : 0.3;
                 state.WriteSignal(SignalKeys.RapidRepeatedRequest, true);
@@ -194,6 +201,42 @@ public class CacheBehaviorContributor : ContributingDetectorBase
             ".avif" => true,
             _ => false
         };
+    }
+
+    /// <summary>
+    ///     Detects browser-initiated API requests that are inherently non-cacheable.
+    ///     API endpoints return dynamic JSON and don't send ETag/Last-Modified,
+    ///     so browsers never send cache validation headers on repeat calls.
+    ///     Only exempts requests that also carry browser-origin markers (Sec-Fetch-*,
+    ///     HX-Request, X-Requested-With) — a raw bot hitting /api/* won't have these.
+    /// </summary>
+    private static bool IsApiRequest(HttpRequest request)
+    {
+        // Gate: require at least one browser-origin marker.
+        // Sec-Fetch-* headers are set by the browser Fetch API and cannot be spoofed
+        // from simple HTTP libraries. HX-Request and X-Requested-With are set by
+        // HTMX/jQuery respectively — not proof of a browser, but combined with /api/
+        // path they indicate legitimate AJAX.
+        var hasBrowserOrigin = request.Headers.ContainsKey("Sec-Fetch-Mode")
+                               || request.Headers.ContainsKey("HX-Request")
+                               || (request.Headers.TryGetValue("X-Requested-With", out var xrw)
+                                   && xrw.ToString().Equals("XMLHttpRequest", StringComparison.OrdinalIgnoreCase));
+
+        if (!hasBrowserOrigin)
+            return false;
+
+        var path = request.Path.Value ?? "";
+
+        // Paths containing /api/ are almost always API endpoints
+        if (path.Contains("/api/", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Accept: application/json indicates an API/fetch call
+        var accept = request.Headers.Accept.ToString();
+        if (accept.Contains("application/json", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
     }
 
     private string? GetClientIp(HttpContext context)

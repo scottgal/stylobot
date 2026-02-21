@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
@@ -16,6 +17,8 @@ namespace Mostlylucid.BotDetection.Dashboard;
 ///     - IP changed: UA + ClientSide + Plugins match → dynamic ISP
 ///     - UA changed: IP + ClientSide + Plugins match → browser update
 ///     - Avoid FP: Require 2+ factors to match
+///     Protocol-aware: WebSocket upgrades and other reduced-header requests carry forward
+///     known factors from the same PrimarySignature so factor count stays consistent.
 /// </summary>
 public sealed class MultiFactorSignatureService
 {
@@ -24,6 +27,14 @@ public sealed class MultiFactorSignatureService
 
     // Configuration
     private readonly int _minimumFactorsToMatch = 2; // Require at least 2 factors for pattern match
+
+    // Carry-forward cache: when a request (e.g. WebSocket upgrade) produces fewer factors
+    // than a previous request from the same client, inherit the richer factors.
+    // Keyed by PrimarySignature → last known secondary factors.
+    // Bounded to prevent unbounded growth; entries expire after 30 minutes.
+    private readonly ConcurrentDictionary<string, CachedFactors> _factorCache = new();
+    private const int MaxCacheEntries = 10_000;
+    private static int _evictionRunning;
 
     public MultiFactorSignatureService(
         PiiHasher hasher,
@@ -36,6 +47,11 @@ public sealed class MultiFactorSignatureService
     /// <summary>
     ///     Generate multi-factor signatures from HTTP context.
     ///     Returns all possible signature factors for correlation.
+    ///     Protocol-aware: when a request (WebSocket upgrade, SignalR negotiate) produces
+    ///     fewer factors than a previous request from the same client, the richer factors
+    ///     are carried forward. This ensures consistent signature identity across request
+    ///     types without weakening detection — the PrimarySignature (IP+UA) anchors the
+    ///     match, and secondary factors are only inherited, never fabricated.
     /// </summary>
     public MultiFactorSignatures GenerateSignatures(HttpContext httpContext)
     {
@@ -51,37 +67,88 @@ public sealed class MultiFactorSignatureService
         // Extract country code from GeoLocation (set by GeoRoutingMiddleware)
         var countryCode = ExtractCountryCode(httpContext);
 
-        // Generate all signature factors
+        // Compute hashed factors
+        var primarySig = _hasher.ComputeSignature(ip, userAgent);
+        var clientSideSig = clientFingerprint != null ? _hasher.ComputeSignature(clientFingerprint) : null;
+        var pluginSig = pluginSignature != null ? _hasher.ComputeSignature(pluginSignature) : null;
+        var ipClientSig = clientFingerprint != null ? _hasher.ComputeSignature(ip, clientFingerprint) : null;
+        var uaClientSig = clientFingerprint != null ? _hasher.ComputeSignature(userAgent, clientFingerprint) : null;
+
+        // Carry-forward: if this request has fewer factors (e.g. WebSocket upgrade missing
+        // Client Hints and Accept-Language), inherit from the last full-factor request
+        // with the same PrimarySignature. This keeps the signature identity stable
+        // across protocol changes within the same browser session.
+        if (clientSideSig == null || pluginSig == null)
+        {
+            if (_factorCache.TryGetValue(primarySig, out var cached) &&
+                cached.Timestamp > DateTime.UtcNow.AddMinutes(-30))
+            {
+                clientSideSig ??= cached.ClientSideSignature;
+                pluginSig ??= cached.PluginSignature;
+                ipClientSig ??= cached.IpClientSignature;
+                uaClientSig ??= cached.UaClientSignature;
+                countryCode ??= cached.GeoSignature;
+
+                _logger.LogDebug(
+                    "Carried forward {CarriedCount} factors for {Primary} (protocol: {Protocol})",
+                    (cached.ClientSideSignature != null ? 1 : 0) + (cached.PluginSignature != null ? 1 : 0),
+                    primarySig[..Math.Min(8, primarySig.Length)],
+                    httpContext.Request.Headers["Upgrade"].FirstOrDefault() ?? "HTTP");
+            }
+        }
+
+        // Update cache: always store the richest known factors for this PrimarySignature.
+        // Only update if current request has MORE or EQUAL factors — never downgrade.
+        var currentFactorRichness = CountCachedRichness(clientSideSig, pluginSig, ipClientSig, uaClientSig, countryCode);
+        _factorCache.AddOrUpdate(primarySig,
+            _ => new CachedFactors(clientSideSig, pluginSig, ipClientSig, uaClientSig, countryCode, DateTime.UtcNow),
+            (_, existing) =>
+            {
+                var existingRichness = CountCachedRichness(
+                    existing.ClientSideSignature, existing.PluginSignature,
+                    existing.IpClientSignature, existing.UaClientSignature, existing.GeoSignature);
+                // Only update if richer or same; always refresh timestamp
+                return currentFactorRichness >= existingRichness
+                    ? new CachedFactors(clientSideSig, pluginSig, ipClientSig, uaClientSig, countryCode, DateTime.UtcNow)
+                    : existing with { Timestamp = DateTime.UtcNow };
+            });
+
+        // Evict stale entries periodically (single-thread guard to avoid contention)
+        if (_factorCache.Count > MaxCacheEntries
+            && Interlocked.CompareExchange(ref _evictionRunning, 1, 0) == 0)
+        {
+            try { EvictStaleEntries(); }
+            finally { Interlocked.Exchange(ref _evictionRunning, 0); }
+        }
+
+        // Recompute factor count with carried-forward values
+        var factorCount = 0;
+        if (!string.IsNullOrEmpty(ip)) factorCount++;
+        if (!string.IsNullOrEmpty(userAgent)) factorCount++;
+        if (clientSideSig != null) factorCount++;
+        if (pluginSig != null) factorCount++;
+        if (!string.IsNullOrEmpty(countryCode)) factorCount++;
+
         var signatures = new MultiFactorSignatures
         {
-            // Primary signature: IP + UA (traditional approach)
-            PrimarySignature = _hasher.ComputeSignature(ip, userAgent),
-
-            // Individual factor signatures (for partial matching)
+            PrimarySignature = primarySig,
             IpSignature = !string.IsNullOrEmpty(ip) ? _hasher.HashIp(ip) : null,
             UaSignature = !string.IsNullOrEmpty(userAgent) ? _hasher.HashUserAgent(userAgent) : null,
-            ClientSideSignature = clientFingerprint != null ? _hasher.ComputeSignature(clientFingerprint) : null,
-            PluginSignature = pluginSignature != null ? _hasher.ComputeSignature(pluginSignature) : null,
-
-            // Geo signature: country code (NOT PII, stored raw for drift detection)
+            ClientSideSignature = clientSideSig,
+            PluginSignature = pluginSig,
             GeoSignature = countryCode,
-
-            // Additional composite signatures for different scenarios
-            IpUaSignature = _hasher.ComputeSignature(ip, userAgent), // Same as primary
-            IpClientSignature = clientFingerprint != null ? _hasher.ComputeSignature(ip, clientFingerprint) : null,
-            UaClientSignature =
-                clientFingerprint != null ? _hasher.ComputeSignature(userAgent, clientFingerprint) : null,
+            IpUaSignature = _hasher.ComputeSignature(ip, userAgent),
+            IpClientSignature = ipClientSig,
+            UaClientSignature = uaClientSig,
             IpSubnetSignature = !string.IsNullOrEmpty(ip) ? _hasher.HashIpSubnet(ip) : null,
-
-            // Metadata (non-PII)
             Timestamp = DateTime.UtcNow,
-            FactorCount = CountFactors(ip, userAgent, clientFingerprint, pluginSignature, countryCode)
+            FactorCount = factorCount
         };
 
         _logger.LogDebug(
             "Generated multi-factor signatures with {FactorCount} factors: Primary={Primary}, IP={HasIp}, UA={HasUa}, Client={HasClient}, Plugin={HasPlugin}, Geo={Geo}",
             signatures.FactorCount,
-            signatures.PrimarySignature.Substring(0, Math.Min(8, signatures.PrimarySignature.Length)),
+            signatures.PrimarySignature[..Math.Min(8, signatures.PrimarySignature.Length)],
             signatures.IpSignature != null,
             signatures.UaSignature != null,
             signatures.ClientSideSignature != null,
@@ -90,6 +157,24 @@ public sealed class MultiFactorSignatureService
 
         return signatures;
     }
+
+    private void EvictStaleEntries()
+    {
+        var cutoff = DateTime.UtcNow.AddMinutes(-30);
+        foreach (var kvp in _factorCache)
+        {
+            if (kvp.Value.Timestamp < cutoff)
+                _factorCache.TryRemove(kvp.Key, out _);
+        }
+    }
+
+    private sealed record CachedFactors(
+        string? ClientSideSignature,
+        string? PluginSignature,
+        string? IpClientSignature,
+        string? UaClientSignature,
+        string? GeoSignature,
+        DateTime Timestamp);
 
     /// <summary>
     ///     Match signatures from current request against stored signatures.
@@ -235,6 +320,18 @@ public sealed class MultiFactorSignatureService
         }
 
         return null;
+    }
+
+    /// <summary>Count non-null fields in a CachedFactors entry for richness comparison.</summary>
+    private static int CountCachedRichness(string? clientSide, string? plugin, string? ipClient, string? uaClient, string? geo)
+    {
+        var count = 0;
+        if (clientSide != null) count++;
+        if (plugin != null) count++;
+        if (ipClient != null) count++;
+        if (uaClient != null) count++;
+        if (geo != null) count++;
+        return count;
     }
 
     private static int CountFactors(string? ip, string? ua, string? clientFp, string? pluginSig, string? countryCode = null)

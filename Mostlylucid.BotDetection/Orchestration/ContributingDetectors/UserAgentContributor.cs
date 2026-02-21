@@ -513,8 +513,9 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
 
         // WebSocket upgrade requests (RFC 6455) legitimately omit Accept-Language
         // and Client Hints — browsers don't send these on WS upgrades.
-        var isWebSocketUpgrade = headers.TryGetValue("Upgrade", out var upgradeVal)
-                                 && upgradeVal.ToString().Contains("websocket", StringComparison.OrdinalIgnoreCase);
+        // Read the signal written by HeaderContributor (Wave 0, Priority 10) rather
+        // than re-parsing the Upgrade header — single source of truth.
+        var isWebSocketUpgrade = state.GetSignal<bool>("header.is_websocket_upgrade");
 
         // Check for missing Accept-Language with browser UA
         // Skip for WebSocket upgrades which don't carry Accept-Language
