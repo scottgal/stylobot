@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
@@ -69,16 +68,14 @@ public static class StyloBotDashboardServiceExtensions
         services.TryAddSingleton<IClusterDescriptionCallback, ClusterDescriptionSignalRCallback>();
 
         // Register dashboard data API paths with the bot detection policy system.
-        // BotDetectionMiddleware will resolve the detection policy for these paths
-        // and apply the configured action policy automatically — no manual bot-checking needed.
+        // Detection runs on ALL paths including dashboard API — no exclusions.
+        // BotDetectionMiddleware resolves the detection policy for these paths
+        // and applies the configured action policy automatically.
         services.PostConfigure<BotDetectionOptions>(opts =>
         {
             var policyName = options.DataApiDetectionPolicy;
             var basePath = options.BasePath.TrimEnd('/');
 
-            // Ensure a policy exists, and always lock action policy override for dashboard data APIs.
-            // This prevents API keys from weakening dashboard data API protection, even if the policy
-            // was preconfigured by the host application.
             if (!opts.Policies.TryGetValue(policyName, out var policyConfig) || policyConfig == null)
             {
                 policyConfig = new DetectionPolicyConfig();
@@ -89,7 +86,6 @@ public static class StyloBotDashboardServiceExtensions
                 policyConfig.ActionPolicyName = options.DataApiActionPolicyName;
             policyConfig.ActionPolicyOverridable = false;
 
-            // Map dashboard data API paths to the detection policy
             opts.PathPolicies[$"{basePath}/api/**"] = policyName;
         });
 
@@ -107,8 +103,8 @@ public static class StyloBotDashboardServiceExtensions
 
         if (!options.Enabled) return app;
 
-        // Let bot detection run on dashboard paths too (dogfooding).
-        // Detection results are used to block confirmed bots from data API endpoints.
+        // Detection runs on ALL paths including dashboard API — no exclusions.
+        // FastPathReputation fix (UA patterns don't trigger early exit) prevents feedback loops.
 
         // Broadcast REAL detections to SignalR - must be BEFORE UseEndpoints
         // This runs for ALL requests to capture detection results

@@ -157,6 +157,10 @@ public class FastPathReputationContributor : ConfiguredContributorBase
 
     /// <summary>
     ///     Creates a fast-path ABORT contribution for known bad patterns.
+    ///     IP patterns use VerifiedBot (early exit) because IPs are specific identifiers.
+    ///     UA patterns use a strong bot signal WITHOUT early exit because many legitimate
+    ///     users share the same Chrome/Firefox UA string — a UA hash alone is not a
+    ///     verified identity, so other detectors must still run to confirm or override.
     /// </summary>
     private IReadOnlyList<DetectionContribution> CreateFastAbortContribution(
         BlackboardState state,
@@ -177,17 +181,32 @@ public class FastPathReputationContributor : ConfiguredContributorBase
             new($"reputation.fastpath.{mtLower}.support", matchedPattern.Support)
         ]);
 
-        var contribution = DetectionContribution.VerifiedBot(
-                Name,
-                $"Previously identified as bot ({matchType} seen {matchedPattern.Support:F0} times)",
-                botName: matchedPattern.PatternId)
+        // IP patterns: specific identifiers → VerifiedBot early exit is appropriate
+        if (matchType == "IP")
+        {
+            var contribution = DetectionContribution.VerifiedBot(
+                    Name,
+                    $"Previously identified as bot ({matchType} seen {matchedPattern.Support:F0} times)",
+                    botName: matchedPattern.PatternId)
+                with
+                {
+                    ConfidenceDelta = matchedPattern.BotScore,
+                    Weight = FastAbortWeight
+                };
+            return new[] { contribution };
+        }
+
+        // UA patterns: shared across many users → strong signal but NO early exit.
+        // Other detectors (heuristic, behavioral, header) still run and can override.
+        var uaContribution = StrongBotContribution(
+                "FastPathReputation",
+                $"Previously identified as bot ({matchType} seen {matchedPattern.Support:F0} times)")
             with
             {
-                ConfidenceDelta = matchedPattern.BotScore,
-                Weight = FastAbortWeight // Very high weight for confirmed patterns - instant abort
+                ConfidenceDelta = Math.Min(matchedPattern.BotScore, 0.6),
+                Weight = 1.5
             };
-
-        return new[] { contribution };
+        return new[] { uaContribution };
     }
 
     private static string CreateUaPatternId(string userAgent)
