@@ -46,6 +46,13 @@ public partial class InconsistencyDetector : IDetector
             var acceptLanguage = headers.AcceptLanguage.ToString();
             var accept = headers.Accept.ToString();
 
+            // Check for programmatic request attestation — legitimate API/fetch
+            // requests don't carry all browser headers and should not be penalized.
+            var secFetchSite = headers["Sec-Fetch-Site"].FirstOrDefault();
+            var hasFetchMetadata = !string.IsNullOrEmpty(secFetchSite);
+            var hasApiKey = context.Items.ContainsKey("BotDetection.ApiKeyContext");
+            var isProgrammatic = hasFetchMetadata || hasApiKey;
+
             // Parse UA to extract claims
             var uaClaims = ParseUserAgentClaims(userAgent);
 
@@ -69,7 +76,8 @@ public partial class InconsistencyDetector : IDetector
             }
 
             // === Check 2: Windows/Mac UA but no Accept-Language ===
-            if ((uaClaims.ClaimsWindows || uaClaims.ClaimsMac) && string.IsNullOrEmpty(acceptLanguage))
+            // Skip for programmatic requests: API clients and browser fetch() legitimately omit Accept-Language
+            if ((uaClaims.ClaimsWindows || uaClaims.ClaimsMac) && string.IsNullOrEmpty(acceptLanguage) && !isProgrammatic)
             {
                 result.Confidence += 0.2;
                 result.Reasons.Add(new DetectionReason
@@ -112,7 +120,11 @@ public partial class InconsistencyDetector : IDetector
             }
 
             // === Check 5: Generic Accept header with specific browser UA ===
-            if (accept == "*/*" && (uaClaims.ClaimsChrome || uaClaims.ClaimsFirefox || uaClaims.ClaimsSafari))
+            // Skip for programmatic requests: browser fetch() sends Accept: */* by default,
+            // and API clients correctly use */* per HTTP spec. Only flag when there's no
+            // fetch metadata or API key — pure UA spoofing without browser attestation.
+            if (accept == "*/*" && (uaClaims.ClaimsChrome || uaClaims.ClaimsFirefox || uaClaims.ClaimsSafari)
+                && !isProgrammatic)
             {
                 result.Confidence += 0.2;
                 result.Reasons.Add(new DetectionReason

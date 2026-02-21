@@ -62,6 +62,18 @@ public class HeaderContributor : ConfiguredContributorBase
         state.WriteSignal(SignalKeys.HeaderSecFetchDest, secFetchDest ?? "");
         state.WriteSignal(SignalKeys.HeaderSecFetchSameOrigin, isSameOriginFetch);
 
+        // Write programmatic request attestation signals.
+        // These are consumed by downstream detectors (Behavioral, ResponseBehavior,
+        // Inconsistency) to avoid penalizing legitimate API/fetch traffic for
+        // missing cookies, referer, regular timing, etc.
+        var hasFetchMetadata = !string.IsNullOrEmpty(secFetchSite);
+        var hasApiKey = state.HttpContext.Items.ContainsKey("BotDetection.ApiKeyContext");
+        var isProgrammatic = hasFetchMetadata || hasApiKey || isWebSocketUpgrade;
+
+        state.WriteSignal(SignalKeys.ProgrammaticFetchAttestation, hasFetchMetadata);
+        state.WriteSignal(SignalKeys.ProgrammaticApiKey, hasApiKey);
+        state.WriteSignal(SignalKeys.ProgrammaticRequest, isProgrammatic);
+
         // Check for missing essential headers (from YAML: expected_browser_headers)
         var expectedHeaders = GetStringListParam("expected_browser_headers");
         var hasAcceptLanguage = headers.ContainsKey("Accept-Language");
@@ -75,9 +87,10 @@ public class HeaderContributor : ConfiguredContributorBase
 
         // Missing Accept header - confidence from YAML
         // Skip for WebSocket upgrades which legitimately use Upgrade: websocket instead of Accept
-        // Skip for same-origin fetch: browser fetch() sends Accept: */* or application/json,
-        // not the full Accept header that navigations include — this is normal browser behavior.
-        if (!hasAccept && !isWebSocketUpgrade && !isSameOriginFetch)
+        // Skip when Fetch Metadata is present: any Sec-Fetch-Site value (same-origin, cross-site,
+        // same-site, none) means a real browser sent this — bots rarely send Sec-Fetch-* headers.
+        // Also skip for API key holders (trusted programmatic clients).
+        if (!hasAccept && !isWebSocketUpgrade && !hasFetchMetadata && !hasApiKey)
             contributions.Add(BotContribution(
                     "Header",
                     "Missing Accept header",
@@ -93,7 +106,7 @@ public class HeaderContributor : ConfiguredContributorBase
                                (userAgent.Contains("Chrome") || userAgent.Contains("Firefox") ||
                                 userAgent.Contains("Safari") || userAgent.Contains("Edge"));
 
-        if (looksLikeBrowser && !hasAcceptLanguage && !isWebSocketUpgrade && !isSameOriginFetch)
+        if (looksLikeBrowser && !hasAcceptLanguage && !isWebSocketUpgrade && !hasFetchMetadata && !hasApiKey)
             contributions.Add(BotContribution(
                 "Header",
                 "Browser User-Agent without Accept-Language",
@@ -108,7 +121,7 @@ public class HeaderContributor : ConfiguredContributorBase
         // Check for unusual header count - threshold from YAML parameters
         // WebSocket upgrades have fewer headers by design (Upgrade, Connection, Sec-WebSocket-*)
         var headerCount = headers.Count;
-        if (headerCount < MinHeaderCount && !isWebSocketUpgrade)
+        if (headerCount < MinHeaderCount && !isWebSocketUpgrade && !hasApiKey)
             contributions.Add(BotContribution(
                 "Header",
                 $"Very few headers ({headerCount})",
@@ -119,7 +132,7 @@ public class HeaderContributor : ConfiguredContributorBase
         // Skip for same-origin fetch — browser fetch() with X-Requested-With is legitimate
         if (headers.ContainsKey("X-Requested-With") &&
             headers["X-Requested-With"].ToString() == "XMLHttpRequest" &&
-            !hasAcceptLanguage && !isSameOriginFetch)
+            !hasAcceptLanguage && !hasFetchMetadata && !hasApiKey)
             contributions.Add(BotContribution(
                 "Header",
                 "AJAX request without Accept-Language",
@@ -132,6 +145,19 @@ public class HeaderContributor : ConfiguredContributorBase
             contributions.Add(HumanContribution(
                 "Header",
                 "Same-origin browser fetch — Sec-Fetch-Site attestation present"));
+
+        // Any Fetch Metadata (even cross-site) indicates a real browser — bots rarely
+        // send Sec-Fetch-* headers, and when they do, cross-layer correlation catches them.
+        else if (hasFetchMetadata && !isSameOriginFetch)
+            contributions.Add(HumanContribution(
+                "Header",
+                $"Browser fetch metadata present (Sec-Fetch-Site: {secFetchSite})"));
+
+        // API key holder — trusted programmatic client, mild human signal
+        if (hasApiKey)
+            contributions.Add(HumanContribution(
+                "Header",
+                "Valid API key — trusted programmatic client"));
 
         // No bot indicators found - emit human signal from YAML config
         if (contributions.Count == 0)

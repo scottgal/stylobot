@@ -612,6 +612,12 @@ public class BotDetectionOptions
     public TrainingEndpointsOptions TrainingEndpoints { get; set; } = new();
 
     /// <summary>
+    ///     Configuration for BDF (Bot Detection Format) replay endpoints.
+    ///     Allows replaying exported BDF files through the real detection pipeline for debugging and regression testing.
+    /// </summary>
+    public BdfReplayOptions BdfReplay { get; set; } = new();
+
+    /// <summary>
     ///     When true, trust upstream detection headers (X-Bot-Detected, X-Bot-Confidence, etc.)
     ///     from a reverse proxy like YARP. Skips re-running the full detector pipeline.
     ///     Background learning (signature tracking, LLM enqueue) still runs using forwarded results.
@@ -3228,6 +3234,42 @@ public class TrainingEndpointsOptions
     ///     Prevents runaway memory and bandwidth usage on large deployments.
     /// </summary>
     public int MaxExportRecords { get; set; } = 10_000;
+}
+
+/// <summary>
+///     Configuration for BDF (Bot Detection Format) replay endpoints.
+///     Accepts BDF files and runs them through the real detection pipeline for offline debugging,
+///     training, and regression testing. Disabled by default — must opt-in.
+/// </summary>
+public class BdfReplayOptions
+{
+    /// <summary>
+    ///     Enable or disable BDF replay endpoints. Default: false (must opt-in).
+    /// </summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    ///     Require an API key via X-BdfReplay-Api-Key header. Default: true.
+    ///     When true, requests without a valid key receive 401.
+    /// </summary>
+    public bool RequireApiKey { get; set; } = true;
+
+    /// <summary>
+    ///     Allowed API keys for BDF replay endpoint access.
+    ///     Checked against X-BdfReplay-Api-Key header.
+    /// </summary>
+    public List<string> ApiKeys { get; set; } = [];
+
+    /// <summary>
+    ///     Maximum requests per minute per client IP. Default: 10.
+    /// </summary>
+    public int RateLimitPerMinute { get; set; } = 10;
+
+    /// <summary>
+    ///     Maximum number of requests within a single BDF replay. Default: 100.
+    ///     Prevents excessively large BDF files from consuming resources.
+    /// </summary>
+    public int MaxRequestsPerReplay { get; set; } = 100;
 }
 
 /// <summary>

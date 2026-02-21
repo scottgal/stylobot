@@ -193,8 +193,14 @@ public class BehavioralDetector : IDetector
         // Always record timings, but only flag during non-warmup.
         // Browser page loads produce regular-interval JS-triggered requests that
         // would otherwise cause false positives.
+        // Also skip for programmatic requests: API polling, SignalR keep-alive, and
+        // dashboard auto-refresh legitimately have regular timing patterns.
+        var hasFetchMetadataEarly = !string.IsNullOrEmpty(context.Request.Headers["Sec-Fetch-Site"].FirstOrDefault());
+        var hasApiKeyEarly = context.Items.ContainsKey("BotDetection.ApiKeyContext");
+        var isProgrammaticEarly = hasFetchMetadataEarly || hasApiKeyEarly;
+
         var timingPattern = AnalyzeRequestTiming(ipAddress);
-        if (!isWarmingUp && timingPattern.IsSuspicious)
+        if (!isWarmingUp && timingPattern.IsSuspicious && !isProgrammaticEarly)
         {
             confidence += 0.3;
             reasons.Add(new DetectionReason
@@ -239,8 +245,16 @@ public class BehavioralDetector : IDetector
         // HTMX/fetch sub-requests prove JavaScript execution — strong human signal.
         // These are AJAX partials triggered by the parent page's JS framework.
         var isHtmxRequest = context.Request.Headers.ContainsKey("HX-Request");
-        var isFetchRequest = context.Request.Headers["Sec-Fetch-Mode"].FirstOrDefault() == "cors" ||
-                             context.Request.Headers["X-Requested-With"].FirstOrDefault() == "XMLHttpRequest";
+
+        // Programmatic request detection: any Sec-Fetch-* header means a real browser
+        // (bots rarely send these correctly), and API key holders are trusted clients.
+        // Both legitimately omit cookies, referer, and have regular timing patterns.
+        var secFetchSite = context.Request.Headers["Sec-Fetch-Site"].FirstOrDefault();
+        var hasFetchMetadata = !string.IsNullOrEmpty(secFetchSite);
+        var hasApiKey = context.Items.ContainsKey("BotDetection.ApiKeyContext");
+        var isFetchRequest = hasFetchMetadata ||
+                             context.Request.Headers["X-Requested-With"].FirstOrDefault() == "XMLHttpRequest" ||
+                             hasApiKey;
 
         if (isHtmxRequest)
         {

@@ -172,12 +172,39 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
             new($"reputation.{catLower}.support", reputation.Support)
         ]);
 
+        // Check for browser attestation via Sec-Fetch-Site header (W3C Fetch Metadata).
+        // When a request carries same-origin attestation, the browser is declaring this
+        // is a programmatic fetch from the same site. Bots can set the header, but they
+        // can't maintain consistency across TLS/TCP/H2 fingerprints. Downgrade reputation
+        // weight so other detectors can confirm or override — prevents reputation from
+        // single-handedly blocking legitimate dashboard/API traffic.
+        // (Same pattern as FastPathReputationContributor.)
+        var secFetchSite = state.HttpContext?.Request.Headers["Sec-Fetch-Site"].FirstOrDefault();
+        var hasBrowserAttestation = string.Equals(secFetchSite, "same-origin", StringComparison.OrdinalIgnoreCase);
+
         // Calculate contribution based on reputation state and FastPathWeight
         var weight = reputation.FastPathWeight;
 
         // Determine if this should trigger early exit
         if (reputation.CanTriggerFastAbort)
         {
+            // With browser attestation, downgrade from verified abort to mild bias
+            if (hasBrowserAttestation)
+            {
+                _logger.LogInformation(
+                    "Reputation bias downgraded: {PatternId} ({Category}) has Sec-Fetch-Site: same-origin — using mild bias instead of verified abort",
+                    reputation.PatternId, category);
+
+                return new DetectionContribution
+                {
+                    DetectorName = Name,
+                    Category = $"Reputation:{category}",
+                    ConfidenceDelta = Math.Min(reputation.BotScore, 0.15),
+                    Weight = 0.3,
+                    Reason = $"{reason} (downgraded — browser attestation present)"
+                };
+            }
+
             state.WriteSignal(SignalKeys.ReputationCanAbort, true);
 
             return DetectionContribution.VerifiedBot(
@@ -195,6 +222,14 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
             // Negligible weight, skip
             return null;
 
+        // Downgrade reputation weight when browser attestation is present
+        var effectiveWeight = Math.Abs(weight) * ReputationWeightMultiplier;
+        if (hasBrowserAttestation && weight > 0)
+        {
+            effectiveWeight = Math.Min(effectiveWeight, 0.3);
+            reason += " (downgraded — browser attestation present)";
+        }
+
         string? botType = reputation.State switch
         {
             ReputationState.ConfirmedBad => BotType.MaliciousBot.ToString(),
@@ -208,7 +243,7 @@ public partial class ReputationBiasContributor : ConfiguredContributorBase
             DetectorName = Name,
             Category = $"Reputation:{category}",
             ConfidenceDelta = weight > 0 ? weight : -Math.Abs(weight),
-            Weight = Math.Abs(weight) * ReputationWeightMultiplier, // Reputation has decent weight
+            Weight = effectiveWeight,
             Reason = reason,
             BotType = botType
         };

@@ -229,6 +229,21 @@ public static class SignalKeys
     /// <summary>Boolean: true if Sec-Fetch-Site is "same-origin" (browser attestation of programmatic fetch)</summary>
     public const string HeaderSecFetchSameOrigin = "header.sec_fetch_same_origin";
 
+    // Programmatic request attestation — signals that a request is a legitimate
+    // programmatic call (browser fetch, API client with key, SignalR) rather than
+    // a scraping bot. Downstream detectors use this to downweight false-positive
+    // signals like missing cookies, missing referer, regular timing, etc.
+    // Based on W3C Fetch Metadata, API key presence, and request context.
+
+    /// <summary>Boolean: true if request has browser fetch attestation (Sec-Fetch-Site present)</summary>
+    public const string ProgrammaticFetchAttestation = "attestation.fetch_metadata";
+
+    /// <summary>Boolean: true if request carries a valid API key</summary>
+    public const string ProgrammaticApiKey = "attestation.api_key";
+
+    /// <summary>Boolean: composite — true if ANY programmatic attestation signal is present</summary>
+    public const string ProgrammaticRequest = "attestation.programmatic";
+
     public const string ClientIp = "ip.address";
     public const string IpIsDatacenter = "ip.is_datacenter";
     public const string IpIsLocal = "ip.is_local";

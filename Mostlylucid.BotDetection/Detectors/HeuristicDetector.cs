@@ -81,6 +81,13 @@ public class HeuristicDetector : IDetector, IDisposable
         ["hdr:x-requested-with"] = -0.3f,
         ["hdr:connection-close"] = 0.3f,
 
+        // Sec-Fetch-* browser attestation — strong human signals (W3C Fetch Metadata)
+        // Browsers set these automatically; bots can't easily forge them while maintaining
+        // consistency across all detection layers (TLS, TCP, H2 fingerprints).
+        ["hdr:sec-fetch-site"] = -0.3f, // Any Sec-Fetch-Site header = browser attestation present
+        ["hdr:sec-fetch-mode"] = -0.2f, // Any Sec-Fetch-Mode header
+        ["hdr:sec_fetch_same_origin"] = -0.6f, // same-origin fetch = strong human signal
+
         // Missing header penalties - absence of expected headers is a bot signal
         ["hdr:missing_accept_language"] = 0.4f,
         ["hdr:missing_referer"] = 0.2f,

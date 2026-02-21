@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
@@ -47,6 +48,7 @@ public class StyloBotDashboardMiddleware
     };
 
     private const string CountryDetailPrefix = "api/countries/";
+    private const string BdfExportPrefix = "api/bdf/";
 
     private static int _cleanupRunning;
 
@@ -94,18 +96,41 @@ public class StyloBotDashboardMiddleware
 
         var relativePath = path.Substring(_options.BasePath.Length).TrimStart('/');
 
-        // High-value dashboard data APIs are hard-blocked for detected bots.
-        // This check intentionally does not bypass on API keys.
+        // High-value dashboard data APIs are hard-blocked for detected bots,
+        // UNLESS the request carries a valid API key (trusted tooling / monitoring).
         var isDataApi = DataApiPaths.Contains(relativePath)
                         || relativePath.StartsWith(CountryDetailPrefix, StringComparison.OrdinalIgnoreCase);
         if (isDataApi && context.IsBot())
         {
-            _logger.LogInformation("Blocked bot from dashboard data API: {Path} (probability={Probability:F2})",
-                context.Request.Path, context.GetBotProbability());
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync("{\"error\":\"Access denied\"}");
-            return;
+            // Respect the product's API key system: if a valid key is present,
+            // the holder is trusted tooling and should access data APIs.
+            // Check three sources:
+            // 1. ApiKeyContext in HttpContext.Items (set by BotDetectionMiddleware on same host)
+            // 2. Raw X-SB-Api-Key header (forwarded by YARP gateway in proxy flows)
+            // 3. Policy name containing "apikey:" (set by upstream detection overlay)
+            var hasValidApiKey = context.Items.TryGetValue("BotDetection.ApiKeyContext", out var keyCtxObj)
+                                 && keyCtxObj is ApiKeyContext;
+            if (!hasValidApiKey)
+                hasValidApiKey = !string.IsNullOrEmpty(context.Request.Headers["X-SB-Api-Key"].FirstOrDefault());
+            if (!hasValidApiKey)
+            {
+                // Check upstream policy name for API key overlay (e.g., "demo+apikey:k6 Full Detection")
+                var policyName = context.Items.TryGetValue("BotDetection.PolicyName", out var pn) ? pn?.ToString() : null;
+                if (policyName != null && policyName.Contains("+apikey:", StringComparison.OrdinalIgnoreCase))
+                    hasValidApiKey = true;
+            }
+
+            if (!hasValidApiKey)
+            {
+                _logger.LogInformation("Blocked bot from dashboard data API: {Path} (probability={Probability:F2})",
+                    context.Request.Path, context.GetBotProbability());
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsync("{\"error\":\"Access denied\"}");
+                return;
+            }
+
+            _logger.LogDebug("API key holder accessing dashboard data API as detected bot: {Path}", context.Request.Path);
         }
 
         switch (relativePath.ToLowerInvariant())
@@ -166,6 +191,10 @@ public class StyloBotDashboardMiddleware
 
             case var p when p.StartsWith("api/sparkline/", StringComparison.OrdinalIgnoreCase):
                 await ServeSparklineApiAsync(context, p.Substring("api/sparkline/".Length));
+                break;
+
+            case var p when p.StartsWith(BdfExportPrefix, StringComparison.OrdinalIgnoreCase):
+                await ServeBdfExportApiAsync(context, p.Substring(BdfExportPrefix.Length));
                 break;
 
             default:
@@ -940,6 +969,55 @@ public class StyloBotDashboardMiddleware
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, sparkline,
             CamelCaseJson);
+    }
+
+    /// <summary>
+    ///     BDF export endpoint: generates a BDF v2 document for a specific signature.
+    ///     Route: api/bdf/{signature}
+    /// </summary>
+    private async Task ServeBdfExportApiAsync(HttpContext context, string signatureId)
+    {
+        if (string.IsNullOrEmpty(signatureId))
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Missing signature ID\"}");
+            return;
+        }
+
+        var decodedSignature = Uri.UnescapeDataString(signatureId);
+
+        // Validate signature format: alphanumeric + base64url chars, max 64 chars
+        if (decodedSignature.Length > 64 || !decodedSignature.All(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '+' or '/' or '='))
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Invalid signature format\"}");
+            return;
+        }
+
+        var bdfService = context.RequestServices.GetService(typeof(BdfExportService)) as BdfExportService;
+        if (bdfService == null)
+        {
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"BDF export service not available\"}");
+            return;
+        }
+
+        var document = await bdfService.ExportAsync(decodedSignature);
+        if (document == null)
+        {
+            // Return 200 with empty object instead of 404 (same pattern as sparkline/country detail)
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"No detections found for this signature\"}");
+            return;
+        }
+
+        context.Response.ContentType = "application/json";
+        context.Response.Headers["Content-Disposition"] = $"attachment; filename=\"bdf-{decodedSignature[..Math.Min(8, decodedSignature.Length)]}.json\"";
+        context.Response.Headers["X-PII-Level"] = "none";
+        await JsonSerializer.SerializeAsync(context.Response.Body, document, CamelCaseJson);
     }
 
     private static (bool Allowed, int Remaining) CheckRateLimit(string clientIp, DateTime now)

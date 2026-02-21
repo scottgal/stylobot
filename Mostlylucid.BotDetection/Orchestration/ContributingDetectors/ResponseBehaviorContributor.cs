@@ -158,12 +158,46 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
                 new(SignalKeys.ResponseHistoricalScore, behavior.ResponseScore)
             ]);
 
+            // Check for programmatic request attestation — if present, downweight
+            // response history signals since auth failures and rate limits may have
+            // been caused by bot detection itself (feedback loop), not the server.
+            var isProgrammatic = state.Signals.TryGetValue(SignalKeys.ProgrammaticRequest, out var progVal)
+                                 && progVal is true;
+
             // Analyze historical behavior patterns
+            // Honeypot hits are ALWAYS significant — no attestation can excuse accessing /.env
             AnalyzeHoneypotHits(state, behavior, contributions);
             AnalyzeScanPatterns(state, behavior, contributions);
-            AnalyzeAuthStruggle(state, behavior, contributions);
+
+            // Auth failures and rate limits are downweighted for programmatic requests
+            // because they may be caused by bot detection blocking (feedback loop)
+            if (!isProgrammatic)
+            {
+                AnalyzeAuthStruggle(state, behavior, contributions);
+                AnalyzeRateLimitViolations(state, behavior, contributions);
+            }
+            else
+            {
+                // Still write signals for visibility, but don't contribute to score
+                state.WriteSignal(SignalKeys.ResponseAuthFailures, behavior.AuthFailures);
+                var rateLimitCount = behavior.PatternCounts
+                    .Where(kvp => kvp.Key.Contains("rate_limit", StringComparison.OrdinalIgnoreCase) ||
+                                  kvp.Key.Contains("blocked", StringComparison.OrdinalIgnoreCase))
+                    .Sum(kvp => kvp.Value);
+                state.WriteSignal(SignalKeys.ResponseRateLimitViolations, rateLimitCount);
+
+                if (behavior.AuthFailures > 0 || rateLimitCount > 0)
+                {
+                    _logger.LogDebug(
+                        "Skipping auth/rate-limit scoring for programmatic request (auth={Auth}, rateLimit={RateLimit})",
+                        behavior.AuthFailures, rateLimitCount);
+                    contributions.Add(DetectionContribution.Info(
+                        Name, "Response",
+                        $"Auth/rate-limit history skipped — programmatic request attestation present (auth={behavior.AuthFailures}, rateLimit={rateLimitCount})"));
+                }
+            }
+
             AnalyzeErrorHarvesting(state, behavior, contributions);
-            AnalyzeRateLimitViolations(state, behavior, contributions);
             AnalyzeOverallResponseScore(state, behavior, contributions);
         }
         catch (Exception ex)

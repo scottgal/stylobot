@@ -5,6 +5,7 @@ using Mostlylucid.BotDetection.ClientSide;
 using Mostlylucid.BotDetection.Demo.Hubs;
 using Mostlylucid.BotDetection.Demo.Middleware;
 using Mostlylucid.BotDetection.Demo.Services;
+using Mostlylucid.BotDetection.Endpoints;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Orchestration;
@@ -22,6 +23,9 @@ builder.Services.AddGeoRoutingSimple();
 // Add bot detection - configuration from appsettings.json
 // Full detection mode is enabled via the "full-log" ActionPolicy in config
 builder.Services.AddBotDetection();
+
+// Add telemetry instrumentation (required by BotDetectionMiddleware)
+builder.Services.AddBotDetectionTelemetry();
 
 // Add YARP learning mode - captures training data from bot detection
 builder.Services.AddYarpLearningMode();
@@ -123,6 +127,12 @@ app.MapBotDetectionEndpoints();
 
 // Map the fingerprint endpoint for client-side JS to POST data to
 app.MapBotDetectionFingerprintEndpoint();
+
+// Map BDF replay endpoints for offline debugging and regression testing
+app.MapBdfReplayEndpoints();
+
+// Map training data export endpoints
+app.MapBotTrainingEndpoints();
 
 // Map MockLLMApi endpoints - this is where the holodeck redirects bots
 // Generates LLM-powered fake API responses that look real but contain useless data

@@ -58,6 +58,9 @@ public static class StyloBotDashboardServiceExtensions
         // Server-side visitor cache for HTMX rendering
         services.AddSingleton<VisitorListCache>();
 
+        // BDF export service for generating BDF v2 documents from detection data
+        services.AddSingleton<BdfExportService>();
+
         // Warm visitor cache from DB on startup so "Top Bots" isn't empty after restarts
         services.AddHostedService<VisitorCacheWarmupService>();
 
@@ -84,7 +87,7 @@ public static class StyloBotDashboardServiceExtensions
 
             if (string.IsNullOrWhiteSpace(policyConfig.ActionPolicyName))
                 policyConfig.ActionPolicyName = options.DataApiActionPolicyName;
-            policyConfig.ActionPolicyOverridable = false;
+            policyConfig.ActionPolicyOverridable = true;
 
             opts.PathPolicies[$"{basePath}/api/**"] = policyName;
         });

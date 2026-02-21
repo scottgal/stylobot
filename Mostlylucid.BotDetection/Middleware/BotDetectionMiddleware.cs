@@ -161,13 +161,28 @@ public class BotDetectionMiddleware(
         }
         else if (context.Items.ContainsKey("BotDetection.ApiKeyRejection"))
         {
-            // Key was found but rejected (expired, rate limited, path denied)
             var rejection = (ApiKeyRejection)context.Items["BotDetection.ApiKeyRejection"]!;
-            var statusCode = rejection.Reason == ApiKeyRejectionReason.RateLimitExceeded ? 429 : 403;
-            context.Response.StatusCode = statusCode;
-            _logger.LogWarning("API key rejected: {Reason} ({Detail}) for {Path}",
-                rejection.Reason, rejection.Detail, context.Request.Path);
-            return;
+
+            // In proxy (YARP) flows with TrustUpstreamDetection, the gateway already validated
+            // the API key. The downstream website won't have the same key registry, so "NotFound"
+            // rejections are expected — don't block, let the upstream trust path handle it.
+            if (rejection.Reason == ApiKeyRejectionReason.NotFound && _options.TrustUpstreamDetection)
+            {
+                _logger.LogDebug(
+                    "API key not in local registry but TrustUpstreamDetection is enabled — deferring to upstream for {Path}",
+                    context.Request.Path);
+                // Clear the rejection so downstream middleware doesn't see a stale rejection
+                context.Items.Remove("BotDetection.ApiKeyRejection");
+            }
+            else
+            {
+                // Key was genuinely rejected (expired, rate limited, path denied)
+                var statusCode = rejection.Reason == ApiKeyRejectionReason.RateLimitExceeded ? 429 : 403;
+                context.Response.StatusCode = statusCode;
+                _logger.LogWarning("API key rejected: {Reason} ({Detail}) for {Path}",
+                    rejection.Reason, rejection.Detail, context.Request.Path);
+                return;
+            }
         }
         else
         {
@@ -313,7 +328,13 @@ public class BotDetectionMiddleware(
                 if (!actionResult.Continue)
                     // Action policy handled the response - don't continue pipeline
                     return;
-                // Action policy allows continuation - fall through to next middleware
+
+                // Action policy allows continuation (e.g., logonly, throttle-stealth).
+                // The action policy IS the response strategy — skip ShouldBlockRequest
+                // so we don't hard-block after the policy explicitly allowed continuation.
+                await _next(context);
+                ApplyResponseStatusBoost(context);
+                return;
             }
             else
             {
@@ -1213,6 +1234,10 @@ public class BotDetectionMiddleware(
                 var actionResult = await actionPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
                 if (!actionResult.Continue)
                     return true;
+
+                // Action policy allows continuation (e.g., logonly) — the policy IS the
+                // response strategy, so skip ShouldBlockRequest below.
+                return false;
             }
             else
             {
@@ -1815,6 +1840,9 @@ public class BotDetectionMiddleware(
     /// <summary>
     ///     Records response signal for behavioral analysis.
     ///     Called asynchronously after response is sent (zero request latency impact).
+    ///     IMPORTANT: Skips recording when the bot detection system itself modified the
+    ///     response (Block→403, Challenge→403, etc.) to prevent positive feedback loops
+    ///     where our own 403s cascade into higher bot scores via ResponseBehavior.
     /// </summary>
     private async Task RecordResponseAsync(
         HttpContext context,
@@ -1824,6 +1852,36 @@ public class BotDetectionMiddleware(
     {
         try
         {
+            // Skip recording when bot detection itself modified the response.
+            // Our own 403s/429s are synthetic — they tell us nothing about the client's
+            // actual behavior with the server, and counting them creates a positive
+            // feedback loop (403 → auth failure → higher bot score → more 403s).
+            var action = evidence.PolicyAction;
+            if (action is Policies.PolicyAction.Block
+                or Policies.PolicyAction.Challenge
+                or Policies.PolicyAction.Throttle)
+            {
+                _logger.LogDebug(
+                    "Skipping response recording for {Path} — status {Status} was set by bot detection action '{Action}', not the server",
+                    context.Request.Path, context.Response.StatusCode, action);
+                return;
+            }
+
+            // Also skip if the dashboard middleware or another bot-detection component
+            // set a 403 that wasn't from the action policy (e.g., dashboard data API hard-block).
+            // Check via the well-known context item: if bot detection blocked this request,
+            // the status code is ours, not the server's.
+            if (context.Response.StatusCode == 403 &&
+                context.Items.ContainsKey(IsBotKey) &&
+                context.Items[IsBotKey] is true &&
+                string.IsNullOrEmpty(evidence.TriggeredActionPolicyName))
+            {
+                _logger.LogDebug(
+                    "Skipping response recording for {Path} — 403 likely set by middleware bot-block, not the server",
+                    context.Request.Path);
+                return;
+            }
+
             // Build client ID (same as ResponseBehaviorContributor)
             var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
             var ua = context.Request.Headers.UserAgent.ToString();
