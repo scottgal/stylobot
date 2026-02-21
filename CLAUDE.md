@@ -6,6 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **StyloBot** is an enterprise-grade bot detection framework for ASP.NET Core. It uses a blackboard architecture (via StyloFlow) with 28 detectors in 4 waves, AI-powered classification, Leiden clustering for bot network discovery, and zero-PII design. The system combines fast-path detection (<1ms) with optional LLM escalation for complex cases. The real-time dashboard features an interactive world map, country analytics, cluster visualization, user agent breakdown, and live signature feed.
 
+## Critical Rules
+
+- **NEVER add hard-coded site-specific exceptions, bypass keys, or allowlists.** StyloBot is a detection product — the fix is always to make detection *correct*, not to add workarounds. The live site (www.stylobot.net) runs the product as-is to test it.
+- **The `X-SB-Api-Key` header** is part of the product's detection policy system (for customers to exempt their own monitoring/health-check traffic). It is NOT for operational use to bypass detection on the StyloBot site itself.
+- **All detection improvements must be generic** — based on protocol specs (W3C Fetch Metadata, RFC 6455, etc.), not site-specific paths or domains.
+
 ## Build Commands
 
 ```bash

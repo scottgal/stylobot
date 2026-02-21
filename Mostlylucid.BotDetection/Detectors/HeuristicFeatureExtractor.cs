@@ -112,8 +112,18 @@ public static class HeuristicFeatureExtractor
             ? 1f
             : 0f;
 
+        // Sec-Fetch-* headers (Fetch Metadata Request Headers, W3C spec)
+        // Modern browsers send these on ALL requests to attest origin/mode/destination.
+        var secFetchSite = headers["Sec-Fetch-Site"].FirstOrDefault() ?? "";
+        var secFetchMode = headers["Sec-Fetch-Mode"].FirstOrDefault() ?? "";
+        features["hdr:sec-fetch-site"] = secFetchSite.Length > 0 ? 1f : 0f;
+        features["hdr:sec-fetch-mode"] = secFetchMode.Length > 0 ? 1f : 0f;
+        var isSameOriginFetch = secFetchSite.Equals("same-origin", StringComparison.OrdinalIgnoreCase);
+        if (isSameOriginFetch) features["hdr:sec_fetch_same_origin"] = 1f;
+
         // Missing header penalties — absence of expected headers is a bot signal
-        if (!hasAcceptLanguage) features["hdr:missing_accept_language"] = 1f;
+        // Suppress for same-origin fetch: browser fetch() legitimately omits Accept-Language
+        if (!hasAcceptLanguage && !isSameOriginFetch) features["hdr:missing_accept_language"] = 1f;
         if (!hasReferer) features["hdr:missing_referer"] = 1f;
 
         // User-Agent pattern features (dynamic based on content)
@@ -148,7 +158,8 @@ public static class HeuristicFeatureExtractor
                           uaLower.Contains("safari") || uaLower.Contains("edge");
 
         // Composite: browser UA without typical browser headers = spoofed UA
-        if (isBrowserUa && !hasAcceptLanguage) features["combo:browser_no_accept_lang"] = 1f;
+        // Suppress for same-origin fetch: browser fetch() legitimately omits Accept-Language
+        if (isBrowserUa && !hasAcceptLanguage && !isSameOriginFetch) features["combo:browser_no_accept_lang"] = 1f;
         if (isBrowserUa && context.Request.Cookies.Count == 0) features["combo:browser_no_cookies"] = 1f;
 
         // HTTP method — HEAD is commonly used by scanners/probers

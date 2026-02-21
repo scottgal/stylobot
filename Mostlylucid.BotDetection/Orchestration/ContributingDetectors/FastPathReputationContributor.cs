@@ -161,6 +161,12 @@ public class FastPathReputationContributor : ConfiguredContributorBase
     ///     UA patterns use a strong bot signal WITHOUT early exit because many legitimate
     ///     users share the same Chrome/Firefox UA string — a UA hash alone is not a
     ///     verified identity, so other detectors must still run to confirm or override.
+    ///
+    ///     When the request carries Sec-Fetch-Site: same-origin (browser attestation),
+    ///     the reputation signal is further downgraded to a mild bias — the browser is
+    ///     attesting that this is a same-origin programmatic fetch, which bots can't
+    ///     easily forge while maintaining consistency across all other detection layers.
+    ///     This prevents reputation from single-handedly blocking legitimate dashboard/API traffic.
     /// </summary>
     private IReadOnlyList<DetectionContribution> CreateFastAbortContribution(
         BlackboardState state,
@@ -172,9 +178,16 @@ public class FastPathReputationContributor : ConfiguredContributorBase
             matchedPattern.PatternId, matchType, matchedPattern.State, matchedPattern.BotScore, matchedPattern.Support);
 
         var mtLower = matchType.ToLowerInvariant();
+
+        // Check for browser attestation via Sec-Fetch-Site header.
+        // This header is set by the browser itself and attests the request origin.
+        var secFetchSite = state.HttpContext.Request.Headers["Sec-Fetch-Site"].FirstOrDefault();
+        var hasBrowserAttestation = string.Equals(secFetchSite, "same-origin", StringComparison.OrdinalIgnoreCase);
+
         state.WriteSignals([
             new(SignalKeys.ReputationFastPathHit, true),
             new(SignalKeys.ReputationCanAbort, true),
+            new("reputation.fast_abort_active", true),
             new($"reputation.fastpath.{mtLower}.pattern_id", matchedPattern.PatternId),
             new($"reputation.fastpath.{mtLower}.state", matchedPattern.State.ToString()),
             new($"reputation.fastpath.{mtLower}.score", matchedPattern.BotScore),
@@ -182,7 +195,9 @@ public class FastPathReputationContributor : ConfiguredContributorBase
         ]);
 
         // IP patterns: specific identifiers → VerifiedBot early exit is appropriate
-        if (matchType == "IP")
+        // BUT if browser attestation is present, downgrade — a real browser on a bad IP
+        // should still get full detection rather than instant abort.
+        if (matchType == "IP" && !hasBrowserAttestation)
         {
             var contribution = DetectionContribution.VerifiedBot(
                     Name,
@@ -194,6 +209,26 @@ public class FastPathReputationContributor : ConfiguredContributorBase
                     Weight = FastAbortWeight
                 };
             return new[] { contribution };
+        }
+
+        // When browser attestation (Sec-Fetch-Site: same-origin) is present,
+        // downgrade from strong bot signal to a mild bias. Let full detection
+        // run — if this is really a bot, other detectors will catch it.
+        if (hasBrowserAttestation)
+        {
+            _logger.LogInformation(
+                "Fast-path reputation downgraded: {PatternId} has Sec-Fetch-Site: same-origin — using mild bias instead of strong abort",
+                matchedPattern.PatternId);
+
+            var mildContribution = BotContribution(
+                    "FastPathReputation",
+                    $"Reputation bias ({matchType} seen {matchedPattern.Support:F0} times as bot, downgraded — browser attestation present)")
+                with
+                {
+                    ConfidenceDelta = Math.Min(matchedPattern.BotScore, 0.2),
+                    Weight = 0.5
+                };
+            return new[] { mildContribution };
         }
 
         // UA patterns: shared across many users → strong signal but NO early exit.

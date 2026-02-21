@@ -517,9 +517,14 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
         // than re-parsing the Upgrade header — single source of truth.
         var isWebSocketUpgrade = state.GetSignal<bool>("header.is_websocket_upgrade");
 
+        // Same-origin fetch (Sec-Fetch-Site: same-origin) legitimately omits Accept-Language
+        // and Client Hints — browser fetch() API doesn't always include them.
+        var isSameOriginFetch = state.GetSignal<bool>("header.sec_fetch_same_origin");
+
         // Check for missing Accept-Language with browser UA
-        // Skip for WebSocket upgrades which don't carry Accept-Language
-        if (LooksLikeBrowser(userAgent) && !headers.ContainsKey("Accept-Language") && !isWebSocketUpgrade)
+        // Skip for WebSocket upgrades and same-origin fetch which don't carry Accept-Language
+        if (LooksLikeBrowser(userAgent) && !headers.ContainsKey("Accept-Language")
+            && !isWebSocketUpgrade && !isSameOriginFetch)
             contributions.Add(BotContribution(
                 "Inconsistency",
                 "Browser User-Agent without Accept-Language header",
@@ -527,10 +532,10 @@ public partial class InconsistencyContributor : ConfiguredContributorBase
                 botType: BotType.Unknown.ToString()));
 
         // Check for Chrome UA without sec-ch-ua headers
-        // Note: Service worker, fetch API, WebSocket upgrades, and some browser configurations
-        // may not send Client Hints. Only flag if path doesn't suggest legitimate browser request.
+        // Note: Service worker, fetch API, WebSocket upgrades, same-origin fetch,
+        // and some browser configurations may not send Client Hints.
         var path = state.HttpContext.Request.Path.Value?.ToLowerInvariant() ?? "";
-        var isLegitimateNoHintsRequest = isWebSocketUpgrade ||
+        var isLegitimateNoHintsRequest = isWebSocketUpgrade || isSameOriginFetch ||
                                          path.Contains("serviceworker") ||
                                          path.Contains("sw.js") ||
                                          path.Contains("worker");

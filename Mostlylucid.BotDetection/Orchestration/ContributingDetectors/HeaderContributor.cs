@@ -48,6 +48,20 @@ public class HeaderContributor : ConfiguredContributorBase
         var isWebSocketUpgrade = IsWebSocketUpgrade(state.HttpContext.Request);
         state.WriteSignal("header.is_websocket_upgrade", isWebSocketUpgrade);
 
+        // Sec-Fetch-* headers (Fetch Metadata Request Headers, W3C spec).
+        // Modern browsers send these on ALL requests — they attest the request's origin,
+        // mode, and destination. Bots/scrapers rarely send them correctly.
+        // A same-origin fetch() sends Sec-Fetch-Site: same-origin + Sec-Fetch-Mode: cors.
+        var secFetchSite = headers["Sec-Fetch-Site"].FirstOrDefault();
+        var secFetchMode = headers["Sec-Fetch-Mode"].FirstOrDefault();
+        var secFetchDest = headers["Sec-Fetch-Dest"].FirstOrDefault();
+        var isSameOriginFetch = string.Equals(secFetchSite, "same-origin", StringComparison.OrdinalIgnoreCase);
+
+        state.WriteSignal("header.sec_fetch_site", secFetchSite ?? "");
+        state.WriteSignal("header.sec_fetch_mode", secFetchMode ?? "");
+        state.WriteSignal("header.sec_fetch_dest", secFetchDest ?? "");
+        state.WriteSignal("header.sec_fetch_same_origin", isSameOriginFetch);
+
         // Check for missing essential headers (from YAML: expected_browser_headers)
         var expectedHeaders = GetStringListParam("expected_browser_headers");
         var hasAcceptLanguage = headers.ContainsKey("Accept-Language");
@@ -61,7 +75,9 @@ public class HeaderContributor : ConfiguredContributorBase
 
         // Missing Accept header - confidence from YAML
         // Skip for WebSocket upgrades which legitimately use Upgrade: websocket instead of Accept
-        if (!hasAccept && !isWebSocketUpgrade)
+        // Skip for same-origin fetch: browser fetch() sends Accept: */* or application/json,
+        // not the full Accept header that navigations include — this is normal browser behavior.
+        if (!hasAccept && !isWebSocketUpgrade && !isSameOriginFetch)
             contributions.Add(BotContribution(
                     "Header",
                     "Missing Accept header",
@@ -70,12 +86,14 @@ public class HeaderContributor : ConfiguredContributorBase
 
         // Missing Accept-Language with browser UA
         // Skip for WebSocket upgrades which don't carry Accept-Language
+        // Skip for same-origin fetch: browser fetch() doesn't always include Accept-Language
+        // (depends on the fetch() call — programmatic requests from JS often omit it)
         var userAgent = state.UserAgent ?? "";
         var looksLikeBrowser = userAgent.Contains("Mozilla/") &&
                                (userAgent.Contains("Chrome") || userAgent.Contains("Firefox") ||
                                 userAgent.Contains("Safari") || userAgent.Contains("Edge"));
 
-        if (looksLikeBrowser && !hasAcceptLanguage && !isWebSocketUpgrade)
+        if (looksLikeBrowser && !hasAcceptLanguage && !isWebSocketUpgrade && !isSameOriginFetch)
             contributions.Add(BotContribution(
                 "Header",
                 "Browser User-Agent without Accept-Language",
@@ -98,19 +116,32 @@ public class HeaderContributor : ConfiguredContributorBase
                 botType: BotType.Scraper.ToString()));
 
         // Check for bot-specific headers
+        // Skip for same-origin fetch — browser fetch() with X-Requested-With is legitimate
         if (headers.ContainsKey("X-Requested-With") &&
             headers["X-Requested-With"].ToString() == "XMLHttpRequest" &&
-            !hasAcceptLanguage)
+            !hasAcceptLanguage && !isSameOriginFetch)
             contributions.Add(BotContribution(
                 "Header",
                 "AJAX request without Accept-Language",
                 botType: BotType.Scraper.ToString()));
 
+        // Same-origin fetch with browser UA is a strong human signal — browsers attest
+        // the request origin via Sec-Fetch-Site which bots can't easily forge while also
+        // maintaining consistency across all other detection layers.
+        if (isSameOriginFetch && looksLikeBrowser)
+            contributions.Add(HumanContribution(
+                "Header",
+                "Same-origin browser fetch — Sec-Fetch-Site attestation present"));
+
         // No bot indicators found - emit human signal from YAML config
         if (contributions.Count == 0)
             contributions.Add(HumanContribution(
                 "Header",
-                isWebSocketUpgrade ? "WebSocket upgrade - header profile expected" : "Headers appear normal"));
+                isWebSocketUpgrade
+                    ? "WebSocket upgrade - header profile expected"
+                    : isSameOriginFetch
+                        ? "Same-origin fetch - header profile expected"
+                        : "Headers appear normal"));
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }
