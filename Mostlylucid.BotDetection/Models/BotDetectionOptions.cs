@@ -3574,6 +3574,13 @@ public class ResponseHeadersOptions
     public bool IncludeFullJson { get; set; } = false;
 
     /// <summary>
+    ///     Include threat score and threat band in response headers.
+    ///     Headers: {Prefix}Threat-Score, {Prefix}Threat-Band
+    ///     Default: true (orthogonal to bot probability — measures malicious intent)
+    /// </summary>
+    public bool IncludeThreatScore { get; set; } = true;
+
+    /// <summary>
     ///     Paths to skip adding headers (e.g., health checks, metrics).
     ///     Uses prefix matching.
     ///     Default: ["/health", "/metrics", "/swagger"]

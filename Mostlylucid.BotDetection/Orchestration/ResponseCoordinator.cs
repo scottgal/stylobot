@@ -155,7 +155,7 @@ public sealed class ResponseCoordinatorOptions
 /// </summary>
 public sealed class ResponseFeatureWeights
 {
-    public double FourXxRatio { get; set; } = 0.2;
+    public double FourXxRatio { get; set; } = 0.4;
     public double FourOhFourScan { get; set; } = 0.5;
     public double FiveXxAnomaly { get; set; } = 0.3;
     public double AuthStruggle { get; set; } = 0.2;

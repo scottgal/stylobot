@@ -1,0 +1,179 @@
+# Intent / Threat Scoring Detector - produces unified threat score orthogonal to bot probability
+name: IntentContributor
+priority: 40  # After StreamAbuse=35, before Heuristic=50
+enabled: true
+description: Analyzes session intent to produce a threat score (0-1). Uses intent HNSW index for known patterns, heuristic fallback for novel sessions, LLM classification for ambiguous cases.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: intent
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with attack/response/transport signals from earlier detectors
+      signal_pattern: attack.*,response.*,transport.*
+
+  required_signals: []
+
+  optional_signals:
+    - attack.detected
+    - attack.categories
+    - attack.severity
+    - attack.sqli
+    - attack.xss
+    - attack.cmdi
+    - attack.ssti
+    - attack.ssrf
+    - attack.path_probe
+    - attack.config_exposure
+    - attack.admin_scan
+    - attack.webshell_probe
+    - attack.backup_scan
+    - attack.debug_exposure
+    - response.has_history
+    - response.count_404
+    - response.unique_404_paths
+    - response.honeypot_hits
+    - response.auth_failures
+    - response.error_harvesting
+    - response.total_responses
+    - response.scan_pattern_detected
+    - transport.transport_class
+    - transport.protocol_class
+    - transport.is_streaming
+    - waveform.burst_detected
+    - waveform.timing_regularity_score
+    - waveform.path_diversity
+    - stream.handshake_storm
+    - stream.cross_endpoint_mixing
+    - stream.abuse_checked
+    - ato.brute_force
+    - ato.credential_stuffing
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Intent analysis contribution (always neutral — threat is orthogonal to bot probability)
+
+  signals:
+    - key: intent.threat_score
+      entity_type: double
+      salience: 0.9
+      description: Unified threat score (0.0 = benign, 1.0 = malicious)
+    - key: intent.threat_band
+      entity_type: string
+      salience: 0.8
+      description: Threat band classification (None, Low, Elevated, High, Critical)
+    - key: intent.category
+      entity_type: string
+      salience: 0.7
+      description: Intent category (browsing, scraping, scanning, attacking, reconnaissance, monitoring, abuse)
+    - key: intent.similarity_score
+      entity_type: double
+      salience: 0.5
+      description: Highest similarity score from intent HNSW index
+    - key: intent.match_count
+      entity_type: integer
+      salience: 0.4
+      description: Number of similar intent patterns found above threshold
+    - key: intent.ambiguous
+      entity_type: boolean
+      salience: 0.6
+      description: Whether intent classification is ambiguous (queued for LLM)
+    - key: intent.analyzed
+      entity_type: boolean
+      salience: 0.3
+      description: Whether intent analysis was performed
+
+triggers:
+  requires_any:
+    - attack.detected
+    - response.has_history
+    - stream.abuse_checked
+    - transport.protocol
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.intent.started
+
+  on_complete:
+    - key: intent.analyzed
+      type: boolean
+      description: Intent analysis completed
+
+  on_failure:
+    - detector.intent.failed
+
+listens:
+  required: []
+  optional:
+    - attack.detected
+    - response.has_history
+    - stream.abuse_checked
+    - transport.protocol
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 70
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:IntentContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.0
+    human_signal: 1.0
+    verified: 1.0
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.0
+    human_indicated: 0.0
+    strong_signal: 0.0
+    high_threshold: 0.7
+    low_threshold: 0.2
+    escalation_threshold: 0.5
+
+  timing:
+    timeout_ms: 10  # Fast — HNSW lookup + feature extraction
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: true
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # HNSW similarity search
+    similarity_threshold: 0.75
+    top_k: 5
+    # Ambiguity range (triggers LLM classification)
+    ambiguous_low: 0.3
+    ambiguous_high: 0.7
+    # Fallback heuristic threat scores per attack type
+    fallback_injection: 0.85
+    fallback_scanning: 0.6
+    fallback_honeypot: 0.9
+    fallback_auth_abuse: 0.7
+    fallback_clean: 0.05
+
+tags:
+  - wave-1
+  - threat
+  - intent
+  - security

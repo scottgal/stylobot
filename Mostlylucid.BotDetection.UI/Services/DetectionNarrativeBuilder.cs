@@ -44,7 +44,9 @@ public static class DetectionNarrativeBuilder
         ["Haxxor"] = "attack payload detection",
         ["AccountTakeover"] = "account takeover detection",
         ["ResponseStatusBoost"] = "response status analysis",
-        ["TransportProtocol"] = "transport protocol analysis"
+        ["TransportProtocol"] = "transport protocol analysis",
+        ["StreamAbuse"] = "stream abuse detection",
+        ["Intent"] = "session intent analysis"
     };
 
     private static readonly Dictionary<string, string> DetectorCategories = new(StringComparer.OrdinalIgnoreCase)
@@ -83,7 +85,9 @@ public static class DetectionNarrativeBuilder
         ["Haxxor"] = "Security",
         ["AccountTakeover"] = "Security",
         ["ResponseStatusBoost"] = "Response",
-        ["TransportProtocol"] = "Protocol"
+        ["TransportProtocol"] = "Protocol",
+        ["StreamAbuse"] = "Protocol",
+        ["Intent"] = "Threat"
     };
 
     private static readonly Dictionary<string, string> BotTypeFriendlyNames = new(StringComparer.OrdinalIgnoreCase)
@@ -112,7 +116,14 @@ public static class DetectionNarrativeBuilder
     private static string BuildBotNarrative(DashboardDetectionEvent detection)
     {
         // Identify what kind of bot
-        var botIdentity = GetBotIdentity(detection);
+        var threatPrefix = detection.ThreatBand switch
+        {
+            "Critical" => "CRITICAL THREAT: ",
+            "High" => "High-threat ",
+            "Elevated" => "Elevated-threat ",
+            _ => ""
+        };
+        var botIdentity = threatPrefix + GetBotIdentity(detection);
 
         // Get the top evidence (friendly names from TopReasons)
         var evidence = GetTopEvidence(detection, maxItems: 3);

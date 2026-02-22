@@ -21,7 +21,7 @@ Visit **http://localhost:5080/SignatureDemo** for advanced signature analysis:
 - **REST API** for signature retrieval (`/api/signature/...`)
 - **TagHelper visualization** with comprehensive detector breakdowns
 - **Live statistics** dashboard with bot/human counts
-- **21 detectors running** including advanced fingerprinting
+- **29 detectors running** including advanced fingerprinting
 - **Interactive UI** with collapsible detector contributions
 
 See the [Signature Demo Documentation](#signature-analysis-system) below for complete details.
@@ -396,7 +396,7 @@ and visual analysis.
 
 ```
 Request → SignatureCaptureMiddleware (generates ID)
-       → BotDetectionMiddleware (21 detectors)
+       → BotDetectionMiddleware (29 detectors)
        → SignatureCaptureMiddleware (captures & broadcasts)
        → Response (with X-Signature-ID header)
 
@@ -496,7 +496,7 @@ const stats = await connection.invoke("GetStats");
     show-contributions="true" />
 ```
 
-## 21 Detectors Enabled
+## 29 Detectors Enabled
 
 The `full-demo` policy runs all non-AI detectors:
 

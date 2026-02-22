@@ -64,19 +64,27 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
             // Record this request for pattern analysis
             _analyzer.RecordRequest(clientIp, currentPath, currentTime);
 
-            // Detect WebSocket upgrades — these need special handling to avoid false positives.
+            // Detect streaming transports — these need special handling to avoid false positives.
             // SignalR hub reconnections are normal (same URL, bursty), but we still want timing analysis
             // to catch machine-gun reconnects at exact intervals.
             var isWebSocket = context.Request.Headers.TryGetValue("Upgrade", out var upgradeHeader)
                               && upgradeHeader.ToString().Contains("websocket", StringComparison.OrdinalIgnoreCase);
+            var isSse = context.Request.Headers.TryGetValue("Accept", out var acceptHeader)
+                        && acceptHeader.ToString().Contains("text/event-stream", StringComparison.OrdinalIgnoreCase);
+            var query = context.Request.QueryString.Value ?? "";
+            var path = context.Request.Path.Value ?? "";
+            var isSignalR = (path.EndsWith("/negotiate", StringComparison.OrdinalIgnoreCase)
+                             && query.Contains("negotiateVersion", StringComparison.OrdinalIgnoreCase))
+                            || query.Contains("id=", StringComparison.OrdinalIgnoreCase);
+            var isStreaming = isWebSocket || isSse || isSignalR;
 
             // Only analyze if we have enough data
             var minRequests = _options.Behavioral.MinRequestsForPatternAnalysis;
 
             // 1. Entropy Analysis - Path entropy
-            // Skip for WebSocket: hub reconnections to the same URL produce low entropy by design
-            double pathEntropy = isWebSocket ? 1.0 : _analyzer.CalculatePathEntropy(clientIp);
-            if (!isWebSocket)
+            // Skip for streaming: hub reconnections to the same URL produce low entropy by design
+            double pathEntropy = isStreaming ? 1.0 : _analyzer.CalculatePathEntropy(clientIp);
+            if (!isStreaming)
             {
                 if (pathEntropy > 0)
                 {
@@ -109,7 +117,7 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                 }
             }
 
-            // 2. Timing Entropy — still applies to WebSocket (machine-gun reconnects are suspicious)
+            // 2. Timing Entropy — still applies to streaming (machine-gun reconnects are suspicious)
             var timingEntropy = _analyzer.CalculateTimingEntropy(clientIp);
             if (timingEntropy > 0)
                 // Very low timing entropy (<0.3) = too regular (bot)
@@ -126,7 +134,7 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                     });
                 }
 
-            // 3. Timing Anomaly Detection — still applies to WebSocket
+            // 3. Timing Anomaly Detection — still applies to streaming
             var (isAnomaly, zScore, anomalyDesc) = _analyzer.DetectTimingAnomaly(clientIp, currentTime);
             if (isAnomaly)
             {
@@ -141,7 +149,7 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                 });
             }
 
-            // 4. Regular Pattern Detection (Coefficient of Variation) — still applies to WebSocket
+            // 4. Regular Pattern Detection (Coefficient of Variation) — still applies to streaming
             var (isTooRegular, cv, cvDesc) = _analyzer.DetectRegularPattern(clientIp);
             if (isTooRegular)
             {
@@ -156,8 +164,8 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                 });
             }
 
-            // 5. Navigation Pattern Analysis (Markov) — skip for WebSocket
-            if (!isWebSocket)
+            // 5. Navigation Pattern Analysis (Markov) — skip for streaming
+            if (!isStreaming)
             {
                 var (transitionScore, navPattern) = _analyzer.AnalyzeNavigationPattern(clientIp, currentPath);
                 if (transitionScore > 0)
@@ -174,9 +182,9 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                 }
             }
 
-            // 6. Burst Detection — skip for WebSocket (SignalR reconnect storms are normal;
-            // BehavioralWaveformContributor handles WS-specific burst with higher thresholds)
-            if (!isWebSocket)
+            // 6. Burst Detection — skip for streaming (SignalR reconnect storms are normal;
+            // BehavioralWaveformContributor handles streaming-specific bursts with higher thresholds)
+            if (!isStreaming)
             {
                 var burstWindow = TimeSpan.FromSeconds(30);
                 var (isBurst, burstSize, burstDuration) = _analyzer.DetectBurstPattern(clientIp, burstWindow);

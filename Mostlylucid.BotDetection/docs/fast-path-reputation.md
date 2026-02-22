@@ -4,7 +4,7 @@ Ultra-fast Wave 0 contributor that checks for confirmed patterns (both good and 
 
 ## How It Works
 
-The detector runs first in Wave 0 (priority 3) with no dependencies. It queries the `IPatternReputationCache` using the raw User-Agent and client IP to find previously classified patterns. This is a circuit-breaker style check that avoids running the full 28-detector pipeline for requests that have already been conclusively identified.
+The detector runs first in Wave 0 (priority 3) with no dependencies. It queries the `IPatternReputationCache` using the raw User-Agent and client IP to find previously classified patterns. This is a circuit-breaker style check that avoids running the full 29-detector pipeline for requests that have already been conclusively identified.
 
 For **confirmed good patterns** (ConfirmedGood or ManuallyAllowed states), the detector emits a strong human contribution with negative confidence delta (-0.8) and weight 2.5. This does not trigger an early exit but strongly biases the final score toward human classification. This approach is intentional: reputation-confirmed "good" patterns are typically real humans, and `VerifiedGoodBot` early exit is reserved for cryptographically verified bots (Googlebot, Bingbot via DNS/IP verification).
 

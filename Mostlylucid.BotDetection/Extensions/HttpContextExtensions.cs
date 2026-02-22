@@ -507,6 +507,42 @@ public static partial class HttpContextExtensions
     {
         return context.GetSignal<double>(SignalKeys.GeoCountryBotRate);
     }
+
+    // ==========================================
+    // Threat scoring extensions (from IntentContributor)
+    // ==========================================
+
+    /// <summary>
+    ///     Gets the unified threat score (0.0 = benign, 1.0 = malicious).
+    ///     Orthogonal to bot probability — measures malicious intent, not bot identity.
+    /// </summary>
+    public static double GetThreatScore(this HttpContext context)
+    {
+        var evidence = context.GetAggregatedEvidence();
+        return evidence?.ThreatScore ?? 0.0;
+    }
+
+    /// <summary>
+    ///     Gets the threat band classification (None, Low, Elevated, High, Critical).
+    /// </summary>
+    public static ThreatBand GetThreatBand(this HttpContext context)
+    {
+        var evidence = context.GetAggregatedEvidence();
+        return evidence?.ThreatBand ?? ThreatBand.None;
+    }
+
+    /// <summary>
+    ///     Returns true if the request is considered malicious based on threat scoring.
+    ///     True when ThreatBand >= High, or when both IsBot and ThreatBand >= Elevated.
+    /// </summary>
+    public static bool IsMalicious(this HttpContext context)
+    {
+        var evidence = context.GetAggregatedEvidence();
+        if (evidence is null) return false;
+
+        return evidence.ThreatBand >= ThreatBand.High
+               || (evidence.BotProbability >= 0.5 && evidence.ThreatBand >= ThreatBand.Elevated);
+    }
 }
 
 // NOTE: RiskBand and RecommendedAction enums are now in Mostlylucid.BotDetection.Orchestration.DetectionContribution

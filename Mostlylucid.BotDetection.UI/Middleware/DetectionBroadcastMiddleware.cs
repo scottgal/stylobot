@@ -31,7 +31,7 @@ public partial class DetectionBroadcastMiddleware
         "ua.", "header.", "client.", "geo.", "ip.", "behavioral.",
         "detection.", "request.", "h2.", "tls.", "tcp.", "h3.",
         "cluster.", "reputation.", "honeypot.", "similarity.",
-        "attack.", "ato."
+        "attack.", "ato.", "intent."
     ];
 
     /// <summary>Signal keys that must never reach the dashboard.</summary>
@@ -191,7 +191,9 @@ public partial class DetectionBroadcastMiddleware
             LastPath = detection.Path,
             Narrative = detection.Narrative,
             Description = detection.Description,
-            TopReasons = detection.TopReasons?.ToList()
+            TopReasons = detection.TopReasons?.ToList(),
+            ThreatScore = detection.ThreatScore,
+            ThreatBand = detection.ThreatBand,
         };
 
         return await eventStore.AddSignatureAsync(signature);
@@ -250,7 +252,10 @@ public partial class DetectionBroadcastMiddleware
             UserAgent = evidence.BotProbability > 0.5 ? SanitizeUserAgent(context.Request.Headers.UserAgent.ToString()) : null,
             TopReasons = topReasons,
             DetectorContributions = detectorContributions.Count > 0 ? detectorContributions : null,
-            ImportantSignals = importantSignals
+            ImportantSignals = importantSignals,
+            ThreatScore = evidence.ThreatScore > 0 ? evidence.ThreatScore : null,
+            ThreatBand = evidence.ThreatBand != Orchestration.ThreatBand.None
+                ? evidence.ThreatBand.ToString() : null,
         };
 
         return detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };
@@ -344,7 +349,11 @@ public partial class DetectionBroadcastMiddleware
             UserAgent = result.IsBot ? SanitizeUserAgent(context.Request.Headers.UserAgent.ToString()) : null,
             TopReasons = topReasons,
             DetectorContributions = detectorContributions,
-            ImportantSignals = importantSignals
+            ImportantSignals = importantSignals,
+            ThreatScore = importantSignals.TryGetValue("intent.threat_score", out var tsObj)
+                && tsObj is double tsVal ? tsVal : null,
+            ThreatBand = importantSignals.TryGetValue("intent.threat_band", out var tbObj)
+                ? tbObj?.ToString() : null,
         };
 
         return detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };

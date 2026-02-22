@@ -35,8 +35,11 @@ public class CacheBehaviorContributor : ContributingDetectorBase
     public override string Name => "CacheBehavior";
     public override int Priority => 15; // Run early, lightweight
 
-    // No triggers - runs in first wave
-    public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
+    // Triggered by TransportProtocol signal — moves to Wave 1 so we can read streaming classification
+    public override IReadOnlyList<TriggerCondition> TriggerConditions => new TriggerCondition[]
+    {
+        new SignalExistsTrigger(SignalKeys.TransportProtocol)
+    };
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
@@ -45,6 +48,24 @@ public class CacheBehaviorContributor : ContributingDetectorBase
         var contributions = new List<DetectionContribution>();
         var context = state.HttpContext;
         var request = context.Request;
+
+        // Skip cache analysis for streaming transports — they are non-cacheable by design.
+        // SSE, WebSocket, and SignalR requests never send cache validation headers,
+        // and rapid repeat requests are normal (reconnects, long-polling).
+        var isStreaming = state.GetSignal<bool?>(SignalKeys.TransportIsStreaming) ?? false;
+        if (isStreaming)
+        {
+            state.WriteSignal("cache.skipped_streaming", true);
+            contributions.Add(new DetectionContribution
+            {
+                DetectorName = Name,
+                Category = "CacheBehavior",
+                ConfidenceDelta = 0.0,
+                Weight = 1.0,
+                Reason = "Cache analysis skipped for streaming transport (non-cacheable by design)"
+            });
+            return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
+        }
 
         // Get client identifier - prefer resolved IP from IpContributor
         var clientIp = state.Signals.TryGetValue(SignalKeys.ClientIp, out var ipObj)

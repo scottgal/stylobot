@@ -497,6 +497,12 @@ public sealed record PolicyTransition
     /// <summary>Transition when reputation state matches</summary>
     public string? WhenReputationState { get; init; }
 
+    /// <summary>Transition when threat score exceeds this threshold (0.0-1.0)</summary>
+    public double? WhenThreatExceeds { get; init; }
+
+    /// <summary>Transition when threat score falls below this threshold (0.0-1.0)</summary>
+    public double? WhenThreatBelow { get; init; }
+
     /// <summary>Name of the policy to transition to</summary>
     public string? GoToPolicy { get; init; }
 

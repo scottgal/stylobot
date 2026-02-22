@@ -20,4 +20,6 @@ public sealed record DashboardTopBotEntry
     public string? Narrative { get; init; }
     public string? Description { get; init; }
     public bool IsKnownBot { get; init; }
+    public double? ThreatScore { get; init; }
+    public string? ThreatBand { get; init; }
 }

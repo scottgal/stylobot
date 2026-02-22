@@ -88,7 +88,18 @@ public enum LearningEventType
     ///     Request to update fast-path rules based on learned patterns.
     ///     Consumed by the rule update service.
     /// </summary>
-    FastPathRuleUpdate
+    FastPathRuleUpdate,
+
+    // ==========================================
+    // Intent / Threat Classification Events
+    // ==========================================
+
+    /// <summary>
+    ///     LLM intent classification completed for a session.
+    ///     Contains: threat score, category, reasoning, intent features.
+    ///     Consumed by IntentLearningHandler to embed into intent HNSW index.
+    /// </summary>
+    IntentClassified
 }
 
 /// <summary>

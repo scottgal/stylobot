@@ -275,6 +275,20 @@ public sealed class MultiFactorSignatureService
             && upgrade.ToString().Contains("websocket", StringComparison.OrdinalIgnoreCase))
             return true;
 
+        // SSE request
+        if (httpContext.Request.Headers.TryGetValue("Accept", out var accept)
+            && accept.ToString().Contains("text/event-stream", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // SignalR negotiate/long-poll (spec-based detection)
+        var path = httpContext.Request.Path.Value ?? "";
+        var query = httpContext.Request.QueryString.Value ?? "";
+        if (path.EndsWith("/negotiate", StringComparison.OrdinalIgnoreCase)
+            && query.Contains("negotiateVersion", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (query.Contains("id=", StringComparison.OrdinalIgnoreCase))
+            return true;
+
         // Sec-Fetch-Dest tells us exactly what the browser is doing
         var fetchDest = httpContext.Request.Headers["Sec-Fetch-Dest"].FirstOrDefault();
         if (!string.IsNullOrEmpty(fetchDest))
@@ -285,9 +299,8 @@ public sealed class MultiFactorSignatureService
         }
 
         // Fallback: XHR/fetch requests typically use specific Accept headers
-        var accept = httpContext.Request.Headers.Accept.ToString();
-        if (accept.Contains("application/json", StringComparison.OrdinalIgnoreCase) ||
-            accept.Contains("text/event-stream", StringComparison.OrdinalIgnoreCase))
+        var acceptFallback = httpContext.Request.Headers.Accept.ToString();
+        if (acceptFallback.Contains("application/json", StringComparison.OrdinalIgnoreCase))
             return true;
 
         return false;

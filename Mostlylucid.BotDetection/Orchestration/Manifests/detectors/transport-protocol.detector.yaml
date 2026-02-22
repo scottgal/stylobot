@@ -64,6 +64,34 @@ output:
       entity_type: boolean
       salience: 0.4
       description: Whether SSE request detected
+    - key: transport.transport_class
+      entity_type: string
+      salience: 0.8
+      description: Transport class (http, websocket, sse)
+    - key: transport.protocol_class
+      entity_type: string
+      salience: 0.7
+      description: Protocol class (document, api, signalr, grpc, static, unknown)
+    - key: transport.is_signalr
+      entity_type: boolean
+      salience: 0.7
+      description: Whether request is part of a SignalR connection
+    - key: transport.signalr_type
+      entity_type: string
+      salience: 0.6
+      description: SignalR transport type (negotiate, websocket, sse, longpolling)
+    - key: transport.sse_reconnect
+      entity_type: boolean
+      salience: 0.5
+      description: Whether SSE reconnect detected (Last-Event-ID present)
+    - key: transport.sse_last_event_id
+      entity_type: string
+      salience: 0.4
+      description: Last-Event-ID header value from SSE reconnect
+    - key: transport.is_streaming
+      entity_type: boolean
+      salience: 0.8
+      description: Whether request uses any streaming transport (WebSocket, SSE, SignalR)
 
 triggers:
   requires: []

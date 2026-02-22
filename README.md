@@ -1,7 +1,7 @@
 # StyloBot
 by ***mostly*lucid**
 
-Enterprise bot detection framework for ASP.NET Core. 28 detectors, wave-based orchestration, adaptive AI learning, real-time dashboard with world map, and reverse-proxy integration — all in two lines of code.
+Enterprise bot detection framework for ASP.NET Core. 29 detectors, wave-based orchestration, adaptive AI learning, real-time dashboard with world map, and reverse-proxy integration — all in two lines of code.
 
 <img src="https://raw.githubusercontent.com/scottgal/stylobot/refs/heads/main/mostlylucid.stylobot.website/src/Stylobot.Website/wwwroot/img/stylowall.svg?raw=true" alt="StyloBot" style="max-width:200px; height:auto;" />
 
@@ -54,14 +54,14 @@ curl http://localhost:8080/admin/health
 
 If `ADMIN_SECRET` is configured, include header `X-Admin-Secret` for `/admin/*` endpoints.
 
-## Detection Surface — 28 Detectors
+## Detection Surface — 29 Detectors
 
 All detectors run in a wave-based pipeline. Fast-path detectors execute in parallel in <1ms; advanced detectors fire only when triggered by upstream signals.
 
 | Wave | Detectors | Latency |
 |------|-----------|---------|
-| **Wave 0 — Fast Path** | UserAgent, Header, IP, SecurityTool, CacheBehavior, VersionAge, AiScraper, FastPathReputation, ReputationBias, VerifiedBot | <1ms |
-| **Wave 1 — Behavioral** | Behavioral, AdvancedBehavioral, BehavioralWaveform, ClientSide, GeoChange, ResponseBehavior | 1-5ms |
+| **Wave 0 — Fast Path** | UserAgent, Header, IP, SecurityTool, TransportProtocol, VersionAge, AiScraper, FastPathReputation, ReputationBias, VerifiedBot | <1ms |
+| **Wave 1 — Behavioral** | Behavioral, AdvancedBehavioral, BehavioralWaveform, CacheBehavior, ClientSide, GeoChange, ResponseBehavior, StreamAbuse | 1-5ms |
 | **Wave 2 — Fingerprinting** | TLS (JA3/JA4), TCP/IP (p0f), HTTP/2 (AKAMAI), HTTP/3 (QUIC), MultiLayerCorrelation | <1ms |
 | **Wave 3 — AI + Learning** | Heuristic, HeuristicLate, Similarity, Cluster (Leiden), TimescaleReputation, LLM (optional) | 1-500ms |
 | **Slow Path** | ProjectHoneypot (DNS lookup) | ~100ms |
@@ -117,7 +117,7 @@ app.UseStyloBotDashboard();  // Dashboard at /_stylobot/
 
 ## Core Product Differentiators
 
-- **Speed with intelligence**: <1ms fast path across 28 detectors with explainable evidence per decision
+- **Speed with intelligence**: <1ms fast path across 29 detectors with explainable evidence per decision
 - **Protocol-deep fingerprinting**: TLS, TCP/IP, HTTP/2, HTTP/3 fingerprints catch bots that spoof everything else
 - **Temporal behavior resolution**: cross-request, windowed signal correlation for stronger bot/human discrimination
 - **Adaptive learning**: Heuristic weights evolve based on detection outcomes — gets smarter over time
@@ -171,7 +171,7 @@ Library and component docs:
 - [`Mostlylucid.BotDetection/docs/detection-strategies.md`](Mostlylucid.BotDetection/docs/detection-strategies.md)
 - [`Mostlylucid.BotDetection/docs/action-policies.md`](Mostlylucid.BotDetection/docs/action-policies.md)
 
-Detector docs (28 detectors):
+Detector docs (29 detectors):
 
 - [`user-agent-detection.md`](Mostlylucid.BotDetection/docs/user-agent-detection.md) — UA parsing, bot pattern matching
 - [`header-detection.md`](Mostlylucid.BotDetection/docs/header-detection.md) — HTTP header anomalies
@@ -190,6 +190,8 @@ Detector docs (28 detectors):
 - [`AdvancedFingerprintingDetectors.md`](Mostlylucid.BotDetection/docs/AdvancedFingerprintingDetectors.md) — TLS (JA3/JA4), TCP/IP (p0f), HTTP/2 (AKAMAI)
 - [`http3-fingerprinting.md`](Mostlylucid.BotDetection/docs/http3-fingerprinting.md) — QUIC transport fingerprinting
 - [`multi-layer-correlation.md`](Mostlylucid.BotDetection/docs/multi-layer-correlation.md) — Cross-layer consistency
+- [`transport-protocol-detection.md`](Mostlylucid.BotDetection/docs/transport-protocol-detection.md) — WebSocket, gRPC, GraphQL, SSE protocol validation
+- [`stream-transport-detection.md`](Mostlylucid.BotDetection/docs/stream-transport-detection.md) — Stream-aware detection, SignalR classification, stream abuse
 - [`learning-and-reputation.md`](Mostlylucid.BotDetection/docs/learning-and-reputation.md) — Adaptive learning system
 - [`timescale-reputation.md`](Mostlylucid.BotDetection/docs/timescale-reputation.md) — TimescaleDB reputation tracking
 - [`training-data-api.md`](Mostlylucid.BotDetection/docs/training-data-api.md) — ML training data export

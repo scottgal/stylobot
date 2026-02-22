@@ -28,6 +28,24 @@ function riskColor(band: string): string {
     return 'var(--sb-card-subtle)';
 }
 
+function threatBandColor(band: string | null | undefined): string {
+    const b = (band || '').toLowerCase();
+    if (b === 'critical') return '#ef4444';
+    if (b === 'high') return '#f97316';
+    if (b === 'elevated') return '#f59e0b';
+    if (b === 'low') return '#22c55e';
+    return '#9ca3af';
+}
+
+function threatBandClass(band: string | null | undefined): string {
+    const b = (band || '').toLowerCase();
+    if (b === 'critical') return 'badge-error';
+    if (b === 'high') return 'badge-warning';
+    if (b === 'elevated') return 'badge-info';
+    if (b === 'low') return 'badge-success';
+    return 'badge-ghost';
+}
+
 function riskClass(band: string): string {
     const b = (band || '').toLowerCase();
     if (b === 'verylow' || b === 'low') return 'signal-positive';
@@ -383,6 +401,7 @@ const SIGNAL_CATEGORIES: { prefix: string; label: string; icon: string }[] = [
     { prefix: 'similarity.', label: 'Similarity', icon: '\uD83D\uDD0D' },
     { prefix: 'ts.', label: 'TimescaleDB History', icon: '\uD83D\uDCC5' },
     { prefix: 'verifiedbot.', label: 'Verified Bot', icon: '\u2705' },
+    { prefix: 'intent.', label: 'Intent / Threat', icon: '\uD83C\uDFAF' },
 ];
 
 function categorizeSignals(signals: Record<string, any>): SignalCategory[] {
@@ -642,7 +661,19 @@ function dashboardApp() {
                 const res = await fetch('/_stylobot/api/detections?limit=50');
                 if (res.ok) {
                     const all = toCamel(await res.json());
-                    this.recentDetections = all.filter((d: any) => !isStaticAsset(d));
+                    // Merge new entries instead of replacing — prevents disappearing detections
+                    const existingIds = new Set(this.recentDetections.map((d: any) => d.requestId));
+                    const newEntries = all.filter((d: any) => !isStaticAsset(d) && !existingIds.has(d.requestId));
+                    if (newEntries.length > 0) {
+                        this.recentDetections = [...newEntries, ...this.recentDetections];
+                    }
+                    // Update existing entries with latest data
+                    for (const d of all) {
+                        if (isStaticAsset(d)) continue;
+                        const idx = this.recentDetections.findIndex((e: any) => e.requestId === d.requestId);
+                        if (idx >= 0) this.recentDetections[idx] = d;
+                    }
+                    if (this.recentDetections.length > 100) this.recentDetections.length = 100;
                     this.signalStats = aggregateSignalStats(this.recentDetections);
                 }
             } catch (e) {
@@ -1355,6 +1386,8 @@ function dashboardApp() {
         actionBadgeClass,
         actionDisplayName,
         inferBotCategory,
+        threatBandColor,
+        threatBandClass,
     };
 }
 
@@ -1527,11 +1560,24 @@ function signatureDetailApp() {
                 const res = await fetch(`/_stylobot/api/detections?limit=50&signatureId=${encodeURIComponent(this.signature)}`);
                 if (res.ok) {
                     const all = toCamel(await res.json());
-                    // Never overwrite SSR data with empty XHR response
                     if (!all?.length && this.detections.length > 0) return;
-                    this._allDetections = all;
-                    this.detections = all.filter((d: any) => !isStaticAsset(d));
-                    this._groupedDetections = groupPageLoads(all);
+
+                    // Merge: add new entries from API that aren't already tracked
+                    const existingIds = new Set(this._allDetections.map((d: any) => d.requestId));
+                    const newEntries = all.filter((d: any) => !existingIds.has(d.requestId));
+                    if (newEntries.length > 0) {
+                        this._allDetections = [...newEntries, ...this._allDetections];
+                    }
+                    // Update existing entries with latest data (e.g., classification changes)
+                    for (const d of all) {
+                        const idx = this._allDetections.findIndex((e: any) => e.requestId === d.requestId);
+                        if (idx >= 0) this._allDetections[idx] = d;
+                    }
+                    // Cap total but keep generous buffer
+                    if (this._allDetections.length > 100) this._allDetections.length = 100;
+
+                    this.detections = this._allDetections.filter((d: any) => !isStaticAsset(d));
+                    this._groupedDetections = groupPageLoads(this._allDetections);
                 }
             } catch (_) {}
         },
@@ -1795,6 +1841,8 @@ function signatureDetailApp() {
         actionBadgeClass,
         actionDisplayName,
         categorizeSignals,
+        threatBandColor,
+        threatBandClass,
 
         /**
          * Color-code detector contribution: green (human) → yellow (neutral) → red (bot).

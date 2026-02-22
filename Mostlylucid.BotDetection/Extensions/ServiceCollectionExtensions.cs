@@ -453,8 +453,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, Http3FingerprintContributor>();
         // Transport protocol detection (WebSocket, gRPC, GraphQL, SSE)
         services.AddSingleton<IContributingDetector, TransportProtocolContributor>();
+        // Stream abuse detection (handshake storms, cross-endpoint mixing, reconnect abuse)
+        services.AddSingleton<IContributingDetector, StreamAbuseContributor>();
         // Response behavior feedback - runs early to provide historical feedback
         services.AddSingleton<IContributingDetector, ResponseBehaviorContributor>();
+        // Intent / threat scoring - produces unified threat score orthogonal to bot probability
+        services.AddSingleton<IContributingDetector, IntentContributor>();
         // Wave 1+ detectors (triggered by signals from Wave 0)
         // Account takeover detection - credential stuffing, brute force, ATO drift (triggered by ua.family/waveform.signature)
         services.AddSingleton<IContributingDetector, AccountTakeoverContributor>();
@@ -527,11 +531,22 @@ public static class ServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<LlmClassificationCoordinator>());
 
         // ==========================================
+        // Background Intent Classification Coordinator (threat scoring)
+        // ==========================================
+        services.AddSingleton<IntentClassificationCoordinator>();
+        services.AddHostedService(sp => sp.GetRequiredService<IntentClassificationCoordinator>());
+
+        // ==========================================
         // Similarity Search (HNSW or Qdrant)
         // ==========================================
 
         // Feature vectorizer converts dynamic feature dictionaries to fixed-length vectors
         services.TryAddSingleton<FeatureVectorizer>();
+
+        // Intent vectorizer + HNSW index (threat scoring via session intent patterns)
+        services.TryAddSingleton<IntentVectorizer>();
+        services.TryAddSingleton<HnswIntentSearch>();
+        services.TryAddSingleton<IIntentSimilaritySearch>(sp => sp.GetRequiredService<HnswIntentSearch>());
 
         // ONNX embedding provider (optional - for ML-powered similarity)
         services.TryAddSingleton<IEmbeddingProvider>(sp =>
@@ -565,6 +580,9 @@ public static class ServiceCollectionExtensions
 
         // Learning handler that feeds high-confidence detections into the similarity index
         services.AddSingleton<ILearningEventHandler, SimilarityLearningHandler>();
+
+        // Learning handler that feeds intent classifications into the intent HNSW index
+        services.AddSingleton<ILearningEventHandler, IntentLearningHandler>();
 
         // ==========================================
         // Behavioral Signature / BDF System (closed-loop testing)

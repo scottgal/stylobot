@@ -339,7 +339,9 @@ public class StyloBotDashboardMiddleware
                         avgBotProb = Math.Round(cl.AverageBotProbability, 3),
                         country = cl.DominantCountry,
                         averageSimilarity = Math.Round(cl.AverageSimilarity, 3),
-                        temporalDensity = Math.Round(cl.TemporalDensity, 3)
+                        temporalDensity = Math.Round(cl.TemporalDensity, 3),
+                        dominantIntent = cl.DominantIntent,
+                        averageThreatScore = Math.Round(cl.AverageThreatScore, 3)
                     })
                     .ToList();
                 clustersJson = JsonSerializer.Serialize(clusters, jsonOpts);
@@ -416,7 +418,9 @@ public class StyloBotDashboardMiddleware
                 detectorCount = visitor.TopReasons.Count,
                 narrative = visitor.Narrative ?? narrative,
                 topReasons = visitor.TopReasons,
-                signature = sigs.PrimarySignature
+                signature = sigs.PrimarySignature,
+                threatScore = visitor.ThreatScore.HasValue ? Math.Round(visitor.ThreatScore.Value, 3) : (double?)null,
+                threatBand = visitor.ThreatBand
             };
 
             return JsonSerializer.Serialize(yourDetection,
@@ -742,7 +746,9 @@ public class StyloBotDashboardMiddleware
                 avgBotProb = Math.Round(cl.AverageBotProbability, 3),
                 country = cl.DominantCountry,
                 averageSimilarity = Math.Round(cl.AverageSimilarity, 3),
-                temporalDensity = Math.Round(cl.TemporalDensity, 3)
+                temporalDensity = Math.Round(cl.TemporalDensity, 3),
+                dominantIntent = cl.DominantIntent,
+                averageThreatScore = Math.Round(cl.AverageThreatScore, 3)
             })
             .ToList();
 

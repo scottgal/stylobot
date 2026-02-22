@@ -71,7 +71,9 @@ public class VisitorListCache
                     ProcessingTimeHistory = new Queue<double>([detection.ProcessingTimeMs]),
                     BotProbabilityHistory = new Queue<double>([detection.BotProbability]),
                     ConfidenceHistory = new Queue<double>([detection.Confidence]),
-                    LastRequestId = detection.RequestId
+                    LastRequestId = detection.RequestId,
+                    ThreatScore = detection.ThreatScore,
+                    ThreatBand = detection.ThreatBand,
                 };
             },
             (_, existing) =>
@@ -145,6 +147,8 @@ public class VisitorListCache
                         existing.ConfidenceHistory.Dequeue();
 
                     existing.LastRequestId = detection.RequestId;
+                    existing.ThreatScore = detection.ThreatScore ?? existing.ThreatScore;
+                    existing.ThreatBand = detection.ThreatBand ?? existing.ThreatBand;
                     if (!string.IsNullOrEmpty(detection.Path) && !existing.Paths.Contains(detection.Path))
                     {
                         existing.Paths.Add(detection.Path);
@@ -268,7 +272,9 @@ public class VisitorListCache
                     ProcessingTimeHistory = new Queue<double>(v.ProcessingTimeHistory),
                     BotProbabilityHistory = new Queue<double>(v.BotProbabilityHistory),
                     ConfidenceHistory = new Queue<double>(v.ConfidenceHistory),
-                    LastRequestId = v.LastRequestId
+                    LastRequestId = v.LastRequestId,
+                    ThreatScore = v.ThreatScore,
+                    ThreatBand = v.ThreatBand,
                 });
             }
         }
@@ -541,6 +547,8 @@ public class CachedVisitor
     public Queue<double> ConfidenceHistory { get; set; } = new();
 
     public string? LastRequestId { get; set; }
+    public double? ThreatScore { get; set; }
+    public string? ThreatBand { get; set; }
 
     public string TimeAgo
     {

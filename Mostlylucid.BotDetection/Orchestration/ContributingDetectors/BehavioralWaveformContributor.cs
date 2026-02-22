@@ -177,9 +177,12 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
 
         // Check for burst patterns (many requests in short time)
         var recentCutoff = DateTimeOffset.UtcNow.AddSeconds(-10);
-        var recentNonWs = history.Count(r => r.Timestamp > recentCutoff && r.ContentClass != ContentClass.WebSocket);
+        var recentNonStreaming = history.Count(r => r.Timestamp > recentCutoff
+            && r.ContentClass is not (ContentClass.WebSocket or ContentClass.SSE or ContentClass.SignalR));
         var recentWs = history.Count(r => r.Timestamp > recentCutoff && r.ContentClass == ContentClass.WebSocket);
-        var recentRequests = recentNonWs;
+        var recentSse = history.Count(r => r.Timestamp > recentCutoff && r.ContentClass == ContentClass.SSE);
+        var recentSignalR = history.Count(r => r.Timestamp > recentCutoff && r.ContentClass == ContentClass.SignalR);
+        var recentRequests = recentNonStreaming;
         if (recentRequests >= 10)
         {
             state.WriteSignals([
@@ -210,17 +213,49 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 weight: 1.6,
                 botType: BotType.MaliciousBot.ToString()));
         }
+
+        // SSE burst detection — reconnect storms from broken EventSource implementations
+        // Normal SSE: 1-3 reconnects on disconnect. 30+ in 10s = reconnect loop.
+        if (recentSse >= 30)
+        {
+            state.WriteSignals([
+                new(SignalKeys.WaveformBurstDetected, true),
+                new("waveform.sse_burst_size", recentSse)
+            ]);
+
+            contributions.Add(DetectionContribution.Bot(
+                Name, "Waveform", 0.6,
+                $"SSE reconnect storm: {recentSse} event-stream requests in 10 seconds",
+                weight: 1.5,
+                botType: BotType.MaliciousBot.ToString()));
+        }
+
+        // SignalR burst detection — long-polling is inherently high-frequency,
+        // but 40+ in 10s still indicates abuse or a broken reconnect loop.
+        if (recentSignalR >= 40)
+        {
+            state.WriteSignals([
+                new(SignalKeys.WaveformBurstDetected, true),
+                new("waveform.signalr_burst_size", recentSignalR)
+            ]);
+
+            contributions.Add(DetectionContribution.Bot(
+                Name, "Waveform", 0.55,
+                $"SignalR connection flood: {recentSignalR} requests in 10 seconds",
+                weight: 1.4,
+                botType: BotType.MaliciousBot.ToString()));
+        }
     }
 
     private void AnalyzePathPatterns(BlackboardState state, List<RequestSnapshot> history, List<DetectionContribution> contributions)
     {
         if (history.Count < 5) return;
 
-        // Separate WebSocket from non-WebSocket for path analysis.
+        // Separate streaming from non-streaming for path analysis.
         // Hub reconnections to the same URL are normal and shouldn't reduce path diversity,
         // but WebSocket upgrades to many different paths is suspicious (probing).
         var recent = history.TakeLast(20).ToList();
-        var recentNonWs = recent.Where(r => r.ContentClass != ContentClass.WebSocket).ToList();
+        var recentNonWs = recent.Where(r => r.ContentClass is not (ContentClass.WebSocket or ContentClass.SSE or ContentClass.SignalR)).ToList();
         var recentWsPaths = recent.Where(r => r.ContentClass == ContentClass.WebSocket)
             .Select(r => r.Path).Distinct().ToList();
 
@@ -284,21 +319,21 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
     {
         if (history.Count < 2) return;
 
-        // Exclude WebSocket upgrades — they don't represent page navigations or API calls
-        var nonWsHistory = history.Where(r => r.ContentClass != ContentClass.WebSocket).ToList();
-        if (nonWsHistory.Count < 2) return;
+        // Exclude streaming requests — they don't represent page navigations or API calls
+        var nonStreamingHistory = history.Where(r => r.ContentClass is not (ContentClass.WebSocket or ContentClass.SSE or ContentClass.SignalR)).ToList();
+        if (nonStreamingHistory.Count < 2) return;
 
-        // Use non-WS history boundaries for timespan so WebSocket-only periods don't inflate the window
-        var timeSpan = (nonWsHistory[^1].Timestamp - nonWsHistory[0].Timestamp).TotalMinutes;
+        // Use non-streaming history boundaries for timespan so streaming-only periods don't inflate the window
+        var timeSpan = (nonStreamingHistory[^1].Timestamp - nonStreamingHistory[0].Timestamp).TotalMinutes;
         if (timeSpan <= 0) return;
 
-        var totalRate = nonWsHistory.Count / timeSpan; // total non-WebSocket requests per minute
+        var totalRate = nonStreamingHistory.Count / timeSpan; // total non-streaming requests per minute
         state.WriteSignal("waveform.request_rate", totalRate);
 
         // Calculate page-only rate (content-class aware for HTTP/2+)
         // HTTP/2+ multiplexes many asset requests per page load - that's normal.
-        var pageRequests = nonWsHistory.Count(r => r.ContentClass == ContentClass.Page);
-        var assetRequests = nonWsHistory.Count(r => r.ContentClass == ContentClass.Asset);
+        var pageRequests = nonStreamingHistory.Count(r => r.ContentClass == ContentClass.Page);
+        var assetRequests = nonStreamingHistory.Count(r => r.ContentClass == ContentClass.Asset);
         var pageRate = timeSpan > 0 ? pageRequests / timeSpan : 0;
 
         state.WriteSignal("waveform.page_rate", pageRate);
@@ -336,7 +371,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Reason = $"Normal browser multiplexing: high total traffic but only {pageRate:F0} page visits per minute ({assetRequests} sub-resources loaded)"
             });
 
-        // WebSocket-specific rate analysis
+        // Streaming-specific rate analysis
         // Normal SignalR: 1-3 upgrades/minute (initial + reconnects). Excessive = abuse.
         var wsRequests = history.Count(r => r.ContentClass == ContentClass.WebSocket);
         if (wsRequests > 0)
@@ -455,6 +490,8 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         var ct = contentType.ToLowerInvariant();
         if (ct.StartsWith("text/html") || ct.StartsWith("application/xhtml"))
             return ContentClass.Page;
+        if (ct.StartsWith("text/event-stream"))
+            return ContentClass.SSE;
         if (ct.StartsWith("application/json") || ct.StartsWith("application/xml") ||
             ct.StartsWith("text/xml") || ct.Contains("graphql"))
             return ContentClass.Api;
@@ -552,13 +589,17 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         var assetCt = classes.Count(c => c == ContentClass.Asset);
         var apiCt = classes.Count(c => c == ContentClass.Api);
         var wsCt = classes.Count(c => c == ContentClass.WebSocket);
+        var sseCt = classes.Count(c => c == ContentClass.SSE);
+        var signalRCt = classes.Count(c => c == ContentClass.SignalR);
         var total = classes.Count;
 
         state.WriteSignals([
             new("waveform.page_requests", pageCt),
             new("waveform.asset_requests", assetCt),
             new("waveform.api_requests", apiCt),
-            new("waveform.websocket_requests", wsCt)
+            new("waveform.websocket_requests", wsCt),
+            new("waveform.sse_requests", sseCt),
+            new("waveform.signalr_requests", signalRCt)
         ]);
 
         // Build transition matrix sized to match ContentClass enum
@@ -646,7 +687,9 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         Page = 0,      // text/html navigation requests
         Asset = 1,     // JS, CSS, images, fonts, etc.
         Api = 2,       // JSON/XML API endpoints
-        WebSocket = 3  // WebSocket upgrade requests
+        WebSocket = 3, // WebSocket upgrade requests
+        SSE = 4,       // Server-Sent Events (Accept: text/event-stream)
+        SignalR = 5    // SignalR negotiate/connect/long-poll requests
     }
 
     /// <summary>
@@ -659,6 +702,19 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         if (httpContext.Request.Headers.TryGetValue("Upgrade", out var upgrade)
             && upgrade.ToString().Contains("websocket", StringComparison.OrdinalIgnoreCase))
             return ContentClass.WebSocket;
+
+        // Detect SSE via Accept header
+        if (httpContext.Request.Headers.TryGetValue("Accept", out var acceptHdr)
+            && acceptHdr.ToString().Contains("text/event-stream", StringComparison.OrdinalIgnoreCase))
+            return ContentClass.SSE;
+
+        // Detect SignalR negotiate/connect requests (spec-based, generic)
+        var reqPath = httpContext.Request.Path.Value ?? "";
+        var reqQuery = httpContext.Request.QueryString.Value ?? "";
+        if ((reqPath.EndsWith("/negotiate", StringComparison.OrdinalIgnoreCase)
+             && reqQuery.Contains("negotiateVersion", StringComparison.OrdinalIgnoreCase))
+            || reqQuery.Contains("id=", StringComparison.OrdinalIgnoreCase))
+            return ContentClass.SignalR;
 
         var fetchDest = httpContext.Request.Headers["Sec-Fetch-Dest"].FirstOrDefault();
         if (!string.IsNullOrEmpty(fetchDest))

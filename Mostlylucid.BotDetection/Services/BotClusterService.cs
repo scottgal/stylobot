@@ -349,6 +349,10 @@ public class BotClusterService : BackgroundService
         public double EntropyDelta { get; init; }
         public double LoopScore { get; init; }
         public double SequenceSurprise { get; init; }
+
+        // Intent / Threat signals (from IntentContributor)
+        public string? IntentCategory { get; init; }
+        public double ThreatScore { get; init; }
     }
 
     internal List<FeatureVector> BuildFeatureVectors(IReadOnlyList<SignatureBehavior> behaviors)
@@ -384,11 +388,27 @@ public class BotClusterService : BackgroundService
                         .Take(5)
                         .Select(g => g.Key));
 
+                // Derive path-based intent heuristics from request history
+                var intentPart = "";
+                var probePaths = b.Requests.Count(r =>
+                    r.Path.Contains(".env", StringComparison.OrdinalIgnoreCase) ||
+                    r.Path.Contains("wp-login", StringComparison.OrdinalIgnoreCase) ||
+                    r.Path.Contains("/admin", StringComparison.OrdinalIgnoreCase) ||
+                    r.Path.Contains("/.git", StringComparison.OrdinalIgnoreCase) ||
+                    r.Path.Contains("phpmyadmin", StringComparison.OrdinalIgnoreCase));
+                if (probePaths > 0)
+                    intentPart += $" | PROBE_PATHS:{probePaths}";
+                if (b.AverageBotProbability > 0.7)
+                    intentPart += $" | HIGH_BOT_PROB:{b.AverageBotProbability:F2}";
+                if (b.IsAberrant)
+                    intentPart += " | ABERRANT";
+
                 var embeddingText =
                     $"RATE:{requestRate:F1}/min | PATHS:{topPaths} | " +
                     $"ENTROPY:{b.PathEntropy:F2} | TIMING_CV:{b.TimingCoefficient:F2} | " +
                     $"COUNTRY:{b.CountryCode ?? "?"} | ASN:{b.Asn ?? "?"} | " +
-                    $"DC:{b.IsDatacenter} | BOT_PROB:{b.AverageBotProbability:F2}";
+                    $"DC:{b.IsDatacenter} | BOT_PROB:{b.AverageBotProbability:F2}" +
+                    intentPart;
 
                 embedding = _embeddingProvider!.GenerateEmbedding(embeddingText);
             }
@@ -425,7 +445,10 @@ public class BotClusterService : BackgroundService
                 TransitionNovelty = drift.TransitionNovelty,
                 EntropyDelta = drift.EntropyDelta,
                 LoopScore = drift.LoopScore,
-                SequenceSurprise = drift.SequenceSurprise
+                SequenceSurprise = drift.SequenceSurprise,
+                // Intent / Threat signals (populated when intent HNSW has data for this signature)
+                IntentCategory = null,
+                ThreatScore = 0.0
             };
         }).ToList();
     }
@@ -808,6 +831,18 @@ public class BotClusterService : BackgroundService
             .OrderByDescending(g => g.Count())
             .FirstOrDefault()?.Key;
 
+        // Compute dominant intent and average threat score from feature vectors
+        var intentCategories = features
+            .Where(f => f.IntentCategory != null)
+            .GroupBy(f => f.IntentCategory)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault()?.Key;
+        var avgThreatScore = features
+            .Where(f => f.ThreatScore > 0)
+            .Select(f => f.ThreatScore)
+            .DefaultIfEmpty(0.0)
+            .Average();
+
         // Generate heuristic label (LLM description applied asynchronously later)
         var label = GenerateHeuristicLabel(clusterType, avgSimilarity, temporalDensity, avgBotProb, members);
 
@@ -829,7 +864,9 @@ public class BotClusterService : BackgroundService
             DominantAsn = dominantAsn,
             Label = label,
             FirstSeen = new DateTimeOffset(members.Min(m => m.FirstSeen), TimeSpan.Zero),
-            LastSeen = new DateTimeOffset(members.Max(m => m.LastSeen), TimeSpan.Zero)
+            LastSeen = new DateTimeOffset(members.Max(m => m.LastSeen), TimeSpan.Zero),
+            DominantIntent = intentCategories,
+            AverageThreatScore = avgThreatScore
         };
     }
 

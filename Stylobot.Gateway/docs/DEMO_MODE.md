@@ -55,7 +55,7 @@ services:
 
 ### 1. Switches to 'demo' Policy
 
-Automatically activates the `demo` policy with **ALL 21 detectors** enabled:
+Automatically activates the `demo` policy with **ALL 29 detectors** enabled:
 
 **Fast Path Detectors:**
 - FastPathReputation - Cached reputation
@@ -268,7 +268,7 @@ function BotDetectionBadge({ headers }) {
 
 | Feature | Production | Demo Mode |
 |---------|-----------|-----------|
-| **Policy** | `default` (10 detectors) | `demo` (21 detectors) |
+| **Policy** | `default` (10 detectors) | `demo` (29 detectors) |
 | **Headers Passed** | Basic only | ALL (comprehensive) |
 | **Detector Contributions** | ❌ Not exposed | ✅ Full JSON array |
 | **Detection Reasons** | ❌ Not exposed | ✅ Top 5 reasons |
@@ -282,11 +282,11 @@ function BotDetectionBadge({ headers }) {
 
 ## Performance Impact
 
-Demo mode runs **ALL 21 detectors** instead of the default 10:
+Demo mode runs **ALL 29 detectors** instead of the default 10:
 
 | Metric | Production (default) | Demo Mode |
 |--------|---------------------|-----------|
-| **Detectors** | 10 | 21 |
+| **Detectors** | 10 | 29 |
 | **Typical Latency** | 5-15ms | 18-25ms |
 | **Worst-Case** | 20ms | 150ms (with ProjectHoneypot DNS) |
 | **Memory/Request** | ~30KB | ~43KB |
@@ -345,7 +345,7 @@ docker run -d ... (without -e GATEWAY_DEMO_MODE)
 
 ### Demo Policy Not Active
 
-**Problem:** Only 10 detectors running instead of 21
+**Problem:** Only 10 detectors running instead of 29
 
 **Solution:**
 1. Check PathPolicies configuration:

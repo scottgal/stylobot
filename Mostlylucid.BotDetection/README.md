@@ -11,7 +11,7 @@ learning**, auto-updated blocklists, YARP integration, and full observability.
 
 ## Key Features
 
-- **31 detectors in 4 waves**: User-Agent, headers, IP, behavioral, protocol fingerprinting, AI classification, cluster detection, and more
+- **29 detectors in 4 waves**: User-Agent, headers, IP, behavioral, protocol fingerprinting, AI classification, cluster detection, and more
 - **Protocol-deep fingerprinting**: JA3/JA4 TLS, p0f TCP/IP, AKAMAI HTTP/2, QUIC HTTP/3 — catch bots even when they spoof everything
 - **AI-powered classification**: Heuristic model (<1ms, ~50 features) with optional LLM escalation for complex cases
 - **Continuous learning**: Heuristic weights adapt over time based on detection feedback
@@ -140,7 +140,7 @@ app.MapPost("/api/submit", () => "ok")
 public IActionResult Index() => View();
 ```
 
-## Detection Methods (31 Detectors)
+## Detection Methods (29 Detectors)
 
 All detectors execute in a wave-based pipeline. Fast-path detectors run in parallel in <1ms. Advanced detectors fire only when triggered by upstream signals.
 
@@ -351,7 +351,7 @@ For advanced similarity-based detection, embeddings support named vectors:
 
 | Feature                        | Description                               | Docs                                                                |
 |--------------------------------|-------------------------------------------|---------------------------------------------------------------------|
-| **Quick Start**                | Two-line setup, all 31 detectors          | [quickstart.md](docs/quickstart.md)                                 |
+| **Quick Start**                | Two-line setup, all 29 detectors          | [quickstart.md](docs/quickstart.md)                                 |
 | **Configuration**              | Full options reference                    | [configuration.md](docs/configuration.md)                           |
 | **AI Detection**               | Heuristic model, LLM escalation, learning | [ai-detection.md](docs/ai-detection.md)                             |
 | **AI Scraper Detection**       | GPTBot, ClaudeBot, PerplexityBot          | [ai-scraper-detection.md](docs/ai-scraper-detection.md)             |

@@ -101,6 +101,12 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
     private double CleanHistoryConfidence => GetParam("clean_history_confidence", -0.15);
     private double CleanHistoryWeight => GetParam("clean_history_weight", 1.3);
 
+    // Exclusive 404 pattern — catches single-path hammering that existing scan tiers miss
+    private int Exclusive404MinCount => GetParam("exclusive_404_min_count", 3);
+    private double Exclusive404Ratio => GetParam("exclusive_404_ratio", 0.8);
+    private double Exclusive404Confidence => GetParam("exclusive_404_confidence", 0.75);
+    private double Exclusive404Weight => GetParam("exclusive_404_weight", 2.0);
+
     public override async Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
         CancellationToken cancellationToken = default)
@@ -255,6 +261,25 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
             new(SignalKeys.ResponseCount404, behavior.Count404),
             new(SignalKeys.ResponseUnique404Paths, behavior.UniqueNotFoundPaths)
         ]);
+
+        // EXCLUSIVE 404: ALL (or nearly all) responses are 404 — never legitimate.
+        // Catches single-path hammering that existing multi-path tiers miss.
+        var fourOhFourRatio = behavior.TotalResponses > 0
+            ? (double)behavior.Count404 / behavior.TotalResponses : 0;
+        if (behavior.Count404 >= Exclusive404MinCount && fourOhFourRatio >= Exclusive404Ratio)
+        {
+            state.WriteSignals([
+                new(SignalKeys.ResponseScanPatternDetected, true),
+                new(SignalKeys.ResponseExclusive404, true)
+            ]);
+
+            contributions.Add(DetectionContribution.Bot(
+                Name, "Response", Exclusive404Confidence,
+                $"Exclusive 404 pattern: {behavior.Count404}/{behavior.TotalResponses} responses are 404 ({fourOhFourRatio:P0})",
+                weight: Exclusive404Weight,
+                botType: BotType.Scraper.ToString()));
+            return; // Don't stack with other scan tiers
+        }
 
         // Real humans almost never hit multiple unique 404 paths.
         // A single 404 from a stale bookmark is normal; 3+ unique 404 paths is scanning.
@@ -453,8 +478,12 @@ public class ResponseBehaviorContributor : ConfiguredContributorBase
                 Weight = LowScoreWeight,
                 Reason = "Response patterns show some signs of automated access"
             });
-        // Low score = likely human
-        else if (behavior.ResponseScore < CleanHistoryThreshold && behavior.TotalResponses >= CleanHistoryMinResponses)
+        // Low score = likely human — but only if the client has genuinely clean traffic.
+        // A 404-only scanner gets a low ResponseScore due to limited feature activation,
+        // NOT because it's actually clean. Guard: 4xx ratio must be below 50%.
+        else if (behavior.ResponseScore < CleanHistoryThreshold
+                 && behavior.TotalResponses >= CleanHistoryMinResponses
+                 && behavior.Count4xx < behavior.TotalResponses * 0.5)
             contributions.Add(new DetectionContribution
             {
                 DetectorName = Name,

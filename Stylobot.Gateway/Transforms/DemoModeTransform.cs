@@ -65,7 +65,7 @@ public static class DemoModeTransform
                 Console.WriteLine("│ ALL bot detection headers are being passed to downstream.       │");
                 Console.WriteLine("│ This includes:                                                  │");
                 Console.WriteLine("│   - Bot probabilities and confidence scores                     │");
-                Console.WriteLine("│   - All 21 detector contributions with reasons                  │");
+                Console.WriteLine("│   - All 29 detector contributions with reasons                  │");
                 Console.WriteLine("│   - Processing times and metadata                               │");
                 Console.WriteLine("│   - Signature IDs for full signature lookup                     │");
                 Console.WriteLine("│                                                                 │");

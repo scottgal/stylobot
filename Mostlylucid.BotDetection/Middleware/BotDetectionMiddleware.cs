@@ -511,6 +511,13 @@ public class BotDetectionMiddleware(
         // Include AI status for calibration visibility
         context.Response.Headers.TryAdd($"{prefix}Ai-Ran", aggregated.AiRan.ToString().ToLowerInvariant());
 
+        // Threat scoring headers (from IntentContributor)
+        if (headerConfig.IncludeThreatScore)
+        {
+            context.Response.Headers.TryAdd($"{prefix}Threat-Score", aggregated.ThreatScore.ToString("F3"));
+            context.Response.Headers.TryAdd($"{prefix}Threat-Band", aggregated.ThreatBand.ToString());
+        }
+
         // Full JSON result if enabled (useful for debugging)
         if (headerConfig.IncludeFullJson)
         {

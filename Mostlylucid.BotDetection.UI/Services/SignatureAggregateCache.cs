@@ -145,7 +145,9 @@ public sealed class SignatureAggregateCache
                 LastSeen = bot.LastSeen,
                 Narrative = bot.Narrative,
                 Description = bot.Description,
-                IsBot = bot.IsKnownBot
+                IsBot = bot.IsKnownBot,
+                ThreatScore = bot.ThreatScore,
+                ThreatBand = bot.ThreatBand,
             });
         }
 
@@ -171,7 +173,9 @@ public sealed class SignatureAggregateCache
             LastSeen = detection.Timestamp,
             Narrative = detection.Narrative,
             Description = detection.Description,
-            IsBot = detection.IsBot
+            IsBot = detection.IsBot,
+            ThreatScore = detection.ThreatScore,
+            ThreatBand = detection.ThreatBand,
         };
 
         // No lock needed — object is not yet visible to other threads
@@ -203,6 +207,8 @@ public sealed class SignatureAggregateCache
             existing.Narrative = detection.Narrative ?? existing.Narrative;
             existing.Description = detection.Description ?? existing.Description;
             existing.IsBot = detection.IsBot;
+            existing.ThreatScore = detection.ThreatScore ?? existing.ThreatScore;
+            existing.ThreatBand = detection.ThreatBand ?? existing.ThreatBand;
 
             existing.ScoreHistory.AddLast(detection.BotProbability);
             while (existing.ScoreHistory.Count > ScoreHistorySize)
@@ -254,7 +260,9 @@ public sealed class SignatureAggregateCache
                 LastSeen = agg.LastSeen,
                 Narrative = agg.Narrative,
                 Description = agg.Description,
-                IsKnownBot = agg.IsBot
+                IsKnownBot = agg.IsBot,
+                ThreatScore = agg.ThreatScore,
+                ThreatBand = agg.ThreatBand,
             };
         }
     }
@@ -324,6 +332,8 @@ public sealed class SignatureAggregate
     public string? Narrative;
     public string? Description;
     public bool IsBot;
+    public double? ThreatScore;
+    public string? ThreatBand;
 
     /// <summary>LFU access counter — incremented on read, periodically aged.</summary>
     public long AccessCount;

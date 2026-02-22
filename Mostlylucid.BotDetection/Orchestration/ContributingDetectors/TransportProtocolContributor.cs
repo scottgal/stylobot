@@ -115,11 +115,44 @@ public partial class TransportProtocolContributor : ConfiguredContributorBase
             }
 
             state.WriteSignal(SignalKeys.TransportProtocol, protocol);
+
+            // Two-level classification: transport class + protocol class
+            var transportClass = protocol switch
+            {
+                "websocket" => "websocket",
+                "sse" => "sse",
+                _ => "http"
+            };
+
+            var isSignalR = IsSignalRNegotiate(request) || IsSignalRConnect(request, protocol);
+            var signalRType = isSignalR ? ClassifySignalRType(request, protocol) : null;
+
+            var protocolClass = isSignalR
+                ? "signalr"
+                : protocol switch
+                {
+                    "grpc" or "grpc-web" => "grpc",
+                    "graphql" => "api",
+                    _ => "unknown"
+                };
+
+            var isStreaming = transportClass != "http" || isSignalR;
+
+            state.WriteSignals([
+                new(SignalKeys.TransportClass, transportClass),
+                new(SignalKeys.TransportProtocolClass, protocolClass),
+                new(SignalKeys.TransportIsSignalR, isSignalR),
+                new(SignalKeys.TransportIsStreaming, isStreaming)
+            ]);
+
+            if (signalRType != null)
+                state.WriteSignal(SignalKeys.TransportSignalRType, signalRType);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error analyzing transport protocol");
             state.WriteSignal(SignalKeys.TransportProtocol, "http");
+            state.WriteSignal(SignalKeys.TransportIsStreaming, false);
         }
 
         if (contributions.Count == 0)
@@ -429,11 +462,17 @@ public partial class TransportProtocolContributor : ConfiguredContributorBase
                 confidenceOverride: SseMissingCacheControlConfidence,
                 weightMultiplier: 0.8));
 
-        // Last-Event-ID: 0 or -1 — history replay attempt
-        // This is a data extraction technique: requesting all historical events from the beginning
+        // Last-Event-ID presence — SSE reconnect detection
         if (request.Headers.TryGetValue("Last-Event-ID", out var lastEventId))
         {
             var eventIdValue = lastEventId.ToString().Trim();
+            state.WriteSignals([
+                new(SignalKeys.TransportSseReconnect, true),
+                new(SignalKeys.TransportSseLastEventId, eventIdValue)
+            ]);
+
+            // Last-Event-ID: 0 or -1 — history replay attempt
+            // This is a data extraction technique: requesting all historical events from the beginning
             if (eventIdValue is "0" or "-1")
                 contributions.Add(BotContribution(
                     "Protocol",
@@ -497,6 +536,59 @@ public partial class TransportProtocolContributor : ConfiguredContributorBase
         {
             return false;
         }
+    }
+
+    // ==========================================
+    // SignalR Detection Helpers (generic, protocol-spec-based)
+    // ==========================================
+
+    /// <summary>
+    ///     Detect SignalR negotiate requests.
+    ///     POST to path ending in /negotiate with negotiateVersion query parameter.
+    ///     This is the first step of SignalR's connection protocol.
+    /// </summary>
+    private static bool IsSignalRNegotiate(HttpRequest request)
+    {
+        if (!HttpMethods.IsPost(request.Method))
+            return false;
+
+        var path = request.Path.Value ?? "";
+        if (!path.EndsWith("/negotiate", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var query = request.QueryString.Value ?? "";
+        return query.Contains("negotiateVersion", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    ///     Detect SignalR connection requests (WebSocket/SSE/long-polling transport).
+    ///     These carry an id= query parameter (connection token from negotiate).
+    /// </summary>
+    private static bool IsSignalRConnect(HttpRequest request, string protocol)
+    {
+        var query = request.QueryString.Value ?? "";
+        if (!query.Contains("id=", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Must be a transport that SignalR uses
+        return protocol is "websocket" or "sse" or "http";
+    }
+
+    /// <summary>
+    ///     Classify the SignalR transport type based on protocol and request characteristics.
+    /// </summary>
+    private static string ClassifySignalRType(HttpRequest request, string protocol)
+    {
+        var path = request.Path.Value ?? "";
+        if (path.EndsWith("/negotiate", StringComparison.OrdinalIgnoreCase))
+            return "negotiate";
+
+        return protocol switch
+        {
+            "websocket" => "websocket",
+            "sse" => "sse",
+            _ => "longpolling"
+        };
     }
 
     [GeneratedRegex(@"__schema|__type", RegexOptions.IgnoreCase)]

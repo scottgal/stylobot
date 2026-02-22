@@ -133,6 +133,12 @@ defaults:
     # Real humans almost never hit multiple unique 404 paths.
     # A single 404 from a stale bookmark is normal; 3+ unique paths is scanning.
 
+    # EXCLUSIVE 404: Nearly all responses are 404 (catches single-path hammering)
+    exclusive_404_min_count: 3      # Minimum 404 count to trigger
+    exclusive_404_ratio: 0.8        # Minimum 404/total ratio
+    exclusive_404_confidence: 0.75  # Confidence delta
+    exclusive_404_weight: 2.0       # Contribution weight
+
     # HEAVY: Systematic vulnerability scanning
     scan_heavy_count_404: 8         # Total 404s required
     scan_heavy_unique_paths: 5      # Unique 404 paths required

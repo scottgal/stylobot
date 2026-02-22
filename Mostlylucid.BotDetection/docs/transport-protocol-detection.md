@@ -10,6 +10,29 @@ For **WebSocket**, it validates RFC 6455 compliance: Sec-WebSocket-Key must be p
 
 The detector emits the identified protocol as a signal (`transport.protocol`) for use by downstream detectors. It does not read request bodies or inspect post-upgrade frames.
 
+## Two-Level Transport Classification
+
+Beyond protocol identification, TransportProtocolContributor emits a two-level classification that downstream detectors use to suppress false positives on streaming traffic:
+
+- **Transport class** (`transport.transport_class`): Physical transport — `http`, `websocket`, or `sse`
+- **Protocol class** (`transport.protocol_class`): Application protocol — `signalr`, `grpc`, `api`, or `unknown`
+- **Streaming flag** (`transport.is_streaming`): Composite signal — `true` for WebSocket, SSE, or any SignalR transport (including long-polling)
+
+### SignalR Detection
+
+SignalR connections are detected generically from protocol-spec patterns (no site-specific paths):
+
+- **Negotiate**: POST + path ends `/negotiate` + `negotiateVersion` query parameter
+- **Connect**: Any transport with `id=` query parameter (connection token from negotiate)
+
+The SignalR transport type is classified as `negotiate`, `websocket`, `sse`, or `longpolling`.
+
+### SSE Reconnect Detection
+
+When `Last-Event-ID` is present, the detector emits `transport.sse_reconnect = true` and `transport.sse_last_event_id` with the value. This allows StreamAbuseContributor to track reconnect frequency.
+
+For the full stream-aware detection architecture, including how downstream detectors consume these signals and the StreamAbuseContributor, see [Stream Transport Detection](stream-transport-detection.md).
+
 ## Signals Emitted
 
 | Signal Key | Type | Description |
@@ -22,6 +45,13 @@ The detector emits the identified protocol as a signal (`transport.protocol`) fo
 | `transport.graphql_introspection` | boolean | GraphQL introspection query detected |
 | `transport.graphql_batch` | boolean | GraphQL batch query indicator found |
 | `transport.sse` | boolean | SSE request detected |
+| `transport.transport_class` | string | Transport class: `http`, `websocket`, `sse` |
+| `transport.protocol_class` | string | Protocol class: `signalr`, `grpc`, `api`, `unknown` |
+| `transport.is_signalr` | boolean | Whether request is part of a SignalR connection |
+| `transport.signalr_type` | string | SignalR transport: `negotiate`, `websocket`, `sse`, `longpolling` |
+| `transport.sse_reconnect` | boolean | SSE reconnect detected (Last-Event-ID present) |
+| `transport.sse_last_event_id` | string | Last-Event-ID value from SSE reconnect |
+| `transport.is_streaming` | boolean | Any streaming transport (WebSocket, SSE, or SignalR) |
 
 ## Configuration
 

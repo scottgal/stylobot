@@ -277,6 +277,9 @@
                                 <div class="badge badge-sm font-semibold"
                                      :style="'background-color:' + alphaColor(riskColor(activeDetail?.riskBand), 18) + '; color:' + riskColor(activeDetail?.riskBand)"
                                      x-text="activeDetail?.riskBand"></div>
+                                <div x-show="activeDetail?.threatBand" class="badge badge-sm font-semibold"
+                                     :class="threatBandClass(activeDetail?.threatBand)"
+                                     x-text="'Threat: ' + activeDetail?.threatBand"></div>
                             </div>
 
                             <!-- Narrative -->
@@ -352,6 +355,9 @@
                                 <div class="badge badge-sm font-semibold"
                                      :style="'background-color:' + alphaColor(riskColor(yourData?.riskBand), 18) + '; color:' + riskColor(yourData?.riskBand)"
                                      x-text="yourData?.riskBand"></div>
+                                <div x-show="yourData?.threatBand" class="badge badge-sm font-semibold ml-1"
+                                     :class="threatBandClass(yourData?.threatBand)"
+                                     x-text="'Threat: ' + yourData?.threatBand"></div>
                             </div>
 
                             <!-- Narrative -->
@@ -567,7 +573,16 @@
                                         <div class="mb-1.5">
                                             <div class="flex items-center justify-between text-[11px]">
                                                 <span class="font-semibold truncate" x-text="cl.label"></span>
-                                                <span class="badge badge-xs" :class="cl.memberCount > 5 ? 'badge-error' : 'badge-warning'" x-text="cl.memberCount + ' members'"></span>
+                                                <div class="flex items-center gap-1">
+                                                    <span x-show="cl.averageThreatScore > 0.1"
+                                                          class="badge badge-xs"
+                                                          :class="threatBandClass(cl.averageThreatScore >= 0.55 ? 'High' : cl.averageThreatScore >= 0.35 ? 'Elevated' : 'Low')"
+                                                          x-text="'Threat ' + (cl.averageThreatScore * 100).toFixed(0) + '%'"></span>
+                                                    <span class="badge badge-xs" :class="cl.memberCount > 5 ? 'badge-error' : 'badge-warning'" x-text="cl.memberCount + ' members'"></span>
+                                                </div>
+                                            </div>
+                                            <div x-show="cl.dominantIntent" class="text-[10px] opacity-60 mt-0.5">
+                                                <span class="font-medium" x-text="'Intent: ' + cl.dominantIntent"></span>
                                             </div>
                                             <div x-show="cl.description" class="text-[10px] opacity-50 mt-0.5" x-text="cl.description"></div>
                                         </div>
@@ -684,6 +699,8 @@
                                 <!-- Row 3: Compact stats -->
                                 <div class="flex items-center gap-3 text-[10px] text-base-content/40">
                                     <span :class="riskLabelClass(v.riskBand)" x-text="v.riskBand"></span>
+                                    <span x-show="v.threatBand" :class="threatBandClass(v.threatBand)"
+                                          class="text-[9px]" x-text="v.threatBand"></span>
                                     <template x-if="v.hasFullData">
                                         <span x-text="((v.botProbability || 0) * 100).toFixed(0) + '% prob'"></span>
                                     </template>

@@ -14,7 +14,7 @@
 
 ## 🎯 Overview
 
-Implemented a comprehensive real-time bot detection signature analysis system with SignalR streaming, REST API, TagHelper visualization, and advanced fingerprinting. **All 21 non-AI detectors** now enabled by default in the demo.
+Implemented a comprehensive real-time bot detection signature analysis system with SignalR streaming, REST API, TagHelper visualization, and advanced fingerprinting. **All 29 non-AI detectors** now enabled by default in the demo.
 
 ---
 
@@ -103,7 +103,7 @@ Implemented a comprehensive real-time bot detection signature analysis system wi
     - 5-minute getting started guide
     - Example curl commands for testing
     - JavaScript integration examples
-    - All 21 detectors explained
+    - All 29 detectors explained
     - Common scenarios (Googlebot, Scanner, Headless, Human)
     - Troubleshooting section
 
@@ -194,7 +194,7 @@ Implemented a comprehensive real-time bot detection signature analysis system wi
    - Added "NEW: Real-Time Signature Demo" section
    - Added complete "Signature Analysis System" documentation
    - API endpoints, SignalR usage, TagHelper examples
-   - All 21 detectors listed
+   - All 29 detectors listed
    - Performance metrics
    - Production deployment guidance
 
@@ -212,7 +212,7 @@ Implemented a comprehensive real-time bot detection signature analysis system wi
 
 ---
 
-## 🔍 All 21 Detectors Enabled
+## 🔍 All 29 Detectors Enabled
 
 The `full-demo` policy enables ALL non-AI detectors:
 
@@ -272,7 +272,7 @@ The `full-demo` policy enables ALL non-AI detectors:
        ▼
 ┌──────────────────────────────────────┐
 │ BotDetectionMiddleware               │
-│ - Runs ALL 21 detectors in parallel  │
+│ - Runs ALL 29 detectors in parallel  │
 │ - Generates AggregatedEvidence       │
 │ - Stores in HttpContext.Items        │
 └──────┬───────────────────────────────┘
@@ -489,7 +489,7 @@ Time Elapsed 00:00:01.60
 - [x] TagHelper component
 - [x] Demo UI page
 - [x] YARP integration
-- [x] All 21 detectors enabled
+- [x] All 29 detectors enabled
 - [x] Unit tests (22 tests)
 - [x] Documentation (QUICKSTART + README)
 - [x] Build verification (0 warnings, 0 errors)
@@ -520,3 +520,64 @@ The system is **rock solid**, fully tested, and ready for deployment.
 **Tests Added**: 22
 **Documentation**: 3 files
 **Build Status**: ✅ SUCCESS
+
+---
+
+## v5 — Dashboard Threat Scoring Integration (2026-02-22)
+
+### Overview
+
+Wired the Intent Detection System's threat scoring through the entire dashboard pipeline. Threat scoring is **orthogonal to bot probability** — a human probing `.env` files has low bot probability but high threat score. Both dimensions are now surfaced independently throughout the dashboard.
+
+### Threat Bands
+
+| Band | Score Range | Color |
+|------|-----------|-------|
+| Critical | >= 0.80 | Red |
+| High | >= 0.55 | Orange |
+| Elevated | >= 0.35 | Amber |
+| Low | >= 0.15 | Green |
+| None | < 0.15 | Hidden |
+
+### Files Modified (9)
+
+| File | Changes |
+|------|---------|
+| `UI/Models/DashboardModels.cs` | Added `ThreatScore`/`ThreatBand` to `DashboardDetectionEvent`, `DashboardSignatureEvent`; `DominantIntent`/`AverageThreatScore` to `DashboardClusterEvent` |
+| `UI/Models/DashboardTopBotEntry.cs` | Added `ThreatScore`/`ThreatBand` |
+| `UI/Middleware/DetectionBroadcastMiddleware.cs` | Added `"intent."` to signal whitelist; populated threat in local + upstream detection builders + signature storage |
+| `UI/Middleware/StyloBotDashboardMiddleware.cs` | Added intent/threat to cluster projections (SSR + API) and `BuildYourDetectionJson` |
+| `UI/Services/SignatureAggregateCache.cs` | Threaded threat through `SignatureAggregate` → `CreateNew` → `Update` → `ToEntry` → `SeedFromTopBots` |
+| `UI/Services/VisitorListCache.cs` | Threaded threat through `CachedVisitor` → `Upsert` (create + update) → `SnapshotAll` |
+| `UI/Services/DetectionNarrativeBuilder.cs` | Threat qualifier prefix on bot narratives (Critical/High/Elevated) |
+| `UI/Views/Dashboard/Index.cshtml` | Threat badges on clusters, detection detail, your detection, visitor list |
+| `website/src/dashboard.ts` | `threatBandColor`/`threatBandClass` helpers; `intent.` signal category; exposed in both Alpine apps |
+
+### Files Created (1)
+
+| File | Purpose |
+|------|---------|
+| `docs/dashboard-threat-scoring.md` | Comprehensive documentation: architecture, data flow, API endpoints, UI, security considerations |
+
+### API Endpoints Enhanced
+
+| Endpoint | New Fields |
+|----------|-----------|
+| `/_stylobot/api/detections` | `threatScore`, `threatBand` |
+| `/_stylobot/api/signatures` | `threatScore`, `threatBand` |
+| `/_stylobot/api/topbots` | `threatScore`, `threatBand` |
+| `/_stylobot/api/clusters` | `dominantIntent`, `averageThreatScore` |
+| `/_stylobot/api/me` | `threatScore`, `threatBand` |
+| SignalR broadcasts | `threatScore`, `threatBand` on detections + signatures |
+
+### Verification Results
+
+- **Build**: 0 errors across 7 projects
+- **Tests**: 1,181 unit tests passed, 0 failed (862 main + 319 orchestration)
+- **Security**: 0 XSS, 0 PII leaks, 0 injection vectors, thread safety verified
+- **Backwards Compatibility**: All nullable fields; existing detections without intent data show no extra UI
+- **Plan Requirements**: All 24 items verified complete
+
+### Documentation
+
+Full details: [`docs/dashboard-threat-scoring.md`](Mostlylucid.BotDetection/docs/dashboard-threat-scoring.md)

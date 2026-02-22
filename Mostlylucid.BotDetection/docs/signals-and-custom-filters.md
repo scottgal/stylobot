@@ -13,7 +13,7 @@ Request → Orchestrator
   ├─ GeoContributor      → geo.country_code, geo.is_vpn, geo.is_tor
   ├─ HeaderContributor   → header.missing_count, header.suspicious_count
   ├─ HeuristicDetector   → heuristic.confidence, heuristic.probability
-  └─ ... (21+ detectors)
+  └─ ... (29 detectors)
       ↓
   AggregatedEvidence.Signals (merged dictionary)
       ↓

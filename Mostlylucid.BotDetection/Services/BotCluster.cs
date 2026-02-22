@@ -46,6 +46,12 @@ public sealed record BotCluster
 
     /// <summary>When any member was last seen.</summary>
     public DateTimeOffset LastSeen { get; init; }
+
+    /// <summary>Dominant intent category across cluster members (e.g., "scanning", "attacking"). Null if intent analysis hasn't run.</summary>
+    public string? DominantIntent { get; init; }
+
+    /// <summary>Average threat score across cluster members (0.0 to 1.0). 0.0 if no intent data available.</summary>
+    public double AverageThreatScore { get; init; }
 }
 
 /// <summary>

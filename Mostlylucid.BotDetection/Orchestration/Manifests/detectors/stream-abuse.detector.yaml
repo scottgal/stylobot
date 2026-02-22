@@ -1,0 +1,150 @@
+# Stream Abuse Detector - catches attackers hiding behind streaming traffic
+name: StreamAbuseContributor
+priority: 35  # After behavioral detectors
+enabled: true
+description: Detects stream abuse patterns (handshake storms, cross-endpoint mixing, reconnect abuse, endpoint probing)
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: stream
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with streaming transport signals
+      signal_pattern: transport.*
+
+  required_signals:
+    - transport.protocol
+    - waveform.signature
+
+  optional_signals:
+    - transport.is_streaming
+    - transport.sse_reconnect
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Stream abuse analysis contribution
+
+  signals:
+    - key: stream.handshake_storm
+      entity_type: boolean
+      salience: 0.8
+      description: Whether WebSocket handshake storm detected
+    - key: stream.cross_endpoint_mixing
+      entity_type: boolean
+      salience: 0.9
+      description: Whether cross-endpoint mixing detected (streaming + scraping)
+    - key: stream.reconnect_rate
+      entity_type: double
+      salience: 0.6
+      description: SSE reconnect rate (reconnects/minute)
+    - key: stream.concurrent_streams
+      entity_type: integer
+      salience: 0.7
+      description: Number of distinct streaming endpoint paths per signature
+    - key: stream.abuse_checked
+      entity_type: boolean
+      salience: 0.3
+      description: Whether stream abuse analysis was performed
+
+triggers:
+  requires:
+    - transport.protocol
+    - waveform.signature
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.stream_abuse.started
+
+  on_complete:
+    - key: stream.abuse_checked
+      type: boolean
+      description: Stream abuse analysis completed
+
+  on_failure:
+    - detector.stream_abuse.failed
+
+listens:
+  required:
+    - transport.protocol
+    - waveform.signature
+  optional:
+    - transport.is_streaming
+    - transport.sse_reconnect
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 80
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:StreamAbuseContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.6
+    human_signal: 1.0
+    verified: 1.8
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.5
+    human_indicated: -0.1
+    strong_signal: 0.7
+    high_threshold: 0.7
+    low_threshold: 0.2
+    escalation_threshold: 0.5
+
+  timing:
+    timeout_ms: 5  # Very fast - cache lookup only
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: true
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Handshake storm detection
+    handshake_storm_threshold: 10
+    handshake_storm_window_seconds: 60
+    handshake_storm_confidence: 0.65
+    handshake_storm_weight: 1.8
+    # Cross-endpoint mixing detection
+    cross_endpoint_mixing_min_stream_requests: 3
+    cross_endpoint_mixing_min_page_requests: 5
+    cross_endpoint_mixing_max_asset_ratio: 0.2
+    cross_endpoint_mixing_confidence: 0.6
+    cross_endpoint_mixing_weight: 2.0
+    # SSE reconnect rate detection
+    sse_reconnect_rate_threshold: 20
+    sse_reconnect_rate_window_seconds: 60
+    sse_reconnect_confidence: 0.5
+    sse_reconnect_weight: 1.5
+    # Concurrent streams detection
+    concurrent_streams_threshold: 5
+    concurrent_streams_confidence: 0.45
+    concurrent_streams_weight: 1.3
+    # Cache configuration
+    cache_sliding_expiration_seconds: 300
+
+tags:
+  - wave-1
+  - protocol
+  - streaming
+  - abuse-detection

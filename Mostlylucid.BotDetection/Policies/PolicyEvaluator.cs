@@ -268,6 +268,8 @@ public class PolicyEvaluator : IPolicyEvaluator
         // A transition must have at least one condition to prevent accidental unconditional triggers.
         var hasConditions = transition.WhenRiskExceeds.HasValue
                             || transition.WhenRiskBelow.HasValue
+                            || transition.WhenThreatExceeds.HasValue
+                            || transition.WhenThreatBelow.HasValue
                             || !string.IsNullOrEmpty(transition.WhenSignal)
                             || !string.IsNullOrEmpty(transition.WhenReputationState);
 
@@ -287,6 +289,23 @@ public class PolicyEvaluator : IPolicyEvaluator
         if (transition.WhenRiskBelow.HasValue &&
             state.CurrentRiskScore > transition.WhenRiskBelow.Value)
             return false;
+
+        // Check threat score conditions (from IntentContributor)
+        if (transition.WhenThreatExceeds.HasValue || transition.WhenThreatBelow.HasValue)
+        {
+            var threatScore = 0.0;
+            if (state.Signals.TryGetValue(Models.SignalKeys.IntentThreatScore, out var rawThreat)
+                && rawThreat is double d)
+                threatScore = d;
+
+            if (transition.WhenThreatExceeds.HasValue &&
+                threatScore < transition.WhenThreatExceeds.Value)
+                return false;
+
+            if (transition.WhenThreatBelow.HasValue &&
+                threatScore > transition.WhenThreatBelow.Value)
+                return false;
+        }
 
         // Check signal conditions
         if (!string.IsNullOrEmpty(transition.WhenSignal))
@@ -318,6 +337,10 @@ public class PolicyEvaluator : IPolicyEvaluator
             parts.Add($"risk >= {transition.WhenRiskExceeds.Value:F2}");
         if (transition.WhenRiskBelow.HasValue)
             parts.Add($"risk <= {transition.WhenRiskBelow.Value:F2}");
+        if (transition.WhenThreatExceeds.HasValue)
+            parts.Add($"threat >= {transition.WhenThreatExceeds.Value:F2}");
+        if (transition.WhenThreatBelow.HasValue)
+            parts.Add($"threat <= {transition.WhenThreatBelow.Value:F2}");
         if (!string.IsNullOrEmpty(transition.WhenSignal))
             parts.Add($"signal '{transition.WhenSignal}'");
         if (!string.IsNullOrEmpty(transition.WhenReputationState))

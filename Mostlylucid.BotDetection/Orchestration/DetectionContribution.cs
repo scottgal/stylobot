@@ -129,6 +129,17 @@ public sealed record AggregatedEvidence
     public bool AiRan { get; init; }
 
     /// <summary>
+    /// Unified threat score (0.0 = benign, 1.0 = malicious).
+    /// Orthogonal to BotProbability — a human probing .env files has low BotProbability but high ThreatScore.
+    /// </summary>
+    public double ThreatScore { get; init; }
+
+    /// <summary>
+    /// Threat band classification based on ThreatScore.
+    /// </summary>
+    public ThreatBand ThreatBand { get; init; }
+
+    /// <summary>
     /// All contributions (from ledger).
     /// </summary>
     public IReadOnlyList<DetectionContribution> Contributions =>
@@ -183,4 +194,26 @@ public enum RecommendedAction
 
     /// <summary>Block the request</summary>
     Block
+}
+
+/// <summary>
+/// Threat classification bands for intent scoring.
+/// Orthogonal to RiskBand — measures malicious intent, not bot probability.
+/// </summary>
+public enum ThreatBand
+{
+    /// <summary>No threat detected (0.0 - 0.15)</summary>
+    None,
+
+    /// <summary>Low threat (0.15 - 0.35)</summary>
+    Low,
+
+    /// <summary>Elevated threat (0.35 - 0.55)</summary>
+    Elevated,
+
+    /// <summary>High threat (0.55 - 0.80)</summary>
+    High,
+
+    /// <summary>Critical threat (0.80 - 1.0)</summary>
+    Critical
 }

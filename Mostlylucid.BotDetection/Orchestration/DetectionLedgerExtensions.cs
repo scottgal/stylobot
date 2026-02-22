@@ -48,6 +48,12 @@ public static class DetectionLedgerExtensions
             return CreateEarlyExitResult(ledger, aiRan, policyName, premergedSignals);
         }
 
+        var signals = premergedSignals != null
+            ? new Dictionary<string, object>(premergedSignals)
+            : ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        var (threatScore, threatBand) = ExtractThreatScore(signals);
+
         return new AggregatedEvidence
         {
             Ledger = ledger,
@@ -57,9 +63,7 @@ public static class DetectionLedgerExtensions
             EarlyExit = false,
             PrimaryBotType = primaryBotType,
             PrimaryBotName = primaryBotName,
-            Signals = premergedSignals != null
-                ? new Dictionary<string, object>(premergedSignals)
-                : ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+            Signals = signals,
             TotalProcessingTimeMs = ledger.TotalProcessingTimeMs,
             CategoryBreakdown = ledger.CategoryBreakdown,
             ContributingDetectors = ledger.ContributingDetectors,
@@ -67,7 +71,9 @@ public static class DetectionLedgerExtensions
             PolicyName = policyName,
             PolicyAction = policyAction,
             TriggeredActionPolicyName = actionPolicyName,
-            AiRan = aiRan
+            AiRan = aiRan,
+            ThreatScore = threatScore,
+            ThreatBand = threatBand
         };
     }
 
@@ -81,6 +87,12 @@ public static class DetectionLedgerExtensions
         var verdict = ParseEarlyExitVerdict(exitContrib.EarlyExitVerdict);
         var isGood = verdict is EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted;
         var isBot = verdict is EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.VerifiedBadBot;
+
+        var earlySignals = premergedSignals != null
+            ? new Dictionary<string, object>(premergedSignals)
+            : ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+
+        var (earlyThreatScore, earlyThreatBand) = ExtractThreatScore(earlySignals);
 
         return new AggregatedEvidence
         {
@@ -99,16 +111,43 @@ public static class DetectionLedgerExtensions
             EarlyExitVerdict = verdict,
             PrimaryBotType = ParseBotType(exitContrib.BotType),
             PrimaryBotName = exitContrib.BotName,
-            Signals = premergedSignals != null
-                ? new Dictionary<string, object>(premergedSignals)
-                : ledger.MergedSignals.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+            Signals = earlySignals,
             TotalProcessingTimeMs = ledger.TotalProcessingTimeMs,
             CategoryBreakdown = ledger.CategoryBreakdown,
             ContributingDetectors = ledger.ContributingDetectors,
             FailedDetectors = ledger.FailedDetectors,
             PolicyName = policyName,
-            AiRan = aiRan
+            AiRan = aiRan,
+            ThreatScore = earlyThreatScore,
+            ThreatBand = earlyThreatBand
         };
+    }
+
+    private static (double ThreatScore, ThreatBand Band) ExtractThreatScore(
+        IReadOnlyDictionary<string, object> signals)
+    {
+        double threatScore = 0.0;
+        if (signals.TryGetValue(SignalKeys.IntentThreatScore, out var rawScore))
+        {
+            threatScore = rawScore switch
+            {
+                double d => d,
+                float f => f,
+                int i => i,
+                _ => 0.0
+            };
+        }
+
+        var band = threatScore switch
+        {
+            >= 0.80 => ThreatBand.Critical,
+            >= 0.55 => ThreatBand.High,
+            >= 0.35 => ThreatBand.Elevated,
+            >= 0.15 => ThreatBand.Low,
+            _ => ThreatBand.None
+        };
+
+        return (threatScore, band);
     }
 
     private static double ComputeCoverageConfidence(IReadOnlySet<string> detectorsRan, bool aiRan)

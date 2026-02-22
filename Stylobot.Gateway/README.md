@@ -147,7 +147,7 @@ docker compose up -d
 
 **Best for:** Production deployments that need full persistence, multi-instance scaling, advanced detection.
 
-PostgreSQL stores learned weights, patterns, and reputation data. Enables all 21 detectors including advanced fingerprinting.
+PostgreSQL stores learned weights, patterns, and reputation data. Enables all 29 detectors including advanced fingerprinting.
 
 ```yaml
 # docker-compose.yml
@@ -249,7 +249,7 @@ docker compose up -d
 
 **What you get (in addition to Tier 2):**
 - PostgreSQL-backed persistence (weights, patterns, reputation, bot data)
-- All 21 detectors including TLS/TCP/HTTP2 fingerprinting
+- All 29 detectors including TLS/TCP/HTTP2 fingerprinting
 - Adaptive learning with drift detection
 - Multi-instance safe (shared database)
 - Path-specific detection policies
@@ -260,7 +260,7 @@ docker compose up -d
 
 | Feature | Minimal | Standard | Full |
 |---------|---------|----------|------|
-| Bot detection | 10 fast detectors | 10 fast detectors | All 21 detectors |
+| Bot detection | 10 fast detectors | 10 fast detectors | All 29 detectors |
 | Latency | <1ms | <1ms | <2ms |
 | Config files | None | `yarp.json` | `yarp.json` + `appsettings.json` |
 | Database | None | SQLite (auto) | PostgreSQL |

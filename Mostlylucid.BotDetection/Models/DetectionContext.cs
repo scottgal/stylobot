@@ -684,6 +684,9 @@ public static class SignalKeys
     /// <summary>Boolean: true if systematic vulnerability scanning pattern detected</summary>
     public const string ResponseScanPatternDetected = "response.scan_pattern_detected";
 
+    /// <summary>Boolean: true if nearly all responses are 404 (exclusive 404 pattern)</summary>
+    public const string ResponseExclusive404 = "response.exclusive_404";
+
     /// <summary>Int: Number of authentication failures (401/403 responses)</summary>
     public const string ResponseAuthFailures = "response.auth_failures";
 
@@ -870,4 +873,79 @@ public static class SignalKeys
 
     /// <summary>Boolean: true if SSE request detected (Accept: text/event-stream)</summary>
     public const string TransportSse = "transport.sse";
+
+    // ==========================================
+    // Two-level transport classification signals
+    // Set by TransportProtocolContributor for downstream stream-aware detectors
+    // ==========================================
+
+    /// <summary>String: transport class — "http" | "websocket" | "sse"</summary>
+    public const string TransportClass = "transport.transport_class";
+
+    /// <summary>String: protocol class — "document" | "api" | "signalr" | "grpc" | "static" | "unknown"</summary>
+    public const string TransportProtocolClass = "transport.protocol_class";
+
+    /// <summary>Boolean: true if request is part of a SignalR connection (negotiate, connect, or long-poll)</summary>
+    public const string TransportIsSignalR = "transport.is_signalr";
+
+    /// <summary>String: SignalR transport type — "negotiate" | "websocket" | "sse" | "longpolling"</summary>
+    public const string TransportSignalRType = "transport.signalr_type";
+
+    /// <summary>Boolean: true if SSE reconnect detected (Last-Event-ID header present)</summary>
+    public const string TransportSseReconnect = "transport.sse_reconnect";
+
+    /// <summary>String: Last-Event-ID header value from SSE reconnect</summary>
+    public const string TransportSseLastEventId = "transport.sse_last_event_id";
+
+    /// <summary>Boolean: true if request uses any streaming transport (WebSocket, SSE, or SignalR)</summary>
+    public const string TransportIsStreaming = "transport.is_streaming";
+
+    // ==========================================
+    // Stream abuse detection signals
+    // Set by StreamAbuseContributor for detecting attackers hiding behind streaming traffic
+    // ==========================================
+
+    /// <summary>Boolean: true if WebSocket handshake storm detected (excessive upgrades per signature)</summary>
+    public const string StreamHandshakeStorm = "stream.handshake_storm";
+
+    /// <summary>Boolean: true if cross-endpoint mixing detected (streaming + page-scraping from same signature)</summary>
+    public const string StreamCrossEndpointMixing = "stream.cross_endpoint_mixing";
+
+    /// <summary>Double: SSE reconnect rate (reconnects per minute)</summary>
+    public const string StreamReconnectRate = "stream.reconnect_rate";
+
+    /// <summary>Int: number of distinct streaming endpoint paths per signature</summary>
+    public const string StreamConcurrentStreams = "stream.concurrent_streams";
+
+    /// <summary>Boolean: true if stream abuse analysis was performed</summary>
+    public const string StreamAbuseChecked = "stream.abuse_checked";
+
+    // ==========================================
+    // Intent / Threat scoring signals
+    // Set by IntentContributor from session activity analysis
+    // ==========================================
+
+    /// <summary>Double: unified threat score (0.0 = benign, 1.0 = malicious)</summary>
+    public const string IntentThreatScore = "intent.threat_score";
+
+    /// <summary>String: threat band classification (None, Low, Elevated, High, Critical)</summary>
+    public const string IntentThreatBand = "intent.threat_band";
+
+    /// <summary>String: intent category (browsing, scraping, scanning, attacking, reconnaissance, monitoring, abuse)</summary>
+    public const string IntentCategory = "intent.category";
+
+    /// <summary>Boolean: true if LLM was used to classify this session's intent</summary>
+    public const string IntentLlmClassified = "intent.llm_classified";
+
+    /// <summary>Double: highest similarity score from intent HNSW index</summary>
+    public const string IntentSimilarityScore = "intent.similarity_score";
+
+    /// <summary>Int: number of similar intent patterns found above threshold</summary>
+    public const string IntentMatchCount = "intent.match_count";
+
+    /// <summary>Boolean: true if intent classification is ambiguous (0.3-0.7 threat score)</summary>
+    public const string IntentAmbiguous = "intent.ambiguous";
+
+    /// <summary>Boolean: true if intent analysis was performed</summary>
+    public const string IntentAnalyzed = "intent.analyzed";
 }

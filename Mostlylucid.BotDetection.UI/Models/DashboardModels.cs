@@ -53,6 +53,9 @@ public sealed record DashboardDetectionEvent
     /// </summary>
     public Dictionary<string, object>? ImportantSignals { get; init; }
 
+    public double? ThreatScore { get; init; }
+    public string? ThreatBand { get; init; }
+
     // Sparkline history removed from SignalR broadcasts to reduce payload bloat.
     // Clients fetch sparkline data on-demand via the dashboard API endpoints.
 }
@@ -95,6 +98,8 @@ public sealed record DashboardSignatureEvent
     public string? Narrative { get; init; }
     public string? Description { get; init; }
     public List<string>? TopReasons { get; init; }
+    public double? ThreatScore { get; init; }
+    public string? ThreatBand { get; init; }
 }
 
 /// <summary>
@@ -182,4 +187,6 @@ public sealed record DashboardClusterEvent
     public string? Country { get; init; }
     public double AverageSimilarity { get; init; }
     public double TemporalDensity { get; init; }
+    public string? DominantIntent { get; init; }
+    public double AverageThreatScore { get; init; }
 }
