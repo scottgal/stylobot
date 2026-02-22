@@ -218,6 +218,7 @@ public partial class TransportProtocolContributor : ConfiguredContributorBase
         // Host vs Origin mismatch — CSWSH (Cross-Site WebSocket Hijacking) detection
         // A browser always sends Origin matching the page that initiated the connection.
         // An Origin from a different domain attempting to upgrade is a CSRF probe.
+        var originMatches = false;
         if (hasOrigin && request.Headers.TryGetValue("Host", out var host))
         {
             var originValue = request.Headers["Origin"].ToString().Trim();
@@ -236,8 +237,22 @@ public partial class TransportProtocolContributor : ConfiguredContributorBase
                             $"WebSocket Origin/Host mismatch: Origin={originHost}, Host={hostOnly} (potential CSWSH)",
                             confidenceOverride: WsOriginMismatchConfidence,
                             weightMultiplier: 1.4));
+                    else
+                        originMatches = true;
                 }
             }
+        }
+
+        // If all RFC 6455 checks passed, this is a fully compliant WebSocket upgrade.
+        // Real browsers implement the full handshake (valid key, version 13, matching origin).
+        // Emit a positive human signal to counterbalance reputation bias.
+        if (contributions.Count == 0 && hasKey && hasVersion && version.ToString().Trim() == "13"
+            && hasOrigin && originMatches)
+        {
+            contributions.Add(HumanContribution(
+                "Protocol",
+                "RFC 6455 compliant WebSocket upgrade (valid key, version 13, matching origin)",
+                weightMultiplier: 1.3));
         }
     }
 

@@ -85,9 +85,14 @@ public class DashboardSummaryBroadcaster : BackgroundService
                     UserAgents = await userAgentsTask
                 });
 
-                // Broadcast summary and countries to connected clients
+                // Broadcast summary, countries, and top bots to connected clients
                 await _hubContext.Clients.All.BroadcastSummary(await summaryTask);
                 await _hubContext.Clients.All.BroadcastCountries(await countriesTask);
+
+                // Broadcast live top bots list — ensures dashboard reflects classification
+                // changes (bot→human flips) without requiring page refresh
+                var topBots = _signatureCache.GetTopBots(page: 1, pageSize: 50);
+                await _hubContext.Clients.All.BroadcastTopBots(topBots);
 
                 await Task.Delay(
                     TimeSpan.FromSeconds(_options.SummaryBroadcastIntervalSeconds),

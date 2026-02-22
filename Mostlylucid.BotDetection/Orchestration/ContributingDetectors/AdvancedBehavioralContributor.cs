@@ -64,42 +64,52 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
             // Record this request for pattern analysis
             _analyzer.RecordRequest(clientIp, currentPath, currentTime);
 
+            // Detect WebSocket upgrades — these need special handling to avoid false positives.
+            // SignalR hub reconnections are normal (same URL, bursty), but we still want timing analysis
+            // to catch machine-gun reconnects at exact intervals.
+            var isWebSocket = context.Request.Headers.TryGetValue("Upgrade", out var upgradeHeader)
+                              && upgradeHeader.ToString().Contains("websocket", StringComparison.OrdinalIgnoreCase);
+
             // Only analyze if we have enough data
             var minRequests = _options.Behavioral.MinRequestsForPatternAnalysis;
 
             // 1. Entropy Analysis - Path entropy
-            var pathEntropy = _analyzer.CalculatePathEntropy(clientIp);
-            if (pathEntropy > 0)
+            // Skip for WebSocket: hub reconnections to the same URL produce low entropy by design
+            double pathEntropy = isWebSocket ? 1.0 : _analyzer.CalculatePathEntropy(clientIp);
+            if (!isWebSocket)
             {
-                // Very high entropy (>3.5) = random scanning (bot)
-                // Very low entropy (<0.5) = too repetitive (bot)
-                if (pathEntropy > 3.5)
+                if (pathEntropy > 0)
                 {
-                    state.WriteSignals([new("PathEntropy", pathEntropy), new("PathEntropyHigh", true)]);
-                    contributions.Add(new DetectionContribution
+                    // Very high entropy (>3.5) = random scanning (bot)
+                    // Very low entropy (<0.5) = too repetitive (bot)
+                    if (pathEntropy > 3.5)
                     {
-                        DetectorName = Name,
-                        Category = "AdvancedBehavioral",
-                        ConfidenceDelta = 0.35,
-                        Weight = 1.3,
-                        Reason = "Visiting many random URLs in no logical order (random scanning pattern)"
-                    });
-                }
-                else if (pathEntropy < 0.5)
-                {
-                    state.WriteSignals([new("PathEntropy", pathEntropy), new("PathEntropyLow", true)]);
-                    contributions.Add(new DetectionContribution
+                        state.WriteSignals([new("PathEntropy", pathEntropy), new("PathEntropyHigh", true)]);
+                        contributions.Add(new DetectionContribution
+                        {
+                            DetectorName = Name,
+                            Category = "AdvancedBehavioral",
+                            ConfidenceDelta = 0.35,
+                            Weight = 1.3,
+                            Reason = "Visiting many random URLs in no logical order (random scanning pattern)"
+                        });
+                    }
+                    else if (pathEntropy < 0.5)
                     {
-                        DetectorName = Name,
-                        Category = "AdvancedBehavioral",
-                        ConfidenceDelta = 0.25,
-                        Weight = 1.2,
-                        Reason = "Repeatedly visiting the same few URLs (too repetitive for a real user)"
-                    });
+                        state.WriteSignals([new("PathEntropy", pathEntropy), new("PathEntropyLow", true)]);
+                        contributions.Add(new DetectionContribution
+                        {
+                            DetectorName = Name,
+                            Category = "AdvancedBehavioral",
+                            ConfidenceDelta = 0.25,
+                            Weight = 1.2,
+                            Reason = "Repeatedly visiting the same few URLs (too repetitive for a real user)"
+                        });
+                    }
                 }
             }
 
-            // 2. Timing Entropy
+            // 2. Timing Entropy — still applies to WebSocket (machine-gun reconnects are suspicious)
             var timingEntropy = _analyzer.CalculateTimingEntropy(clientIp);
             if (timingEntropy > 0)
                 // Very low timing entropy (<0.3) = too regular (bot)
@@ -116,7 +126,7 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                     });
                 }
 
-            // 3. Timing Anomaly Detection
+            // 3. Timing Anomaly Detection — still applies to WebSocket
             var (isAnomaly, zScore, anomalyDesc) = _analyzer.DetectTimingAnomaly(clientIp, currentTime);
             if (isAnomaly)
             {
@@ -131,7 +141,7 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                 });
             }
 
-            // 4. Regular Pattern Detection (Coefficient of Variation)
+            // 4. Regular Pattern Detection (Coefficient of Variation) — still applies to WebSocket
             var (isTooRegular, cv, cvDesc) = _analyzer.DetectRegularPattern(clientIp);
             if (isTooRegular)
             {
@@ -146,39 +156,46 @@ public class AdvancedBehavioralContributor : ContributingDetectorBase
                 });
             }
 
-            // 5. Navigation Pattern Analysis (Markov)
-            var (transitionScore, navPattern) = _analyzer.AnalyzeNavigationPattern(clientIp, currentPath);
-            if (transitionScore > 0)
+            // 5. Navigation Pattern Analysis (Markov) — skip for WebSocket
+            if (!isWebSocket)
             {
-                state.WriteSignals([new("NavigationAnomalyScore", transitionScore), new("NavigationPatternUnusual", true)]);
-                contributions.Add(new DetectionContribution
+                var (transitionScore, navPattern) = _analyzer.AnalyzeNavigationPattern(clientIp, currentPath);
+                if (transitionScore > 0)
                 {
-                    DetectorName = Name,
-                    Category = "AdvancedBehavioral",
-                    ConfidenceDelta = transitionScore,
-                    Weight = 1.2,
-                    Reason = navPattern
-                });
+                    state.WriteSignals([new("NavigationAnomalyScore", transitionScore), new("NavigationPatternUnusual", true)]);
+                    contributions.Add(new DetectionContribution
+                    {
+                        DetectorName = Name,
+                        Category = "AdvancedBehavioral",
+                        ConfidenceDelta = transitionScore,
+                        Weight = 1.2,
+                        Reason = navPattern
+                    });
+                }
             }
 
-            // 6. Burst Detection
-            var burstWindow = TimeSpan.FromSeconds(30);
-            var (isBurst, burstSize, burstDuration) = _analyzer.DetectBurstPattern(clientIp, burstWindow);
-            if (isBurst)
+            // 6. Burst Detection — skip for WebSocket (SignalR reconnect storms are normal;
+            // BehavioralWaveformContributor handles WS-specific burst with higher thresholds)
+            if (!isWebSocket)
             {
-                state.WriteSignals([
-                    new("BurstDetected", true),
-                    new("BurstSize", burstSize),
-                    new("BurstDurationSeconds", burstDuration.TotalSeconds)
-                ]);
-                contributions.Add(new DetectionContribution
+                var burstWindow = TimeSpan.FromSeconds(30);
+                var (isBurst, burstSize, burstDuration) = _analyzer.DetectBurstPattern(clientIp, burstWindow);
+                if (isBurst)
                 {
-                    DetectorName = Name,
-                    Category = "AdvancedBehavioral",
-                    ConfidenceDelta = 0.4,
-                    Weight = 1.5,
-                    Reason = $"Burst detected: {burstSize} requests in {burstDuration.TotalSeconds:F0} seconds"
-                });
+                    state.WriteSignals([
+                        new("BurstDetected", true),
+                        new("BurstSize", burstSize),
+                        new("BurstDurationSeconds", burstDuration.TotalSeconds)
+                    ]);
+                    contributions.Add(new DetectionContribution
+                    {
+                        DetectorName = Name,
+                        Category = "AdvancedBehavioral",
+                        ConfidenceDelta = 0.4,
+                        Weight = 1.5,
+                        Reason = $"Burst detected: {burstSize} requests in {burstDuration.TotalSeconds:F0} seconds"
+                    });
+                }
             }
 
             // 7. Positive signal: Good patterns detected

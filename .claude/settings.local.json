@@ -236,7 +236,13 @@
       "Bash(MSYS_NO_PATHCONV=1 curl -s -D - -o /dev/null -H \"X-SB-Api-Key: SB-K6-BYPASS\" http://localhost/)",
       "Bash(MSYS_NO_PATHCONV=1 curl -s -D - -o /dev/null -H \"X-SB-Api-Key: SB-K6-NO-BEHAVIORAL\" -H \"User-Agent: curl/8.4.0\" http://localhost/)",
       "Bash(MSYS_NO_PATHCONV=1 docker cp:*)",
-      "mcp__plugin_playwright_playwright__browser_close"
+      "mcp__plugin_playwright_playwright__browser_close",
+      "Bash(echo === Try BDF export \\(not in DataApiPaths, should not be bot-gated\\) ===:*)",
+      "Bash(sed:*)",
+      "Bash(echo === Live site signatures API with API key ===:*)",
+      "Bash(sleep 12:*)",
+      "Bash(echo === S1: Pure curl \\(should be high risk\\) ===:*)",
+      "Bash(sleep 5:*)"
     ]
   }
 }

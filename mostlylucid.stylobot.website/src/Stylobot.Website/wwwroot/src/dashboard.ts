@@ -1011,6 +1011,14 @@ function dashboardApp() {
                     }
                 });
 
+                // Live top bots list — replaces the static snapshot with server-authoritative data.
+                // Sent periodically by DashboardSummaryBroadcaster, reflects classification changes.
+                this.connection.on('BroadcastTopBots', (raw: any) => {
+                    if (this.timeRange === 'All') {
+                        this.topBots = toCamel(raw) ?? [];
+                    }
+                });
+
                 this.connection.on('BroadcastSignatureDescriptionUpdate', (signature: string, name: string, description: string) => {
                     const idx = this.visitors.findIndex((v: any) => v.primarySignature === signature);
                     if (idx >= 0) {
@@ -1050,7 +1058,13 @@ function dashboardApp() {
         },
 
         updateTopBots(sig: any) {
-            if (!sig.isKnownBot && !sig.isBot) return;
+            const botIdx = this.topBots.findIndex((b: any) => b.primarySignature === sig.primarySignature);
+
+            // If signature flipped to human, remove it from top bots
+            if (!sig.isKnownBot && !sig.isBot) {
+                if (botIdx >= 0) this.topBots.splice(botIdx, 1);
+                return;
+            }
 
             // Infer identity if missing
             if (!sig.botName) {
@@ -1059,7 +1073,6 @@ function dashboardApp() {
                 if (identity.type) sig.botType = identity.type;
             }
 
-            const botIdx = this.topBots.findIndex((b: any) => b.primarySignature === sig.primarySignature);
             if (botIdx >= 0) {
                 this.topBots[botIdx] = { ...this.topBots[botIdx], ...sig };
             } else {

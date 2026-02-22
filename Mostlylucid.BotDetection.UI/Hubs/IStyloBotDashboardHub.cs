@@ -61,4 +61,10 @@ public interface IStyloBotDashboardHub
     ///     Broadcast a score change narrative for a signature.
     /// </summary>
     Task BroadcastScoreNarrative(string signature, string narrative);
+
+    /// <summary>
+    ///     Broadcast the updated top bots list to connected clients.
+    ///     Sent periodically so the dashboard reflects classification changes (bot→human flips).
+    /// </summary>
+    Task BroadcastTopBots(List<DashboardTopBotEntry> topBots);
 }

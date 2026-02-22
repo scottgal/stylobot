@@ -34,7 +34,7 @@ public sealed class MultiFactorSignatureService
     // Bounded to prevent unbounded growth; entries expire after 30 minutes.
     private readonly ConcurrentDictionary<string, CachedFactors> _factorCache = new();
     private const int MaxCacheEntries = 10_000;
-    private static int _evictionRunning;
+    private int _evictionRunning;
 
     public MultiFactorSignatureService(
         PiiHasher hasher,
@@ -74,44 +74,81 @@ public sealed class MultiFactorSignatureService
         var ipClientSig = clientFingerprint != null ? _hasher.ComputeSignature(ip, clientFingerprint) : null;
         var uaClientSig = clientFingerprint != null ? _hasher.ComputeSignature(userAgent, clientFingerprint) : null;
 
-        // Carry-forward: if this request has fewer factors (e.g. WebSocket upgrade missing
-        // Client Hints and Accept-Language), inherit from the last full-factor request
-        // with the same PrimarySignature. This keeps the signature identity stable
-        // across protocol changes within the same browser session.
-        if (clientSideSig == null || pluginSig == null)
+        // Carry-forward: non-document requests (WebSocket, fetch/XHR, SignalR negotiate)
+        // produce different secondary factors (Accept-Encoding differs, Client Hints may be
+        // absent). If we have a cached full-page-load set for this PrimarySignature, use those
+        // factors instead — this keeps the signature identity stable across request types.
+        //
+        // Detect non-document requests: WebSocket upgrade, Sec-Fetch-Dest != document/iframe,
+        // or missing any factors that the cache has.
+        var isNonDocumentRequest = IsNonDocumentRequest(httpContext);
+        var needsCarryForward = clientSideSig == null || pluginSig == null || isNonDocumentRequest;
+        if (needsCarryForward)
         {
             if (_factorCache.TryGetValue(primarySig, out var cached) &&
                 cached.Timestamp > DateTime.UtcNow.AddMinutes(-30))
             {
-                clientSideSig ??= cached.ClientSideSignature;
-                pluginSig ??= cached.PluginSignature;
-                ipClientSig ??= cached.IpClientSignature;
-                uaClientSig ??= cached.UaClientSignature;
-                countryCode ??= cached.GeoSignature;
+                if (isNonDocumentRequest)
+                {
+                    // For non-document requests, always prefer cached full-page factors
+                    // because WebSocket/fetch send different Accept-Encoding etc.
+                    clientSideSig = cached.ClientSideSignature ?? clientSideSig;
+                    pluginSig = cached.PluginSignature ?? pluginSig;
+                    ipClientSig = cached.IpClientSignature ?? ipClientSig;
+                    uaClientSig = cached.UaClientSignature ?? uaClientSig;
+                    countryCode = cached.GeoSignature ?? countryCode;
+                }
+                else
+                {
+                    // For document requests, only fill in missing factors
+                    clientSideSig ??= cached.ClientSideSignature;
+                    pluginSig ??= cached.PluginSignature;
+                    ipClientSig ??= cached.IpClientSignature;
+                    uaClientSig ??= cached.UaClientSignature;
+                    countryCode ??= cached.GeoSignature;
+                }
 
                 _logger.LogDebug(
-                    "Carried forward {CarriedCount} factors for {Primary} (protocol: {Protocol})",
-                    (cached.ClientSideSignature != null ? 1 : 0) + (cached.PluginSignature != null ? 1 : 0),
+                    "Carried forward factors for {Primary} (protocol: {Protocol}, nonDocument: {NonDoc})",
                     primarySig[..Math.Min(8, primarySig.Length)],
-                    httpContext.Request.Headers["Upgrade"].FirstOrDefault() ?? "HTTP");
+                    httpContext.Request.Headers["Upgrade"].FirstOrDefault() ?? "HTTP",
+                    isNonDocumentRequest);
             }
         }
 
-        // Update cache: always store the richest known factors for this PrimarySignature.
-        // Only update if current request has MORE or EQUAL factors — never downgrade.
-        var currentFactorRichness = CountCachedRichness(clientSideSig, pluginSig, ipClientSig, uaClientSig, countryCode);
-        _factorCache.AddOrUpdate(primarySig,
-            _ => new CachedFactors(clientSideSig, pluginSig, ipClientSig, uaClientSig, countryCode, DateTime.UtcNow),
-            (_, existing) =>
-            {
-                var existingRichness = CountCachedRichness(
-                    existing.ClientSideSignature, existing.PluginSignature,
-                    existing.IpClientSignature, existing.UaClientSignature, existing.GeoSignature);
-                // Only update if richer or same; always refresh timestamp
-                return currentFactorRichness >= existingRichness
-                    ? new CachedFactors(clientSideSig, pluginSig, ipClientSig, uaClientSig, countryCode, DateTime.UtcNow)
-                    : existing with { Timestamp = DateTime.UtcNow };
-            });
+        // Update cache: store the richest known factors for this PrimarySignature.
+        // Non-document requests (WebSocket, XHR) should never overwrite cached document factors
+        // because their headers (Accept-Encoding, etc.) differ from full page loads.
+        if (!isNonDocumentRequest)
+        {
+            var currentFactorRichness = CountCachedRichness(clientSideSig, pluginSig, ipClientSig, uaClientSig, countryCode);
+            _factorCache.AddOrUpdate(primarySig,
+                _ => new CachedFactors(clientSideSig, pluginSig, ipClientSig, uaClientSig, countryCode, DateTime.UtcNow, IsFromDocumentRequest: true),
+                (_, existing) =>
+                {
+                    // Always overwrite if existing was seeded by a non-document request
+                    // (non-document headers differ from full page loads)
+                    if (!existing.IsFromDocumentRequest)
+                        return new CachedFactors(clientSideSig, pluginSig, ipClientSig, uaClientSig, countryCode, DateTime.UtcNow, IsFromDocumentRequest: true);
+
+                    var existingRichness = CountCachedRichness(
+                        existing.ClientSideSignature, existing.PluginSignature,
+                        existing.IpClientSignature, existing.UaClientSignature, existing.GeoSignature);
+                    // Only update if richer or same; always refresh timestamp
+                    return currentFactorRichness >= existingRichness
+                        ? new CachedFactors(clientSideSig, pluginSig, ipClientSig, uaClientSig, countryCode, DateTime.UtcNow, IsFromDocumentRequest: true)
+                        : existing with { Timestamp = DateTime.UtcNow };
+                });
+        }
+        else
+        {
+            // Non-document requests: only refresh timestamp, never overwrite factors.
+            // If first request from this client, seed cache (marked as non-document so
+            // the first real document request will overwrite).
+            _factorCache.AddOrUpdate(primarySig,
+                _ => new CachedFactors(clientSideSig, pluginSig, ipClientSig, uaClientSig, countryCode, DateTime.UtcNow, IsFromDocumentRequest: false),
+                (_, existing) => existing with { Timestamp = DateTime.UtcNow });
+        }
 
         // Evict stale entries periodically (single-thread guard to avoid contention)
         if (_factorCache.Count > MaxCacheEntries
@@ -174,7 +211,8 @@ public sealed class MultiFactorSignatureService
         string? IpClientSignature,
         string? UaClientSignature,
         string? GeoSignature,
-        DateTime Timestamp);
+        DateTime Timestamp,
+        bool IsFromDocumentRequest = false);
 
     /// <summary>
     ///     Match signatures from current request against stored signatures.
@@ -223,6 +261,36 @@ public sealed class MultiFactorSignatureService
             FactorsMatched = matchedFactors.Count,
             TotalFactors = Math.Max(current.FactorCount, stored.FactorCount)
         };
+    }
+
+    /// <summary>
+    ///     Detect non-document requests that should use carry-forward factors.
+    ///     WebSocket, fetch/XHR, SignalR negotiate, and other non-HTML requests produce
+    ///     different secondary headers (Accept-Encoding, Client Hints) than full page loads.
+    /// </summary>
+    private static bool IsNonDocumentRequest(HttpContext httpContext)
+    {
+        // WebSocket upgrade
+        if (httpContext.Request.Headers.TryGetValue("Upgrade", out var upgrade)
+            && upgrade.ToString().Contains("websocket", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Sec-Fetch-Dest tells us exactly what the browser is doing
+        var fetchDest = httpContext.Request.Headers["Sec-Fetch-Dest"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(fetchDest))
+        {
+            var dest = fetchDest.ToLowerInvariant();
+            // "document" and "iframe" are full page loads with complete headers
+            return dest is not ("document" or "iframe");
+        }
+
+        // Fallback: XHR/fetch requests typically use specific Accept headers
+        var accept = httpContext.Request.Headers.Accept.ToString();
+        if (accept.Contains("application/json", StringComparison.OrdinalIgnoreCase) ||
+            accept.Contains("text/event-stream", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return false;
     }
 
     /// <summary>
@@ -286,7 +354,9 @@ public sealed class MultiFactorSignatureService
         if (!string.IsNullOrEmpty(acceptLang))
             components.Add($"lang:{acceptLang}");
 
-        // Accept-Encoding (stable per browser version)
+        // Accept-Encoding (stable per browser version for same request type,
+        // but differs across request types — e.g. page load vs WebSocket vs fetch.
+        // The carry-forward logic in GenerateSignatures handles this divergence.)
         var acceptEnc = httpContext.Request.Headers.AcceptEncoding.ToString();
         if (!string.IsNullOrEmpty(acceptEnc))
             components.Add($"enc:{acceptEnc}");
@@ -331,17 +401,6 @@ public sealed class MultiFactorSignatureService
         if (ipClient != null) count++;
         if (uaClient != null) count++;
         if (geo != null) count++;
-        return count;
-    }
-
-    private static int CountFactors(string? ip, string? ua, string? clientFp, string? pluginSig, string? countryCode = null)
-    {
-        var count = 0;
-        if (!string.IsNullOrEmpty(ip)) count++;
-        if (!string.IsNullOrEmpty(ua)) count++;
-        if (!string.IsNullOrEmpty(clientFp)) count++;
-        if (!string.IsNullOrEmpty(pluginSig)) count++;
-        if (!string.IsNullOrEmpty(countryCode)) count++;
         return count;
     }
 

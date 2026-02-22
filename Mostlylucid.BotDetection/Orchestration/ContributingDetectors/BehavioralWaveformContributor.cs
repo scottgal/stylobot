@@ -176,7 +176,10 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
             });
 
         // Check for burst patterns (many requests in short time)
-        var recentRequests = history.Where(r => r.Timestamp > DateTimeOffset.UtcNow.AddSeconds(-10)).Count();
+        var recentCutoff = DateTimeOffset.UtcNow.AddSeconds(-10);
+        var recentNonWs = history.Count(r => r.Timestamp > recentCutoff && r.ContentClass != ContentClass.WebSocket);
+        var recentWs = history.Count(r => r.Timestamp > recentCutoff && r.ContentClass == ContentClass.WebSocket);
+        var recentRequests = recentNonWs;
         if (recentRequests >= 10)
         {
             state.WriteSignals([
@@ -190,13 +193,47 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 weight: 1.5,
                 botType: BotType.Scraper.ToString()));
         }
+
+        // WebSocket-specific burst detection with a higher threshold
+        // SignalR reconnects a few times on disconnect — that's normal.
+        // But 20+ WebSocket upgrades in 10 seconds is abuse (connection flooding).
+        if (recentWs >= 20)
+        {
+            state.WriteSignals([
+                new(SignalKeys.WaveformBurstDetected, true),
+                new("waveform.ws_burst_size", recentWs)
+            ]);
+
+            contributions.Add(DetectionContribution.Bot(
+                Name, "Waveform", 0.7,
+                $"WebSocket connection flood: {recentWs} upgrade requests in 10 seconds",
+                weight: 1.6,
+                botType: BotType.MaliciousBot.ToString()));
+        }
     }
 
     private void AnalyzePathPatterns(BlackboardState state, List<RequestSnapshot> history, List<DetectionContribution> contributions)
     {
         if (history.Count < 5) return;
 
-        var recentPaths = history.TakeLast(20).Select(r => r.Path).ToList();
+        // Separate WebSocket from non-WebSocket for path analysis.
+        // Hub reconnections to the same URL are normal and shouldn't reduce path diversity,
+        // but WebSocket upgrades to many different paths is suspicious (probing).
+        var recent = history.TakeLast(20).ToList();
+        var recentNonWs = recent.Where(r => r.ContentClass != ContentClass.WebSocket).ToList();
+        var recentWsPaths = recent.Where(r => r.ContentClass == ContentClass.WebSocket)
+            .Select(r => r.Path).Distinct().ToList();
+
+        // Bot signal: WebSocket upgrades to many distinct endpoints (probing for hubs)
+        if (recentWsPaths.Count >= 3)
+            contributions.Add(DetectionContribution.Bot(
+                Name, "Waveform", 0.5,
+                $"WebSocket upgrades to {recentWsPaths.Count} distinct endpoints (hub probing)",
+                weight: 1.3,
+                botType: BotType.Scraper.ToString()));
+
+        if (recentNonWs.Count < 5) return;
+        var recentPaths = recentNonWs.Select(r => r.Path).ToList();
 
         // Calculate path diversity
         var uniquePaths = recentPaths.Distinct().Count();
@@ -247,17 +284,21 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
     {
         if (history.Count < 2) return;
 
-        var timeSpan = (history[^1].Timestamp - history[0].Timestamp).TotalMinutes;
+        // Exclude WebSocket upgrades — they don't represent page navigations or API calls
+        var nonWsHistory = history.Where(r => r.ContentClass != ContentClass.WebSocket).ToList();
+        if (nonWsHistory.Count < 2) return;
+
+        // Use non-WS history boundaries for timespan so WebSocket-only periods don't inflate the window
+        var timeSpan = (nonWsHistory[^1].Timestamp - nonWsHistory[0].Timestamp).TotalMinutes;
         if (timeSpan <= 0) return;
 
-        var totalRate = history.Count / timeSpan; // total requests per minute
+        var totalRate = nonWsHistory.Count / timeSpan; // total non-WebSocket requests per minute
         state.WriteSignal("waveform.request_rate", totalRate);
 
         // Calculate page-only rate (content-class aware for HTTP/2+)
         // HTTP/2+ multiplexes many asset requests per page load - that's normal.
-        // Only page navigation requests matter for "excessive rate" detection.
-        var pageRequests = history.Count(r => r.ContentClass == ContentClass.Page);
-        var assetRequests = history.Count(r => r.ContentClass == ContentClass.Asset);
+        var pageRequests = nonWsHistory.Count(r => r.ContentClass == ContentClass.Page);
+        var assetRequests = nonWsHistory.Count(r => r.ContentClass == ContentClass.Asset);
         var pageRate = timeSpan > 0 ? pageRequests / timeSpan : 0;
 
         state.WriteSignal("waveform.page_rate", pageRate);
@@ -294,6 +335,22 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 Weight = 1.2,
                 Reason = $"Normal browser multiplexing: high total traffic but only {pageRate:F0} page visits per minute ({assetRequests} sub-resources loaded)"
             });
+
+        // WebSocket-specific rate analysis
+        // Normal SignalR: 1-3 upgrades/minute (initial + reconnects). Excessive = abuse.
+        var wsRequests = history.Count(r => r.ContentClass == ContentClass.WebSocket);
+        if (wsRequests > 0)
+        {
+            var wsRate = wsRequests / timeSpan;
+            state.WriteSignal("waveform.ws_rate", wsRate);
+
+            if (wsRate > 15) // 15+ WebSocket upgrades/minute = connection flooding
+                contributions.Add(DetectionContribution.Bot(
+                    Name, "Waveform", 0.6,
+                    $"Excessive WebSocket upgrade rate: {wsRate:F0}/min ({wsRequests} upgrades)",
+                    weight: 1.4,
+                    botType: BotType.MaliciousBot.ToString()));
+        }
     }
 
     private void AnalyzeSessionBehavior(BlackboardState state, List<RequestSnapshot> history,
@@ -494,17 +551,20 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
         var pageCt = classes.Count(c => c == ContentClass.Page);
         var assetCt = classes.Count(c => c == ContentClass.Asset);
         var apiCt = classes.Count(c => c == ContentClass.Api);
+        var wsCt = classes.Count(c => c == ContentClass.WebSocket);
         var total = classes.Count;
 
         state.WriteSignals([
             new("waveform.page_requests", pageCt),
             new("waveform.asset_requests", assetCt),
-            new("waveform.api_requests", apiCt)
+            new("waveform.api_requests", apiCt),
+            new("waveform.websocket_requests", wsCt)
         ]);
 
-        // Build transition matrix (3x3: Page, Asset, Api)
-        var transitions = new int[3, 3];
-        var fromCounts = new int[3];
+        // Build transition matrix sized to match ContentClass enum
+        var classCount = Enum.GetValues<ContentClass>().Length;
+        var transitions = new int[classCount, classCount];
+        var fromCounts = new int[classCount];
         for (var i = 1; i < classes.Count; i++)
         {
             var from = (int)classes[i - 1];
@@ -583,9 +643,10 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
     /// </summary>
     private enum ContentClass
     {
-        Page = 0,  // text/html navigation requests
-        Asset = 1, // JS, CSS, images, fonts, etc.
-        Api = 2    // JSON/XML API endpoints
+        Page = 0,      // text/html navigation requests
+        Asset = 1,     // JS, CSS, images, fonts, etc.
+        Api = 2,       // JSON/XML API endpoints
+        WebSocket = 3  // WebSocket upgrade requests
     }
 
     /// <summary>
@@ -594,6 +655,11 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
     private static ContentClass ClassifyRequest(HttpContext httpContext)
     {
         // Best signal: Sec-Fetch-Dest header (modern browsers)
+        // Detect WebSocket upgrades via Upgrade header (works for all browsers)
+        if (httpContext.Request.Headers.TryGetValue("Upgrade", out var upgrade)
+            && upgrade.ToString().Contains("websocket", StringComparison.OrdinalIgnoreCase))
+            return ContentClass.WebSocket;
+
         var fetchDest = httpContext.Request.Headers["Sec-Fetch-Dest"].FirstOrDefault();
         if (!string.IsNullOrEmpty(fetchDest))
         {
@@ -602,6 +668,7 @@ public partial class BehavioralWaveformContributor : ContributingDetectorBase
                 "document" or "iframe" => ContentClass.Page,
                 "script" or "style" or "image" or "font" or "video" or "audio" or "manifest" or "worker"
                     => ContentClass.Asset,
+                "websocket" => ContentClass.WebSocket,
                 "empty" => ContentClass.Api, // fetch/XHR
                 _ => ClassifyByPathAndAccept(httpContext)
             };
