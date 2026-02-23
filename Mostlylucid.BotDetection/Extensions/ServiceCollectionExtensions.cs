@@ -494,6 +494,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<SignatureConvergenceService>();
         services.AddHostedService(sp => sp.GetRequiredService<SignatureConvergenceService>());
         services.AddSingleton<IContributingDetector, ClusterContributor>();
+        // Constrained LLM description coordinator (KeyedSequentialAtom, 50% CPU concurrency)
+        services.AddSingleton<LlmDescriptionCoordinator>();
         // LLM-based cluster descriptions (background, never in request pipeline)
         services.AddSingleton<BotClusterDescriptionService>();
 

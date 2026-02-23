@@ -191,17 +191,15 @@ public class BotClusterService : BackgroundService
         // 1. Snapshot all behaviors from the signature coordinator
         var allBehaviors = _signatureCoordinator.GetFamilyAwareBehaviors();
 
-        // PRE-FILTER: Only cluster confirmed bots - never cluster humans
-        var behaviors = allBehaviors
-            .Where(b => b.AverageBotProbability >= _options.MinBotProbabilityForClustering)
-            .ToList();
+        // Cluster ALL traffic — Leiden naturally forms communities for bots AND humans
+        var behaviors = allBehaviors.ToList();
 
         if (behaviors.Count < _options.MinClusterSize)
         {
             _logger.LogInformation(
-                "Clustering: {BotCount} bot signatures (from {Total} total) below MinClusterSize={Min}. " +
+                "Clustering: {Count} signatures below MinClusterSize={Min}. " +
                 "Top bot probs: [{TopProbs}]",
-                behaviors.Count, allBehaviors.Count, _options.MinClusterSize,
+                behaviors.Count, _options.MinClusterSize,
                 string.Join(", ", allBehaviors
                     .OrderByDescending(b => b.AverageBotProbability)
                     .Take(5)
@@ -298,20 +296,18 @@ public class BotClusterService : BackgroundService
             newSignatureToCluster.ToFrozenDictionary(),
             spectralBuilder.ToFrozenDictionary());
 
-        if (newClusters.Count > 0)
-        {
-            var productCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotProduct);
-            var networkCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotNetwork);
-            var emergentCount = newClusters.Values.Count(c => c.Type == BotClusterType.Emergent);
-            _logger.LogInformation(
-                "BotClusterService: discovered {Total} clusters ({Product} product, {Network} network, {Emergent} emergent) from {BotSignatures} bot signatures using {Algorithm} (filtered from {TotalSignatures} total)",
-                newClusters.Count, productCount, networkCount, emergentCount, behaviors.Count,
-                useLeiden ? "Leiden" : "LabelPropagation",
-                allBehaviors.Count);
+        var productCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotProduct);
+        var networkCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotNetwork);
+        var emergentCount = newClusters.Values.Count(c => c.Type == BotClusterType.Emergent);
+        var humanCount = newClusters.Values.Count(c => c.Type == BotClusterType.HumanTraffic);
+        var mixedCount = newClusters.Values.Count(c => c.Type == BotClusterType.Mixed);
+        _logger.LogInformation(
+            "BotClusterService: discovered {Total} clusters ({Product} product, {Network} network, {Emergent} emergent, {Human} human, {Mixed} mixed) from {Signatures} signatures using {Algorithm}",
+            newClusters.Count, productCount, networkCount, emergentCount, humanCount, mixedCount,
+            behaviors.Count, useLeiden ? "Leiden" : "LabelPropagation");
 
-            // Fire event for background LLM description generation
-            ClustersUpdated?.Invoke(newClusters.Values.ToList(), behaviors);
-        }
+        // Always fire event — even when clusters dissolve, so callbacks can update
+        ClustersUpdated?.Invoke(newClusters.Values.ToList(), behaviors);
     }
 
     #region Feature Extraction
@@ -759,10 +755,6 @@ public class BotClusterService : BackgroundService
         if (members.Count < _options.MinClusterSize)
             return null;
 
-        // POST-FILTER: ALL members must be confirmed bots
-        if (members.Any(m => m.AverageBotProbability < _options.MinBotProbabilityForClustering))
-            return null;
-
         // Compute average intra-cluster similarity from pre-computed adjacency graph
         var memberSet = new HashSet<int>(memberIndices);
         var totalSim = 0.0;
@@ -793,26 +785,34 @@ public class BotClusterService : BackgroundService
         // Average bot probability
         var avgBotProb = members.Average(m => m.AverageBotProbability);
 
-        // Determine cluster type
+        // Determine cluster type based on average bot probability and behavioral signals
         var uniqueSignatures = new HashSet<string>(members.Select(m => m.Signature));
 
         BotClusterType clusterType;
-        if (avgSimilarity >= _options.ProductSimilarityThreshold &&
-            avgBotProb >= _options.MinBotProbabilityForClustering)
+        if (avgBotProb < 0.3)
+        {
+            // Predominantly human traffic
+            clusterType = BotClusterType.HumanTraffic;
+        }
+        else if (avgBotProb < 0.5)
+        {
+            // Mixed — some borderline, some human
+            clusterType = BotClusterType.Mixed;
+        }
+        else if (avgSimilarity >= _options.ProductSimilarityThreshold)
         {
             // High behavioral similarity + botlike = same bot software (Bot Product)
             clusterType = BotClusterType.BotProduct;
         }
         else if (temporalDensity >= _options.NetworkTemporalDensityThreshold &&
-                 avgSimilarity >= 0.5 &&
-                 avgBotProb >= _options.MinBotProbabilityForClustering)
+                 avgSimilarity >= 0.5)
         {
             // Temporally correlated with moderate similarity = coordinated campaign (Bot Network)
             clusterType = BotClusterType.BotNetwork;
         }
         else
         {
-            // Emergent cluster: community detection grouped these bots together but they
+            // Emergent cluster: community detection grouped these together but they
             // don't yet meet strict BotProduct/BotNetwork thresholds. Still valuable —
             // these may be evolving campaigns, new bot software, or DDoS participants.
             clusterType = BotClusterType.Emergent;
@@ -911,10 +911,9 @@ public class BotClusterService : BackgroundService
 
         return type switch
         {
-            BotClusterType.BotProduct when avgInterval < 2.0 => "Rapid-Scraper",
-            BotClusterType.BotProduct when avgEntropy > 3.0 => "Deep-Crawler",
-            BotClusterType.BotProduct when avgEntropy < 1.0 => "Targeted-Scanner",
-            BotClusterType.BotProduct => "Bot-Software",
+            BotClusterType.HumanTraffic => InferHumanLabel(members),
+            BotClusterType.Mixed => "Mixed-Traffic",
+            BotClusterType.BotProduct => InferBotProductLabel(members, avgInterval, avgEntropy),
             BotClusterType.BotNetwork when temporalDensity > 0.8 => "Burst-Campaign",
             BotClusterType.BotNetwork when members.Count > 10 => "Large-Botnet",
             BotClusterType.BotNetwork => "Coordinated-Campaign",
@@ -923,6 +922,81 @@ public class BotClusterService : BackgroundService
             BotClusterType.Emergent => "Emerging-Pattern",
             _ => "Unknown-Cluster"
         };
+    }
+
+    /// <summary>
+    ///     Infer a human-readable label for human traffic clusters from UA family, country, and paths.
+    /// </summary>
+    private static string InferHumanLabel(List<SignatureBehavior> members)
+    {
+        // Extract dominant UA family from request signals
+        var uaFamily = members
+            .SelectMany(m => m.Requests)
+            .Select(r => r.Signals.TryGetValue("ua.family", out var f) ? f?.ToString() : null)
+            .Where(f => !string.IsNullOrEmpty(f))
+            .GroupBy(f => f!)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault()?.Key;
+
+        // Dominant country
+        var country = members
+            .Where(m => !string.IsNullOrEmpty(m.CountryCode))
+            .GroupBy(m => m.CountryCode!)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault()?.Key;
+
+        // Check if predominantly mobile
+        var mobileCount = members
+            .SelectMany(m => m.Requests)
+            .Count(r => r.Signals.TryGetValue("ua.is_mobile", out var mob) && mob is true or "true" or "True");
+        var isMobile = mobileCount > members.Sum(m => m.RequestCount) / 2;
+
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(country))
+            parts.Add(country);
+        if (!string.IsNullOrEmpty(uaFamily))
+            parts.Add(uaFamily);
+        if (isMobile)
+            parts.Add("Mobile");
+        parts.Add("Users");
+
+        return string.Join(" ", parts);
+    }
+
+    /// <summary>
+    ///     Infer a label for bot product clusters from known bot name signals or UA family.
+    /// </summary>
+    private static string InferBotProductLabel(List<SignatureBehavior> members, double avgInterval, double avgEntropy)
+    {
+        // Try to get bot name from signals
+        var botName = members
+            .SelectMany(m => m.Requests)
+            .Select(r => r.Signals.TryGetValue("ua.bot_name", out var n) ? n?.ToString() : null)
+            .Where(n => !string.IsNullOrEmpty(n))
+            .GroupBy(n => n!)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault()?.Key;
+
+        if (!string.IsNullOrEmpty(botName))
+            return $"{botName} Cluster";
+
+        // Fallback to UA family
+        var uaFamily = members
+            .SelectMany(m => m.Requests)
+            .Select(r => r.Signals.TryGetValue("ua.family", out var f) ? f?.ToString() : null)
+            .Where(f => !string.IsNullOrEmpty(f))
+            .GroupBy(f => f!)
+            .OrderByDescending(g => g.Count())
+            .FirstOrDefault()?.Key;
+
+        if (!string.IsNullOrEmpty(uaFamily))
+            return $"{uaFamily} Bot Cluster";
+
+        // Final fallback to behavioral heuristics
+        if (avgInterval < 2.0) return "Rapid-Scraper";
+        if (avgEntropy > 3.0) return "Deep-Crawler";
+        if (avgEntropy < 1.0) return "Targeted-Scanner";
+        return "Bot-Software";
     }
 
     // Keep backward-compatible static method

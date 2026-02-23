@@ -1,0 +1,114 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model VisitorListModel
+@{
+    var bp = Model.BasePath;
+    string FilterUrl(string filter) => $"{bp}/partials/visitors?filter={filter}&sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}";
+    string SortUrl(string field) {
+        var dir = Model.SortField == field ? (Model.SortDir == "desc" ? "asc" : "desc") : "desc";
+        return $"{bp}/partials/visitors?filter={Model.Filter}&sort={field}&dir={dir}&page={Model.Page}&pageSize={Model.PageSize}";
+    }
+    string PageUrl(int page) => $"{bp}/partials/visitors?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}";
+    string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? "\u25B2" : "\u25BC") : "";
+    string FilterBtnClass(string f) => Model.Filter == f
+        ? f switch { "bots" => "bg-error/20 text-error shadow-sm", "humans" => "bg-success/20 text-success shadow-sm", _ => "bg-base-100 shadow-sm text-base-content" }
+        : "text-base-content/40 hover:text-base-content/60";
+}
+<div id="visitor-list"
+     data-sb-widget="visitors"
+     data-sb-depends="signature,summary">
+
+    @* Filter tabs *@
+    <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-1 bg-base-300/50 rounded-lg p-0.5">
+            <button hx-get="@FilterUrl("all")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("all")">
+                All <span class="text-[10px] opacity-60">@Model.Counts.All</span>
+            </button>
+            <button hx-get="@FilterUrl("humans")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("humans")">
+                Humans <span class="text-[10px] opacity-60">@Model.Counts.Humans</span>
+            </button>
+            <button hx-get="@FilterUrl("bots")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("bots")">
+                Bots <span class="text-[10px] opacity-60">@Model.Counts.Bots</span>
+            </button>
+            <button hx-get="@FilterUrl("ai")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("ai")">
+                AI <span class="text-[10px] opacity-60">@Model.Counts.Ai</span>
+            </button>
+            <button hx-get="@FilterUrl("tools")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("tools")">
+                Tools <span class="text-[10px] opacity-60">@Model.Counts.Tools</span>
+            </button>
+        </div>
+        <div class="flex items-center gap-1">
+            @* Sort controls *@
+            <button hx-get="@SortUrl("lastSeen")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                    class="btn btn-xs btn-ghost">Last Seen @SortIcon("lastSeen")</button>
+            <button hx-get="@SortUrl("hits")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                    class="btn btn-xs btn-ghost">Hits @SortIcon("hits")</button>
+            <button hx-get="@SortUrl("risk")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                    class="btn btn-xs btn-ghost">Risk @SortIcon("risk")</button>
+            <button hx-get="@SortUrl("name")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                    class="btn btn-xs btn-ghost">Name @SortIcon("name")</button>
+        </div>
+    </div>
+
+    @* Pagination top *@
+    @if (Model.TotalPages > 1)
+    {
+        <div class="flex items-center justify-between mb-2 text-xs text-base-content/50">
+            <span>Page @Model.Page of @Model.TotalPages (@Model.TotalCount visitors)</span>
+            <div class="flex items-center gap-1">
+                @if (Model.Page > 1)
+                {
+                    <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                            class="btn btn-xs btn-ghost">&laquo; Prev</button>
+                }
+                @if (Model.Page < Model.TotalPages)
+                {
+                    <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                            class="btn btn-xs btn-ghost">Next &raquo;</button>
+                }
+            </div>
+        </div>
+    }
+
+    @* Visitor cards grid *@
+    <div id="visitor-cards" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+        @if (Model.Visitors.Count == 0)
+        {
+            <div class="col-span-full text-center text-base-content/30 py-12 text-sm">
+                No visitors match this filter
+            </div>
+        }
+        @foreach (var visitor in Model.Visitors)
+        {
+            @await Html.PartialAsync("~/Views/Dashboard/_VisitorCard.cshtml", visitor,
+                new ViewDataDictionary(ViewData) { { "BasePath", Model.BasePath } })
+        }
+    </div>
+
+    @* Pagination bottom *@
+    @if (Model.TotalPages > 1)
+    {
+        <div class="flex items-center justify-center gap-1 mt-3">
+            @if (Model.Page > 1)
+            {
+                <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                        class="btn btn-xs btn-ghost">&laquo;</button>
+            }
+            @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
+            {
+                var pageNum = p;
+                <button hx-get="@PageUrl(pageNum)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                        class="btn btn-xs @(pageNum == Model.Page ? "btn-primary" : "btn-ghost")">@pageNum</button>
+            }
+            @if (Model.Page < Model.TotalPages)
+            {
+                <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
+                        class="btn btn-xs btn-ghost">&raquo;</button>
+            }
+        </div>
+    }
+</div>

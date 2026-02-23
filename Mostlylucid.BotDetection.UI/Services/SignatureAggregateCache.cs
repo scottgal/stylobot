@@ -62,6 +62,24 @@ public sealed class SignatureAggregateCache
     }
 
     /// <summary>
+    ///     Apply an LLM-generated bot name and description to a cached signature.
+    ///     Called by <see cref="LlmResultSignalRCallback"/> when background LLM naming completes.
+    /// </summary>
+    public void ApplyBotName(string signature, string name, string? description = null)
+    {
+        if (!_entries.TryGetValue(signature, out var agg)) return;
+
+        lock (agg.SyncRoot)
+        {
+            agg.BotName = name;
+            if (description != null)
+                agg.Description = description;
+        }
+
+        _sortDirty = true;
+    }
+
+    /// <summary>
     ///     Get paged, sorted top bots list.
     /// </summary>
     public List<DashboardTopBotEntry> GetTopBots(
@@ -230,6 +248,7 @@ public sealed class SignatureAggregateCache
                 return _sortedCache;
 
             _sortedCache = _entries
+                .Where(kvp => kvp.Value.IsBot)
                 .Select(kvp => ToEntry(kvp.Key, kvp.Value))
                 .OrderByDescending(b => b.HitCount)
                 .ToList()

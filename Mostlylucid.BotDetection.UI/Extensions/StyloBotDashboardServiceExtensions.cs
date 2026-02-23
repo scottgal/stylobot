@@ -18,7 +18,42 @@ namespace Mostlylucid.BotDetection.UI.Extensions;
 public static class StyloBotDashboardServiceExtensions
 {
     /// <summary>
+    ///     Adds StyloBot UI services (tag helpers, view components, detection data extraction)
+    ///     WITHOUT the full dashboard route or SignalR hub.
+    ///     <para>
+    ///     Use this when you want to embed individual StyloBot widgets in your own pages
+    ///     using tag helpers like <c>&lt;sb-badge /&gt;</c>, <c>&lt;sb-gate&gt;</c>, etc.
+    ///     </para>
+    ///     <para>
+    ///     For the full standalone dashboard at a configurable route, use
+    ///     <see cref="AddStyloBotDashboard(IServiceCollection, Action{StyloBotDashboardOptions}?)"/> instead.
+    ///     </para>
+    /// </summary>
+    /// <example>
+    ///     Lightweight setup (tag helpers only):
+    ///     <code>
+    ///     builder.Services.AddBotDetection();
+    ///     builder.Services.AddStyloBotUI();
+    ///     // Now use &lt;sb-badge /&gt;, &lt;sb-gate&gt;, &lt;sb-human&gt; etc. in your Razor views
+    ///     </code>
+    /// </example>
+    public static IServiceCollection AddStyloBotUI(this IServiceCollection services)
+    {
+        services.AddHttpContextAccessor(); // Needed by sb-* gating TagHelpers
+
+        // Detection data extraction for ViewComponents and TagHelpers
+        services.TryAddSingleton<DetectionDataExtractor>();
+
+        return services;
+    }
+
+    /// <summary>
     ///     Adds Stylobot Dashboard services to the service collection.
+    ///     This is the "batteries included" option: full dashboard route, SignalR hub,
+    ///     all widget partials, real-time updates, API endpoints.
+    ///     <para>
+    ///     Internally calls <see cref="AddStyloBotUI"/> so all tag helpers are available too.
+    ///     </para>
     /// </summary>
     /// <param name="services">The service collection</param>
     /// <param name="configure">Configuration options</param>
@@ -31,7 +66,10 @@ public static class StyloBotDashboardServiceExtensions
         configure?.Invoke(options);
 
         services.AddSingleton(options);
-        services.AddHttpContextAccessor(); // Needed by sb-* gating TagHelpers
+
+        // Register lightweight UI services (tag helpers, view components)
+        services.AddStyloBotUI();
+
         services.AddSignalR();
 
         // Ensure MVC services are available for Razor view rendering (idempotent)
@@ -39,9 +77,6 @@ public static class StyloBotDashboardServiceExtensions
 
         // Razor view renderer for middleware-hosted dashboard
         services.AddSingleton<RazorViewRenderer>();
-
-        // Detection data extraction for ViewComponents
-        services.AddSingleton<DetectionDataExtractor>();
 
         // Event store for in-memory history
         services.AddSingleton<IDashboardEventStore, InMemoryDashboardEventStore>();

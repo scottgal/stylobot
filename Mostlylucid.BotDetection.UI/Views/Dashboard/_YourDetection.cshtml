@@ -1,0 +1,100 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model YourDetectionModel
+@{
+    var riskClass = Model.RiskBand switch {
+        "VeryHigh" or "High" => "text-error",
+        "Medium" or "Elevated" => "text-warning",
+        _ => "text-success"
+    };
+    var probPct = (Model.BotProbability * 100).ToString("F1");
+    var confPct = (Model.Confidence * 100).ToString("F0");
+}
+<div id="your-detection"
+     data-sb-widget="your-detection"
+     data-sb-depends="@(Model.Signature ?? "")"
+     class="card bg-base-200 transition-all duration-200">
+    <div class="card-body p-4">
+        <h3 class="text-sm font-bold text-base-content flex items-center gap-2">
+            Your Detection
+            @if (Model.HasData)
+            {
+                @if (Model.IsBot)
+                {
+                    <span class="badge badge-sm badge-error">Bot</span>
+                }
+                else
+                {
+                    <span class="badge badge-sm badge-success">Human</span>
+                }
+            }
+        </h3>
+
+        @if (!Model.HasData)
+        {
+            <div class="text-xs text-base-content/40 py-4 text-center">
+                Waiting for detection data...
+                <div class="text-[10px] mt-1">Visit another page on this site, then return here.</div>
+            </div>
+        }
+        else
+        {
+            <div class="grid grid-cols-3 gap-2 mt-2 text-center">
+                <div>
+                    <div class="text-lg font-black @riskClass">@(probPct)%</div>
+                    <div class="text-[10px] text-base-content/50">Bot Score</div>
+                </div>
+                <div>
+                    <div class="text-lg font-black text-base-content">@(confPct)%</div>
+                    <div class="text-[10px] text-base-content/50">Confidence</div>
+                </div>
+                <div>
+                    <div class="text-lg font-black @riskClass">@Model.RiskBand</div>
+                    <div class="text-[10px] text-base-content/50">Risk</div>
+                </div>
+            </div>
+
+            @if (Model.ThreatBand != null && Model.ThreatBand != "None")
+            {
+                <div class="mt-2 text-xs">
+                    <span class="font-semibold">Threat:</span>
+                    <span class="@(Model.ThreatBand is "Critical" or "High" ? "text-error" : "text-warning")">
+                        @Model.ThreatBand
+                        @if (Model.ThreatScore.HasValue)
+                        {
+                            <text>(@Model.ThreatScore.Value.ToString("F1"))</text>
+                        }
+                    </span>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(Model.Narrative))
+            {
+                <div class="mt-2 text-xs text-base-content/70 italic border-l-2 border-base-content/20 pl-2">
+                    @Model.Narrative
+                </div>
+            }
+
+            @if (Model.TopReasons.Count > 0)
+            {
+                <div class="mt-2">
+                    <div class="text-[10px] text-base-content/50 font-semibold mb-1">Detection Factors</div>
+                    @foreach (var reason in Model.TopReasons.Take(5))
+                    {
+                        <div class="text-[11px] text-base-content/60 flex items-start gap-1">
+                            <span class="text-base-content/30 mt-0.5">&bull;</span>
+                            <span>@reason</span>
+                        </div>
+                    }
+                </div>
+            }
+
+            <div class="mt-2 text-[10px] text-base-content/30">
+                @Model.DetectorCount detectors &middot; @Model.ProcessingTimeMs.ToString("F1")ms
+                @if (!string.IsNullOrEmpty(Model.Signature))
+                {
+                    <text>&middot; <a href="@Model.BasePath/signature/@Uri.EscapeDataString(Model.Signature)" class="underline hover:text-base-content/60">View details</a></text>
+                }
+            </div>
+        }
+    </div>
+</div>

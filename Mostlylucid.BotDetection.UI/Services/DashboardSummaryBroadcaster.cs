@@ -85,14 +85,13 @@ public class DashboardSummaryBroadcaster : BackgroundService
                     UserAgents = await userAgentsTask
                 });
 
-                // Broadcast summary, countries, and top bots to connected clients
-                await _hubContext.Clients.All.BroadcastSummary(await summaryTask);
-                await _hubContext.Clients.All.BroadcastCountries(await countriesTask);
-
-                // Broadcast live top bots list — ensures dashboard reflects classification
-                // changes (bot→human flips) without requiring page refresh
-                var topBots = _signatureCache.GetTopBots(page: 1, pageSize: 50);
-                await _hubContext.Clients.All.BroadcastTopBots(topBots);
+                // Send lightweight invalidation signals — the HTMX coordinator
+                // will fetch fresh server-rendered partials on demand.
+                // No need to serialize full data payloads over the wire.
+                await _hubContext.Clients.All.BroadcastInvalidation("summary");
+                await _hubContext.Clients.All.BroadcastInvalidation("countries");
+                await _hubContext.Clients.All.BroadcastInvalidation("signature");
+                await _hubContext.Clients.All.BroadcastInvalidation("useragents");
 
                 await Task.Delay(
                     TimeSpan.FromSeconds(_options.SummaryBroadcastIntervalSeconds),

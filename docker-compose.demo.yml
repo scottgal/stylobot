@@ -143,7 +143,7 @@ services:
       - BotDetection__PathPolicies__/*=demo
       # Upstream routing (to demo website)
       - DEFAULT_UPSTREAM=http://website:8080
-    volumes:claude
+    volumes:
       - ./demo/config:/app/config:ro
       - gateway-data:/app/data
       - gateway-logs:/app/logs

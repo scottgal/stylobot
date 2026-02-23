@@ -1,0 +1,46 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model CountriesListModel
+@{
+    static string GetFlag(string? code) {
+        if (string.IsNullOrEmpty(code) || code.Length != 2 || code == "XX") return "\uD83C\uDF10";
+        var upper = code.ToUpperInvariant();
+        return string.Concat(char.ConvertFromUtf32(0x1F1E6 + upper[0] - 'A'), char.ConvertFromUtf32(0x1F1E6 + upper[1] - 'A'));
+    }
+}
+<div id="countries-list"
+     data-sb-widget="countries"
+     data-sb-depends="countries"
+     class="card bg-base-200 transition-all duration-200">
+    <div class="card-body p-4">
+        <h3 class="text-sm font-bold text-base-content mb-2">Top Countries</h3>
+        @if (Model.Countries.Count == 0)
+        {
+            <div class="text-xs text-base-content/40 py-4 text-center">No country data yet</div>
+        }
+        else
+        {
+            <div class="space-y-1.5">
+                @foreach (var country in Model.Countries.Take(10))
+                {
+                    var barWidth = Model.Countries.Max(c => c.TotalCount) > 0
+                        ? (int)((double)country.TotalCount / Model.Countries.Max(c => c.TotalCount) * 100)
+                        : 0;
+                    var botPct = (country.BotRate * 100).ToString("F0");
+                    <div class="flex items-center gap-2 text-xs group hover:bg-base-300/50 rounded px-1 py-0.5 transition-colors">
+                        <span class="text-base w-7 text-center">@GetFlag(country.CountryCode)</span>
+                        <span class="font-medium w-8">@country.CountryCode</span>
+                        <div class="flex-1 bg-base-300 rounded-full h-1.5 overflow-hidden">
+                            <div class="h-full rounded-full transition-all duration-500"
+                                 style="width: @(barWidth)%; background: linear-gradient(90deg, var(--sb-accent), var(--sb-signal-danger) @(botPct)%);">
+                            </div>
+                        </div>
+                        <span class="text-base-content/50 w-10 text-right">@country.TotalCount</span>
+                        <span class="font-bold w-10 text-right @(country.BotRate > 0.5 ? "text-error" : country.BotRate > 0.2 ? "text-warning" : "text-success")">
+                            @(botPct)%
+                        </span>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>

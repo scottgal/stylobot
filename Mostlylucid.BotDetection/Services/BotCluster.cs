@@ -70,5 +70,11 @@ public enum BotClusterType
 
     /// <summary>Emergent cluster: bots grouped by community detection but not yet meeting
     /// the strict thresholds for BotProduct or BotNetwork. Still valuable for monitoring.</summary>
-    Emergent
+    Emergent,
+
+    /// <summary>Normal human visitor cluster (browsers, mobile, etc.) — low bot probability.</summary>
+    HumanTraffic,
+
+    /// <summary>Mixed cluster with both bots and humans — borderline signals.</summary>
+    Mixed
 }

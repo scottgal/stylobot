@@ -1,13 +1,13 @@
 @using Mostlylucid.BotDetection.UI.Models
-@model DashboardViewModel
+@model DashboardShellModel
 @{
-    // Dashboard is a standalone HTML page rendered by middleware (not MVC).
-    // Suppress any _ViewStart layout from the hosting application.
     Layout = null;
-}
-@functions {
-    /// <summary>Escape &lt;/ sequences to prevent script tag breakout in embedded JSON.</summary>
-    private static string SafeJson(string json) => json.Replace("</", "<\\/");
+    var bp = Model.BasePath;
+    var tab = Model.ActiveTab;
+    string TabUrl(string t) => $"{bp}?tab={t}";
+    string TabClass(string t) => tab == t
+        ? "bg-base-100 shadow-sm text-base-content font-semibold"
+        : "text-base-content/40 hover:text-base-content/60";
 }
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
@@ -17,6 +17,7 @@
     <title>StyloBot Detection Dashboard</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@@4.6.0/dist/full.min.css" />
     <script src="https://cdn.tailwindcss.com" nonce="@Model.CspNonce"></script>
+    <script src="https://unpkg.com/htmx.org@@2.0.4" nonce="@Model.CspNonce"></script>
     <script src="https://cdn.jsdelivr.net/npm/@@microsoft/signalr@@8.0.0/dist/browser/signalr.min.js" nonce="@Model.CspNonce"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@@3.13.5/dist/cdn.min.js" nonce="@Model.CspNonce"></script>
     <link rel="stylesheet" href="https://unpkg.com/boxicons@@2.1.4/css/boxicons.min.css" />
@@ -29,9 +30,9 @@
             try {
                 var saved = localStorage.getItem('sb-theme');
                 if (saved) document.documentElement.setAttribute('data-theme', saved);
-                else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) document.documentElement.setAttribute('data-theme', 'light');
+                else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)
+                    document.documentElement.setAttribute('data-theme', 'light');
             } catch(e) {}
-            // Hide header when embedded via ?embed=1
             if (new URLSearchParams(window.location.search).get('embed') === '1') {
                 document.addEventListener('DOMContentLoaded', function() {
                     var hdr = document.getElementById('sb-brand-header');
@@ -79,1330 +80,212 @@
             background: linear-gradient(120deg, color-mix(in oklab, var(--sb-surface) 78%, #0f172a), color-mix(in oklab, var(--sb-card-bg) 70%, #0f172a));
             border-bottom: 1px solid var(--sb-card-divider);
         }
-        .brand-wordmark { font-family: 'Raleway', sans-serif; font-weight: 400; }
-        .brand-chip { display: inline-flex; align-items: center; gap: 0.4rem; border: 1px solid var(--sb-card-divider); border-radius: 9999px; padding: 0.2rem 0.6rem; background: color-mix(in oklab, var(--sb-card-bg) 88%, transparent); font-size: 0.7rem; font-weight: 700; }
-        .logo-adaptive { filter: none; transition: filter 180ms ease; }
-        [data-theme="light"] .logo-adaptive { background: #000; border-radius: 9999px; padding: 2px; filter: drop-shadow(0 1px 0 rgba(0,0,0,0.45)); }
-        .dashboard-shell { max-width: 84rem; margin: 0 auto; }
-        .dashboard-subtle { color: color-mix(in oklab, var(--sb-brand-strong) 62%, var(--sb-brand-muted)); }
-        .dashboard-cta { border-color: var(--sb-accent) !important; color: var(--sb-accent) !important; background: color-mix(in oklab, var(--sb-accent) 12%, transparent) !important; }
-        .card.bg-base-200 { border: 1px solid var(--sb-card-divider) !important; background: color-mix(in oklab, var(--sb-card-bg) 94%, transparent) !important; }
-        @@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-        .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sb-accent); display: inline-block; animation: pulse-dot 2s infinite; }
-        .signal-positive { color: var(--sb-signal-pos); }
-        .signal-warning { color: var(--sb-signal-warn); }
-        .signal-danger { color: var(--sb-signal-danger); }
-        .signal-muted { color: var(--sb-card-subtle); }
-        .hero-accent-text { color: var(--sb-accent); }
-        .hero-accent-alt { color: var(--sb-accent-alt); }
-        .risk-text-verylow, .risk-text-low { color: var(--sb-signal-pos); }
-        .risk-text-medium, .risk-text-elevated { color: var(--sb-signal-warn); }
-        .risk-text-high { color: #ef4444; }
-        .risk-text-veryhigh { color: #dc2626; }
-        @@keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
-        .visitor-enter { animation: slideIn 0.3s ease-out; }
+        .sb-link { color: var(--sb-accent); text-decoration: none; }
+        .sb-link:hover { text-decoration: underline; }
+
+        /* HTMX transition styles */
+        .htmx-swapping { opacity: 0; transition: opacity 200ms ease-out; }
+        .htmx-settling { opacity: 1; transition: opacity 200ms ease-in; }
+        .htmx-added { opacity: 0; }
+        .htmx-added.htmx-settling { opacity: 1; transition: opacity 300ms ease-in; }
+
+        /* Connection status indicator */
+        .sb-connected { background: var(--sb-signal-pos); }
+        .sb-disconnected { background: var(--sb-signal-danger); }
+        .sb-connecting { background: var(--sb-signal-warn); animation: pulse 1.5s infinite; }
+        @@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
     </style>
 </head>
-<body class="bg-base-100">
-<div x-data="dashboard()" x-init="init()" class="min-h-screen">
+<body class="min-h-screen" hx-headers='{"X-Requested-With": "XMLHttpRequest"}'>
 
-    <!-- Header (hidden when embedded via ?embed=1) -->
-    <header class="brand-header sticky top-0 z-50" id="sb-brand-header">
-        <div class="dashboard-shell px-4 py-2 flex items-center justify-between">
+    <!-- Brand header -->
+    <header id="sb-brand-header" class="brand-header px-4 py-3">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <a href="/" target="_top" class="brand-wordmark text-lg no-underline hover:opacity-80 transition-opacity">
-                    <span style="font-style: italic; color: #dddddd">stylo</span><span style="color: #ffffff">bot</span>
+                <a href="@bp" class="text-lg font-black tracking-tight" style="color: var(--sb-accent);">
+                    <span style="font-family: 'Raleway', sans-serif;">StyloBot</span>
                 </a>
-                <span class="text-xs dashboard-subtle hidden sm:inline">Detection Dashboard</span>
-                <a href="https://mostlylucid.net" target="_blank" class="text-[10px] opacity-30 hover:opacity-60 transition-opacity hidden sm:inline">mostlylucid</a>
+                <span class="text-xs font-medium px-2 py-0.5 rounded-full"
+                      style="background: var(--sb-card-bg); color: var(--sb-brand-muted); border: 1px solid var(--sb-card-border);">
+                    Dashboard
+                </span>
+                <!-- SignalR connection status -->
+                <span id="sb-connection-status" class="w-2 h-2 rounded-full sb-disconnected" title="SignalR: disconnected"></span>
             </div>
             <div class="flex items-center gap-2">
-                <div class="brand-chip" x-show="connected">
-                    <span class="live-dot"></span>
-                    <span style="color: var(--sb-accent)">Live telemetry</span>
-                </div>
-                <div class="brand-chip" x-show="!connected" style="opacity: 0.5">
-                    <span style="width:8px;height:8px;border-radius:50%;background:#666;display:inline-block;"></span>
-                    <span>Connecting...</span>
-                </div>
-                <div class="flex items-center gap-1">
-                    <button class="btn btn-xs btn-ghost gap-1" @@click="exportData('json')" title="Export JSON">
-                        <i class="bx bx-download text-sm"></i>
-                        <span class="text-[10px] hidden sm:inline">JSON</span>
-                    </button>
-                    <button class="btn btn-xs btn-ghost gap-1" @@click="exportData('csv')" title="Export CSV">
-                        <i class="bx bx-spreadsheet text-sm"></i>
-                        <span class="text-[10px] hidden sm:inline">CSV</span>
-                    </button>
-                </div>
-                <button class="btn btn-xs btn-ghost btn-circle" @@click="toggleTheme()" title="Toggle theme">
-                    <svg x-show="isDark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" /></svg>
-                    <svg x-show="!isDark" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>
+                <button onclick="document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); try { localStorage.setItem('sb-theme', document.documentElement.getAttribute('data-theme')); } catch(e) {}"
+                        class="btn btn-ghost btn-xs btn-circle">
+                    <i class="bx bx-moon text-sm"></i>
                 </button>
-                <a href="/" target="_top" class="btn btn-xs btn-ghost btn-circle" title="Home">
-                    <i class="bx bx-home text-sm"></i>
-                </a>
-                <a href="https://github.com/scottgal/stylobot" target="_blank" class="btn btn-xs btn-ghost btn-circle" title="GitHub">
-                    <i class="bx bxl-github text-sm"></i>
-                </a>
             </div>
         </div>
     </header>
 
-    <!-- Server-rendered data (no XHR needed on first load) -->
-    <!-- SafeJson escapes </ to prevent script-tag breakout in embedded JSON -->
-    <script type="application/json" id="your-detection-data" nonce="@Model.CspNonce">@Html.Raw(SafeJson(Model.YourDetectionJson))</script>
-    <script type="application/json" id="initial-summary" nonce="@Model.CspNonce">@Html.Raw(SafeJson(Model.SummaryJson))</script>
-    <script type="application/json" id="initial-detections" nonce="@Model.CspNonce">@Html.Raw(SafeJson(Model.DetectionsJson))</script>
-    <script type="application/json" id="initial-signatures" nonce="@Model.CspNonce">@Html.Raw(SafeJson(Model.SignaturesJson))</script>
-    <script type="application/json" id="initial-countries" nonce="@Model.CspNonce">@Html.Raw(SafeJson(Model.CountriesJson))</script>
-    <script type="application/json" id="initial-clusters" nonce="@Model.CspNonce">@Html.Raw(SafeJson(Model.ClustersJson))</script>
+    <!-- Main content -->
+    <main class="max-w-7xl mx-auto px-4 py-4">
 
-    <!-- Main Content -->
-    <main class="dashboard-shell px-4 py-4">
+        <!-- Summary stats — always visible -->
+        @await Html.PartialAsync("~/Views/Dashboard/_SummaryStats.cshtml", Model.Summary)
 
-        <!-- Summary Stats Bar -->
-        <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 mb-2 py-2 bg-base-200 rounded-lg px-4">
-            <span class="text-xs"><span class="text-base-content/40">Requests</span> <span class="font-bold hero-accent-text" x-text="displayTotalCount.toLocaleString()">0</span></span>
-            <span class="text-base-content/20">|</span>
-            <span class="text-xs"><span class="text-base-content/40">Bots</span> <span class="font-bold text-error" x-text="displayBotCount.toLocaleString()">0</span></span>
-            <span class="text-base-content/20">|</span>
-            <span class="text-xs"><span class="text-base-content/40">Humans</span> <span class="font-bold signal-positive" x-text="displayHumanCount.toLocaleString()">0</span></span>
-            <span class="text-base-content/20">|</span>
-            <span class="text-xs"><span class="text-base-content/40">Bot %</span> <span class="font-bold" :class="parseFloat(displayBotPct) > 30 ? 'signal-danger' : 'signal-warning'" x-text="displayBotPct + '%'">0%</span></span>
-            <span class="text-base-content/20">|</span>
-            <span class="text-xs"><span class="text-base-content/40">Avg</span> <span class="font-bold hero-accent-text" x-text="avgMs + 'ms'">0ms</span></span>
-            <span class="text-base-content/20">|</span>
-            <span class="text-xs"><span class="text-base-content/40">Visitors</span> <span class="font-bold" x-text="uniqueSigs.toLocaleString()">0</span></span>
+        <!-- Tab navigation -->
+        <div class="flex items-center gap-1 my-4 bg-base-300/50 rounded-lg p-0.5 w-fit">
+            <a href="@TabUrl("overview")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("overview")">Overview</a>
+            <a href="@TabUrl("visitors")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("visitors")">Visitors</a>
+            <a href="@TabUrl("countries")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("countries")">Countries</a>
+            <a href="@TabUrl("clusters")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("clusters")">Clusters</a>
+            <a href="@TabUrl("useragents")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("useragents")">User Agents</a>
         </div>
 
-        <!-- Time Range Selector + Area Chart -->
-        <div class="mb-4 bg-base-200 rounded-lg px-4 py-3">
-            <div class="flex items-center justify-between mb-2">
-                <span class="text-[10px] font-bold uppercase tracking-wider text-base-content/40">Request Volume</span>
-                <div class="flex items-center bg-base-300/50 rounded-lg p-0.5 gap-0.5">
-                    <template x-for="r in ['1h','6h','12h','24h','7d','30d','All']" :key="r">
-                        <button class="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
-                                :class="timeRange === r ? 'bg-base-100 shadow-sm text-base-content' : 'text-base-content/40 hover:text-base-content/60'"
-                                @@click="setTimeRange(r)" x-text="r"></button>
-                    </template>
+        @if (tab == "overview")
+        {
+            <!-- Overview: two-column layout -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <!-- Left: Visitor feed -->
+                <div class="lg:col-span-2">
+                    @await Html.PartialAsync("~/Views/Dashboard/_VisitorList.cshtml", Model.Visitors)
+                </div>
+                <!-- Right: sidebar widgets -->
+                <div class="space-y-4">
+                    @await Html.PartialAsync("~/Views/Dashboard/_YourDetection.cshtml", Model.YourDetection)
+                    @await Html.PartialAsync("~/Views/Dashboard/_CountriesList.cshtml", Model.Countries)
                 </div>
             </div>
-            <!-- Area Chart -->
-            <div x-show="timeSeriesLoading" class="flex items-center justify-center h-[120px]">
-                <span class="loading loading-spinner loading-sm hero-accent-text"></span>
-            </div>
-            <div x-show="!timeSeriesLoading && timeSeriesData.length > 0" x-cloak>
-                <svg :width="areaChartWidth" height="120" class="w-full" :viewBox="'0 0 ' + areaChartWidth + ' 120'" preserveAspectRatio="none">
-                    <!-- Human area (green) -->
-                    <path :d="humanAreaPath" :fill="alphaColor(themeColor('positive'), 25)" />
-                    <!-- Bot area (red, stacked on top) -->
-                    <path :d="botAreaPath" :fill="alphaColor(themeColor('danger'), 25)" />
-                    <!-- Human line -->
-                    <polyline :points="humanLinePath" fill="none" :stroke="themeColor('positive')" stroke-width="1.5" />
-                    <!-- Bot line (at top of stack) -->
-                    <polyline :points="botLinePath" fill="none" :stroke="themeColor('danger')" stroke-width="1.5" />
-                </svg>
-                <div class="flex justify-between text-[9px] text-base-content/30 mt-1">
-                    <span x-text="areaChartStartLabel"></span>
-                    <div class="flex items-center gap-3">
-                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full" :style="'background:' + themeColor('positive')"></span> Humans</span>
-                        <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full" :style="'background:' + themeColor('danger')"></span> Bots</span>
-                    </div>
-                    <span x-text="areaChartEndLabel"></span>
-                </div>
-            </div>
-            <div x-show="!timeSeriesLoading && timeSeriesData.length === 0" x-cloak class="flex items-center justify-center h-[120px] text-[11px] text-base-content/30">
-                No data for selected time range
-            </div>
-        </div>
-
-        <!-- Two-Column Layout -->
-        <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
-
-            <!-- ======== LEFT COLUMN: Detection Detail (2/5) ======== -->
-            <div class="lg:col-span-2 space-y-4">
-                <!-- Panel header: Your Detection / Selected Visitor toggle -->
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <button class="text-sm font-bold uppercase tracking-wider transition-colors"
-                                :class="!selectedVisitor ? 'hero-accent-text' : 'text-base-content/30 hover:text-base-content/50 cursor-pointer'"
-                                @@click="selectedVisitor = null">You</button>
-                        <template x-if="activeDetail">
-                            <div class="flex items-center gap-1">
-                                <span class="text-base-content/20">/</span>
-                                <span class="text-sm font-bold uppercase tracking-wider hero-accent-text"
-                                      x-text="visitorDisplayName(activeDetail)"></span>
-                                <button class="btn btn-ghost btn-xs btn-circle" @@click="selectedVisitor = null">
-                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                                </button>
-                            </div>
-                        </template>
-                    </div>
-                    <div class="flex items-center gap-1.5" x-show="connected">
-                        <span class="relative flex h-2 w-2">
-                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
-                            <span class="relative inline-flex rounded-full h-2 w-2 live-dot"></span>
-                        </span>
-                        <span class="text-[10px] font-semibold" style="color: var(--sb-accent)">LIVE</span>
-                    </div>
-                </div>
-
-                <!-- Loading -->
-                <div x-show="yourLoading && !selectedVisitor" class="card bg-base-200">
-                    <div class="card-body items-center py-10">
-                        <span class="loading loading-spinner loading-md hero-accent-text"></span>
-                        <p class="text-xs text-base-content/50 mt-2">Analysing your request...</p>
-                    </div>
-                </div>
-
-                <!-- ===== Selected Visitor Detail (from feed click) ===== -->
-                <div x-show="activeDetail" x-cloak>
-                    <div class="card bg-base-200 overflow-hidden">
-                        <div class="card-body p-4">
-                            <div class="flex items-start gap-3 mb-3">
-                                <div class="flex-shrink-0 w-12 h-12 rounded-lg flex items-center justify-center text-white text-xl font-bold"
-                                     :class="activeDetail?.isBot ? 'bg-error' : 'bg-success'">
-                                    <i class="bx" :class="activeDetail?.isBot ? 'bx-bot' : 'bx-user-check'"></i>
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <h3 class="text-lg font-bold" :class="activeDetail?.isBot ? 'text-error' : 'text-success'"
-                                        x-text="visitorDisplayName(activeDetail)"></h3>
-                                    <p class="text-xs text-base-content/60">
-                                        <span class="font-mono" x-text="activeDetail?.sig.substring(0, 12)"></span>
-                                        <span class="mx-1">-</span>
-                                        <span x-text="activeDetail?.hits + ' requests'"></span>
-                                    </p>
-                                </div>
-                                <div class="badge badge-sm font-semibold"
-                                     :style="'background-color:' + alphaColor(riskColor(activeDetail?.riskBand), 18) + '; color:' + riskColor(activeDetail?.riskBand)"
-                                     x-text="activeDetail?.riskBand"></div>
-                                <div x-show="activeDetail?.threatBand" class="badge badge-sm font-semibold"
-                                     :class="threatBandClass(activeDetail?.threatBand)"
-                                     x-text="'Threat: ' + activeDetail?.threatBand"></div>
-                            </div>
-
-                            <!-- Narrative -->
-                            <div class="bg-base-300/50 rounded-lg p-3 mb-3" x-show="activeDetail?.narrative">
-                                <p class="text-sm italic text-base-content/70" x-text="activeDetail?.narrative"></p>
-                            </div>
-
-                            <!-- LLM description -->
-                            <div class="bg-base-300/30 rounded-lg p-2 mb-3 text-xs italic text-base-content/50" x-show="activeDetail?.description" x-text="activeDetail?.description"></div>
-
-                            <!-- Stats grid -->
-                            <div class="grid grid-cols-2 gap-2 text-[11px] mb-3">
-                                <template x-if="activeDetail?.hasFullData">
-                                    <div><span class="text-base-content/40">Probability:</span> <span class="font-bold" :class="(activeDetail?.botProbability || 0) >= 0.5 ? 'signal-danger' : 'signal-positive'" x-text="((activeDetail?.botProbability || 0) * 100).toFixed(1) + '%'"></span></div>
-                                </template>
-                                <template x-if="activeDetail?.hasFullData">
-                                    <div><span class="text-base-content/40">Confidence:</span> <span class="font-bold" x-text="((activeDetail?.confidence || 0) * 100).toFixed(1) + '%'"></span></div>
-                                </template>
-                                <div><span class="text-base-content/40">Risk:</span> <span class="font-bold" :class="riskLabelClass(activeDetail?.riskBand)" x-text="activeDetail?.riskBand"></span></div>
-                                <div><span class="text-base-content/40">Action:</span> <span class="font-bold" x-text="activeDetail?.action || 'Allow'"></span></div>
-                                <div x-show="activeDetail?.botType"><span class="text-base-content/40">Type:</span> <span class="font-bold" x-text="activeDetail?.botType"></span></div>
-                                <template x-if="activeDetail?.hasFullData">
-                                    <div><span class="text-base-content/40">Processing:</span> <span class="font-bold" x-text="(activeDetail?.processingTimeMs || 0).toFixed(0) + 'ms'"></span></div>
-                                </template>
-                                <template x-if="!activeDetail?.hasFullData">
-                                    <div class="col-span-2 text-base-content/30 italic">Detailed stats available on next request</div>
-                                </template>
-                            </div>
-
-                            <!-- Pages visited -->
-                            <div x-show="activeDetail?.paths?.length > 0" class="mb-3">
-                                <h4 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-1.5">Pages visited</h4>
-                                <div class="flex flex-wrap gap-1">
-                                    <template x-for="(p, pi) in (activeDetail?.paths || [])" :key="pi">
-                                        <button class="text-[10px] bg-base-300/50 rounded px-1.5 py-0.5 hover:bg-base-300 transition-colors cursor-pointer font-mono"
-                                                @@click="selectEndpoint(p)" x-text="truncPath(p, 25)"></button>
-                                    </template>
-                                </div>
-                            </div>
-
-                            <!-- Evidence -->
-                            <div x-show="activeDetail?.topReasons?.length > 0">
-                                <h4 class="text-xs font-bold uppercase tracking-wider text-base-content/40 mb-2">Evidence</h4>
-                                <div class="space-y-1.5">
-                                    <template x-for="(reason, i) in (activeDetail?.topReasons || [])" :key="i">
-                                        <div class="flex items-start gap-2">
-                                            <i class="bx bx-check-circle text-sm flex-shrink-0 mt-0.5" :class="activeDetail?.isBot ? 'signal-danger' : 'signal-positive'"></i>
-                                            <span class="text-xs text-base-content/70" x-text="reason"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- ===== Your Detection Card (shown when no visitor selected) ===== -->
-                <div x-show="!selectedVisitor && !yourLoading && yourData" x-cloak>
-                    <!-- Big Verdict -->
-                    <div class="card bg-base-200 overflow-hidden">
-                        <div class="card-body p-4">
-                            <!-- Verdict Header -->
-                            <div class="flex items-start gap-3 mb-3">
-                                <div class="flex-shrink-0 w-12 h-12 rounded-lg flex items-center justify-center text-white text-xl font-bold"
-                                     :class="yourData?.isBot ? 'bg-error' : 'bg-success'">
-                                    <i class="bx" :class="yourData?.isBot ? 'bx-bot' : 'bx-user-check'"></i>
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <h3 class="text-lg font-bold" :class="yourData?.isBot ? 'text-error' : 'text-success'"
-                                        x-text="yourData?.isBot ? 'Bot Detected' : 'You\'re Human'"></h3>
-                                    <p class="text-xs text-base-content/60" x-text="'We\'re ' + confidenceWord + ' (' + ((yourData?.confidence || 0) * 100).toFixed(0) + '% confidence)'"></p>
-                                </div>
-                                <div class="badge badge-sm font-semibold"
-                                     :style="'background-color:' + alphaColor(riskColor(yourData?.riskBand), 18) + '; color:' + riskColor(yourData?.riskBand)"
-                                     x-text="yourData?.riskBand"></div>
-                                <div x-show="yourData?.threatBand" class="badge badge-sm font-semibold ml-1"
-                                     :class="threatBandClass(yourData?.threatBand)"
-                                     x-text="'Threat: ' + yourData?.threatBand"></div>
-                            </div>
-
-                            <!-- Narrative -->
-                            <div class="bg-base-300/50 rounded-lg p-3 mb-3">
-                                <p class="text-sm italic text-base-content/70" x-text="yourData?.narrative || 'Analysing...'"></p>
-                            </div>
-
-                            <!-- Sparkline: Bot probability over time -->
-                            <div x-show="probabilityHistory.length > 1" class="bg-base-300/30 rounded-lg p-2 mb-3">
-                                <div class="flex items-center justify-between mb-1">
-                                    <span class="text-[10px] font-semibold text-base-content/40 uppercase tracking-wider">Score over time</span>
-                                    <span class="text-[10px] text-base-content/30" x-text="probabilityHistory.length + ' detections'"></span>
-                                </div>
-                                <svg :width="sparklineWidth + 8" height="48" class="overflow-visible">
-                                    <!-- 50% threshold dashed line -->
-                                    <line x1="0" y1="20" :x2="sparklineWidth" y2="20" :stroke="alphaColor(themeColor('muted'), 30)" stroke-width="1" stroke-dasharray="3,3" />
-                                    <!-- Sparkline path -->
-                                    <polyline :points="sparklinePath" fill="none" :stroke="sparklineColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
-                                    <!-- Current value dot -->
-                                    <circle :cx="(probabilityHistory.length - 1) * 4" :cy="probabilityHistory.length ? (1 - (probabilityHistory[probabilityHistory.length - 1] || 0)) * 40 : 20" r="3" :fill="sparklineColor" />
-                                    <!-- Labels -->
-                                    <text :x="sparklineWidth + 4" y="5" class="text-[8px] fill-base-content/30">Bot</text>
-                                    <text :x="sparklineWidth + 4" y="44" class="text-[8px] fill-base-content/30">Human</text>
-                                </svg>
-                            </div>
-
-                            <!-- How We Know -->
-                            <h4 class="text-xs font-bold uppercase tracking-wider text-base-content/40 mb-2">How we know</h4>
-                            <div class="space-y-1.5 mb-3">
-                                <template x-for="(reason, i) in (yourData?.topReasons || []).slice(0, 4)" :key="i">
-                                    <div class="flex items-start gap-2">
-                                        <i class="bx bx-check-circle text-sm flex-shrink-0 mt-0.5" :class="yourData?.isBot ? 'signal-danger' : 'signal-positive'"></i>
-                                        <span class="text-xs text-base-content/70" x-text="reason"></span>
-                                    </div>
-                                </template>
-                            </div>
-
-                            <!-- Detection Coverage -->
-                            <div class="flex items-center gap-2 p-2 bg-base-300/30 rounded-lg">
-                                <span class="text-xs text-base-content/50">
-                                    <span class="font-bold hero-accent-text" x-text="yourData?.detectorCount || 0"></span> detectors ran in
-                                    <span class="font-bold hero-accent-text" x-text="(yourData?.processingTimeMs || 0).toFixed(0) + 'ms'"></span>
-                                </span>
-                                <div class="flex gap-1 ml-auto">
-                                    <template x-for="cat in Object.keys(categorizedContributions)" :key="cat">
-                                        <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold"
-                                              :style="'background-color:' + alphaColor(categoryColor(cat), 18) + '; color:' + categoryColor(cat)"
-                                              :title="cat">
-                                            <i class="bx text-[10px]" :class="categoryIcon(cat)"></i>
-                                            <span x-text="cat"></span>
-                                        </span>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Detector Breakdown (by category) -->
-                    <div class="card bg-base-200 mt-3">
-                        <div class="card-body p-4">
-                            <h3 class="text-xs font-bold uppercase tracking-wider text-base-content/50 mb-3 flex items-center">
-                                Detector Breakdown
-                                <span class="badge badge-xs badge-ghost ml-1" x-text="(yourData?.contributions?.length || 0)"></span>
-                            </h3>
-                            <div class="space-y-1.5">
-                                <template x-for="(c, i) in topContributions" :key="i">
-                                    <div class="flex items-center gap-2">
-                                        <span class="w-24 text-xs truncate"
-                                           :style="'color:' + categoryColor(c.category || 'Other')"
-                                           :title="c.friendlyName || c.detector"
-                                           x-text="c.friendlyName || c.detector"></span>
-                                        <div class="flex-1 bg-base-300 rounded-full h-3 overflow-hidden">
-                                            <div class="h-full rounded-full transition-all duration-500"
-                                                 :style="'width:' + Math.max(Math.min(Math.abs(c.impact) * 1000, 100), 3) + '%; background-color:' + (c.impact > 0 ? alphaColor(themeColor('danger'), 42) : alphaColor(themeColor('positive'), 42))"></div>
-                                        </div>
-                                        <div class="w-12 text-right text-[10px] font-mono"
-                                             :style="'color:' + (c.impact > 0 ? themeColor('danger') : themeColor('positive'))"
-                                             x-text="(c.impact > 0 ? '+' : '') + (c.impact * 100).toFixed(1) + '%'"></div>
-                                    </div>
-                                </template>
-                            </div>
-                            <template x-if="topContributions.length > 0">
-                                <div class="mt-2 text-[10px] text-base-content/40">
-                                    <span class="signal-danger">Red</span> = evidence of bot,
-                                    <span class="signal-positive">green</span> = evidence of human
-                                </div>
-                            </template>
-                            <button x-show="yourData?.contributions?.length > 5"
-                                    class="btn btn-ghost btn-xs mt-2"
-                                    @@click="showAllContributions = !showAllContributions"
-                                    x-text="showAllContributions ? 'Show top 5' : 'Show all ' + (yourData?.contributions?.length || 0)"></button>
-                        </div>
-                    </div>
-
-                    <!-- Signals (collapsed) -->
-                    <div class="card bg-base-200 mt-3">
-                        <div class="card-body p-4">
-                            <h3 class="text-xs font-bold uppercase tracking-wider text-base-content/50 cursor-pointer flex items-center"
-                                @@click="showSignals = !showSignals">
-                                Raw Signals
-                                <span class="badge badge-xs badge-ghost ml-1" x-text="signalEntries.length"></span>
-                                <span class="text-[9px] font-normal normal-case text-base-content/30 ml-2">Technical detail</span>
-                                <svg class="w-3 h-3 ml-auto transition-transform" :class="{ 'rotate-180': showSignals }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </h3>
-                            <div x-show="showSignals" x-transition class="mt-2 space-y-1 max-h-48 overflow-y-auto">
-                                <template x-for="[key, val] in signalEntries" :key="key">
-                                    <div class="flex items-center gap-1 text-[11px]">
-                                        <code class="font-mono opacity-60 truncate flex-1" x-text="key"></code>
-                                        <span class="font-medium"
-                                              :class="val === true ? 'signal-positive' : (val === false ? 'signal-danger' : 'signal-muted')"
-                                              x-text="String(val)"></span>
-                                    </div>
-                                </template>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- No detection yet — prompt user -->
-                <div x-show="!selectedVisitor && !yourLoading && !yourData" x-cloak class="card bg-base-200">
-                    <div class="card-body items-center py-8 text-center">
-                        <i class="bx bx-search-alt text-3xl text-base-content/20 mb-2"></i>
-                        <p class="text-sm font-semibold text-base-content/60">Select a visitor from the feed</p>
-                        <p class="text-xs text-base-content/40 mt-1">Click any visitor row to see their full detection breakdown</p>
-                    </div>
-                </div>
-
-                <!-- Risk + Bot Types (compact, side by side) -->
-                <div x-show="summary?.riskBandCounts || displayRiskBandCounts" x-cloak class="grid grid-cols-2 gap-3">
-                    <div class="card bg-base-200">
-                        <div class="card-body p-3">
-                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">Risk Distribution</h3>
-                            <template x-for="band in ['VeryLow','Low','Medium','High','VeryHigh']" :key="band">
-                                <div x-show="displayRiskBandCounts[band] > 0" class="flex items-center gap-1.5 mb-1">
-                                    <span class="text-[10px] w-12 font-medium" :class="riskLabelClass(band)" x-text="band"></span>
-                                    <div class="flex-1 bg-base-300 rounded-full h-2 overflow-hidden">
-                                        <div class="h-full rounded-full" :style="'width:' + Math.max(((displayRiskBandCounts[band] || 0) / (displayTotalCount || 1)) * 100, 3) + '%; background-color:' + alphaColor(riskColor(band), 42)"></div>
-                                    </div>
-                                    <span class="text-[10px] font-mono w-6 text-right" x-text="displayRiskBandCounts[band] || 0"></span>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-                    <div class="card bg-base-200">
-                        <div class="card-body p-3">
-                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
-                                <span x-text="displayTopBotTypes && Object.keys(displayTopBotTypes).length > 0 ? 'Top Bot Types' : 'Actions Taken'"></span>
-                            </h3>
-                            <template x-if="displayTopBotTypes && Object.keys(displayTopBotTypes).length > 0">
-                                <div>
-                                    <template x-for="[type, count] in Object.entries(displayTopBotTypes).sort((a,b) => b[1] - a[1]).slice(0, 5)" :key="type">
-                                        <div class="flex items-center justify-between mb-1 text-[11px]">
-                                            <span x-text="type"></span>
-                                            <span class="font-mono opacity-50" x-text="count"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </template>
-                            <template x-if="!displayTopBotTypes || Object.keys(displayTopBotTypes).length === 0">
-                                <div>
-                                    <template x-for="[action, count] in Object.entries(summary?.topActions || {}).sort((a,b) => b[1] - a[1])" :key="action">
-                                        <div class="flex items-center justify-between mb-1 text-[11px]">
-                                            <span x-text="action"></span>
-                                            <span class="font-mono opacity-50" x-text="count"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Top Bot Countries + Bot Clusters (side by side) -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div class="card bg-base-200">
-                        <div class="card-body p-3">
-                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
-                                Top Bot Countries
-                                <span class="text-[9px] font-normal normal-case text-base-content/30 ml-1">(by bot rate)</span>
-                            </h3>
-                            <div x-show="countriesLoading">
-                                <span class="loading loading-spinner loading-xs"></span>
-                            </div>
-                            <template x-if="countries.length > 0">
-                                <div>
-                                    <template x-for="c in countries" :key="c.countryCode">
-                                        <div class="flex items-center justify-between mb-1 text-[11px]">
-                                            <span x-text="c.flag + ' ' + c.countryName"></span>
-                                            <span class="font-mono opacity-50" x-text="c.botCount + '/' + c.totalCount"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </template>
-                            <template x-if="countries.length === 0 && !countriesLoading">
-                                <div class="text-[11px] opacity-40">No country data yet</div>
-                            </template>
-                        </div>
-                    </div>
-                    <div class="card bg-base-200">
-                        <div class="card-body p-3">
-                            <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
-                                Bot Clusters
-                                <span class="text-[9px] font-normal normal-case text-base-content/30 ml-1">(discovered)</span>
-                            </h3>
-                            <div x-show="clustersLoading">
-                                <span class="loading loading-spinner loading-xs"></span>
-                            </div>
-                            <template x-if="clusters.length > 0">
-                                <div>
-                                    <template x-for="cl in clusters" :key="cl.clusterId">
-                                        <div class="mb-1.5">
-                                            <div class="flex items-center justify-between text-[11px]">
-                                                <span class="font-semibold truncate" x-text="cl.label"></span>
-                                                <div class="flex items-center gap-1">
-                                                    <span x-show="cl.averageThreatScore > 0.1"
-                                                          class="badge badge-xs"
-                                                          :class="threatBandClass(cl.averageThreatScore >= 0.80 ? 'Critical' : cl.averageThreatScore >= 0.55 ? 'High' : cl.averageThreatScore >= 0.35 ? 'Elevated' : 'Low')"
-                                                          x-text="'Threat ' + (cl.averageThreatScore * 100).toFixed(0) + '%'"></span>
-                                                    <span class="badge badge-xs" :class="cl.memberCount > 5 ? 'badge-error' : 'badge-warning'" x-text="cl.memberCount + ' members'"></span>
-                                                </div>
-                                            </div>
-                                            <div x-show="cl.dominantIntent" class="text-[10px] opacity-60 mt-0.5">
-                                                <span class="font-medium" x-text="'Intent: ' + cl.dominantIntent"></span>
-                                            </div>
-                                            <div x-show="cl.description" class="text-[10px] opacity-50 mt-0.5" x-text="cl.description"></div>
-                                        </div>
-                                    </template>
-                                </div>
-                            </template>
-                            <template x-if="clusters.length === 0 && !clustersLoading">
-                                <div class="text-[11px] opacity-40">No clusters detected</div>
-                            </template>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ======== RIGHT COLUMN: Live Feed (3/5) ======== -->
-            <div class="lg:col-span-3 space-y-3">
-                <div class="flex items-center justify-between">
-                    <h2 class="text-sm font-bold uppercase tracking-wider text-base-content/50">
-                        <span x-show="!filterEndpoint">Live Visitors</span>
-                        <span x-show="filterEndpoint" x-cloak class="flex items-center gap-1">
-                            <span class="text-base-content/30 cursor-pointer hover:text-base-content/50" @@click="clearFilters()">Visitors</span>
-                            <span class="text-base-content/20">/</span>
-                            <span class="font-mono hero-accent-text text-xs" x-text="truncPath(filterEndpoint, 20)"></span>
-                            <button class="btn btn-ghost btn-xs btn-circle" @@click="clearFilters()">
-                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                            </button>
-                        </span>
-                        <span class="text-[10px] font-normal normal-case text-base-content/30 ml-1" x-text="feedItems.length + ' of ' + Object.keys(visitorMap).length"></span>
-                    </h2>
-                    <div class="flex items-center gap-1.5">
-                        <div class="flex items-center bg-base-300/50 rounded-lg p-0.5 gap-0.5">
-                            <button class="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
-                                    :class="visitorFilter === 'all' ? 'bg-base-100 shadow-sm text-base-content' : 'text-base-content/40 hover:text-base-content/60'"
-                                    @@click="visitorFilter = 'all'">
-                                All <span class="opacity-50" x-text="filterCounts.all"></span>
-                            </button>
-                            <button class="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
-                                    :class="visitorFilter === 'humans' ? 'bg-success/20 shadow-sm text-success' : 'text-base-content/40 hover:text-base-content/60'"
-                                    @@click="visitorFilter = 'humans'">
-                                <i class="bx bx-user text-[10px]"></i> Humans <span class="opacity-50" x-text="filterCounts.humans"></span>
-                            </button>
-                            <button class="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
-                                    :class="visitorFilter === 'bots' ? 'bg-error/20 shadow-sm text-error' : 'text-base-content/40 hover:text-base-content/60'"
-                                    @@click="visitorFilter = 'bots'">
-                                <i class="bx bx-bot text-[10px]"></i> Bots <span class="opacity-50" x-text="filterCounts.bots"></span>
-                            </button>
-                            <button x-show="filterCounts.ai > 0" class="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
-                                    :class="visitorFilter === 'ai' ? 'bg-warning/20 shadow-sm text-warning' : 'text-base-content/40 hover:text-base-content/60'"
-                                    @@click="visitorFilter = 'ai'">
-                                AI <span class="opacity-50" x-text="filterCounts.ai"></span>
-                            </button>
-                            <button x-show="filterCounts.tools > 0" class="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors"
-                                    :class="visitorFilter === 'tools' ? 'bg-info/20 shadow-sm text-info' : 'text-base-content/40 hover:text-base-content/60'"
-                                    @@click="visitorFilter = 'tools'">
-                                Tools <span class="opacity-50" x-text="filterCounts.tools"></span>
-                            </button>
-                        </div>
-                        <button x-show="connected" class="btn btn-xs btn-ghost gap-1" @@click="feedPaused = !feedPaused">
-                            <svg x-show="!feedPaused" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-                            <svg x-show="feedPaused" class="w-3 h-3" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                            <span x-text="feedPaused ? 'Resume' : 'Pause'" class="text-[10px]"></span>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Feed Loading -->
-                <div x-show="feedLoading" class="card bg-base-200">
-                    <div class="card-body items-center py-10">
-                        <span class="loading loading-spinner loading-md hero-accent-text"></span>
-                        <p class="text-xs text-base-content/50 mt-2">Loading recent detections...</p>
-                    </div>
-                </div>
-
-                <!-- Feed (Narrative-driven rows) -->
-                <div x-show="!feedLoading" x-cloak class="card bg-base-200 shadow-xl overflow-hidden">
-                    <!-- Sort header -->
-                    <div class="flex items-center gap-1 px-3 py-1.5 border-b border-base-300/50 text-[9px] font-semibold uppercase tracking-wider text-base-content/40">
-                        <button class="flex-1 min-w-0 text-left cursor-pointer hover:text-base-content/60 transition-colors" @@click="toggleSort('name')">
-                            Name <span x-text="sortIcon('name')"></span>
-                        </button>
-                        <button class="w-10 text-right cursor-pointer hover:text-base-content/60 transition-colors" @@click="toggleSort('hits')">
-                            Hits <span x-text="sortIcon('hits')"></span>
-                        </button>
-                        <button class="w-14 text-right cursor-pointer hover:text-base-content/60 transition-colors" @@click="toggleSort('risk')">
-                            Risk <span x-text="sortIcon('risk')"></span>
-                        </button>
-                        <button class="w-10 text-right cursor-pointer hover:text-base-content/60 transition-colors" @@click="toggleSort('lastSeen')">
-                            Seen <span x-text="sortIcon('lastSeen')"></span>
-                        </button>
-                    </div>
-                    <div class="max-h-[600px] overflow-y-auto divide-y divide-base-300/50" x-ref="feedScroll">
-                        <template x-for="(v, i) in feedItems" :key="v.sig">
-                            <div class="px-3 py-2.5 transition-colors duration-300 cursor-pointer"
-                                 :style="'background-color:' + (selectedVisitor === v.sig ? alphaColor(themeColor('accent'), 12) : (v.isBot ? alphaColor(themeColor('danger'), 7) : 'transparent'))"
-                                 @@click="selectVisitor(v.sig)">
-
-                                <!-- Row 1: Identity + hit count + last seen -->
-                                <div class="flex items-center gap-2 mb-1">
-                                    <span class="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold text-white"
-                                          :class="v.isBot ? 'bg-error' : 'bg-success'">
-                                        <i class="bx text-xs" :class="v.isBot ? 'bx-bot' : 'bx-user'"></i>
-                                    </span>
-                                    <span class="text-xs font-semibold flex-1 min-w-0 truncate"
-                                          x-text="visitorDisplayName(v)"></span>
-                                    <code class="text-[9px] opacity-25 font-mono flex-shrink-0" x-text="v.sig.substring(0, 8)"></code>
-                                    <span class="badge badge-xs badge-ghost font-mono" x-text="v.hits + 'x'"></span>
-                                    <span class="text-[10px] opacity-30 flex-shrink-0" x-text="timeAgo(v.lastSeen)"></span>
-                                </div>
-
-                                <!-- Row 2: Narrative or latest path -->
-                                <div class="text-[11px] text-base-content/60 mb-1 truncate"
-                                     x-text="v.narrative || (v.lastPath ? 'Last: ' + truncPath(v.lastPath, 30) : (v.hits + ' request' + (v.hits !== 1 ? 's' : '') + ' detected'))"></div>
-
-                                <!-- Row 3: Compact stats -->
-                                <div class="flex items-center gap-3 text-[10px] text-base-content/40">
-                                    <span :class="riskLabelClass(v.riskBand)" x-text="v.riskBand"></span>
-                                    <span x-show="v.threatBand" :class="threatBandClass(v.threatBand)"
-                                          class="badge badge-xs text-[9px]" x-text="v.threatBand"></span>
-                                    <template x-if="v.hasFullData">
-                                        <span x-text="((v.botProbability || 0) * 100).toFixed(0) + '% prob'"></span>
-                                    </template>
-                                    <template x-if="v.hasFullData">
-                                        <span x-text="(v.processingTimeMs || 0).toFixed(0) + 'ms'"></span>
-                                    </template>
-                                    <span class="badge badge-xs badge-ghost" x-show="v.action && v.action !== 'Allow'" x-text="v.action"></span>
-                                    <span x-show="v.paths && v.paths.length > 1" class="text-[9px]" x-text="v.paths.length + ' pages'"></span>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-
-                    <!-- Empty state -->
-                    <div x-show="Object.keys(visitorMap).length === 0" class="p-8 text-center text-base-content/30 text-sm">
-                        No visitors yet. Traffic will appear here in real time.
-                    </div>
-                </div>
-
-                <!-- Hot Endpoints -->
-                <div x-show="topEndpoints.length > 0" x-cloak class="card bg-base-200">
-                    <div class="card-body p-3">
-                        <h3 class="text-[10px] font-bold uppercase tracking-wider text-base-content/40 mb-2">
-                            Hot Endpoints
-                            <span class="text-[9px] font-normal normal-case text-base-content/30 ml-1">(by traffic volume)</span>
-                        </h3>
-                        <div class="space-y-1">
-                            <template x-for="ep in topEndpoints" :key="ep.path">
-                                <div class="flex items-center gap-2 cursor-pointer hover:bg-base-300/30 rounded px-1 -mx-1 py-0.5 transition-colors"
-                                     :style="filterEndpoint === ep.path ? 'background-color:' + alphaColor(themeColor('accent'), 12) : ''"
-                                     @@click="selectEndpoint(ep.path)">
-                                    <code class="text-[11px] font-mono truncate flex-1 opacity-70 hover:opacity-100" x-text="ep.path"></code>
-                                    <div class="flex items-center gap-2 flex-shrink-0">
-                                        <span class="text-[10px] font-mono" x-text="ep.total"></span>
-                                        <div class="w-16 bg-base-300 rounded-full h-2 overflow-hidden">
-                                            <div class="h-full rounded-full" :style="'width:' + Math.max(ep.botPct, 3) + '%; background-color:' + (ep.botPct > 50 ? alphaColor(themeColor('danger'), 42) : ep.botPct > 20 ? alphaColor(themeColor('warning'), 42) : alphaColor(themeColor('positive'), 42))"></div>
-                                        </div>
-                                        <span class="text-[10px] font-mono w-8 text-right"
-                                              :class="ep.botPct > 50 ? 'signal-danger' : (ep.botPct > 20 ? 'signal-warning' : 'signal-positive')"
-                                              x-text="ep.botPct + '%'"></span>
-                                    </div>
-                                </div>
-                            </template>
-                        </div>
-                        <div class="text-[9px] text-base-content/30 mt-2">Bot % per endpoint from observed traffic</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Privacy Footer -->
-        <div class="text-center py-5">
-            <div class="inline-flex items-center gap-2 bg-base-200 rounded-full px-4 py-2 text-xs text-base-content/60">
-                <svg class="w-3.5 h-3.5 signal-positive" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                <strong>Zero PII collected.</strong> All detection uses privacy-safe signals. No IP addresses or personal data are stored.
-            </div>
-        </div>
-    </main>
-</div>
-
-<!-- Dashboard Alpine Component -->
-<script nonce="@Model.CspNonce">
-function toCamel(obj) {
-    if (Array.isArray(obj)) return obj.map(toCamel);
-    if (obj !== null && typeof obj === 'object') {
-        return Object.fromEntries(
-            Object.entries(obj).map(function(e) { return [e[0].charAt(0).toLowerCase() + e[0].slice(1), toCamel(e[1])]; })
-        );
-    }
-    return obj;
-}
-
-function countryFlag(code, isPrivate) {
-    if (isPrivate || !code || code.length !== 2 || code.toUpperCase() === 'XX') return '\uD83C\uDF10';
-    return String.fromCodePoint.apply(null, Array.from(code.toUpperCase()).map(function(c) { return 0x1F1E6 + c.charCodeAt(0) - 65; }));
-}
-
-function themeColor(name) {
-    var styles = getComputedStyle(document.documentElement);
-    var map = {
-        positive: '--sb-signal-pos',
-        warning: '--sb-signal-warn',
-        danger: '--sb-signal-danger',
-        accent: '--sb-accent',
-        accentAlt: '--sb-accent-alt',
-        muted: '--sb-card-subtle'
-    };
-    var key = map[name] || '--sb-card-subtle';
-    return styles.getPropertyValue(key).trim() || '#6b7280';
-}
-
-function alphaColor(color, amount) {
-    return 'color-mix(in oklab, ' + color + ' ' + amount + '%, transparent)';
-}
-
-function visitorDisplayName(v) {
-    if (!v) return '';
-    if (v.botName) return v.botName;
-    if (v.botType) return v.botType;
-    return v.isBot ? 'Unknown Bot' : 'Visitor';
-}
-
-function dashboard() {
-    return {
-        // --- State ---
-        connection: null,
-        connected: false,
-        isDark: false,
-        summary: null,
-        summaryLoading: true,
-        visitorMap: {},
-        maxVisitors: 100,
-        feedLoading: true,
-        feedPaused: false,
-        initialLoadComplete: false,
-        yourData: null,
-        yourLoading: true,
-        yourError: null,
-        signature: '',
-        hitCount: 1,
-        justUpdated: false,
-        showAllContributions: false,
-        showSignals: false,
-        probabilityHistory: [],
-        endpointStats: {},
-        expandedItem: null,
-        selectedVisitor: null,
-        filterEndpoint: null,
-        visitorFilter: 'all',
-        sortField: 'lastSeen',
-        sortDir: 'desc',
-        countries: [],
-        clusters: [],
-        countriesLoading: true,
-        clustersLoading: true,
-        timeRange: 'All',
-        timeSeriesData: [],
-        timeSeriesLoading: false,
-        filteredSummary: null,
-
-        // --- Computed ---
-        get feedItems() {
-            var self = this;
-            var items = Object.values(this.visitorMap);
-            if (this.filterEndpoint) items = items.filter(function(v) { return v.paths && v.paths.includes(self.filterEndpoint); });
-            if (this.visitorFilter === 'humans') items = items.filter(function(v) { return !v.isBot; });
-            else if (this.visitorFilter === 'bots') items = items.filter(function(v) { return v.isBot; });
-            else if (this.visitorFilter === 'ai') items = items.filter(function(v) { return v.isBot && (v.botType === 'AiBot' || /ai|gpt|claude|llm|chatbot|copilot|gemini|bard/i.test(v.botName || '')); });
-            else if (this.visitorFilter === 'tools') items = items.filter(function(v) { return v.isBot && ['Scraper','MonitoringBot','SearchEngine','SocialMediaBot','VerifiedBot','GoodBot'].indexOf(v.botType) >= 0; });
-            return this.sortItems(items).slice(0, 50);
-        },
-
-        sortItems(items) {
-            var dir = this.sortDir === 'asc' ? 1 : -1;
-            var field = this.sortField;
-            return items.sort(function(a, b) {
-                switch (field) {
-                    case 'name': return dir * (a.botName || a.sig).localeCompare(b.botName || b.sig);
-                    case 'hits': return dir * ((a.hits || 0) - (b.hits || 0));
-                    case 'risk': {
-                        var order = { 'VeryHigh': 5, 'High': 4, 'Medium': 3, 'Elevated': 3, 'Low': 2, 'VeryLow': 1 };
-                        return dir * ((order[a.riskBand] || 0) - (order[b.riskBand] || 0));
-                    }
-                    default: return dir * (new Date(a.lastSeen).getTime() - new Date(b.lastSeen).getTime());
-                }
-            });
-        },
-
-        toggleSort(field) {
-            if (this.sortField === field) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
-            else { this.sortField = field; this.sortDir = 'desc'; }
-        },
-
-        sortIcon(field) {
-            if (this.sortField !== field) return '';
-            return this.sortDir === 'asc' ? '\u25B2' : '\u25BC';
-        },
-
-        get filterCounts() {
-            var all = Object.values(this.visitorMap);
-            return {
-                all: all.length,
-                humans: all.filter(function(v) { return !v.isBot; }).length,
-                bots: all.filter(function(v) { return v.isBot; }).length,
-                ai: all.filter(function(v) { return v.isBot && (v.botType === 'AiBot' || /ai|gpt|claude|llm|chatbot|copilot|gemini|bard/i.test(v.botName || '')); }).length,
-                tools: all.filter(function(v) { return v.isBot && ['Scraper','MonitoringBot','SearchEngine','SocialMediaBot','VerifiedBot','GoodBot'].indexOf(v.botType) >= 0; }).length
-            };
-        },
-
-        get activeDetail() { return this.selectedVisitor ? this.visitorMap[this.selectedVisitor] : null; },
-        get botCount() { return this.summary ? this.summary.botRequests || 0 : 0; },
-        get humanCount() { return this.summary ? this.summary.humanRequests || 0 : 0; },
-        get totalCount() { return this.summary ? this.summary.totalRequests || 0 : 0; },
-        get botPct() { return this.summary ? (this.summary.botPercentage || 0).toFixed(1) : '0.0'; },
-
-        // Time-filtered display stats
-        get displayBotCount() {
-            if (this.timeRange === 'All') return this.botCount;
-            if (!this.filteredSummary) return this.botCount;
-            return this.filteredSummary.botCount;
-        },
-        get displayHumanCount() {
-            if (this.timeRange === 'All') return this.humanCount;
-            if (!this.filteredSummary) return this.humanCount;
-            return this.filteredSummary.humanCount;
-        },
-        get displayTotalCount() {
-            if (this.timeRange === 'All') return this.totalCount;
-            if (!this.filteredSummary) return this.totalCount;
-            return this.filteredSummary.totalCount;
-        },
-        get displayBotPct() {
-            if (this.timeRange === 'All') return this.botPct;
-            if (!this.filteredSummary || this.filteredSummary.totalCount === 0) return '0.0';
-            return ((this.filteredSummary.botCount / this.filteredSummary.totalCount) * 100).toFixed(1);
-        },
-
-        // Time-filtered risk bands and bot types (for left-column panels)
-        get displayRiskBandCounts() {
-            if (this.timeRange === 'All' || !this.filteredSummary) return this.summary?.riskBandCounts || {};
-            return this.filteredSummary.riskBandCounts || {};
-        },
-        get displayTopBotTypes() {
-            if (this.timeRange === 'All' || !this.filteredSummary) return this.summary?.topBotTypes || {};
-            return this.filteredSummary.topBotTypes || {};
-        },
-        get avgMs() { return this.summary ? (this.summary.averageProcessingTimeMs || 0).toFixed(0) : '0'; },
-        get uniqueSigs() { return this.summary ? this.summary.uniqueSignatures || 0 : 0; },
-
-        get topEndpoints() {
-            return Object.entries(this.endpointStats)
-                .map(function(e) { var path = e[0], s = e[1]; return { path: path, total: s.total, bots: s.bots, botPct: s.total > 0 ? ((s.bots / s.total) * 100).toFixed(0) : '0' }; })
-                .sort(function(a, b) { return b.total - a.total; })
-                .slice(0, 8);
-        },
-
-        get sparklinePath() {
-            var h = this.probabilityHistory; if (h.length < 2) return '';
-            var w = 4, maxH = 40; return h.map(function(p, i) { return (i === 0 ? 'M' : 'L') + (i * w) + ',' + ((1 - p) * maxH); }).join(' ');
-        },
-        get sparklineWidth() { return Math.max((this.probabilityHistory.length - 1) * 4, 20); },
-        get sparklineColor() {
-            var h = this.probabilityHistory; if (h.length === 0) return themeColor('positive');
-            var last = h[h.length - 1]; return last >= 0.7 ? themeColor('danger') : last >= 0.4 ? themeColor('warning') : themeColor('positive');
-        },
-        get gaugeColor() {
-            if (!this.yourData) return themeColor('positive');
-            var p = this.yourData.botProbability; return p >= 0.7 ? themeColor('danger') : p >= 0.4 ? themeColor('warning') : themeColor('positive');
-        },
-        get topContributions() {
-            if (!this.yourData || !this.yourData.contributions) return [];
-            var s = this.yourData.contributions.slice().sort(function(a, b) { return Math.abs(b.impact) - Math.abs(a.impact); });
-            return this.showAllContributions ? s : s.slice(0, 5);
-        },
-        get signalEntries() { if (!this.yourData || !this.yourData.signals) return []; return Object.entries(this.yourData.signals); },
-        get confidenceWord() {
-            if (!this.yourData) return '';
-            var c = this.yourData.confidence; return c >= 0.9 ? 'very confident' : c >= 0.7 ? 'confident' : c >= 0.5 ? 'fairly confident' : 'low confidence';
-        },
-        get categorizedContributions() {
-            if (!this.yourData || !this.yourData.contributions) return {};
-            var cats = {};
-            this.yourData.contributions.forEach(function(c) {
-                var cat = c.category || 'Other';
-                if (!cats[cat]) cats[cat] = [];
-                cats[cat].push(c);
-            });
-            return cats;
-        },
-
-        // --- Helpers ---
-        visitorDisplayName: visitorDisplayName,
-        categoryIcon(cat) {
-            return ({ 'Browser': 'bx-globe', 'Network': 'bx-cloud', 'Behavioral': 'bx-pulse', 'Fingerprint': 'bx-fingerprint', 'AI': 'bx-brain', 'Reputation': 'bx-shield' })[cat] || 'bx-analyse';
-        },
-        categoryColor(cat) {
-            return ({ 'Browser': themeColor('accent'), 'Network': themeColor('warning'), 'Behavioral': themeColor('positive'), 'Fingerprint': themeColor('accentAlt'), 'AI': themeColor('danger'), 'Reputation': themeColor('muted') })[cat] || themeColor('muted');
-        },
-        themeColor: themeColor,
-        alphaColor: alphaColor,
-        riskLabelClass(band) { return 'risk-text-' + (band || 'unknown').toLowerCase(); },
-        threatBandClass(band) {
-            var b = (band || '').toLowerCase();
-            if (b === 'critical') return 'badge-error';
-            if (b === 'high') return 'badge-warning';
-            if (b === 'elevated') return 'badge-info';
-            if (b === 'low') return 'badge-success';
-            return 'badge-ghost';
-        },
-        riskColor(band) {
-            return ({ 'VeryLow': themeColor('positive'), 'Low': themeColor('positive'), 'Elevated': themeColor('warning'), 'Medium': themeColor('warning'), 'High': themeColor('danger'), 'VeryHigh': themeColor('danger') })[band] || themeColor('muted');
-        },
-        timeAgo(ts) {
-            if (!ts) return '';
-            var d = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-            if (d < 5) return 'now'; if (d < 60) return d + 's'; if (d < 3600) return Math.floor(d / 60) + 'm'; return Math.floor(d / 3600) + 'h';
-        },
-        truncPath(p, max) {
-            max = max || 30; if (!p) return '/'; return p.length > max ? p.substring(0, max - 3) + '...' : p;
-        },
-        selectVisitor(sig) { this.selectedVisitor = this.selectedVisitor === sig ? null : sig; },
-        selectEndpoint(path) { this.filterEndpoint = this.filterEndpoint === path ? null : path; this.selectedVisitor = null; },
-        clearFilters() { this.filterEndpoint = null; this.selectedVisitor = null; },
-
-        // --- Theme ---
-        initTheme() {
-            this.isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-        },
-        toggleTheme() {
-            this.isDark = !this.isDark;
-            var next = this.isDark ? 'dark' : 'light';
-            document.documentElement.setAttribute('data-theme', next);
-            try { localStorage.setItem('sb-theme', next); } catch(e) {}
-        },
-
-        // --- Helpers to read server-rendered JSON ---
-        readEmbeddedJson(id) {
-            try {
-                var el = document.getElementById(id);
-                if (el) { var d = JSON.parse(el.textContent || 'null'); return d; }
-            } catch(e) {}
-            return null;
-        },
-
-        // --- Init: read server-rendered data, then connect SignalR for live updates ---
-        init() {
-            this.initTheme();
-            this.loadEmbeddedData();
-            this.connectSignalR();
-            // If no "Your Detection" on first load, poll sentinel endpoint
-            if (!this.yourData) this.fetchMeWithRetry();
-            // Load initial time series
-            this.fetchTimeSeries();
-        },
-
-        async fetchMeWithRetry(attempt) {
-            attempt = attempt || 0;
-            if (attempt >= 3 || this.yourData) { this.yourLoading = false; return; }
-            try {
-                var resp = await fetch('@Html.Raw(Model.Options.BasePath)/api/me');
-                if (resp.ok) {
-                    var data = await resp.json();
-                    if (data) {
-                        if (data.signature) this.signature = data.signature;
-                        if (data.isBot !== undefined) {
-                            // Full detection data
-                            this.yourData = data;
-                            this.probabilityHistory = [data.botProbability];
-                            this.yourLoading = false;
-                            return;
-                        }
-                        // Signature-only — keep waiting for SignalR
-                    }
-                }
-            } catch(e) {}
-            // Retry after delay (2s, 5s, 10s) — gives time for a real page visit to populate cache
-            var self = this;
-            var delays = [2000, 5000, 10000];
-            setTimeout(function() { self.fetchMeWithRetry(attempt + 1); }, delays[attempt] || 5000);
-        },
-
-        loadEmbeddedData() {
-            // Your detection (includes signature for SignalR live updates)
-            var yd = this.readEmbeddedJson('your-detection-data');
-            if (yd && yd.signature) {
-                this.signature = yd.signature;
-                if (yd.isBot !== undefined) {
-                    // Full detection data available
-                    this.yourData = yd;
-                    this.probabilityHistory = [yd.botProbability];
-                    this.yourLoading = false;
-                } else {
-                    // Signature only — wait for SignalR to populate
-                    this.yourLoading = true;
-                }
-            } else {
-                this.yourLoading = true;
-            }
-
-            // Summary
-            var sum = this.readEmbeddedJson('initial-summary');
-            if (sum) this.summary = toCamel(sum);
-            this.summaryLoading = false;
-
-            // Signatures -> visitor map
-            var sigs = this.readEmbeddedJson('initial-signatures') || [];
-            var self = this;
-            (Array.isArray(sigs) ? sigs : []).forEach(function(s) {
-                s = toCamel(s);
-                var sig = s.primarySignature;
-                if (!sig || self.visitorMap[sig]) return;
-                var isBot = s.isKnownBot || s.riskBand === 'High' || s.riskBand === 'VeryHigh';
-                self.visitorMap[sig] = {
-                    sig: sig, hits: s.hitCount || 1,
-                    firstSeen: s.timestamp, lastSeen: s.timestamp,
-                    isBot: isBot, botProbability: s.botProbability || null, confidence: s.confidence || null,
-                    riskBand: s.riskBand || 'Medium', lastPath: s.lastPath || null, paths: [],
-                    action: s.action || 'Allow', botName: s.botName || null, botType: s.botType || null,
-                    narrative: s.narrative || null, description: s.description || null,
-                    topReasons: s.topReasons || [], processingTimeMs: s.processingTimeMs || null,
-                    lastRequestId: s.lastRequestId || null, hasFullData: true
-                };
-            });
-
-            // Detections -> upsert visitors + track endpoints
-            var dets = this.readEmbeddedJson('initial-detections') || [];
-            (Array.isArray(dets) ? dets : []).reverse().forEach(function(d) {
-                d = toCamel(d);
-                self.trackEndpoint(d);
-                self.upsertVisitor(d);
-            });
-
-            this.feedLoading = false;
-            this.initialLoadComplete = true;
-
-            // Countries & clusters
-            this.countries = toCamel(this.readEmbeddedJson('initial-countries')) || [];
-            this.countriesLoading = false;
-            this.clusters = toCamel(this.readEmbeddedJson('initial-clusters')) || [];
-            this.clustersLoading = false;
-        },
-
-        upsertVisitor(d) {
-            var sig = d.primarySignature || d.requestId || ('anon-' + Math.random().toString(36).slice(2, 8));
-            var existing = this.visitorMap[sig];
-            if (existing) {
-                if (this.initialLoadComplete) existing.hits++;
-                existing.lastSeen = d.timestamp || new Date().toISOString();
-                existing.isBot = d.isBot;
-                existing.botProbability = d.botProbability;
-                existing.confidence = d.confidence;
-                existing.riskBand = d.riskBand;
-                existing.lastPath = d.path;
-                existing.action = d.action;
-                existing.narrative = d.narrative || existing.narrative;
-                existing.description = d.description || existing.description;
-                existing.topReasons = d.topReasons && d.topReasons.length ? d.topReasons : existing.topReasons;
-                if (d.botName) existing.botName = d.botName;
-                if (d.botType) existing.botType = d.botType;
-                existing.processingTimeMs = d.processingTimeMs;
-                existing.lastRequestId = d.requestId;
-                existing.hasFullData = true;
-                if (d.path && existing.paths.indexOf(d.path) < 0) existing.paths.push(d.path);
-                if (existing.paths.length > 5) existing.paths.splice(0, existing.paths.length - 5);
-            } else {
-                this.visitorMap[sig] = {
-                    sig: sig, hits: 1,
-                    firstSeen: d.timestamp || new Date().toISOString(),
-                    lastSeen: d.timestamp || new Date().toISOString(),
-                    isBot: d.isBot, botProbability: d.botProbability, confidence: d.confidence,
-                    riskBand: d.riskBand, lastPath: d.path, paths: d.path ? [d.path] : [],
-                    action: d.action, botName: d.botName, botType: d.botType,
-                    narrative: d.narrative, description: d.description,
-                    topReasons: d.topReasons || [], processingTimeMs: d.processingTimeMs,
-                    lastRequestId: d.requestId, hasFullData: true
-                };
-                var keys = Object.keys(this.visitorMap);
-                if (keys.length > this.maxVisitors) {
-                    var self = this;
-                    var sorted = keys.sort(function(a, b) { return new Date(self.visitorMap[a].lastSeen).getTime() - new Date(self.visitorMap[b].lastSeen).getTime(); });
-                    sorted.slice(0, keys.length - self.maxVisitors).forEach(function(k) { delete self.visitorMap[k]; });
-                }
-            }
-        },
-
-        trackEndpoint(d) {
-            var p = d.path || '/';
-            if (!this.endpointStats[p]) this.endpointStats[p] = { total: 0, bots: 0 };
-            this.endpointStats[p].total++;
-            if (d.isBot) this.endpointStats[p].bots++;
-        },
-
-        // --- SignalR (live updates only — initial data is server-rendered) ---
-        async connectSignalR() {
-            try {
-                var self = this;
-                this.connection = new signalR.HubConnectionBuilder()
-                    .withUrl('@Html.Raw(Model.Options.HubPath)')
-                    .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
-                    .configureLogging(signalR.LogLevel.Warning)
-                    .build();
-
-                this.connection.on('BroadcastDetection', function(raw) {
-                    var d = toCamel(raw);
-                    self.trackEndpoint(d);
-                    if (!self.feedPaused) self.upsertVisitor(d);
-                    if (self.signature && d.primarySignature === self.signature) {
-                        if (self.yourData) {
-                            Object.assign(self.yourData, {
-                                isBot: d.isBot, botProbability: d.botProbability, confidence: d.confidence,
-                                riskBand: d.riskBand, processingTimeMs: d.processingTimeMs, narrative: d.narrative
-                            });
-                            if (d.topReasons && d.topReasons.length) self.yourData.topReasons = d.topReasons;
-                        } else {
-                            // First detection for this visitor — create yourData from the event
-                            self.yourData = {
-                                isBot: d.isBot, botProbability: d.botProbability, confidence: d.confidence,
-                                riskBand: d.riskBand, processingTimeMs: d.processingTimeMs,
-                                narrative: d.narrative, topReasons: d.topReasons || [],
-                                contributions: d.detectorContributions ? Object.values(d.detectorContributions) : [],
-                                signals: d.importantSignals || {},
-                                detectorCount: d.detectorContributions ? Object.keys(d.detectorContributions).length : 0,
-                                signature: self.signature
-                            };
-                            self.yourLoading = false;
-                        }
-                        self.probabilityHistory.push(d.botProbability);
-                        if (self.probabilityHistory.length > 60) self.probabilityHistory.splice(0, self.probabilityHistory.length - 60);
-                        self.justUpdated = true;
-                        setTimeout(function() { self.justUpdated = false; }, 600);
-                    }
-                });
-
-                this.connection.on('BroadcastSignature', function(raw) {
-                    var sig = toCamel(raw);
-                    if (self.signature && sig.primarySignature === self.signature) self.hitCount = sig.hitCount;
-                    var visitor = self.visitorMap[sig.primarySignature];
-                    if (visitor) { visitor.hits = sig.hitCount; if (sig.botName) visitor.botName = sig.botName; }
-                });
-
-                this.connection.on('BroadcastSummary', function(raw) {
-                    self.summary = toCamel(raw);
-                    // Refresh time series chart on summary updates (throttled — only if not already loading)
-                    if (!self.timeSeriesLoading) self.fetchTimeSeries();
-                });
-
-                this.connection.on('BroadcastDescriptionUpdate', function(requestId, description) {
-                    var match = Object.values(self.visitorMap).find(function(v) { return v.lastRequestId === requestId; });
-                    if (match) match.description = description;
-                });
-
-                this.connection.on('BroadcastClusters', function(clusterList) {
-                    self.clusters = (clusterList || []).map(toCamel);
-                });
-
-                this.connection.on('BroadcastClusterDescriptionUpdate', function(clusterId, label, description) {
-                    var existing = self.clusters.find(function(c) { return c.clusterId === clusterId; });
-                    if (existing) { existing.label = label; existing.description = description; }
-                });
-
-                this.connection.on('BroadcastSignatureDescriptionUpdate', function(signature, name, description) {
-                    var visitor = self.visitorMap[signature];
-                    if (visitor) { visitor.botName = name; visitor.description = description; }
-                    if (self.signature === signature && self.yourData) { self.yourData.description = description; }
-                });
-
-                this.connection.onclose(function() { self.connected = false; });
-                this.connection.onreconnecting(function() { self.connected = false; });
-                this.connection.onreconnected(function() { self.connected = true; });
-
-                await this.connection.start();
-                this.connected = true;
-            } catch(e) {
-                console.warn('[Dashboard] SignalR failed:', e);
-            }
-        },
-
-        // --- Time Range ---
-        timeRangeConfig() {
-            var map = {
-                '1h':  { seconds: 3600,    bucket: 60,    fmt: 'HH:mm' },
-                '6h':  { seconds: 21600,   bucket: 300,   fmt: 'HH:mm' },
-                '12h': { seconds: 43200,   bucket: 600,   fmt: 'HH:mm' },
-                '24h': { seconds: 86400,   bucket: 1800,  fmt: 'HH:mm' },
-                '7d':  { seconds: 604800,  bucket: 3600,  fmt: 'ddd HH:mm' },
-                '30d': { seconds: 2592000, bucket: 86400, fmt: 'MMM dd' },
-                'All': { seconds: 0,       bucket: 3600,  fmt: 'auto' }
-            };
-            return map[this.timeRange] || map['All'];
-        },
-
-        async setTimeRange(r) {
-            this.timeRange = r;
-            await this.fetchTimeSeries();
-            await this.fetchFilteredBots();
-        },
-
-        async fetchTimeSeries() {
-            var cfg = this.timeRangeConfig();
-            var now = new Date();
-            var start, end = now.toISOString(), bucket = cfg.bucket;
-            if (this.timeRange === 'All') {
-                // Use 30 days ago as start for 'All' to get meaningful buckets
-                start = new Date(now.getTime() - 30 * 86400000).toISOString();
-                bucket = 3600;
-            } else {
-                start = new Date(now.getTime() - cfg.seconds * 1000).toISOString();
-            }
-            this.timeSeriesLoading = true;
-            try {
-                var resp = await fetch('@Html.Raw(Model.Options.BasePath)/api/timeseries?start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end) + '&bucket=' + bucket);
-                if (resp.ok) {
-                    this.timeSeriesData = (await resp.json()).map(toCamel);
-                    this.computeFilteredSummary();
-                }
-            } catch(e) { console.warn('[Dashboard] fetchTimeSeries failed:', e); }
-            this.timeSeriesLoading = false;
-        },
-
-        computeFilteredSummary() {
-            var ts = this.timeSeriesData;
-            if (!ts.length) { this.filteredSummary = null; return; }
-            var botCount = 0, humanCount = 0, totalCount = 0;
-            var riskBands = {};
-            var botTypes = {};
-            ts.forEach(function(p) {
-                botCount += p.botCount || 0;
-                humanCount += p.humanCount || 0;
-                totalCount += p.totalCount || 0;
-                if (p.riskBandCounts) {
-                    Object.entries(p.riskBandCounts).forEach(function(e) {
-                        riskBands[e[0]] = (riskBands[e[0]] || 0) + e[1];
-                    });
-                }
-            });
-            this.filteredSummary = { botCount: botCount, humanCount: humanCount, totalCount: totalCount, riskBandCounts: riskBands, topBotTypes: botTypes };
-        },
-
-        async fetchFilteredBots() {
-            if (this.timeRange === 'All') return; // All-time bots come from summary
-            var cfg = this.timeRangeConfig();
-            var now = new Date();
-            var start = new Date(now.getTime() - cfg.seconds * 1000).toISOString();
-            var end = now.toISOString();
-            try {
-                var resp = await fetch('@Html.Raw(Model.Options.BasePath)/api/topbots?count=10&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end));
-                if (resp.ok) {
-                    var bots = (await resp.json()).map(toCamel);
-                    // Build topBotTypes from the response
-                    var types = {};
-                    bots.forEach(function(b) { if (b.botType) types[b.botType] = (types[b.botType] || 0) + b.hitCount; });
-                    if (this.filteredSummary) this.filteredSummary.topBotTypes = types;
-                }
-            } catch(e) {}
-        },
-
-        // --- Area Chart Computed ---
-        get areaChartWidth() { return 800; },
-        get areaChartStartLabel() {
-            if (!this.timeSeriesData.length) return '';
-            return this.formatChartTime(this.timeSeriesData[0].timestamp);
-        },
-        get areaChartEndLabel() {
-            if (!this.timeSeriesData.length) return '';
-            return this.formatChartTime(this.timeSeriesData[this.timeSeriesData.length - 1].timestamp);
-        },
-        formatChartTime(ts) {
-            if (!ts) return '';
-            var d = new Date(ts);
-            var cfg = this.timeRangeConfig();
-            if (cfg.fmt === 'HH:mm') return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            if (cfg.fmt === 'ddd HH:mm') return d.toLocaleDateString([], { weekday: 'short' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            if (cfg.fmt === 'MMM dd') return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-            return d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-        },
-
-        get humanAreaPath() { return this.buildAreaPath('humanCount'); },
-        get botAreaPath() { return this.buildStackedAreaPath(); },
-        get humanLinePath() { return this.buildLinePath('humanCount'); },
-        get botLinePath() { return this.buildStackedLinePath(); },
-
-        buildAreaPath(field) {
-            var ts = this.timeSeriesData; if (ts.length < 2) return '';
-            var w = this.areaChartWidth, h = 110, maxVal = this.chartMaxVal();
-            if (maxVal === 0) return '';
-            var pts = ts.map(function(p, i) { var x = (i / (ts.length - 1)) * w; var y = h - ((p[field] || 0) / maxVal) * h; return x + ',' + y; });
-            return 'M0,' + h + ' L' + pts.join(' L') + ' L' + w + ',' + h + ' Z';
-        },
-        buildStackedAreaPath() {
-            var ts = this.timeSeriesData; if (ts.length < 2) return '';
-            var w = this.areaChartWidth, h = 110, maxVal = this.chartMaxVal();
-            if (maxVal === 0) return '';
-            var pts = ts.map(function(p, i) { var x = (i / (ts.length - 1)) * w; var y = h - (((p.humanCount || 0) + (p.botCount || 0)) / maxVal) * h; return x + ',' + y; });
-            var bottomPts = ts.map(function(p, i) { var x = (i / (ts.length - 1)) * w; var y = h - ((p.humanCount || 0) / maxVal) * h; return x + ',' + y; }).reverse();
-            return 'M' + pts.join(' L') + ' L' + bottomPts.join(' L') + ' Z';
-        },
-        buildLinePath(field) {
-            var ts = this.timeSeriesData; if (ts.length < 2) return '';
-            var w = this.areaChartWidth, h = 110, maxVal = this.chartMaxVal();
-            if (maxVal === 0) return '';
-            return ts.map(function(p, i) { var x = (i / (ts.length - 1)) * w; var y = h - ((p[field] || 0) / maxVal) * h; return x + ',' + y; }).join(' ');
-        },
-        buildStackedLinePath() {
-            var ts = this.timeSeriesData; if (ts.length < 2) return '';
-            var w = this.areaChartWidth, h = 110, maxVal = this.chartMaxVal();
-            if (maxVal === 0) return '';
-            return ts.map(function(p, i) { var x = (i / (ts.length - 1)) * w; var y = h - (((p.humanCount || 0) + (p.botCount || 0)) / maxVal) * h; return x + ',' + y; }).join(' ');
-        },
-        chartMaxVal() {
-            var max = 0;
-            this.timeSeriesData.forEach(function(p) { var t = (p.humanCount || 0) + (p.botCount || 0); if (t > max) max = t; });
-            return max || 1;
-        },
-
-        // --- Export ---
-        exportData(format) {
-            window.location.href = '@Html.Raw(Model.Options.BasePath)/api/export?format=' + format;
         }
-    };
-}
-</script>
+        else if (tab == "visitors")
+        {
+            @await Html.PartialAsync("~/Views/Dashboard/_VisitorList.cshtml", Model.Visitors)
+        }
+        else if (tab == "countries")
+        {
+            @await Html.PartialAsync("~/Views/Dashboard/_CountriesList.cshtml", Model.Countries)
+        }
+        else if (tab == "clusters")
+        {
+            @await Html.PartialAsync("~/Views/Dashboard/_ClustersList.cshtml", Model.Clusters)
+        }
+        else if (tab == "useragents")
+        {
+            @await Html.PartialAsync("~/Views/Dashboard/_UserAgentsList.cshtml", Model.UserAgents)
+        }
+
+    </main>
+
+    <!-- SignalR → HTMX coordinator (the entire client-side JS) -->
+    <script nonce="@Model.CspNonce">
+    (function() {
+        'use strict';
+
+        var BASE = '@Html.Raw(bp)';
+        var HUB  = '@Html.Raw(Model.HubPath)';
+
+        // ── Widget registry ──────────────────────────────────────────────
+        // Discovers all widgets on the page via data-sb-widget / data-sb-depends.
+        // Each widget declares what SignalR signals it cares about.
+        function getWidgetMap() {
+            var map = {};  // signal → [widgetId, ...]
+            document.querySelectorAll('[data-sb-widget]').forEach(function(el) {
+                var deps = (el.getAttribute('data-sb-depends') || '').split(',');
+                deps.forEach(function(dep) {
+                    dep = dep.trim();
+                    if (!dep) return;
+                    if (!map[dep]) map[dep] = [];
+                    var wid = el.getAttribute('data-sb-widget');
+                    if (map[dep].indexOf(wid) === -1) map[dep].push(wid);
+                });
+            });
+            return map;
+        }
+
+        // ── Debounced OOB updater ────────────────────────────────────────
+        // Collects widget IDs that need updating, then fires a single
+        // HTMX request to the OOB endpoint after a short debounce.
+        var pending = {};
+        var debounceTimer = null;
+        var DEBOUNCE_MS = 500;
+
+        function invalidate(signal) {
+            var widgetMap = getWidgetMap();
+            var widgets = widgetMap[signal] || [];
+            widgets.forEach(function(w) { pending[w] = true; });
+
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(flush, DEBOUNCE_MS);
+        }
+
+        function flush() {
+            var ids = Object.keys(pending);
+            if (ids.length === 0) return;
+            pending = {};
+
+            // Build the OOB update URL with current filter/sort state from the visitor list
+            var url = BASE + '/partials/update?widgets=' + ids.join(',');
+
+            // Preserve visitor list state if visitors are being updated
+            if (ids.indexOf('visitors') !== -1) {
+                var vl = document.getElementById('visitor-list');
+                if (vl) {
+                    var params = new URLSearchParams();
+                    // Read current state from the last HTMX request or from filter buttons
+                    var activeFilter = vl.querySelector('.bg-error\\/20, .bg-success\\/20, .shadow-sm');
+                    // Just use defaults — server will return the default view
+                }
+            }
+
+            // Use htmx.ajax to make the request; the server returns OOB fragments
+            if (typeof htmx !== 'undefined') {
+                htmx.ajax('GET', url, { target: 'body', swap: 'none' });
+            }
+        }
+
+        // ── SignalR connection ────────────────────────────────────────────
+        var statusEl = document.getElementById('sb-connection-status');
+
+        function setStatus(state) {
+            if (!statusEl) return;
+            statusEl.className = 'w-2 h-2 rounded-full sb-' + state;
+            statusEl.title = 'SignalR: ' + state;
+        }
+
+        var connection = new signalR.HubConnectionBuilder()
+            .withUrl(HUB)
+            .withAutomaticReconnect([0, 1000, 2000, 5000, 10000, 30000])
+            .configureLogging(signalR.LogLevel.Warning)
+            .build();
+
+        // Map SignalR events to invalidation signals
+        connection.on('BroadcastInvalidation', function(signal) { if (signal) invalidate(signal); });
+        connection.on('BroadcastSummary',    function() { invalidate('summary'); });
+        connection.on('BroadcastTopBots',    function() { invalidate('signature'); invalidate('summary'); });
+        connection.on('BroadcastSignature',  function(sig) {
+            invalidate('signature');
+            // Also invalidate the specific signature (for "Your Detection" widget)
+            if (sig && sig.primarySignature) invalidate(sig.primarySignature);
+        });
+        connection.on('BroadcastDetection',  function(det) {
+            invalidate('signature');
+            invalidate('summary');
+            if (det && det.primarySignature) invalidate(det.primarySignature);
+        });
+        connection.on('BroadcastCountries',  function() { invalidate('countries'); });
+        connection.on('BroadcastClusters',   function() { invalidate('clusters'); });
+        connection.on('BroadcastDescriptionUpdate', function() { invalidate('signature'); });
+        connection.on('BroadcastSignatureDescriptionUpdate', function(sig) {
+            invalidate('signature');
+            if (sig) invalidate(sig);
+        });
+        connection.on('BroadcastClusterDescriptionUpdate', function() { invalidate('clusters'); });
+        connection.on('BroadcastScoreNarrative', function(sig) {
+            if (sig) invalidate(sig);
+        });
+
+        connection.onreconnecting(function() { setStatus('connecting'); });
+        connection.onreconnected(function()  { setStatus('connected'); });
+        connection.onclose(function()        { setStatus('disconnected'); });
+
+        connection.start()
+            .then(function()  { setStatus('connected'); })
+            .catch(function() { setStatus('disconnected'); });
+    })();
+    </script>
 </body>
 </html>

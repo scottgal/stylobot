@@ -3,7 +3,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -14,8 +13,7 @@ namespace Mostlylucid.BotDetection.Services;
 public class SignatureDescriptionService : BackgroundService
 {
     private readonly ILogger<SignatureDescriptionService> _logger;
-    private readonly IBotNameSynthesizer _synthesizer;
-    private readonly ILlmResultCallback? _resultCallback;
+    private readonly LlmDescriptionCoordinator _coordinator;
     private readonly int _requestThreshold;
     private readonly ConcurrentDictionary<string, SignatureActivityTracker> _signatureActivity;
 
@@ -23,13 +21,11 @@ public class SignatureDescriptionService : BackgroundService
 
     public SignatureDescriptionService(
         ILogger<SignatureDescriptionService> logger,
-        IBotNameSynthesizer synthesizer,
-        IOptions<BotDetectionOptions> options,
-        ILlmResultCallback? resultCallback = null)
+        LlmDescriptionCoordinator coordinator,
+        IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
-        _synthesizer = synthesizer;
-        _resultCallback = resultCallback;
+        _coordinator = coordinator;
         _signatureActivity = new();
 
         // Threshold for triggering description synthesis
@@ -69,50 +65,10 @@ public class SignatureDescriptionService : BackgroundService
                 return updated;
             });
 
-        // Fire async synthesis outside the update operation
+        // Enqueue to constrained coordinator (replaces raw Task.Run)
         if (shouldSynthesize)
         {
-            _ = Task.Run(() => SynthesizeDescriptionAsync(signature, signals));
-        }
-    }
-
-    /// <summary>
-    ///     Generate description for a signature when threshold is reached.
-    /// </summary>
-    private async Task SynthesizeDescriptionAsync(
-        string signature,
-        IReadOnlyDictionary<string, object?> signals,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            if (!_synthesizer.IsReady)
-            {
-                _logger.LogDebug("Synthesizer not ready, skipping description for signature {Sig}",
-                    signature[..Math.Min(16, signature.Length)]);
-                return;
-            }
-
-            var (name, description) = await _synthesizer.SynthesizeDetailedAsync(signals, ct: ct);
-
-            if (!string.IsNullOrEmpty(name))
-            {
-                _logger.LogInformation(
-                    "Generated description for signature {Sig}: '{Name}'",
-                    signature[..Math.Min(16, signature.Length)], name);
-
-                // Broadcast via SignalR callback
-                if (_resultCallback != null)
-                {
-                    await _resultCallback.OnSignatureDescriptionAsync(
-                        signature, name, description ?? name, ct);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to generate description for signature {Sig}",
-                signature[..Math.Min(16, signature.Length)]);
+            _ = _coordinator.EnqueueSignatureAsync(signature, signals, CancellationToken.None);
         }
     }
 

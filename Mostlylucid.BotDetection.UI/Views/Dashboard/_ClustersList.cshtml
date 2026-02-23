@@ -1,0 +1,73 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model ClustersListModel
+<div id="clusters-list"
+     data-sb-widget="clusters"
+     data-sb-depends="clusters"
+     class="transition-all duration-200">
+    @if (Model.Clusters.Count == 0)
+    {
+        <div class="text-center text-base-content/30 py-12 text-sm">
+            No bot clusters detected yet. Clusters form when the Leiden algorithm identifies groups of related bot signatures.
+        </div>
+    }
+    else
+    {
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            @foreach (var cluster in Model.Clusters)
+            {
+                var typeClass = cluster.Type switch {
+                    "BotProduct" => "badge-error",
+                    "BotNetwork" => "badge-error",
+                    "Emergent" => "badge-warning",
+                    "HumanTraffic" => "badge-success",
+                    "Mixed" => "badge-warning",
+                    _ => "badge-ghost"
+                };
+                var threatClass = cluster.AverageThreatScore switch {
+                    > 7 => "text-error",
+                    > 4 => "text-warning",
+                    _ => "text-success"
+                };
+                <div class="card bg-base-200 hover:bg-base-300 transition-all duration-200">
+                    <div class="card-body p-3 gap-1">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-bold truncate">@cluster.Label</span>
+                            <span class="badge badge-xs @typeClass">@cluster.Type</span>
+                        </div>
+                        @if (!string.IsNullOrEmpty(cluster.Description))
+                        {
+                            <p class="text-[11px] text-base-content/60 line-clamp-2">@cluster.Description</p>
+                        }
+                        <div class="grid grid-cols-3 gap-1 mt-1 text-center text-[10px]">
+                            <div>
+                                <div class="font-bold text-sm">@cluster.MemberCount</div>
+                                <div class="text-base-content/40">Members</div>
+                            </div>
+                            <div>
+                                <div class="font-bold text-sm @(cluster.AvgBotProb > 0.8 ? "text-error" : "text-warning")">
+                                    @((cluster.AvgBotProb * 100).ToString("F0"))%
+                                </div>
+                                <div class="text-base-content/40">Avg Prob</div>
+                            </div>
+                            <div>
+                                <div class="font-bold text-sm @threatClass">@cluster.AverageThreatScore.ToString("F1")</div>
+                                <div class="text-base-content/40">Threat</div>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 mt-1 text-[10px] text-base-content/40">
+                            @if (!string.IsNullOrEmpty(cluster.Country))
+                            {
+                                <span>@cluster.Country</span>
+                            }
+                            <span>Sim: @((cluster.AverageSimilarity * 100).ToString("F0"))%</span>
+                            @if (!string.IsNullOrEmpty(cluster.DominantIntent))
+                            {
+                                <span>@cluster.DominantIntent</span>
+                            }
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>

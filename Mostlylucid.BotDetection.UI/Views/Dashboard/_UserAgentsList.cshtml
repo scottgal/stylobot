@@ -1,0 +1,90 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model UserAgentsListModel
+@{
+    var bp = Model.BasePath;
+    string FilterUrl(string f) => $"{bp}/partials/useragents?filter={f}";
+    string FilterBtnClass(string f) => Model.Filter == f ? "bg-base-100 shadow-sm text-base-content" : "text-base-content/40 hover:text-base-content/60";
+    var filtered = Model.Filter switch {
+        "browser" => Model.UserAgents.Where(u => u.Category == "Browser").ToList(),
+        "bot" => Model.UserAgents.Where(u => u.BotRate > 0.5).ToList(),
+        "ai" => Model.UserAgents.Where(u => u.Category is "AI" or "AiBot").ToList(),
+        "tool" => Model.UserAgents.Where(u => u.Category is "Tool" or "Scraper" or "MonitoringBot").ToList(),
+        _ => Model.UserAgents.ToList()
+    };
+}
+<div id="useragents-list"
+     data-sb-widget="useragents"
+     data-sb-depends="useragents"
+     class="transition-all duration-200">
+
+    @* Summary cards *@
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+        <div class="card bg-base-200 p-3">
+            <div class="text-xl font-black">@Model.UserAgents.Count</div>
+            <div class="text-[10px] text-base-content/50">Total UAs</div>
+        </div>
+        <div class="card bg-base-200 p-3">
+            <div class="text-xl font-black">@Model.UserAgents.Count(u => u.Category == "Browser")</div>
+            <div class="text-[10px] text-base-content/50">Browsers</div>
+        </div>
+        <div class="card bg-base-200 p-3">
+            <div class="text-xl font-black text-error">@Model.UserAgents.Count(u => u.BotRate > 0.5)</div>
+            <div class="text-[10px] text-base-content/50">Bot UAs</div>
+        </div>
+        <div class="card bg-base-200 p-3">
+            <div class="text-xl font-black">@Model.UserAgents.Sum(u => u.TotalCount)</div>
+            <div class="text-[10px] text-base-content/50">Total Requests</div>
+        </div>
+    </div>
+
+    @* Filter pills *@
+    <div class="flex items-center gap-1 mb-3 bg-base-300/50 rounded-lg p-0.5 w-fit">
+        <button hx-get="@FilterUrl("all")" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("all")">All</button>
+        <button hx-get="@FilterUrl("browser")" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("browser")">Browsers</button>
+        <button hx-get="@FilterUrl("bot")" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("bot")">Bot</button>
+        <button hx-get="@FilterUrl("ai")" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("ai")">AI</button>
+        <button hx-get="@FilterUrl("tool")" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("tool")">Tools</button>
+    </div>
+
+    @* UA table *@
+    <div class="overflow-x-auto">
+        <table class="table table-xs w-full">
+            <thead>
+                <tr class="text-[10px] uppercase tracking-wider text-base-content/50">
+                    <th>Family</th>
+                    <th>Category</th>
+                    <th class="text-right">Requests</th>
+                    <th class="text-right">Bot Rate</th>
+                    <th class="text-right">Avg Conf</th>
+                    <th class="hidden sm:table-cell">Last Seen</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var ua in filtered.OrderByDescending(u => u.TotalCount).Take(50))
+                {
+                    var botRatePct = (ua.BotRate * 100).ToString("F0");
+                    var confPct = (ua.AvgConfidence * 100).ToString("F0");
+                    <tr class="hover:bg-base-200/50 transition-colors">
+                        <td class="font-semibold text-xs max-w-[200px] truncate">@ua.Family</td>
+                        <td><span class="text-[10px] px-1.5 py-0.5 rounded bg-base-content/10 text-base-content/60">@ua.Category</span></td>
+                        <td class="text-right text-xs font-mono">@ua.TotalCount</td>
+                        <td class="text-right">
+                            <span class="text-xs font-bold @(ua.BotRate > 0.5 ? "text-error" : ua.BotRate > 0.2 ? "text-warning" : "text-success")">
+                                @(botRatePct)%
+                            </span>
+                        </td>
+                        <td class="text-right text-xs">@(confPct)%</td>
+                        <td class="hidden sm:table-cell text-[10px] text-base-content/40">
+                            @ua.LastSeen.ToString("HH:mm:ss")
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+</div>

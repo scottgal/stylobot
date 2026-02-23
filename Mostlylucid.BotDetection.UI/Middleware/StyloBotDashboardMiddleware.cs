@@ -197,6 +197,35 @@ public class StyloBotDashboardMiddleware
                 await ServeBdfExportApiAsync(context, p.Substring(BdfExportPrefix.Length));
                 break;
 
+            // --- HTMX partial endpoints (server-rendered HTML islands) ---
+            case "partials/visitors":
+                await ServeVisitorListPartialAsync(context);
+                break;
+
+            case "partials/summary":
+                await ServeSummaryPartialAsync(context);
+                break;
+
+            case "partials/your-detection":
+                await ServeYourDetectionPartialAsync(context);
+                break;
+
+            case "partials/countries":
+                await ServeCountriesPartialAsync(context);
+                break;
+
+            case "partials/clusters":
+                await ServeClustersPartialAsync(context);
+                break;
+
+            case "partials/useragents":
+                await ServeUserAgentsPartialAsync(context);
+                break;
+
+            case "partials/update":
+                await ServeOobUpdateAsync(context);
+                break;
+
             default:
                 // Static assets are served by static files middleware
                 await _next(context);
@@ -249,8 +278,6 @@ public class StyloBotDashboardMiddleware
         context.Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
         // Replace restrictive CSP with dashboard-appropriate one
         context.Response.Headers.Remove("Content-Security-Policy");
-        // Use existing nonce from upstream CSP middleware, or generate one if not present
-        // (e.g. when the host app skips its CSP for /_stylobot paths).
         var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj) && nonceObj is string s && s.Length > 0
             ? s
             : Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
@@ -267,98 +294,48 @@ public class StyloBotDashboardMiddleware
             "connect-src 'self' ws: wss:");
         context.Response.Headers["Content-Security-Policy"] = dashboardCsp;
 
-        // Look up the current visitor's cached detection via signature service.
-        // The dashboard path is excluded from bot detection, so we compute the signature
-        // and look up the cached result from the visitor's last non-dashboard request.
-        var yourDetectionJson = BuildYourDetectionJson(context);
+        var basePath = _options.BasePath.TrimEnd('/');
+        var tab = context.Request.Query["tab"].FirstOrDefault() ?? "overview";
 
-        // Gather all dashboard data server-side so the page renders fully on first load.
-        // SignalR then provides live updates — no XHR waterfall needed.
-        var jsonOpts = CamelCaseJson;
+        // Build all partial models server-side — fully rendered, no JSON serialization needed
+        var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
+        var (visitors, visitorTotal, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, 24);
 
-        var summaryJson = "null";
-        var detectionsJson = "[]";
-        var signaturesJson = "[]";
-        var countriesJson = "[]";
-        var clustersJson = "[]";
+        DashboardSummary summary;
+        try { summary = await _eventStore.GetSummaryAsync(); }
+        catch { summary = new DashboardSummary { Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(), UniqueSignatures = 0 }; }
 
-        try
-        {
-            var summary = await _eventStore.GetSummaryAsync();
-            summaryJson = JsonSerializer.Serialize(summary, jsonOpts);
-        }
-        catch (Exception ex) { _logger.LogDebug(ex, "Dashboard: failed to load summary"); }
-
-        try
-        {
-            var filter = new DashboardFilter { Limit = 200 };
-            var detections = await _eventStore.GetDetectionsAsync(filter);
-            detectionsJson = JsonSerializer.Serialize(detections, jsonOpts);
-        }
-        catch (Exception ex) { _logger.LogDebug(ex, "Dashboard: failed to load detections"); }
-
-        try
-        {
-            var signatures = await _eventStore.GetSignaturesAsync(50);
-            signaturesJson = JsonSerializer.Serialize(signatures, jsonOpts);
-        }
-        catch (Exception ex) { _logger.LogDebug(ex, "Dashboard: failed to load signatures"); }
-
+        List<DashboardCountryStats> countries;
         try
         {
             var cached = _aggregateCache.Current.Countries;
-            var dbCountries = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(10);
-            var countries = dbCountries.Take(10).Select(db => new
-            {
-                countryCode = db.CountryCode,
-                countryName = db.CountryName,
-                botRate = db.BotRate,
-                botCount = db.BotCount,
-                humanCount = db.HumanCount,
-                totalCount = db.TotalCount,
-                flag = GetCountryFlag(db.CountryCode)
-            }).ToList();
-            countriesJson = JsonSerializer.Serialize(countries, jsonOpts);
+            countries = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(20);
         }
-        catch (Exception ex) { _logger.LogDebug(ex, "Dashboard: failed to load countries"); }
+        catch { countries = []; }
 
-        try
+        var model = new DashboardShellModel
         {
-            var clusterService = context.RequestServices.GetService(typeof(BotClusterService))
-                as BotClusterService;
-            if (clusterService != null)
-            {
-                var clusters = clusterService.GetClusters()
-                    .Select(cl => new
-                    {
-                        clusterId = cl.ClusterId,
-                        label = cl.Label ?? "Unknown",
-                        description = cl.Description,
-                        type = cl.Type.ToString(),
-                        memberCount = cl.MemberCount,
-                        avgBotProb = Math.Round(cl.AverageBotProbability, 3),
-                        country = cl.DominantCountry,
-                        averageSimilarity = Math.Round(cl.AverageSimilarity, 3),
-                        temporalDensity = Math.Round(cl.TemporalDensity, 3),
-                        dominantIntent = cl.DominantIntent,
-                        averageThreatScore = Math.Round(cl.AverageThreatScore, 3)
-                    })
-                    .ToList();
-                clustersJson = JsonSerializer.Serialize(clusters, jsonOpts);
-            }
-        }
-        catch (Exception ex) { _logger.LogDebug(ex, "Dashboard: failed to load clusters"); }
-
-        var model = new DashboardViewModel
-        {
-            Options = _options,
             CspNonce = cspNonce,
-            YourDetectionJson = yourDetectionJson,
-            SummaryJson = summaryJson,
-            DetectionsJson = detectionsJson,
-            SignaturesJson = signaturesJson,
-            CountriesJson = countriesJson,
-            ClustersJson = clustersJson
+            BasePath = basePath,
+            HubPath = _options.HubPath,
+            ActiveTab = tab,
+            Summary = new SummaryStatsModel { Summary = summary, BasePath = basePath },
+            Visitors = new VisitorListModel
+            {
+                Visitors = visitors, Counts = visitorCache.GetCounts(),
+                Filter = "all", SortField = "lastSeen", SortDir = "desc",
+                Page = 1, PageSize = 24, TotalCount = visitorTotal, BasePath = basePath
+            },
+            YourDetection = BuildYourDetectionPartialModel(context),
+            Countries = new CountriesListModel { Countries = countries.Take(20).ToList(), BasePath = basePath },
+            Clusters = BuildClustersModel(context),
+            UserAgents = new UserAgentsListModel
+            {
+                UserAgents = _aggregateCache.Current.UserAgents.Count > 0
+                    ? _aggregateCache.Current.UserAgents
+                    : await ComputeUserAgentsFallbackAsync(),
+                BasePath = basePath
+            }
         };
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -1137,5 +1114,302 @@ public class StyloBotDashboardMiddleware
         if (sanitized.Contains(',') || sanitized.Contains('"') || sanitized.Contains('\n') || sanitized.Contains('\r'))
             return $"\"{sanitized.Replace("\"", "\"\"")}\"";
         return sanitized;
+    }
+
+    // ─── HTMX Partial Rendering ──────────────────────────────────────────
+
+    /// <summary>Render the visitor list partial. Supports filter, sort, pagination via query params.</summary>
+    private async Task ServeVisitorListPartialAsync(HttpContext context)
+    {
+        var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
+        var filter = context.Request.Query["filter"].FirstOrDefault() ?? "all";
+        var sortField = context.Request.Query["sort"].FirstOrDefault() ?? "lastSeen";
+        var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
+        var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 100 ? ps : 24;
+
+        var (items, totalCount, _, _) = visitorCache.GetFiltered(filter, sortField, sortDir, page, pageSize);
+        var counts = visitorCache.GetCounts();
+
+        var model = new VisitorListModel
+        {
+            Visitors = items,
+            Counts = counts,
+            Filter = filter,
+            SortField = sortField,
+            SortDir = sortDir,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = totalCount,
+            BasePath = _options.BasePath.TrimEnd('/')
+        };
+
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Dashboard/_VisitorList.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>Render the summary stats partial.</summary>
+    private async Task ServeSummaryPartialAsync(HttpContext context)
+    {
+        var summary = await _eventStore.GetSummaryAsync();
+        var model = new SummaryStatsModel
+        {
+            Summary = summary,
+            BasePath = _options.BasePath.TrimEnd('/')
+        };
+
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Dashboard/_SummaryStats.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>Render the "Your Detection" partial.</summary>
+    private async Task ServeYourDetectionPartialAsync(HttpContext context)
+    {
+        var model = BuildYourDetectionPartialModel(context);
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Dashboard/_YourDetection.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>Render the countries list partial.</summary>
+    private async Task ServeCountriesPartialAsync(HttpContext context)
+    {
+        var cached = _aggregateCache.Current.Countries;
+        var dbCountries = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(20);
+        var model = new CountriesListModel
+        {
+            Countries = dbCountries.Take(20).ToList(),
+            BasePath = _options.BasePath.TrimEnd('/')
+        };
+
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Dashboard/_CountriesList.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>Render the clusters list partial.</summary>
+    private async Task ServeClustersPartialAsync(HttpContext context)
+    {
+        var model = BuildClustersModel(context);
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Dashboard/_ClustersList.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>Render the user agents list partial.</summary>
+    private async Task ServeUserAgentsPartialAsync(HttpContext context)
+    {
+        var cached = _aggregateCache.Current.UserAgents;
+        var userAgents = cached.Count > 0 ? cached : await ComputeUserAgentsFallbackAsync();
+        var filter = context.Request.Query["filter"].FirstOrDefault() ?? "all";
+
+        var model = new UserAgentsListModel
+        {
+            UserAgents = userAgents,
+            BasePath = _options.BasePath.TrimEnd('/'),
+            Filter = filter
+        };
+
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Dashboard/_UserAgentsList.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>
+    ///     HTMX OOB update endpoint — renders multiple partials in a single response.
+    ///     Called by the SignalR coordinator when widgets need refreshing.
+    ///     Query param: widgets=summary,visitors,countries (comma-separated widget IDs)
+    /// </summary>
+    private async Task ServeOobUpdateAsync(HttpContext context)
+    {
+        var widgetList = context.Request.Query["widgets"].FirstOrDefault() ?? "summary,visitors";
+        var widgets = widgetList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        context.Response.ContentType = "text/html";
+
+        // Render requested partials with hx-swap-oob for each
+        var tasks = new List<Task<string>>();
+        foreach (var widget in widgets)
+        {
+            tasks.Add(RenderOobWidgetAsync(context, widget));
+        }
+
+        var results = await Task.WhenAll(tasks);
+        foreach (var html in results)
+        {
+            if (!string.IsNullOrEmpty(html))
+                await context.Response.WriteAsync(html);
+        }
+    }
+
+    /// <summary>Render a single widget partial and inject hx-swap-oob="true" on the root element.</summary>
+    private async Task<string> RenderOobWidgetAsync(HttpContext context, string widgetId)
+    {
+        try
+        {
+            var html = widgetId switch
+            {
+                "summary" => await RenderPartialAsync(context, "/Views/Dashboard/_SummaryStats.cshtml",
+                    new SummaryStatsModel { Summary = await _eventStore.GetSummaryAsync(), BasePath = _options.BasePath.TrimEnd('/') }),
+                "visitors" => await RenderVisitorPartialAsync(context),
+                "countries" => await RenderCountryPartialAsync(context),
+                "clusters" => await RenderPartialAsync(context, "/Views/Dashboard/_ClustersList.cshtml", BuildClustersModel(context)),
+                "useragents" => await RenderUaPartialAsync(context),
+                "your-detection" => await RenderPartialAsync(context, "/Views/Dashboard/_YourDetection.cshtml", BuildYourDetectionPartialModel(context)),
+                _ => ""
+            };
+
+            // Inject hx-swap-oob="true" into the root element so HTMX swaps it in place.
+            // Each partial's root div has a unique id (e.g., id="summary-stats", id="visitor-list").
+            if (!string.IsNullOrEmpty(html))
+                html = InjectOobAttribute(html);
+
+            return html;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to render OOB widget: {Widget}", widgetId);
+            return "";
+        }
+    }
+
+    /// <summary>
+    ///     Injects hx-swap-oob="true" into the first opening tag of the HTML fragment.
+    ///     This tells HTMX to swap the element by ID regardless of where it appears in the response.
+    /// </summary>
+    private static string InjectOobAttribute(string html)
+    {
+        // Find the end of the first opening tag (e.g., <div id="summary-stats" ...>)
+        var firstTagEnd = html.IndexOf('>');
+        if (firstTagEnd < 0) return html;
+
+        // Don't double-inject
+        if (html.AsSpan(0, firstTagEnd).Contains("hx-swap-oob", StringComparison.Ordinal))
+            return html;
+
+        return html.Insert(firstTagEnd, " hx-swap-oob=\"true\"");
+    }
+
+    private async Task<string> RenderPartialAsync<T>(HttpContext context, string viewPath, T model)
+        => await _razorViewRenderer.RenderViewToStringAsync(viewPath, model, context);
+
+    private async Task<string> RenderVisitorPartialAsync(HttpContext context)
+    {
+        var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
+        var filter = context.Request.Query["filter"].FirstOrDefault() ?? "all";
+        var sortField = context.Request.Query["sort"].FirstOrDefault() ?? "lastSeen";
+        var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
+        var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var (items, totalCount, _, _) = visitorCache.GetFiltered(filter, sortField, sortDir, page, 24);
+        var model = new VisitorListModel
+        {
+            Visitors = items, Counts = visitorCache.GetCounts(),
+            Filter = filter, SortField = sortField, SortDir = sortDir,
+            Page = page, PageSize = 24, TotalCount = totalCount,
+            BasePath = _options.BasePath.TrimEnd('/')
+        };
+        return await _razorViewRenderer.RenderViewToStringAsync("/Views/Dashboard/_VisitorList.cshtml", model, context);
+    }
+
+    private async Task<string> RenderCountryPartialAsync(HttpContext context)
+    {
+        var cached = _aggregateCache.Current.Countries;
+        var countries = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(20);
+        var model = new CountriesListModel { Countries = countries.Take(20).ToList(), BasePath = _options.BasePath.TrimEnd('/') };
+        return await _razorViewRenderer.RenderViewToStringAsync("/Views/Dashboard/_CountriesList.cshtml", model, context);
+    }
+
+    private async Task<string> RenderUaPartialAsync(HttpContext context)
+    {
+        var cached = _aggregateCache.Current.UserAgents;
+        var uas = cached.Count > 0 ? cached : await ComputeUserAgentsFallbackAsync();
+        var model = new UserAgentsListModel { UserAgents = uas, BasePath = _options.BasePath.TrimEnd('/') };
+        return await _razorViewRenderer.RenderViewToStringAsync("/Views/Dashboard/_UserAgentsList.cshtml", model, context);
+    }
+
+    // ─── Shared model builders ───────────────────────────────────────────
+
+    private YourDetectionModel BuildYourDetectionPartialModel(HttpContext context)
+    {
+        try
+        {
+            var sigService = context.RequestServices.GetService(typeof(MultiFactorSignatureService))
+                as MultiFactorSignatureService;
+            var visitorCache = context.RequestServices.GetService(typeof(VisitorListCache))
+                as VisitorListCache;
+
+            if (sigService == null || visitorCache == null)
+                return new YourDetectionModel { HasData = false, BasePath = _options.BasePath.TrimEnd('/') };
+
+            var sigs = context.Items["BotDetection.Signatures"] as MultiFactorSignatures
+                       ?? sigService.GenerateSignatures(context);
+            var visitor = visitorCache.Get(sigs.PrimarySignature);
+
+            if (visitor == null)
+                return new YourDetectionModel
+                {
+                    HasData = false, Signature = sigs.PrimarySignature,
+                    BasePath = _options.BasePath.TrimEnd('/')
+                };
+
+            return new YourDetectionModel
+            {
+                HasData = true,
+                IsBot = visitor.IsBot,
+                BotProbability = visitor.BotProbability,
+                Confidence = visitor.Confidence,
+                RiskBand = visitor.RiskBand,
+                ProcessingTimeMs = visitor.ProcessingTimeMs,
+                DetectorCount = visitor.TopReasons.Count,
+                Narrative = visitor.Narrative,
+                TopReasons = visitor.TopReasons,
+                Signature = sigs.PrimarySignature,
+                ThreatScore = visitor.ThreatScore,
+                ThreatBand = visitor.ThreatBand,
+                BasePath = _options.BasePath.TrimEnd('/')
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to build your detection partial model");
+            return new YourDetectionModel { HasData = false, BasePath = _options.BasePath.TrimEnd('/') };
+        }
+    }
+
+    private ClustersListModel BuildClustersModel(HttpContext context)
+    {
+        var clusterService = context.RequestServices.GetService(typeof(BotClusterService))
+            as BotClusterService;
+
+        var clusters = clusterService?.GetClusters()
+            .Select(cl => new ClusterViewModel
+            {
+                ClusterId = cl.ClusterId,
+                Label = cl.Label ?? "Unknown",
+                Description = cl.Description,
+                Type = cl.Type.ToString(),
+                MemberCount = cl.MemberCount,
+                AvgBotProb = Math.Round(cl.AverageBotProbability, 3),
+                Country = cl.DominantCountry,
+                AverageSimilarity = Math.Round(cl.AverageSimilarity, 3),
+                TemporalDensity = Math.Round(cl.TemporalDensity, 3),
+                DominantIntent = cl.DominantIntent,
+                AverageThreatScore = Math.Round(cl.AverageThreatScore, 3)
+            })
+            .ToList() ?? [];
+
+        return new ClustersListModel
+        {
+            Clusters = clusters,
+            BasePath = _options.BasePath.TrimEnd('/')
+        };
     }
 }

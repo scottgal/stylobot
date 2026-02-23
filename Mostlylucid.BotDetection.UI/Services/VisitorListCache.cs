@@ -168,6 +168,14 @@ public class VisitorListCache
     ///     Takes snapshots of mutable fields under lock for thread safety.
     /// </summary>
     public IReadOnlyList<CachedVisitor> GetFiltered(string? filter, string sortField, string sortDir, int limit = 50)
+        => GetFiltered(filter, sortField, sortDir, page: 1, pageSize: limit).Items;
+
+    /// <summary>
+    ///     Get filtered, sorted, paginated list for HTMX rendering.
+    ///     Returns items for the requested page plus total filtered count for pagination.
+    /// </summary>
+    public (IReadOnlyList<CachedVisitor> Items, int TotalCount, int Page, int PageSize) GetFiltered(
+        string? filter, string sortField, string sortDir, int page, int pageSize)
     {
         IEnumerable<CachedVisitor> items = SnapshotAll();
 
@@ -193,7 +201,10 @@ public class VisitorListCache
             _ => items.OrderByDescending(v => v.LastSeen)
         };
 
-        return items.Take(limit).ToList();
+        var materialized = items.ToList();
+        var totalCount = materialized.Count;
+        var paged = materialized.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        return (paged, totalCount, page, pageSize);
     }
 
     /// <summary>

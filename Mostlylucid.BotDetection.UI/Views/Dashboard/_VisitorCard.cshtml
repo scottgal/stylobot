@@ -1,0 +1,63 @@
+@using Mostlylucid.BotDetection.UI.Services
+@model CachedVisitor
+@{
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
+    var riskClass = Model.RiskBand switch {
+        "VeryHigh" => "text-error",
+        "High" => "text-error",
+        "Medium" or "Elevated" => "text-warning",
+        _ => "text-success"
+    };
+    var displayName = Model.BotName ?? Model.BotType ?? (Model.IsBot ? "Unknown Bot" : "Visitor");
+    var probPct = (Model.BotProbability * 100).ToString("F0");
+    var confPct = (Model.Confidence * 100).ToString("F0");
+    var actionClass = Model.Action switch {
+        "Block" => "bg-error/20 text-error",
+        "Throttle" => "bg-warning/20 text-warning",
+        "Challenge" => "bg-info/20 text-info",
+        "TarPit" => "bg-error/20 text-error",
+        _ => ""
+    };
+    var threatClass = Model.ThreatBand switch {
+        "Critical" or "High" => "bg-error/20 text-error",
+        "Medium" => "bg-warning/20 text-warning",
+        _ => ""
+    };
+}
+<a href="@basePath/signature/@Uri.EscapeDataString(Model.PrimarySignature)"
+   class="card bg-base-200 hover:bg-base-300 transition-all duration-200 cursor-pointer group"
+   id="visitor-@Model.PrimarySignature.GetHashCode().ToString("x8")">
+    <div class="card-body p-3 gap-1">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 min-w-0">
+                <span class="text-sm font-bold truncate max-w-[180px]">@displayName</span>
+                @if (Model.IsBot)
+                {
+                    <span class="badge badge-sm badge-error">Bot</span>
+                }
+                else
+                {
+                    <span class="badge badge-sm badge-success">Human</span>
+                }
+            </div>
+            <span class="text-xs text-base-content/40">@Model.TimeAgo</span>
+        </div>
+        <div class="flex items-center gap-3 text-xs">
+            <span>Hits: <strong>@Model.Hits</strong></span>
+            <span class="font-bold @riskClass">@(probPct)%</span>
+            <span class="@riskClass">@Model.RiskBand</span>
+            @if (!string.IsNullOrEmpty(Model.Action) && Model.Action != "Allow")
+            {
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold @actionClass">@Model.Action</span>
+            }
+            @if (!string.IsNullOrEmpty(Model.BotType))
+            {
+                <span class="text-base-content/50">@Model.BotType</span>
+            }
+            @if (!string.IsNullOrEmpty(Model.ThreatBand) && Model.ThreatBand != "None")
+            {
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold @threatClass">@Model.ThreatBand</span>
+            }
+        </div>
+    </div>
+</a>

@@ -31,7 +31,7 @@ public partial class DetectionBroadcastMiddleware
         "ua.", "header.", "client.", "geo.", "ip.", "behavioral.",
         "detection.", "request.", "h2.", "tls.", "tcp.", "h3.",
         "cluster.", "reputation.", "honeypot.", "similarity.",
-        "attack.", "ato.", "intent."
+        "attack.", "ato.", "intent.", "heuristic."
     ];
 
     /// <summary>Signal keys that must never reach the dashboard.</summary>

@@ -67,4 +67,15 @@ public interface IStyloBotDashboardHub
     ///     Sent periodically so the dashboard reflects classification changes (bot→human flips).
     /// </summary>
     Task BroadcastTopBots(List<DashboardTopBotEntry> topBots);
+
+    /// <summary>
+    ///     Lightweight invalidation signal. Tells connected clients that a specific
+    ///     data category has changed without sending the full data payload.
+    ///     The HTMX coordinator uses this to trigger OOB partial refreshes.
+    /// </summary>
+    /// <param name="signal">
+    ///     The invalidation signal name, matching widget <c>data-sb-depends</c> values
+    ///     (e.g., "summary", "signature", "countries", "clusters", "useragents").
+    /// </param>
+    Task BroadcastInvalidation(string signal);
 }
