@@ -30,10 +30,19 @@
     <!-- Summary Stats Bar -->
     @await Html.PartialAsync("~/Views/Dashboard/_SummaryStats.cshtml", Model.Summary)
 
+    <!-- Tab navigation — always visible -->
+    <div class="flex items-center gap-1 my-4 bg-base-300/50 rounded-lg p-0.5 w-fit">
+        <a href="@TabUrl("overview")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("overview")">Overview</a>
+        <a href="@TabUrl("visitors")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("visitors")">Visitors</a>
+        <a href="@TabUrl("countries")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("countries")">Countries</a>
+        <a href="@TabUrl("clusters")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("clusters")">Clusters</a>
+        <a href="@TabUrl("useragents")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("useragents")">User Agents</a>
+    </div>
+
     @if (tab == "overview")
     {
         <!-- Row 1: Top Bots (primary) + Recent Activity -->
-        <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 mt-4">
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
             <div class="lg:col-span-3">
                 @await Html.PartialAsync("~/Views/Dashboard/_TopBotsList.cshtml", Model.TopBots)
             </div>
@@ -48,33 +57,21 @@
             @await Html.PartialAsync("~/Views/Dashboard/_CountriesList.cshtml", Model.Countries)
         </div>
     }
-    else
+    else if (tab == "visitors")
     {
-        <!-- Tab navigation for deep-dive views -->
-        <div class="flex items-center gap-1 my-4 bg-base-300/50 rounded-lg p-0.5 w-fit">
-            <a href="@TabUrl("overview")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("overview")">Overview</a>
-            <a href="@TabUrl("visitors")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("visitors")">Visitors</a>
-            <a href="@TabUrl("countries")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("countries")">Countries</a>
-            <a href="@TabUrl("clusters")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("clusters")">Clusters</a>
-            <a href="@TabUrl("useragents")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("useragents")">User Agents</a>
-        </div>
-
-        @if (tab == "visitors")
-        {
-            @await Html.PartialAsync("~/Views/Dashboard/_VisitorList.cshtml", Model.Visitors)
-        }
-        else if (tab == "countries")
-        {
-            @await Html.PartialAsync("~/Views/Dashboard/_CountriesList.cshtml", Model.Countries)
-        }
-        else if (tab == "clusters")
-        {
-            @await Html.PartialAsync("~/Views/Dashboard/_ClustersList.cshtml", Model.Clusters)
-        }
-        else if (tab == "useragents")
-        {
-            @await Html.PartialAsync("~/Views/Dashboard/_UserAgentsList.cshtml", Model.UserAgents)
-        }
+        @await Html.PartialAsync("~/Views/Dashboard/_VisitorList.cshtml", Model.Visitors)
+    }
+    else if (tab == "countries")
+    {
+        @await Html.PartialAsync("~/Views/Dashboard/_CountriesList.cshtml", Model.Countries)
+    }
+    else if (tab == "clusters")
+    {
+        @await Html.PartialAsync("~/Views/Dashboard/_ClustersList.cshtml", Model.Clusters)
+    }
+    else if (tab == "useragents")
+    {
+        @await Html.PartialAsync("~/Views/Dashboard/_UserAgentsList.cshtml", Model.UserAgents)
     }
 
     <!-- Dashboard version footer -->
