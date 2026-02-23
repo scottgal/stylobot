@@ -576,7 +576,7 @@
                                                 <div class="flex items-center gap-1">
                                                     <span x-show="cl.averageThreatScore > 0.1"
                                                           class="badge badge-xs"
-                                                          :class="threatBandClass(cl.averageThreatScore >= 0.55 ? 'High' : cl.averageThreatScore >= 0.35 ? 'Elevated' : 'Low')"
+                                                          :class="threatBandClass(cl.averageThreatScore >= 0.80 ? 'Critical' : cl.averageThreatScore >= 0.55 ? 'High' : cl.averageThreatScore >= 0.35 ? 'Elevated' : 'Low')"
                                                           x-text="'Threat ' + (cl.averageThreatScore * 100).toFixed(0) + '%'"></span>
                                                     <span class="badge badge-xs" :class="cl.memberCount > 5 ? 'badge-error' : 'badge-warning'" x-text="cl.memberCount + ' members'"></span>
                                                 </div>
@@ -700,7 +700,7 @@
                                 <div class="flex items-center gap-3 text-[10px] text-base-content/40">
                                     <span :class="riskLabelClass(v.riskBand)" x-text="v.riskBand"></span>
                                     <span x-show="v.threatBand" :class="threatBandClass(v.threatBand)"
-                                          class="text-[9px]" x-text="v.threatBand"></span>
+                                          class="badge badge-xs text-[9px]" x-text="v.threatBand"></span>
                                     <template x-if="v.hasFullData">
                                         <span x-text="((v.botProbability || 0) * 100).toFixed(0) + '% prob'"></span>
                                     </template>
@@ -984,6 +984,14 @@ function dashboard() {
         themeColor: themeColor,
         alphaColor: alphaColor,
         riskLabelClass(band) { return 'risk-text-' + (band || 'unknown').toLowerCase(); },
+        threatBandClass(band) {
+            var b = (band || '').toLowerCase();
+            if (b === 'critical') return 'badge-error';
+            if (b === 'high') return 'badge-warning';
+            if (b === 'elevated') return 'badge-info';
+            if (b === 'low') return 'badge-success';
+            return 'badge-ghost';
+        },
         riskColor(band) {
             return ({ 'VeryLow': themeColor('positive'), 'Low': themeColor('positive'), 'Elevated': themeColor('warning'), 'Medium': themeColor('warning'), 'High': themeColor('danger'), 'VeryHigh': themeColor('danger') })[band] || themeColor('muted');
         },

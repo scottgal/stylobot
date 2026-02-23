@@ -2,6 +2,8 @@
 
 User-friendly website for Stylobot bot detection.
 
+> **NOTE:** StyloBot is a FOSS project under active development. To tune detection against real traffic I collect REAL traffic on [stylobot.net](https://www.stylobot.net) (zero PII — see the [API docs](/docs)), so the live site may be temporarily broken as I test improvements. Expect rough edges!
+
 ## Use This First
 
 - In-app docs: `/docs`

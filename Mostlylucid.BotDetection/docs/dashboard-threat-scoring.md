@@ -140,7 +140,7 @@ No database schema changes are required. The new fields are carried in-memory on
 | `UI/Services/VisitorListCache.cs` | Threaded threat through `CachedVisitor`, `Upsert` (create + update), `SnapshotAll` |
 | `UI/Services/DetectionNarrativeBuilder.cs` | Threat qualifier prefix on bot narratives |
 | `UI/Views/Dashboard/Index.cshtml` | Threat badges on clusters, detection detail, your detection, visitor list |
-| `website/src/dashboard.ts` | `threatBandColor`/`threatBandClass` helpers; `intent.` signal category; exposed in both Alpine apps |
+| `website/src/dashboard.ts` | `threatBandClass` helper; `intent.` signal category; exposed in both Alpine apps |
 
 ## Security Considerations
 

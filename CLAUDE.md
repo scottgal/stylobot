@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**StyloBot** is an enterprise-grade bot detection framework for ASP.NET Core. It uses a blackboard architecture (via StyloFlow) with 29 detectors in 4 waves, AI-powered classification, Leiden clustering for bot network discovery, and zero-PII design. The system combines fast-path detection (<1ms) with optional LLM escalation for complex cases. The real-time dashboard features an interactive world map, country analytics, cluster visualization, user agent breakdown, and live signature feed.
+**StyloBot** is an enterprise-grade bot detection framework for ASP.NET Core. It uses a blackboard architecture (via StyloFlow) with 30 detectors in 4 waves, AI-powered classification, intent classification with threat scoring, Leiden clustering for bot network discovery, and zero-PII design. The system combines fast-path detection (<1ms) with optional LLM escalation for complex cases. The real-time dashboard features an interactive world map, country analytics, cluster visualization, threat scoring, user agent breakdown, and live signature feed.
 
 ## Critical Rules
 
@@ -59,7 +59,7 @@ dotnet pack Mostlylucid.BotDetection -c Release
 | `Mostlylucid.BotDetection.MinimalDemo` | Minimal demo — zero dependencies, shows all protection approaches |
 | `Mostlylucid.BotDetection.UI` | Dashboard, TagHelpers, SignalR hub |
 | `Mostlylucid.BotDetection.UI.PostgreSQL` | PostgreSQL persistence layer |
-| `Mostlylucid.BotDetection.Demo` | Interactive demo with all 29 detectors |
+| `Mostlylucid.BotDetection.Demo` | Interactive demo with all 30 detectors |
 | `Mostlylucid.BotDetection.Console` | Standalone gateway/proxy console |
 | `Stylobot.Gateway` | Docker-first YARP reverse proxy |
 | `Mostlylucid.GeoDetection` | Geographic routing (MaxMind, ip-api) |
@@ -91,7 +91,7 @@ Detection uses an ephemeral blackboard where detectors write signals:
 
 - `Extensions/ServiceCollectionExtensions.cs` - DI registration entry points
 - `Orchestration/BlackboardOrchestrator.cs` - Main detection orchestration
-- `Orchestration/ContributingDetectors/` - All 29 detector implementations
+- `Orchestration/ContributingDetectors/` - All 30 detector implementations
 - `Orchestration/Manifests/detectors/*.yaml` - Detector configurations
 - `Models/BotDetectionOptions.cs` - Configuration model
 - `Actions/*.cs` - Response policies (block, throttle, challenge, redirect)

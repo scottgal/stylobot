@@ -1,9 +1,21 @@
 # StyloBot
 by ***mostly*lucid**
 
-Enterprise bot detection framework for ASP.NET Core. 29 detectors, wave-based orchestration, adaptive AI learning, real-time dashboard with world map, and reverse-proxy integration — all in two lines of code.
+> **NOTE:** StyloBot is a FOSS project under active development. To tune detection against real traffic I collect REAL traffic on [stylobot.net](https://www.stylobot.net) (zero PII — see the [API docs](Mostlylucid.BotDetection/docs/api-reference.md)), so the live site may be temporarily broken as I test improvements. Expect rough edges!
+
+Enterprise bot detection framework for ASP.NET Core. 30 detectors, wave-based orchestration, adaptive AI learning, intent classification with threat scoring, real-time dashboard with world map, and reverse-proxy integration — all in two lines of code.
 
 <img src="https://raw.githubusercontent.com/scottgal/stylobot/refs/heads/main/mostlylucid.stylobot.website/src/Stylobot.Website/wwwroot/img/stylowall.svg?raw=true" alt="StyloBot" style="max-width:200px; height:auto;" />
+
+## What's New in v5.0
+
+- **Intent Classification** — new HNSW-backed detector classifies request intent (reconnaissance, exploitation, scraping, benign) with adaptive learning
+- **Threat Scoring** — independent threat dimension (Low/Elevated/High/Critical) orthogonal to bot probability, surfaced across all dashboard views, APIs, and SignalR broadcasts
+- **Stream Abuse Detection** — dedicated StreamAbuseContributor catches connection churn, payload flooding, and protocol switching hidden in streaming traffic
+- **Stream-Aware Pipeline** — TransportProtocolContributor classifies WebSocket/SSE/SignalR/gRPC early; 5 downstream detectors suppress false positives on legitimate streaming
+- **Dashboard Threat Visualization** — threat badges on detections, visitors, clusters; cluster-level dominant intent and threat percentage; threat-prefixed narratives
+
+See [`CHANGELOG.md`](CHANGELOG.md) for full details.
 
 ## What This Repo Contains
 
@@ -54,7 +66,7 @@ curl http://localhost:8080/admin/health
 
 If `ADMIN_SECRET` is configured, include header `X-Admin-Secret` for `/admin/*` endpoints.
 
-## Detection Surface — 29 Detectors
+## Detection Surface — 30 Detectors
 
 All detectors run in a wave-based pipeline. Fast-path detectors execute in parallel in <1ms; advanced detectors fire only when triggered by upstream signals.
 
@@ -63,14 +75,16 @@ All detectors run in a wave-based pipeline. Fast-path detectors execute in paral
 | **Wave 0 — Fast Path** | UserAgent, Header, IP, SecurityTool, TransportProtocol, VersionAge, AiScraper, FastPathReputation, ReputationBias, VerifiedBot | <1ms |
 | **Wave 1 — Behavioral** | Behavioral, AdvancedBehavioral, BehavioralWaveform, CacheBehavior, ClientSide, GeoChange, ResponseBehavior, StreamAbuse | 1-5ms |
 | **Wave 2 — Fingerprinting** | TLS (JA3/JA4), TCP/IP (p0f), HTTP/2 (AKAMAI), HTTP/3 (QUIC), MultiLayerCorrelation | <1ms |
-| **Wave 3 — AI + Learning** | Heuristic, HeuristicLate, Similarity, Cluster (Leiden), TimescaleReputation, LLM (optional) | 1-500ms |
+| **Wave 3 — AI + Learning** | Heuristic, HeuristicLate, Similarity, Cluster (Leiden), Intent, TimescaleReputation, LLM (optional) | 1-500ms |
 | **Slow Path** | ProjectHoneypot (DNS lookup) | ~100ms |
 
 Real contributor lists are controlled by `BotDetection:Policies` in each app config.
 
 ### Key Capabilities
 
+- **Intent classification and threat scoring**: HNSW-backed similarity search classifies request intent (reconnaissance, exploitation, scraping, benign) and assigns a threat score orthogonal to bot probability — a human probing `.env` files gets low bot probability but high threat score
 - **Protocol-level fingerprinting**: JA3/JA4 TLS, p0f TCP/IP, AKAMAI HTTP/2, QUIC HTTP/3 — detect bots even when they spoof headers perfectly
+- **Stream-aware detection**: WebSocket, SSE, SignalR, and gRPC traffic classified early; downstream detectors suppress false positives; dedicated stream abuse detection catches connection churn, payload flooding, and protocol switching
 - **Bot network discovery**: Leiden clustering finds coordinated bot campaigns across thousands of signatures
 - **Adaptive AI**: Heuristic model extracts ~50 features per request and learns from feedback — detection improves over time
 - **Geo intelligence**: Country reputation tracking, geographic drift detection, VPN/proxy/Tor/datacenter identification
@@ -102,10 +116,11 @@ The built-in dashboard (`Mostlylucid.BotDetection.UI`) provides live monitoring 
 - **Overview**: Total/bot/human request counts, bot rate, unique signatures, top bots
 - **World Map**: jsvectormap with countries colored by bot rate (green→amber→red) and markers sized by traffic volume
 - **Countries Tab**: Country-level bot rates, reputation scores, request volumes
-- **Clusters Tab**: Leiden-detected bot networks with similarity scores and campaign analysis
+- **Clusters Tab**: Leiden-detected bot networks with similarity scores, dominant intent, and threat level per cluster
 - **User Agents Tab**: UA family breakdown with category badges, version distribution, country per UA
-- **Visitors Tab**: Live signature feed with risk bands, sparkline histories, drill-down details
-- **Detections Tab**: Full detection event log with per-detector contributions and signal breakdown
+- **Visitors Tab**: Live signature feed with risk bands, threat bands, sparkline histories, drill-down details
+- **Detections Tab**: Full detection event log with per-detector contributions, signal breakdown, and threat scoring
+- **Threat Scoring**: Independent threat bands (Low/Elevated/High/Critical) displayed alongside bot probability across all views
 
 All data updates in real-time via SignalR. JSON API endpoints available for programmatic access.
 
@@ -192,9 +207,14 @@ Detector docs (29 detectors):
 - [`multi-layer-correlation.md`](Mostlylucid.BotDetection/docs/multi-layer-correlation.md) — Cross-layer consistency
 - [`transport-protocol-detection.md`](Mostlylucid.BotDetection/docs/transport-protocol-detection.md) — WebSocket, gRPC, GraphQL, SSE protocol validation
 - [`stream-transport-detection.md`](Mostlylucid.BotDetection/docs/stream-transport-detection.md) — Stream-aware detection, SignalR classification, stream abuse
+- [`dashboard-threat-scoring.md`](Mostlylucid.BotDetection/docs/dashboard-threat-scoring.md) — Intent/threat scoring dashboard integration, data flow, API endpoints
 - [`learning-and-reputation.md`](Mostlylucid.BotDetection/docs/learning-and-reputation.md) — Adaptive learning system
 - [`timescale-reputation.md`](Mostlylucid.BotDetection/docs/timescale-reputation.md) — TimescaleDB reputation tracking
 - [`training-data-api.md`](Mostlylucid.BotDetection/docs/training-data-api.md) — ML training data export
+
+Release notes:
+
+- [`CHANGELOG.md`](CHANGELOG.md) — Version history and release notes
 
 ## Notes on Existing Docs
 

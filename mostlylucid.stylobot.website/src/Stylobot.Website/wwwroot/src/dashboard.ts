@@ -28,15 +28,6 @@ function riskColor(band: string): string {
     return 'var(--sb-card-subtle)';
 }
 
-function threatBandColor(band: string | null | undefined): string {
-    const b = (band || '').toLowerCase();
-    if (b === 'critical') return '#ef4444';
-    if (b === 'high') return '#f97316';
-    if (b === 'elevated') return '#f59e0b';
-    if (b === 'low') return '#22c55e';
-    return '#9ca3af';
-}
-
 function threatBandClass(band: string | null | undefined): string {
     const b = (band || '').toLowerCase();
     if (b === 'critical') return 'badge-error';
@@ -1386,7 +1377,6 @@ function dashboardApp() {
         actionBadgeClass,
         actionDisplayName,
         inferBotCategory,
-        threatBandColor,
         threatBandClass,
     };
 }
@@ -1841,7 +1831,6 @@ function signatureDetailApp() {
         actionBadgeClass,
         actionDisplayName,
         categorizeSignals,
-        threatBandColor,
         threatBandClass,
 
         /**

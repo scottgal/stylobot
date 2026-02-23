@@ -604,7 +604,9 @@ public class StyloBotDashboardMiddleware
                 botProbabilityHistory = b.BotProbabilityHistory,
                 confidenceHistory = b.ConfidenceHistory,
                 b.Narrative,
-                topReasons = b.TopReasons
+                topReasons = b.TopReasons,
+                b.ThreatScore,
+                b.ThreatBand
             }),
             detections = detections.Select(d => new
             {
@@ -627,7 +629,9 @@ public class StyloBotDashboardMiddleware
                 d.Narrative,
                 d.TopReasons,
                 d.DetectorContributions,
-                d.ImportantSignals
+                d.ImportantSignals,
+                d.ThreatScore,
+                d.ThreatBand
             }),
             signatures = signatures.Select(s => new
             {
@@ -638,7 +642,9 @@ public class StyloBotDashboardMiddleware
                 s.RiskBand,
                 s.HitCount,
                 s.IsKnownBot,
-                s.BotName
+                s.BotName,
+                s.ThreatScore,
+                s.ThreatBand
             })
         };
 
@@ -1110,14 +1116,14 @@ public class StyloBotDashboardMiddleware
 
         // Header
         await writer.WriteLineAsync(
-            "RequestId,Timestamp,IsBot,BotProbability,Confidence,RiskBand,BotType,BotName,Action,Method,Path,StatusCode,ProcessingTimeMs");
+            "RequestId,Timestamp,IsBot,BotProbability,Confidence,RiskBand,BotType,BotName,Action,Method,Path,StatusCode,ProcessingTimeMs,ThreatScore,ThreatBand");
 
         // Rows
         foreach (var d in detections)
             await writer.WriteLineAsync(
                 $"{EscapeCsv(d.RequestId)},{d.Timestamp:O},{d.IsBot},{d.BotProbability},{d.Confidence}," +
                 $"{EscapeCsv(d.RiskBand)},{EscapeCsv(d.BotType)},{EscapeCsv(d.BotName)},{EscapeCsv(d.Action)},{EscapeCsv(d.Method)},{EscapeCsv(d.Path)}," +
-                $"{d.StatusCode},{d.ProcessingTimeMs}");
+                $"{d.StatusCode},{d.ProcessingTimeMs},{d.ThreatScore},{EscapeCsv(d.ThreatBand)}");
     }
 
     private static string EscapeCsv(string? value)
