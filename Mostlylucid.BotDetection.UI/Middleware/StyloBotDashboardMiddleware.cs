@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Reflection;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -27,6 +28,9 @@ public class StyloBotDashboardMiddleware
     private readonly RequestDelegate _next;
     private readonly StyloBotDashboardOptions _options;
     private readonly RazorViewRenderer _razorViewRenderer;
+
+    private static readonly string? DashboardVersion = Assembly.GetExecutingAssembly()
+        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 
     // Rate limiter: per IP, per minute (used only for diagnostics endpoint)
     private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> _rateLimits = new();
@@ -222,6 +226,14 @@ public class StyloBotDashboardMiddleware
                 await ServeUserAgentsPartialAsync(context);
                 break;
 
+            case "partials/topbots":
+                await ServeTopBotsPartialAsync(context);
+                break;
+
+            case "partials/recent":
+                await ServeRecentActivityPartialAsync(context);
+                break;
+
             case "partials/update":
                 await ServeOobUpdateAsync(context);
                 break;
@@ -319,6 +331,7 @@ public class StyloBotDashboardMiddleware
             BasePath = basePath,
             HubPath = _options.HubPath,
             ActiveTab = tab,
+            Version = DashboardVersion,
             Summary = new SummaryStatsModel { Summary = summary, BasePath = basePath },
             Visitors = new VisitorListModel
             {
@@ -335,7 +348,8 @@ public class StyloBotDashboardMiddleware
                     ? _aggregateCache.Current.UserAgents
                     : await ComputeUserAgentsFallbackAsync(),
                 BasePath = basePath
-            }
+            },
+            TopBots = BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "hits")
         };
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -1203,6 +1217,47 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html);
     }
 
+    /// <summary>Render the top bots list partial.</summary>
+    private async Task ServeTopBotsPartialAsync(HttpContext context)
+    {
+        var sortBy = context.Request.Query["sort"].FirstOrDefault() ?? "hits";
+        var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 50 ? ps : 10;
+
+        var model = BuildTopBotsModel(page, pageSize, sortBy);
+
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Dashboard/_TopBotsList.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>Render the recent activity partial (last 10 visitors by LastSeen desc).</summary>
+    private async Task ServeRecentActivityPartialAsync(HttpContext context)
+    {
+        var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
+        var (items, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, 10);
+        var counts = visitorCache.GetCounts();
+
+        var model = new VisitorListModel
+        {
+            Visitors = items,
+            Counts = counts,
+            Filter = "all",
+            SortField = "lastSeen",
+            SortDir = "desc",
+            Page = 1,
+            PageSize = 10,
+            TotalCount = totalCount,
+            BasePath = _options.BasePath.TrimEnd('/')
+        };
+
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Dashboard/_RecentActivity.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
     /// <summary>Render the user agents list partial.</summary>
     private async Task ServeUserAgentsPartialAsync(HttpContext context)
     {
@@ -1263,6 +1318,8 @@ public class StyloBotDashboardMiddleware
                 "countries" => await RenderCountryPartialAsync(context),
                 "clusters" => await RenderPartialAsync(context, "/Views/Dashboard/_ClustersList.cshtml", BuildClustersModel(context)),
                 "useragents" => await RenderUaPartialAsync(context),
+                "topbots" => await RenderPartialAsync(context, "/Views/Dashboard/_TopBotsList.cshtml", BuildTopBotsModel()),
+                "recent" => await RenderRecentActivityPartialAsync(context),
                 "your-detection" => await RenderPartialAsync(context, "/Views/Dashboard/_YourDetection.cshtml", BuildYourDetectionPartialModel(context)),
                 _ => ""
             };
@@ -1327,6 +1384,20 @@ public class StyloBotDashboardMiddleware
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Dashboard/_CountriesList.cshtml", model, context);
     }
 
+    private async Task<string> RenderRecentActivityPartialAsync(HttpContext context)
+    {
+        var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
+        var (items, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, 10);
+        var model = new VisitorListModel
+        {
+            Visitors = items, Counts = visitorCache.GetCounts(),
+            Filter = "all", SortField = "lastSeen", SortDir = "desc",
+            Page = 1, PageSize = 10, TotalCount = totalCount,
+            BasePath = _options.BasePath.TrimEnd('/')
+        };
+        return await _razorViewRenderer.RenderViewToStringAsync("/Views/Dashboard/_RecentActivity.cshtml", model, context);
+    }
+
     private async Task<string> RenderUaPartialAsync(HttpContext context)
     {
         var cached = _aggregateCache.Current.UserAgents;
@@ -1382,6 +1453,22 @@ public class StyloBotDashboardMiddleware
             _logger.LogDebug(ex, "Failed to build your detection partial model");
             return new YourDetectionModel { HasData = false, BasePath = _options.BasePath.TrimEnd('/') };
         }
+    }
+
+    private TopBotsListModel BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "hits")
+    {
+        // Get all bots once for accurate count, then take the page
+        var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy);
+        var pagedBots = allBots.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        return new TopBotsListModel
+        {
+            Bots = pagedBots,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = allBots.Count,
+            SortField = sortBy,
+            BasePath = _options.BasePath.TrimEnd('/')
+        };
     }
 
     private ClustersListModel BuildClustersModel(HttpContext context)

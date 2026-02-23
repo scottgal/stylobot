@@ -607,16 +607,26 @@ public partial class DetectionBroadcastMiddleware
 
     private static void EnrichProtocol(HttpContext context, Dictionary<string, object> signals)
     {
-        if (signals.ContainsKey("h3.protocol") || signals.ContainsKey("h3.version") ||
-            signals.ContainsKey("h2.fingerprint") || signals.ContainsKey("h2.settings_hash") ||
-            signals.ContainsKey("h2.protocol"))
-            return;
+        // Prefer forwarded client protocol from reverse proxy (e.g., Caddy X-Client-Protocol header)
+        // because behind a proxy, context.Request.Protocol is always the upstream connection (HTTP/1.1)
+        var protocol = context.Request.Headers["X-Client-Protocol"].FirstOrDefault()
+                       ?? context.Request.Protocol;
+        signals.TryAdd("request.protocol", protocol);
 
-        var protocol = context.Request.Protocol;
-        if (protocol.Contains("3", StringComparison.Ordinal))
-            signals.TryAdd("h3.protocol", "h3");
-        else if (protocol.Contains("2", StringComparison.Ordinal))
-            signals.TryAdd("h2.protocol", "h2");
+        if (!signals.ContainsKey("h3.protocol") && !signals.ContainsKey("h3.version") &&
+            !signals.ContainsKey("h2.fingerprint") && !signals.ContainsKey("h2.settings_hash") &&
+            !signals.ContainsKey("h2.protocol"))
+        {
+            if (protocol.Contains("3", StringComparison.Ordinal))
+                signals.TryAdd("h3.protocol", "h3");
+            else if (protocol.Contains("2", StringComparison.Ordinal))
+                signals.TryAdd("h2.protocol", "h2");
+        }
+
+        // Capture Accept-Encoding for compression type signal
+        var acceptEncoding = context.Request.Headers.AcceptEncoding.ToString();
+        if (!string.IsNullOrEmpty(acceptEncoding))
+            signals.TryAdd("request.accept_encoding", acceptEncoding);
     }
 
     private static void EnrichFromRequest(HttpContext context, Dictionary<string, object> signals, ref string? countryCode)

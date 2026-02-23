@@ -1,0 +1,95 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model TopBotsListModel
+@{
+    var bp = Model.BasePath;
+    string SortUrl(string field) => $"{bp}/partials/topbots?sort={field}&page=1&pageSize={Model.PageSize}";
+    string PageUrl(int page) => $"{bp}/partials/topbots?sort={Model.SortField}&page={page}&pageSize={Model.PageSize}";
+    string SortIcon(string field) => Model.SortField == field ? "\u25BC" : "";
+    string SortBtnClass(string field) => Model.SortField == field ? "btn-active" : "";
+
+    static string GetFlag(string? code) {
+        if (string.IsNullOrEmpty(code) || code.Length != 2 || code == "XX") return "\uD83C\uDF10";
+        var upper = code.ToUpperInvariant();
+        return string.Concat(char.ConvertFromUtf32(0x1F1E6 + upper[0] - 'A'), char.ConvertFromUtf32(0x1F1E6 + upper[1] - 'A'));
+    }
+}
+<div id="topbots-list"
+     data-sb-widget="topbots"
+     data-sb-depends="signature,summary"
+     class="card bg-base-200 transition-all duration-200">
+    <div class="card-body p-4">
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-sm font-bold text-base-content">Top Bots</h3>
+            <div class="flex items-center gap-0.5">
+                <button hx-get="@SortUrl("hits")" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
+                        class="btn btn-xs btn-ghost @SortBtnClass("hits")">Hits @SortIcon("hits")</button>
+                <button hx-get="@SortUrl("probability")" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
+                        class="btn btn-xs btn-ghost @SortBtnClass("probability")">Prob @SortIcon("probability")</button>
+                <button hx-get="@SortUrl("lastseen")" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
+                        class="btn btn-xs btn-ghost @SortBtnClass("lastseen")">Recent @SortIcon("lastseen")</button>
+            </div>
+        </div>
+
+        @if (Model.Bots.Count == 0)
+        {
+            <div class="text-xs text-base-content/40 py-4 text-center">No bots detected yet</div>
+        }
+        else
+        {
+            <div class="space-y-1">
+                @foreach (var bot in Model.Bots)
+                {
+                    var riskClass = bot.RiskBand switch {
+                        "VeryHigh" or "High" => "text-error",
+                        "Medium" or "Elevated" => "text-warning",
+                        _ => "text-success"
+                    };
+                    var threatClass = bot.ThreatBand switch {
+                        "Critical" or "High" => "bg-error/20 text-error",
+                        "Medium" => "bg-warning/20 text-warning",
+                        _ => ""
+                    };
+                    var displayName = bot.BotName ?? bot.BotType ?? "Unknown";
+                    var probPct = (bot.BotProbability * 100).ToString("F0");
+                    <a href="@bp/signature/@Uri.EscapeDataString(bot.PrimarySignature)"
+                       class="flex items-center gap-2 text-xs hover:bg-base-300/50 rounded px-1.5 py-1 transition-colors group">
+                        <span class="w-5 text-center">@GetFlag(bot.CountryCode)</span>
+                        <span class="font-medium truncate flex-1 min-w-0" title="@displayName">@displayName</span>
+                        @if (!string.IsNullOrEmpty(bot.ThreatBand) && bot.ThreatBand != "None")
+                        {
+                            <span class="px-1 py-0.5 rounded text-[10px] font-semibold @threatClass">@bot.ThreatBand</span>
+                        }
+                        <span class="font-bold @riskClass w-8 text-right">@(probPct)%</span>
+                        <span class="text-base-content/50 w-10 text-right">@bot.HitCount<span class="text-base-content/30 ml-0.5">hits</span></span>
+                    </a>
+                }
+            </div>
+
+            @* Pagination *@
+            @if (Model.TotalPages > 1)
+            {
+                <div class="flex items-center justify-between mt-2 pt-2 border-t border-base-300">
+                    <span class="text-[10px] text-base-content/40">@Model.Page/@Model.TotalPages (@Model.TotalCount bots)</span>
+                    <div class="flex items-center gap-0.5">
+                        @if (Model.Page > 1)
+                        {
+                            <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
+                                    class="btn btn-xs btn-ghost">&laquo;</button>
+                        }
+                        @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
+                        {
+                            var pageNum = p;
+                            <button hx-get="@PageUrl(pageNum)" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
+                                    class="btn btn-xs @(pageNum == Model.Page ? "btn-primary" : "btn-ghost")">@pageNum</button>
+                        }
+                        @if (Model.Page < Model.TotalPages)
+                        {
+                            <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
+                                    class="btn btn-xs btn-ghost">&raquo;</button>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    </div>
+</div>

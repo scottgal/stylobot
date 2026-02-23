@@ -105,8 +105,8 @@ public class SeoService
         var metadata = GetDefaultMetadata();
         metadata.Title = "Live Dashboard - Real-Time Bot Detection | Stylobot";
         metadata.Description = "Watch Stylobot detect bots in real-time. Live traffic charts, visitor analysis, cluster discovery, and country-level bot rates — all with zero PII.";
-        metadata.OgUrl = $"{_baseUrl}/dashboard";
-        metadata.Canonical = $"{_baseUrl}/dashboard";
+        metadata.OgUrl = $"{_baseUrl}/_stylobot";
+        metadata.Canonical = $"{_baseUrl}/_stylobot";
         metadata.JsonLd = GenerateSoftwareApplicationJsonLd();
         return metadata;
     }

@@ -96,6 +96,20 @@ public sealed class UserAgentsListModel
 }
 
 /// <summary>
+///     View model for the top bots list partial.
+/// </summary>
+public sealed class TopBotsListModel
+{
+    public required IReadOnlyList<DashboardTopBotEntry> Bots { get; init; }
+    public required int Page { get; init; }
+    public required int PageSize { get; init; }
+    public required int TotalCount { get; init; }
+    public required string SortField { get; init; }
+    public required string BasePath { get; init; }
+    public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
+}
+
+/// <summary>
 ///     Shell view model for the full dashboard page.
 ///     Composes all partial models for initial server-side render.
 /// </summary>
@@ -106,6 +120,8 @@ public sealed class DashboardShellModel
     public required string HubPath { get; init; }
     public required string ActiveTab { get; init; }
 
+    public string? Version { get; init; }
+
     // Partial models for initial render
     public required SummaryStatsModel Summary { get; init; }
     public required VisitorListModel Visitors { get; init; }
@@ -113,4 +129,5 @@ public sealed class DashboardShellModel
     public required CountriesListModel Countries { get; init; }
     public required ClustersListModel Clusters { get; init; }
     public required UserAgentsListModel UserAgents { get; init; }
+    public required TopBotsListModel TopBots { get; init; }
 }

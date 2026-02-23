@@ -20,7 +20,7 @@
         <div class="ticker-scroll" x-ref="tickerScroll">
             <template x-for="(detection, idx) in detections" :key="detection._id || idx">
                 <a class="ticker-item"
-                   :href="'/dashboard/signature/' + encodeURIComponent(detection.primarySignature || '')"
+                   :href="'/_stylobot/signature/' + encodeURIComponent(detection.primarySignature || '')"
                    :class="{ 'is-bot': detection.isBot, 'ticker-item-new': detection._isNew }">
                     <span class="ticker-item-icon" x-text="detection.isBot ? 'R' : 'H'"></span>
                     <span class="ticker-item-risk"
@@ -66,7 +66,7 @@
         </div>
 
         <!-- Dashboard link -->
-        <a href="/dashboard" class="ticker-dashboard-link" title="Open Dashboard">
+        <a href="/_stylobot" class="ticker-dashboard-link" title="Open Dashboard">
             Dashboard
         </a>
     </div>

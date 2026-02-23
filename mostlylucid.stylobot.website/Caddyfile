@@ -34,6 +34,8 @@
 			header_up X-Forwarded-For {remote_host}
 			header_up X-Forwarded-Proto {scheme}
 			header_up X-Forwarded-Host {host}
+			# Forward actual client protocol (HTTP/1.1, HTTP/2, HTTP/3) for dashboard display
+			header_up X-Client-Protocol {http.request.proto}
 		}
 	}
 
@@ -48,6 +50,8 @@
 			header_up X-Forwarded-For {remote_host}
 			header_up X-Forwarded-Proto {scheme}
 			header_up X-Forwarded-Host {host}
+			# Forward actual client protocol (HTTP/1.1, HTTP/2, HTTP/3) for detection signals
+			header_up X-Client-Protocol {http.request.proto}
 		}
 	}
 

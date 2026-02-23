@@ -42,7 +42,7 @@
             </template>
             <template x-for="(item, idx) in tickerItems" :key="item._id || idx">
                 <a class="stylobot-header-ticker-item"
-                   :href="'/dashboard/signature/' + encodeURIComponent(item.primarySignature || '')"
+                   :href="'/_stylobot/signature/' + encodeURIComponent(item.primarySignature || '')"
                    :class="{ 'is-bot': item.isBot, 'ticker-new': item._isNew }">
                     <span class="ticker-icon-sm" x-text="item.isBot ? 'R' : 'H'"></span>
                     <span class="ticker-narrative-sm"
@@ -54,7 +54,7 @@
         <!-- Right: Live indicator + Dashboard link -->
         <div class="stylobot-header-right">
             <span class="stylobot-header-live" x-show="connected">LIVE</span>
-            <a href="/dashboard" class="stylobot-header-dashboard" title="Open Dashboard">Dashboard</a>
+            <a href="/_stylobot" class="stylobot-header-dashboard" title="Open Dashboard">Dashboard</a>
         </div>
     </div>
 
@@ -102,7 +102,7 @@
         </div>
 
         <div class="stylobot-header-details-footer">
-            <a :href="'/dashboard/signature/' + encodeURIComponent(signature || '')" class="dashboard-link">
+            <a :href="'/_stylobot/signature/' + encodeURIComponent(signature || '')" class="dashboard-link">
                 View Full Dashboard & All Signals &rarr;
             </a>
         </div>

@@ -19,17 +19,32 @@
         reverse_proxy prometheus:9090
     }
 
-    # Everything else goes through the gateway
-    reverse_proxy gateway:8080 {
-        health_uri /admin/alive
-        health_interval 10s
-        health_timeout 5s
+    # Dashboard: route /_stylobot* directly to website container
+    # (SignalR WebSocket upgrades fail through YARP, and
+    # dashboard API/UI must bypass the gateway proxy)
+    handle /_stylobot* {
+        reverse_proxy website:8080 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Host {host}
+            header_up X-Client-Protocol {http.request.proto}
+        }
+    }
 
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-        header_up X-Forwarded-Host {host}
-        header_up X-HTTP-Protocol {http.request.proto}
+    # Everything else goes through the gateway
+    handle {
+        reverse_proxy gateway:8080 {
+            health_uri /admin/alive
+            health_interval 10s
+            health_timeout 5s
+
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Forwarded-Host {host}
+            header_up X-Client-Protocol {http.request.proto}
+        }
     }
 
     header {
@@ -54,9 +69,22 @@
         reverse_proxy prometheus:9090
     }
 
-    reverse_proxy gateway:8080 {
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
+    # Dashboard direct to website
+    handle /_stylobot* {
+        reverse_proxy website:8080 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Client-Protocol {http.request.proto}
+        }
+    }
+
+    handle {
+        reverse_proxy gateway:8080 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            header_up X-Client-Protocol {http.request.proto}
+        }
     }
 }

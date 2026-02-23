@@ -1,0 +1,68 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model VisitorListModel
+@{
+    var bp = Model.BasePath;
+    static string GetFlag(string? code) {
+        if (string.IsNullOrEmpty(code) || code.Length != 2 || code == "XX") return "\uD83C\uDF10";
+        var upper = code.ToUpperInvariant();
+        return string.Concat(char.ConvertFromUtf32(0x1F1E6 + upper[0] - 'A'), char.ConvertFromUtf32(0x1F1E6 + upper[1] - 'A'));
+    }
+}
+<div id="recent-activity"
+     data-sb-widget="recent"
+     data-sb-depends="signature,summary"
+     class="card bg-base-200 transition-all duration-200">
+    <div class="card-body p-4">
+        <h3 class="text-sm font-bold text-base-content mb-2">Recent Activity</h3>
+
+        @if (Model.Visitors.Count == 0)
+        {
+            <div class="text-xs text-base-content/40 py-4 text-center">No activity yet</div>
+        }
+        else
+        {
+            <div class="overflow-x-auto">
+                <table class="table table-xs w-full">
+                    <thead>
+                        <tr class="text-[10px] text-base-content/40 uppercase">
+                            <th class="py-1">Time</th>
+                            <th class="py-1">Name</th>
+                            <th class="py-1">Type</th>
+                            <th class="py-1 text-right">Prob</th>
+                            <th class="py-1">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var v in Model.Visitors.OrderByDescending(x => x.LastSeen).Take(10))
+                        {
+                            var displayName = v.BotName ?? v.BotType ?? (v.IsBot ? "Unknown Bot" : "Visitor");
+                            var probPct = (v.BotProbability * 100).ToString("F0");
+                            var riskClass = v.RiskBand switch {
+                                "VeryHigh" or "High" => "text-error",
+                                "Medium" or "Elevated" => "text-warning",
+                                _ => "text-success"
+                            };
+                            var actionClass = v.Action switch {
+                                "Block" => "text-error",
+                                "Throttle" => "text-warning",
+                                "Challenge" => "text-info",
+                                "TarPit" => "text-error",
+                                _ => "text-base-content/50"
+                            };
+                            <tr class="hover:bg-base-300/50 cursor-pointer transition-colors"
+                                onclick="window.location.href='@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)'">
+                                <td class="py-1 text-base-content/50 whitespace-nowrap">@v.TimeAgo</td>
+                                <td class="py-1 font-medium truncate max-w-[120px]" title="@displayName">
+                                    <span class="mr-1">@GetFlag(v.CountryCode)</span>@displayName
+                                </td>
+                                <td class="py-1 text-base-content/50">@(v.BotType ?? (v.IsBot ? "Bot" : "Human"))</td>
+                                <td class="py-1 text-right font-bold @riskClass">@(probPct)%</td>
+                                <td class="py-1 @actionClass font-medium">@(v.Action ?? "Allow")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>

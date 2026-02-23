@@ -74,6 +74,7 @@ public class VisitorListCache
                     LastRequestId = detection.RequestId,
                     ThreatScore = detection.ThreatScore,
                     ThreatBand = detection.ThreatBand,
+                    Protocol = ExtractProtocol(detection),
                 };
             },
             (_, existing) =>
@@ -149,6 +150,9 @@ public class VisitorListCache
                     existing.LastRequestId = detection.RequestId;
                     existing.ThreatScore = detection.ThreatScore ?? existing.ThreatScore;
                     existing.ThreatBand = detection.ThreatBand ?? existing.ThreatBand;
+                    var proto = ExtractProtocol(detection);
+                    if (!string.IsNullOrEmpty(proto))
+                        existing.Protocol = proto;
                     if (!string.IsNullOrEmpty(detection.Path) && !existing.Paths.Contains(detection.Path))
                     {
                         existing.Paths.Add(detection.Path);
@@ -286,6 +290,7 @@ public class VisitorListCache
                     LastRequestId = v.LastRequestId,
                     ThreatScore = v.ThreatScore,
                     ThreatBand = v.ThreatBand,
+                    Protocol = v.Protocol,
                 });
             }
         }
@@ -490,6 +495,16 @@ public class VisitorListCache
         @"/administrator|/joomla|/drupal|/magento|/shopify|/typo3|/umbraco|/sitecore|/craft",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    private static string? ExtractProtocol(DashboardDetectionEvent detection)
+    {
+        if (detection.ImportantSignals == null) return null;
+        if (detection.ImportantSignals.TryGetValue("request.protocol", out var proto))
+            return proto?.ToString();
+        if (detection.ImportantSignals.ContainsKey("h3.protocol")) return "HTTP/3";
+        if (detection.ImportantSignals.ContainsKey("h2.protocol")) return "HTTP/2";
+        return null;
+    }
+
     private static bool IsAiBot(CachedVisitor v)
     {
         var cat = InferBotCategory(v.BotType, v.BotName);
@@ -560,16 +575,18 @@ public class CachedVisitor
     public string? LastRequestId { get; set; }
     public double? ThreatScore { get; set; }
     public string? ThreatBand { get; set; }
+    public string? Protocol { get; set; }
 
     public string TimeAgo
     {
         get
         {
-            var seconds = (int)(DateTime.UtcNow - LastSeen).TotalSeconds;
-            if (seconds < 5) return "now";
-            if (seconds < 60) return $"{seconds}s";
-            if (seconds < 3600) return $"{seconds / 60}m";
-            return $"{seconds / 3600}h";
+            var span = DateTime.UtcNow - LastSeen;
+            if (span.TotalSeconds < 5) return "now";
+            if (span.TotalSeconds < 60) return $"{(int)span.TotalSeconds}s";
+            if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m";
+            if (span.TotalDays < 1) return $"{(int)span.TotalHours}h {span.Minutes}m";
+            return $"{(int)span.TotalDays}d";
         }
     }
 }

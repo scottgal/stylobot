@@ -138,17 +138,20 @@
 
         @if (tab == "overview")
         {
-            <!-- Overview: two-column layout -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <!-- Left: Visitor feed -->
+            <!-- Row 1: Top Bots (primary) + Recent Activity -->
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                <div class="lg:col-span-3">
+                    @await Html.PartialAsync("~/Views/Dashboard/_TopBotsList.cshtml", Model.TopBots)
+                </div>
                 <div class="lg:col-span-2">
-                    @await Html.PartialAsync("~/Views/Dashboard/_VisitorList.cshtml", Model.Visitors)
+                    @await Html.PartialAsync("~/Views/Dashboard/_RecentActivity.cshtml", Model.Visitors)
                 </div>
-                <!-- Right: sidebar widgets -->
-                <div class="space-y-4">
-                    @await Html.PartialAsync("~/Views/Dashboard/_YourDetection.cshtml", Model.YourDetection)
-                    @await Html.PartialAsync("~/Views/Dashboard/_CountriesList.cshtml", Model.Countries)
-                </div>
+            </div>
+
+            <!-- Row 2: Your Detection + Countries -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+                @await Html.PartialAsync("~/Views/Dashboard/_YourDetection.cshtml", Model.YourDetection)
+                @await Html.PartialAsync("~/Views/Dashboard/_CountriesList.cshtml", Model.Countries)
             </div>
         }
         else if (tab == "visitors")
@@ -169,6 +172,15 @@
         }
 
     </main>
+
+    <!-- Footer with version -->
+    <footer class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between text-xs" style="color: var(--sb-brand-muted);">
+        <span>StyloBot &mdash; Zero-PII Bot Detection</span>
+        @if (!string.IsNullOrEmpty(Model.Version))
+        {
+            <span>v@(Model.Version)</span>
+        }
+    </footer>
 
     <!-- SignalR → HTMX coordinator (the entire client-side JS) -->
     <script nonce="@Model.CspNonce">

@@ -42,10 +42,14 @@
             </div>
             <span class="text-xs text-base-content/40">@Model.TimeAgo</span>
         </div>
-        <div class="flex items-center gap-3 text-xs">
+        <div class="flex items-center gap-3 text-xs flex-wrap">
             <span>Hits: <strong>@Model.Hits</strong></span>
             <span class="font-bold @riskClass">@(probPct)%</span>
             <span class="@riskClass">@Model.RiskBand</span>
+            @if (!string.IsNullOrEmpty(Model.Protocol))
+            {
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-base-300 text-base-content/60">@Model.Protocol</span>
+            }
             @if (!string.IsNullOrEmpty(Model.Action) && Model.Action != "Allow")
             {
                 <span class="px-1.5 py-0.5 rounded text-[10px] font-semibold @actionClass">@Model.Action</span>

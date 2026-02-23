@@ -1,781 +1,195 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model DashboardShellModel
 @{
     ViewData["Title"] = "Live Dashboard";
-    // Escape </ sequences to prevent script-tag breakout in embedded JSON
-    string SafeJson(string? json) => (json ?? "null").Replace("</", "<\\/");
+    var bp = Model.BasePath;
+    var tab = Model.ActiveTab;
+    string TabUrl(string t) => $"{bp}?tab={t}";
+    string TabClass(string t) => tab == t
+        ? "bg-base-100 shadow-sm text-base-content font-semibold"
+        : "text-base-content/40 hover:text-base-content/60";
+    var cspNonce = Model.CspNonce;
 }
 
-<!-- SSR data: dashboard renders immediately with server-provided data.
-     SignalR provides live updates; XHR is for user-initiated actions (tab switch, time range, etc.) -->
-<script type="application/json" id="ssr-summary">@Html.Raw(SafeJson(ViewData["SummaryJson"] as string))</script>
-<script type="application/json" id="ssr-countries">@Html.Raw(SafeJson(ViewData["CountriesJson"] as string))</script>
-<script type="application/json" id="ssr-clusters">@Html.Raw(SafeJson(ViewData["ClustersJson"] as string))</script>
-<script type="application/json" id="ssr-topbots">@Html.Raw(SafeJson(ViewData["TopBotsJson"] as string))</script>
-<script type="application/json" id="ssr-visitors">@Html.Raw(SafeJson(ViewData["VisitorsJson"] as string))</script>
-<script type="application/json" id="ssr-useragents">@Html.Raw(SafeJson(ViewData["UserAgentsJson"] as string))</script>
+<!-- Command Center Dashboard -->
+<div class="max-w-7xl mx-auto px-4 py-4" hx-headers='{"X-Requested-With": "XMLHttpRequest"}'>
 
-<section class="marketing-hero min-h-screen" x-data="dashboardApp()" x-init="init()">
-    <div class="marketing-container pt-2 pb-6">
-
-        <!-- Header -->
-        <div class="flex items-center justify-between gap-3 mb-3">
-            <h1 class="text-lg lg:text-xl font-bold text-base-content brand-wordmark">
-                <span class="stylo-text brand-italic">stylo</span><span class="bot-text">bot</span>
-                <span class="text-sm font-normal ml-1.5" style="color: var(--sb-card-subtle);">Dashboard</span>
-            </h1>
-            <span class="flex items-center gap-1.5 text-xs" :class="connected ? 'signal-positive' : 'signal-muted'">
-                <span class="relative flex h-2 w-2">
-                    <span x-show="connected" class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
-                    <span class="relative inline-flex rounded-full h-2 w-2" :class="connected ? 'live-dot' : 'bg-base-300'"></span>
-                </span>
-                <span x-text="connected ? 'Live' : 'Connecting...'"></span>
+    <!-- Header: Title + Connection Status -->
+    <div class="flex items-center gap-3 mb-4">
+        <h1 class="text-lg font-bold text-base-content">Command Center</h1>
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-base-200 text-base-content/50 border border-base-300 flex items-center gap-1.5">
+            <span class="relative flex h-1.5 w-1.5">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 live-dot"></span>
+                <span class="relative inline-flex rounded-full h-1.5 w-1.5 live-dot"></span>
             </span>
-        </div>
-
-        <!-- Tabs -->
-        <div class="border-b mb-4" style="border-color: var(--sb-card-divider);">
-            <nav class="flex gap-0 -mb-px overflow-x-auto">
-                <template x-for="t in [{id:'overview',label:'Overview'},{id:'visitors',label:'Visitors'},{id:'clusters',label:'Clusters'},{id:'countries',label:'Countries'},{id:'useragents',label:'User Agents'}]">
-                    <button @@click="switchTab(t.id)"
-                            class="px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap"
-                            :class="tab === t.id
-                                ? 'border-current'
-                                : 'border-transparent hover:border-base-300'"
-                            :style="tab === t.id ? 'color: var(--sb-accent)' : 'color: var(--sb-card-subtle)'"
-                            x-text="t.label">
-                    </button>
-                </template>
-            </nav>
-        </div>
-
-        <!-- ==================== OVERVIEW TAB ==================== -->
-        <div x-show="tab === 'overview'" x-cloak>
-
-            <!-- Time Range Selector -->
-            <div class="flex flex-wrap items-center gap-1.5 mb-3">
-                <span class="text-[10px] uppercase tracking-wide mr-1" style="color: var(--sb-card-subtle);">Time Range</span>
-                <template x-for="r in ['1h','6h','12h','24h','7d','30d','All']">
-                    <button @@click="setTimeRange(r)"
-                            class="px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors"
-                            :style="timeRange === r
-                                ? 'background: var(--sb-accent); color: white; border-color: var(--sb-accent);'
-                                : 'border-color: var(--sb-card-divider); color: var(--sb-card-subtle);'"
-                            x-text="r">
-                    </button>
-                </template>
-            </div>
-
-            <!-- Summary Stats Bar -->
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4" x-show="summary">
-                <div class="marketing-card p-3">
-                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Requests</div>
-                    <div class="text-lg font-bold text-base-content" x-text="displaySummary?.totalRequests?.toLocaleString() ?? '—'"></div>
-                </div>
-                <div class="marketing-card p-3">
-                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Bots</div>
-                    <div class="text-lg font-bold signal-danger" x-text="displaySummary?.botRequests?.toLocaleString() ?? '0'"></div>
-                </div>
-                <div class="marketing-card p-3">
-                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Humans</div>
-                    <div class="text-lg font-bold signal-positive" x-text="displaySummary?.humanRequests?.toLocaleString() ?? '0'"></div>
-                </div>
-                <div class="marketing-card p-3">
-                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Bot Rate</div>
-                    <div class="text-lg font-bold" style="color: var(--sb-accent);"
-                         x-text="displaySummary?.botPercentage != null ? Math.round(displaySummary.botPercentage) + '%' : '—'"></div>
-                </div>
-                <div class="marketing-card p-3">
-                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Avg Latency</div>
-                    <div class="text-lg font-bold text-base-content" x-text="displaySummary?.averageProcessingTimeMs ? displaySummary.averageProcessingTimeMs.toFixed(1) + 'ms' : '—'"></div>
-                </div>
-                <div class="marketing-card p-3">
-                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Visitors</div>
-                    <div class="text-lg font-bold text-base-content" x-text="displaySummary?.uniqueSignatures?.toLocaleString() ?? '—'"></div>
-                </div>
-            </div>
-
-            <!-- Charts Row -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-4">
-                <!-- Time Series Area Chart -->
-                <div class="marketing-card p-4 lg:col-span-2">
-                    <h3 class="text-sm font-semibold text-base-content mb-2">Traffic Over Time</h3>
-                    <div id="time-chart"></div>
-                    <div x-show="timeData.length === 0" class="flex items-center justify-center h-48 text-sm" style="color: var(--sb-card-subtle);">
-                        Waiting for traffic data...
-                    </div>
-                </div>
-
-                <!-- Top Bots (replacing risk donut) -->
-                <div class="marketing-card p-4">
-                    <h3 class="text-sm font-semibold text-base-content mb-2">Top Bots</h3>
-                    <div x-show="topBots.length > 0" class="space-y-1.5">
-                        <template x-for="bot in topBots" :key="bot.primarySignature">
-                            <a :href="'/dashboard/signature/' + encodeURIComponent(bot.primarySignature)"
-                               class="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-base-100 transition-colors group">
-                                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold status-badge-warn"
-                                      x-text="bot.riskBand || 'Bot'"></span>
-                                <span class="text-xs font-medium truncate flex-1" style="color: var(--sb-card-text);"
-                                      x-text="bot.botName || bot.primarySignature?.substring(0, 12)"></span>
-                                <span class="text-[10px] font-mono" style="color: var(--sb-card-subtle);"
-                                      x-text="(bot.hitCount || 0) + ' hits'"></span>
-                            </a>
-                        </template>
-                    </div>
-                    <div x-show="topBots.length === 0"
-                         class="flex items-center justify-center h-48 text-sm" style="color: var(--sb-card-subtle);">
-                        No bots detected yet
-                    </div>
-                </div>
-            </div>
-
-            <!-- World Map (overview mini version) -->
-            <div class="marketing-card p-4 mb-4">
-                <h3 class="text-sm font-semibold text-base-content mb-2">Global Traffic</h3>
-                <div id="overview-world-map" class="w-full"></div>
-                <div x-show="!overviewMapRendered" class="flex items-center justify-center h-48 text-sm" style="color: var(--sb-card-subtle);">
-                    Loading map data...
-                </div>
-            </div>
-
-            <!-- Your Detection + Bot Types Row -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <!-- Your Detection -->
-                <div class="marketing-card p-4">
-                    <h3 class="text-sm font-semibold text-base-content mb-2">Your Detection</h3>
-                    <template x-if="yourDetection">
-                        <div>
-                            <div class="flex items-center gap-3 mb-2">
-                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold"
-                                      :class="yourDetection.isBot ? 'status-badge-warn' : 'status-badge-human'">
-                                    <span x-text="yourDetection.isBot ? 'Bot' : 'Human'"></span>
-                                </span>
-                                <a class="text-xs font-mono hover:underline" style="color: var(--sb-accent);"
-                                   :href="'/dashboard/signature/' + encodeURIComponent(yourDetection.signature || '')"
-                                   x-text="yourDetection.signature ? yourDetection.signature.substring(0, 16) + '...' : ''"></a>
-                            </div>
-                            <div class="grid grid-cols-3 gap-3 mb-2">
-                                <div>
-                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Probability</div>
-                                    <div class="text-sm font-bold" :class="riskClass(yourDetection.riskBand)"
-                                         x-text="pct(yourDetection.botProbability)"></div>
-                                </div>
-                                <div>
-                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Confidence</div>
-                                    <div class="text-sm font-bold text-base-content" x-text="pct(yourDetection.confidence)"></div>
-                                </div>
-                                <div>
-                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Risk</div>
-                                    <div class="text-sm font-bold" :class="riskClass(yourDetection.riskBand)"
-                                         x-text="yourDetection.riskBand"></div>
-                                </div>
-                            </div>
-                            <div x-show="yourDetection.narrative" class="text-xs leading-relaxed p-2.5 rounded-lg bg-base-100 mb-2"
-                                 style="color: var(--sb-card-text);"
-                                 x-text="yourDetection.narrative"></div>
-                            <div x-show="yourDetection.topReasons && yourDetection.topReasons.length > 0">
-                                <ul class="space-y-0.5">
-                                    <template x-for="reason in (yourDetection.topReasons || []).slice(0, 5)">
-                                        <li class="text-xs flex items-start gap-1.5" style="color: var(--sb-card-text);">
-                                            <span style="color: var(--sb-accent);">&#x2022;</span>
-                                            <span x-text="reason"></span>
-                                        </li>
-                                    </template>
-                                </ul>
-                            </div>
-                        </div>
-                    </template>
-                    <div x-show="!yourDetection && yourSignature" class="text-sm py-4 text-center" style="color: var(--sb-card-subtle);">
-                        <div class="mb-1">Signature: <span class="font-mono text-xs" x-text="yourSignature.substring(0, 16) + '...'"></span></div>
-                        <div>Waiting for detection data...</div>
-                    </div>
-                    <div x-show="!yourDetection && !yourSignature" class="text-sm py-4 text-center" style="color: var(--sb-card-subtle);">
-                        Visit another page first so we can detect you
-                    </div>
-                </div>
-
-                <!-- Top Bot Types -->
-                <div class="marketing-card p-4">
-                    <h3 class="text-sm font-semibold text-base-content mb-2">Bot Categories</h3>
-                    <div x-show="summary?.topBotTypes && Object.keys(summary.topBotTypes).length > 0" class="space-y-2">
-                        <template x-for="[type, count] in Object.entries(summary?.topBotTypes ?? {}).sort((a,b) => b[1] - a[1]).slice(0, 8)">
-                            <div class="flex items-center gap-2">
-                                <span class="text-xs font-mono w-28 truncate" style="color: var(--sb-card-text);" x-text="type"></span>
-                                <div class="flex-1 h-2 rounded-full bg-base-300 overflow-hidden">
-                                    <div class="h-full rounded-full transition-all"
-                                         style="background: var(--sb-accent);"
-                                         :style="'width:' + Math.min(100, Math.round(count / Math.max(...Object.values(summary.topBotTypes)) * 100)) + '%'"></div>
-                                </div>
-                                <span class="text-xs font-mono w-8 text-right" style="color: var(--sb-card-subtle);" x-text="count"></span>
-                            </div>
-                        </template>
-                    </div>
-                    <div x-show="!summary?.topBotTypes || Object.keys(summary.topBotTypes).length === 0"
-                         class="text-sm py-4 text-center" style="color: var(--sb-card-subtle);">
-                        No bot types detected yet
-                    </div>
-                </div>
-            </div>
-
-            <!-- Signal Stats Row: Browsers, Protocols, Risk Distribution -->
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4" x-show="signalStats">
-                <!-- Browsers (clickable for version distribution) -->
-                <div class="marketing-card p-4">
-                    <h3 class="text-sm font-semibold text-base-content mb-2">Browsers</h3>
-                    <div x-show="topBrowsers.length > 0" class="space-y-1.5">
-                        <template x-for="[name, count] in topBrowsers" :key="name">
-                            <button @@click="selectBrowser(name)"
-                                    class="flex items-center gap-2 w-full text-left rounded-md px-1 py-0.5 transition-colors"
-                                    :class="selectedBrowser === name ? 'bg-base-100' : 'hover:bg-base-100/50'">
-                                <span class="text-xs w-20 truncate" style="color: var(--sb-card-text);" x-text="name"></span>
-                                <div class="flex-1 h-1.5 rounded-full bg-base-300 overflow-hidden">
-                                    <div class="h-full rounded-full" style="background: var(--sb-accent);"
-                                         :style="'width:' + Math.min(100, Math.round(count / (topBrowsers[0]?.[1] || 1) * 100)) + '%'"></div>
-                                </div>
-                                <span class="text-[10px] font-mono w-6 text-right" style="color: var(--sb-card-subtle);" x-text="count"></span>
-                            </button>
-                        </template>
-                    </div>
-                    <!-- Version Distribution Chart -->
-                    <div x-show="selectedBrowser && selectedBrowserVersions.length > 0" class="mt-3 border-t pt-2" style="border-color: var(--sb-card-divider);">
-                        <div class="text-[10px] uppercase tracking-wide mb-1" style="color: var(--sb-card-subtle);"
-                             x-text="selectedBrowser + ' Versions'"></div>
-                        <div id="browser-version-chart"></div>
-                    </div>
-                    <div x-show="selectedBrowser && selectedBrowserVersions.length === 0" class="mt-2 text-[10px] text-center" style="color: var(--sb-card-subtle);">
-                        No version data for this browser
-                    </div>
-                    <div x-show="topBrowsers.length === 0" class="text-xs py-3 text-center" style="color: var(--sb-card-subtle);">
-                        No browser data yet
-                    </div>
-                </div>
-
-                <!-- Protocols -->
-                <div class="marketing-card p-4">
-                    <h3 class="text-sm font-semibold text-base-content mb-2">Protocols</h3>
-                    <div x-show="topProtocols.length > 0" class="space-y-1.5">
-                        <template x-for="[name, count] in topProtocols" :key="name">
-                            <div class="flex items-center gap-2">
-                                <span class="text-xs w-20 truncate" style="color: var(--sb-card-text);" x-text="name"></span>
-                                <div class="flex-1 h-1.5 rounded-full bg-base-300 overflow-hidden">
-                                    <div class="h-full rounded-full" style="background: var(--sb-accent);"
-                                         :style="'width:' + Math.min(100, Math.round(count / (topProtocols[0]?.[1] || 1) * 100)) + '%'"></div>
-                                </div>
-                                <span class="text-[10px] font-mono w-6 text-right" style="color: var(--sb-card-subtle);" x-text="count"></span>
-                            </div>
-                        </template>
-                    </div>
-                    <div x-show="topProtocols.length === 0" class="text-xs py-3 text-center" style="color: var(--sb-card-subtle);">
-                        No protocol data yet
-                    </div>
-                </div>
-
-                <!-- Risk Distribution -->
-                <div class="marketing-card p-4">
-                    <h3 class="text-sm font-semibold text-base-content mb-2">Risk Distribution</h3>
-                    <div x-show="riskDistribution.length > 0" class="space-y-1.5">
-                        <template x-for="[band, count] in riskDistribution" :key="band">
-                            <div class="flex items-center gap-2">
-                                <span class="text-xs w-20 truncate" :class="riskClass(band)" x-text="band"></span>
-                                <div class="flex-1 h-1.5 rounded-full bg-base-300 overflow-hidden">
-                                    <div class="h-full rounded-full"
-                                         :style="'background:' + riskColor(band) + '; width:' + Math.min(100, Math.round(count / (riskDistribution[0]?.[1] || 1) * 100)) + '%'"></div>
-                                </div>
-                                <span class="text-[10px] font-mono w-6 text-right" style="color: var(--sb-card-subtle);" x-text="count"></span>
-                            </div>
-                        </template>
-                    </div>
-                    <div x-show="riskDistribution.length === 0" class="text-xs py-3 text-center" style="color: var(--sb-card-subtle);">
-                        No risk data yet
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ==================== VISITORS TAB ==================== -->
-        <div x-show="tab === 'visitors'" x-cloak>
-
-            <!-- Filter Bar -->
-            <div class="flex flex-wrap items-center gap-2 mb-3">
-                <template x-for="f in [{id:'all',label:'All'},{id:'humans',label:'Humans'},{id:'bots',label:'Bots'}]">
-                    <button @@click="setVisitorFilter(f.id)"
-                            class="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors"
-                            :style="visitorFilter === f.id
-                                ? 'background: var(--sb-accent); color: white; border-color: var(--sb-accent);'
-                                : 'border-color: var(--sb-card-divider); color: var(--sb-card-subtle);'"
-                            x-text="f.label">
-                    </button>
-                </template>
-
-                <div class="ml-auto flex items-center gap-2">
-                    <span class="text-xs" style="color: var(--sb-card-subtle);"
-                          x-text="'Page ' + visitorPage"></span>
-                </div>
-            </div>
-
-            <!-- Visitor List -->
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                <template x-for="v in visitors" :key="v.primarySignature">
-                    <a :href="visitorUrl(v)"
-                       class="p-3 rounded-lg border transition-colors hover:border-current group"
-                       style="background: var(--sb-card-bg); border-color: var(--sb-card-divider);"
-                       :style="'hover:border-color: var(--sb-accent);'">
-                        <div class="flex items-center justify-between mb-1">
-                            <span class="text-xs font-medium truncate max-w-[60%]" style="color: var(--sb-card-text);"
-                                  x-text="v.botName || v.primarySignature?.substring(0, 12) || 'Unknown'"></span>
-                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold"
-                                  :class="v.isKnownBot ? 'status-badge-warn' : 'status-badge-human'"
-                                  x-text="v.isKnownBot ? 'Bot' : 'Human'"></span>
-                        </div>
-                        <div class="flex items-center gap-3 text-[10px]" style="color: var(--sb-card-subtle);">
-                            <span x-text="'Hits: ' + (v.hitCount || 0)"></span>
-                            <span class="font-bold" :class="riskClass(v.riskBand)" x-text="pct(v.botProbability)"></span>
-                            <span :class="riskClass(v.riskBand)" x-text="v.riskBand || '—'"></span>
-                            <span x-show="v.action && v.action !== 'Allow'"
-                                  class="px-1 py-0.5 rounded text-[9px] font-semibold font-mono"
-                                  :class="actionBadgeClass(v.action)"
-                                  x-text="actionDisplayName(v.action)"></span>
-                            <span x-show="v.botType" class="font-mono" x-text="v.botType"></span>
-                            <span class="ml-auto" x-text="timeAgo(v.timestamp)"></span>
-                        </div>
-                    </a>
-                </template>
-            </div>
-            <div x-show="visitors.length === 0 && !visitorLoading" class="text-sm py-8 text-center" style="color: var(--sb-card-subtle);">
-                No visitors match this filter
-            </div>
-            <div x-show="visitorLoading" class="text-sm py-8 text-center" style="color: var(--sb-card-subtle);">
-                Loading...
-            </div>
-
-            <!-- Pagination -->
-            <div x-show="visitors.length > 0" class="flex items-center justify-between mt-4 text-xs" style="color: var(--sb-card-subtle);">
-                <span x-text="'Showing ' + ((visitorPage - 1) * visitorPageSize + 1) + '–' + ((visitorPage - 1) * visitorPageSize + visitors.length)"></span>
-                <div class="flex items-center gap-1">
-                    <button @@click="visitorPrev()" :disabled="visitorPage <= 1"
-                            class="btn btn-xs btn-ghost" :class="visitorPage <= 1 ? 'btn-disabled opacity-30' : ''"
-                            style="color: var(--sb-card-subtle);">
-                        &larr; Prev
-                    </button>
-                    <span class="px-2 font-mono" x-text="visitorPage"></span>
-                    <button @@click="visitorNext()" :disabled="!visitorHasMore"
-                            class="btn btn-xs btn-ghost" :class="!visitorHasMore ? 'btn-disabled opacity-30' : ''"
-                            style="color: var(--sb-card-subtle);">
-                        Next &rarr;
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- ==================== CLUSTERS TAB ==================== -->
-        <div x-show="tab === 'clusters'" x-cloak>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                <template x-for="cluster in clusters" :key="cluster.clusterId">
-                    <div class="marketing-card p-4">
-                        <div class="flex items-center justify-between mb-2">
-                            <h3 class="text-sm font-semibold text-base-content truncate max-w-[70%]"
-                                x-text="cluster.label || 'Cluster ' + cluster.clusterId"></h3>
-                            <span class="text-[10px] font-mono px-2 py-0.5 rounded"
-                                  style="background: color-mix(in oklab, var(--sb-accent) 12%, transparent); color: var(--sb-accent);"
-                                  x-text="cluster.type || 'unknown'"></span>
-                        </div>
-                        <p x-show="cluster.description" class="text-xs mb-2 leading-relaxed"
-                           style="color: var(--sb-card-subtle);" x-text="cluster.description"></p>
-                        <div class="grid grid-cols-2 gap-2 text-xs">
-                            <div>
-                                <span style="color: var(--sb-card-subtle);">Members</span>
-                                <div class="font-bold text-base-content" x-text="cluster.memberCount"></div>
-                            </div>
-                            <div>
-                                <span style="color: var(--sb-card-subtle);">Avg Bot Prob</span>
-                                <div class="font-bold" :class="cluster.avgBotProb > 0.5 ? 'signal-danger' : 'signal-positive'"
-                                     x-text="Math.round((cluster.avgBotProb || 0) * 100) + '%'"></div>
-                            </div>
-                            <div x-show="cluster.country">
-                                <span style="color: var(--sb-card-subtle);">Country</span>
-                                <div class="font-bold text-base-content" x-text="countryFlag(cluster.country || '') + ' ' + (cluster.country || '')"></div>
-                            </div>
-                            <div>
-                                <span style="color: var(--sb-card-subtle);">Similarity</span>
-                                <div class="font-bold text-base-content" x-text="Math.round((cluster.averageSimilarity || 0) * 100) + '%'"></div>
-                            </div>
-                        </div>
-                        <div x-show="cluster.temporalDensity > 0" class="mt-2">
-                            <div class="flex items-center gap-1.5 text-[10px]" style="color: var(--sb-card-subtle);">
-                                <span>Temporal density:</span>
-                                <div class="flex-1 h-1 rounded-full bg-base-300 overflow-hidden">
-                                    <div class="h-full rounded-full" style="background: var(--sb-accent);"
-                                         :style="'width:' + Math.min(100, Math.round((cluster.temporalDensity || 0) * 100)) + '%'"></div>
-                                </div>
-                                <span x-text="Math.round((cluster.temporalDensity || 0) * 100) + '%'"></span>
-                            </div>
-                        </div>
-                    </div>
-                </template>
-            </div>
-            <div x-show="clusters.length === 0" class="marketing-card p-6 text-center" style="color: var(--sb-card-subtle);">
-                <div class="text-2xl mb-1">&#x1F578;&#xFE0F;</div>
-                <div class="text-sm">No clusters discovered yet. Clusters form as Leiden community detection identifies bot networks.</div>
-            </div>
-        </div>
-
-        <!-- ==================== COUNTRIES TAB ==================== -->
-        <div x-show="tab === 'countries'" x-cloak>
-
-            <!-- Time Range Selector (same as overview) -->
-            <div class="flex flex-wrap items-center gap-1.5 mb-3">
-                <span class="text-[10px] uppercase tracking-wide mr-1" style="color: var(--sb-card-subtle);">Time Range</span>
-                <template x-for="r in ['1h','6h','12h','24h','7d','30d','All']">
-                    <button @@click="setTimeRange(r)"
-                            class="px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors"
-                            :style="timeRange === r
-                                ? 'background: var(--sb-accent); color: white; border-color: var(--sb-accent);'
-                                : 'border-color: var(--sb-card-divider); color: var(--sb-card-subtle);'"
-                            x-text="r">
-                    </button>
-                </template>
-            </div>
-
-            <!-- World Map -->
-            <div class="marketing-card p-4 mb-3">
-                <h3 class="text-sm font-semibold text-base-content mb-2">Global Traffic Map</h3>
-                <div id="world-map" class="w-full"></div>
-                <div x-show="!worldMapRendered" class="flex items-center justify-center h-48 text-sm" style="color: var(--sb-card-subtle);">
-                    No country data yet
-                </div>
-            </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <!-- Chart -->
-                <div class="marketing-card p-4">
-                    <h3 class="text-sm font-semibold text-base-content mb-2">Top Countries by Bot Rate</h3>
-                    <div id="country-chart"></div>
-                    <div x-show="countries.length === 0" class="flex items-center justify-center h-48 text-sm" style="color: var(--sb-card-subtle);">
-                        No country data yet
-                    </div>
-                </div>
-
-                <!-- Country List -->
-                <div class="marketing-card p-4">
-                    <h3 class="text-sm font-semibold text-base-content mb-2">Country Breakdown</h3>
-                    <div class="space-y-0.5 max-h-[400px] overflow-y-auto">
-                        <template x-for="co in countries" :key="co.countryCode">
-                            <div @@click="selectCountry(co.countryCode)"
-                                 class="flex items-center gap-3 py-1.5 px-2 rounded-lg cursor-pointer transition-colors"
-                                 :class="selectedCountry === co.countryCode ? 'bg-base-200 ring-1' : 'hover:bg-base-100'"
-                                 :style="selectedCountry === co.countryCode ? 'ring-color: var(--sb-accent);' : ''">
-                                <span class="text-base" x-text="countryFlag(co.countryCode)"></span>
-                                <span class="text-xs font-medium flex-1 truncate" style="color: var(--sb-card-text);"
-                                      x-text="co.countryName || co.countryCode"></span>
-                                <div class="flex items-center gap-3 text-xs">
-                                    <span class="font-bold" :class="co.botRate > 0.5 ? 'signal-danger' : co.botRate > 0.25 ? 'signal-warning' : 'signal-positive'"
-                                          x-text="Math.round((co.botRate || 0) * 100) + '%'"></span>
-                                    <span style="color: var(--sb-card-subtle);"
-                                          x-text="(co.botCount || 0) + '/' + (co.totalCount || 0)"></span>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                    <div x-show="countries.length === 0" class="text-sm py-4 text-center" style="color: var(--sb-card-subtle);">
-                        No country data available
-                    </div>
-                </div>
-            </div>
-
-            <!-- Country Detail Panel -->
-            <div x-show="selectedCountry" x-cloak class="marketing-card p-4 mt-3" x-transition>
-                <!-- Loading state -->
-                <div x-show="countryDetailLoading" class="flex items-center justify-center py-8">
-                    <span class="loading loading-spinner loading-sm mr-2"></span>
-                    <span class="text-sm" style="color: var(--sb-card-subtle);">Loading country details...</span>
-                </div>
-
-                <!-- Detail content -->
-                <template x-if="countryDetail && !countryDetailLoading">
-                    <div>
-                        <!-- Header -->
-                        <div class="flex items-center justify-between mb-3">
-                            <div class="flex items-center gap-2">
-                                <span class="text-2xl" x-text="countryFlag(countryDetail.countryCode)"></span>
-                                <div>
-                                    <h3 class="text-sm font-semibold text-base-content"
-                                        x-text="countryDetail.countryName || countryDetail.countryCode"></h3>
-                                    <span class="text-[10px] font-mono" style="color: var(--sb-card-subtle);"
-                                          x-text="countryDetail.countryCode"></span>
-                                </div>
-                            </div>
-                            <button @@click="clearCountryDetail()" class="btn btn-xs btn-ghost" style="color: var(--sb-card-subtle);">
-                                &#x2715;
-                            </button>
-                        </div>
-
-                        <!-- Stats Row -->
-                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-                            <div>
-                                <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Total</div>
-                                <div class="text-lg font-bold text-base-content" x-text="(countryDetail.totalCount || 0).toLocaleString()"></div>
-                            </div>
-                            <div>
-                                <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Bots</div>
-                                <div class="text-lg font-bold signal-danger" x-text="(countryDetail.botCount || 0).toLocaleString()"></div>
-                            </div>
-                            <div>
-                                <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Humans</div>
-                                <div class="text-lg font-bold signal-positive" x-text="(countryDetail.humanCount || 0).toLocaleString()"></div>
-                            </div>
-                            <div>
-                                <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Bot Rate</div>
-                                <div class="text-lg font-bold"
-                                     :class="countryDetail.botRate > 0.5 ? 'signal-danger' : countryDetail.botRate > 0.25 ? 'signal-warning' : 'signal-positive'"
-                                     x-text="Math.round((countryDetail.botRate || 0) * 100) + '%'"></div>
-                            </div>
-                        </div>
-
-                        <!-- Bot/Human ratio bar -->
-                        <div class="h-2 rounded-full bg-base-300 overflow-hidden mb-4">
-                            <div class="h-full rounded-full"
-                                 style="background: var(--sb-signal-pos);"
-                                 :style="'width:' + Math.round((1 - (countryDetail.botRate || 0)) * 100) + '%'"></div>
-                        </div>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <!-- Bot Types -->
-                            <div>
-                                <div class="text-[10px] uppercase tracking-wide mb-2" style="color: var(--sb-card-subtle);">Bot Types</div>
-                                <div x-show="countryDetail.topBotTypes && Object.keys(countryDetail.topBotTypes).length > 0" class="space-y-1">
-                                    <template x-for="[type, count] in Object.entries(countryDetail.topBotTypes || {}).sort((a,b) => b[1] - a[1]).slice(0, 6)">
-                                        <div class="flex items-center gap-2">
-                                            <span class="text-xs w-24 truncate" style="color: var(--sb-card-text);" x-text="type"></span>
-                                            <div class="flex-1 h-1.5 rounded-full bg-base-300 overflow-hidden">
-                                                <div class="h-full rounded-full" style="background: var(--sb-accent);"
-                                                     :style="'width:' + Math.min(100, Math.round(count / Math.max(...Object.values(countryDetail.topBotTypes)) * 100)) + '%'"></div>
-                                            </div>
-                                            <span class="text-[10px] font-mono w-6 text-right" style="color: var(--sb-card-subtle);" x-text="count"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                                <div x-show="!countryDetail.topBotTypes || Object.keys(countryDetail.topBotTypes).length === 0"
-                                     class="text-[10px]" style="color: var(--sb-card-subtle);">No bot types</div>
-                            </div>
-
-                            <!-- Actions -->
-                            <div>
-                                <div class="text-[10px] uppercase tracking-wide mb-2" style="color: var(--sb-card-subtle);">Actions</div>
-                                <div x-show="countryDetail.topActions && Object.keys(countryDetail.topActions).length > 0" class="space-y-1">
-                                    <template x-for="[action, count] in Object.entries(countryDetail.topActions || {}).sort((a,b) => b[1] - a[1]).slice(0, 6)">
-                                        <div class="flex items-center gap-2">
-                                            <span class="text-xs w-24 truncate" style="color: var(--sb-card-text);"
-                                                  x-text="actionDisplayName(action)"></span>
-                                            <div class="flex-1 h-1.5 rounded-full bg-base-300 overflow-hidden">
-                                                <div class="h-full rounded-full" style="background: var(--sb-accent);"
-                                                     :style="'width:' + Math.min(100, Math.round(count / Math.max(...Object.values(countryDetail.topActions)) * 100)) + '%'"></div>
-                                            </div>
-                                            <span class="text-[10px] font-mono w-6 text-right" style="color: var(--sb-card-subtle);" x-text="count"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                                <div x-show="!countryDetail.topActions || Object.keys(countryDetail.topActions).length === 0"
-                                     class="text-[10px]" style="color: var(--sb-card-subtle);">No action data</div>
-                            </div>
-
-                            <!-- Top Bots for this country -->
-                            <div>
-                                <div class="text-[10px] uppercase tracking-wide mb-2" style="color: var(--sb-card-subtle);">Top Bots</div>
-                                <div x-show="countryDetail.topBots && countryDetail.topBots.length > 0" class="space-y-1">
-                                    <template x-for="bot in (countryDetail.topBots || []).slice(0, 6)" :key="bot.primarySignature">
-                                        <a :href="'/dashboard/signature/' + encodeURIComponent(bot.primarySignature)"
-                                           class="flex items-center gap-2 py-0.5 rounded hover:bg-base-100 transition-colors">
-                                            <span class="text-xs font-medium truncate flex-1" style="color: var(--sb-card-text);"
-                                                  x-text="bot.botName || bot.primarySignature?.substring(0, 12)"></span>
-                                            <span class="text-[10px] font-mono" style="color: var(--sb-card-subtle);"
-                                                  x-text="(bot.hitCount || 0) + ' hits'"></span>
-                                        </a>
-                                    </template>
-                                </div>
-                                <div x-show="!countryDetail.topBots || countryDetail.topBots.length === 0"
-                                     class="text-[10px]" style="color: var(--sb-card-subtle);">No bots detected</div>
-                            </div>
-                        </div>
-                    </div>
-                </template>
-            </div>
-        </div>
-
-        <!-- ==================== USER AGENTS TAB ==================== -->
-        <div x-show="tab === 'useragents'" x-cloak>
-
-            <!-- Top Stats -->
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-                <div class="marketing-card p-3">
-                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Total UAs</div>
-                    <div class="text-lg font-bold text-base-content" x-text="uaStats.total"></div>
-                </div>
-                <div class="marketing-card p-3">
-                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Browsers</div>
-                    <div class="text-lg font-bold signal-positive" x-text="uaStats.browsers"></div>
-                </div>
-                <div class="marketing-card p-3">
-                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Bot UAs</div>
-                    <div class="text-lg font-bold signal-danger" x-text="uaStats.bots"></div>
-                </div>
-                <div class="marketing-card p-3">
-                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Tools</div>
-                    <div class="text-lg font-bold" style="color: var(--sb-accent);" x-text="uaStats.tools"></div>
-                </div>
-            </div>
-
-            <!-- Filter Pills -->
-            <div class="flex flex-wrap items-center gap-2 mb-3">
-                <template x-for="f in [{id:'all',label:'All'},{id:'browser',label:'Browsers'},{id:'search',label:'Search'},{id:'ai',label:'AI'},{id:'tool',label:'Tools'}]">
-                    <button @@click="setUAFilter(f.id)"
-                            class="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors"
-                            :style="uaFilter === f.id
-                                ? 'background: var(--sb-accent); color: white; border-color: var(--sb-accent);'
-                                : 'border-color: var(--sb-card-divider); color: var(--sb-card-subtle);'"
-                            x-text="f.label">
-                    </button>
-                </template>
-            </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                <!-- UA Table -->
-                <div class="marketing-card p-4 lg:col-span-2">
-                    <h3 class="text-sm font-semibold text-base-content mb-2">User Agent Families</h3>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-xs">
-                            <thead>
-                                <tr style="color: var(--sb-card-subtle);">
-                                    <th class="text-left py-1.5 px-2 font-medium">UA Family</th>
-                                    <th class="text-left py-1.5 px-1 font-medium">Category</th>
-                                    <th class="text-right py-1.5 px-1 font-medium">Requests</th>
-                                    <th class="text-right py-1.5 px-1 font-medium">Bot Rate</th>
-                                    <th class="text-left py-1.5 px-1 font-medium">Top Version</th>
-                                    <th class="text-left py-1.5 px-1 font-medium">Top Country</th>
-                                    <th class="text-right py-1.5 px-1 font-medium">Confidence</th>
-                                    <th class="text-right py-1.5 px-1 font-medium">Last Seen</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <template x-for="ua in filteredUAs" :key="ua.family">
-                                    <tr class="border-t cursor-pointer hover:bg-base-100 transition-colors"
-                                        style="border-color: var(--sb-card-divider);"
-                                        :class="selectedUA?.family === ua.family ? 'bg-base-100' : ''"
-                                        @@click="selectUA(ua)">
-                                        <td class="py-1.5 px-2 font-medium" style="color: var(--sb-card-text);" x-text="ua.family"></td>
-                                        <td class="py-1.5 px-1">
-                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold"
-                                                  :class="uaCategoryBadge(ua.category)"
-                                                  x-text="uaCategoryLabel(ua.category)"></span>
-                                        </td>
-                                        <td class="py-1.5 px-1 text-right font-mono" style="color: var(--sb-card-text);"
-                                            x-text="ua.totalCount.toLocaleString()"></td>
-                                        <td class="py-1.5 px-1 text-right font-bold"
-                                            :class="ua.botRate > 0.5 ? 'signal-danger' : ua.botRate > 0.25 ? 'signal-warning' : 'signal-positive'"
-                                            x-text="Math.round(ua.botRate * 100) + '%'"></td>
-                                        <td class="py-1.5 px-1 font-mono" style="color: var(--sb-card-subtle);"
-                                            x-text="topVersion(ua)"></td>
-                                        <td class="py-1.5 px-1" style="color: var(--sb-card-text);"
-                                            x-text="topCountry(ua)"></td>
-                                        <td class="py-1.5 px-1 text-right font-mono" style="color: var(--sb-card-subtle);"
-                                            x-text="Math.round(ua.avgConfidence * 100) + '%'"></td>
-                                        <td class="py-1.5 px-1 text-right" style="color: var(--sb-card-subtle);"
-                                            x-text="timeAgo(ua.lastSeen)"></td>
-                                    </tr>
-                                </template>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div x-show="filteredUAs.length === 0" class="text-sm py-8 text-center" style="color: var(--sb-card-subtle);">
-                        No user agent data yet
-                    </div>
-                </div>
-
-                <!-- Detail Panel -->
-                <div class="marketing-card p-4">
-                    <template x-if="selectedUA">
-                        <div>
-                            <h3 class="text-sm font-semibold text-base-content mb-3" x-text="selectedUA.family + ' Details'"></h3>
-
-                            <!-- Bot vs Human ratio -->
-                            <div class="grid grid-cols-3 gap-2 mb-3">
-                                <div>
-                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Total</div>
-                                    <div class="text-sm font-bold text-base-content" x-text="selectedUA.totalCount.toLocaleString()"></div>
-                                </div>
-                                <div>
-                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Human</div>
-                                    <div class="text-sm font-bold signal-positive" x-text="selectedUA.humanCount.toLocaleString()"></div>
-                                </div>
-                                <div>
-                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Bot</div>
-                                    <div class="text-sm font-bold signal-danger" x-text="selectedUA.botCount.toLocaleString()"></div>
-                                </div>
-                            </div>
-
-                            <!-- Bot/Human bar -->
-                            <div class="h-2 rounded-full bg-base-300 overflow-hidden mb-3">
-                                <div class="h-full rounded-full signal-positive"
-                                     style="background: var(--sb-signal-pos);"
-                                     :style="'width:' + Math.round((1 - selectedUA.botRate) * 100) + '%'"></div>
-                            </div>
-
-                            <!-- Avg Stats -->
-                            <div class="grid grid-cols-2 gap-2 mb-3">
-                                <div>
-                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Avg Confidence</div>
-                                    <div class="text-sm font-bold text-base-content" x-text="Math.round(selectedUA.avgConfidence * 100) + '%'"></div>
-                                </div>
-                                <div>
-                                    <div class="text-[10px] uppercase tracking-wide" style="color: var(--sb-card-subtle);">Avg Latency</div>
-                                    <div class="text-sm font-bold text-base-content" x-text="selectedUA.avgProcessingTimeMs.toFixed(1) + 'ms'"></div>
-                                </div>
-                            </div>
-
-                            <!-- Version Distribution Chart -->
-                            <div class="border-t pt-3 mb-3" style="border-color: var(--sb-card-divider);">
-                                <div class="text-[10px] uppercase tracking-wide mb-2" style="color: var(--sb-card-subtle);">Version Distribution</div>
-                                <div id="ua-version-chart"></div>
-                            </div>
-
-                            <!-- Country Breakdown -->
-                            <div class="border-t pt-3" style="border-color: var(--sb-card-divider);">
-                                <div class="text-[10px] uppercase tracking-wide mb-2" style="color: var(--sb-card-subtle);">Countries</div>
-                                <div class="space-y-1">
-                                    <template x-for="[code, count] in Object.entries(selectedUA.countries || {}).sort((a,b) => b[1] - a[1]).slice(0, 8)">
-                                        <div class="flex items-center gap-2">
-                                            <span class="text-xs" x-text="countryFlag(code)"></span>
-                                            <span class="text-xs flex-1" style="color: var(--sb-card-text);" x-text="code"></span>
-                                            <div class="flex-1 h-1.5 rounded-full bg-base-300 overflow-hidden">
-                                                <div class="h-full rounded-full" style="background: var(--sb-accent);"
-                                                     :style="'width:' + Math.min(100, Math.round(count / Math.max(...Object.values(selectedUA.countries || {})) * 100)) + '%'"></div>
-                                            </div>
-                                            <span class="text-[10px] font-mono w-6 text-right" style="color: var(--sb-card-subtle);" x-text="count"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
-                    </template>
-                    <div x-show="!selectedUA" class="flex items-center justify-center h-48 text-sm" style="color: var(--sb-card-subtle);">
-                        Click a user agent to see details
-                    </div>
-                </div>
-            </div>
-        </div>
-
+            Real-time
+        </span>
+        <span id="sb-connection-status" class="w-2 h-2 rounded-full sb-disconnected" title="SignalR: disconnected"></span>
     </div>
-</section>
 
-<!-- CTA -->
-<section class="py-4 bg-base-100">
-    <div class="max-w-4xl mx-auto px-4 text-center">
-        <h2 class="text-lg font-bold mb-1.5">Add This To Your App</h2>
-        <p class="text-xs text-base-content/60 mb-3 max-w-xl mx-auto">
-            Open source and free at present. Drop in the same detection stack via ASP.NET middleware, YARP gateway, or Docker.
-        </p>
-        <div class="flex flex-col sm:flex-row gap-2 justify-center">
-            <a href="https://www.nuget.org/packages/mostlylucid.botdetection" target="_blank" class="btn btn-sm btn-primary">Start with NuGet</a>
-            <a href="https://hub.docker.com/r/scottgal/stylobot-gateway" target="_blank" class="btn btn-sm btn-outline">Docker Image</a>
-            <a href="/docs/start-here" class="btn btn-sm btn-outline">Docs</a>
-            <a href="https://github.com/scottgal/stylobot/blob/main/docs/README.md" target="_blank" class="btn btn-sm btn-outline">GitHub</a>
+    <!-- Summary Stats Bar -->
+    @await Html.PartialAsync("~/Views/Dashboard/_SummaryStats.cshtml", Model.Summary)
+
+    @if (tab == "overview")
+    {
+        <!-- Row 1: Top Bots (primary) + Recent Activity -->
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 mt-4">
+            <div class="lg:col-span-3">
+                @await Html.PartialAsync("~/Views/Dashboard/_TopBotsList.cshtml", Model.TopBots)
+            </div>
+            <div class="lg:col-span-2">
+                @await Html.PartialAsync("~/Views/Dashboard/_RecentActivity.cshtml", Model.Visitors)
+            </div>
         </div>
-    </div>
-</section>
+
+        <!-- Row 2: Your Detection + Countries -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+            @await Html.PartialAsync("~/Views/Dashboard/_YourDetection.cshtml", Model.YourDetection)
+            @await Html.PartialAsync("~/Views/Dashboard/_CountriesList.cshtml", Model.Countries)
+        </div>
+    }
+    else
+    {
+        <!-- Tab navigation for deep-dive views -->
+        <div class="flex items-center gap-1 my-4 bg-base-300/50 rounded-lg p-0.5 w-fit">
+            <a href="@TabUrl("overview")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("overview")">Overview</a>
+            <a href="@TabUrl("visitors")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("visitors")">Visitors</a>
+            <a href="@TabUrl("countries")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("countries")">Countries</a>
+            <a href="@TabUrl("clusters")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("clusters")">Clusters</a>
+            <a href="@TabUrl("useragents")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("useragents")">User Agents</a>
+        </div>
+
+        @if (tab == "visitors")
+        {
+            @await Html.PartialAsync("~/Views/Dashboard/_VisitorList.cshtml", Model.Visitors)
+        }
+        else if (tab == "countries")
+        {
+            @await Html.PartialAsync("~/Views/Dashboard/_CountriesList.cshtml", Model.Countries)
+        }
+        else if (tab == "clusters")
+        {
+            @await Html.PartialAsync("~/Views/Dashboard/_ClustersList.cshtml", Model.Clusters)
+        }
+        else if (tab == "useragents")
+        {
+            @await Html.PartialAsync("~/Views/Dashboard/_UserAgentsList.cshtml", Model.UserAgents)
+        }
+    }
+
+    <!-- Dashboard version footer -->
+    @if (!string.IsNullOrEmpty(Model.Version))
+    {
+        <div class="text-xs text-base-content/30 text-right mt-4 py-2">
+            StyloBot Detection Engine v@(Model.Version)
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <!-- SignalR client -->
+    <script src="https://cdn.jsdelivr.net/npm/@@microsoft/signalr@@8.0.0/dist/browser/signalr.min.js" nonce="@cspNonce"></script>
+
+    <!-- SignalR -> HTMX coordinator (for widget live updates) -->
+    <script nonce="@cspNonce">
+    (function() {
+        'use strict';
+
+        var BASE = '@Html.Raw(bp)';
+        var HUB  = '@Html.Raw(Model.HubPath)';
+
+        // Widget registry: discovers widgets via data-sb-widget / data-sb-depends
+        function getWidgetMap() {
+            var map = {};
+            document.querySelectorAll('[data-sb-widget]').forEach(function(el) {
+                var deps = (el.getAttribute('data-sb-depends') || '').split(',');
+                deps.forEach(function(dep) {
+                    dep = dep.trim();
+                    if (!dep) return;
+                    if (!map[dep]) map[dep] = [];
+                    var wid = el.getAttribute('data-sb-widget');
+                    if (map[dep].indexOf(wid) === -1) map[dep].push(wid);
+                });
+            });
+            return map;
+        }
+
+        // Debounced OOB updater
+        var pending = {};
+        var debounceTimer = null;
+        var DEBOUNCE_MS = 500;
+
+        function invalidate(signal) {
+            var widgetMap = getWidgetMap();
+            var widgets = widgetMap[signal] || [];
+            widgets.forEach(function(w) { pending[w] = true; });
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(flush, DEBOUNCE_MS);
+        }
+
+        function flush() {
+            var ids = Object.keys(pending);
+            if (ids.length === 0) return;
+            pending = {};
+            var url = BASE + '/partials/update?widgets=' + ids.join(',');
+            if (typeof htmx !== 'undefined') {
+                htmx.ajax('GET', url, { target: 'body', swap: 'none' });
+            }
+        }
+
+        // SignalR connection (HTMX coordinator only - viz SignalR is handled by dashboard-viz.ts)
+        var connection = new signalR.HubConnectionBuilder()
+            .withUrl(HUB)
+            .withAutomaticReconnect([0, 1000, 2000, 5000, 10000, 30000])
+            .configureLogging(signalR.LogLevel.Warning)
+            .build();
+
+        connection.on('BroadcastInvalidation', function(signal) { if (signal) invalidate(signal); });
+        connection.on('BroadcastSummary',    function() { invalidate('summary'); });
+        connection.on('BroadcastTopBots',    function() { invalidate('signature'); invalidate('summary'); });
+        connection.on('BroadcastSignature',  function(sig) {
+            invalidate('signature');
+            if (sig && sig.primarySignature) invalidate(sig.primarySignature);
+        });
+        connection.on('BroadcastDetection',  function(det) {
+            invalidate('signature');
+            invalidate('summary');
+            if (det && det.primarySignature) invalidate(det.primarySignature);
+        });
+        connection.on('BroadcastCountries',  function() { invalidate('countries'); });
+        connection.on('BroadcastClusters',   function() { invalidate('clusters'); });
+        connection.on('BroadcastDescriptionUpdate', function() { invalidate('signature'); });
+        connection.on('BroadcastSignatureDescriptionUpdate', function(sig) {
+            invalidate('signature');
+            if (sig) invalidate(sig);
+        });
+        connection.on('BroadcastClusterDescriptionUpdate', function() { invalidate('clusters'); });
+        connection.on('BroadcastScoreNarrative', function(sig) {
+            if (sig) invalidate(sig);
+        });
+
+        connection.onreconnecting(function() {
+            var el = document.getElementById('sb-connection-status');
+            if (el) { el.className = 'w-2 h-2 rounded-full sb-connecting'; el.title = 'SignalR: connecting'; }
+        });
+        connection.onreconnected(function() {
+            var el = document.getElementById('sb-connection-status');
+            if (el) { el.className = 'w-2 h-2 rounded-full sb-connected'; el.title = 'SignalR: connected'; }
+        });
+        connection.onclose(function() {
+            var el = document.getElementById('sb-connection-status');
+            if (el) { el.className = 'w-2 h-2 rounded-full sb-disconnected'; el.title = 'SignalR: disconnected'; }
+        });
+
+        connection.start()
+            .then(function() {
+                var el = document.getElementById('sb-connection-status');
+                if (el) { el.className = 'w-2 h-2 rounded-full sb-connected'; el.title = 'SignalR: connected'; }
+            })
+            .catch(function() {
+                var el = document.getElementById('sb-connection-status');
+                if (el) { el.className = 'w-2 h-2 rounded-full sb-disconnected'; el.title = 'SignalR: disconnected'; }
+            });
+    })();
+    </script>
+}

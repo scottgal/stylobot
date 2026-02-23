@@ -367,6 +367,25 @@ body {
   color: var(--sb-signal-danger);
 }
 
+/* ── Dashboard (HTMX islands) ──────────────────────────────────── */
+
+[x-cloak] { display: none !important; }
+
+/* HTMX transition styles */
+.htmx-swapping { opacity: 0; transition: opacity 200ms ease-out; }
+.htmx-settling { opacity: 1; transition: opacity 200ms ease-in; }
+.htmx-added { opacity: 0; }
+.htmx-added.htmx-settling { opacity: 1; transition: opacity 300ms ease-in; }
+
+/* SignalR connection status indicator */
+.sb-connected { background: var(--sb-signal-pos); }
+.sb-disconnected { background: var(--sb-signal-danger); }
+.sb-connecting { background: var(--sb-signal-warn); animation: sb-pulse 1.5s infinite; }
+@keyframes sb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.sb-link { color: var(--sb-accent); text-decoration: none; }
+.sb-link:hover { text-decoration: underline; }
+
 .pulse-update {
   animation: pulse-val 0.5s ease-out;
 }
@@ -379,4 +398,38 @@ body {
   100% {
     transform: scale(1);
   }
+}
+
+/* ── Command Center Map ────────────────────────────────────────── */
+
+.command-map-container {
+  box-shadow: 0 20px 40px -28px rgba(2, 6, 23, 0.5);
+}
+
+/* jsvectormap overrides for dashboard context */
+.command-map-container .jvm-container {
+  background: transparent !important;
+}
+
+.command-map-container .jvm-zoom-btn {
+  background: var(--sb-card-bg);
+  border: 1px solid var(--sb-card-divider);
+  color: var(--sb-card-text);
+}
+
+.command-map-container .jvm-tooltip {
+  background: var(--sb-card-bg) !important;
+  border: 1px solid var(--sb-card-border) !important;
+  color: var(--sb-card-text) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* ApexCharts theme integration */
+.apexcharts-tooltip {
+  border-color: var(--sb-card-border) !important;
+}
+
+.apexcharts-tooltip.apexcharts-theme-dark {
+  background: var(--sb-card-bg) !important;
 }

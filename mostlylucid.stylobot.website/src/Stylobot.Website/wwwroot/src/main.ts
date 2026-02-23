@@ -2,7 +2,7 @@
 import Alpine from 'alpinejs';
 import htmx from 'htmx.org';
 import { registerLiveDemo } from './live-demo';
-import { registerDashboard } from './dashboard';
+import { initCommandCenter } from './dashboard-viz';
 
 const THEME_KEY = 'sb-theme';
 const DARK_THEME = 'dark';
@@ -62,10 +62,14 @@ Alpine.data('themeSwitcher', () => ({
 
 // Register page-specific Alpine components
 registerLiveDemo();
-registerDashboard();
 
 Alpine.start();
 
 // Initialize HTMX
 (window as any).htmx = htmx;
 htmx.config.allowEval = false;
+
+// Initialize Command Center on dashboard pages (deferred to avoid blocking)
+if (document.getElementById('command-map')) {
+    initCommandCenter();
+}

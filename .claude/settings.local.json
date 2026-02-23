@@ -244,7 +244,13 @@
       "Bash(echo === S1: Pure curl \\(should be high risk\\) ===:*)",
       "Bash(sleep 5:*)",
       "Bash(# Check the detections API for recent events with new detectors\ncurl -s -H \"X-SB-Api-Key: SB-DEMO-BYPASS\" http://localhost:5080/stylobot/api/detections 2>/dev/null | python -m json.tool 2>/dev/null | python -c \"\nimport json,sys\ndata=json.load\\(sys.stdin\\)\nif isinstance\\(data, list\\) and len\\(data\\) > 0:\n    last = data[0]\n    detectors = last.get\\('detectorsRan', last.get\\('detectors', []\\)\\)\n    print\\(f'Latest detection: {len\\(detectors\\)} detectors'\\)\n    for d in detectors:\n        if d in \\('TransportProtocol','CacheBehavior','StreamAbuse'\\):\n            print\\(f'  ✓ {d}'\\)\n    # Check contributions\n    contribs = last.get\\('contributions', []\\)\n    for c in contribs:\n        det = c.get\\('detector',''\\)\n        if det in \\('TransportProtocol','CacheBehavior','StreamAbuse'\\):\n            print\\(f'  {det}: {c.get\\(\\\\\"reason\\\\\",\\\\\"\\\\\"\\)}'\\)\nelse:\n    print\\(f'Response type: {type\\(data\\).__name__}'\\)\n    if isinstance\\(data, dict\\):\n        print\\(json.dumps\\(data, indent=2\\)[:500]\\)\n\" 2>&1)",
-      "Bash($null:*)"
+      "Bash($null:*)",
+      "mcp__plugin_superpowers-chrome_chrome__use_browser",
+      "Bash(tail:*)",
+      "Bash(cd \"D:\\\\Source\\\\mostlylucid.stylobot\\\\mostlylucid.stylobot.website\" && SITE_DOMAIN=stylobot.net docker compose up -d website 2>&1)",
+      "Bash(cd \"D:\\\\Source\\\\mostlylucid.stylobot\\\\mostlylucid.stylobot.website\" && SITE_DOMAIN=stylobot.net docker compose up -d caddy 2>&1)",
+      "Bash(cd \"D:\\\\Source\\\\mostlylucid.stylobot\\\\mostlylucid.stylobot.website\" && SITE_DOMAIN=stylobot.net docker compose stop website && SITE_DOMAIN=stylobot.net docker compose run -d --name stylobot-website-test -p 8085:8080 website 2>&1)",
+      "mcp__plugin_playwright_playwright__browser_resize"
     ]
   }
 }
