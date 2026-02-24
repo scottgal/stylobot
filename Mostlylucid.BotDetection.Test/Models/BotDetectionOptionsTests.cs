@@ -80,6 +80,16 @@ public class BotDetectionOptionsTests
     }
 
     [Fact]
+    public void Constructor_SetsDefaultResponsePiiMaskingDisabled()
+    {
+        // Act
+        var options = new BotDetectionOptions();
+
+        // Assert
+        Assert.False(options.ResponsePiiMasking.Enabled);
+    }
+
+    [Fact]
     public void Constructor_SetsDefaultOllamaEndpoint()
     {
         // Act
@@ -700,6 +710,28 @@ public class BotDetectionOptionsTests
         Assert.False(result.Succeeded);
         Assert.Contains(result.Failures, failure =>
             failure.Contains("AllowedTimeWindow", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Validate_ResponsePiiMaskingThresholdsOutOfRange_Fails()
+    {
+        var options = new BotDetectionOptions
+        {
+            ResponsePiiMasking = new ResponsePiiMaskingOptions
+            {
+                AutoApplyBotProbabilityThreshold = 1.1,
+                AutoApplyConfidenceThreshold = -0.1
+            }
+        };
+
+        var validator = new BotDetectionOptionsValidator();
+        var result = validator.Validate(null!, options);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains(result.Failures, failure =>
+            failure.Contains("ResponsePiiMasking.AutoApplyBotProbabilityThreshold", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Failures, failure =>
+            failure.Contains("ResponsePiiMasking.AutoApplyConfidenceThreshold", StringComparison.OrdinalIgnoreCase));
     }
 
     #endregion

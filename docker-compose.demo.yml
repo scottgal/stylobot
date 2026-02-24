@@ -201,6 +201,11 @@ services:
       - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__RateLimitPerMinute=120
       - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Tags__0=monitoring
       - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Tags__1=dashboard
+      # Cluster settings (lower thresholds so clusters form with less traffic)
+      - BotDetection__Cluster__MinClusterSize=2
+      - BotDetection__Cluster__ClusterIntervalSeconds=15
+      - BotDetection__SignatureCoordinator__SignatureTtl=01:00:00
+      - BotDetection__SignatureCoordinator__MaxSignaturesInWindow=2000
       # Dashboard
       - STYLOBOT_DASHBOARD_PUBLIC=true
       - STYLOBOT_DASHBOARD_PATH=${STYLOBOT_DASHBOARD_PATH:-/_stylobot}

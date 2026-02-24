@@ -618,7 +618,30 @@ Built-in action policies available without configuration:
 - **Throttle**: `throttle`, `throttle-gentle`, `throttle-moderate`, `throttle-aggressive`, `throttle-stealth`
 - **Challenge**: `challenge`, `challenge-captcha`, `challenge-js`, `challenge-pow`
 - **Redirect**: `redirect`, `redirect-honeypot`, `redirect-tarpit`, `redirect-error`
-- **Other**: `logonly`, `shadow`, `debug`
+- **Other**: `logonly`, `shadow`, `debug`, `mask-pii`, `strip-pii` (`mask-pii`/`strip-pii` require `ResponsePiiMasking.Enabled = true`)
+
+## Response PII Masking
+
+Section path: `BotDetection:ResponsePiiMasking`
+
+Controls response-time masking for action markers `mask-pii` and `strip-pii`.
+Feature is disabled by default.
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `Enabled` | `bool` | `false` | Global feature flag for response PII masking |
+| `AutoApplyForHighConfidenceMalicious` | `bool` | `true` | Auto-apply `mask-pii` on high-confidence malicious traffic that is allowed through |
+| `AutoApplyBotProbabilityThreshold` | `double` | `0.9` | Minimum bot probability for auto-apply (0.0-1.0) |
+| `AutoApplyConfidenceThreshold` | `double` | `0.75` | Minimum confidence for auto-apply (0.0-1.0) |
+
+```json
+"ResponsePiiMasking": {
+  "Enabled": false,
+  "AutoApplyForHighConfidenceMalicious": true,
+  "AutoApplyBotProbabilityThreshold": 0.9,
+  "AutoApplyConfidenceThreshold": 0.75
+}
+```
 
 ## Path Exclusions and Overrides
 
@@ -749,6 +772,10 @@ ASP.NET Core maps nested configuration keys using double-underscore (`__`) separ
 | `BotDetection__Qdrant__Enabled` | `Qdrant.Enabled` | `true` |
 | `BotDetection__Qdrant__Endpoint` | `Qdrant.Endpoint` | `http://qdrant:6334` |
 | `BotDetection__DefaultActionPolicyName` | `DefaultActionPolicyName` | `throttle-stealth` |
+| `BotDetection__ResponsePiiMasking__Enabled` | `ResponsePiiMasking.Enabled` | `false` |
+| `BotDetection__ResponsePiiMasking__AutoApplyForHighConfidenceMalicious` | `ResponsePiiMasking.AutoApplyForHighConfidenceMalicious` | `true` |
+| `BotDetection__ResponsePiiMasking__AutoApplyBotProbabilityThreshold` | `ResponsePiiMasking.AutoApplyBotProbabilityThreshold` | `0.9` |
+| `BotDetection__ResponsePiiMasking__AutoApplyConfidenceThreshold` | `ResponsePiiMasking.AutoApplyConfidenceThreshold` | `0.75` |
 | `BOTDETECTION_TRAINING_API_KEYS` | `TrainingEndpoints.ApiKeys` | `key1,key2` |
 | `STYLOBOT_MODEL_CACHE` | `AiDetection.LlamaSharp.ModelCacheDir` | `/app/models` |
 

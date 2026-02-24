@@ -217,6 +217,33 @@ These policies are available without configuration:
 | `logonly` | Info  | Log and allow            | Observation only |
 | `shadow`  | Info  | Shadow mode with headers | Observation only |
 | `debug`   | Debug | Full evidence logging    | Observation only |
+| `mask-pii` | Warn | Stream-mask response PII | Observation only |
+| `strip-pii` | Warn | Alias of `mask-pii`      | Observation only |
+
+### Response PII Masking (Opt-In)
+
+`mask-pii` and `strip-pii` only mutate responses when `BotDetection:ResponsePiiMasking:Enabled` is set to `true`.
+When disabled, the action marker is ignored and the response is passed through unchanged.
+
+Recommended production setup (throttle most bots, mask PII for malicious bots):
+
+```json
+{
+  "BotDetection": {
+    "DefaultActionPolicyName": "throttle-stealth",
+    "BotTypeActionPolicies": {
+      "Tool": "throttle-tools",
+      "MaliciousBot": "mask-pii"
+    },
+    "ResponsePiiMasking": {
+      "Enabled": true,
+      "AutoApplyForHighConfidenceMalicious": true,
+      "AutoApplyBotProbabilityThreshold": 0.90,
+      "AutoApplyConfidenceThreshold": 0.75
+    }
+  }
+}
+```
 
 ---
 

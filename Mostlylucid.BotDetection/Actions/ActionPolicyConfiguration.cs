@@ -105,7 +105,7 @@ public abstract class BaseComponentConfig
 ///             <item>throttle, throttle-gentle, throttle-moderate, throttle-aggressive, throttle-stealth</item>
 ///             <item>challenge, challenge-captcha, challenge-js, challenge-pow</item>
 ///             <item>redirect, redirect-honeypot, redirect-tarpit, redirect-error</item>
-///             <item>logonly, shadow, debug</item>
+///             <item>logonly, shadow, debug, mask-pii, strip-pii (requires ResponsePiiMasking.Enabled = true)</item>
 ///         </list>
 ///     </para>
 /// </remarks>

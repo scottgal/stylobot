@@ -332,7 +332,8 @@ public class BotDetectionMiddleware(
                 // Action policy allows continuation (e.g., logonly, throttle-stealth).
                 // The action policy IS the response strategy — skip ShouldBlockRequest
                 // so we don't hard-block after the policy explicitly allowed continuation.
-                await _next(context);
+                EnsureMaliciousFallbackMaskPii(context);
+                await InvokeNextWithResponseMutationAsync(context);
                 ApplyResponseStatusBoost(context);
                 return;
             }
@@ -373,7 +374,8 @@ public class BotDetectionMiddleware(
                 // DefaultActionPolicyName replaces ShouldBlockRequest — continue pipeline
                 // after the action (e.g., throttle-stealth adds delay then lets the
                 // request through, appearing normal to the bot).
-                await _next(context);
+                EnsureMaliciousFallbackMaskPii(context);
+                await InvokeNextWithResponseMutationAsync(context);
                 ApplyResponseStatusBoost(context);
                 return;
             }
@@ -389,7 +391,8 @@ public class BotDetectionMiddleware(
         }
 
         // Continue pipeline
-        await _next(context);
+        EnsureMaliciousFallbackMaskPii(context);
+        await InvokeNextWithResponseMutationAsync(context);
 
         // Fail2ban-style: after response, check status code and boost/reduce detection
         ApplyResponseStatusBoost(context);
@@ -1023,7 +1026,9 @@ public class BotDetectionMiddleware(
                 _logger.LogWarning(
                     "Bot detected (shadow mode): path={Path}, risk={Risk:F2}, policy={Policy}",
                     context.Request.Path, riskScore, policy.Name);
-                await _next(context);
+                EnsureMaliciousFallbackMaskPii(context);
+                await InvokeNextWithResponseMutationAsync(context);
+                ApplyResponseStatusBoost(context);
                 break;
         }
     }
@@ -1210,7 +1215,8 @@ public class BotDetectionMiddleware(
         if (await HandlePostDetectionActionsAsync(context, aggregatedResult, policy, actionPolicyRegistry, logPrefix))
             return;
 
-        await _next(context);
+        EnsureMaliciousFallbackMaskPii(context);
+        await InvokeNextWithResponseMutationAsync(context);
         ApplyResponseStatusBoost(context);
     }
 
@@ -1720,6 +1726,199 @@ public class BotDetectionMiddleware(
             var primaryReason = result.Reasons.OrderByDescending(r => r.ConfidenceImpact).First();
             context.Items[BotCategoryKey] = primaryReason.Category;
         }
+    }
+
+    #endregion
+
+    #region Response Mutation
+
+    private async Task InvokeNextWithResponseMutationAsync(HttpContext context)
+    {
+        if (!IsResponsePiiMaskActionRequested(context))
+        {
+            await _next(context);
+            return;
+        }
+
+        if (!_options.ResponsePiiMasking.Enabled)
+        {
+            EmitResponsePiiMaskingSkippedSignal(context, "feature-disabled");
+            _logger.LogInformation(
+                "[ACTION] mask-pii requested for {Path} but BotDetection:ResponsePiiMasking:Enabled is false. Continuing unmodified.",
+                context.Request.Path);
+            await _next(context);
+            return;
+        }
+
+        var masker = context.RequestServices.GetService<IResponsePiiMasker>();
+        if (masker == null)
+        {
+            EmitResponsePiiMaskingSkippedSignal(context, "service-missing");
+            _logger.LogWarning(
+                "[ACTION] mask-pii requested for {Path} but no IResponsePiiMasker is registered. Continuing unmodified.",
+                context.Request.Path);
+            await _next(context);
+            return;
+        }
+
+        // Content length may change after masking. Force chunked/unknown length response.
+        context.Response.OnStarting(() =>
+        {
+            context.Response.Headers.Remove("Content-Length");
+            context.Response.Headers.TryAdd("X-Bot-Response-Action", "mask-pii");
+            return Task.CompletedTask;
+        });
+
+        var originalBody = context.Response.Body;
+        var maskingStream = new SlidingWindowPiiMaskingStream(
+            originalBody,
+            masker,
+            () => masker.ShouldMaskContent(context.Response.ContentType, context.Response.Headers));
+
+        context.Response.Body = maskingStream;
+        try
+        {
+            await _next(context);
+            await maskingStream.CompleteAsync(context.RequestAborted);
+        }
+        finally
+        {
+            context.Response.Body = originalBody;
+        }
+
+        EmitResponsePiiMaskSignals(
+            context,
+            maskingStream.RedactionCount,
+            mode: "sliding-window",
+            failOpen: maskingStream.FellBackToPassthrough);
+    }
+
+    private static bool IsResponsePiiMaskActionRequested(HttpContext context)
+    {
+        if (context.Items.TryGetValue("BotDetection.Action", out var action) &&
+            action is string marker &&
+            (marker.Equals("mask-pii", StringComparison.OrdinalIgnoreCase) ||
+             marker.Equals("strip-pii", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        return false;
+    }
+
+    private void EnsureMaliciousFallbackMaskPii(HttpContext context)
+    {
+        if (!_options.ResponsePiiMasking.Enabled || !_options.ResponsePiiMasking.AutoApplyForHighConfidenceMalicious)
+            return;
+
+        if (IsResponsePiiMaskActionRequested(context))
+            return;
+
+        if (!context.Items.TryGetValue(AggregatedEvidenceKey, out var evidenceObj) ||
+            evidenceObj is not AggregatedEvidence evidence)
+            return;
+
+        // Safety net: high-confidence malicious traffic that is still allowed through
+        // should have response PII stripped to reduce exfiltration surface.
+        if (evidence.PrimaryBotType != BotType.MaliciousBot)
+            return;
+
+        if (evidence.BotProbability < _options.ResponsePiiMasking.AutoApplyBotProbabilityThreshold ||
+            evidence.Confidence < _options.ResponsePiiMasking.AutoApplyConfidenceThreshold)
+            return;
+
+        context.Items["BotDetection.Action"] = "mask-pii";
+        if (string.IsNullOrEmpty(evidence.TriggeredActionPolicyName))
+            context.Items[AggregatedEvidenceKey] = evidence with
+            {
+                TriggeredActionPolicyName = "mask-pii"
+            };
+
+        _logger.LogWarning(
+            "[ACTION] Auto-applied mask-pii for high-confidence malicious request on {Path} (risk={Risk:F2}, confidence={Confidence:F2})",
+            context.Request.Path, evidence.BotProbability, evidence.Confidence);
+    }
+
+    private static void EmitResponsePiiMaskingSkippedSignal(HttpContext context, string reason)
+    {
+        context.Items["BotDetection.ResponsePiiMasking.Attempted"] = false;
+        context.Items["BotDetection.ResponsePiiMasking.Skipped"] = true;
+        context.Items["BotDetection.ResponsePiiMasking.SkipReason"] = reason;
+
+        if (context.Items.TryGetValue(AggregatedEvidenceKey, out var evidenceObj) &&
+            evidenceObj is AggregatedEvidence evidence)
+        {
+            var updatedSignals = new Dictionary<string, object>(evidence.Signals, StringComparer.OrdinalIgnoreCase)
+            {
+                ["response.pii_masking.attempted"] = false,
+                ["response.pii_masking.skipped"] = true,
+                ["response.pii_masking.skip_reason"] = reason
+            };
+
+            context.Items[AggregatedEvidenceKey] = evidence with
+            {
+                Signals = updatedSignals
+            };
+        }
+    }
+
+    private void EmitResponsePiiMaskSignals(
+        HttpContext context,
+        int redactionCount,
+        string mode,
+        bool failOpen)
+    {
+        context.Items["BotDetection.ResponsePiiMasking.Attempted"] = true;
+        context.Items["BotDetection.ResponsePiiMasking.RedactionCount"] = redactionCount;
+        context.Items["BotDetection.ResponsePiiMasking.Mode"] = mode;
+        context.Items["BotDetection.ResponsePiiMasking.FailOpen"] = failOpen;
+        context.Items["BotDetection.ResponsePiiMasking.Masked"] = redactionCount > 0;
+
+        if (context.Items.TryGetValue(AggregatedEvidenceKey, out var evidenceObj) &&
+            evidenceObj is AggregatedEvidence evidence)
+        {
+            var updatedSignals = new Dictionary<string, object>(evidence.Signals, StringComparer.OrdinalIgnoreCase)
+            {
+                ["response.pii_masking.attempted"] = true,
+                ["response.pii_masking.masked"] = redactionCount > 0,
+                ["response.pii_masking.redaction_count"] = redactionCount,
+                ["response.pii_masking.mode"] = mode,
+                ["response.pii_masking.fail_open"] = failOpen
+            };
+
+            var updatedDetectors = new HashSet<string>(evidence.ContributingDetectors, StringComparer.OrdinalIgnoreCase)
+            {
+                "ResponsePiiMasker"
+            };
+
+            var updatedEvidence = evidence with
+            {
+                Signals = updatedSignals,
+                ContributingDetectors = updatedDetectors
+            };
+
+            updatedEvidence.Ledger?.AddContribution(new DetectionContribution
+            {
+                DetectorName = "ResponsePiiMasker",
+                Category = "ResponseAction",
+                ConfidenceDelta = 0,
+                Weight = 1.0,
+                Reason = redactionCount > 0
+                    ? $"Response PII masked ({redactionCount} entities, mode={mode}, failOpen={failOpen})"
+                    : $"Response PII masking ran with no entities found (mode={mode}, failOpen={failOpen})",
+                ProcessingTimeMs = 0,
+                Priority = 998
+            });
+
+            context.Items[AggregatedEvidenceKey] = updatedEvidence;
+        }
+
+        if (redactionCount > 0)
+            _logger.LogWarning(
+                "[ACTION] mask-pii applied on {Path}: redactions={Redactions}, mode={Mode}, failOpen={FailOpen}",
+                context.Request.Path, redactionCount, mode, failOpen);
+        else
+            _logger.LogInformation(
+                "[ACTION] mask-pii executed on {Path}: no PII entities matched (mode={Mode}, failOpen={FailOpen})",
+                context.Request.Path, mode, failOpen);
     }
 
     #endregion

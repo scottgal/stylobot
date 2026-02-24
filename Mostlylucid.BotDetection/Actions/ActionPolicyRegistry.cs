@@ -210,6 +210,26 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
             WouldBlockThreshold = 0.85
         }));
 
+        // Response mutation actions (allow request, sanitize response payload)
+        RegisterPolicy(new LogOnlyActionPolicy("mask-pii", new LogOnlyActionOptions
+        {
+            LogLevel = LogLevel.Warning,
+            LogFullEvidence = true,
+            AddResponseHeaders = false,
+            AddToContextItems = true,
+            ActionMarker = "mask-pii",
+            WouldBlockThreshold = 0.85
+        }));
+        RegisterPolicy(new LogOnlyActionPolicy("strip-pii", new LogOnlyActionOptions
+        {
+            LogLevel = LogLevel.Warning,
+            LogFullEvidence = true,
+            AddResponseHeaders = false,
+            AddToContextItems = true,
+            ActionMarker = "mask-pii",
+            WouldBlockThreshold = 0.85
+        }));
+
         _logger?.LogDebug("Registered {Count} built-in action policies", _policies.Count);
     }
 

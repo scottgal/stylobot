@@ -10,21 +10,29 @@
      class="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 rounded-lg text-sm"
      style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
 
-    <span class="font-bold text-base-content">@s.TotalRequests.ToString("N0")</span>
-    <span class="text-base-content/50 text-xs">total</span>
+    <span class="inline-flex items-center gap-1.5">
+        <span class="font-bold text-base-content">@s.TotalRequests.ToString("N0")</span>
+        <span class="text-base-content/50 text-xs">total</span>
+    </span>
 
     <span style="color: var(--sb-card-divider);">|</span>
 
-    <span class="font-bold text-error">@s.BotRequests.ToString("N0")</span>
-    <span class="text-xs text-error/70">bots (@(botPct)%)</span>
+    <span class="inline-flex items-center gap-1.5">
+        <span class="font-bold text-error">@s.BotRequests.ToString("N0")</span>
+        <span class="text-xs text-error/70">bots (@(botPct)%)</span>
+    </span>
 
     <span style="color: var(--sb-card-divider);">|</span>
 
-    <span class="font-bold text-success">@s.HumanRequests.ToString("N0")</span>
-    <span class="text-xs text-base-content/50">human</span>
+    <span class="inline-flex items-center gap-1.5">
+        <span class="font-bold text-success">@s.HumanRequests.ToString("N0")</span>
+        <span class="text-xs text-base-content/50">human</span>
+    </span>
 
     <span style="color: var(--sb-card-divider);">|</span>
 
-    <span class="font-bold text-base-content">@s.UniqueSignatures.ToString("N0")</span>
-    <span class="text-xs text-base-content/50">signatures</span>
+    <span class="inline-flex items-center gap-1.5">
+        <span class="font-bold text-base-content">@s.UniqueSignatures.ToString("N0")</span>
+        <span class="text-xs text-base-content/50">signatures</span>
+    </span>
 </div>

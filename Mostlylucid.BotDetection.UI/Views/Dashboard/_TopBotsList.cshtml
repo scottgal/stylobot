@@ -2,9 +2,12 @@
 @model TopBotsListModel
 @{
     var bp = Model.BasePath;
-    string SortUrl(string field) => $"{bp}/partials/topbots?sort={field}&page=1&pageSize={Model.PageSize}";
-    string PageUrl(int page) => $"{bp}/partials/topbots?sort={Model.SortField}&page={page}&pageSize={Model.PageSize}";
-    string SortIcon(string field) => Model.SortField == field ? " \u25BC" : "";
+    string SortUrl(string field) {
+        var dir = Model.SortField == field ? (Model.SortDir == "desc" ? "asc" : "desc") : "desc";
+        return $"{bp}/partials/topbots?sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}";
+    }
+    string PageUrl(int page) => $"{bp}/partials/topbots?sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}";
+    string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? " \u25B2" : " \u25BC") : "";
     string ThClass(string field) => Model.SortField == field
         ? "text-base-content/70 font-bold"
         : "text-base-content/40 hover:text-base-content/60";
@@ -34,7 +37,11 @@
                                 hx-get="@SortUrl("name")" hx-target="#topbots-list" hx-swap="outerHTML transition:true">
                                 Name@(Html.Raw(SortIcon("name")))
                             </th>
-                            <th class="py-1 text-center @ThClass("threat")">Threat</th>
+                            <th class="py-1 text-center @ThClass("threat") cursor-pointer"
+                                hx-get="@SortUrl("threat")" hx-target="#topbots-list" hx-swap="outerHTML transition:true">
+                                Threat@(Html.Raw(SortIcon("threat")))
+                            </th>
+                            <th class="py-1 text-[10px] text-base-content/40">Intent</th>
                             <th class="py-1 text-right @ThClass("probability") cursor-pointer"
                                 hx-get="@SortUrl("probability")" hx-target="#topbots-list" hx-swap="outerHTML transition:true">
                                 Prob@(Html.Raw(SortIcon("probability")))
@@ -84,6 +91,12 @@
                                     @if (!string.IsNullOrEmpty(bot.ThreatBand) && bot.ThreatBand != "None")
                                     {
                                         <span class="text-[10px] font-semibold @threatClass">@bot.ThreatBand</span>
+                                    }
+                                </td>
+                                <td class="py-1">
+                                    @if (!string.IsNullOrEmpty(bot.BotType))
+                                    {
+                                        <span class="text-[10px] text-base-content/60">@bot.BotType</span>
                                     }
                                 </td>
                                 <td class="py-1 text-right font-bold text-xs @riskClass">@(probPct)%</td>

@@ -27,6 +27,34 @@ builder.Services.AddBotDetection(options =>
 });
 ```
 
+### API use: enable `mask-pii` safely
+
+`mask-pii`/`strip-pii` do nothing unless response masking is explicitly enabled.
+
+```json
+{
+  "BotDetection": {
+    "DefaultActionPolicyName": "throttle-stealth",
+    "BotTypeActionPolicies": {
+      "MaliciousBot": "mask-pii"
+    },
+    "ResponsePiiMasking": {
+      "Enabled": true,
+      "AutoApplyForHighConfidenceMalicious": true,
+      "AutoApplyBotProbabilityThreshold": 0.9,
+      "AutoApplyConfidenceThreshold": 0.75
+    }
+  }
+}
+```
+
+Quick env-var toggle for local API testing:
+
+```bash
+BotDetection__ResponsePiiMasking__Enabled=true
+BotDetection__DefaultActionPolicyName=mask-pii
+```
+
 ### Add middleware
 
 ```csharp
@@ -108,6 +136,24 @@ dotnet run --project mostlylucid.stylobot.website/src/Stylobot.Website/Stylobot.
 The site starts on **https://localhost:7038**. Vite watch mode starts automatically in Development.
 
 > No PostgreSQL needed for local dev -- the site uses in-memory storage by default.
+
+### EXE use: one-off enablement for the website process
+
+PowerShell:
+
+```powershell
+$env:BOTDETECTION_RESPONSE_PII_MASKING_ENABLED="true"
+$env:BOTDETECTION_ACTION_POLICY="mask-pii"
+dotnet run --project mostlylucid.stylobot.website/src/Stylobot.Website/Stylobot.Website.csproj
+```
+
+Bash:
+
+```bash
+BOTDETECTION_RESPONSE_PII_MASKING_ENABLED=true \
+BOTDETECTION_ACTION_POLICY=mask-pii \
+dotnet run --project mostlylucid.stylobot.website/src/Stylobot.Website/Stylobot.Website.csproj
+```
 
 ### Key URLs
 

@@ -66,7 +66,7 @@
 		# Clickjacking protection
 		X-Frame-Options "SAMEORIGIN"
 
-		# Referrer policy
+		# Referrer policyFor 
 		Referrer-Policy "strict-origin-when-cross-origin"
 
 		# Permissions policy (disable unused browser features)

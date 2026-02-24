@@ -24,6 +24,7 @@ Canonical entry points for this repository.
 - [`Mostlylucid.BotDetection/docs/yarp-integration.md`](../Mostlylucid.BotDetection/docs/yarp-integration.md)
 - [`Mostlylucid.BotDetection/docs/detection-strategies.md`](../Mostlylucid.BotDetection/docs/detection-strategies.md)
 - [`Mostlylucid.BotDetection/docs/action-policies.md`](../Mostlylucid.BotDetection/docs/action-policies.md)
+- [`Mostlylucid.BotDetection/docs/response-pii-masking.md`](../Mostlylucid.BotDetection/docs/response-pii-masking.md)
 
 ## Detector Reference Docs
 

@@ -39,6 +39,11 @@
                         }
                         <span class="text-[11px] font-bold text-base-content truncate" title="@name">@name</span>
                         <span class="text-[8px] px-1 py-px rounded-sm font-semibold uppercase tracking-wider bg-base-content/10 text-base-content/50 shrink-0">@typeBadge</span>
+                        @if (!string.IsNullOrEmpty(bot.ThreatBand) && bot.ThreatBand != "None")
+                        {
+                            var threatCss = bot.ThreatBand switch { "Critical" or "High" => "bg-error/20 text-error", "Medium" => "bg-warning/20 text-warning", _ => "bg-base-content/10 text-base-content/50" };
+                            <span class="text-[8px] px-1 py-px rounded-sm font-semibold @threatCss shrink-0">@bot.ThreatBand</span>
+                        }
                     </div>
                     <div class="flex items-center gap-1.5 shrink-0">
                         <span class="text-[10px] font-bold @textColor">@(prob)%</span>

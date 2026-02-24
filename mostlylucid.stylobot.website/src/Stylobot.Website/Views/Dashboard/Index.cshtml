@@ -31,6 +31,11 @@
     <!-- Summary Stats Bar -->
     @await Html.PartialAsync("~/Views/Dashboard/_SummaryStats.cshtml", Model.Summary)
 
+    <!-- Your Detection — full width, above tabs -->
+    <div class="my-4">
+        @await Html.PartialAsync("~/Views/Dashboard/_YourDetection.cshtml", Model.YourDetection)
+    </div>
+
     <!-- Tab navigation — always visible -->
     <div class="flex items-center gap-1 my-4 bg-base-300/50 rounded-lg p-0.5 w-fit">
         <a href="@TabUrl("overview")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("overview")">Overview</a>
@@ -68,9 +73,6 @@
                         <div id="time-chart" style="height: 160px;"></div>
                     </div>
                 </div>
-
-                <!-- Your Detection (compact) -->
-                @await Html.PartialAsync("~/Views/Dashboard/_YourDetection.cshtml", Model.YourDetection)
             </div>
 
             <!-- RIGHT COLUMN: Top Bots, Recent Activity -->

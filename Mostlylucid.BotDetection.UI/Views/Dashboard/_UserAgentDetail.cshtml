@@ -1,0 +1,113 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model UserAgentDetailModel
+@{
+    var botPct = Model.TotalCount > 0 ? (double)Model.BotCount / Model.TotalCount * 100 : 0;
+    var humanPct = 100 - botPct;
+    var confPct = (Model.AvgConfidence * 100).ToString("F0");
+    var topVersions = Model.Versions.OrderByDescending(v => v.Value).Take(8).ToList();
+    var topCountries = Model.Countries.OrderByDescending(c => c.Value).Take(8).ToList();
+    var maxCountryCount = topCountries.Count > 0 ? topCountries[0].Value : 1;
+    static bool HasFlag(string? code) => !string.IsNullOrEmpty(code) && code.Length == 2 && code != "XX";
+    static string FlagUrl(string code) => $"https://flagcdn.com/w20/{code.ToLowerInvariant()}.png";
+}
+<div class="p-4">
+    <!-- Header -->
+    <div class="flex items-center gap-2 mb-3">
+        <h3 class="text-sm font-bold text-base-content">@Model.Family</h3>
+        <span class="text-[10px] px-1.5 py-0.5 rounded bg-base-content/10 text-base-content/60">@Model.Category</span>
+    </div>
+
+    <!-- Stats row -->
+    <div class="grid grid-cols-3 gap-3 mb-4">
+        <div class="rounded-lg border p-2 text-center" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <div class="text-lg font-bold text-base-content">@Model.TotalCount.ToString("N0")</div>
+            <div class="text-[9px] text-base-content/50 uppercase">Total</div>
+        </div>
+        <div class="rounded-lg border p-2 text-center" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <div class="text-lg font-bold text-success">@Model.HumanCount.ToString("N0")</div>
+            <div class="text-[9px] text-base-content/50 uppercase">Human</div>
+        </div>
+        <div class="rounded-lg border p-2 text-center" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <div class="text-lg font-bold text-error">@Model.BotCount.ToString("N0")</div>
+            <div class="text-[9px] text-base-content/50 uppercase">Bot</div>
+        </div>
+    </div>
+
+    <!-- Bot/Human ratio bar -->
+    <div class="mb-4">
+        <div class="flex items-center justify-between mb-1">
+            <span class="text-[10px] text-success">Human @($"{humanPct:F0}")%</span>
+            <span class="text-[10px] text-error">Bot @($"{botPct:F0}")%</span>
+        </div>
+        <div class="h-2 rounded-full bg-success overflow-hidden flex">
+            <div class="h-full bg-success" style="width: @($"{humanPct:F1}")%;"></div>
+            <div class="h-full bg-error" style="width: @($"{botPct:F1}")%;"></div>
+        </div>
+    </div>
+
+    <!-- Avg Confidence & Latency -->
+    <div class="flex items-center gap-4 mb-4 text-xs">
+        <div>
+            <span class="text-base-content/50">Avg Confidence:</span>
+            <span class="font-bold text-base-content">@(confPct)%</span>
+        </div>
+        <div>
+            <span class="text-base-content/50">Avg Latency:</span>
+            <span class="font-bold text-base-content">@($"{Model.AvgProcessingTimeMs:F1}")ms</span>
+        </div>
+    </div>
+
+    <!-- Version Distribution -->
+    @if (topVersions.Count > 0)
+    {
+        var maxVersionCount = topVersions[0].Value;
+        var versionColors = new[] { "#5ba3a3", "#86b59c", "#daa564", "#ef4444", "#6366f1", "#ec4899", "#14b8a6", "#f59e0b" };
+        <div class="mb-4">
+            <h4 class="text-[10px] font-semibold text-base-content/50 uppercase mb-2">Version Distribution</h4>
+            <div class="space-y-1.5">
+                @for (var i = 0; i < topVersions.Count; i++)
+                {
+                    var ver = topVersions[i];
+                    var barW = maxVersionCount > 0 ? (double)ver.Value / maxVersionCount * 100 : 0;
+                    var color = versionColors[i % versionColors.Length];
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] text-base-content/60 w-16 truncate" title="@ver.Key">@ver.Key</span>
+                        <div class="flex-1 h-2 rounded-full bg-base-300/50 overflow-hidden">
+                            <div class="h-full rounded-full" style="width: @($"{barW:F0}")%; background: @color;"></div>
+                        </div>
+                        <span class="text-[10px] font-mono text-base-content/50 w-8 text-right">@ver.Value</span>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Country Breakdown -->
+    @if (topCountries.Count > 0)
+    {
+        <div>
+            <h4 class="text-[10px] font-semibold text-base-content/50 uppercase mb-2">Country Breakdown</h4>
+            <div class="space-y-1.5">
+                @foreach (var country in topCountries)
+                {
+                    var barWidth = maxCountryCount > 0 ? (double)country.Value / maxCountryCount * 100 : 0;
+                    <div class="flex items-center gap-2">
+                        @if (HasFlag(country.Key))
+                        {
+                            <img src="@FlagUrl(country.Key)" alt="@country.Key" class="w-4 h-3 object-cover rounded-sm flex-shrink-0" />
+                        }
+                        else
+                        {
+                            <span class="w-4 text-center text-[9px]">🌐</span>
+                        }
+                        <span class="text-[10px] text-base-content/60 w-6">@country.Key</span>
+                        <div class="flex-1 h-1.5 rounded-full bg-base-300/50 overflow-hidden">
+                            <div class="h-full rounded-full" style="width: @($"{barWidth:F0}")%; background: var(--sb-accent);"></div>
+                        </div>
+                        <span class="text-[10px] font-mono text-base-content/50 w-8 text-right">@country.Value</span>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>

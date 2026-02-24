@@ -138,6 +138,23 @@ policies:
     add_response_headers: false
     add_to_context_items: true
 
+  mask-pii:
+    type: LogOnly
+    description: >
+      Allow request through but stream-mask response PII using Microsoft Recognizers.
+      Intended for high-confidence malicious traffic that is not hard-blocked.
+    tags: [production, privacy, response-mutation]
+    log_level: Warning
+    log_full_evidence: true
+    add_response_headers: false
+    add_to_context_items: true
+
+  strip-pii:
+    type: LogOnly
+    extends: mask-pii
+    description: Alias of mask-pii.
+    tags: [production, privacy, response-mutation, alias]
+
   passthrough-internal:
     type: LogOnly
     extends: logonly

@@ -5,7 +5,7 @@
     string FilterUrl(string filter) => $"{bp}/partials/visitors?filter={filter}&sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}";
     string SortUrl(string field) {
         var dir = Model.SortField == field ? (Model.SortDir == "desc" ? "asc" : "desc") : "desc";
-        return $"{bp}/partials/visitors?filter={Model.Filter}&sort={field}&dir={dir}&page={Model.Page}&pageSize={Model.PageSize}";
+        return $"{bp}/partials/visitors?filter={Model.Filter}&sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}";
     }
     string PageUrl(int page) => $"{bp}/partials/visitors?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}";
     string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? "\u25B2" : "\u25BC") : "";

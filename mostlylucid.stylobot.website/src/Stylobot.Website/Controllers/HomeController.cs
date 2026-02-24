@@ -6,6 +6,7 @@ using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.GeoDetection.Middleware;
 using Mostlylucid.GeoDetection.Models;
 using Mostlylucid.GeoDetection.Services;
+using Mostlylucid.BotDetection.UI.Models;
 using Stylobot.Website.Models;
 using Stylobot.Website.Services;
 using Microsoft.Extensions.Configuration;
@@ -197,7 +198,16 @@ public class HomeController : Controller
     public async Task<IActionResult> TopBots(int count = 5)
     {
         var bots = await _eventStore.GetTopBotsAsync(count);
-        return PartialView("_TopBots", bots);
+        var model = new TopBotsListModel
+        {
+            Bots = bots,
+            Page = 1,
+            PageSize = count,
+            TotalCount = bots.Count,
+            SortField = "hits",
+            BasePath = "/_stylobot"
+        };
+        return PartialView("~/Views/Dashboard/_TopBotsList.cshtml", model);
     }
 
     [HttpGet("Home/TopCountries")]

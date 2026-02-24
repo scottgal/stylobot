@@ -400,6 +400,12 @@ public class BotDetectionOptions
     public ResponseStatusBoostOptions ResponseStatusBoost { get; set; } = new();
 
     /// <summary>
+    ///     Response mutation settings for PII masking actions ("mask-pii", "strip-pii").
+    ///     Disabled by default.
+    /// </summary>
+    public ResponsePiiMaskingOptions ResponsePiiMasking { get; set; } = new();
+
+    /// <summary>
     ///     Configuration for bot cluster detection (label propagation clustering).
     /// </summary>
     public ClusterOptions Cluster { get; set; } = new();
@@ -923,7 +929,7 @@ public class BotDetectionOptions
     ///     - throttle, throttle-gentle, throttle-moderate, throttle-aggressive, throttle-stealth
     ///     - challenge, challenge-captcha, challenge-js, challenge-pow
     ///     - redirect, redirect-honeypot, redirect-tarpit, redirect-error
-    ///     - logonly, shadow, debug
+    ///     - logonly, shadow, debug, mask-pii, strip-pii (requires ResponsePiiMasking.Enabled = true)
     /// </remarks>
     public Dictionary<string, ActionPolicyConfig> ActionPolicies { get; set; } = new();
 
@@ -3295,6 +3301,14 @@ public class BotDetectionOptionsValidator : IValidateOptions<BotDetectionOptions
 
         if (options.CacheDurationSeconds < 0 || options.CacheDurationSeconds > 86400)
             errors.Add($"CacheDurationSeconds must be between 0 and 86400, got {options.CacheDurationSeconds}");
+
+        if (options.ResponsePiiMasking.AutoApplyBotProbabilityThreshold is < 0.0 or > 1.0)
+            errors.Add(
+                $"ResponsePiiMasking.AutoApplyBotProbabilityThreshold must be between 0.0 and 1.0, got {options.ResponsePiiMasking.AutoApplyBotProbabilityThreshold}");
+
+        if (options.ResponsePiiMasking.AutoApplyConfidenceThreshold is < 0.0 or > 1.0)
+            errors.Add(
+                $"ResponsePiiMasking.AutoApplyConfidenceThreshold must be between 0.0 and 1.0, got {options.ResponsePiiMasking.AutoApplyConfidenceThreshold}");
 
 #pragma warning disable CS0618 // Type or member is obsolete
         if (options.UpdateIntervalHours < 1 || options.UpdateIntervalHours > 168)

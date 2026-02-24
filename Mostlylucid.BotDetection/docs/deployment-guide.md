@@ -382,6 +382,13 @@ app.Run();
       "IncludeProcessingTime": true
     },
 
+    "ResponsePiiMasking": {
+      "Enabled": true,
+      "AutoApplyForHighConfidenceMalicious": true,
+      "AutoApplyBotProbabilityThreshold": 0.9,
+      "AutoApplyConfidenceThreshold": 0.75
+    },
+
     "PathPolicies": {
       "/api/login": "strict",
       "/api/checkout/*": "strict",
@@ -419,6 +426,10 @@ services:
     environment:
       ConnectionStrings__BotDetection: "Host=timescaledb;Port=5432;Database=stylobot;Username=stylobot;Password=${DB_PASSWORD}"
       BotDetection__SignatureHashKey: ${SIGNATURE_HASH_KEY}
+      BotDetection__ResponsePiiMasking__Enabled: "true"
+      BotDetection__ResponsePiiMasking__AutoApplyForHighConfidenceMalicious: "true"
+      BotDetection__ResponsePiiMasking__AutoApplyBotProbabilityThreshold: "0.9"
+      BotDetection__ResponsePiiMasking__AutoApplyConfidenceThreshold: "0.75"
     ports:
       - "5080:5080"
     depends_on:

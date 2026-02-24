@@ -68,6 +68,7 @@ Alpine.start();
 // Initialize HTMX
 (window as any).htmx = htmx;
 htmx.config.allowEval = false;
+htmx.config.refreshOnHistoryMiss = true;
 
 // Initialize Command Center on dashboard pages (deferred to avoid blocking)
 if (document.getElementById('command-map') || document.getElementById('countries-map')) {

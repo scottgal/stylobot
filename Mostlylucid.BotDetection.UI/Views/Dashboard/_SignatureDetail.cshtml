@@ -23,6 +23,24 @@
         _ => "text-success"
     };
 
+    string ThreatColor(string? band) => band switch
+    {
+        "Critical" => "text-error",
+        "High" => "text-error",
+        "Elevated" => "text-warning",
+        "Low" => "text-success",
+        _ => "text-base-content/50"
+    };
+
+    string ThreatBgColor(string? band) => band switch
+    {
+        "Critical" => "bg-error/20 text-error border-error/30",
+        "High" => "bg-error/15 text-error border-error/20",
+        "Elevated" => "bg-warning/15 text-warning border-warning/20",
+        "Low" => "bg-success/15 text-success border-success/20",
+        _ => "bg-base-300 text-base-content/60 border-base-content/10"
+    };
+
     var timeAgo = Model.LastSeen == default ? "unknown" : FormatTimeAgo(DateTime.UtcNow - Model.LastSeen);
     string FormatTimeAgo(TimeSpan span)
     {
@@ -45,6 +63,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Raleway:wght@700;800;900&display=swap" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts" nonce="@Model.CspNonce"></script>
     <script nonce="@Model.CspNonce">
         (function() {
             try {
@@ -77,16 +96,18 @@
             background: linear-gradient(120deg, color-mix(in oklab, var(--sb-surface) 78%, #0f172a), color-mix(in oklab, var(--sb-card-bg) 70%, #0f172a));
             border-bottom: 1px solid var(--sb-card-divider);
         }
+        .impact-bar { height: 6px; border-radius: 3px; background: var(--sb-card-divider); }
+        .impact-bar-fill { height: 100%; border-radius: 3px; }
     </style>
 </head>
-<body class="min-h-screen">
+<body class="min-h-screen" hx-history="false">
 
     <!-- Brand header -->
     <header class="brand-header px-4 py-3">
         <div class="max-w-7xl mx-auto flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <a href="@bp" class="text-lg font-black tracking-tight" style="color: var(--sb-accent);">
-                    <span style="font-family: 'Raleway', sans-serif;">StyloBot</span>
+                <a href="@bp" class="text-lg font-black tracking-tight" style="font-family: 'Raleway', sans-serif;">
+                    <span style="color: var(--sb-brand-muted);">stylo</span><span style="color: var(--sb-brand-strong);">bot</span>
                 </a>
                 <span class="text-xs font-medium px-2 py-0.5 rounded-full"
                       style="background: var(--sb-card-bg); color: var(--sb-brand-muted); border: 1px solid var(--sb-card-border);">
@@ -121,7 +142,7 @@ else
     </div>
 
     <!-- Header -->
-    <div class="flex items-center gap-3 mb-4">
+    <div class="flex items-center gap-3 mb-2">
         @if (HasFlag(Model.CountryCode))
         {
             <img src="@FlagUrl(Model.CountryCode!)" alt="@Model.CountryCode" class="w-6 h-4 object-cover rounded-sm" />
@@ -135,9 +156,33 @@ else
         {
             <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-success/20 text-success">Human</span>
         }
+    </div>
+
+    <!-- Intent & Threat (KEY info) -->
+    <div class="flex items-center gap-3 mb-4 flex-wrap">
         @if (!string.IsNullOrEmpty(Model.BotType))
         {
-            <span class="text-[10px] px-1.5 py-0.5 rounded bg-base-300 text-base-content/60">@Model.BotType</span>
+            <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border @ThreatBgColor(Model.ThreatBand)">
+                <span class="text-xs font-bold">@Model.BotType</span>
+                @if (!string.IsNullOrEmpty(Model.ThreatBand) && Model.ThreatBand != "None")
+                {
+                    <span class="text-[10px] opacity-70">@Model.ThreatBand threat</span>
+                }
+            </div>
+        }
+        @if (Model.ThreatScore.HasValue && Model.ThreatScore.Value > 0)
+        {
+            <div class="flex items-center gap-1.5 text-xs">
+                <span class="text-base-content/50">Threat Score:</span>
+                <span class="font-bold @ThreatColor(Model.ThreatBand)">@($"{Model.ThreatScore.Value:F3}")</span>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(Model.Action))
+        {
+            <div class="flex items-center gap-1.5 text-xs">
+                <span class="text-base-content/50">Policy:</span>
+                <span class="font-bold @ActionColor(Model.Action)">@Model.Action</span>
+            </div>
         }
     </div>
 
@@ -156,12 +201,12 @@ else
             <div class="text-lg font-bold @RiskColor(Model.RiskBand)">@(Model.RiskBand ?? "Unknown")</div>
         </div>
         <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Hit Count</div>
-            <div class="text-lg font-bold text-base-content">@Model.HitCount.ToString("N0")</div>
+            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Threat</div>
+            <div class="text-lg font-bold @ThreatColor(Model.ThreatBand)">@(Model.ThreatBand ?? "None")</div>
         </div>
         <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Action</div>
-            <div class="text-lg font-bold @ActionColor(Model.Action)">@(Model.Action ?? "Allow")</div>
+            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Hit Count</div>
+            <div class="text-lg font-bold text-base-content">@Model.HitCount.ToString("N0")</div>
         </div>
         <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <div class="text-[10px] font-semibold text-base-content/50 uppercase">Last Seen</div>
@@ -169,7 +214,94 @@ else
         </div>
     </div>
 
-    <!-- Two-column: Description + Detectors -->
+    <!-- CRITICAL: Endpoints Visited -->
+    @if (Model.Paths.Count > 0)
+    {
+        <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Endpoints Visited <span class="text-base-content/40 font-normal">(@Model.Paths.Count)</span></h3>
+            <div class="overflow-x-auto">
+                <table class="table table-xs w-full">
+                    <thead>
+                        <tr class="text-[10px] uppercase tracking-wider text-base-content/40">
+                            <th class="py-1">#</th>
+                            <th class="py-1">Path</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (var i = 0; i < Model.Paths.Count; i++)
+                        {
+                            <tr class="hover:bg-base-200/50">
+                                <td class="py-1 text-[10px] text-base-content/30 font-mono">@(i + 1)</td>
+                                <td class="py-1 text-xs font-mono text-base-content/70">@Model.Paths[i]</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <!-- CRITICAL: Recent Detections -->
+    @if (Model.RecentDetections.Count > 0)
+    {
+        <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Recent Detections <span class="text-base-content/40 font-normal">(@Model.RecentDetections.Count)</span></h3>
+            <div class="overflow-x-auto">
+                <table class="table table-xs w-full">
+                    <thead>
+                        <tr class="text-[10px] uppercase tracking-wider text-base-content/40">
+                            <th class="py-1">Time</th>
+                            <th class="py-1">Method</th>
+                            <th class="py-1">Path</th>
+                            <th class="py-1 text-center">Status</th>
+                            <th class="py-1 text-right">Prob</th>
+                            <th class="py-1 text-right">Conf</th>
+                            <th class="py-1">Risk</th>
+                            <th class="py-1">Action</th>
+                            <th class="py-1 text-right">Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var d in Model.RecentDetections)
+                        {
+                            var is404 = d.StatusCode == 404;
+                            var statusClass = d.StatusCode >= 400 ? "text-error font-bold" : d.StatusCode >= 300 ? "text-warning" : "text-success";
+                            <tr class="hover:bg-base-200/50 @(is404 ? "bg-error/5" : "")">
+                                <td class="py-1 text-[10px] text-base-content/50 whitespace-nowrap">@d.Timestamp.ToString("HH:mm:ss")</td>
+                                <td class="py-1 text-[10px] font-mono text-base-content/50">@d.Method</td>
+                                <td class="py-1 text-xs font-mono text-base-content/70 max-w-[250px] truncate">@d.Path</td>
+                                <td class="py-1 text-center text-xs @statusClass">@(d.StatusCode > 0 ? d.StatusCode.ToString() : "-")</td>
+                                <td class="py-1 text-right text-xs @(d.BotProbability >= 0.7 ? "text-error" : d.BotProbability >= 0.4 ? "text-warning" : "text-success")">@($"{d.BotProbability:P0}")</td>
+                                <td class="py-1 text-right text-xs text-base-content/60">@($"{d.Confidence:P0}")</td>
+                                <td class="py-1 text-[10px] @RiskColor(d.RiskBand)">@d.RiskBand</td>
+                                <td class="py-1 text-[10px] @ActionColor(d.Action)">@(d.Action ?? "Allow")</td>
+                                <td class="py-1 text-right text-[10px] text-base-content/40 font-mono">@($"{d.ProcessingTimeMs:F1}")ms</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <!-- Charts: Bot Probability & Confidence History + Processing Time -->
+    @if (Model.BotProbabilityHistory.Count > 1)
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+            <div class="rounded-xl border p-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Bot Probability & Confidence History</h3>
+                <div id="prob-conf-chart" style="height: 200px;"></div>
+                <script type="application/json" id="prob-conf-data">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(new { probability = Model.BotProbabilityHistory, confidence = Model.ConfidenceHistory }))</script>
+            </div>
+            <div class="rounded-xl border p-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Processing Time History</h3>
+                <div id="proc-time-chart" style="height: 200px;"></div>
+                <script type="application/json" id="proc-time-data">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.ProcessingTimeHistory))</script>
+            </div>
+        </div>
+    }
+
+    <!-- Two-column: Analysis + Detection Signals -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         <div class="rounded-xl border p-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Analysis</h3>
@@ -208,28 +340,98 @@ else
         </div>
     </div>
 
-    @if (Model.ThreatScore.HasValue)
+    <!-- Detector Contributions -->
+    @if (Model.DetectorContributions.Count > 0)
+    {
+        var maxContribution = Model.DetectorContributions.Max(d => Math.Abs(d.Contribution));
+        <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Detector Contributions <span class="text-base-content/40 font-normal">(@Model.DetectorContributions.Count detectors)</span></h3>
+            <div class="space-y-2">
+                @foreach (var det in Model.DetectorContributions)
+                {
+                    var barPct = maxContribution > 0 ? (Math.Abs(det.Contribution) / maxContribution * 100) : 0;
+                    var barColor = det.Contribution > 0 ? "bg-error" : "bg-success";
+                    var deltaSign = det.ConfidenceDelta >= 0 ? "+" : "";
+                    <div class="flex items-center gap-3">
+                        <div class="w-40 text-xs font-medium text-base-content/70 truncate" title="@det.Name">@det.Name.Replace("Contributor", "")</div>
+                        <div class="flex-1">
+                            <div class="impact-bar">
+                                <div class="impact-bar-fill @barColor" style="width: @($"{barPct:F0}")%;"></div>
+                            </div>
+                        </div>
+                        <div class="w-16 text-right text-[10px] font-mono @(det.ConfidenceDelta > 0 ? "text-error" : "text-success")">@($"{deltaSign}{det.ConfidenceDelta:F3}")</div>
+                        <div class="w-20 text-right text-[10px] text-base-content/40 font-mono">@($"{det.ExecutionTimeMs:F1}")ms</div>
+                    </div>
+                    @if (!string.IsNullOrEmpty(det.Reason))
+                    {
+                        <div class="ml-40 pl-3 text-[10px] text-base-content/40 italic -mt-1">@det.Reason</div>
+                    }
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Signal Intelligence -->
+    @if (Model.SignalCategories.Count > 0)
     {
         <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Threat Assessment</h3>
-            <div class="flex items-center gap-4">
-                <div>
-                    <span class="text-sm text-base-content/50">Score:</span>
-                    <span class="text-sm font-bold @RiskColor(Model.ThreatBand)">@($"{Model.ThreatScore:F3}")</span>
-                </div>
-                @if (!string.IsNullOrEmpty(Model.ThreatBand))
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Signal Intelligence</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                @foreach (var cat in Model.SignalCategories.OrderBy(c => c.Key))
                 {
                     <div>
-                        <span class="text-sm text-base-content/50">Band:</span>
-                        <span class="text-sm font-bold @RiskColor(Model.ThreatBand)">@Model.ThreatBand</span>
+                        <h4 class="text-[10px] font-semibold text-base-content/50 uppercase mb-1" style="color: var(--sb-accent);">@cat.Key</h4>
+                        <div class="space-y-0.5">
+                            @foreach (var signal in cat.Value)
+                            {
+                                <div class="flex items-start gap-2 text-[10px]">
+                                    <span class="text-base-content/40 font-mono min-w-[80px] truncate" title="@signal.Key">@signal.Key</span>
+                                    <span class="text-base-content/70 break-all">@signal.Value</span>
+                                </div>
+                            }
+                        </div>
                     </div>
                 }
             </div>
         </div>
     }
 
-    <!-- Signature ID footer -->
-    <div class="text-[10px] text-base-content/30 mt-4 flex items-center gap-2">
+    @if (Model.ThreatScore.HasValue)
+    {
+        <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Threat Assessment</h3>
+            <div class="flex items-center gap-4">
+                @if (!string.IsNullOrEmpty(Model.BotType))
+                {
+                    <div>
+                        <span class="text-sm text-base-content/50">Intent:</span>
+                        <span class="text-sm font-bold text-base-content">@Model.BotType</span>
+                    </div>
+                }
+                <div>
+                    <span class="text-sm text-base-content/50">Score:</span>
+                    <span class="text-sm font-bold @ThreatColor(Model.ThreatBand)">@($"{Model.ThreatScore:F3}")</span>
+                </div>
+                @if (!string.IsNullOrEmpty(Model.ThreatBand))
+                {
+                    <div>
+                        <span class="text-sm text-base-content/50">Band:</span>
+                        <span class="text-sm font-bold @ThreatColor(Model.ThreatBand)">@Model.ThreatBand</span>
+                    </div>
+                }
+                @if (!string.IsNullOrEmpty(Model.Action))
+                {
+                    <div>
+                        <span class="text-sm text-base-content/50">Policy:</span>
+                        <span class="text-sm font-bold @ActionColor(Model.Action)">@Model.Action</span>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Metadata footer -->
+    <div class="text-[10px] text-base-content/30 mt-4 flex flex-wrap items-center gap-2">
         <span>Signature:</span>
         <code class="bg-base-300/50 px-1.5 py-0.5 rounded select-all">@Model.SignatureId</code>
         <span class="text-base-content/20">|</span>
@@ -239,9 +441,100 @@ else
             <span class="text-base-content/20">|</span>
             <span>Country: @Model.CountryCode</span>
         }
+        @if (!string.IsNullOrEmpty(Model.UserAgent))
+        {
+            <span class="text-base-content/20">|</span>
+            <span class="max-w-[400px] truncate" title="@Model.UserAgent">UA: @Model.UserAgent</span>
+        }
+        @if (!string.IsNullOrEmpty(Model.Protocol))
+        {
+            <span class="text-base-content/20">|</span>
+            <span>Protocol: @Model.Protocol</span>
+        }
+        @if (Model.FirstSeen != default)
+        {
+            <span class="text-base-content/20">|</span>
+            <span>First seen: @Model.FirstSeen.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
+        }
     </div>
 }
 
     </main>
+
+    <!-- ApexCharts rendering -->
+    @if (Model.Found && Model.BotProbabilityHistory.Count > 1)
+    {
+        <script nonce="@Model.CspNonce">
+        (function() {
+            var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            var fg = isDark ? '#94a3b8' : '#475569';
+            var gridColor = isDark ? 'rgba(148,163,184,0.1)' : 'rgba(15,23,42,0.08)';
+
+            // Bot Probability & Confidence chart
+            var pcData = JSON.parse(document.getElementById('prob-conf-data').textContent);
+            if (pcData.probability && pcData.probability.length > 1) {
+                new ApexCharts(document.getElementById('prob-conf-chart'), {
+                    chart: { type: 'line', height: 200, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
+                    series: [
+                        { name: 'Bot Probability', data: pcData.probability },
+                        { name: 'Confidence', data: pcData.confidence }
+                    ],
+                    colors: ['#ef4444', '#5ba3a3'],
+                    stroke: { width: 2, curve: 'smooth' },
+                    xaxis: { labels: { show: false }, axisBorder: { show: false }, axisTicks: { show: false } },
+                    yaxis: { min: 0, max: 1, labels: { style: { colors: fg, fontSize: '10px' }, formatter: function(v) { return (v * 100).toFixed(0) + '%'; } } },
+                    grid: { borderColor: gridColor, strokeDashArray: 3 },
+                    legend: { position: 'top', fontSize: '10px', labels: { colors: fg } },
+                    tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: function(v) { return (v * 100).toFixed(1) + '%'; } } }
+                }).render();
+            }
+
+            // Processing Time chart
+            var ptData = JSON.parse(document.getElementById('proc-time-data').textContent);
+            if (ptData && ptData.length > 1) {
+                new ApexCharts(document.getElementById('proc-time-chart'), {
+                    chart: { type: 'area', height: 200, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
+                    series: [{ name: 'Processing Time (ms)', data: ptData }],
+                    colors: ['#daa564'],
+                    stroke: { width: 2, curve: 'smooth' },
+                    fill: { type: 'gradient', gradient: { opacityFrom: 0.3, opacityTo: 0.05 } },
+                    xaxis: { labels: { show: false }, axisBorder: { show: false }, axisTicks: { show: false } },
+                    yaxis: { logarithmic: true, labels: { style: { colors: fg, fontSize: '10px' }, formatter: function(v) { return v < 1 ? v.toFixed(2) + 'ms' : v.toFixed(0) + 'ms'; } } },
+                    grid: { borderColor: gridColor, strokeDashArray: 3 },
+                    legend: { show: false },
+                    tooltip: { theme: isDark ? 'dark' : 'light', y: { formatter: function(v) { return v.toFixed(2) + 'ms'; } } }
+                }).render();
+            }
+        })();
+        </script>
+    }
+
+    <!-- SignalR beacon: auto-refresh when this signature is updated -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js" nonce="@Model.CspNonce"></script>
+    <script nonce="@Model.CspNonce">
+    (function() {
+        var sigId = '@Html.Raw(Model.SignatureId.Replace("'", "\\'"))';
+        var hubPath = '@Html.Raw(Model.HubPath)';
+        var conn = new signalR.HubConnectionBuilder()
+            .withUrl(hubPath)
+            .withAutomaticReconnect([0, 2000, 5000, 10000])
+            .build();
+
+        conn.on('invalidated', function(keys) {
+            if (!keys || !Array.isArray(keys)) return;
+            // Refresh if this signature or 'summary' is invalidated
+            for (var i = 0; i < keys.length; i++) {
+                if (keys[i] === sigId || keys[i] === 'summary' || keys[i] === 'signature') {
+                    window.location.reload();
+                    return;
+                }
+            }
+        });
+
+        conn.start().catch(function(err) {
+            console.debug('SignalR connection failed for signature detail:', err);
+        });
+    })();
+    </script>
 </body>
 </html>

@@ -102,8 +102,8 @@
     <header id="sb-brand-header" class="brand-header px-4 py-3">
         <div class="max-w-7xl mx-auto flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <a href="@bp" class="text-lg font-black tracking-tight" style="color: var(--sb-accent);">
-                    <span style="font-family: 'Raleway', sans-serif;">StyloBot</span>
+                <a href="@bp" class="text-lg font-black tracking-tight" style="font-family: 'Raleway', sans-serif;">
+                    <span style="color: var(--sb-brand-muted);">stylo</span><span style="color: var(--sb-brand-strong);">bot</span>
                 </a>
                 <span class="text-xs font-medium px-2 py-0.5 rounded-full"
                       style="background: var(--sb-card-bg); color: var(--sb-brand-muted); border: 1px solid var(--sb-card-border);">
@@ -126,6 +126,11 @@
 
         <!-- Summary stats — always visible -->
         @await Html.PartialAsync("~/Views/Dashboard/_SummaryStats.cshtml", Model.Summary)
+
+        <!-- Your Detection — full width, above tabs -->
+        <div class="my-4">
+            @await Html.PartialAsync("~/Views/Dashboard/_YourDetection.cshtml", Model.YourDetection)
+        </div>
 
         <!-- Tab navigation -->
         <div class="flex items-center gap-1 my-4 bg-base-300/50 rounded-lg p-0.5 w-fit">
@@ -164,9 +169,6 @@
                             <div id="time-chart" style="height: 160px;"></div>
                         </div>
                     </div>
-
-                    <!-- Your Detection (compact) -->
-                    @await Html.PartialAsync("~/Views/Dashboard/_YourDetection.cshtml", Model.YourDetection)
                 </div>
 
                 <!-- RIGHT COLUMN: Top Bots, Recent Activity -->

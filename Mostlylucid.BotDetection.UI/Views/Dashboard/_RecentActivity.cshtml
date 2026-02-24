@@ -46,7 +46,8 @@
                                 hx-get="@SortUrl("name")" hx-target="#recent-activity" hx-swap="outerHTML transition:true">
                                 Name@(Html.Raw(SortIcon("name")))
                             </th>
-                            <th class="py-1">Type</th>
+                            <th class="py-1">Intent</th>
+                            <th class="py-1">Threat</th>
                             <th class="py-1 text-right @ThClass("risk") cursor-pointer"
                                 hx-get="@SortUrl("risk")" hx-target="#recent-activity" hx-swap="outerHTML transition:true">
                                 Prob@(Html.Raw(SortIcon("risk")))
@@ -85,6 +86,13 @@
                                     </a>
                                 </td>
                                 <td class="py-1 text-[10px] text-base-content/50">@(v.BotType ?? (v.IsBot ? "Bot" : "Human"))</td>
+                                <td class="py-1 text-[10px]">
+                                    @if (!string.IsNullOrEmpty(v.ThreatBand) && v.ThreatBand != "None")
+                                    {
+                                        var threatCls = v.ThreatBand switch { "Critical" or "High" => "text-error", "Medium" => "text-warning", _ => "text-base-content/50" };
+                                        <span class="font-semibold @threatCls">@v.ThreatBand</span>
+                                    }
+                                </td>
                                 <td class="py-1 text-right font-bold text-xs @riskClass">@(probPct)%</td>
                                 <td class="py-1 text-[10px] @actionClass font-medium">@(v.Action ?? "Allow")</td>
                             </tr>

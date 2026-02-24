@@ -391,6 +391,7 @@ public static class ServiceCollectionExtensions
 
         // Register response coordinator (tracks response patterns for behavioral feedback)
         services.TryAddSingleton<ResponseCoordinator>();
+        services.TryAddSingleton<IResponsePiiMasker, MicrosoftRecognizersResponsePiiMasker>();
 
         // Register PiiHasher for zero-PII signature generation
         // Key should ideally come from secure config (Key Vault, env var), but auto-generate if not provided

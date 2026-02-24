@@ -86,6 +86,7 @@ public sealed class SignatureAggregateCache
         int page = 1,
         int pageSize = 25,
         string? sortBy = null,
+        string? sortDir = null,
         string? filterCountry = null)
     {
         var sorted = GetOrRebuildSortedList();
@@ -96,13 +97,30 @@ public sealed class SignatureAggregateCache
             query = query.Where(b =>
                 string.Equals(b.CountryCode, filterCountry, StringComparison.OrdinalIgnoreCase));
 
+        var asc = string.Equals(sortDir, "asc", StringComparison.OrdinalIgnoreCase);
+
         query = (sortBy?.ToLowerInvariant()) switch
         {
-            "name" => query.OrderBy(b => b.BotName ?? b.PrimarySignature),
-            "lastseen" => query.OrderByDescending(b => b.LastSeen),
-            "country" => query.OrderBy(b => b.CountryCode ?? "ZZ"),
-            "probability" => query.OrderByDescending(b => b.BotProbability),
-            _ => query // already sorted by hits desc
+            "name" => asc
+                ? query.OrderBy(b => b.BotName ?? b.PrimarySignature)
+                : query.OrderByDescending(b => b.BotName ?? b.PrimarySignature),
+            "lastseen" => asc
+                ? query.OrderBy(b => b.LastSeen)
+                : query.OrderByDescending(b => b.LastSeen),
+            "country" => asc
+                ? query.OrderBy(b => b.CountryCode ?? "ZZ")
+                : query.OrderByDescending(b => b.CountryCode ?? "ZZ"),
+            "probability" => asc
+                ? query.OrderBy(b => b.BotProbability)
+                : query.OrderByDescending(b => b.BotProbability),
+            "threat" => asc
+                ? query.OrderBy(b => b.ThreatScore ?? 0)
+                : query.OrderByDescending(b => b.ThreatScore ?? 0),
+            "hits" => asc
+                ? query.OrderBy(b => b.HitCount)
+                : query.OrderByDescending(b => b.HitCount),
+            // Default: composite sort — threat score * hits for a blended ranking
+            _ => query.OrderByDescending(b => (b.ThreatScore ?? 0) * 0.4 + Math.Log10(Math.Max(b.HitCount, 1)) * 0.6)
         };
 
         return query

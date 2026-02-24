@@ -232,6 +232,10 @@ public class StyloBotDashboardMiddleware
                 await ServeUserAgentsPartialAsync(context);
                 break;
 
+            case "partials/useragent-detail":
+                await ServeUserAgentDetailPartialAsync(context);
+                break;
+
             case "partials/topbots":
                 await ServeTopBotsPartialAsync(context);
                 break;
@@ -354,7 +358,7 @@ public class StyloBotDashboardMiddleware
             Countries = BuildCountriesModel("total", "desc", 1, 20, countriesData),
             Clusters = BuildClustersModel(context),
             UserAgents = BuildUserAgentsModel("all", "requests", "desc", 1, 25, allUserAgents),
-            TopBots = BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "hits")
+            TopBots = BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc")
         };
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -1224,11 +1228,12 @@ public class StyloBotDashboardMiddleware
     /// <summary>Render the top bots list partial.</summary>
     private async Task ServeTopBotsPartialAsync(HttpContext context)
     {
-        var sortBy = context.Request.Query["sort"].FirstOrDefault() ?? "hits";
+        var sortBy = context.Request.Query["sort"].FirstOrDefault() ?? "default";
+        var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
         var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 50 ? ps : 10;
 
-        var model = BuildTopBotsModel(page, pageSize, sortBy);
+        var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir);
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -1465,6 +1470,97 @@ public class StyloBotDashboardMiddleware
                 sparkline = agg.ScoreHistory.Count > 0 ? agg.ScoreHistory.ToList() : null;
             }
 
+            // Enrich from CachedVisitor (paths, histories, UA, protocol)
+            var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
+            var visitor = visitorCache.Get(decodedSignature);
+            List<string> paths = [];
+            string? userAgent = null;
+            string? protocol = null;
+            DateTime firstSeen = default;
+            List<double> botProbHistory = [];
+            List<double> confHistory = [];
+            List<double> procTimeHistory = [];
+
+            if (visitor != null)
+            {
+                lock (visitor.SyncRoot)
+                {
+                    paths = visitor.Paths.ToList();
+                    userAgent = visitor.UserAgent;
+                    protocol = visitor.Protocol;
+                    firstSeen = visitor.FirstSeen;
+                    botProbHistory = visitor.BotProbabilityHistory.ToList();
+                    confHistory = visitor.ConfidenceHistory.ToList();
+                    procTimeHistory = visitor.ProcessingTimeHistory.ToList();
+                }
+            }
+
+            // Enrich from DB detections (recent per-request records)
+            List<SignatureDetectionRow> recentDetections = [];
+            List<SignatureDetectorEntry> detectorContributions = [];
+            Dictionary<string, Dictionary<string, string>> signalCategories = new();
+
+            try
+            {
+                var detections = await _eventStore.GetDetectionsAsync(new DashboardFilter
+                {
+                    SignatureId = decodedSignature,
+                    Limit = 50
+                });
+
+                recentDetections = detections.Select(d => new SignatureDetectionRow
+                {
+                    Timestamp = d.Timestamp,
+                    IsBot = d.IsBot,
+                    BotProbability = d.BotProbability,
+                    Confidence = d.Confidence,
+                    RiskBand = d.RiskBand,
+                    StatusCode = d.StatusCode,
+                    Path = d.Path,
+                    Method = d.Method,
+                    ProcessingTimeMs = d.ProcessingTimeMs,
+                    Action = d.Action
+                }).ToList();
+
+                // Extract detector contributions from most recent detection
+                var latest = detections.FirstOrDefault();
+                if (latest?.DetectorContributions != null)
+                {
+                    detectorContributions = latest.DetectorContributions
+                        .Select(kv => new SignatureDetectorEntry
+                        {
+                            Name = kv.Key,
+                            ConfidenceDelta = kv.Value.ConfidenceDelta,
+                            Contribution = kv.Value.Contribution,
+                            Reason = kv.Value.Reason,
+                            ExecutionTimeMs = kv.Value.ExecutionTimeMs
+                        })
+                        .OrderByDescending(e => Math.Abs(e.Contribution))
+                        .ToList();
+                }
+
+                // Group ImportantSignals by key prefix into categories
+                if (latest?.ImportantSignals != null)
+                {
+                    foreach (var kv in latest.ImportantSignals)
+                    {
+                        var dotIndex = kv.Key.IndexOf('.');
+                        var category = dotIndex > 0 ? kv.Key[..dotIndex] : "general";
+                        var key = dotIndex > 0 ? kv.Key[(dotIndex + 1)..] : kv.Key;
+                        if (!signalCategories.TryGetValue(category, out var cat))
+                        {
+                            cat = new Dictionary<string, string>();
+                            signalCategories[category] = cat;
+                        }
+                        cat[key] = kv.Value?.ToString() ?? "";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Failed to enrich signature detail from DB for {Signature}", decodedSignature);
+            }
+
             model = new SignatureDetailModel
             {
                 SignatureId = decodedSignature,
@@ -1488,7 +1584,17 @@ public class StyloBotDashboardMiddleware
                 IsBot = agg.IsBot,
                 ThreatScore = agg.ThreatScore,
                 ThreatBand = agg.ThreatBand,
-                SparklineData = sparkline
+                SparklineData = sparkline,
+                Paths = paths,
+                UserAgent = userAgent,
+                Protocol = protocol,
+                FirstSeen = firstSeen,
+                BotProbabilityHistory = botProbHistory,
+                ConfidenceHistory = confHistory,
+                ProcessingTimeHistory = procTimeHistory,
+                RecentDetections = recentDetections,
+                DetectorContributions = detectorContributions,
+                SignalCategories = signalCategories
             };
         }
         else
@@ -1506,6 +1612,55 @@ public class StyloBotDashboardMiddleware
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Dashboard/_SignatureDetail.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>Render the user agent detail panel partial.</summary>
+    private async Task ServeUserAgentDetailPartialAsync(HttpContext context)
+    {
+        var family = context.Request.Query["family"].FirstOrDefault();
+        if (string.IsNullOrEmpty(family))
+        {
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsync("Missing family parameter");
+            return;
+        }
+
+        var cached = _aggregateCache.Current.UserAgents;
+        var allUas = cached.Count > 0 ? cached : await ComputeUserAgentsFallbackAsync();
+        var ua = allUas.FirstOrDefault(u => string.Equals(u.Family, family, StringComparison.OrdinalIgnoreCase));
+
+        if (ua == null)
+        {
+            context.Response.ContentType = "text/html";
+            await context.Response.WriteAsync("<div class=\"text-xs text-base-content/40 py-8 text-center\">User agent not found</div>");
+            return;
+        }
+
+        var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj) && nonceObj is string s && s.Length > 0
+            ? s
+            : Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+        context.Items["CspNonce"] = cspNonce;
+
+        var model = new UserAgentDetailModel
+        {
+            Family = ua.Family,
+            Category = ua.Category,
+            TotalCount = ua.TotalCount,
+            BotCount = ua.BotCount,
+            HumanCount = ua.HumanCount,
+            BotRate = ua.BotRate,
+            AvgConfidence = ua.AvgConfidence,
+            AvgProcessingTimeMs = ua.AvgProcessingTimeMs,
+            Versions = ua.Versions,
+            Countries = ua.Countries,
+            CspNonce = cspNonce,
+            BasePath = _options.BasePath.TrimEnd('/')
+        };
+
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Dashboard/_UserAgentDetail.cshtml", model, context);
         await context.Response.WriteAsync(html);
     }
 
@@ -1558,10 +1713,10 @@ public class StyloBotDashboardMiddleware
         }
     }
 
-    private TopBotsListModel BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "hits")
+    private TopBotsListModel BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "default", string sortDir = "desc")
     {
         // Get all bots once for accurate count, then take the page
-        var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy);
+        var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir);
         var pagedBots = allBots.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return new TopBotsListModel
         {
@@ -1570,6 +1725,7 @@ public class StyloBotDashboardMiddleware
             PageSize = pageSize,
             TotalCount = allBots.Count,
             SortField = sortBy,
+            SortDir = sortDir,
             BasePath = _options.BasePath.TrimEnd('/')
         };
     }

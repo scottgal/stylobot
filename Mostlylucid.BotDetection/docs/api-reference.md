@@ -655,6 +655,7 @@ Configuration binds from `appsettings.json` section `"BotDetection"`.
 | `MaxRequestsPerMinute` | `int` | `60` | Behavioral rate limit per IP |
 | `CacheDurationSeconds` | `int` | `300` | Detection result cache TTL |
 | `DefaultActionPolicyName` | `string?` | `null` | Default action policy for all requests |
+| `ResponsePiiMasking` | `ResponsePiiMaskingOptions` | defaults | Response mutation settings for `mask-pii`/`strip-pii` (disabled by default) |
 | `StorageProvider` | `StorageProvider` | `Sqlite` | Storage backend (Sqlite or PostgreSQL) |
 | `PostgreSQLConnectionString` | `string?` | `null` | Auto-enables PostgreSQL when set |
 
@@ -678,6 +679,20 @@ public class OllamaOptions
     public int MaxConcurrentRequests { get; set; } = 5;
 }
 ```
+
+#### Response PII Masking Settings
+
+```csharp
+public sealed class ResponsePiiMaskingOptions
+{
+    public bool Enabled { get; set; } = false;
+    public bool AutoApplyForHighConfidenceMalicious { get; set; } = true;
+    public double AutoApplyBotProbabilityThreshold { get; set; } = 0.90;
+    public double AutoApplyConfidenceThreshold { get; set; } = 0.75;
+}
+```
+
+See [response-pii-masking.md](response-pii-masking.md) for production rollout examples.
 
 ---
 

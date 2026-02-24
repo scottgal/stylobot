@@ -21,6 +21,7 @@ learning**, auto-updated blocklists, YARP integration, and full observability.
 - **Geo intelligence**: Country reputation, geographic drift detection, VPN/proxy/Tor/datacenter identification
 - **Composable policies**: Separate detection (WHAT) from action (HOW) for maximum flexibility
 - **Stealth responses**: Throttle, challenge, or honeypot bots without revealing detection
+- **Response PII masking (opt-in)**: `mask-pii`/`strip-pii` stream-mask response payloads for risky traffic
 - **Real-time dashboard**: World map, country stats, cluster visualization, user agent breakdown, live signature feed
 - **Zero PII**: All persistence uses HMAC-SHA256 hashed signatures — no raw IPs or user agents stored
 - **Auto-updated threat intel**: Pulls isbot patterns and cloud IP ranges automatically
@@ -244,8 +245,10 @@ Control HOW to respond to detected bots:
 | `challenge`         | Present CAPTCHA or proof-of-work   |
 | `redirect-honeypot` | Silent redirect to trap            |
 | `logonly`           | Shadow mode (log but allow)        |
+| `mask-pii`          | Stream-mask PII in response payload |
 
 See [action-policies.md](docs/action-policies.md) for full details.
+See [response-pii-masking.md](docs/response-pii-masking.md) for rollout and configuration.
 
 ## Architecture: StyloFlow & Entity Types
 

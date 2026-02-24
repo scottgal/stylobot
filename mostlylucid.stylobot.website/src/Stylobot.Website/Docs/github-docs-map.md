@@ -18,6 +18,7 @@ Recommended deep dives:
 - [API Reference](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/api-reference.md)
 - [Learning and Reputation](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/learning-and-reputation.md)
 - [Action Policies](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/action-policies.md)
+- [Response PII Masking](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/response-pii-masking.md)
 
 ## Detector-specific docs
 

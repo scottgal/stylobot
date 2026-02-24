@@ -138,6 +138,21 @@ builder.Services.AddBotDetection(options =>
     options.ResponseHeaders.IncludeDetectors = GetConfigBool("BotDetection:ResponseHeaders:IncludeDetectors", "BOTDETECTION_HEADERS_DETECTORS", true);
     options.ResponseHeaders.IncludeProcessingTime = GetConfigBool("BotDetection:ResponseHeaders:IncludeProcessingTime", "BOTDETECTION_HEADERS_PROCESSING_TIME", true);
 
+    // Response PII masking (disabled by default; opt-in)
+    options.ResponsePiiMasking.Enabled = GetConfigBool("BotDetection:ResponsePiiMasking:Enabled", "BOTDETECTION_RESPONSE_PII_MASKING_ENABLED", false);
+    options.ResponsePiiMasking.AutoApplyForHighConfidenceMalicious = GetConfigBool(
+        "BotDetection:ResponsePiiMasking:AutoApplyForHighConfidenceMalicious",
+        "BOTDETECTION_RESPONSE_PII_MASKING_AUTO_APPLY",
+        true);
+    options.ResponsePiiMasking.AutoApplyBotProbabilityThreshold = GetConfigDouble(
+        "BotDetection:ResponsePiiMasking:AutoApplyBotProbabilityThreshold",
+        "BOTDETECTION_RESPONSE_PII_MASKING_AUTO_APPLY_BOT_THRESHOLD",
+        0.9);
+    options.ResponsePiiMasking.AutoApplyConfidenceThreshold = GetConfigDouble(
+        "BotDetection:ResponsePiiMasking:AutoApplyConfidenceThreshold",
+        "BOTDETECTION_RESPONSE_PII_MASKING_AUTO_APPLY_CONFIDENCE_THRESHOLD",
+        0.75);
+
     // Client-side fingerprinting
     options.ClientSide.Enabled = GetConfigBool("BotDetection:ClientSide:Enabled", "BOTDETECTION_CLIENTSIDE_ENABLED", true);
     options.ClientSide.CollectCanvas = GetConfigBool("BotDetection:ClientSide:CollectCanvas", "BOTDETECTION_CLIENTSIDE_CANVAS", true);

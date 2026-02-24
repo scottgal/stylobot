@@ -65,6 +65,9 @@
         <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
         <PackageReference Include="System.Numerics.Tensors" Version="10.0.3" />
         <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
+        <PackageReference Include="Microsoft.Recognizers.Text" Version="1.8.0" />
+        <PackageReference Include="Microsoft.Recognizers.Text.DateTime" Version="1.8.0" />
+        <PackageReference Include="Microsoft.Recognizers.Text.Sequence" Version="1.8.0" />
         <PackageReference Include="YamlDotNet" Version="16.3.0" />
         <PackageReference Include="Vecc.YamlDotNet.Analyzers.StaticGenerator" Version="16.3.0">
             <PrivateAssets>all</PrivateAssets>

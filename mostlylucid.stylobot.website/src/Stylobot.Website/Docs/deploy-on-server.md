@@ -19,6 +19,39 @@ docker compose up -d
 - `BOTDETECTION_CLIENTSIDE_TOKEN_SECRET`
 - `POSTGRES_PASSWORD` (if using database services)
 
+## Full production template (server)
+
+Use this as a baseline when you want response PII masking only for malicious traffic while keeping stealth throttling as default.
+
+```json
+{
+  "BotDetection": {
+    "BotThreshold": 0.7,
+    "DefaultActionPolicyName": "throttle-stealth",
+    "BotTypeActionPolicies": {
+      "Tool": "throttle-tools",
+      "MaliciousBot": "mask-pii"
+    },
+    "ResponsePiiMasking": {
+      "Enabled": true,
+      "AutoApplyForHighConfidenceMalicious": true,
+      "AutoApplyBotProbabilityThreshold": 0.9,
+      "AutoApplyConfidenceThreshold": 0.75
+    }
+  }
+}
+```
+
+Equivalent `.env` overrides for the website container/process:
+
+```bash
+BOTDETECTION_ACTION_POLICY=throttle-stealth
+BOTDETECTION_RESPONSE_PII_MASKING_ENABLED=true
+BOTDETECTION_RESPONSE_PII_MASKING_AUTO_APPLY=true
+BOTDETECTION_RESPONSE_PII_MASKING_AUTO_APPLY_BOT_THRESHOLD=0.9
+BOTDETECTION_RESPONSE_PII_MASKING_AUTO_APPLY_CONFIDENCE_THRESHOLD=0.75
+```
+
 ## Verify deployment
 
 ```bash

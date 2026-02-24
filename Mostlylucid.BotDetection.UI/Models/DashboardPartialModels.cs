@@ -123,6 +123,7 @@ public sealed class TopBotsListModel
     public required int PageSize { get; init; }
     public required int TotalCount { get; init; }
     public required string SortField { get; init; }
+    public string SortDir { get; init; } = "desc";
     public required string BasePath { get; init; }
     public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
 }
@@ -156,6 +157,72 @@ public sealed class SignatureDetailModel
     public double? ThreatScore { get; init; }
     public string? ThreatBand { get; init; }
     public List<double>? SparklineData { get; init; }
+
+    // From CachedVisitor
+    public List<string> Paths { get; init; } = [];
+    public string? UserAgent { get; init; }
+    public string? Protocol { get; init; }
+    public DateTime FirstSeen { get; init; }
+    public List<double> BotProbabilityHistory { get; init; } = [];
+    public List<double> ConfidenceHistory { get; init; } = [];
+    public List<double> ProcessingTimeHistory { get; init; } = [];
+
+    // From DB detections (recent per-request records)
+    public List<SignatureDetectionRow> RecentDetections { get; init; } = [];
+
+    // Latest detection's detector contributions
+    public List<SignatureDetectorEntry> DetectorContributions { get; init; } = [];
+
+    // Signal intelligence (grouped by prefix)
+    public Dictionary<string, Dictionary<string, string>> SignalCategories { get; init; } = new();
+}
+
+/// <summary>
+///     A single detection record for the signature detail page.
+/// </summary>
+public sealed record SignatureDetectionRow
+{
+    public required DateTime Timestamp { get; init; }
+    public required bool IsBot { get; init; }
+    public required double BotProbability { get; init; }
+    public required double Confidence { get; init; }
+    public required string RiskBand { get; init; }
+    public int StatusCode { get; init; }
+    public string? Path { get; init; }
+    public string? Method { get; init; }
+    public double ProcessingTimeMs { get; init; }
+    public string? Action { get; init; }
+}
+
+/// <summary>
+///     A single detector's contribution for the signature detail page.
+/// </summary>
+public sealed record SignatureDetectorEntry
+{
+    public required string Name { get; init; }
+    public required double ConfidenceDelta { get; init; }
+    public required double Contribution { get; init; }
+    public string? Reason { get; init; }
+    public double ExecutionTimeMs { get; init; }
+}
+
+/// <summary>
+///     View model for the user agent detail panel.
+/// </summary>
+public sealed record UserAgentDetailModel
+{
+    public required string Family { get; init; }
+    public required string Category { get; init; }
+    public required int TotalCount { get; init; }
+    public required int BotCount { get; init; }
+    public required int HumanCount { get; init; }
+    public required double BotRate { get; init; }
+    public required double AvgConfidence { get; init; }
+    public required double AvgProcessingTimeMs { get; init; }
+    public required Dictionary<string, int> Versions { get; init; }
+    public required Dictionary<string, int> Countries { get; init; }
+    public string CspNonce { get; init; } = "";
+    public string BasePath { get; init; } = "/_stylobot";
 }
 
 /// <summary>

@@ -623,6 +623,33 @@ See [learning-and-reputation.md](learning-and-reputation.md) for full details.
 
 ---
 
+## Response PII Masking Settings (Experimental)
+
+Controls response-time masking for action policies `mask-pii` and `strip-pii`.
+Disabled by default.
+
+```json
+{
+  "BotDetection": {
+    "ResponsePiiMasking": {
+      "Enabled": false,
+      "AutoApplyForHighConfidenceMalicious": true,
+      "AutoApplyBotProbabilityThreshold": 0.9,
+      "AutoApplyConfidenceThreshold": 0.75
+    }
+  }
+}
+```
+
+| Option                                 | Type   | Default | Description                                                                 |
+|----------------------------------------|--------|---------|-----------------------------------------------------------------------------|
+| `Enabled`                              | bool   | `false` | Global feature flag for response PII masking                                |
+| `AutoApplyForHighConfidenceMalicious`  | bool   | `true`  | Auto-apply `mask-pii` to high-confidence malicious requests not blocked     |
+| `AutoApplyBotProbabilityThreshold`     | double | `0.9`   | Minimum bot probability for auto-apply                                      |
+| `AutoApplyConfidenceThreshold`         | double | `0.75`  | Minimum confidence for auto-apply                                           |
+
+---
+
 ## Version Age Settings
 
 Detects outdated browser and OS versions that are suspicious.
