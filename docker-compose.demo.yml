@@ -196,6 +196,8 @@ services:
       - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Name=Dashboard Monitor
       - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__ActionPolicyName=logonly
       - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__RateLimitPerMinute=120
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Tags__0=monitoring
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Tags__1=dashboard
       # Dashboard
       - STYLOBOT_DASHBOARD_PUBLIC=true
       - STYLOBOT_DASHBOARD_PATH=${STYLOBOT_DASHBOARD_PATH:-/_stylobot}

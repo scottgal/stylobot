@@ -2,6 +2,13 @@
 .env
 !.env.example
 
+# Screenshots from Playwright / debugging
+*.png
+!**/wwwroot/**/*.png
+
+# Windows null device artifact
+NUL
+
 ### JetBrains+all template
 # Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio, WebStorm and Rider
 # Reference: https://intellij-support.jetbrains.com/hc/en-us/articles/206544839

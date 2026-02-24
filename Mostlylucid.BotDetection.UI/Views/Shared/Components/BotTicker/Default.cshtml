@@ -107,20 +107,10 @@ document.addEventListener('alpine:init', () => {
                     .configureLogging(signalR.LogLevel.Warning)
                     .build();
 
-                // Handle detection events
-                this.connection.on('BroadcastDetection', (raw) => {
-                    this.addDetection(toCamel(raw));
-                });
-
-                // Handle signature events
-                this.connection.on('BroadcastSignature', (raw) => {
-                    // Could highlight in ticker
-                });
-
-                // Handle summary updates
-                this.connection.on('BroadcastSummary', (raw) => {
-                    this.summary = toCamel(raw);
-                });
+                // Beacon-only: SignalR sends lightweight invalidation signals.
+                // The ticker shows server-rendered initial state; live scrolling
+                // updates are handled by the HTMX coordinator on dashboard pages.
+                this.connection.on('BroadcastInvalidation', () => {});
 
                 // Connection state handlers
                 this.connection.onclose(() => { this.connected = false; });

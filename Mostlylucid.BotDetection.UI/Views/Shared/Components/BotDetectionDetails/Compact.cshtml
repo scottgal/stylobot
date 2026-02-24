@@ -177,20 +177,9 @@ document.addEventListener('alpine:init', () => {
                     .configureLogging(signalR.LogLevel.Warning)
                     .build();
 
-                // Listen for detection events - update if it's OUR signature
-                this.connection.on('BroadcastDetection', (detection) => {
-                    if (detection.primarySignature === this.signature) {
-                        this.updateFromDetection(detection);
-                    }
-                });
-
-                // Listen for signature events - get accurate hit count from database
-                this.connection.on('BroadcastSignature', (sig) => {
-                    if (sig.primarySignature === this.signature) {
-                        this.hitCount = sig.hitCount;
-                        console.log('[DetectionBar] Signature hit count from DB:', sig.hitCount);
-                    }
-                });
+                // Beacon-only: SignalR sends lightweight invalidation signals.
+                // The compact bar shows YOUR detection from the initial page render.
+                this.connection.on('BroadcastInvalidation', () => {});
 
                 this.connection.onclose(() => { this.connected = false; });
                 this.connection.onreconnecting(() => { this.connected = false; });

@@ -166,32 +166,10 @@ document.addEventListener('alpine:init', () => {
                     .configureLogging(signalR.LogLevel.Warning)
                     .build();
 
-                // Detection events: update YOUR bar + add to ticker
-                this.connection.on('BroadcastDetection', (raw) => {
-                    const detection = toCamel(raw);
-
-                    // Update YOUR detection if it matches your signature
-                    if (detection.primarySignature === this.signature) {
-                        this.updateYourDetection(detection);
-                    }
-
-                    // Add to ticker (bots and medium+ risk only)
-                    this.addToTicker(detection);
-                });
-
-                // Signature events: accurate hit count from DB
-                this.connection.on('BroadcastSignature', (raw) => {
-                    const sig = toCamel(raw);
-                    if (sig.primarySignature === this.signature) {
-                        this.hitCount = sig.hitCount;
-                    }
-                });
-
-                // LLM description update (arrives async after detection)
-                this.connection.on('BroadcastDescriptionUpdate', (requestId, description) => {
-                    const item = this.tickerItems.find(i => i.requestId === requestId);
-                    if (item) item.description = description;
-                });
+                // Beacon-only: SignalR sends lightweight invalidation signals.
+                // The header shows YOUR detection from the initial page render.
+                // Live ticker updates are handled by the HTMX coordinator on dashboard pages.
+                this.connection.on('BroadcastInvalidation', () => {});
 
                 this.connection.onclose(() => { this.connected = false; });
                 this.connection.onreconnecting(() => { this.connected = false; });

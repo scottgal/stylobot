@@ -89,28 +89,9 @@ function homeDetection() {
                     .configureLogging(signalR.LogLevel.Warning)
                     .build();
 
-                this.connection.on('BroadcastDetection', (raw: any) => {
-                    const d = toCamel(raw);
-                    if (d.primarySignature === this.signature) {
-                        this.isBot = d.isBot;
-                        this.botProbability = d.botProbability || 0;
-                        this.confidence = d.confidence || 0;
-                        this.riskBand = d.riskBand || 'Unknown';
-                        this.processingTimeMs = d.processingTimeMs || 0;
-                        if (d.topReasons && d.topReasons.length > 0) this.topReason = d.topReasons[0];
-                        this.justUpdated = true;
-                        setTimeout(() => { this.justUpdated = false; }, 500);
-                    }
-                });
-
-                this.connection.on('BroadcastSignature', (raw: any) => {
-                    const sig = toCamel(raw);
-                    if (sig.primarySignature === this.signature) {
-                        this.hitCount = sig.hitCount || this.hitCount;
-                        this.sigFactorCount = sig.factorCount || this.sigFactorCount;
-                        if (sig.clientSideSignature) {
-                            this.hasClientFp = true;
-                        }
+                // Beacon-only: server sends lightweight invalidation signals
+                this.connection.on('BroadcastInvalidation', (signal: string) => {
+                    if (signal === 'signature' || signal === this.signature) {
                         this.justUpdated = true;
                         setTimeout(() => { this.justUpdated = false; }, 500);
                     }
