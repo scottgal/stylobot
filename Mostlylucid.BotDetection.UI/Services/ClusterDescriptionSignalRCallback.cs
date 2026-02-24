@@ -27,30 +27,17 @@ public class ClusterDescriptionSignalRCallback : IClusterDescriptionCallback
     public async Task OnClusterDescriptionUpdatedAsync(
         string clusterId, string label, string description, CancellationToken ct = default)
     {
-        await _hubContext.Clients.All.BroadcastClusterDescriptionUpdate(clusterId, label, description);
-        _logger.LogDebug("Broadcast cluster description for {ClusterId}: '{Label}' - {Description}",
-            clusterId[..Math.Min(16, clusterId.Length)],
-            label,
-            description.Length > 80 ? description[..80] + "..." : description);
+        // Beacon-only: signal that clusters changed, clients re-fetch via HTMX
+        await _hubContext.Clients.All.BroadcastInvalidation("clusters");
+        _logger.LogDebug("Broadcast cluster description invalidation for {ClusterId}: '{Label}'",
+            clusterId[..Math.Min(16, clusterId.Length)], label);
     }
 
     public async Task OnClustersRefreshedAsync(
         IReadOnlyList<BotCluster> clusters, CancellationToken ct = default)
     {
-        var events = clusters.Select(c => new DashboardClusterEvent
-        {
-            ClusterId = c.ClusterId,
-            Label = c.Label ?? "Unnamed Cluster",
-            Description = c.Description ?? "",
-            Type = c.Type.ToString(),
-            MemberCount = c.MemberCount,
-            AvgBotProb = c.AverageBotProbability,
-            Country = c.DominantCountry,
-            AverageSimilarity = c.AverageSimilarity,
-            TemporalDensity = c.TemporalDensity
-        }).ToList();
-
-        await _hubContext.Clients.All.BroadcastClusters(events);
-        _logger.LogDebug("Broadcast {Count} clusters to dashboard", events.Count);
+        // Beacon-only: signal that clusters changed, clients fetch fresh HTML via HTMX
+        await _hubContext.Clients.All.BroadcastInvalidation("clusters");
+        _logger.LogDebug("Broadcast cluster invalidation for {Count} clusters", clusters.Count);
     }
 }

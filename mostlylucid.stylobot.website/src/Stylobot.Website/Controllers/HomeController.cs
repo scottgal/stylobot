@@ -82,7 +82,7 @@ public class HomeController : Controller
 
     public IActionResult LiveDemo()
     {
-        return RedirectPermanent("/_stylobot");
+        return RedirectPermanent("/Dashboard");
     }
 
     [HttpGet]

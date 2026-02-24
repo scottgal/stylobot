@@ -102,23 +102,18 @@ public class StyloBotDashboardMiddleware
 
         // High-value dashboard data APIs are hard-blocked for detected bots,
         // UNLESS the request carries a valid API key (trusted tooling / monitoring).
+        // Block detected bots from data APIs. If a human is being blocked here,
+        // that's a detection bug — fix the detection, not the block.
         var isDataApi = DataApiPaths.Contains(relativePath)
                         || relativePath.StartsWith(CountryDetailPrefix, StringComparison.OrdinalIgnoreCase);
         if (isDataApi && context.IsBot())
         {
-            // Respect the product's API key system: if a valid key is present,
-            // the holder is trusted tooling and should access data APIs.
-            // Check three sources:
-            // 1. ApiKeyContext in HttpContext.Items (set by BotDetectionMiddleware on same host)
-            // 2. Raw X-SB-Api-Key header (forwarded by YARP gateway in proxy flows)
-            // 3. Policy name containing "apikey:" (set by upstream detection overlay)
             var hasValidApiKey = context.Items.TryGetValue("BotDetection.ApiKeyContext", out var keyCtxObj)
                                  && keyCtxObj is ApiKeyContext;
             if (!hasValidApiKey)
                 hasValidApiKey = !string.IsNullOrEmpty(context.Request.Headers["X-SB-Api-Key"].FirstOrDefault());
             if (!hasValidApiKey)
             {
-                // Check upstream policy name for API key overlay (e.g., "demo+apikey:k6 Full Detection")
                 var policyName = context.Items.TryGetValue("BotDetection.PolicyName", out var pn) ? pn?.ToString() : null;
                 if (policyName != null && policyName.Contains("+apikey:", StringComparison.OrdinalIgnoreCase))
                     hasValidApiKey = true;
@@ -133,8 +128,6 @@ public class StyloBotDashboardMiddleware
                 await context.Response.WriteAsync("{\"error\":\"Access denied\"}");
                 return;
             }
-
-            _logger.LogDebug("API key holder accessing dashboard data API as detected bot: {Path}", context.Request.Path);
         }
 
         switch (relativePath.ToLowerInvariant())
@@ -317,13 +310,13 @@ public class StyloBotDashboardMiddleware
         try { summary = await _eventStore.GetSummaryAsync(); }
         catch { summary = new DashboardSummary { Timestamp = DateTime.UtcNow, TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new(), UniqueSignatures = 0 }; }
 
-        List<DashboardCountryStats> countries;
-        try
-        {
-            var cached = _aggregateCache.Current.Countries;
-            countries = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(20);
-        }
-        catch { countries = []; }
+        List<DashboardCountryStats> countriesData;
+        try { countriesData = await GetCountriesDataAsync(); }
+        catch { countriesData = []; }
+
+        var allUserAgents = _aggregateCache.Current.UserAgents.Count > 0
+            ? _aggregateCache.Current.UserAgents
+            : await ComputeUserAgentsFallbackAsync();
 
         var model = new DashboardShellModel
         {
@@ -340,15 +333,9 @@ public class StyloBotDashboardMiddleware
                 Page = 1, PageSize = 24, TotalCount = visitorTotal, BasePath = basePath
             },
             YourDetection = BuildYourDetectionPartialModel(context),
-            Countries = new CountriesListModel { Countries = countries.Take(20).ToList(), BasePath = basePath },
+            Countries = BuildCountriesModel("total", "desc", 1, 20, countriesData),
             Clusters = BuildClustersModel(context),
-            UserAgents = new UserAgentsListModel
-            {
-                UserAgents = _aggregateCache.Current.UserAgents.Count > 0
-                    ? _aggregateCache.Current.UserAgents
-                    : await ComputeUserAgentsFallbackAsync(),
-                BasePath = basePath
-            },
+            UserAgents = BuildUserAgentsModel("all", "requests", "desc", 1, 25, allUserAgents),
             TopBots = BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "hits")
         };
 
@@ -1190,16 +1177,15 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html);
     }
 
-    /// <summary>Render the countries list partial.</summary>
+    /// <summary>Render the countries list partial with server-side sort and pagination.</summary>
     private async Task ServeCountriesPartialAsync(HttpContext context)
     {
-        var cached = _aggregateCache.Current.Countries;
-        var dbCountries = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(20);
-        var model = new CountriesListModel
-        {
-            Countries = dbCountries.Take(20).ToList(),
-            BasePath = _options.BasePath.TrimEnd('/')
-        };
+        var sortField = context.Request.Query["sort"].FirstOrDefault() ?? "total";
+        var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
+        var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 50 ? ps : 20;
+
+        var model = BuildCountriesModel(sortField, sortDir, page, pageSize, await GetCountriesDataAsync());
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -1232,11 +1218,16 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html);
     }
 
-    /// <summary>Render the recent activity partial (last 10 visitors by LastSeen desc).</summary>
+    /// <summary>Render the recent activity partial with server-side sort and pagination.</summary>
     private async Task ServeRecentActivityPartialAsync(HttpContext context)
     {
         var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
-        var (items, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, 10);
+        var sortField = context.Request.Query["sort"].FirstOrDefault() ?? "lastSeen";
+        var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
+        var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 50 ? ps : 10;
+
+        var (items, totalCount, _, _) = visitorCache.GetFiltered("all", sortField, sortDir, page, pageSize);
         var counts = visitorCache.GetCounts();
 
         var model = new VisitorListModel
@@ -1244,10 +1235,10 @@ public class StyloBotDashboardMiddleware
             Visitors = items,
             Counts = counts,
             Filter = "all",
-            SortField = "lastSeen",
-            SortDir = "desc",
-            Page = 1,
-            PageSize = 10,
+            SortField = sortField,
+            SortDir = sortDir,
+            Page = page,
+            PageSize = pageSize,
             TotalCount = totalCount,
             BasePath = _options.BasePath.TrimEnd('/')
         };
@@ -1258,19 +1249,18 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html);
     }
 
-    /// <summary>Render the user agents list partial.</summary>
+    /// <summary>Render the user agents list partial with server-side filter, sort, and pagination.</summary>
     private async Task ServeUserAgentsPartialAsync(HttpContext context)
     {
         var cached = _aggregateCache.Current.UserAgents;
-        var userAgents = cached.Count > 0 ? cached : await ComputeUserAgentsFallbackAsync();
+        var allUas = cached.Count > 0 ? cached : await ComputeUserAgentsFallbackAsync();
         var filter = context.Request.Query["filter"].FirstOrDefault() ?? "all";
+        var sortField = context.Request.Query["sort"].FirstOrDefault() ?? "requests";
+        var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
+        var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 100 ? ps : 25;
 
-        var model = new UserAgentsListModel
-        {
-            UserAgents = userAgents,
-            BasePath = _options.BasePath.TrimEnd('/'),
-            Filter = filter
-        };
+        var model = BuildUserAgentsModel(filter, sortField, sortDir, page, pageSize, allUas);
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -1378,9 +1368,8 @@ public class StyloBotDashboardMiddleware
 
     private async Task<string> RenderCountryPartialAsync(HttpContext context)
     {
-        var cached = _aggregateCache.Current.Countries;
-        var countries = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(20);
-        var model = new CountriesListModel { Countries = countries.Take(20).ToList(), BasePath = _options.BasePath.TrimEnd('/') };
+        var data = await GetCountriesDataAsync();
+        var model = BuildCountriesModel("total", "desc", 1, 20, data);
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Dashboard/_CountriesList.cshtml", model, context);
     }
 
@@ -1402,7 +1391,7 @@ public class StyloBotDashboardMiddleware
     {
         var cached = _aggregateCache.Current.UserAgents;
         var uas = cached.Count > 0 ? cached : await ComputeUserAgentsFallbackAsync();
-        var model = new UserAgentsListModel { UserAgents = uas, BasePath = _options.BasePath.TrimEnd('/') };
+        var model = BuildUserAgentsModel("all", "requests", "desc", 1, 25, uas);
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Dashboard/_UserAgentsList.cshtml", model, context);
     }
 
@@ -1468,6 +1457,74 @@ public class StyloBotDashboardMiddleware
             TotalCount = allBots.Count,
             SortField = sortBy,
             BasePath = _options.BasePath.TrimEnd('/')
+        };
+    }
+
+    private async Task<List<DashboardCountryStats>> GetCountriesDataAsync()
+    {
+        var cached = _aggregateCache.Current.Countries;
+        return cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(100);
+    }
+
+    private UserAgentsListModel BuildUserAgentsModel(string filter, string sortField, string sortDir, int page, int pageSize, List<DashboardUserAgentSummary> all)
+    {
+        // Apply filter
+        IEnumerable<DashboardUserAgentSummary> filtered = filter switch
+        {
+            "browser" => all.Where(u => u.Category == "Browser"),
+            "bot" => all.Where(u => u.BotRate > 0.5),
+            "ai" => all.Where(u => u.Category is "AI" or "AiBot"),
+            "tool" => all.Where(u => u.Category is "Tool" or "Scraper" or "MonitoringBot"),
+            _ => all
+        };
+
+        // Apply sort
+        var filteredList = filtered.ToList();
+        IEnumerable<DashboardUserAgentSummary> sorted = sortField.ToLowerInvariant() switch
+        {
+            "family" => sortDir == "asc" ? filteredList.OrderBy(u => u.Family) : filteredList.OrderByDescending(u => u.Family),
+            "category" => sortDir == "asc" ? filteredList.OrderBy(u => u.Category) : filteredList.OrderByDescending(u => u.Category),
+            "botrate" => sortDir == "asc" ? filteredList.OrderBy(u => u.BotRate) : filteredList.OrderByDescending(u => u.BotRate),
+            "confidence" => sortDir == "asc" ? filteredList.OrderBy(u => u.AvgConfidence) : filteredList.OrderByDescending(u => u.AvgConfidence),
+            "lastseen" => sortDir == "asc" ? filteredList.OrderBy(u => u.LastSeen) : filteredList.OrderByDescending(u => u.LastSeen),
+            _ => sortDir == "asc" ? filteredList.OrderBy(u => u.TotalCount) : filteredList.OrderByDescending(u => u.TotalCount) // "requests"
+        };
+
+        var paged = sorted.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        return new UserAgentsListModel
+        {
+            UserAgents = paged,
+            BasePath = _options.BasePath.TrimEnd('/'),
+            Filter = filter,
+            SortField = sortField,
+            SortDir = sortDir,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = filteredList.Count
+        };
+    }
+
+    private CountriesListModel BuildCountriesModel(string sortField, string sortDir, int page, int pageSize, List<DashboardCountryStats> all)
+    {
+        IEnumerable<DashboardCountryStats> sorted = sortField.ToLowerInvariant() switch
+        {
+            "country" => sortDir == "asc" ? all.OrderBy(c => c.CountryCode) : all.OrderByDescending(c => c.CountryCode),
+            "botrate" => sortDir == "asc" ? all.OrderBy(c => c.BotRate) : all.OrderByDescending(c => c.BotRate),
+            "bots" => sortDir == "asc" ? all.OrderBy(c => c.BotCount) : all.OrderByDescending(c => c.BotCount),
+            "humans" => sortDir == "asc" ? all.OrderBy(c => c.HumanCount) : all.OrderByDescending(c => c.HumanCount),
+            _ => sortDir == "asc" ? all.OrderBy(c => c.TotalCount) : all.OrderByDescending(c => c.TotalCount) // "total"
+        };
+
+        var paged = sorted.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        return new CountriesListModel
+        {
+            Countries = paged,
+            BasePath = _options.BasePath.TrimEnd('/'),
+            SortField = sortField,
+            SortDir = sortDir,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = all.Count
         };
     }
 

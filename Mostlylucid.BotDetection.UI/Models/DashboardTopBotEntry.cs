@@ -22,4 +22,17 @@ public sealed record DashboardTopBotEntry
     public bool IsKnownBot { get; init; }
     public double? ThreatScore { get; init; }
     public string? ThreatBand { get; init; }
+
+    public string TimeAgo
+    {
+        get
+        {
+            var span = DateTime.UtcNow - LastSeen;
+            if (span.TotalSeconds < 5) return "now";
+            if (span.TotalSeconds < 60) return $"{(int)span.TotalSeconds}s";
+            if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m";
+            if (span.TotalDays < 1) return $"{(int)span.TotalHours}h {span.Minutes}m";
+            return $"{(int)span.TotalDays}d";
+        }
+    }
 }

@@ -92,8 +92,15 @@ public partial class DetectionBroadcastMiddleware
 
                 signatureAggregateCache.UpdateFromDetection(detection);
                 visitorListCache.Upsert(detection);
-                await hubContext.Clients.All.BroadcastDetection(detection);
-                await hubContext.Clients.All.BroadcastSignature(updatedSignature);
+
+                // Beacon-only: signal which widgets need refreshing, never send full payloads
+                await hubContext.Clients.All.BroadcastInvalidation("signature");
+                await hubContext.Clients.All.BroadcastInvalidation("summary");
+
+                // Lightweight attack arc for world map visualization (only data payload we send)
+                if (detection.IsBot && !string.IsNullOrEmpty(detection.CountryCode)
+                                    && detection.CountryCode != "XX" && detection.CountryCode != "LOCAL")
+                    await hubContext.Clients.All.BroadcastAttackArc(detection.CountryCode, detection.RiskBand ?? "Low");
 
                 _logger.LogDebug(
                     "Broadcast upstream detection: {Path} sig={Signature} prob={Probability:F2} hits={HitCount}",
@@ -128,10 +135,15 @@ public partial class DetectionBroadcastMiddleware
                     return; // Stored to DB above, just don't broadcast to live feed
                 }
 
-                // Update server-side visitor cache and broadcast
+                // Update server-side visitor cache and broadcast beacon signals
                 visitorListCache.Upsert(detection);
-                await hubContext.Clients.All.BroadcastDetection(detection);
-                await hubContext.Clients.All.BroadcastSignature(updatedSignature);
+                await hubContext.Clients.All.BroadcastInvalidation("signature");
+                await hubContext.Clients.All.BroadcastInvalidation("summary");
+
+                // Lightweight attack arc for world map visualization
+                if (detection.IsBot && !string.IsNullOrEmpty(detection.CountryCode)
+                                    && detection.CountryCode != "XX" && detection.CountryCode != "LOCAL")
+                    await hubContext.Clients.All.BroadcastAttackArc(detection.CountryCode, detection.RiskBand ?? "Low");
 
                 // Feed signature to SignatureDescriptionService for LLM name/description synthesis
                 if (signatureDescriptionService != null && detection.IsBot &&

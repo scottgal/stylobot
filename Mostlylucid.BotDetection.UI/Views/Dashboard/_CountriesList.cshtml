@@ -1,46 +1,114 @@
 @using Mostlylucid.BotDetection.UI.Models
 @model CountriesListModel
 @{
-    static string GetFlag(string? code) {
-        if (string.IsNullOrEmpty(code) || code.Length != 2 || code == "XX") return "\uD83C\uDF10";
-        var upper = code.ToUpperInvariant();
-        return string.Concat(char.ConvertFromUtf32(0x1F1E6 + upper[0] - 'A'), char.ConvertFromUtf32(0x1F1E6 + upper[1] - 'A'));
+    var bp = Model.BasePath;
+    string SortUrl(string field) {
+        var dir = Model.SortField == field ? (Model.SortDir == "desc" ? "asc" : "desc") : "desc";
+        return $"{bp}/partials/countries?sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}";
     }
+    string PageUrl(int page) => $"{bp}/partials/countries?sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}";
+    string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? " \u25B2" : " \u25BC") : "";
+    string ThClass(string field) => Model.SortField == field
+        ? "text-base-content/70 font-bold"
+        : "text-base-content/40 hover:text-base-content/60";
+
+    static bool HasFlag(string? code) => !string.IsNullOrEmpty(code) && code.Length == 2 && code != "XX";
+    static string FlagUrl(string code) => $"https://flagcdn.com/w40/{code.ToLowerInvariant()}.png";
 }
 <div id="countries-list"
      data-sb-widget="countries"
      data-sb-depends="countries"
      class="card bg-base-200 transition-all duration-200">
-    <div class="card-body p-4">
-        <h3 class="text-sm font-bold text-base-content mb-2">Top Countries</h3>
+    <div class="card-body p-3">
+        <h3 class="text-sm font-bold text-base-content mb-1">Countries</h3>
+
         @if (Model.Countries.Count == 0)
         {
             <div class="text-xs text-base-content/40 py-4 text-center">No country data yet</div>
         }
         else
         {
-            <div class="space-y-1.5">
-                @foreach (var country in Model.Countries.Take(10))
-                {
-                    var barWidth = Model.Countries.Max(c => c.TotalCount) > 0
-                        ? (int)((double)country.TotalCount / Model.Countries.Max(c => c.TotalCount) * 100)
-                        : 0;
-                    var botPct = (country.BotRate * 100).ToString("F0");
-                    <div class="flex items-center gap-2 text-xs group hover:bg-base-300/50 rounded px-1 py-0.5 transition-colors">
-                        <span class="text-base w-7 text-center">@GetFlag(country.CountryCode)</span>
-                        <span class="font-medium w-8">@country.CountryCode</span>
-                        <div class="flex-1 bg-base-300 rounded-full h-1.5 overflow-hidden">
-                            <div class="h-full rounded-full transition-all duration-500"
-                                 style="width: @(barWidth)%; background: linear-gradient(90deg, var(--sb-accent), var(--sb-signal-danger) @(botPct)%);">
-                            </div>
-                        </div>
-                        <span class="text-base-content/50 w-10 text-right">@country.TotalCount</span>
-                        <span class="font-bold w-10 text-right @(country.BotRate > 0.5 ? "text-error" : country.BotRate > 0.2 ? "text-warning" : "text-success")">
-                            @(botPct)%
-                        </span>
-                    </div>
-                }
+            <div class="overflow-x-auto">
+                <table class="table table-xs w-full">
+                    <thead>
+                        <tr class="text-[10px] uppercase tracking-wider">
+                            <th class="py-1 w-6"></th>
+                            <th class="py-1 @ThClass("country") cursor-pointer"
+                                hx-get="@SortUrl("country")" hx-target="#countries-list" hx-swap="outerHTML transition:true">
+                                Country@(Html.Raw(SortIcon("country")))
+                            </th>
+                            <th class="py-1 text-right @ThClass("total") cursor-pointer"
+                                hx-get="@SortUrl("total")" hx-target="#countries-list" hx-swap="outerHTML transition:true">
+                                Total@(Html.Raw(SortIcon("total")))
+                            </th>
+                            <th class="py-1 text-right @ThClass("bots") cursor-pointer"
+                                hx-get="@SortUrl("bots")" hx-target="#countries-list" hx-swap="outerHTML transition:true">
+                                Bots@(Html.Raw(SortIcon("bots")))
+                            </th>
+                            <th class="py-1 text-right @ThClass("humans") cursor-pointer"
+                                hx-get="@SortUrl("humans")" hx-target="#countries-list" hx-swap="outerHTML transition:true">
+                                Humans@(Html.Raw(SortIcon("humans")))
+                            </th>
+                            <th class="py-1 text-right @ThClass("botrate") cursor-pointer"
+                                hx-get="@SortUrl("botrate")" hx-target="#countries-list" hx-swap="outerHTML transition:true">
+                                Bot %@(Html.Raw(SortIcon("botrate")))
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var country in Model.Countries)
+                        {
+                            var botPct = (country.BotRate * 100).ToString("F0");
+                            var rateClass = country.BotRate > 0.5 ? "text-error" : country.BotRate > 0.2 ? "text-warning" : "text-success";
+                            <tr class="hover:bg-base-300/50 transition-colors">
+                                <td class="py-1 w-6">
+                                    @if (HasFlag(country.CountryCode))
+                                    {
+                                        <img src="@FlagUrl(country.CountryCode!)" alt="@country.CountryCode" class="w-6 h-4 object-cover rounded-sm" loading="lazy" />
+                                    }
+                                    else
+                                    {
+                                        <span class="text-base-content/30 text-[10px]">--</span>
+                                    }
+                                </td>
+                                <td class="py-1 text-xs font-medium">
+                                    @(country.CountryName ?? country.CountryCode)
+                                </td>
+                                <td class="py-1 text-right text-xs font-mono">@country.TotalCount</td>
+                                <td class="py-1 text-right text-xs font-mono text-error/70">@country.BotCount</td>
+                                <td class="py-1 text-right text-xs font-mono text-success/70">@country.HumanCount</td>
+                                <td class="py-1 text-right font-bold text-xs @rateClass">@(botPct)%</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
             </div>
+
+            @* Pagination *@
+            @if (Model.TotalPages > 1)
+            {
+                <div class="flex items-center justify-between mt-2 pt-2 border-t border-base-300">
+                    <span class="text-[10px] text-base-content/40">@Model.Page/@Model.TotalPages (@Model.TotalCount countries)</span>
+                    <div class="flex items-center gap-0.5">
+                        @if (Model.Page > 1)
+                        {
+                            <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#countries-list" hx-swap="outerHTML transition:true"
+                                    class="btn btn-xs btn-ghost">&laquo;</button>
+                        }
+                        @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
+                        {
+                            var pageNum = p;
+                            <button hx-get="@PageUrl(pageNum)" hx-target="#countries-list" hx-swap="outerHTML transition:true"
+                                    class="btn btn-xs @(pageNum == Model.Page ? "btn-primary" : "btn-ghost")">@pageNum</button>
+                        }
+                        @if (Model.Page < Model.TotalPages)
+                        {
+                            <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#countries-list" hx-swap="outerHTML transition:true"
+                                    class="btn btn-xs btn-ghost">&raquo;</button>
+                        }
+                    </div>
+                </div>
+            }
         }
     </div>
 </div>

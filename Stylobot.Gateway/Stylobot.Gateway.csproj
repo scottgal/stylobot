@@ -9,7 +9,8 @@
         <AssemblyName>Stylobot.Gateway</AssemblyName>
         <RootNamespace>Stylobot.Gateway</RootNamespace>
         <ContainerRepository>scottgal/stylobot-gateway</ContainerRepository>
-        <ContainerImageTag>0.1</ContainerImageTag>
+        <ContainerImageTag>latest</ContainerImageTag>
+        <ContainerUser>root</ContainerUser>
 
         <!-- Size optimization -->
         <SelfContained>false</SelfContained>

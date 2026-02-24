@@ -4,31 +4,20 @@
     var bp = Model.BasePath;
     string SortUrl(string field) => $"{bp}/partials/topbots?sort={field}&page=1&pageSize={Model.PageSize}";
     string PageUrl(int page) => $"{bp}/partials/topbots?sort={Model.SortField}&page={page}&pageSize={Model.PageSize}";
-    string SortIcon(string field) => Model.SortField == field ? "\u25BC" : "";
-    string SortBtnClass(string field) => Model.SortField == field ? "btn-active" : "";
+    string SortIcon(string field) => Model.SortField == field ? " \u25BC" : "";
+    string ThClass(string field) => Model.SortField == field
+        ? "text-base-content/70 font-bold"
+        : "text-base-content/40 hover:text-base-content/60";
 
-    static string GetFlag(string? code) {
-        if (string.IsNullOrEmpty(code) || code.Length != 2 || code == "XX") return "\uD83C\uDF10";
-        var upper = code.ToUpperInvariant();
-        return string.Concat(char.ConvertFromUtf32(0x1F1E6 + upper[0] - 'A'), char.ConvertFromUtf32(0x1F1E6 + upper[1] - 'A'));
-    }
+    static bool HasFlag(string? code) => !string.IsNullOrEmpty(code) && code.Length == 2 && code != "XX";
+    static string FlagUrl(string code) => $"https://flagcdn.com/w40/{code.ToLowerInvariant()}.png";
 }
 <div id="topbots-list"
      data-sb-widget="topbots"
      data-sb-depends="signature,summary"
      class="card bg-base-200 transition-all duration-200">
-    <div class="card-body p-4">
-        <div class="flex items-center justify-between mb-2">
-            <h3 class="text-sm font-bold text-base-content">Top Bots</h3>
-            <div class="flex items-center gap-0.5">
-                <button hx-get="@SortUrl("hits")" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
-                        class="btn btn-xs btn-ghost @SortBtnClass("hits")">Hits @SortIcon("hits")</button>
-                <button hx-get="@SortUrl("probability")" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
-                        class="btn btn-xs btn-ghost @SortBtnClass("probability")">Prob @SortIcon("probability")</button>
-                <button hx-get="@SortUrl("lastseen")" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
-                        class="btn btn-xs btn-ghost @SortBtnClass("lastseen")">Recent @SortIcon("lastseen")</button>
-            </div>
-        </div>
+    <div class="card-body p-3">
+        <h3 class="text-sm font-bold text-base-content mb-1">Top Bots</h3>
 
         @if (Model.Bots.Count == 0)
         {
@@ -36,33 +25,71 @@
         }
         else
         {
-            <div class="space-y-1">
-                @foreach (var bot in Model.Bots)
-                {
-                    var riskClass = bot.RiskBand switch {
-                        "VeryHigh" or "High" => "text-error",
-                        "Medium" or "Elevated" => "text-warning",
-                        _ => "text-success"
-                    };
-                    var threatClass = bot.ThreatBand switch {
-                        "Critical" or "High" => "bg-error/20 text-error",
-                        "Medium" => "bg-warning/20 text-warning",
-                        _ => ""
-                    };
-                    var displayName = bot.BotName ?? bot.BotType ?? "Unknown";
-                    var probPct = (bot.BotProbability * 100).ToString("F0");
-                    <a href="@bp/signature/@Uri.EscapeDataString(bot.PrimarySignature)"
-                       class="flex items-center gap-2 text-xs hover:bg-base-300/50 rounded px-1.5 py-1 transition-colors group">
-                        <span class="w-5 text-center">@GetFlag(bot.CountryCode)</span>
-                        <span class="font-medium truncate flex-1 min-w-0" title="@displayName">@displayName</span>
-                        @if (!string.IsNullOrEmpty(bot.ThreatBand) && bot.ThreatBand != "None")
+            <div class="overflow-x-auto">
+                <table class="table table-xs w-full">
+                    <thead>
+                        <tr class="text-[10px] uppercase tracking-wider">
+                            <th class="py-1 w-6"></th>
+                            <th class="py-1 @ThClass("name") cursor-pointer"
+                                hx-get="@SortUrl("name")" hx-target="#topbots-list" hx-swap="outerHTML transition:true">
+                                Name@(Html.Raw(SortIcon("name")))
+                            </th>
+                            <th class="py-1 text-center @ThClass("threat")">Threat</th>
+                            <th class="py-1 text-right @ThClass("probability") cursor-pointer"
+                                hx-get="@SortUrl("probability")" hx-target="#topbots-list" hx-swap="outerHTML transition:true">
+                                Prob@(Html.Raw(SortIcon("probability")))
+                            </th>
+                            <th class="py-1 text-right @ThClass("hits") cursor-pointer"
+                                hx-get="@SortUrl("hits")" hx-target="#topbots-list" hx-swap="outerHTML transition:true">
+                                Hits@(Html.Raw(SortIcon("hits")))
+                            </th>
+                            <th class="py-1 text-right @ThClass("lastseen") cursor-pointer"
+                                hx-get="@SortUrl("lastseen")" hx-target="#topbots-list" hx-swap="outerHTML transition:true">
+                                Seen@(Html.Raw(SortIcon("lastseen")))
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var bot in Model.Bots)
                         {
-                            <span class="px-1 py-0.5 rounded text-[10px] font-semibold @threatClass">@bot.ThreatBand</span>
+                            var riskClass = bot.RiskBand switch {
+                                "VeryHigh" or "High" => "text-error",
+                                "Medium" or "Elevated" => "text-warning",
+                                _ => "text-success"
+                            };
+                            var threatClass = bot.ThreatBand switch {
+                                "Critical" or "High" => "text-error",
+                                "Medium" => "text-warning",
+                                _ => ""
+                            };
+                            var displayName = bot.BotName ?? bot.BotType ?? "Unknown";
+                            var probPct = (bot.BotProbability * 100).ToString("F0");
+                            <tr class="hover:bg-base-300/50 cursor-pointer transition-colors"
+                                onclick="window.location.href='@bp/signature/@Uri.EscapeDataString(bot.PrimarySignature)'">
+                                <td class="py-1 w-6">
+                                    @if (HasFlag(bot.CountryCode))
+                                    {
+                                        <img src="@FlagUrl(bot.CountryCode!)" alt="@bot.CountryCode" class="w-6 h-4 object-cover rounded-sm" loading="lazy" />
+                                    }
+                                    else
+                                    {
+                                        <span class="text-base-content/30 text-[10px]">--</span>
+                                    }
+                                </td>
+                                <td class="py-1 font-medium text-xs truncate max-w-[140px]" title="@displayName">@displayName</td>
+                                <td class="py-1 text-center">
+                                    @if (!string.IsNullOrEmpty(bot.ThreatBand) && bot.ThreatBand != "None")
+                                    {
+                                        <span class="text-[10px] font-semibold @threatClass">@bot.ThreatBand</span>
+                                    }
+                                </td>
+                                <td class="py-1 text-right font-bold text-xs @riskClass">@(probPct)%</td>
+                                <td class="py-1 text-right text-xs text-base-content/60 font-mono">@bot.HitCount</td>
+                                <td class="py-1 text-right text-[10px] text-base-content/40">@bot.TimeAgo</td>
+                            </tr>
                         }
-                        <span class="font-bold @riskClass w-8 text-right">@(probPct)%</span>
-                        <span class="text-base-content/50 w-10 text-right">@bot.HitCount<span class="text-base-content/30 ml-0.5">hits</span></span>
-                    </a>
-                }
+                    </tbody>
+                </table>
             </div>
 
             @* Pagination *@

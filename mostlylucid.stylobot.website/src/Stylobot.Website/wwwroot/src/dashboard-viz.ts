@@ -186,13 +186,12 @@ async function connectSignalR(hubPath: string) {
             .configureLogging(signalR.LogLevel.Warning)
             .build();
 
-        // Fire attack arcs on bot detections
-        connection.on('BroadcastDetection', (raw: any) => {
-            const d = toCamel(raw);
-            if (d.isBot && d.countryCode && d.countryCode !== 'XX' && d.countryCode !== 'LOCAL') {
-                const risk = (d.riskBand === 'High' || d.riskBand === 'VeryHigh') ? 'high'
-                    : (d.riskBand === 'Medium' || d.riskBand === 'Elevated') ? 'medium' : 'low';
-                attackArcs?.fire(d.countryCode, risk);
+        // Beacon-only: lightweight attack arc signal (countryCode + riskBand only)
+        connection.on('BroadcastAttackArc', (countryCode: string, riskBand: string) => {
+            if (countryCode && countryCode !== 'XX' && countryCode !== 'LOCAL') {
+                const risk = (riskBand === 'High' || riskBand === 'VeryHigh') ? 'high'
+                    : (riskBand === 'Medium' || riskBand === 'Elevated') ? 'medium' : 'low';
+                attackArcs?.fire(countryCode, risk);
             }
         });
 

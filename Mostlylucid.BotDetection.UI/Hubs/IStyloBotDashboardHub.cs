@@ -78,4 +78,12 @@ public interface IStyloBotDashboardHub
     ///     (e.g., "summary", "signature", "countries", "clusters", "useragents").
     /// </param>
     Task BroadcastInvalidation(string signal);
+
+    /// <summary>
+    ///     Lightweight attack arc signal for the world map visualization.
+    ///     Carries only the minimum data needed to render an arc animation.
+    ///     This is the ONLY method that carries a data payload — all others
+    ///     should use <see cref="BroadcastInvalidation"/> as a beacon.
+    /// </summary>
+    Task BroadcastAttackArc(string countryCode, string riskBand);
 }

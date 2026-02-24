@@ -250,7 +250,8 @@
       "Bash(cd \"D:\\\\Source\\\\mostlylucid.stylobot\\\\mostlylucid.stylobot.website\" && SITE_DOMAIN=stylobot.net docker compose up -d website 2>&1)",
       "Bash(cd \"D:\\\\Source\\\\mostlylucid.stylobot\\\\mostlylucid.stylobot.website\" && SITE_DOMAIN=stylobot.net docker compose up -d caddy 2>&1)",
       "Bash(cd \"D:\\\\Source\\\\mostlylucid.stylobot\\\\mostlylucid.stylobot.website\" && SITE_DOMAIN=stylobot.net docker compose stop website && SITE_DOMAIN=stylobot.net docker compose run -d --name stylobot-website-test -p 8085:8080 website 2>&1)",
-      "mcp__plugin_playwright_playwright__browser_resize"
+      "mcp__plugin_playwright_playwright__browser_resize",
+      "Bash(coderabbit:*)"
     ]
   }
 }

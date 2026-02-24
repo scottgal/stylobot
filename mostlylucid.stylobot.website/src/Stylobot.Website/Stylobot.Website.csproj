@@ -5,7 +5,17 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>d7076ff6-3c0e-4f35-9535-1e35c5cbc764</UserSecretsId>
+
+    <!-- .NET Container Publishing -->
+    <ContainerRepository>scottgal/stylobot-site</ContainerRepository>
+    <ContainerImageTag>latest</ContainerImageTag>
+    <ContainerBaseImage>mcr.microsoft.com/dotnet/aspnet:10.0</ContainerBaseImage>
+    <ContainerUser>root</ContainerUser>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ContainerPort Include="8080" Type="tcp" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- Bot Detection from main repo - using project reference for development -->

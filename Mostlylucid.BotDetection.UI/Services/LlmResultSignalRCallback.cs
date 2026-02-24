@@ -31,9 +31,9 @@ public class LlmResultSignalRCallback : ILlmResultCallback
 
     public async Task OnLlmResultAsync(string requestId, string primarySignature, string description, CancellationToken ct = default)
     {
-        await _hubContext.Clients.All.BroadcastDescriptionUpdate(requestId, description);
-        _logger.LogDebug("Broadcast LLM description for {RequestId}: {Description}",
-            requestId, description.Length > 80 ? description[..80] + "..." : description);
+        // Beacon-only: signal that signature data changed, clients re-fetch via HTMX
+        await _hubContext.Clients.All.BroadcastInvalidation("signature");
+        _logger.LogDebug("Broadcast LLM description invalidation for {RequestId}", requestId);
     }
 
     public async Task OnSignatureDescriptionAsync(string signature, string name, string description, CancellationToken ct = default)
@@ -51,8 +51,9 @@ public class LlmResultSignalRCallback : ILlmResultCallback
             }
         }
 
-        // Then broadcast invalidation so clients re-fetch the partial
-        await _hubContext.Clients.All.BroadcastSignatureDescriptionUpdate(signature, name, description);
+        // Beacon-only: invalidate signature widgets + the specific signature
+        await _hubContext.Clients.All.BroadcastInvalidation("signature");
+        await _hubContext.Clients.All.BroadcastInvalidation(signature);
         _logger.LogInformation("Applied LLM bot name for {Signature}: '{Name}'",
             signature[..Math.Min(8, signature.Length)], name);
     }
@@ -69,8 +70,9 @@ public class LlmResultSignalRCallback : ILlmResultCallback
             }
         }
 
-        await _hubContext.Clients.All.BroadcastScoreNarrative(signature, narrative);
-        _logger.LogDebug("Broadcast score narrative for {Signature}",
+        // Beacon-only: invalidate the specific signature widget
+        await _hubContext.Clients.All.BroadcastInvalidation(signature);
+        _logger.LogDebug("Broadcast score narrative invalidation for {Signature}",
             signature[..Math.Min(8, signature.Length)]);
     }
 }

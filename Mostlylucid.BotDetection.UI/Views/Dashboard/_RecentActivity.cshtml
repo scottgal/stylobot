@@ -2,18 +2,31 @@
 @model VisitorListModel
 @{
     var bp = Model.BasePath;
-    static string GetFlag(string? code) {
-        if (string.IsNullOrEmpty(code) || code.Length != 2 || code == "XX") return "\uD83C\uDF10";
-        var upper = code.ToUpperInvariant();
-        return string.Concat(char.ConvertFromUtf32(0x1F1E6 + upper[0] - 'A'), char.ConvertFromUtf32(0x1F1E6 + upper[1] - 'A'));
+    string SortUrl(string field) {
+        var dir = Model.SortField == field ? (Model.SortDir == "desc" ? "asc" : "desc") : "desc";
+        return $"{bp}/partials/recent?sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}";
     }
+    string PageUrl(int page) => $"{bp}/partials/recent?sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}";
+    string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? " \u25B2" : " \u25BC") : "";
+    string ThClass(string field) => Model.SortField == field
+        ? "text-base-content/70 font-bold"
+        : "text-base-content/40 hover:text-base-content/60";
+
+    static bool HasFlag(string? code) => !string.IsNullOrEmpty(code) && code.Length == 2 && code != "XX";
+    static string FlagUrl(string code) => $"https://flagcdn.com/w40/{code.ToLowerInvariant()}.png";
 }
 <div id="recent-activity"
      data-sb-widget="recent"
      data-sb-depends="signature,summary"
      class="card bg-base-200 transition-all duration-200">
-    <div class="card-body p-4">
-        <h3 class="text-sm font-bold text-base-content mb-2">Recent Activity</h3>
+    <div class="card-body p-3">
+        <div class="flex items-center justify-between mb-1">
+            <h3 class="text-sm font-bold text-base-content">Recent Activity</h3>
+            @if (Model.TotalPages > 1)
+            {
+                <span class="text-[10px] text-base-content/40">@Model.Page/@Model.TotalPages</span>
+            }
+        </div>
 
         @if (Model.Visitors.Count == 0)
         {
@@ -24,16 +37,25 @@
             <div class="overflow-x-auto">
                 <table class="table table-xs w-full">
                     <thead>
-                        <tr class="text-[10px] text-base-content/40 uppercase">
-                            <th class="py-1">Time</th>
-                            <th class="py-1">Name</th>
+                        <tr class="text-[10px] uppercase tracking-wider">
+                            <th class="py-1 @ThClass("lastSeen") cursor-pointer"
+                                hx-get="@SortUrl("lastSeen")" hx-target="#recent-activity" hx-swap="outerHTML transition:true">
+                                Time@(Html.Raw(SortIcon("lastSeen")))
+                            </th>
+                            <th class="py-1 @ThClass("name") cursor-pointer"
+                                hx-get="@SortUrl("name")" hx-target="#recent-activity" hx-swap="outerHTML transition:true">
+                                Name@(Html.Raw(SortIcon("name")))
+                            </th>
                             <th class="py-1">Type</th>
-                            <th class="py-1 text-right">Prob</th>
+                            <th class="py-1 text-right @ThClass("risk") cursor-pointer"
+                                hx-get="@SortUrl("risk")" hx-target="#recent-activity" hx-swap="outerHTML transition:true">
+                                Prob@(Html.Raw(SortIcon("risk")))
+                            </th>
                             <th class="py-1">Action</th>
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var v in Model.Visitors.OrderByDescending(x => x.LastSeen).Take(10))
+                        @foreach (var v in Model.Visitors)
                         {
                             var displayName = v.BotName ?? v.BotType ?? (v.IsBot ? "Unknown Bot" : "Visitor");
                             var probPct = (v.BotProbability * 100).ToString("F0");
@@ -51,18 +73,47 @@
                             };
                             <tr class="hover:bg-base-300/50 cursor-pointer transition-colors"
                                 onclick="window.location.href='@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)'">
-                                <td class="py-1 text-base-content/50 whitespace-nowrap">@v.TimeAgo</td>
-                                <td class="py-1 font-medium truncate max-w-[120px]" title="@displayName">
-                                    <span class="mr-1">@GetFlag(v.CountryCode)</span>@displayName
+                                <td class="py-1 text-base-content/50 whitespace-nowrap text-[10px]">@v.TimeAgo</td>
+                                <td class="py-1 font-medium text-xs truncate max-w-[120px]" title="@displayName">
+                                    <span class="inline-flex items-center gap-1.5">
+                                        @if (HasFlag(v.CountryCode))
+                                        {
+                                            <img src="@FlagUrl(v.CountryCode!)" alt="@v.CountryCode" class="w-5 h-3.5 object-cover rounded-sm inline" loading="lazy" />
+                                        }
+                                        <span>@displayName</span>
+                                    </span>
                                 </td>
-                                <td class="py-1 text-base-content/50">@(v.BotType ?? (v.IsBot ? "Bot" : "Human"))</td>
-                                <td class="py-1 text-right font-bold @riskClass">@(probPct)%</td>
-                                <td class="py-1 @actionClass font-medium">@(v.Action ?? "Allow")</td>
+                                <td class="py-1 text-[10px] text-base-content/50">@(v.BotType ?? (v.IsBot ? "Bot" : "Human"))</td>
+                                <td class="py-1 text-right font-bold text-xs @riskClass">@(probPct)%</td>
+                                <td class="py-1 text-[10px] @actionClass font-medium">@(v.Action ?? "Allow")</td>
                             </tr>
                         }
                     </tbody>
                 </table>
             </div>
+
+            @* Pagination *@
+            @if (Model.TotalPages > 1)
+            {
+                <div class="flex items-center justify-center gap-0.5 mt-2 pt-2 border-t border-base-300">
+                    @if (Model.Page > 1)
+                    {
+                        <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#recent-activity" hx-swap="outerHTML transition:true"
+                                class="btn btn-xs btn-ghost">&laquo;</button>
+                    }
+                    @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
+                    {
+                        var pageNum = p;
+                        <button hx-get="@PageUrl(pageNum)" hx-target="#recent-activity" hx-swap="outerHTML transition:true"
+                                class="btn btn-xs @(pageNum == Model.Page ? "btn-primary" : "btn-ghost")">@pageNum</button>
+                    }
+                    @if (Model.Page < Model.TotalPages)
+                    {
+                        <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#recent-activity" hx-swap="outerHTML transition:true"
+                                class="btn btn-xs btn-ghost">&raquo;</button>
+                    }
+                </div>
+            }
         }
     </div>
 </div>

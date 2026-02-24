@@ -34,8 +34,6 @@ services:
     container_name: stylobot-caddy
     ports:
       - "80:80"
-      - "443:443"
-      - "443:443/udp"  # HTTP/3
     volumes:
       - ./demo/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -57,9 +55,6 @@ services:
   # YARP Gateway - Bot Detection Layer
   # ===========================================
   gateway:
-    build:
-      context: .
-      dockerfile: Stylobot.Gateway/Dockerfile
     image: scottgal/stylobot-gateway:latest
     container_name: stylobot-gateway
     environment:
@@ -108,12 +103,9 @@ services:
       # For internet-facing deployments, replace with cryptographically
       # random secrets via .env or a secrets manager.
       # ---------------------------------------------------------------
-      # 1. Dashboard monitor — disables behavioral detectors (dashboard polling is repetitive)
+      # 1. Dashboard monitor — runs all detectors, no action (logonly)
       - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Name=Dashboard Monitor
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__DisabledDetectors__0=BehavioralWaveform
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__DisabledDetectors__1=Behavioral
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__DisabledDetectors__2=AdvancedBehavioral
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__AllowedPaths__0=/_stylobot/**
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__ActionPolicyName=logonly
       - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__RateLimitPerMinute=120
       - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Tags__0=monitoring
       - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Tags__1=dashboard
@@ -160,7 +152,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 60s
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:8080/ || exit 1"]
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e \"GET /admin/alive HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n\" >&3 && grep -q \"200\" <&3'"]
       interval: 30s
       timeout: 5s
       start_period: 60s
@@ -170,9 +162,6 @@ services:
   # Demo Website - Protected Application
   # ===========================================
   website:
-    build:
-      context: .
-      dockerfile: mostlylucid.stylobot.website/Dockerfile
     image: scottgal/stylobot-site:latest
     container_name: stylobot-website
     env_file:
@@ -203,11 +192,9 @@ services:
       - BotDetection__EnableLegacyApiBypassKeys=true
       - BotDetection__ApiBypassKeys__0=${BOTDETECTION_API_BYPASS_KEY:-}
       # Rich API keys (same dashboard monitor key as gateway)
+      # Dashboard monitor — runs all detectors, no action (logonly)
       - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__Name=Dashboard Monitor
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__DisabledDetectors__0=BehavioralWaveform
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__DisabledDetectors__1=Behavioral
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__DisabledDetectors__2=AdvancedBehavioral
-      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__AllowedPaths__0=/_stylobot/**
+      - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__ActionPolicyName=logonly
       - BotDetection__ApiKeys__${BOTDETECTION_DASHBOARD_API_KEY:-SB-DASHBOARD-MONITOR}__RateLimitPerMinute=120
       # Dashboard
       - STYLOBOT_DASHBOARD_PUBLIC=true
@@ -224,6 +211,8 @@ services:
       - website-logs:/app/logs
       - website-config:/app/config
       - llm-models:/models  # Persistent cache for LLamaSharp GGUF models
+    ports:
+      - "8085:8080"
     expose:
       - "8080"
     depends_on:
@@ -233,10 +222,10 @@ services:
       - stylobot-demo
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e \"GET /health HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n\" >&3 && grep -q \"200\" <&3'"]
       interval: 30s
-      timeout: 3s
-      start_period: 10s
+      timeout: 5s
+      start_period: 15s
       retries: 3
 
   # ===========================================

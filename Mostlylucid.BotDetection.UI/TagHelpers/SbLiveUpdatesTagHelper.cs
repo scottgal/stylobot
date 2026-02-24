@@ -125,26 +125,9 @@ public class SbLiveUpdatesTagHelper : TagHelper
         .configureLogging(signalR.LogLevel.Warning)
         .build();
 
+    // SignalR is beacon-only: server sends lightweight invalidation signals,
+    // client triggers HTMX partial refreshes. No data payloads over the wire.
     connection.on('BroadcastInvalidation', function(signal) {{ if (signal) invalidate(signal); }});
-    connection.on('BroadcastSummary',    function() {{ invalidate('summary'); }});
-    connection.on('BroadcastTopBots',    function() {{ invalidate('signature'); invalidate('summary'); }});
-    connection.on('BroadcastSignature',  function(sig) {{
-        invalidate('signature');
-        if (sig && sig.primarySignature) invalidate(sig.primarySignature);
-    }});
-    connection.on('BroadcastDetection',  function(det) {{
-        invalidate('signature'); invalidate('summary');
-        if (det && det.primarySignature) invalidate(det.primarySignature);
-    }});
-    connection.on('BroadcastCountries',  function() {{ invalidate('countries'); }});
-    connection.on('BroadcastClusters',   function() {{ invalidate('clusters'); }});
-    connection.on('BroadcastDescriptionUpdate', function() {{ invalidate('signature'); }});
-    connection.on('BroadcastSignatureDescriptionUpdate', function(sig) {{
-        invalidate('signature');
-        if (sig) invalidate(sig);
-    }});
-    connection.on('BroadcastClusterDescriptionUpdate', function() {{ invalidate('clusters'); }});
-    connection.on('BroadcastScoreNarrative', function(sig) {{ if (sig) invalidate(sig); }});
 
     connection.onreconnecting(function() {{ setStatus('connecting'); }});
     connection.onreconnected(function()  {{ setStatus('connected'); }});

@@ -68,9 +68,9 @@ Detection:
             if (!string.IsNullOrWhiteSpace(description))
             {
                 detection.Description = description;
-                await _hubContext.Clients.All.BroadcastDescriptionUpdate(detection.RequestId, description);
-                _logger.LogDebug("Broadcast description for {RequestId}: {Description}",
-                    detection.RequestId, description.Length > 80 ? description[..80] + "..." : description);
+                // Beacon-only: signal that signature data changed
+                await _hubContext.Clients.All.BroadcastInvalidation("signature");
+                _logger.LogDebug("Broadcast description invalidation for {RequestId}", detection.RequestId);
             }
         }
         catch (OperationCanceledException)

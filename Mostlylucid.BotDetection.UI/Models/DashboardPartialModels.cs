@@ -56,6 +56,12 @@ public sealed class CountriesListModel
 {
     public required IReadOnlyList<DashboardCountryStats> Countries { get; init; }
     public required string BasePath { get; init; }
+    public string SortField { get; init; } = "total";
+    public string SortDir { get; init; } = "desc";
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 20;
+    public int TotalCount { get; init; }
+    public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
 }
 
 /// <summary>
@@ -65,6 +71,12 @@ public sealed class ClustersListModel
 {
     public required IReadOnlyList<ClusterViewModel> Clusters { get; init; }
     public required string BasePath { get; init; }
+    public string SortField { get; init; } = "members";
+    public string SortDir { get; init; } = "desc";
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 12;
+    public int TotalCount { get; init; }
+    public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
 }
 
 /// <summary>
@@ -93,6 +105,12 @@ public sealed class UserAgentsListModel
     public required IReadOnlyList<DashboardUserAgentSummary> UserAgents { get; init; }
     public required string BasePath { get; init; }
     public string Filter { get; init; } = "all";
+    public string SortField { get; init; } = "requests";
+    public string SortDir { get; init; } = "desc";
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 25;
+    public int TotalCount { get; init; }
+    public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
 }
 
 /// <summary>

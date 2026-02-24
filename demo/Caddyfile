@@ -1,90 +1,14 @@
-# Demo Caddyfile - routes all traffic through the Stylobot Gateway
-# The gateway handles bot detection and proxies to the demo website.
-# Grafana and Prometheus are available at /grafana and /prometheus.
+# Demo Caddyfile - routes traffic through Stylobot Gateway
+# Dashboard goes direct to website (SignalR needs direct connection)
 
-{
-    # Use internal CA for local demo (no Let's Encrypt)
-    local_certs
-}
-
-# HTTPS entry point - all traffic goes through the gateway
-:443 {
-    # Grafana dashboard (public read-only via anonymous access)
-    handle_path /grafana/* {
-        reverse_proxy grafana:3000
-    }
-
-    # Prometheus UI (optional, for debugging metrics)
-    handle_path /prometheus/* {
-        reverse_proxy prometheus:9090
-    }
-
-    # Dashboard: route /_stylobot* directly to website container
-    # (SignalR WebSocket upgrades fail through YARP, and
-    # dashboard API/UI must bypass the gateway proxy)
-    handle /_stylobot* {
-        reverse_proxy website:8080 {
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-            header_up X-Forwarded-Host {host}
-            header_up X-Client-Protocol {http.request.proto}
-        }
-    }
-
-    # Everything else goes through the gateway
-    handle {
-        reverse_proxy gateway:8080 {
-            health_uri /admin/alive
-            health_interval 10s
-            health_timeout 5s
-
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-            header_up X-Forwarded-Host {host}
-            header_up X-Client-Protocol {http.request.proto}
-        }
-    }
-
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        X-Content-Type-Options "nosniff"
-        X-Frame-Options "SAMEORIGIN"
-        -Server
-    }
-
-    encode gzip zstd
-}
-
-# HTTP fallback (redirects to HTTPS or serves directly for local dev)
 :80 {
-    # Grafana
-    handle_path /grafana/* {
-        reverse_proxy grafana:3000
-    }
-
-    # Prometheus
-    handle_path /prometheus/* {
-        reverse_proxy prometheus:9090
-    }
-
-    # Dashboard direct to website
+    # Dashboard direct to website (bypasses gateway)
     handle /_stylobot* {
-        reverse_proxy website:8080 {
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-            header_up X-Client-Protocol {http.request.proto}
-        }
+        reverse_proxy website:8080
     }
 
+    # Everything else through the gateway
     handle {
-        reverse_proxy gateway:8080 {
-            header_up X-Real-IP {remote_host}
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto {scheme}
-            header_up X-Client-Protocol {http.request.proto}
-        }
+        reverse_proxy gateway:8080
     }
 }
