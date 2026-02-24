@@ -163,6 +163,9 @@ services:
   # ===========================================
   website:
     image: scottgal/stylobot-site:latest
+    build:
+      context: .
+      dockerfile: mostlylucid.stylobot.website/Dockerfile
     container_name: stylobot-website
     env_file:
       - .env

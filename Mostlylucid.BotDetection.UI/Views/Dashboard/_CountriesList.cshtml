@@ -89,22 +89,26 @@
             {
                 <div class="flex items-center justify-between mt-2 pt-2 border-t border-base-300">
                     <span class="text-[10px] text-base-content/40">@Model.Page/@Model.TotalPages (@Model.TotalCount countries)</span>
-                    <div class="flex items-center gap-0.5">
+                    <div class="join">
                         @if (Model.Page > 1)
                         {
+                            <button hx-get="@PageUrl(1)" hx-target="#countries-list" hx-swap="outerHTML transition:true"
+                                    class="join-item btn btn-xs" title="First">&laquo;</button>
                             <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#countries-list" hx-swap="outerHTML transition:true"
-                                    class="btn btn-xs btn-ghost">&laquo;</button>
+                                    class="join-item btn btn-xs" title="Previous">&lsaquo;</button>
                         }
                         @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
                         {
                             var pageNum = p;
                             <button hx-get="@PageUrl(pageNum)" hx-target="#countries-list" hx-swap="outerHTML transition:true"
-                                    class="btn btn-xs @(pageNum == Model.Page ? "btn-primary" : "btn-ghost")">@pageNum</button>
+                                    class="join-item btn btn-xs @(pageNum == Model.Page ? "btn-active" : "")">@pageNum</button>
                         }
                         @if (Model.Page < Model.TotalPages)
                         {
                             <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#countries-list" hx-swap="outerHTML transition:true"
-                                    class="btn btn-xs btn-ghost">&raquo;</button>
+                                    class="join-item btn btn-xs" title="Next">&rsaquo;</button>
+                            <button hx-get="@PageUrl(Model.TotalPages)" hx-target="#countries-list" hx-swap="outerHTML transition:true"
+                                    class="join-item btn btn-xs" title="Last">&raquo;</button>
                         }
                     </div>
                 </div>

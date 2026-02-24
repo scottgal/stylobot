@@ -128,6 +128,37 @@ public sealed class TopBotsListModel
 }
 
 /// <summary>
+///     View model for the signature detail page.
+/// </summary>
+public sealed class SignatureDetailModel
+{
+    public required string SignatureId { get; init; }
+    public required string BasePath { get; init; }
+    public required string CspNonce { get; init; }
+    public required string HubPath { get; init; }
+    public bool Found { get; init; }
+
+    // From SignatureAggregate
+    public string? BotName { get; init; }
+    public string? BotType { get; init; }
+    public string? RiskBand { get; init; }
+    public double BotProbability { get; init; }
+    public double Confidence { get; init; }
+    public int HitCount { get; init; }
+    public string? Action { get; init; }
+    public string? CountryCode { get; init; }
+    public double ProcessingTimeMs { get; init; }
+    public List<string>? TopReasons { get; init; }
+    public DateTime LastSeen { get; init; }
+    public string? Narrative { get; init; }
+    public string? Description { get; init; }
+    public bool IsBot { get; init; }
+    public double? ThreatScore { get; init; }
+    public string? ThreatBand { get; init; }
+    public List<double>? SparklineData { get; init; }
+}
+
+/// <summary>
 ///     Shell view model for the full dashboard page.
 ///     Composes all partial models for initial server-side render.
 /// </summary>

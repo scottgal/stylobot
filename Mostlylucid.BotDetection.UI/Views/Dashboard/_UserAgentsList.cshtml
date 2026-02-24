@@ -98,23 +98,30 @@
         @* Pagination *@
         @if (Model.TotalPages > 1)
         {
-            <div class="flex items-center justify-center gap-0.5 mt-3">
-                @if (Model.Page > 1)
-                {
-                    <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
-                            class="btn btn-xs btn-ghost">&laquo;</button>
-                }
-                @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
-                {
-                    var pageNum = p;
-                    <button hx-get="@PageUrl(pageNum)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
-                            class="btn btn-xs @(pageNum == Model.Page ? "btn-primary" : "btn-ghost")">@pageNum</button>
-                }
-                @if (Model.Page < Model.TotalPages)
-                {
-                    <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
-                            class="btn btn-xs btn-ghost">&raquo;</button>
-                }
+            <div class="flex items-center justify-between mt-3">
+                <span class="text-[10px] text-base-content/40">@Model.Page/@Model.TotalPages (@Model.TotalCount UAs)</span>
+                <div class="join">
+                    @if (Model.Page > 1)
+                    {
+                        <button hx-get="@PageUrl(1)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                                class="join-item btn btn-xs" title="First">&laquo;</button>
+                        <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                                class="join-item btn btn-xs" title="Previous">&lsaquo;</button>
+                    }
+                    @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
+                    {
+                        var pageNum = p;
+                        <button hx-get="@PageUrl(pageNum)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                                class="join-item btn btn-xs @(pageNum == Model.Page ? "btn-active" : "")">@pageNum</button>
+                    }
+                    @if (Model.Page < Model.TotalPages)
+                    {
+                        <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                                class="join-item btn btn-xs" title="Next">&rsaquo;</button>
+                        <button hx-get="@PageUrl(Model.TotalPages)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                                class="join-item btn btn-xs" title="Last">&raquo;</button>
+                    }
+                </div>
             </div>
         }
     }

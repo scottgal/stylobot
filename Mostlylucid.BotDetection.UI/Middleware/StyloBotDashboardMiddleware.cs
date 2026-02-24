@@ -29,8 +29,19 @@ public class StyloBotDashboardMiddleware
     private readonly StyloBotDashboardOptions _options;
     private readonly RazorViewRenderer _razorViewRenderer;
 
-    private static readonly string? DashboardVersion = Assembly.GetExecutingAssembly()
-        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+    private static readonly string? DashboardVersion = GetDashboardVersion();
+
+    private static string? GetDashboardVersion()
+    {
+        // Try BotDetection core assembly first (has MinVer with git tags)
+        var coreAsm = typeof(BotDetectionOptions).Assembly;
+        var coreVersion = coreAsm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrEmpty(coreVersion) && coreVersion != "0.0.0")
+            return coreVersion;
+        // Fallback to UI assembly
+        return Assembly.GetExecutingAssembly()
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+    }
 
     // Rate limiter: per IP, per minute (used only for diagnostics endpoint)
     private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> _rateLimits = new();
@@ -187,11 +198,13 @@ public class StyloBotDashboardMiddleware
                 break;
 
             case var p when p.StartsWith("api/sparkline/", StringComparison.OrdinalIgnoreCase):
-                await ServeSparklineApiAsync(context, p.Substring("api/sparkline/".Length));
+                // Use original relativePath to preserve signature case
+                await ServeSparklineApiAsync(context, relativePath.Substring("api/sparkline/".Length));
                 break;
 
             case var p when p.StartsWith(BdfExportPrefix, StringComparison.OrdinalIgnoreCase):
-                await ServeBdfExportApiAsync(context, p.Substring(BdfExportPrefix.Length));
+                // Use original relativePath to preserve signature case
+                await ServeBdfExportApiAsync(context, relativePath.Substring(BdfExportPrefix.Length));
                 break;
 
             // --- HTMX partial endpoints (server-rendered HTML islands) ---
@@ -229,6 +242,11 @@ public class StyloBotDashboardMiddleware
 
             case "partials/update":
                 await ServeOobUpdateAsync(context);
+                break;
+
+            case var p when p.StartsWith("signature/", StringComparison.OrdinalIgnoreCase):
+                // Use original relativePath (not lowercased) to preserve signature case
+                await ServeSignatureDetailAsync(context, relativePath.Substring("signature/".Length));
                 break;
 
             default:
@@ -1393,6 +1411,102 @@ public class StyloBotDashboardMiddleware
         var uas = cached.Count > 0 ? cached : await ComputeUserAgentsFallbackAsync();
         var model = BuildUserAgentsModel("all", "requests", "desc", 1, 25, uas);
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Dashboard/_UserAgentsList.cshtml", model, context);
+    }
+
+    /// <summary>Serve the signature detail page for a specific signature.</summary>
+    private async Task ServeSignatureDetailAsync(HttpContext context, string signatureId)
+    {
+        if (string.IsNullOrEmpty(signatureId))
+        {
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsync("Missing signature ID");
+            return;
+        }
+
+        var decodedSignature = Uri.UnescapeDataString(signatureId);
+
+        // Validate signature format
+        if (decodedSignature.Length > 64 || !decodedSignature.All(c => char.IsLetterOrDigit(c) || c is '-' or '_' or '+' or '/' or '='))
+        {
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsync("Invalid signature format");
+            return;
+        }
+
+        var basePath = _options.BasePath.TrimEnd('/');
+        var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj) && nonceObj is string s && s.Length > 0
+            ? s
+            : Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+        context.Items["CspNonce"] = cspNonce;
+
+        // Set same CSP as dashboard page
+        context.Response.Headers.Remove("X-Frame-Options");
+        context.Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
+        context.Response.Headers.Remove("Content-Security-Policy");
+        var dashboardCsp = string.Join("; ",
+            "default-src 'self'",
+            "base-uri 'self'",
+            "frame-ancestors 'self'",
+            "object-src 'none'",
+            "img-src 'self' data: https:",
+            "font-src 'self' data: https://fonts.gstatic.com https://unpkg.com",
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+            $"script-src 'self' 'nonce-{cspNonce}' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com https://cdn.tailwindcss.com",
+            "connect-src 'self' ws: wss:");
+        context.Response.Headers["Content-Security-Policy"] = dashboardCsp;
+
+        SignatureDetailModel model;
+
+        if (_signatureCache.TryGet(decodedSignature, out var agg) && agg != null)
+        {
+            List<double>? sparkline;
+            lock (agg.SyncRoot)
+            {
+                sparkline = agg.ScoreHistory.Count > 0 ? agg.ScoreHistory.ToList() : null;
+            }
+
+            model = new SignatureDetailModel
+            {
+                SignatureId = decodedSignature,
+                BasePath = basePath,
+                CspNonce = cspNonce,
+                HubPath = _options.HubPath,
+                Found = true,
+                BotName = agg.BotName,
+                BotType = agg.BotType,
+                RiskBand = agg.RiskBand,
+                BotProbability = agg.BotProbability,
+                Confidence = agg.Confidence,
+                HitCount = agg.HitCount,
+                Action = agg.Action,
+                CountryCode = agg.CountryCode,
+                ProcessingTimeMs = agg.ProcessingTimeMs,
+                TopReasons = agg.TopReasons,
+                LastSeen = agg.LastSeen,
+                Narrative = agg.Narrative,
+                Description = agg.Description,
+                IsBot = agg.IsBot,
+                ThreatScore = agg.ThreatScore,
+                ThreatBand = agg.ThreatBand,
+                SparklineData = sparkline
+            };
+        }
+        else
+        {
+            model = new SignatureDetailModel
+            {
+                SignatureId = decodedSignature,
+                BasePath = basePath,
+                CspNonce = cspNonce,
+                HubPath = _options.HubPath,
+                Found = false
+            };
+        }
+
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Dashboard/_SignatureDetail.cshtml", model, context);
+        await context.Response.WriteAsync(html);
     }
 
     // ─── Shared model builders ───────────────────────────────────────────

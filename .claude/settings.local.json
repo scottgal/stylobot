@@ -251,7 +251,8 @@
       "Bash(cd \"D:\\\\Source\\\\mostlylucid.stylobot\\\\mostlylucid.stylobot.website\" && SITE_DOMAIN=stylobot.net docker compose up -d caddy 2>&1)",
       "Bash(cd \"D:\\\\Source\\\\mostlylucid.stylobot\\\\mostlylucid.stylobot.website\" && SITE_DOMAIN=stylobot.net docker compose stop website && SITE_DOMAIN=stylobot.net docker compose run -d --name stylobot-website-test -p 8085:8080 website 2>&1)",
       "mcp__plugin_playwright_playwright__browser_resize",
-      "Bash(coderabbit:*)"
+      "Bash(coderabbit:*)",
+      "Bash(dotnet package search mostlylucid.pagingtaghelper --source https://api.nuget.org/v3/index.json 2>&1 || nuget list mostlylucid.pagingtaghelper 2>&1 || echo \"Trying alternative search method...\" && curl -s \"https://api.nuget.org/v3-flatcontainer/mostlylucid.pagingtaghelper/index.json\" 2>&1)"
     ]
   }
 }

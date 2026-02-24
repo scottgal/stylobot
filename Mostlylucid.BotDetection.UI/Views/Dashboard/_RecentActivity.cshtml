@@ -71,17 +71,18 @@
                                 "TarPit" => "text-error",
                                 _ => "text-base-content/50"
                             };
-                            <tr class="hover:bg-base-300/50 cursor-pointer transition-colors"
-                                onclick="window.location.href='@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)'">
-                                <td class="py-1 text-base-content/50 whitespace-nowrap text-[10px]">@v.TimeAgo</td>
+                            <tr class="hover:bg-base-300/50 cursor-pointer transition-colors">
+                                <td class="py-1 text-base-content/50 whitespace-nowrap text-[10px]">
+                                    <a href="@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)">@v.TimeAgo</a>
+                                </td>
                                 <td class="py-1 font-medium text-xs truncate max-w-[120px]" title="@displayName">
-                                    <span class="inline-flex items-center gap-1.5">
+                                    <a href="@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)" class="inline-flex items-center gap-1.5 hover:underline">
                                         @if (HasFlag(v.CountryCode))
                                         {
                                             <img src="@FlagUrl(v.CountryCode!)" alt="@v.CountryCode" class="w-5 h-3.5 object-cover rounded-sm inline" loading="lazy" />
                                         }
                                         <span>@displayName</span>
-                                    </span>
+                                    </a>
                                 </td>
                                 <td class="py-1 text-[10px] text-base-content/50">@(v.BotType ?? (v.IsBot ? "Bot" : "Human"))</td>
                                 <td class="py-1 text-right font-bold text-xs @riskClass">@(probPct)%</td>
@@ -95,23 +96,30 @@
             @* Pagination *@
             @if (Model.TotalPages > 1)
             {
-                <div class="flex items-center justify-center gap-0.5 mt-2 pt-2 border-t border-base-300">
-                    @if (Model.Page > 1)
-                    {
-                        <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#recent-activity" hx-swap="outerHTML transition:true"
-                                class="btn btn-xs btn-ghost">&laquo;</button>
-                    }
-                    @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
-                    {
-                        var pageNum = p;
-                        <button hx-get="@PageUrl(pageNum)" hx-target="#recent-activity" hx-swap="outerHTML transition:true"
-                                class="btn btn-xs @(pageNum == Model.Page ? "btn-primary" : "btn-ghost")">@pageNum</button>
-                    }
-                    @if (Model.Page < Model.TotalPages)
-                    {
-                        <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#recent-activity" hx-swap="outerHTML transition:true"
-                                class="btn btn-xs btn-ghost">&raquo;</button>
-                    }
+                <div class="flex items-center justify-between mt-2 pt-2 border-t border-base-300">
+                    <span class="text-[10px] text-base-content/40">@Model.Page/@Model.TotalPages</span>
+                    <div class="join">
+                        @if (Model.Page > 1)
+                        {
+                            <button hx-get="@PageUrl(1)" hx-target="#recent-activity" hx-swap="outerHTML transition:true"
+                                    class="join-item btn btn-xs" title="First">&laquo;</button>
+                            <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#recent-activity" hx-swap="outerHTML transition:true"
+                                    class="join-item btn btn-xs" title="Previous">&lsaquo;</button>
+                        }
+                        @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
+                        {
+                            var pageNum = p;
+                            <button hx-get="@PageUrl(pageNum)" hx-target="#recent-activity" hx-swap="outerHTML transition:true"
+                                    class="join-item btn btn-xs @(pageNum == Model.Page ? "btn-active" : "")">@pageNum</button>
+                        }
+                        @if (Model.Page < Model.TotalPages)
+                        {
+                            <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#recent-activity" hx-swap="outerHTML transition:true"
+                                    class="join-item btn btn-xs" title="Next">&rsaquo;</button>
+                            <button hx-get="@PageUrl(Model.TotalPages)" hx-target="#recent-activity" hx-swap="outerHTML transition:true"
+                                    class="join-item btn btn-xs" title="Last">&raquo;</button>
+                        }
+                    </div>
                 </div>
             }
         }

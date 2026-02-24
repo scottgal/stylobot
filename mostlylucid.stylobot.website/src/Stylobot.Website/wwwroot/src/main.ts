@@ -70,6 +70,6 @@ Alpine.start();
 htmx.config.allowEval = false;
 
 // Initialize Command Center on dashboard pages (deferred to avoid blocking)
-if (document.getElementById('command-map')) {
+if (document.getElementById('command-map') || document.getElementById('countries-map')) {
     initCommandCenter();
 }

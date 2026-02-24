@@ -13,7 +13,7 @@
 }
 
 <!-- Command Center Dashboard -->
-<div class="max-w-7xl mx-auto px-4 py-4" hx-headers='{"X-Requested-With": "XMLHttpRequest"}'>
+<div class="max-w-7xl mx-auto px-2 py-4" hx-headers='{"X-Requested-With": "XMLHttpRequest"}'>
 
     <!-- Header: Title + Connection Status -->
     <div class="flex items-center gap-3 mb-4">
@@ -55,7 +55,7 @@
                             <span class="text-[9px] px-1 py-0.5 rounded status-badge-danger font-medium">LIVE</span>
                         </div>
                     </div>
-                    <div id="command-map" class="relative" style="height: 220px;"></div>
+                    <div id="command-map" class="relative" style="height: 440px;"></div>
                 </div>
 
                 <!-- Time Series Chart -->
@@ -86,6 +86,16 @@
     }
     else if (tab == "countries")
     {
+        <!-- Country map + table -->
+        <div class="rounded-xl border overflow-hidden mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] font-semibold text-base-content/70">GLOBAL THREAT MAP</span>
+                    <span class="text-[9px] px-1 py-0.5 rounded status-badge-danger font-medium">LIVE</span>
+                </div>
+            </div>
+            <div id="countries-map" class="relative" style="height: 440px;"></div>
+        </div>
         @await Html.PartialAsync("~/Views/Dashboard/_CountriesList.cshtml", Model.Countries)
     }
     else if (tab == "clusters")

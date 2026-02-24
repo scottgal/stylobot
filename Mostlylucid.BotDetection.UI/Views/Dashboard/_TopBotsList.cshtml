@@ -64,9 +64,9 @@
                             };
                             var displayName = bot.BotName ?? bot.BotType ?? "Unknown";
                             var probPct = (bot.BotProbability * 100).ToString("F0");
-                            <tr class="hover:bg-base-300/50 cursor-pointer transition-colors"
-                                onclick="window.location.href='@bp/signature/@Uri.EscapeDataString(bot.PrimarySignature)'">
+                            <tr class="hover:bg-base-300/50 cursor-pointer transition-colors">
                                 <td class="py-1 w-6">
+                                    <a href="@bp/signature/@Uri.EscapeDataString(bot.PrimarySignature)" class="block">
                                     @if (HasFlag(bot.CountryCode))
                                     {
                                         <img src="@FlagUrl(bot.CountryCode!)" alt="@bot.CountryCode" class="w-6 h-4 object-cover rounded-sm" loading="lazy" />
@@ -75,8 +75,11 @@
                                     {
                                         <span class="text-base-content/30 text-[10px]">--</span>
                                     }
+                                    </a>
                                 </td>
-                                <td class="py-1 font-medium text-xs truncate max-w-[140px]" title="@displayName">@displayName</td>
+                                <td class="py-1 font-medium text-xs truncate max-w-[140px]" title="@displayName">
+                                    <a href="@bp/signature/@Uri.EscapeDataString(bot.PrimarySignature)" class="hover:underline">@displayName</a>
+                                </td>
                                 <td class="py-1 text-center">
                                     @if (!string.IsNullOrEmpty(bot.ThreatBand) && bot.ThreatBand != "None")
                                     {
@@ -97,22 +100,26 @@
             {
                 <div class="flex items-center justify-between mt-2 pt-2 border-t border-base-300">
                     <span class="text-[10px] text-base-content/40">@Model.Page/@Model.TotalPages (@Model.TotalCount bots)</span>
-                    <div class="flex items-center gap-0.5">
+                    <div class="join">
                         @if (Model.Page > 1)
                         {
+                            <button hx-get="@PageUrl(1)" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
+                                    class="join-item btn btn-xs" title="First">&laquo;</button>
                             <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
-                                    class="btn btn-xs btn-ghost">&laquo;</button>
+                                    class="join-item btn btn-xs" title="Previous">&lsaquo;</button>
                         }
                         @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
                         {
                             var pageNum = p;
                             <button hx-get="@PageUrl(pageNum)" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
-                                    class="btn btn-xs @(pageNum == Model.Page ? "btn-primary" : "btn-ghost")">@pageNum</button>
+                                    class="join-item btn btn-xs @(pageNum == Model.Page ? "btn-active" : "")">@pageNum</button>
                         }
                         @if (Model.Page < Model.TotalPages)
                         {
                             <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
-                                    class="btn btn-xs btn-ghost">&raquo;</button>
+                                    class="join-item btn btn-xs" title="Next">&rsaquo;</button>
+                            <button hx-get="@PageUrl(Model.TotalPages)" hx-target="#topbots-list" hx-swap="outerHTML transition:true"
+                                    class="join-item btn btn-xs" title="Last">&raquo;</button>
                         }
                     </div>
                 </div>

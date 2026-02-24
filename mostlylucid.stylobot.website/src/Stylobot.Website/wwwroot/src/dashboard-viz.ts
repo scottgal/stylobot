@@ -65,8 +65,19 @@ let mapRendered = false;
 
 // ===== Map Rendering =====
 
+function renderMapOnElement(el: HTMLElement) {
+    renderWorldMap(el, countries, {
+        height: el.clientHeight || 440,
+        dark: isDark(),
+        onRegionSelected: (code: string) => {
+            console.log('[CommandCenter] Region selected:', code);
+        },
+    });
+}
+
 async function fetchAndRenderMap() {
-    const el = document.getElementById('command-map');
+    // Find any map container on the page
+    const el = document.getElementById('command-map') || document.getElementById('countries-map');
     if (!el) return;
 
     try {
@@ -81,19 +92,20 @@ async function fetchAndRenderMap() {
             label: co.countryName || co.countryCode,
         }));
 
-        renderWorldMap(el, countries, {
-            height: 420,
-            dark: isDark(),
-            onRegionSelected: (code: string) => {
-                // Could navigate to country detail in future
-                console.log('[CommandCenter] Region selected:', code);
-            },
-        });
+        // Render map on all available map containers
+        const mapEls = [
+            document.getElementById('command-map'),
+            document.getElementById('countries-map'),
+        ].filter(Boolean) as HTMLElement[];
+
+        for (const mapEl of mapEls) {
+            renderMapOnElement(mapEl);
+        }
         mapRendered = true;
 
-        // Init attack arc overlay
+        // Init attack arc overlay on the primary map
         attackArcs?.destroy();
-        attackArcs = new AttackArcRenderer(el);
+        attackArcs = new AttackArcRenderer(mapEls[0]);
     } catch (e) {
         console.warn('[CommandCenter] Failed to load map data:', e);
     }
@@ -217,15 +229,18 @@ async function connectSignalR(hubPath: string) {
 // ===== Theme Change Handler =====
 
 function onThemeChange() {
-    if (mapRendered) {
-        const el = document.getElementById('command-map');
-        if (el && countries.length > 0) {
-            renderWorldMap(el, countries, {
-                height: 420,
-                dark: isDark(),
-            });
+    if (mapRendered && countries.length > 0) {
+        const mapEls = [
+            document.getElementById('command-map'),
+            document.getElementById('countries-map'),
+        ].filter(Boolean) as HTMLElement[];
+
+        for (const el of mapEls) {
+            renderMapOnElement(el);
+        }
+        if (mapEls.length > 0) {
             attackArcs?.destroy();
-            attackArcs = new AttackArcRenderer(el);
+            attackArcs = new AttackArcRenderer(mapEls[0]);
         }
     }
     if (timeChart) {
@@ -236,8 +251,8 @@ function onThemeChange() {
 // ===== Public Init =====
 
 export async function initCommandCenter(hubPath: string = '/_stylobot/hub') {
-    // Only init on pages with the command map
-    if (!document.getElementById('command-map')) return;
+    // Only init on pages with a map container
+    if (!document.getElementById('command-map') && !document.getElementById('countries-map')) return;
 
     // Fetch data and render visualizations in parallel
     await Promise.all([

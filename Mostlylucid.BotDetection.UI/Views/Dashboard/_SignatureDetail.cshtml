@@ -1,0 +1,247 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model SignatureDetailModel
+@{
+    Layout = null;
+    var bp = Model.BasePath;
+    static bool HasFlag(string? code) => !string.IsNullOrEmpty(code) && code.Length == 2 && code != "XX";
+    static string FlagUrl(string code) => $"https://flagcdn.com/w40/{code.ToLowerInvariant()}.png";
+
+    string RiskColor(string? risk) => risk switch
+    {
+        "VeryHigh" => "text-error",
+        "High" => "text-error",
+        "Elevated" => "text-warning",
+        "Medium" => "text-warning",
+        _ => "text-success"
+    };
+
+    string ActionColor(string? action) => action switch
+    {
+        "Block" or "Blocked" => "text-error",
+        "Throttle" or "throttle-stealth" => "text-warning",
+        "Challenge" => "text-warning",
+        _ => "text-success"
+    };
+
+    var timeAgo = Model.LastSeen == default ? "unknown" : FormatTimeAgo(DateTime.UtcNow - Model.LastSeen);
+    string FormatTimeAgo(TimeSpan span)
+    {
+        if (span.TotalSeconds < 5) return "now";
+        if (span.TotalSeconds < 60) return $"{(int)span.TotalSeconds}s ago";
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours}h {span.Minutes}m ago";
+        return $"{(int)span.TotalDays}d ago";
+    }
+}
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@(Model.Found ? (Model.BotName ?? "Signature") : "Not Found") - StyloBot</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@@4.6.0/dist/full.min.css" />
+    <script src="https://cdn.tailwindcss.com" nonce="@Model.CspNonce"></script>
+    <link rel="stylesheet" href="https://unpkg.com/boxicons@@2.1.4/css/boxicons.min.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Raleway:wght@700;800;900&display=swap" rel="stylesheet" />
+    <script nonce="@Model.CspNonce">
+        (function() {
+            try {
+                var saved = localStorage.getItem('sb-theme');
+                if (saved) document.documentElement.setAttribute('data-theme', saved);
+                else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)
+                    document.documentElement.setAttribute('data-theme', 'light');
+            } catch(e) {}
+        })();
+    </script>
+    <style nonce="@Model.CspNonce">
+        [data-theme="dark"] {
+            --sb-brand-muted: #6b7280;
+            --sb-accent: #5ba3a3;
+            --sb-surface: #0b1220;
+            --sb-card-bg: #141f33;
+            --sb-card-border: rgba(91, 163, 163, 0.28);
+            --sb-card-divider: rgba(148, 163, 184, 0.18);
+        }
+        [data-theme="light"] {
+            --sb-brand-muted: #475569;
+            --sb-accent: #0f766e;
+            --sb-surface: #f8fafc;
+            --sb-card-bg: #ffffff;
+            --sb-card-border: rgba(15, 118, 110, 0.18);
+            --sb-card-divider: rgba(15, 23, 42, 0.1);
+        }
+        body { font-family: 'Inter', sans-serif; background: var(--sb-surface); }
+        .brand-header {
+            background: linear-gradient(120deg, color-mix(in oklab, var(--sb-surface) 78%, #0f172a), color-mix(in oklab, var(--sb-card-bg) 70%, #0f172a));
+            border-bottom: 1px solid var(--sb-card-divider);
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+
+    <!-- Brand header -->
+    <header class="brand-header px-4 py-3">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <a href="@bp" class="text-lg font-black tracking-tight" style="color: var(--sb-accent);">
+                    <span style="font-family: 'Raleway', sans-serif;">StyloBot</span>
+                </a>
+                <span class="text-xs font-medium px-2 py-0.5 rounded-full"
+                      style="background: var(--sb-card-bg); color: var(--sb-brand-muted); border: 1px solid var(--sb-card-border);">
+                    Signature Detail
+                </span>
+            </div>
+            <button onclick="document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); try { localStorage.setItem('sb-theme', document.documentElement.getAttribute('data-theme')); } catch(e) {}"
+                    class="btn btn-ghost btn-xs btn-circle">
+                <i class="bx bx-moon text-sm"></i>
+            </button>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 py-4">
+
+@if (!Model.Found)
+{
+    <div class="rounded-xl border p-8 text-center" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <h2 class="text-lg font-bold text-base-content/70 mb-2">Signature Not Found</h2>
+        <p class="text-sm text-base-content/50 mb-4">The signature <code class="text-xs bg-base-300 px-1 py-0.5 rounded">@Model.SignatureId</code> was not found in the cache.</p>
+        <p class="text-xs text-base-content/40">It may have been evicted or the system may have restarted.</p>
+        <a href="@bp" class="btn btn-sm btn-ghost mt-4">&larr; Back to Dashboard</a>
+    </div>
+}
+else
+{
+    <!-- Breadcrumb -->
+    <div class="flex items-center gap-2 mb-4 text-xs text-base-content/50">
+        <a href="@bp" class="hover:text-base-content/70">&larr; Dashboard</a>
+        <span>/</span>
+        <span class="text-base-content/70">Signature Detail</span>
+    </div>
+
+    <!-- Header -->
+    <div class="flex items-center gap-3 mb-4">
+        @if (HasFlag(Model.CountryCode))
+        {
+            <img src="@FlagUrl(Model.CountryCode!)" alt="@Model.CountryCode" class="w-6 h-4 object-cover rounded-sm" />
+        }
+        <h1 class="text-lg font-bold text-base-content">@(Model.BotName ?? "Unknown Bot")</h1>
+        @if (Model.IsBot)
+        {
+            <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-error/20 text-error">Bot</span>
+        }
+        else
+        {
+            <span class="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-success/20 text-success">Human</span>
+        }
+        @if (!string.IsNullOrEmpty(Model.BotType))
+        {
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-base-300 text-base-content/60">@Model.BotType</span>
+        }
+    </div>
+
+    <!-- Stats grid -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 mb-4">
+        <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Probability</div>
+            <div class="text-lg font-bold @(Model.BotProbability >= 0.7 ? "text-error" : Model.BotProbability >= 0.4 ? "text-warning" : "text-success")">@($"{Model.BotProbability:P0}")</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Confidence</div>
+            <div class="text-lg font-bold text-base-content">@($"{Model.Confidence:P0}")</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Risk</div>
+            <div class="text-lg font-bold @RiskColor(Model.RiskBand)">@(Model.RiskBand ?? "Unknown")</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Hit Count</div>
+            <div class="text-lg font-bold text-base-content">@Model.HitCount.ToString("N0")</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Action</div>
+            <div class="text-lg font-bold @ActionColor(Model.Action)">@(Model.Action ?? "Allow")</div>
+        </div>
+        <div class="rounded-lg border p-3" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <div class="text-[10px] font-semibold text-base-content/50 uppercase">Last Seen</div>
+            <div class="text-lg font-bold text-base-content">@timeAgo</div>
+        </div>
+    </div>
+
+    <!-- Two-column: Description + Detectors -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+        <div class="rounded-xl border p-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Analysis</h3>
+            @if (!string.IsNullOrEmpty(Model.Description))
+            {
+                <p class="text-sm text-base-content/80 mb-2">@Model.Description</p>
+            }
+            @if (!string.IsNullOrEmpty(Model.Narrative))
+            {
+                <p class="text-xs text-base-content/50 italic">@Model.Narrative</p>
+            }
+            @if (string.IsNullOrEmpty(Model.Description) && string.IsNullOrEmpty(Model.Narrative))
+            {
+                <p class="text-xs text-base-content/40 italic">No analysis available yet.</p>
+            }
+        </div>
+
+        <div class="rounded-xl border p-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Detection Signals</h3>
+            @if (Model.TopReasons?.Count > 0)
+            {
+                <ul class="space-y-1">
+                    @foreach (var reason in Model.TopReasons)
+                    {
+                        <li class="flex items-start gap-2 text-xs text-base-content/70">
+                            <span class="text-base-content/30 mt-0.5">&#x2022;</span>
+                            <span>@reason</span>
+                        </li>
+                    }
+                </ul>
+            }
+            else
+            {
+                <p class="text-xs text-base-content/40 italic">No detection signals recorded.</p>
+            }
+        </div>
+    </div>
+
+    @if (Model.ThreatScore.HasValue)
+    {
+        <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Threat Assessment</h3>
+            <div class="flex items-center gap-4">
+                <div>
+                    <span class="text-sm text-base-content/50">Score:</span>
+                    <span class="text-sm font-bold @RiskColor(Model.ThreatBand)">@($"{Model.ThreatScore:F3}")</span>
+                </div>
+                @if (!string.IsNullOrEmpty(Model.ThreatBand))
+                {
+                    <div>
+                        <span class="text-sm text-base-content/50">Band:</span>
+                        <span class="text-sm font-bold @RiskColor(Model.ThreatBand)">@Model.ThreatBand</span>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Signature ID footer -->
+    <div class="text-[10px] text-base-content/30 mt-4 flex items-center gap-2">
+        <span>Signature:</span>
+        <code class="bg-base-300/50 px-1.5 py-0.5 rounded select-all">@Model.SignatureId</code>
+        <span class="text-base-content/20">|</span>
+        <span>Processing: @($"{Model.ProcessingTimeMs:F1}")ms</span>
+        @if (!string.IsNullOrEmpty(Model.CountryCode) && Model.CountryCode != "XX")
+        {
+            <span class="text-base-content/20">|</span>
+            <span>Country: @Model.CountryCode</span>
+        }
+    </div>
+}
+
+    </main>
+</body>
+</html>
