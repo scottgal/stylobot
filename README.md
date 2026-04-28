@@ -1,9 +1,5 @@
 # StyloBot
 
-> NOTE: Based on Open Source Community Feedback StyloBot will move to closed source from version 6.1. 6.0 is the last version under Unlicense.
-> Please fork and maintain your own version if you wish to have source access.
-> Thank /r/selfhosted for the 'support'.
-
 I tried to give the community a gift but they didn't want it.
 
 
