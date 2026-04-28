@@ -1,6 +1,6 @@
 # StyloBot
 
-> NOTE: Based on feedback this project is now on hiatus. I'm not able to adequately explain what it is and it's making me sadder than I'm willing to accept.  
+> NOTE: Based on feedback this project is now on hiatus. I'm not able to adequately explain what it is and it's making me sadder than I'm willing to accept to give the community a gift.  
 
 **Self-hosted bot detection and anonymous entity resolution for ASP.NET Core.** 49 detectors across 4 waves, sub-millisecond inference, progressive identity that survives rotation. One binary. No cloud scoring dependency.
 
