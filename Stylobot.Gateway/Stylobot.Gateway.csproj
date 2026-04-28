@@ -42,6 +42,7 @@
 
     <ItemGroup>
         <!-- YARP Reverse Proxy -->
+        <PackageReference Include="OpenTelemetry.Api" Version="1.15.3" />
         <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
 
         <!-- Database providers (optional) -->
