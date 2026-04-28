@@ -1,5 +1,7 @@
 # StyloBot
 
+> NOTE: Based on feedback this project is now on hiatus. I'm not able to adequately explain what it is and it's making me sadder than I'm willing to accept.  
+
 **Self-hosted bot detection and anonymous entity resolution for ASP.NET Core.** 49 detectors across 4 waves, sub-millisecond inference, progressive identity that survives rotation. One binary. No cloud scoring dependency.
 
 [![NuGet](https://img.shields.io/nuget/v/mostlylucid.botdetection)](https://www.nuget.org/packages/mostlylucid.botdetection)
