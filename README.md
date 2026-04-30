@@ -1,14 +1,6 @@
 # StyloBot
 
->Note: Based on feedback, this project is now on hiatus.
-
-I’m clearly not explaining what it is well enough, and it’s affecting me more negatively than I’m willing to accept.
-
-I built it to give something useful to the community, but right now the healthiest move is to step back.
-
-Thanks to everyone who engaged constructively.
-
---- 
+> TOTALLY FREE TO USE - Commercial addons coming in June 2026! 
 
 **Self-hosted bot detection and anonymous entity resolution for ASP.NET Core.** 49 detectors across 4 waves, sub-millisecond inference, progressive identity that survives rotation. One binary. No cloud scoring dependency.
 
