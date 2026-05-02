@@ -1,8 +1,8 @@
 # StyloBot
 
-> TOTALLY FREE TO USE - Commercial addons coming in June 2026! 
+**Bot detection that knows your site.** Cloud scoring services evaluate your traffic against generic baselines trained on other people's users. StyloBot learns what normal looks like on your specific application: the document-asset-API request sequence, the timing distribution of your real users, the session shape your checkout flow produces. Bots that adapt to evade a cloud service still diverge from those patterns.
 
-**Self-hosted bot detection and anonymous entity resolution for ASP.NET Core.** 49 detectors across 4 waves, sub-millisecond inference, progressive identity that survives rotation. One binary. No cloud scoring dependency.
+Runs in your own infrastructure: in-process ASP.NET Core middleware, standalone YARP gateway proxy, or sidecar detection API. 49 detectors, <150µs per request, no PII leaves your server.
 
 [![NuGet](https://img.shields.io/nuget/v/mostlylucid.botdetection)](https://www.nuget.org/packages/mostlylucid.botdetection)
 [![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](https://unlicense.org/)
@@ -15,7 +15,7 @@
 
 Cloud-based bot services work until your attacker adapts. When a sophisticated scraper learns to look like a user from your IP allow-list, a scoring API that doesn't know your application's normal behaviour has nothing to go on.
 
-StyloBot runs in your process. It knows what a real page-load sequence looks like on *your* site: document, then asset burst in 80-500ms, then API calls, then optionally SignalR. It knows the timing signatures of your real users' sessions compressed into 129-dimensional Markov chain vectors. It tracks identity across rotation attempts using cosine similarity walks across fingerprint neighbours. All of this runs in ~150µs per request on commodity hardware, with no network call and no PII leaving your server.
+StyloBot runs in your own infrastructure. It knows what a real page-load sequence looks like on *your* site: document, then asset burst in 80-500ms, then API calls, then optionally SignalR. It knows the timing signatures of your real users' sessions compressed into 129-dimensional Markov chain vectors. It tracks identity across rotation attempts using cosine similarity walks across fingerprint neighbours. All of this runs in ~150µs per request on commodity hardware, with no network call to a third party and no PII leaving your server.
 
 ---
 
@@ -271,8 +271,11 @@ Mostlylucid.BotDetection.Api/          Public REST API
 Mostlylucid.BotDetection.Llm.Tunnel/   GPU tunnel relay
 Mostlylucid.BotDetection.Console/      Standalone CLI (6 platforms)
 Stylobot.Gateway/                       Docker YARP reverse proxy
+sdk/node/                               Node.js SDK (core, node, elements packages)
+bot-signatures/                         BDF replay test signatures
 test-bdf-scenarios/                     BDF replay test scenarios
-docs/                                   Architecture + specs
+docs/                                   Architecture, specs, security review
+scripts/                                Load tests, Docker compose, build tooling
 ```
 
 ## Documentation

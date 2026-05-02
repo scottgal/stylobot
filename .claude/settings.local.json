@@ -364,7 +364,9 @@
       "Bash(lsof -ti:5200)",
       "Bash(ASPNETCORE_ENVIRONMENT=Development dotnet run --project Mostlylucid.BotDetection.Sample --urls http://localhost:5200)",
       "Bash(bash /tmp/generate-traffic.sh http://localhost:5200)",
-      "Bash(dotnet script -e ' *)"
+      "Bash(dotnet script -e ' *)",
+      "Bash(awk '/ServeSetupAsync/,/^    \\\\}/' /Users/scottgalloway/RiderProjects/stylobot/Mostlylucid.BotDetection.UI/Middleware/StyloBotDashboardMiddleware.cs)",
+      "Bash(awk '/ServeLoginUiAsync/,/^    \\\\}/' /Users/scottgalloway/RiderProjects/stylobot/Mostlylucid.BotDetection.UI/Middleware/StyloBotDashboardMiddleware.cs)"
     ]
   }
 }
