@@ -1,11 +1,9 @@
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Primitives;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Services;
@@ -42,10 +40,6 @@ public sealed class SbWidgetBatchMiddleware
     private readonly ILogger<SbWidgetBatchMiddleware> _logger;
 
     private static readonly TimeSpan WidgetCacheTtl = TimeSpan.FromSeconds(2);
-
-    private static readonly Regex FirstTagRegex = new(
-        @"^(<[a-zA-Z][^>]*?)(/?>)",
-        RegexOptions.Compiled | RegexOptions.Singleline);
 
     public SbWidgetBatchMiddleware(
         RequestDelegate next,
@@ -85,12 +79,10 @@ public sealed class SbWidgetBatchMiddleware
 
         context.Response.ContentType = "text/html; charset=utf-8";
 
-        var tasks = widgets.Select(w => RenderWidgetWithCacheAsync(context, w)).ToArray();
-        var results = await Task.WhenAll(tasks);
-
         var sb = new StringBuilder();
-        foreach (var html in results)
+        foreach (var w in widgets)
         {
+            var html = await RenderWidgetWithCacheAsync(context, w);
             if (!string.IsNullOrEmpty(html))
                 sb.Append(html);
         }
@@ -104,8 +96,8 @@ public sealed class SbWidgetBatchMiddleware
 
     private async Task<string> RenderWidgetWithCacheAsync(HttpContext context, string widgetId)
     {
-        var q = ExtractWidgetParams(context, widgetId);
-        var cacheKey = ComputeWidgetCacheKey(widgetId, q);
+        var q = WidgetRenderHelpers.ExtractWidgetParams(context, widgetId);
+        var cacheKey = WidgetRenderHelpers.ComputeWidgetCacheKey(widgetId, q);
 
         if (_cache.TryGetValue(cacheKey, out string? cached) && cached != null)
             return cached;
@@ -113,7 +105,7 @@ public sealed class SbWidgetBatchMiddleware
         var html = await RenderWidgetAsync(context, widgetId, q);
         if (!string.IsNullOrEmpty(html))
         {
-            html = InjectOobAttribute(html);
+            html = WidgetRenderHelpers.InjectOobAttribute(html);
             _cache.Set(cacheKey, html, WidgetCacheTtl);
         }
 
@@ -219,9 +211,11 @@ public sealed class SbWidgetBatchMiddleware
         var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
 
         // Use the aggregate cache (populated by DashboardSummaryBroadcaster).
-        // Matches the ViewComponent approach - no expensive fallback query.
-        var data = _aggregateCache.Current.UserAgents;
-        var model = BuildUserAgentsModel(filter, sortField, sortDir, page, 25, data);
+        // IDashboardEventStore does not expose a GetUserAgentStatsAsync method, so no DB
+        // fallback is available when the cache is empty (e.g. immediately after startup
+        // before DashboardSummaryBroadcaster has run its first tick).
+        var all = _aggregateCache.Current.UserAgents;
+        var model = BuildUserAgentsModel(filter, sortField, sortDir, page, 25, all);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbUserAgentsList/Default.cshtml", model, context);
     }
@@ -231,7 +225,7 @@ public sealed class SbWidgetBatchMiddleware
         var filter = q["filter"].FirstOrDefault();
         var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var pageSize = int.TryParse(q["pageSize"].FirstOrDefault(), out var ps) && ps > 0 ? ps : 25;
-        var model = BuildSessionsModel(context, page, pageSize, filter);
+        var model = await BuildSessionsModelAsync(context, page, pageSize, filter);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbSessionsList/Default.cshtml", model, context);
     }
@@ -367,7 +361,7 @@ public sealed class SbWidgetBatchMiddleware
         };
     }
 
-    private SessionsListModel BuildSessionsModel(HttpContext context, int page, int pageSize, string? filter)
+    private async Task<SessionsListModel> BuildSessionsModelAsync(HttpContext context, int page, int pageSize, string? filter)
     {
         var sessionStore = context.RequestServices.GetService<ISessionStore>();
         if (sessionStore == null)
@@ -381,7 +375,7 @@ public sealed class SbWidgetBatchMiddleware
         }
 
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
-        var sessions = sessionStore.GetRecentSessionsAsync(pageSize, isBot).GetAwaiter().GetResult();
+        var sessions = await sessionStore.GetRecentSessionsAsync(pageSize, isBot);
 
         var entries = sessions.Select(s => new SessionListEntry
         {
@@ -447,42 +441,4 @@ public sealed class SbWidgetBatchMiddleware
         model.BotAvgSessionDurationSecs = AvgDuration(botVisitors);
     }
 
-    // -------------------------------------------------------------------------
-    // Static helpers
-    // -------------------------------------------------------------------------
-
-    private static string InjectOobAttribute(string html)
-    {
-        var match = FirstTagRegex.Match(html);
-        if (!match.Success) return html;
-        if (match.Value.Contains("hx-swap-oob", StringComparison.Ordinal)) return html;
-        return html[..match.Groups[1].Index]
-               + match.Groups[1].Value
-               + " hx-swap-oob=\"true\""
-               + match.Groups[2].Value
-               + html[(match.Index + match.Length)..];
-    }
-
-    private static IQueryCollection ExtractWidgetParams(HttpContext context, string widgetId)
-    {
-        var prefix = widgetId + ".";
-        Dictionary<string, StringValues>? dict = null;
-        foreach (var kvp in context.Request.Query)
-        {
-            if (kvp.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                dict ??= new Dictionary<string, StringValues>(StringComparer.OrdinalIgnoreCase);
-                dict[kvp.Key[prefix.Length..]] = kvp.Value;
-            }
-        }
-        return dict is { Count: > 0 } ? new QueryCollection(dict) : context.Request.Query;
-    }
-
-    private static string ComputeWidgetCacheKey(string widgetId, IQueryCollection q)
-    {
-        var sorted = q
-            .OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(k => $"{k.Key}={k.Value}");
-        return $"sb:widget:{widgetId}:{string.Join("&", sorted)}";
-    }
 }

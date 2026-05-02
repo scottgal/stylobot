@@ -325,6 +325,26 @@ public static class StyloBotDashboardServiceExtensions
         return services;
     }
 
+    /// <summary>
+    ///     Adds the <see cref="SbWidgetBatchMiddleware"/> to the pipeline so that
+    ///     <c>GET {basePath}/partials/update?widgets=w1,w2</c> HTMX batch-update requests are handled.
+    ///     Call after <c>app.UseBotDetection()</c>.
+    /// </summary>
+    /// <example>
+    ///     <code>
+    ///     builder.Services.AddBotDetection();
+    ///     builder.Services.AddStyloBotWidgets();
+    ///     // ...
+    ///     app.UseBotDetection();
+    ///     app.UseStyloBotWidgets();
+    ///     </code>
+    /// </example>
+    public static IApplicationBuilder UseStyloBotWidgets(this IApplicationBuilder app)
+    {
+        app.UseMiddleware<SbWidgetBatchMiddleware>();
+        return app;
+    }
+
     // ==========================================
     // Lightweight persistence (for gateways/proxies)
     // ==========================================
