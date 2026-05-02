@@ -123,10 +123,6 @@ app.MapOpenApi();
 // HTTPS redirection first
 app.UseHttpsRedirection();
 
-// Serve static files (test webpage)
-app.UseDefaultFiles();
-app.UseStaticFiles();
-
 app.UseRouting();
 
 // Holodeck path tagger: tags honeypot paths on HttpContext.Items before detection runs
@@ -134,7 +130,12 @@ app.UseMiddleware<Mostlylucid.BotDetection.ApiHolodeck.Middleware.HoneypotPathTa
 
 // Full StyloBot: detection + dashboard, correct middleware ordering guaranteed.
 // Broadcast middleware wraps detection so blocked requests are always recorded.
+// Must run before static files so bots requesting assets are detected.
 app.UseStyloBot();
+
+// Serve static files after detection so all requests pass through the pipeline
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 // Inject X-StyloBot-* response headers (confidence, bot type, risk band)
 app.UseStyloBotResponseHeaders();

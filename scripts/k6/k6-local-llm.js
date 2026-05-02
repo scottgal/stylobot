@@ -83,18 +83,19 @@ export default function () {
     timeout: '10s',
   });
 
-  const isBot = res.headers['X-Bot-IsBot'] === 'true';
+  const riskScore = parseFloat(res.headers['X-Bot-Risk-Score'] || '0');
+  const isBot = riskScore > 0.7;
   const processingMs = parseFloat(res.headers['X-Bot-Processing-Ms'] || '0');
   const detectors = res.headers['X-Bot-Detectors'] || '';
   const usedLlm = detectors.includes('Llm') || detectors.includes('LlamaSharp');
 
   botDetected.add(isBot ? 1 : 0);
-  detectionLatency.add(processingMs);
+  if (processingMs > 0) detectionLatency.add(processingMs);
   llmEscalated.add(usedLlm ? 1 : 0);
 
   check(res, {
     'not 5xx': (r) => r.status < 500,
-    'has detection header': (r) => r.headers['X-Bot-IsBot'] !== undefined,
+    'has detection header': (r) => r.headers['X-Bot-Risk-Score'] !== undefined,
   });
 
   sleep(profile.thinkTime());

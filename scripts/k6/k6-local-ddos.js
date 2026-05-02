@@ -59,7 +59,8 @@ export default function () {
     timeout: '5s',
   });
 
-  const isBot = res.headers['X-Bot-IsBot'] === 'true';
+  const riskScore = parseFloat(res.headers['X-Bot-Risk-Score'] || '0');
+  const isBot = riskScore > 0.7;
   const processingMs = parseFloat(res.headers['X-Bot-Processing-Ms'] || '0');
 
   detected.add(isBot ? 1 : 0);
