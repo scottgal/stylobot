@@ -27,9 +27,13 @@ class SbElementsCoordinator {
     this.pending = []
     this.scheduled = false
 
-    const body = {
-      widgets: Object.fromEntries(batch.map(r => [r.widgetId, r.template]))
+    // Deduplicate: first template wins for each widgetId
+    const seen = new Map<string, string>()
+    for (const reg of batch) {
+      if (!seen.has(reg.widgetId)) seen.set(reg.widgetId, reg.template)
     }
+
+    const body = { widgets: Object.fromEntries(seen) }
 
     try {
       const res = await fetch(`${this.endpoint}/_stylobot/partials/render`, {
@@ -40,6 +44,7 @@ class SbElementsCoordinator {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const html = await res.text()
       const fragments = parseFragments(html)
+      // Resolve ALL registrations for each widgetId (not just first)
       for (const reg of batch) reg.resolve(fragments[reg.widgetId] ?? '')
     } catch {
       for (const reg of batch) reg.resolve('')

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using Fluid;
@@ -12,6 +13,7 @@ public sealed class LiquidWidgetRenderer
     private static readonly TemplateOptions Options = new() { MaxSteps = 50_000 };
     private readonly ConcurrentDictionary<string, IFluidTemplate> _cache = new();
     private readonly ILogger<LiquidWidgetRenderer> _logger;
+    private const int MaxCacheSize = 500;
 
     public LiquidWidgetRenderer(ILogger<LiquidWidgetRenderer> logger)
     {
@@ -25,6 +27,9 @@ public sealed class LiquidWidgetRenderer
     {
         try
         {
+            if (_cache.Count >= MaxCacheSize)
+                _cache.Clear();
+
             var compiled = _cache.GetOrAdd(ComputeKey(widgetId, template), _ =>
             {
                 if (!Parser.TryParse(template, out var t, out var errors))
@@ -50,6 +55,9 @@ public sealed class LiquidWidgetRenderer
         }
     }
 
-    private static string ComputeKey(string widgetId, string template) =>
-        $"{widgetId}:{template.GetHashCode():x8}";
+    private static string ComputeKey(string widgetId, string template)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(template));
+        return $"{widgetId}:{Convert.ToHexString(hash)[..16]}";
+    }
 }

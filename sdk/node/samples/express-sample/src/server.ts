@@ -12,14 +12,14 @@ const app = express()
 const client = new StyloBotClient({ endpoint: STYLOBOT_URL })
 const coordinator = new SbSsrCoordinator(client)
 
+const summaryTemplate = readFileSync(join(dir, 'templates/summary.liquid'), 'utf8')
+const topbotsTemplate = readFileSync(join(dir, 'templates/topbots.liquid'), 'utf8')
+
 app.use(express.static(join(dir, '../public')))
 app.use(styloBotMiddleware({ mode: 'headers' }))
 app.use(sbVerdictInjector({ mode: 'gateway' }))
 
 app.get('/', async (req, res) => {
-  const summaryTemplate = readFileSync(join(dir, 'templates/summary.liquid'), 'utf8')
-  const topbotsTemplate = readFileSync(join(dir, 'templates/topbots.liquid'), 'utf8')
-
   const widgets = await coordinator.renderWidgets([
     { widgetId: 'summary', template: summaryTemplate },
     { widgetId: 'topbots', template: topbotsTemplate },

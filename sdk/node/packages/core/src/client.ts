@@ -51,21 +51,30 @@ export class StyloBotClient {
 
   private async postHtml(path: string, body: unknown): Promise<string> {
     const url = `${this.endpoint}${path}`
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), this.timeout)
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { ...this.headers(), 'content-type': 'application/json', 'accept': 'text/html' },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      })
-      if (!res.ok)
-        throw new StyloBotApiError(res.status, await res.text().catch(() => ''), url)
-      return await res.text()
-    } finally {
-      clearTimeout(timer)
+    let lastError: Error | undefined
+
+    for (let attempt = 0; attempt <= this.retries; attempt++) {
+      try {
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), this.timeout)
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { ...this.headers(), 'content-type': 'application/json', 'accept': 'text/html' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        })
+        clearTimeout(timer)
+        if (!res.ok) {
+          const text = await res.text().catch(() => '')
+          throw new StyloBotApiError(res.status, text, url)
+        }
+        return await res.text()
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err))
+        if (err instanceof StyloBotApiError && err.status < 500) throw err
+      }
     }
+    throw lastError ?? new Error('Widget render request failed')
   }
 
   private headers(): Record<string, string> {
