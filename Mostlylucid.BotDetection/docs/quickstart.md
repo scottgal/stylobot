@@ -351,25 +351,34 @@ No `appsettings.json` section needed. Defaults:
 
 The StyloBot Dashboard provides a real-time monitoring UI with SignalR live updates, an interactive world map, country/cluster/user-agent analytics, and JSON API endpoints for programmatic access. It's part of the `Mostlylucid.BotDetection.UI` package.
 
+### Installation
+
+```bash
+dotnet add package Mostlylucid.BotDetection
+dotnet add package Mostlylucid.BotDetection.UI
+```
+
 ### Setup
+
+Use `AddStyloBot()` + `UseStyloBot()` from the UI package. This is the recommended approach - it registers detection, the dashboard, and all tag helpers in one call with correct middleware ordering guaranteed.
 
 ```csharp
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddBotDetection();
-builder.Services.AddStyloBotDashboard(options =>
-{
-    options.Enabled = true;
-    options.BasePath = "/stylobot";       // Dashboard URL
-    // options.HubPath = "/stylobot/hub"; // SignalR hub (default)
-});
+builder.Services.AddStyloBot(
+    configureDashboard: dashboard =>
+    {
+        dashboard.BasePath = "/_stylobot";
+        dashboard.AllowUnauthenticatedAccess = true; // dev only
+    });
 
 var app = builder.Build();
-app.UseBotDetection();
-app.UseRouting();          // Required before UseStyloBotDashboard
-app.UseAuthorization();
-app.UseStyloBotDashboard();
+app.UseRouting();
+app.UseStyloBot(); // detection + broadcast + dashboard, correct order
+app.MapHub<StyloBotDashboardHub>("/_stylobot/hub");
 app.Run();
 ```
+
+If you need detection without the dashboard UI (e.g. on a gateway node), use `AddBotDetection()` + `UseBotDetection()` from `Mostlylucid.BotDetection` directly.
 
 The dashboard UI is at `/stylobot/`. No separate frontend build required - it's entirely self-contained.
 
@@ -710,6 +719,8 @@ All tiers use the same detection pipeline. Moving between them is a DI registrat
 
 ## Further Reading
 
+- [tutorial.md](tutorial.md) - Step-by-step walkthrough: sample storefront with behaviour-aware UX patterns
+- [ui-components.md](ui-components.md) - All tag helpers and view components with attribute reference
 - [blocking-and-filters.md](blocking-and-filters.md) - Full attribute and filter reference
 - [signals-and-custom-filters.md](signals-and-custom-filters.md) - Signal access API, custom filters, signal-based endpoint filtering
 - [action-policies.md](action-policies.md) - Block, Throttle, Challenge, Redirect, LogOnly
