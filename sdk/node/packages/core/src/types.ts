@@ -57,3 +57,16 @@ export interface SignaturesQuery extends PaginationQuery { isBot?: boolean; }
 export interface SummaryQuery { period?: '1h' | '24h' | '7d'; }
 export interface TimeseriesQuery { interval?: '1m' | '5m' | '15m' | '1h'; since?: string; until?: string; }
 export interface ThreatsQuery extends PaginationQuery { severity?: string; since?: string; until?: string; }
+
+// Widget rendering
+export type ClientMode = 'gateway' | 'sidecar' | 'ssr'
+
+export interface WidgetTemplate {
+  widgetId: string
+  template?: string
+  params?: Record<string, string>
+}
+
+export interface WidgetRenderRequest {
+  widgets: Record<string, string>
+}
