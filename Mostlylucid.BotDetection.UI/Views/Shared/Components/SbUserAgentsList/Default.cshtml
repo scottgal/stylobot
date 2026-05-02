@@ -1,0 +1,152 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model UserAgentsListModel
+@{
+    var bp = Model.BasePath;
+    string FilterUrl(string f) => $"{bp}/partials/useragents?filter={f}&sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}";
+    string SortUrl(string field) {
+        var dir = Model.SortField == field ? (Model.SortDir == "desc" ? "asc" : "desc") : "desc";
+        return $"{bp}/partials/useragents?filter={Model.Filter}&sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}";
+    }
+    string PageUrl(int page) => $"{bp}/partials/useragents?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}";
+    string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? " \u25B2" : " \u25BC") : "";
+    string ThClass(string field) => Model.SortField == field
+        ? "text-base-content/70 font-bold"
+        : "text-base-content/40 hover:text-base-content/60";
+    string FilterBtnClass(string f) => Model.Filter == f ? "bg-base-100 shadow-sm text-base-content" : "text-base-content/40 hover:text-base-content/60";
+}
+<div id="useragents-list"
+     data-sb-widget="useragents"
+     data-sb-depends="useragents"
+     data-sb-params="page=@Model.Page&filter=@Model.Filter&sort=@Model.SortField&dir=@Model.SortDir"
+     class="transition-all duration-200">
+
+    @* Filter pills *@
+    <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+            <h3 class="text-sm font-bold text-base-content">User Agents</h3>
+            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "user-agents")
+        </div>
+        <div class="flex items-center gap-1 bg-base-300/50 rounded-lg p-0.5">
+            <button hx-get="@FilterUrl("all")" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("all")">All</button>
+            <button hx-get="@FilterUrl("browser")" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("browser")">Browsers</button>
+            <button hx-get="@FilterUrl("bot")" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("bot")">Bot</button>
+            <button hx-get="@FilterUrl("ai")" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("ai")">AI</button>
+            <button hx-get="@FilterUrl("tool")" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("tool")">Tools</button>
+        </div>
+        @if (Model.TotalPages > 1)
+        {
+            <span class="text-[10px] text-base-content/40">@Model.Page/@Model.TotalPages (@Model.TotalCount UAs)</span>
+        }
+    </div>
+
+    @if (Model.UserAgents.Count == 0)
+    {
+        <div class="text-xs text-base-content/40 py-8 text-center">No user agents match this filter</div>
+    }
+    else
+    {
+        @* Two-column layout: table left, detail panel right *@
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            @* Left: UA table (3 cols) *@
+            <div class="lg:col-span-3">
+                <div class="overflow-x-auto">
+                    <table class="table table-xs w-full">
+                        <thead>
+                            <tr class="text-[10px] uppercase tracking-wider">
+                                <th class="py-1 @ThClass("family") cursor-pointer"
+                                    hx-get="@SortUrl("family")" hx-target="#useragents-list" hx-swap="outerHTML transition:true">
+                                    Family@(Html.Raw(SortIcon("family")))
+                                </th>
+                                <th class="py-1 @ThClass("category") cursor-pointer"
+                                    hx-get="@SortUrl("category")" hx-target="#useragents-list" hx-swap="outerHTML transition:true">
+                                    Category@(Html.Raw(SortIcon("category")))
+                                </th>
+                                <th class="py-1 text-right @ThClass("requests") cursor-pointer"
+                                    hx-get="@SortUrl("requests")" hx-target="#useragents-list" hx-swap="outerHTML transition:true">
+                                    Requests@(Html.Raw(SortIcon("requests")))
+                                </th>
+                                <th class="py-1 text-right @ThClass("botrate") cursor-pointer"
+                                    hx-get="@SortUrl("botrate")" hx-target="#useragents-list" hx-swap="outerHTML transition:true">
+                                    Bot %@(Html.Raw(SortIcon("botrate")))
+                                </th>
+                                <th class="py-1 text-right @ThClass("confidence") cursor-pointer"
+                                    hx-get="@SortUrl("confidence")" hx-target="#useragents-list" hx-swap="outerHTML transition:true">
+                                    Conf@(Html.Raw(SortIcon("confidence")))
+                                </th>
+                                <th class="py-1 text-right @ThClass("lastseen") cursor-pointer hidden sm:table-cell"
+                                    hx-get="@SortUrl("lastseen")" hx-target="#useragents-list" hx-swap="outerHTML transition:true">
+                                    Last Seen@(Html.Raw(SortIcon("lastseen")))
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var ua in Model.UserAgents)
+                            {
+                                var botRatePct = (ua.BotRate * 100).ToString("F0");
+                                var confPct = (ua.AvgConfidence * 100).ToString("F0");
+                                var rateClass = ua.BotRate > 0.5 ? "text-error" : ua.BotRate > 0.2 ? "text-warning" : "text-success";
+                                <tr class="hover:bg-base-200/50 transition-colors cursor-pointer"
+                                    hx-get="@bp/partials/useragent-detail?family=@Uri.EscapeDataString(ua.Family)"
+                                    hx-target="#ua-detail-panel"
+                                    hx-swap="innerHTML transition:true">
+                                    <td class="py-1 font-semibold text-xs max-w-[200px] truncate">@ua.Family</td>
+                                    <td class="py-1"><span class="text-[10px] px-1.5 py-0.5 rounded bg-base-content/10 text-base-content/60">@ua.Category</span></td>
+                                    <td class="py-1 text-right text-xs font-mono">@ua.TotalCount</td>
+                                    <td class="py-1 text-right font-bold text-xs @rateClass">@(botRatePct)%</td>
+                                    <td class="py-1 text-right text-xs">@(confPct)%</td>
+                                    <td class="py-1 hidden sm:table-cell text-[10px] text-base-content/40">@ua.LastSeen.ToString("HH:mm:ss")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @* Pagination *@
+                @if (Model.TotalPages > 1)
+                {
+                    <div class="flex items-center justify-between mt-3">
+                        <span class="text-[10px] text-base-content/40">@Model.Page/@Model.TotalPages (@Model.TotalCount UAs)</span>
+                        <div class="join">
+                            @if (Model.Page > 1)
+                            {
+                                <button hx-get="@PageUrl(1)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                                        class="join-item btn btn-xs" title="First">&laquo;</button>
+                                <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                                        class="join-item btn btn-xs" title="Previous">&lsaquo;</button>
+                            }
+                            @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
+                            {
+                                var pageNum = p;
+                                <button hx-get="@PageUrl(pageNum)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                                        class="join-item btn btn-xs @(pageNum == Model.Page ? "btn-active" : "")">@pageNum</button>
+                            }
+                            @if (Model.Page < Model.TotalPages)
+                            {
+                                <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                                        class="join-item btn btn-xs" title="Next">&rsaquo;</button>
+                                <button hx-get="@PageUrl(Model.TotalPages)" hx-target="#useragents-list" hx-swap="outerHTML transition:true"
+                                        class="join-item btn btn-xs" title="Last">&raquo;</button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @* Right: Detail panel (2 cols) *@
+            <div class="lg:col-span-2">
+                <div id="ua-detail-panel"
+                     class="rounded-xl border sticky top-4"
+                     style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                    <div class="p-4 text-xs text-base-content/40 text-center py-12">
+                        Click a user agent to view details
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>

@@ -135,7 +135,7 @@
     <main class="max-w-7xl mx-auto px-2 py-4">
 
         <!-- Summary stats - always visible -->
-        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_SummaryStats.cshtml", Model.Summary)
+        @await Html.PartialAsync("~/Views/Shared/Components/SbSummaryStats/Default.cshtml", Model.Summary)
 
         <!-- License + Your Detection -->
         @if (Model.License.Status != LicenseStatusKind.Unconfigured)
@@ -235,7 +235,7 @@
 
                 <!-- ACTIVE BOTS: 1/3 width -->
                 <div>
-                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_TopBotsList.cshtml", Model.TopBots)
+                    @await Html.PartialAsync("~/Views/Shared/Components/SbTopBots/Default.cshtml", Model.TopBots)
                 </div>
             </div>
 
@@ -293,7 +293,7 @@
         }
         else if (tab == "visitors")
         {
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_VisitorList.cshtml", Model.Visitors)
+            @await Html.PartialAsync("~/Views/Shared/Components/SbVisitorList/Default.cshtml", Model.Visitors)
         }
         else if (tab == "countries")
         {
@@ -307,15 +307,15 @@
                 </div>
                 <div id="countries-map" class="relative" style="height: 440px;"></div>
             </div>
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_CountriesList.cshtml", Model.Countries)
+            @await Html.PartialAsync("~/Views/Shared/Components/SbCountriesList/Default.cshtml", Model.Countries)
         }
         else if (tab == "endpoints")
         {
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_EndpointsList.cshtml", Model.Endpoints)
+            @await Html.PartialAsync("~/Views/Shared/Components/SbEndpointsList/Default.cshtml", Model.Endpoints)
         }
         else if (tab == "sessions")
         {
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_SessionsList.cshtml", Model.Sessions)
+            @await Html.PartialAsync("~/Views/Shared/Components/SbSessionsList/Default.cshtml", Model.Sessions)
         }
         else if (tab == "clusters")
         {
@@ -323,11 +323,11 @@
         }
         else if (tab == "threats")
         {
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_ThreatsList.cshtml", Model.Threats)
+            @await Html.PartialAsync("~/Views/Shared/Components/SbThreats/Default.cshtml", Model.Threats)
         }
         else if (tab == "useragents")
         {
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_UserAgentsList.cshtml", Model.UserAgents)
+            @await Html.PartialAsync("~/Views/Shared/Components/SbUserAgentsList/Default.cshtml", Model.UserAgents)
         }
         else if (tab == "compliance" && Model.Compliance is not null)
         {

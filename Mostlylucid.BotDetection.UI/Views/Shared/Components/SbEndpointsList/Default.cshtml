@@ -1,0 +1,126 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model EndpointsListModel
+@{
+    var bp = Model.BasePath;
+    string SortUrl(string field)
+    {
+        var dir = Model.SortField == field ? (Model.SortDir == "desc" ? "asc" : "desc") : "desc";
+        return $"{bp}/partials/endpoints?sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}";
+    }
+    string PageUrl(int page) => $"{bp}/partials/endpoints?sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}";
+    string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? " \u25B2" : " \u25BC") : "";
+    string ThClass(string field) => Model.SortField == field
+        ? "text-base-content/70 font-bold"
+        : "text-base-content/40 hover:text-base-content/60";
+}
+<div id="endpoints-list"
+     data-sb-widget="endpoints"
+     data-sb-depends="endpoints"
+     data-sb-params="page=@Model.Page&sort=@Model.SortField&dir=@Model.SortDir"
+     class="transition-all duration-200">
+    <div class="flex items-center gap-1 mb-3">
+        <h3 class="text-sm font-bold text-base-content">Endpoints</h3>
+        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "endpoints")
+    </div>
+    @if (Model.Endpoints.Count == 0)
+    {
+        <div class="text-xs text-base-content/40 py-8 text-center">No endpoint analytics yet</div>
+    }
+    else
+    {
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            <div class="lg:col-span-3">
+                <div class="overflow-x-auto rounded-xl border" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                    <table class="table table-xs w-full">
+                        <thead>
+                        <tr class="text-[10px] uppercase tracking-wider">
+                            <th class="py-1 @ThClass("method") cursor-pointer" hx-get="@SortUrl("method")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Method@(Html.Raw(SortIcon("method")))</th>
+                            <th class="py-1 @ThClass("path") cursor-pointer" hx-get="@SortUrl("path")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Path@(Html.Raw(SortIcon("path")))</th>
+                            <th class="py-1 text-right @ThClass("total") cursor-pointer" hx-get="@SortUrl("total")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Req@(Html.Raw(SortIcon("total")))</th>
+                            <th class="py-1 text-right @ThClass("botrate") cursor-pointer" hx-get="@SortUrl("botrate")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Bot %@(Html.Raw(SortIcon("botrate")))</th>
+                            <th class="py-1 text-right @ThClass("unique") cursor-pointer hidden sm:table-cell" hx-get="@SortUrl("unique")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Sigs@(Html.Raw(SortIcon("unique")))</th>
+                            <th class="py-1 text-right @ThClass("latency") cursor-pointer hidden md:table-cell" hx-get="@SortUrl("latency")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Ms@(Html.Raw(SortIcon("latency")))</th>
+                            <th class="py-1 text-right @ThClass("threat") cursor-pointer hidden md:table-cell" hx-get="@SortUrl("threat")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Threat@(Html.Raw(SortIcon("threat")))</th>
+                            <th class="py-1 hidden lg:table-cell text-base-content/40">Policy</th>
+                            <th class="py-1 text-xs" style="min-width:80px">Split</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var endpoint in Model.Endpoints)
+                        {
+                            var botClass = endpoint.BotRate > 0.5 ? "text-error" : endpoint.BotRate > 0.2 ? "text-warning" : "text-success";
+                            var humanPct = endpoint.TotalCount > 0 ? Math.Round((1.0 - endpoint.BotRate) * 100, 0) : 100;
+                            <tr class="hover:bg-base-200/50 transition-colors cursor-pointer"
+                                hx-get="@bp/partials/endpoint-detail?method=@Uri.EscapeDataString(endpoint.Method)&path=@Uri.EscapeDataString(endpoint.Path)"
+                                hx-target="#endpoint-detail-panel"
+                                hx-swap="innerHTML transition:true">
+                                <td class="py-1 text-[10px] font-bold">@endpoint.Method</td>
+                                <td class="py-1 text-xs font-medium max-w-[280px] truncate">@endpoint.Path</td>
+                                <td class="py-1 text-right text-xs font-mono">@endpoint.TotalCount</td>
+                                <td class="py-1 text-right text-xs font-bold @botClass">@((endpoint.BotRate * 100).ToString("F0"))%</td>
+                                <td class="py-1 text-right text-xs font-mono hidden sm:table-cell">@endpoint.UniqueSignatures</td>
+                                <td class="py-1 text-right text-xs hidden md:table-cell">@endpoint.AvgProcessingTimeMs.ToString("F0")</td>
+                                <td class="py-1 text-right text-xs hidden md:table-cell">@endpoint.AvgThreatScore.ToString("F1")</td>
+                                <td class="py-1 hidden lg:table-cell">
+                                    <div class="flex items-center gap-1">
+                                        @if (!string.IsNullOrEmpty(endpoint.ActivePolicyName))
+                                        {
+                                            <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-base-300 text-base-content/60 font-medium">@endpoint.ActivePolicyName</span>
+                                        }
+                                        <button type="button"
+                                                title="Apply policy to this endpoint"
+                                                class="btn btn-ghost btn-xs p-0.5 min-h-0 h-auto"
+                                                onclick="sbOpenPolicyModal(event, '@Html.Raw(endpoint.Method.Replace("'", "\\'"))', '@Html.Raw(Uri.EscapeDataString(endpoint.Path))', '@Html.Raw((endpoint.ActivePolicyName ?? string.Empty).Replace("'", "\\'"))')">
+                                            <i class="bx bx-shield-alt text-[11px] text-base-content/30 hover:text-base-content/70"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                                <td class="py-1">
+                                    <div class="flex h-2 rounded-full overflow-hidden bg-base-300" style="min-width:60px">
+                                        <div class="bg-success" style="width:@(humanPct)%"></div>
+                                        <div class="bg-error" style="width:@(100 - humanPct)%"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="lg:col-span-2">
+                <div id="endpoint-detail-panel"
+                     class="rounded-xl border sticky top-4"
+                     style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                    <div class="p-4 text-xs text-base-content/40 text-center py-12">
+                        Click an endpoint to inspect traffic mix, top bots, and recent requests
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        @if (Model.TotalPages > 1)
+        {
+            <div class="flex items-center justify-between mt-3">
+                <span class="text-[10px] text-base-content/40">@Model.Page/@Model.TotalPages (@Model.TotalCount endpoints)</span>
+                <div class="join">
+                    @if (Model.Page > 1)
+                    {
+                        <button hx-get="@PageUrl(1)" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" class="join-item btn btn-xs">&laquo;</button>
+                        <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" class="join-item btn btn-xs">&lsaquo;</button>
+                    }
+                    @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
+                    {
+                        var pageNum = p;
+                        <button hx-get="@PageUrl(pageNum)" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" class="join-item btn btn-xs @(pageNum == Model.Page ? "btn-active" : "")">@pageNum</button>
+                    }
+                    @if (Model.Page < Model.TotalPages)
+                    {
+                        <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" class="join-item btn btn-xs">&rsaquo;</button>
+                        <button hx-get="@PageUrl(Model.TotalPages)" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" class="join-item btn btn-xs">&raquo;</button>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
