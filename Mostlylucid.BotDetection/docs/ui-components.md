@@ -2,12 +2,37 @@
 
 The `Mostlylucid.BotDetection.UI` package provides Razor Tag Helpers and View Components for rendering bot detection results directly in your pages. All components read detection data from `HttpContext.Items` - no manual wiring needed.
 
+## Installation
+
+```bash
+dotnet add package Mostlylucid.BotDetection
+dotnet add package Mostlylucid.BotDetection.UI
+```
+
 ## Setup
+
+The recommended setup combines detection and the dashboard UI in one call:
 
 ```csharp
 // Program.cs
-builder.Services.AddStyloBotDashboard();
-app.UseStyloBotDashboard();
+builder.Services.AddStyloBot(
+    configureDashboard: dashboard =>
+    {
+        dashboard.BasePath = "/_stylobot";
+        dashboard.AllowUnauthenticatedAccess = true; // dev only - use auth in production
+    });
+
+app.UseRouting();
+app.UseStyloBot(); // detection + broadcast + dashboard, correct middleware order guaranteed
+app.MapHub<StyloBotDashboardHub>("/_stylobot/hub");
+```
+
+If you want the tag helpers without the dashboard (tag helpers + detection only):
+
+```csharp
+builder.Services.AddBotDetection();
+builder.Services.AddStyloBotUI(); // tag helpers only, no dashboard
+app.UseBotDetection();
 ```
 
 In your `_ViewImports.cshtml`:

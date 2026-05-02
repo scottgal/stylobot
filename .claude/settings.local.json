@@ -355,7 +355,16 @@
       "Bash(sqlite3 /Users/scottgalloway/RiderProjects/stylobot/Mostlylucid.BotDetection.Demo/bin/Debug/net10.0/dashboard.db 'SELECT bot_name, risk_band, risk_justification, printf\\('\\\\''%.2f'\\\\'',bot_probability\\) as prob, printf\\('\\\\''%.2f'\\\\'',threat_score\\) as threat FROM detections ORDER BY timestamp DESC LIMIT 4;')",
       "Bash(kill 54218)",
       "Bash(/tmp/search_detectors.sh)",
-      "Bash(awk -F'|' '{print $2}')"
+      "Bash(awk -F'|' '{print $2}')",
+      "Bash(dotnet-script -e \"Console.WriteLine\\(typeof\\(Microsoft.AspNetCore.Mvc.Rendering.IViewComponentHelper\\).Namespace\\);\")",
+      "Read(//private/tmp/**)",
+      "Bash(dotnet script *)",
+      "WebFetch(domain:)",
+      "Bash(ASPNETCORE_ENVIRONMENT=Development dotnet run --project Mostlylucid.BotDetection.Sample --urls \"http://localhost:5200\")",
+      "Bash(lsof -ti:5200)",
+      "Bash(ASPNETCORE_ENVIRONMENT=Development dotnet run --project Mostlylucid.BotDetection.Sample --urls http://localhost:5200)",
+      "Bash(bash /tmp/generate-traffic.sh http://localhost:5200)",
+      "Bash(dotnet script -e ' *)"
     ]
   }
 }

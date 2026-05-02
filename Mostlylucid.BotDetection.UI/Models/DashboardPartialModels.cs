@@ -509,7 +509,7 @@ public sealed class ThreatsListModel
     public int TotalCount { get; init; }
     public int ActiveHoneypotSessions { get; init; }
     public int Page { get; init; } = 1;
-    public int PageSize { get; init; } = 25;
+    public int PageSize { get; init; } = 20;
     public required string BasePath { get; init; }
     public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
 }

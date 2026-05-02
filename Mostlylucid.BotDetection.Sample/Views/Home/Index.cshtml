@@ -1,0 +1,113 @@
+@model IReadOnlyList<Mostlylucid.BotDetection.Sample.Models.Product>
+@{
+    ViewData["Title"] = "Shop";
+    ViewBag.PageContext = "Product listing, promotions, and buy buttons adapt per visitor type.";
+    var selectedCategory = ViewBag.SelectedCategory as string;
+}
+
+@*
+    HOME PAGE - demonstrates:
+      <sb-human>    show content only to non-bots
+      <sb-bot>      show content only to bots
+      <sb-gate>     generic gate with human-only / bot-type / min-risk attributes
+      <sb-risk-pill> coloured risk label
+*@
+
+<div style="display:flex; align-items:baseline; gap:1rem; margin-bottom:1rem;">
+    <h1>&#128722; Our Products</h1>
+
+    @*
+        <sb-human> wraps content that should only appear to real visitors.
+        Fallback "show" (default) means this is visible before detection runs,
+        which keeps pages usable for the first request.
+    *@
+    <sb-human>
+        <span class="muted">Welcome! Browse @Model.Count products.</span>
+    </sb-human>
+
+    @*
+        <sb-bot> is the inverse - only rendered for detected bots.
+        Default fallback is "hide" (fail-closed), so it won't flash on the
+        first render before detection has completed.
+    *@
+    <sb-bot>
+        <span class="alert alert-warning" style="padding:0.2rem 0.6rem;font-size:0.8rem;">
+            &#9888; Automated access &mdash; read-only view
+        </span>
+    </sb-bot>
+</div>
+
+@*
+    <sb-gate> with bot-type lets you show content only when a specific kind of bot
+    is visiting. "SearchEngine" includes Googlebot, Bingbot, etc.
+    This tells search engines what they're indexing without cluttering the human UI.
+*@
+<sb-gate bot-type="SearchEngine">
+    <div class="alert alert-info mb-2">
+        &#128269; Search engine crawler detected. This store has @Model.Count products across
+        @((ViewBag.Categories as IReadOnlyList<string>)?.Count ?? 0) categories.
+    </div>
+</sb-gate>
+
+@* Category filter pills *@
+<div class="category-pills">
+    <a href="/" class="pill @(selectedCategory == null ? "active" : "")">All</a>
+    @foreach (var cat in (IReadOnlyList<string>)ViewBag.Categories)
+    {
+        <a href="/?category=@Uri.EscapeDataString(cat)"
+           class="pill @(selectedCategory == cat ? "active" : "")">@cat</a>
+    }
+</div>
+
+@*
+    <sb-gate min-risk="High"> hides content when risk is Medium or below.
+    High-risk visitors (scrapers, exploit scanners) see this warning strip instead.
+*@
+<sb-gate min-risk="High">
+    <div class="alert alert-danger mb-2">
+        &#128683; High-risk traffic detected. Checkout and account features are disabled for
+        this session. <a href="/Me">View your detection profile &rarr;</a>
+    </div>
+</sb-gate>
+
+<div class="product-grid">
+    @foreach (var p in Model)
+    {
+        <div class="product-card">
+            <div class="product-img" style="background:@p.Color">
+                &#128722;
+            </div>
+            <div class="product-info">
+                <div class="product-category">@p.Category</div>
+                <div class="product-name">@p.Name</div>
+                <div style="color:#f59e0b;font-size:0.75rem;margin:.2rem 0;">
+                    @(new string('★', (int)p.Rating))@(new string('☆', 5 - (int)p.Rating))
+                    <span class="muted">(@p.Rating)</span>
+                </div>
+                <div class="product-price" style="margin-bottom:.5rem;">$@p.Price.ToString("N2")</div>
+
+                @*
+                    "Add to Cart" is gated behind <sb-gate human-only>.
+                    Bots see nothing here — no button to click, no form to submit.
+                    <sb-gate> with human-only is equivalent to <sb-human>.
+                *@
+                <sb-gate human-only>
+                    <a href="/Product/Detail/@p.Id" class="btn btn-primary btn-sm">View &amp; Buy</a>
+                </sb-gate>
+
+                @*
+                    Bots get a plain text link — still lets search engines index the page
+                    without exposing a functional add-to-cart endpoint.
+                *@
+                <sb-bot>
+                    <a href="/Product/Detail/@p.Id" class="muted" style="font-size:0.8rem;">View details</a>
+                </sb-bot>
+
+                @* Stock badge for verified bots (inventory feeds, price trackers) *@
+                <sb-gate bot-type="VerifiedBot">
+                    <span class="muted" style="font-size:0.75rem;">Stock: @p.Stock</span>
+                </sb-gate>
+            </div>
+        </div>
+    }
+</div>
