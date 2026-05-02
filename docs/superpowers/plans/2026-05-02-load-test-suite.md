@@ -36,14 +36,7 @@
 
 Open `Mostlylucid.BotDetection.Llm.LlamaSharp/Mostlylucid.BotDetection.Llm.LlamaSharp.csproj`.
 
-Replace:
-```xml
-<PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.26.0" />
-```
-With:
-```xml
-<PackageReference Include="LLamaSharp.Backend.Metal" Version="0.26.0" />
-```
+Keep `LLamaSharp.Backend.Cpu Version="0.26.0"` — **do NOT change this package**. In LLamaSharp 0.26.x, Metal support for Apple Silicon is bundled inside the Cpu backend via native RID-specific libs. There is no separate `LLamaSharp.Backend.Metal` or `LLamaSharp.Backend.MacMetal` package at this version. `GpuLayerCount = -1` in `ModelParams` is sufficient to enable full Metal offload at runtime.
 
 - [ ] **Step 2: Add GpuLayerCount to options**
 

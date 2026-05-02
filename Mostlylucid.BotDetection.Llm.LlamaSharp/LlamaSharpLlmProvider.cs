@@ -41,7 +41,7 @@ public class LlamaSharpLlmProvider : ILlmProvider, IDisposable
         try
         {
             if (_initialized || _initializationFailed) return;
-            _logger.LogInformation("Initializing LlamaSharp model (Metal backend): {ModelPath}", _options.ModelPath);
+            _logger.LogInformation("Initializing LlamaSharp model: {ModelPath}", _options.ModelPath);
 
             var modelPath = _options.ModelPath;
             var cacheDir = _options.ModelCacheDir ?? GetDefaultCacheDir();
