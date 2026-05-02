@@ -125,7 +125,7 @@ public sealed class SbWidgetBatchMiddleware
                 "useragents" => await RenderUserAgentsAsync(context, q),
                 "sessions" => await RenderSessionsAsync(context, q),
                 "topbots" => await RenderTopBotsAsync(context, q),
-                "threats" => await RenderThreatsAsync(context),
+                "threats" => await RenderThreatsAsync(context, q),
                 _ => ""
             };
         }
@@ -241,17 +241,27 @@ public sealed class SbWidgetBatchMiddleware
             "/Views/Shared/Components/SbTopBots/Default.cshtml", model, context);
     }
 
-    private async Task<string> RenderThreatsAsync(HttpContext context)
+    private async Task<string> RenderThreatsAsync(HttpContext context, IQueryCollection q)
     {
-        List<ThreatEntry> threats;
-        try { threats = await _eventStore.GetThreatsAsync(20); }
-        catch { threats = []; }
+        var pageStr = q["page"].FirstOrDefault();
+        var pageSizeStr = q["pageSize"].FirstOrDefault();
+        var page = int.TryParse(pageStr, out var p) ? Math.Max(1, p) : 1;
+        var pageSize = int.TryParse(pageSizeStr, out var ps) ? Math.Clamp(ps, 1, 100) : 20;
+
+        List<ThreatEntry> allThreats;
+        try { allThreats = await _eventStore.GetThreatsAsync(pageSize * 10); }
+        catch { allThreats = []; }
+
+        var totalCount = allThreats.Count;
+        var pagedThreats = allThreats.Skip((page - 1) * pageSize).Take(pageSize).ToList();
 
         var model = new ThreatsListModel
         {
-            Threats = threats,
-            TotalCount = threats.Count,
-            ActiveHoneypotSessions = threats.Count(t => t.InHoneypot),
+            Threats = pagedThreats,
+            TotalCount = totalCount,
+            ActiveHoneypotSessions = pagedThreats.Count(t => t.InHoneypot),
+            Page = page,
+            PageSize = pageSize,
             BasePath = _options.BasePath.TrimEnd('/')
         };
         return await _razorViewRenderer.RenderViewToStringAsync(

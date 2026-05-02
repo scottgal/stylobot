@@ -109,7 +109,7 @@
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Pagination.cshtml",
                 new PaginationModel
                 {
-                    PageUrl = p => $"{bp}/partials/sessions?page={p}&pageSize={Model.PageSize}&filter={Model.Filter}",
+                    PageUrl = p => $"{bp}/partials/sessions?page={p}&pageSize={Model.PageSize}&filter={Uri.EscapeDataString(Model.Filter ?? string.Empty)}",
                     Page = Model.Page,
                     TotalPages = Model.TotalPages,
                     TargetId = "sessions-list"

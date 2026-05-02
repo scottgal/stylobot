@@ -2873,8 +2873,24 @@ public class StyloBotDashboardMiddleware
 
     private async Task ServeThreatsPartialAsync(HttpContext context)
     {
-        var threats = await _eventStore.GetThreatsAsync(20);
-        var model = new ThreatsListModel { Threats = threats, TotalCount = threats.Count, BasePath = _options.BasePath.TrimEnd('/') };
+        var pageStr = context.Request.Query["page"].FirstOrDefault();
+        var pageSizeStr = context.Request.Query["pageSize"].FirstOrDefault();
+        var page = int.TryParse(pageStr, out var p) ? Math.Max(1, p) : 1;
+        var pageSize = int.TryParse(pageSizeStr, out var ps) ? Math.Clamp(ps, 1, 100) : 20;
+
+        var threats = await _eventStore.GetThreatsAsync(pageSize * 10);
+        var totalCount = threats.Count;
+        var pagedThreats = threats.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        var model = new ThreatsListModel
+        {
+            Threats = pagedThreats,
+            TotalCount = totalCount,
+            ActiveHoneypotSessions = pagedThreats.Count(t => t.InHoneypot),
+            Page = page,
+            PageSize = pageSize,
+            BasePath = _options.BasePath.TrimEnd('/')
+        };
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
