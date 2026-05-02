@@ -99,6 +99,9 @@ public static class StyloBotDashboardServiceExtensions
 
         services.AddSignalR();
 
+        // Memory cache - used by StyloBotDashboardMiddleware widget render cache (2s TTL per widget)
+        services.AddMemoryCache();
+
         // Ensure MVC services are available for Razor view rendering (idempotent)
         services.AddControllersWithViews();
 
@@ -256,6 +259,70 @@ public static class StyloBotDashboardServiceExtensions
             options.AuthorizationFilter = authFilter;
             configure?.Invoke(options);
         });
+    }
+
+    // ==========================================
+    // Widget embedding tier (no full dashboard)
+    // ==========================================
+
+    /// <summary>
+    ///     Adds the minimal services needed to embed StyloBot widgets in your own pages
+    ///     using tag helpers like <c>&lt;sb-visitor-list /&gt;</c>, <c>&lt;sb-summary-stats /&gt;</c>, etc.
+    ///     <para>
+    ///     Does NOT register the full dashboard route, the help system, or background hosted services
+    ///     (no <see cref="DashboardSummaryBroadcaster"/>, no warmup service).
+    ///     Use <see cref="AddStyloBotDashboard(IServiceCollection, Action{StyloBotDashboardOptions}?)"/>
+    ///     if you want the full <c>/_stylobot</c> dashboard.
+    ///     </para>
+    ///     <para>
+    ///     Pair with <c>app.UseMiddleware&lt;SbWidgetBatchMiddleware&gt;()</c> to enable the
+    ///     <c>GET {basePath}/partials/update?widgets=w1,w2</c> HTMX batch-update endpoint
+    ///     that powers live widget refreshes.
+    ///     </para>
+    /// </summary>
+    /// <example>
+    ///     <code>
+    ///     builder.Services.AddBotDetection();
+    ///     builder.Services.AddStyloBotWidgets(new StyloBotDashboardOptions { BasePath = "/_sb" });
+    ///     // ...
+    ///     app.UseBotDetection();
+    ///     app.UseMiddleware&lt;SbWidgetBatchMiddleware&gt;();
+    ///     </code>
+    /// </example>
+    public static IServiceCollection AddStyloBotWidgets(
+        this IServiceCollection services,
+        StyloBotDashboardOptions? dashboardOptions = null)
+    {
+        // Tag helpers, DetectionDataExtractor
+        services.AddStyloBotUI();
+
+        services.AddMemoryCache();
+        services.AddSignalR();
+
+        // Ensure MVC/Razor services are available for view rendering (idempotent)
+        services.AddControllersWithViews();
+
+        if (dashboardOptions != null)
+            services.AddSingleton(dashboardOptions);
+        else
+            services.TryAddSingleton(new StyloBotDashboardOptions());
+
+        // Razor view renderer used by SbWidgetBatchMiddleware
+        services.TryAddSingleton<RazorViewRenderer>();
+
+        // Dashboard event store: SQLite for FOSS
+        services.TryAddSingleton<IDashboardEventStore, SqliteDashboardEventStore>();
+
+        // Aggregate cache - populated by beacon, read by widget render helpers
+        services.TryAddSingleton<DashboardAggregateCache>();
+
+        // Write-through signature cache
+        services.TryAddSingleton<SignatureAggregateCache>();
+
+        // Server-side visitor cache used by the visitor-list widget
+        services.TryAddSingleton<VisitorListCache>();
+
+        return services;
     }
 
     // ==========================================

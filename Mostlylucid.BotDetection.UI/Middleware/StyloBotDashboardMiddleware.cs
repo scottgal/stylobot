@@ -1,10 +1,13 @@
 ﻿using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Primitives;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Extensions;
@@ -33,6 +36,13 @@ public class StyloBotDashboardMiddleware
     private readonly RequestDelegate _next;
     private readonly StyloBotDashboardOptions _options;
     private readonly RazorViewRenderer _razorViewRenderer;
+    private readonly IMemoryCache _widgetCache;
+
+    private static readonly TimeSpan WidgetCacheTtl = TimeSpan.FromSeconds(2);
+
+    private static readonly Regex OobFirstTagRegex = new(
+        @"^(<[a-zA-Z][^>]*?)(/?>)",
+        RegexOptions.Compiled | RegexOptions.Singleline);
 
     private static readonly string? DashboardVersion = GetDashboardVersion();
 
@@ -100,6 +110,7 @@ public class StyloBotDashboardMiddleware
         DashboardAggregateCache aggregateCache,
         SignatureAggregateCache signatureCache,
         RazorViewRenderer razorViewRenderer,
+        IMemoryCache widgetCache,
         ILogger<StyloBotDashboardMiddleware> logger)
     {
         _next = next;
@@ -108,6 +119,7 @@ public class StyloBotDashboardMiddleware
         _aggregateCache = aggregateCache;
         _signatureCache = signatureCache;
         _razorViewRenderer = razorViewRenderer;
+        _widgetCache = widgetCache;
         _logger = logger;
     }
 
@@ -3254,6 +3266,7 @@ public class StyloBotDashboardMiddleware
     ///     HTMX OOB update endpoint - renders multiple partials in a single response.
     ///     Called by the SignalR coordinator when widgets need refreshing.
     ///     Query param: widgets=summary,visitors,countries (comma-separated widget IDs)
+    ///     Per-widget params: {widgetId}.{param}=value (e.g. visitors.page=2, visitors.filter=bots)
     /// </summary>
     private async Task ServeOobUpdateAsync(HttpContext context)
     {
@@ -3262,13 +3275,7 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "text/html";
 
-        // Render requested partials with hx-swap-oob for each
-        var tasks = new List<Task<string>>();
-        foreach (var widget in widgets)
-        {
-            tasks.Add(RenderOobWidgetAsync(context, widget));
-        }
-
+        var tasks = widgets.Select(w => RenderOobWidgetAsync(context, w)).ToList();
         var results = await Task.WhenAll(tasks);
         foreach (var html in results)
         {
@@ -3277,20 +3284,29 @@ public class StyloBotDashboardMiddleware
         }
     }
 
-    /// <summary>Render a single widget partial and inject hx-swap-oob="true" on the root element.</summary>
+    /// <summary>
+    ///     Render a single widget partial with per-widget params, 2s render cache, and
+    ///     hx-swap-oob="true" injection on the root element.
+    /// </summary>
     private async Task<string> RenderOobWidgetAsync(HttpContext context, string widgetId)
     {
+        var q = ExtractWidgetParams(context, widgetId);
+        var cacheKey = ComputeWidgetCacheKey(widgetId, q);
+
+        if (_widgetCache.TryGetValue(cacheKey, out string? cached) && cached != null)
+            return cached;
+
         try
         {
             var html = widgetId switch
             {
                 "summary" => await RenderPartialAsync(context, "/Views/Shared/Components/SbSummaryStats/Default.cshtml",
                     await BuildSummaryStatsModelAsync(context)),
-                "visitors" => await RenderVisitorPartialAsync(context),
-                "countries" => await RenderCountryPartialAsync(context),
-                "endpoints" => await RenderEndpointPartialAsync(context),
+                "visitors" => await RenderVisitorPartialAsync(context, q),
+                "countries" => await RenderCountryPartialAsync(context, q),
+                "endpoints" => await RenderEndpointPartialAsync(context, q),
                 "clusters" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_ClustersList.cshtml", BuildClustersModel(context)),
-                "useragents" => await RenderUaPartialAsync(context),
+                "useragents" => await RenderUaPartialAsync(context, q),
                 "topbots" => await RenderPartialAsync(context, "/Views/Shared/Components/SbTopBots/Default.cshtml", BuildTopBotsModel()),
                 "sessions" => await RenderPartialAsync(context, "/Views/Shared/Components/SbSessionsList/Default.cshtml", BuildSessionsModel(context)),
                 "recent" => await RenderRecentActivityPartialAsync(context),
@@ -3299,11 +3315,13 @@ public class StyloBotDashboardMiddleware
             };
 
             // Inject hx-swap-oob="true" into the root element so HTMX swaps it in place.
-            // Each partial's root div has a unique id (e.g., id="summary-stats", id="visitor-list").
             if (!string.IsNullOrEmpty(html))
                 html = InjectOobAttribute(html);
 
-            return html;
+            if (!string.IsNullOrEmpty(html))
+                _widgetCache.Set(cacheKey, html, WidgetCacheTtl);
+
+            return html ?? "";
         }
         catch (Exception ex)
         {
@@ -3313,33 +3331,57 @@ public class StyloBotDashboardMiddleware
     }
 
     /// <summary>
-    ///     Injects hx-swap-oob="true" into the first opening tag of the HTML fragment.
+    ///     Injects hx-swap-oob="true" into the first opening tag of the HTML fragment
+    ///     using a regex that correctly handles self-closing tags.
     ///     This tells HTMX to swap the element by ID regardless of where it appears in the response.
     /// </summary>
     private static string InjectOobAttribute(string html)
     {
-        // Find the end of the first opening tag (e.g., <div id="summary-stats" ...>)
-        var firstTagEnd = html.IndexOf('>');
-        if (firstTagEnd < 0) return html;
+        var match = OobFirstTagRegex.Match(html);
+        if (!match.Success) return html;
+        if (match.Value.Contains("hx-swap-oob", StringComparison.Ordinal)) return html;
+        return html[..match.Groups[1].Index]
+               + match.Groups[1].Value
+               + " hx-swap-oob=\"true\""
+               + match.Groups[2].Value
+               + html[(match.Index + match.Length)..];
+    }
 
-        // Don't double-inject
-        if (html.AsSpan(0, firstTagEnd).Contains("hx-swap-oob", StringComparison.Ordinal))
-            return html;
+    private static IQueryCollection ExtractWidgetParams(HttpContext context, string widgetId)
+    {
+        var prefix = widgetId + ".";
+        Dictionary<string, StringValues>? dict = null;
+        foreach (var kvp in context.Request.Query)
+        {
+            if (kvp.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                dict ??= new Dictionary<string, StringValues>(StringComparer.OrdinalIgnoreCase);
+                dict[kvp.Key[prefix.Length..]] = kvp.Value;
+            }
+        }
+        return dict is { Count: > 0 } ? new QueryCollection(dict) : context.Request.Query;
+    }
 
-        return html.Insert(firstTagEnd, " hx-swap-oob=\"true\"");
+    private static string ComputeWidgetCacheKey(string widgetId, IQueryCollection q)
+    {
+        var sorted = q
+            .OrderBy(k => k.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(k => $"{k.Key}={k.Value}");
+        return $"sb:widget:{widgetId}:{string.Join("&", sorted)}";
     }
 
     private async Task<string> RenderPartialAsync<T>(HttpContext context, string viewPath, T model)
         where T : notnull
         => await _razorViewRenderer.RenderViewToStringAsync(viewPath, model, context);
 
-    private async Task<string> RenderVisitorPartialAsync(HttpContext context)
+    private async Task<string> RenderVisitorPartialAsync(HttpContext context, IQueryCollection? q = null)
     {
+        q ??= context.Request.Query;
         var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
-        var filter = context.Request.Query["filter"].FirstOrDefault() ?? "all";
-        var sortField = context.Request.Query["sort"].FirstOrDefault() ?? "lastSeen";
-        var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
-        var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var filter = q["filter"].FirstOrDefault() ?? "all";
+        var sortField = q["sort"].FirstOrDefault() ?? "lastSeen";
+        var sortDir = q["dir"].FirstOrDefault() ?? "desc";
+        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var (items, totalCount, _, _) = visitorCache.GetFiltered(filter, sortField, sortDir, page, 24);
         var model = new VisitorListModel
         {
@@ -3351,17 +3393,25 @@ public class StyloBotDashboardMiddleware
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Shared/Components/SbVisitorList/Default.cshtml", model, context);
     }
 
-    private async Task<string> RenderCountryPartialAsync(HttpContext context)
+    private async Task<string> RenderCountryPartialAsync(HttpContext context, IQueryCollection? q = null)
     {
+        q ??= context.Request.Query;
+        var sortField = q["sort"].FirstOrDefault() ?? "total";
+        var sortDir = q["dir"].FirstOrDefault() ?? "desc";
+        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var data = await GetCountriesDataAsync();
-        var model = BuildCountriesModel("total", "desc", 1, 20, data);
+        var model = BuildCountriesModel(sortField, sortDir, page, 20, data);
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Shared/Components/SbCountriesList/Default.cshtml", model, context);
     }
 
-    private async Task<string> RenderEndpointPartialAsync(HttpContext context)
+    private async Task<string> RenderEndpointPartialAsync(HttpContext context, IQueryCollection? q = null)
     {
+        q ??= context.Request.Query;
+        var sortField = q["sort"].FirstOrDefault() ?? "total";
+        var sortDir = q["dir"].FirstOrDefault() ?? "desc";
+        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var data = await GetEndpointsDataAsync(context);
-        var model = BuildEndpointsModel("total", "desc", 1, 20, data);
+        var model = BuildEndpointsModel(sortField, sortDir, page, 20, data);
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Shared/Components/SbEndpointsList/Default.cshtml", model, context);
     }
 
@@ -3379,11 +3429,16 @@ public class StyloBotDashboardMiddleware
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/StyloBot/Dashboard/_RecentActivity.cshtml", model, context);
     }
 
-    private async Task<string> RenderUaPartialAsync(HttpContext context)
+    private async Task<string> RenderUaPartialAsync(HttpContext context, IQueryCollection? q = null)
     {
+        q ??= context.Request.Query;
+        var filter = q["filter"].FirstOrDefault() ?? "all";
+        var sortField = q["sort"].FirstOrDefault() ?? "requests";
+        var sortDir = q["dir"].FirstOrDefault() ?? "desc";
+        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var cached = _aggregateCache.Current.UserAgents;
         var uas = cached.Count > 0 ? cached : await ComputeUserAgentsFallbackAsync();
-        var model = BuildUserAgentsModel("all", "requests", "desc", 1, 25, uas);
+        var model = BuildUserAgentsModel(filter, sortField, sortDir, page, 25, uas);
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Shared/Components/SbUserAgentsList/Default.cshtml", model, context);
     }
 
