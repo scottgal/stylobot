@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
@@ -11,6 +12,7 @@ using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Middleware;
+using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.Extensions;
@@ -44,8 +46,60 @@ public static class StyloBotDashboardServiceExtensions
     {
         services.AddHttpContextAccessor(); // Needed by sb-* gating TagHelpers
 
-        // Detection data extraction for ViewComponents and TagHelpers
-        services.TryAddSingleton<DetectionDataExtractor>();
+        // Detection data extraction for ViewComponents and TagHelpers.
+        // Uses a factory so DI does not attempt to resolve IHttpClientFactory unless it is registered.
+        services.TryAddSingleton<DetectionDataExtractor>(sp =>
+        {
+            var factory = sp.GetService<IHttpClientFactory>();
+            var options = sp.GetService<IOptions<DetectionApiOptions>>();
+            return new DetectionDataExtractor(factory, options);
+        });
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Enables API-mode detection data extraction.
+    ///     When neither inline middleware (HttpContext.Items) nor YARP headers provide detection data,
+    ///     <see cref="DetectionDataExtractor"/> will call <paramref name="apiEndpoint"/> to retrieve
+    ///     detection results for the current visitor.
+    ///     <para>
+    ///     The result is cached in <c>HttpContext.Items</c> by <see cref="SbDetectionMiddleware"/> so
+    ///     synchronous <c>sb-*</c> tag helpers always see the data without making async calls.
+    ///     </para>
+    ///     <para>
+    ///     After calling this, add <see cref="SbDetectionMiddleware"/> to the pipeline:
+    ///     <code>app.UseMiddleware&lt;SbDetectionMiddleware&gt;();</code>
+    ///     </para>
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="apiEndpoint">
+    ///     URL of the StyloBot API detection endpoint,
+    ///     e.g. <c>"http://gateway:8080/api/v1/me"</c>.
+    /// </param>
+    /// <example>
+    ///     <code>
+    ///     builder.Services.AddBotDetection();
+    ///     builder.Services.AddStyloBotUI();
+    ///     builder.Services.AddStyloBotApiMode("http://gateway:8080/api/v1/me");
+    ///     // ...
+    ///     app.UseMiddleware&lt;SbDetectionMiddleware&gt;();
+    ///     </code>
+    /// </example>
+    public static IServiceCollection AddStyloBotApiMode(
+        this IServiceCollection services,
+        string apiEndpoint)
+    {
+        services.Configure<DetectionApiOptions>(o => o.Endpoint = apiEndpoint);
+
+        // Register the named HTTP client used for API calls.
+        services.AddHttpClient("stylobot");
+
+        // DetectionDataExtractor auto-detects API mode via optional IOptions<DetectionApiOptions>.
+        // If AddStyloBotUI has already registered it, remove and re-register so the DI container
+        // resolves the constructor with IHttpClientFactory + IOptions<DetectionApiOptions>.
+        services.RemoveAll<DetectionDataExtractor>();
+        services.AddSingleton<DetectionDataExtractor>();
 
         return services;
     }

@@ -1,7 +1,9 @@
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.UI.Models;
 
@@ -9,12 +11,44 @@ namespace Mostlylucid.BotDetection.UI.Services;
 
 /// <summary>
 ///     Extracts detection data from HttpContext into a display model.
-///     Used by both BotDetectionDetailsViewComponent and BotDetectionHeaderViewComponent.
+///     Supports three modes, tried in order:
+///     <list type="number">
+///         <item>HttpContext.Items - populated by inline BotDetectionMiddleware</item>
+///         <item>X-Bot-Detection-* request headers - set by YARP gateway upstream</item>
+///         <item>API call to the configured <see cref="DetectionApiOptions.Endpoint"/> - populated by
+///             <see cref="SbDetectionMiddleware"/> running before tag helpers process</item>
+///     </list>
+///     <para>
+///     Tag helpers call the synchronous <see cref="Extract"/> method. API-mode results are cached
+///     into <c>HttpContext.Items</c> by <see cref="SbDetectionMiddleware"/> before the request
+///     reaches Razor, so <see cref="Extract"/> always reads from Items (never makes async HTTP calls).
+///     </para>
 /// </summary>
 public class DetectionDataExtractor
 {
+    // Cache key used by SbDetectionMiddleware to store pre-fetched API results in Items.
+    internal const string ApiCacheKey = "BotDetection.ApiResult";
+
+    private readonly IHttpClientFactory? _httpClientFactory;
+    private readonly string? _apiEndpoint;
+
     /// <summary>
-    ///     Extracts detection data from HttpContext.Items (inline) or YARP headers.
+    ///     Creates the extractor. When <paramref name="httpClientFactory"/> and
+    ///     <paramref name="options"/> are provided and an endpoint is configured, API mode is enabled.
+    ///     All parameters are optional so the extractor works without API mode registered.
+    /// </summary>
+    public DetectionDataExtractor(
+        IHttpClientFactory? httpClientFactory = null,
+        IOptions<DetectionApiOptions>? options = null)
+    {
+        _httpClientFactory = httpClientFactory;
+        _apiEndpoint = options?.Value.Endpoint;
+    }
+
+    /// <summary>
+    ///     Extracts detection data from HttpContext.Items (inline), YARP headers, or
+    ///     a pre-fetched API result written by <see cref="SbDetectionMiddleware"/>.
+    ///     This method is synchronous and safe to call from tag helper <c>Process()</c>.
     /// </summary>
     public DetectionDisplayModel Extract(HttpContext context)
     {
@@ -23,8 +57,42 @@ public class DetectionDataExtractor
         return TryExtractFromYarpHeaders(context);
     }
 
+    /// <summary>
+    ///     Ensures detection data is populated in <c>HttpContext.Items</c>.
+    ///     If Items already has data (inline mode) or headers are present (YARP mode), returns immediately.
+    ///     Otherwise, if an API endpoint is configured, calls it and caches the result in Items
+    ///     so that subsequent synchronous <see cref="Extract"/> calls find the data.
+    ///     Called by <see cref="SbDetectionMiddleware"/> early in the pipeline.
+    /// </summary>
+    public async Task EnsurePopulatedAsync(HttpContext context)
+    {
+        // Already have data from inline middleware or YARP headers - nothing to do.
+        var model = TryExtractFromContextItems(context);
+        if (model.HasData) return;
+
+        var headerModel = TryExtractFromYarpHeaders(context);
+        if (headerModel.HasData) return;
+
+        // API mode: call the configured endpoint and cache in Items.
+        if (string.IsNullOrEmpty(_apiEndpoint) || _httpClientFactory == null)
+            return;
+
+        var apiModel = await TryFetchFromApiAsync(context);
+        if (apiModel is { HasData: true })
+        {
+            // Store under the Items key that TryExtractFromContextItems checks via ApiCacheKey,
+            // but since the API returns a ready model we store it directly and short-circuit.
+            context.Items[ApiCacheKey] = apiModel;
+        }
+    }
+
     private DetectionDisplayModel TryExtractFromContextItems(HttpContext context)
     {
+        // Check for a pre-fetched API result stored by SbDetectionMiddleware.
+        if (context.Items.TryGetValue(ApiCacheKey, out var cachedApiResult) &&
+            cachedApiResult is DetectionDisplayModel cachedModel)
+            return cachedModel;
+
         if (context.Items.TryGetValue("BotDetection.AggregatedEvidence", out var evidenceObj) &&
             evidenceObj is AggregatedEvidence evidence)
             return new DetectionDisplayModel
@@ -107,6 +175,37 @@ public class DetectionDataExtractor
         }
 
         return new DetectionDisplayModel();
+    }
+
+    private async Task<DetectionDisplayModel?> TryFetchFromApiAsync(HttpContext context)
+    {
+        try
+        {
+            var client = _httpClientFactory!.CreateClient("stylobot");
+
+            // Forward the visitor's IP and User-Agent so the API can fingerprint correctly.
+            var request = new HttpRequestMessage(HttpMethod.Get, _apiEndpoint);
+
+            var remoteIp = context.Connection.RemoteIpAddress?.ToString();
+            if (!string.IsNullOrEmpty(remoteIp))
+                request.Headers.TryAddWithoutValidation("X-Forwarded-For", remoteIp);
+
+            var userAgent = context.Request.Headers.UserAgent.ToString();
+            if (!string.IsNullOrEmpty(userAgent))
+                request.Headers.TryAddWithoutValidation("User-Agent", userAgent);
+
+            using var response = await client.SendAsync(request, context.RequestAborted);
+            if (!response.IsSuccessStatusCode) return null;
+
+            var model = await response.Content.ReadFromJsonAsync<DetectionDisplayModel>(
+                cancellationToken: context.RequestAborted);
+            return model;
+        }
+        catch
+        {
+            // API unavailable - fall through, tag helpers will see no data (fail-open).
+            return null;
+        }
     }
 
     private DetectionDisplayModel TryExtractFromYarpHeaders(HttpContext context)
