@@ -2,9 +2,9 @@ import { StyloBotClient, parseStyloBotHeaders, type Verdict } from '@stylobot/co
 import { extractDetectRequest } from './extract.js';
 import type { StyloBotMiddlewareOptions, StyloBotResult } from './middleware.js';
 
-declare module 'fastify' {
-  interface FastifyRequest { stylobot: StyloBotResult; }
-}
+// FastifyRequest augmentation for TypeScript consumers:
+// declare module 'fastify' { interface FastifyRequest { stylobot: StyloBotResult; } }
+// Add this to your own types.d.ts if you want typed access to request.stylobot.
 
 const EMPTY_VERDICT: Verdict = {
   isBot: false, botProbability: 0, confidence: 0, botType: null, botName: null,

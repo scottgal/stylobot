@@ -69,7 +69,14 @@ app.get('/', (req, res) => {
 })
 ```
 
-TypeScript augmentation for `req.stylobot` is provided automatically by `@stylobot/node`.
+TypeScript augmentation for `req.stylobot` is provided automatically by `@stylobot/node` for Express. For Fastify, add your own augmentation to a `types.d.ts` file:
+
+```ts
+import type { StyloBotResult } from '@stylobot/node'
+declare module 'fastify' {
+  interface FastifyRequest { stylobot: StyloBotResult }
+}
+```
 
 ---
 

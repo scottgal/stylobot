@@ -29,12 +29,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
-        var basePath = Path.GetDirectoryName(
-            options.Value.DatabasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
-            ?? AppContext.BaseDirectory;
-        Directory.CreateDirectory(basePath);
-        var dbPath = Path.Combine(basePath, "dashboard.db");
-        _connectionString = $"Data Source={dbPath};Cache=Shared";
+        _connectionString = DashboardDbPath.GetConnectionString(options.Value);
     }
 
     private async Task EnsureInitializedAsync(CancellationToken ct = default)

@@ -1,8 +1,10 @@
 ﻿using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -18,7 +20,9 @@ using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Models.Auth;
 using Mostlylucid.BotDetection.UI.Services;
+using Mostlylucid.BotDetection.UI.Services.Auth;
 
 namespace Mostlylucid.BotDetection.UI.Middleware;
 
@@ -56,6 +60,24 @@ public class StyloBotDashboardMiddleware
     // Rate limiter: per IP, per minute (used only for diagnostics endpoint)
     private static readonly ConcurrentDictionary<string, (int Count, DateTime WindowStart)> _rateLimits = new();
     private static volatile bool _authWarningLogged;
+
+    // Caches whether any dashboard users exist. Set to true on first confirmed user; never reverts.
+    // Avoids a DB round-trip on every unauthenticated request once deployment is past first-run.
+    private static volatile bool _usersExist;
+
+    private const string AuthPageCss = """
+        *{box-sizing:border-box;margin:0;padding:0}
+        body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh}
+        .card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:2rem;width:100%;max-width:420px}
+        h1{font-size:1.25rem;font-weight:600;margin-bottom:.25rem}
+        p{font-size:.875rem;color:#94a3b8;margin-bottom:1.5rem}
+        label{display:block;font-size:.875rem;font-weight:500;margin-bottom:.375rem;margin-top:1rem}
+        input{width:100%;padding:.5rem .75rem;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.875rem}
+        input:focus{outline:none;border-color:#6366f1}
+        button{margin-top:1.5rem;width:100%;padding:.625rem;background:#6366f1;color:#fff;border:none;border-radius:6px;font-size:.875rem;font-weight:500;cursor:pointer}
+        button:hover{background:#4f46e5}
+        .error{color:#f87171;font-size:.875rem;margin-top:1rem}
+        """;
     private const int DiagnosticsRateLimit = 10;
     private const int MaxRateLimitEntries = 10_000; // hard cap to prevent memory exhaustion
     private static readonly TimeSpan RateLimitWindow = TimeSpan.FromMinutes(1);
@@ -129,17 +151,36 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
+        var relativePath = path.Substring(_options.BasePath.Length).TrimStart('/');
+        var relLower = relativePath.ToLowerInvariant();
+
+        if (_options.RequireAuthentication)
+        {
+            // Identity API endpoints pass through to endpoint routing (MapIdentityApi).
+            if (relLower.StartsWith("auth/")) { await _next(context); return; }
+
+            // One-time setup route (disappears after first user exists).
+            if (relLower is "setup" or "setup/") { await ServeSetupAsync(context); return; }
+
+            // Login UI: form that POSTs to /_stylobot/auth/login?useCookies=true.
+            if (relLower is "auth-ui" or "login") { await ServeLoginUiAsync(context); return; }
+        }
+
         // Check authorization
         if (!await IsAuthorizedAsync(context))
         {
+            if (_options.RequireAuthentication)
+            {
+                await HandleUnauthenticatedAsync(context, relLower);
+                return;
+            }
+
             _logger.LogWarning("Dashboard access denied for {IP} on {Path}",
                 context.Connection.RemoteIpAddress, context.Request.Path);
             context.Response.StatusCode = 403;
             await context.Response.WriteAsync("Forbidden: Dashboard access denied");
             return;
         }
-
-        var relativePath = path.Substring(_options.BasePath.Length).TrimStart('/');
 
         // High-value dashboard data APIs are hard-blocked for detected bots,
         // UNLESS the request carries a valid API key (trusted tooling / monitoring).
@@ -172,7 +213,7 @@ public class StyloBotDashboardMiddleware
             }
         }
 
-        switch (relativePath.ToLowerInvariant())
+        switch (relLower)
         {
             case "":
             case "index":
@@ -410,6 +451,16 @@ public class StyloBotDashboardMiddleware
 
     private async Task<bool> IsAuthorizedAsync(HttpContext context)
     {
+        // Built-in Identity bearer/cookie auth (FOSS tier).
+        // Authenticates the request inline without depending on UseAuthentication() placement.
+        if (_options.RequireAuthentication)
+        {
+            var result = await context.AuthenticateAsync();
+            if (result?.Principal != null)
+                context.User = result.Principal;
+            return context.User.Identity?.IsAuthenticated == true;
+        }
+
         // Custom filter takes precedence
         if (_options.AuthorizationFilter != null) return await _options.AuthorizationFilter(context);
 
@@ -424,7 +475,7 @@ public class StyloBotDashboardMiddleware
             {
                 var result = await authService.AuthorizeAsync(
                     context.User,
-                    null, // No resource
+                    null,
                     _options.RequireAuthorizationPolicy);
 
                 return result.Succeeded;
@@ -455,6 +506,179 @@ public class StyloBotDashboardMiddleware
         }
 
         return false;
+    }
+
+    private async Task HandleUnauthenticatedAsync(HttpContext context, string relLower)
+    {
+        if (!_usersExist)
+        {
+            var userStore = context.RequestServices.GetService<IUserStore<StyloBotUser>>() as StyloBotUserStore;
+            if (userStore != null)
+            {
+                var count = await userStore.GetUserCountAsync(context.RequestAborted);
+                if (count > 0) _usersExist = true;
+                else { context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/setup"); return; }
+            }
+        }
+
+        // API paths return 401 JSON; browser paths redirect to login UI
+        if (relLower.StartsWith("api/") || relLower.StartsWith("partials/"))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.Headers.WWWAuthenticate = "Bearer";
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Unauthorized\"}");
+        }
+        else
+        {
+            context.Response.Redirect(_options.BasePath.TrimEnd('/') + "/auth-ui");
+        }
+    }
+
+    private async Task ServeSetupAsync(HttpContext context)
+    {
+        if (_usersExist) { context.Response.StatusCode = 404; return; }
+
+        var userStore = context.RequestServices.GetService<IUserStore<StyloBotUser>>() as StyloBotUserStore;
+        if (userStore == null) { context.Response.StatusCode = 404; return; }
+
+        var count = await userStore.GetUserCountAsync(context.RequestAborted);
+        if (count > 0)
+        {
+            _usersExist = true;
+            context.Response.StatusCode = 404;
+            return;
+        }
+
+        if (context.Request.Method.Equals("POST", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleSetupPostAsync(context);
+            return;
+        }
+
+        context.Response.ContentType = "text/html; charset=utf-8";
+        var basePath = _options.BasePath.TrimEnd('/');
+        await context.Response.WriteAsync($$"""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>StyloBot Dashboard Setup</title>
+            <style>{{AuthPageCss}}</style>
+            </head>
+            <body>
+            <div class="card">
+              <h1>StyloBot Dashboard</h1>
+              <p>Create the first admin account to secure your dashboard.</p>
+              <form method="post" action="{{basePath}}/setup">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required autocomplete="email">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required minlength="8" autocomplete="new-password">
+                <label for="confirmPassword">Confirm Password</label>
+                <input type="password" id="confirmPassword" name="confirmPassword" required minlength="8" autocomplete="new-password">
+                <button type="submit">Create Admin Account</button>
+              </form>
+            </div>
+            </body>
+            </html>
+            """);
+    }
+
+    private async Task HandleSetupPostAsync(HttpContext context)
+    {
+        await context.Request.ReadFormAsync(context.RequestAborted);
+        var email = context.Request.Form["email"].FirstOrDefault()?.Trim();
+        var password = context.Request.Form["password"].FirstOrDefault();
+        var confirm = context.Request.Form["confirmPassword"].FirstOrDefault();
+
+        var basePath = _options.BasePath.TrimEnd('/');
+
+        if (string.IsNullOrEmpty(email) || string.IsNullOrEmpty(password) || password != confirm)
+        {
+            context.Response.Redirect($"{basePath}/setup?error=invalid");
+            return;
+        }
+
+        var userManager = context.RequestServices.GetService<UserManager<StyloBotUser>>();
+        if (userManager == null)
+        {
+            context.Response.StatusCode = 500;
+            await context.Response.WriteAsync("Identity services not registered.");
+            return;
+        }
+
+        var user = new StyloBotUser { UserName = email, Email = email, EmailConfirmed = true };
+        var result = await userManager.CreateAsync(user, password);
+
+        if (result.Succeeded)
+        {
+            _usersExist = true;
+            _logger.LogInformation("StyloBot Dashboard: first admin account created for {Email}", email);
+            context.Response.Redirect($"{basePath}/auth-ui");
+        }
+        else
+        {
+            var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+            context.Response.Redirect($"{basePath}/setup?error={Uri.EscapeDataString(errors)}");
+        }
+    }
+
+    private async Task ServeLoginUiAsync(HttpContext context)
+    {
+        context.Response.ContentType = "text/html; charset=utf-8";
+        var basePath = _options.BasePath.TrimEnd('/');
+        var error = context.Request.Query["error"].FirstOrDefault();
+        var errorHtml = string.IsNullOrEmpty(error) ? "" :
+            $"<p class='error'>{System.Net.WebUtility.HtmlEncode(error)}</p>";
+
+        await context.Response.WriteAsync($$"""
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>StyloBot Dashboard Login</title>
+            <style>{{AuthPageCss}}</style>
+            </head>
+            <body>
+            <div class="card">
+              <h1>StyloBot Dashboard</h1>
+              <p>Sign in to access the dashboard.</p>
+              <div id="form-area">
+                <label for="email">Email</label>
+                <input type="email" id="email" autocomplete="email">
+                <label for="password">Password</label>
+                <input type="password" id="password" autocomplete="current-password">
+                <button onclick="doLogin()">Sign In</button>
+                {{errorHtml}}
+                <p id="msg" class="error"></p>
+              </div>
+            </div>
+            <script>
+            async function doLogin() {
+              const email = document.getElementById('email').value;
+              const password = document.getElementById('password').value;
+              const msg = document.getElementById('msg');
+              msg.textContent = '';
+              const res = await fetch('{{basePath}}/auth/login?useCookies=true', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({email, password})
+              });
+              if (res.ok) {
+                window.location.href = '{{basePath}}';
+              } else {
+                const data = await res.json().catch(() => ({}));
+                msg.textContent = data.detail || data.title || 'Invalid email or password.';
+              }
+            }
+            document.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+            </script>
+            </body>
+            </html>
+            """);
     }
 
     /// <summary>

@@ -512,3 +512,70 @@ Any level can enable Qdrant for similarity-based detection:
 ```
 
 When embeddings are enabled, each detection generates a 384-dim semantic vector via ONNX (all-MiniLM-L6-v2, runs CPU-only, ~1-3ms per embedding) alongside the 64-dim heuristic vector. Both vectors are stored in Qdrant for dual-vector similarity matching.
+
+---
+
+## Node.js SDK
+
+For Node.js backends (Express, Fastify), the `@stylobot/node` package provides middleware that mirrors the two integration modes available to .NET apps.
+
+| Package | Purpose |
+|---------|---------|
+| `@stylobot/core` | Types, `StyloBotClient`, header parser. Works in Node, Deno, Bun. |
+| `@stylobot/node` | Express middleware, Fastify plugin, SSR coordinator, verdict injector. |
+| `@stylobot/elements` | Browser web components (`sb-gate`, `sb-adapt`, `sb-widget`) for client-side UI adaptation. |
+
+### Gateway mode (headers)
+
+The StyloBot YARP Gateway sits in front of your Node app and injects verdict headers. The middleware reads them at zero latency.
+
+```ts
+import { styloBotMiddleware } from '@stylobot/node'
+app.use(styloBotMiddleware({ mode: 'headers' }))
+```
+
+### Sidecar mode (API)
+
+No gateway required. The middleware calls `/api/v1/detect` directly on each request.
+
+```ts
+app.use(styloBotMiddleware({
+  mode: 'api',
+  endpoint: 'http://stylobot-host:5080',
+  apiKey: process.env.STYLOBOT_API_KEY,
+}))
+```
+
+### SSR widget rendering
+
+Server-side Liquid widget rendering via `SbSsrCoordinator`. All widgets on a page are batched into one POST to `/_stylobot/partials/render`.
+
+```ts
+import { StyloBotClient } from '@stylobot/core'
+import { SbSsrCoordinator } from '@stylobot/node'
+
+const client = new StyloBotClient({ endpoint: 'http://stylobot-host:5080' })
+const coordinator = new SbSsrCoordinator(client)
+
+const widgets = await coordinator.renderWidgets([
+  { widgetId: 'summary', template: '{{ bot_requests }} bots today' },
+  { widgetId: 'topbots' },  // uses built-in Razor view
+])
+```
+
+### Client-side UI adaptation
+
+Bundle `@stylobot/elements` and serve it as a static asset. The web components read `window.__sb` (set by `sbVerdictInjector` middleware) and adapt content without extra API calls.
+
+```html
+<sb-gate max-risk="low">
+  <div>Visible only to low-risk visitors.</div>
+</sb-gate>
+
+<sb-adapt>
+  <sb-case max-risk="low"><div>Normal checkout</div></sb-case>
+  <sb-case><div>Verify identity before continuing</div></sb-case>
+</sb-adapt>
+```
+
+Full documentation: [`sdk/node/README.md`](../../../sdk/node/README.md).

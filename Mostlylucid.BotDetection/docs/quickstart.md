@@ -684,9 +684,12 @@ def api_data():
 ```
 
 ```javascript
-// Node.js/Express
+// Node.js/Express (with @stylobot/node middleware)
+import { styloBotMiddleware } from '@stylobot/node'
+app.use(styloBotMiddleware({ mode: 'headers' }))
+
 app.get('/api/data', (req, res) => {
-  if (req.headers['x-bot-detected'] === 'true') {
+  if (req.stylobot.verdict.riskBand === 'High') {
     return res.status(403).json({ error: 'blocked' });
   }
   res.json({ data: 'sensitive' });
@@ -729,3 +732,4 @@ All tiers use the same detection pipeline. Moving between them is a DI registrat
 - [deployment-guide.md](deployment-guide.md) - Docker, Kubernetes, production deployment
 - [ai-detection.md](ai-detection.md) - Heuristic model and LLM escalation
 - [yarp-integration.md](yarp-integration.md) - YARP reverse proxy setup
+- [Node SDK](../../../sdk/node/README.md) - Express/Fastify middleware, SSR widgets, web components

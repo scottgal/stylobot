@@ -5,7 +5,9 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "node --experimental-strip-types --loader ../../ts-loader.mjs --test src/__tests__/*.test.ts",
@@ -19,14 +21,19 @@
     "fastify": ">=4.0.0"
   },
   "peerDependenciesMeta": {
-    "express": { "optional": true },
-    "fastify": { "optional": true }
+    "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "typescript": "^5.8.0",
-    "@types/node": "^22.0.0",
     "@types/express": "^5.0.0",
-    "express": "^5.0.0"
+    "@types/node": "^22.0.0",
+    "express": "^5.0.0",
+    "fastify": "^5.8.5",
+    "typescript": "^5.8.0"
   },
   "license": "MIT"
 }

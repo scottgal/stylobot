@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -13,7 +14,9 @@ using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Models.Auth;
 using Mostlylucid.BotDetection.UI.Services;
+using Mostlylucid.BotDetection.UI.Services.Auth;
 
 namespace Mostlylucid.BotDetection.UI.Extensions;
 
@@ -200,6 +203,20 @@ public static class StyloBotDashboardServiceExtensions
         // Cluster description callback for background LLM cluster naming
         services.TryAddSingleton<IClusterDescriptionCallback, ClusterDescriptionSignalRCallback>();
 
+        // Built-in Identity bearer/cookie auth for the dashboard (FOSS tier).
+        // Mounts register/login/refresh endpoints at {BasePath}/auth/*.
+        // Commercial OIDC is a separate concern - use AuthorizationFilter instead.
+        if (options.RequireAuthentication)
+        {
+            services.AddIdentityApiEndpoints<StyloBotUser>()
+                .AddUserStore<StyloBotUserStore>()
+                .AddDefaultTokenProviders();
+
+            // Dev no-op sender: logs tokens to console. Override with AddStyloBotSmtp()
+            // or register your own IEmailSender<StyloBotUser> after this call.
+            services.TryAddTransient<IEmailSender<StyloBotUser>, StyloBotDevEmailSender>();
+        }
+
         // Register dashboard data API paths with the bot detection policy system.
         // Detection runs on ALL paths including dashboard API - no exclusions.
         // BotDetectionMiddleware resolves the detection policy for these paths
@@ -270,6 +287,12 @@ public static class StyloBotDashboardServiceExtensions
             {
                 routeBuilder.MapHub<StyloBotDashboardHub>(options.HubPath)
                     .WithMetadata(new BotDetection.Attributes.BotPolicyAttribute("default") { BlockThreshold = 0.95 });
+
+                // Mount Identity API endpoints at /_stylobot/auth/* when auth is enabled.
+                // StyloBotDashboardMiddleware bypasses these paths to let endpoint routing handle them.
+                if (options.RequireAuthentication)
+                    routeBuilder.MapGroup(options.BasePath.TrimEnd('/') + "/auth")
+                        .MapIdentityApi<StyloBotUser>();
             }
         }
 
@@ -461,6 +484,38 @@ public static class StyloBotDashboardServiceExtensions
 
         // Cluster description callback for live cluster updates
         services.TryAddSingleton<IClusterDescriptionCallback, ClusterDescriptionSignalRCallback>();
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Enables the built-in SMTP email sender for dashboard auth flows (confirmation,
+    ///     password reset, 2FA codes). Reads configuration from <c>StyloBot:Smtp</c> in
+    ///     appsettings.json. Call this after <see cref="AddStyloBot"/> or
+    ///     <see cref="AddStyloBotDashboard(IServiceCollection, Action{StyloBotDashboardOptions}?)"/>.
+    ///     <para>
+    ///     Without this, StyloBot logs tokens to the console (dev no-op sender).
+    ///     Commercial deployments can skip this and register a custom
+    ///     <c>IEmailSender&lt;StyloBotUser&gt;</c> directly.
+    ///     </para>
+    /// </summary>
+    /// <example>
+    ///     <code>
+    ///     // appsettings.json:
+    ///     // "StyloBot": { "Smtp": { "Host": "smtp.example.com", "Port": 587,
+    ///     //   "Username": "user", "Password": "pass", "FromAddress": "bot@example.com" } }
+    ///     builder.Services.AddStyloBot(d => d.RequireAuthentication = true);
+    ///     builder.Services.AddStyloBotSmtp();
+    ///     </code>
+    /// </example>
+    public static IServiceCollection AddStyloBotSmtp(this IServiceCollection services)
+    {
+        services.AddOptions<StyloBotSmtpOptions>()
+            .BindConfiguration(StyloBotSmtpOptions.Section);
+
+        // Remove dev no-op and register SMTP sender
+        services.RemoveAll<IEmailSender<StyloBotUser>>();
+        services.AddTransient<IEmailSender<StyloBotUser>, StyloBotSmtpEmailSender>();
 
         return services;
     }

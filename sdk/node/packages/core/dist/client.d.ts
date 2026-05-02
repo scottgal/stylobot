@@ -1,4 +1,4 @@
-import type { StyloBotClientOptions, DetectRequest, DetectResponse, PaginatedResponse, SingleResponse, Summary, TimeseriesPoint, CountryStat, EndpointStat, BotStat, Threat, ApiKeyInfo, DetectionsQuery, SignaturesQuery, SummaryQuery, TimeseriesQuery, PaginationQuery, ThreatsQuery } from './types.js';
+import type { StyloBotClientOptions, DetectRequest, DetectResponse, PaginatedResponse, SingleResponse, Summary, TimeseriesPoint, CountryStat, EndpointStat, BotStat, Threat, ApiKeyInfo, DetectionsQuery, SignaturesQuery, SummaryQuery, TimeseriesQuery, PaginationQuery, ThreatsQuery, Verdict, WidgetTemplate } from './types.js';
 export declare class StyloBotClient {
     private readonly endpoint;
     private readonly apiKey?;
@@ -17,6 +17,9 @@ export declare class StyloBotClient {
     topBots(params?: PaginationQuery): Promise<PaginatedResponse<BotStat>>;
     threats(params?: ThreatsQuery): Promise<PaginatedResponse<Threat>>;
     me(): Promise<SingleResponse<ApiKeyInfo>>;
+    renderWidgets(widgets: WidgetTemplate[]): Promise<Record<string, string>>;
+    verdictGlobal(verdict: Verdict | null): string;
+    private postHtml;
     private headers;
     private request;
     private get;

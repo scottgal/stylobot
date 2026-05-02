@@ -144,4 +144,13 @@ export interface ThreatsQuery extends PaginationQuery {
     since?: string;
     until?: string;
 }
+export type ClientMode = 'gateway' | 'sidecar' | 'ssr';
+export interface WidgetTemplate {
+    widgetId: string;
+    template?: string;
+    params?: Record<string, string>;
+}
+export interface WidgetRenderRequest {
+    widgets: Record<string, string>;
+}
 //# sourceMappingURL=types.d.ts.map

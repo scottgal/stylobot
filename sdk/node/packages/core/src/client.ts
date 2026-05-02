@@ -112,8 +112,8 @@ export class StyloBotClient {
     throw lastError ?? new Error('Request failed');
   }
 
-  private get<T>(path: string, params?: Record<string, unknown>): Promise<T> {
-    const qs = params ? toQueryString(params) : '';
+  private get<T>(path: string, params?: object): Promise<T> {
+    const qs = params ? toQueryString(params as Record<string, unknown>) : '';
     return this.request<T>('GET', qs ? `${path}?${qs}` : path);
   }
 

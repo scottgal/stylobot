@@ -136,4 +136,26 @@ public sealed class StyloBotDashboardOptions
     ///     Default: false.
     /// </summary>
     public bool EnableTuner { get; set; }
+
+    /// <summary>
+    ///     When true, enables built-in ASP.NET Core Identity bearer/cookie auth for the dashboard.
+    ///     Registers <c>AddIdentityApiEndpoints&lt;StyloBotUser&gt;()</c> and mounts login/register
+    ///     endpoints at <c>{BasePath}/auth/*</c>. User accounts are stored in <c>dashboard_users</c>
+    ///     in the existing SQLite database. No external auth provider required.
+    ///     <para>
+    ///     First-run: visit <c>{BasePath}/setup</c> to create the initial admin account.
+    ///     </para>
+    ///     <para>
+    ///     Email sender: StyloBot registers a dev no-op sender by default (logs tokens to console).
+    ///     For production, register your own <c>IEmailSender&lt;StyloBotUser&gt;</c> or configure
+    ///     SMTP via <c>StyloBot:Smtp</c> in appsettings.json after calling
+    ///     <c>AddStyloBotSmtp()</c> on the service collection.
+    ///     </para>
+    ///     <para>
+    ///     COMMERCIAL: Replace this with OIDC by registering your own auth scheme and setting
+    ///     <c>AuthorizationFilter</c> instead. <c>RequireAuthentication</c> and OIDC are mutually exclusive.
+    ///     </para>
+    ///     Default: false.
+    /// </summary>
+    public bool RequireAuthentication { get; set; }
 }

@@ -22,6 +22,48 @@ export class StyloBotClient {
     async topBots(params) { return this.get('/api/v1/topbots', params); }
     async threats(params) { return this.get('/api/v1/threats', params); }
     async me() { return this.get('/api/v1/me'); }
+    async renderWidgets(widgets) {
+        const body = {
+            widgets: Object.fromEntries(widgets.map(w => [w.widgetId, w.template ?? '']))
+        };
+        const html = await this.postHtml('/_stylobot/partials/render', body);
+        return parseWidgetFragments(html);
+    }
+    verdictGlobal(verdict) {
+        const data = verdict ?? {
+            isBot: false, botProbability: 0, confidence: 0, botType: null, botName: null,
+            riskBand: 'Unknown', recommendedAction: 'Allow', threatScore: 0, threatBand: 'None'
+        };
+        return `<script>window.__sb=${JSON.stringify(data)}</script>`;
+    }
+    async postHtml(path, body) {
+        const url = `${this.endpoint}${path}`;
+        let lastError;
+        for (let attempt = 0; attempt <= this.retries; attempt++) {
+            try {
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), this.timeout);
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { ...this.headers(), 'content-type': 'application/json', 'accept': 'text/html' },
+                    body: JSON.stringify(body),
+                    signal: controller.signal,
+                });
+                clearTimeout(timer);
+                if (!res.ok) {
+                    const text = await res.text().catch(() => '');
+                    throw new StyloBotApiError(res.status, text, url);
+                }
+                return await res.text();
+            }
+            catch (err) {
+                lastError = err instanceof Error ? err : new Error(String(err));
+                if (err instanceof StyloBotApiError && err.status < 500)
+                    throw err;
+            }
+        }
+        throw lastError ?? new Error('Widget render request failed');
+    }
     headers() {
         const h = { 'content-type': 'application/json' };
         if (this.apiKey)
@@ -82,5 +124,50 @@ function toQueryString(params) {
     if (entries.length === 0)
         return '';
     return entries.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join('&');
+}
+function parseWidgetFragments(html) {
+    if (typeof DOMParser !== 'undefined') {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const result = {};
+        for (const el of Array.from(doc.body.children)) {
+            const id = el.getAttribute('data-sb-widget');
+            if (id)
+                result[id] = el.outerHTML;
+        }
+        return result;
+    }
+    const result = {};
+    for (const match of html.matchAll(/data-sb-widget="([^"]+)"/g)) {
+        const id = match[1];
+        const tagStart = html.lastIndexOf('<', match.index);
+        if (tagStart !== -1)
+            result[id] = extractElement(html, tagStart);
+    }
+    return result;
+}
+function extractElement(html, start) {
+    const tagMatch = html.slice(start).match(/^<([a-zA-Z][^\s/>]*)/);
+    if (!tagMatch)
+        return '';
+    const tag = tagMatch[1];
+    let depth = 0;
+    let i = start;
+    while (i < html.length) {
+        const nextOpen = html.indexOf(`<${tag}`, i + 1);
+        const nextClose = html.indexOf(`</${tag}>`, i + 1);
+        if (nextClose === -1)
+            break;
+        if (nextOpen !== -1 && nextOpen < nextClose) {
+            depth++;
+            i = nextOpen + 1;
+        }
+        else if (depth === 0)
+            return html.slice(start, nextClose + tag.length + 3);
+        else {
+            depth--;
+            i = nextClose + 1;
+        }
+    }
+    return html.slice(start);
 }
 //# sourceMappingURL=client.js.map
