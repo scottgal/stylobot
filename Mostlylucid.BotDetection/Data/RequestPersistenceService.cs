@@ -141,9 +141,11 @@ public sealed class RequestPersistenceService : IAsyncDisposable
 
     private bool SampleRequest(string signature, int modulo)
     {
+        if (_writeState.Count > 50_000)
+            _writeState.Clear();
         var state = _writeState.GetOrAdd(signature, _ => new SignatureWriteState());
-        var count = Interlocked.Increment(ref state.WriteCount);
-        return count % modulo == 0;
+        var writeCount = Interlocked.Increment(ref state.WriteCount) & int.MaxValue;
+        return writeCount % modulo == 0;
     }
 
     // --- inner types ---

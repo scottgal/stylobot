@@ -16,12 +16,12 @@ public class RequestPersistenceTests
         store.Setup(s => s.AddRequestBatchAsync(It.IsAny<IReadOnlyList<PersistedRequest>>(), It.IsAny<CancellationToken>()))
              .Returns(Task.CompletedTask);
 
-        await using var svc = CreateService(store);
+        var svc = CreateService(store);
 
         for (var i = 0; i < 20; i++)
             await svc.EnqueueAsync("sig1", "/", "ApiCall", 200, 0.95, 0.9, "High", 1.5, DateTime.UtcNow);
 
-        await Task.Delay(500); // let coordinator flush
+        await svc.DisposeAsync(); // drain all pending writes before asserting
         store.Verify(s => s.AddRequestBatchAsync(
             It.Is<IReadOnlyList<PersistedRequest>>(list => list.Any(r => r.BotProbability == 0.95)),
             It.IsAny<CancellationToken>()), Times.AtLeast(1));
@@ -36,12 +36,12 @@ public class RequestPersistenceTests
              .Callback<IReadOnlyList<PersistedRequest>, CancellationToken>((b, _) => writtenCount += b.Count)
              .Returns(Task.CompletedTask);
 
-        await using var svc = CreateService(store);
+        var svc = CreateService(store);
 
         for (var i = 0; i < 10; i++)
             await svc.EnqueueAsync("sig-human", "/about", "PageView", 200, 0.1, 0.8, "Low", 2.0, DateTime.UtcNow);
 
-        await Task.Delay(500);
+        await svc.DisposeAsync(); // drain all pending writes before asserting
         Assert.Equal(10, writtenCount);
     }
 }
