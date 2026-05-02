@@ -130,7 +130,7 @@ public sealed class SessionPersistenceService : BackgroundService
                 ? SqliteSessionStore.SerializeVector(snapshot.DriftVector) : null
         };
 
-        await _store.AddSessionAsync(persisted, ct);
+        _ = await _store.AddSessionAsync(persisted, ct);
 
         // Upsert signature
         var sig = new PersistedSignature

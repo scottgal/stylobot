@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Services;
 using Moq;
 
 namespace Mostlylucid.BotDetection.Test.Data;
@@ -44,4 +45,59 @@ public class RequestPersistenceTests
         await svc.DisposeAsync(); // drain all pending writes before asserting
         Assert.Equal(10, writtenCount);
     }
+}
+
+public class SessionAtomizerTests
+{
+    [Fact]
+    public void SplitIntoSessionGroups_SplitsOn30MinGap()
+    {
+        var now = DateTime.UtcNow;
+        var requests = new List<PersistedRequest>
+        {
+            MakeReq(now.AddMinutes(-70), "sig"),
+            MakeReq(now.AddMinutes(-65), "sig"),
+            MakeReq(now.AddMinutes(-60), "sig"),
+            MakeReq(now.AddMinutes(-28), "sig"), // 32-min gap -> new session
+            MakeReq(now.AddMinutes(-20), "sig"),
+            MakeReq(now.AddMinutes(-10), "sig"),
+        };
+
+        Assert.Equal(2, CountSessionGroups(requests, now, forceFlush: true));
+    }
+
+    private static int CountSessionGroups(List<PersistedRequest> requests, DateTime now, bool forceFlush)
+    {
+        var sessionGap = TimeSpan.FromMinutes(30);
+        var graceAge   = TimeSpan.FromMinutes(35);
+        var ordered    = requests.OrderBy(r => r.Timestamp).ToList();
+        var groups     = new List<List<PersistedRequest>>();
+        var current    = new List<PersistedRequest> { ordered[0] };
+
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            if (ordered[i].Timestamp - ordered[i - 1].Timestamp >= sessionGap)
+            { groups.Add(current); current = new List<PersistedRequest>(); }
+            current.Add(ordered[i]);
+        }
+
+        var lastTs = current.Max(r => r.Timestamp);
+        if (forceFlush || (now - lastTs) >= graceAge)
+            groups.Add(current);
+
+        return groups.Count(g => g.Count >= 3);
+    }
+
+    private static PersistedRequest MakeReq(DateTime ts, string sig) => new()
+    {
+        Signature      = sig,
+        Timestamp      = ts,
+        Path           = "/",
+        MarkovState    = "PageView",
+        StatusCode     = 200,
+        BotProbability = 0.1,
+        Confidence     = 0.8,
+        RiskBand       = "Low",
+        ProcessingMs   = 1.5,
+    };
 }

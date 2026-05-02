@@ -212,7 +212,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
 
     // === Write path ===
 
-    public async Task AddSessionAsync(PersistedSession session, CancellationToken ct = default)
+    public async Task<long> AddSessionAsync(PersistedSession session, CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
         await _writeLock.WaitAsync(ct);
@@ -268,17 +268,23 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("@driftVec", (object?)session.DriftVectorBlob ?? DBNull.Value);
 
             await cmd.ExecuteNonQueryAsync(ct);
+            cmd.CommandText = "SELECT last_insert_rowid()";
+            return (long)(await cmd.ExecuteScalarAsync(ct))!;
         }
-        finally { _writeLock.Release(); }
-
-        // Feed session vector into the HNSW index (non-blocking, fire-and-forget on the Task)
-        if (_vectorSearch != null && session.Vector is { Length: > 0 })
+        finally
         {
-            var vector = DeserializeVector(session.Vector);
-            if (vector != null)
-                _ = AddToVectorSearchAsync(vector, session.Signature, session.IsBot, session.AvgBotProbability,
-                    session.FrequencyFingerprintBlob, session.DriftVectorBlob);
+            _writeLock.Release();
+            FeedSessionVectorToHnsw(session);
         }
+    }
+
+    private void FeedSessionVectorToHnsw(PersistedSession session)
+    {
+        if (_vectorSearch == null || session.Vector is not { Length: > 0 }) return;
+        var vector = DeserializeVector(session.Vector);
+        if (vector != null)
+            _ = AddToVectorSearchAsync(vector, session.Signature, session.IsBot, session.AvgBotProbability,
+                session.FrequencyFingerprintBlob, session.DriftVectorBlob);
     }
 
     public async Task UpsertSignatureAsync(PersistedSignature signature, CancellationToken ct = default)

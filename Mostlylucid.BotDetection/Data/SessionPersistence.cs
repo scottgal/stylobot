@@ -214,8 +214,8 @@ public interface ISessionStore
 {
     // === Write path ===
 
-    /// <summary>Persist a completed session snapshot.</summary>
-    Task AddSessionAsync(PersistedSession session, CancellationToken ct = default);
+    /// <summary>Persist a completed session snapshot. Returns the new row ID.</summary>
+    Task<long> AddSessionAsync(PersistedSession session, CancellationToken ct = default);
 
     /// <summary>Upsert a signature (create or update hit counts/stats).</summary>
     Task UpsertSignatureAsync(PersistedSignature signature, CancellationToken ct = default);
