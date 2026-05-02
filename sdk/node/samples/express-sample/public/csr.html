@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>StyloBot CSR Demo</title>
+  <style>
+    body { font-family: sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    sb-gate, sb-adapt, sb-widget { display: block; }
+    .sb-card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+    .premium { background: #f0f8ff; border-color: #4a9eff; }
+    .friction { background: #fffbf0; border-color: #f0a500; }
+    .blocked  { background: #fff0f0; border-color: #e00; }
+  </style>
+</head>
+<body>
+
+  <script type="module">
+    import { sbCoordinator } from '/elements.js'
+    sbCoordinator.configure('http://localhost:5080')
+  </script>
+
+  <h1>CSR Demo: Web Components</h1>
+
+  <sb-gate max-risk="low">
+    <div class="sb-card premium">
+      <h2>Premium Content</h2>
+      <p>Visible to verified low-risk visitors only.</p>
+    </div>
+  </sb-gate>
+
+  <sb-adapt>
+    <sb-case max-risk="low">
+      <div class="sb-card">Standard checkout, no friction.</div>
+    </sb-case>
+    <sb-case max-risk="elevated">
+      <div class="sb-card friction">Extra verification required.</div>
+    </sb-case>
+    <sb-case>
+      <div class="sb-card blocked">Access restricted.</div>
+    </sb-case>
+  </sb-adapt>
+
+  <sb-widget data-sb-widget="summary">
+    <template>
+      <div class="sb-card" data-sb-widget="summary">
+        <strong>{{ bot_requests }}</strong> bots out of {{ total_requests }} total
+        ({{ bot_rate | times: 100 | round: 1 }}% bot rate)
+      </div>
+    </template>
+  </sb-widget>
+
+  <sb-widget data-sb-widget="topbots"></sb-widget>
+
+  <p><a href="/">Back to SSR demo</a></p>
+
+  <script type="module" src="/elements.js"></script>
+</body>
+</html>

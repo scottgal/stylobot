@@ -1,0 +1,9 @@
+<div class="sb-card" data-sb-widget="summary">
+  <h2>Traffic Overview</h2>
+  <p><strong>{{ bot_requests }}</strong> bots / <strong>{{ human_requests }}</strong> humans</p>
+  <p>Bot rate: {{ bot_rate | times: 100 | round: 1 }}%</p>
+  {% if bot_rate > 0.5 %}
+    <p class="alert">High bot traffic detected</p>
+  {% endif %}
+  <p>Unique signatures: {{ unique_signatures }}</p>
+</div>

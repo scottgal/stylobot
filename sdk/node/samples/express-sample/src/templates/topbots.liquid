@@ -1,0 +1,11 @@
+<div class="sb-card" data-sb-widget="topbots">
+  <h2>Top Bots</h2>
+  <ul>
+    {% for bot in bots %}
+      <li>
+        <strong>{{ bot.bot_name | default: "Unknown" }}</strong>
+        ({{ bot.bot_type }}) - {{ bot.hit_count }} hits
+      </li>
+    {% endfor %}
+  </ul>
+</div>
