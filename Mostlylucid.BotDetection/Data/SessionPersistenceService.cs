@@ -53,10 +53,33 @@ public sealed class SessionPersistenceService : BackgroundService
                 }
             }
         }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Shutdown signal received - fall through to drain active sessions
+        }
         finally
         {
             _sessionStore.SessionFinalized -= OnSessionFinalized;
         }
+
+        // Graceful shutdown: flush all active in-memory sessions first (they fire SessionFinalized),
+        // then drain whatever landed in the channel. This ensures no sessions are silently dropped.
+        await _sessionStore.FlushAllActiveSessionsAsync();
+
+        _channel.Writer.TryComplete();
+        await foreach (var (snapshot, requests) in _channel.Reader.ReadAllAsync())
+        {
+            try
+            {
+                await PersistSessionAsync(snapshot, requests, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to persist session during shutdown for {Signature}", snapshot.Signature);
+            }
+        }
+
+        _logger.LogInformation("Session persistence service stopped; all pending sessions written");
     }
 
     private void OnSessionFinalized(SessionSnapshot snapshot, IReadOnlyList<SessionRequest> requests)

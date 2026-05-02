@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.ObjectPool;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Markov;
@@ -237,6 +238,9 @@ public class BlackboardOrchestrator
 
     // Circuit breaker state per detector
     private readonly ConcurrentDictionary<string, CircuitState> _circuitStates = new();
+    // Debounce per-signature SQLite writes: only persist detection results once per 30s per signature.
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _signatureWriteDebounce = new();
+
     private readonly BackgroundEnrichmentService? _enrichmentService;
     private readonly BotClusterService? _clusterService;
     private readonly CountryReputationTracker? _countryTracker;
@@ -251,6 +255,7 @@ public class BlackboardOrchestrator
     private readonly IPolicyEvaluator? _policyEvaluator;
     private readonly IPolicyRegistry? _policyRegistry;
     private readonly SignatureCoordinator? _signatureCoordinator;
+    private readonly ISessionStore? _sessionStore;
 
     [ThreadStatic] private static Random? t_random;
 
@@ -267,7 +272,8 @@ public class BlackboardOrchestrator
         CountryReputationTracker? countryTracker = null,
         BotClusterService? clusterService = null,
         BackgroundEnrichmentService? enrichmentService = null,
-        MarkovTracker? markovTracker = null)
+        MarkovTracker? markovTracker = null,
+        ISessionStore? sessionStore = null)
     {
         _logger = logger;
         _fullOptions = options.Value;
@@ -283,6 +289,7 @@ public class BlackboardOrchestrator
         _clusterService = clusterService;
         _enrichmentService = enrichmentService;
         _markovTracker = markovTracker;
+        _sessionStore = sessionStore;
     }
 
     /// <summary>
@@ -731,6 +738,11 @@ public class BlackboardOrchestrator
 
                 // Enqueue for background enrichment (ProjectHoneypot DNS lookup) when confidence is low
                 TryEnqueueBackgroundEnrichment(httpContext, result);
+
+                // Persist detection classification to SQLite so signatures survive restart.
+                // Debounced to one write per 30s per signature to keep write volume low.
+                if (_sessionStore != null)
+                    TryPersistSignatureDetection(httpContext, result);
             }
 
             _logger.LogDebug(
@@ -969,6 +981,38 @@ public class BlackboardOrchestrator
     }
 
     #endregion
+
+    private void TryPersistSignatureDetection(HttpContext httpContext, AggregatedEvidence result)
+    {
+        try
+        {
+            var signature = ComputeSignatureHash(httpContext);
+            var now = DateTimeOffset.UtcNow;
+
+            // Debounce: skip if we wrote this signature within the last 30 seconds
+            if (_signatureWriteDebounce.TryGetValue(signature, out var lastWrite) &&
+                (now - lastWrite).TotalSeconds < 30)
+                return;
+
+            _signatureWriteDebounce[signature] = now;
+
+            var isBot = result.BotProbability > 0.5;
+            _ = _sessionStore!.UpdateSignatureDetectionAsync(
+                signature,
+                isBot,
+                result.BotProbability,
+                result.Confidence,
+                result.RiskBand.ToString(),
+                isBot ? result.PrimaryBotName : null,
+                isBot ? result.PrimaryBotType?.ToString() : null,
+                null,
+                DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Non-critical: failed to persist signature detection");
+        }
+    }
 
     #region Learning Events
 

@@ -223,6 +223,23 @@ public interface ISessionStore
     /// <summary>Increment aggregated counters for a time bucket.</summary>
     Task IncrementBucketAsync(DateTime bucketTime, bool isBot, double processingTimeMs, CancellationToken ct = default);
 
+    /// <summary>
+    ///     Update (or create) a signature's detection classification after a request is processed.
+    ///     Called per-request by the orchestrator so bot probability and risk data are persisted
+    ///     immediately, not only when a session boundary is detected.
+    /// </summary>
+    Task UpdateSignatureDetectionAsync(
+        string signatureId,
+        bool isBot,
+        double botProbability,
+        double confidence,
+        string riskBand,
+        string? botName,
+        string? botType,
+        string? action,
+        DateTime requestTime,
+        CancellationToken ct = default);
+
     // === Read path: Sessions ===
 
     /// <summary>Get sessions for a signature, ordered by most recent.</summary>
