@@ -742,6 +742,13 @@ public class BlackboardOrchestrator
 
                 // Persist per-request data to SQLite for session atomization and dashboard analytics.
                 TryPersistRequest(httpContext, result, httpContext.Request.Path.ToString(), httpContext.Response.StatusCode);
+
+                // Increment 1-minute bucket counters for dashboard traffic charts.
+                if (_sessionStore != null)
+                    _ = _sessionStore.IncrementBucketAsync(
+                            DateTime.UtcNow,
+                            result.BotProbability > 0.5,
+                            result.TotalProcessingTimeMs);
             }
 
             _logger.LogDebug(

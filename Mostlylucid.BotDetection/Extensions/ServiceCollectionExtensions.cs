@@ -609,6 +609,10 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IOptions<BotDetectionOptions>>(),
                 sp.GetService<ISessionVectorSearch>()));
         services.AddHostedService<Data.SessionPersistenceService>();
+        // Per-request persistence (every request → SQLite, LFU sampled under load)
+        services.AddSingleton<Data.RequestPersistenceService>();
+        // Session atomization from raw requests (background, runs every 2 min)
+        services.AddHostedService<Services.SessionAtomizerService>();
         // Entity resolution - background service for merge/split/rewind analysis
         services.AddHostedService<Services.EntityResolutionService>();
         // Markov chain path learning and drift detection
