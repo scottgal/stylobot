@@ -62,30 +62,11 @@ public class SessionAtomizerTests
             MakeReq(now.AddMinutes(-20), "sig"),
             MakeReq(now.AddMinutes(-10), "sig"),
         };
+        var ordered = requests.OrderBy(r => r.Timestamp).ToList();
 
-        Assert.Equal(2, CountSessionGroups(requests, now, forceFlush: true));
-    }
+        var groups = SessionAtomizerService.SplitIntoSessionGroups(ordered, now, forceFlush: true);
 
-    private static int CountSessionGroups(List<PersistedRequest> requests, DateTime now, bool forceFlush)
-    {
-        var sessionGap = TimeSpan.FromMinutes(30);
-        var graceAge   = TimeSpan.FromMinutes(35);
-        var ordered    = requests.OrderBy(r => r.Timestamp).ToList();
-        var groups     = new List<List<PersistedRequest>>();
-        var current    = new List<PersistedRequest> { ordered[0] };
-
-        for (var i = 1; i < ordered.Count; i++)
-        {
-            if (ordered[i].Timestamp - ordered[i - 1].Timestamp >= sessionGap)
-            { groups.Add(current); current = new List<PersistedRequest>(); }
-            current.Add(ordered[i]);
-        }
-
-        var lastTs = current.Max(r => r.Timestamp);
-        if (forceFlush || (now - lastTs) >= graceAge)
-            groups.Add(current);
-
-        return groups.Count(g => g.Count >= 3);
+        Assert.Equal(2, groups.Count(g => g.Count >= 3));
     }
 
     private static PersistedRequest MakeReq(DateTime ts, string sig) => new()

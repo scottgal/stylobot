@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Analysis;
@@ -73,22 +74,35 @@ public sealed class SessionAtomizerService : BackgroundService
                 var avgConf = group.Average(r => r.Confidence);
                 var riskBand = group.OrderByDescending(r => r.BotProbability).First().RiskBand;
 
+                // Build transition counts for Markov drill-in visualization
+                var transitionCounts = new Dictionary<string, int>();
+                for (var i = 1; i < sessionRequests.Count; i++)
+                {
+                    var key = $"{sessionRequests[i - 1].State}->{sessionRequests[i].State}";
+                    transitionCounts[key] = transitionCounts.GetValueOrDefault(key) + 1;
+                }
+
+                // Collect distinct templatized paths
+                var paths = sessionRequests.Select(r => r.PathTemplate).Distinct().ToList();
+
                 var session = new PersistedSession
                 {
-                    Signature           = sigGroup.Key,
-                    StartedAt           = group.Min(r => r.Timestamp),
-                    EndedAt             = group.Max(r => r.Timestamp),
-                    RequestCount        = group.Count,
-                    Vector              = SqliteSessionStore.SerializeVector(vector),
-                    Maturity            = maturity,
-                    DominantState       = dominant.ToString(),
-                    IsBot               = avgBot > 0.5,
-                    AvgBotProbability   = avgBot,
-                    AvgConfidence       = avgConf,
-                    RiskBand            = riskBand,
-                    AvgProcessingTimeMs = group.Average(r => r.ProcessingMs),
-                    ErrorCount          = group.Count(r => r.StatusCode is >= 400 and < 600),
-                    TimingEntropy       = ComputeTimingEntropy(group),
+                    Signature            = sigGroup.Key,
+                    StartedAt            = group.Min(r => r.Timestamp),
+                    EndedAt              = group.Max(r => r.Timestamp),
+                    RequestCount         = group.Count,
+                    Vector               = SqliteSessionStore.SerializeVector(vector),
+                    Maturity             = maturity,
+                    DominantState        = dominant.ToString(),
+                    IsBot                = avgBot > 0.5,
+                    AvgBotProbability    = avgBot,
+                    AvgConfidence        = avgConf,
+                    RiskBand             = riskBand,
+                    AvgProcessingTimeMs  = group.Average(r => r.ProcessingMs),
+                    ErrorCount           = group.Count(r => r.StatusCode is >= 400 and < 600),
+                    TimingEntropy        = ComputeTimingEntropy(group),
+                    TransitionCountsJson = JsonSerializer.Serialize(transitionCounts),
+                    PathsJson            = JsonSerializer.Serialize(paths),
                 };
 
                 var sessionId = await _store.AddSessionAsync(session, ct);
