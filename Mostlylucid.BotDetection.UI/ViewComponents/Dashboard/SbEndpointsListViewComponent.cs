@@ -19,7 +19,7 @@ public class SbEndpointsListViewComponent(
         int pageSize = 25)
     {
         var cached = aggregateCache.Current.Endpoints;
-        var data = cached.Count > 0 ? cached : await eventStore.GetEndpointStatsAsync(100);
+        var data = cached.Count > 0 ? cached : await eventStore.GetEndpointStatsAsync(500);
         IEnumerable<DashboardEndpointStats> sorted = sort switch
         {
             "bots" => dir == "asc" ? data.OrderBy(x => x.BotCount) : data.OrderByDescending(x => x.BotCount),

@@ -19,7 +19,7 @@ public class SbCountriesListViewComponent(
         int pageSize = 20)
     {
         var cached = aggregateCache.Current.Countries;
-        var data = cached.Count > 0 ? cached : await eventStore.GetCountryStatsAsync(100);
+        var data = cached.Count > 0 ? cached : await eventStore.GetCountryStatsAsync(500);
         IEnumerable<DashboardCountryStats> sorted = sort switch
         {
             "bots" => dir == "asc" ? data.OrderBy(x => x.BotCount) : data.OrderByDescending(x => x.BotCount),

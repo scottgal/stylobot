@@ -9,9 +9,7 @@ public class SbThreatsListViewComponent(IDashboardEventStore eventStore)
 {
     public async Task<IViewComponentResult> InvokeAsync(int page = 1, int pageSize = 20)
     {
-        List<ThreatEntry> allThreats;
-        try { allThreats = await eventStore.GetThreatsAsync(pageSize * 10); }
-        catch { allThreats = []; }
+        var allThreats = await eventStore.GetThreatsAsync(pageSize * 10);
 
         var totalCount = allThreats.Count;
         var threats = allThreats
