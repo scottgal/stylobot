@@ -13,5 +13,4 @@ public record PersistedRequest
     public required string RiskBand { get; init; }
     public required double ProcessingMs { get; init; }
     public long? SessionId { get; init; }
-    public bool IsBot => BotProbability > 0.5;
 }

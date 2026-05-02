@@ -22,7 +22,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
     public string? PersistenceConnectionString => _connectionString;
     private readonly ILogger<SqliteSessionStore> _logger;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
-    private bool _initialized;
+    private Task? _initTask;
     private ISessionVectorSearch? _vectorSearch;
 
     public SqliteSessionStore(
@@ -42,8 +42,6 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
 
     public async Task InitializeAsync(CancellationToken ct = default)
     {
-        if (_initialized) return;
-
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
 
@@ -188,7 +186,6 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         await MigrateAddColumnAsync(conn, "sessions", "drift_vector", "BLOB", ct);
         await MigrateAddColumnAsync(conn, "signatures", "frequency_centroid", "BLOB", ct);
 
-        _initialized = true;
         _logger.LogInformation("SQLite session store initialized at {ConnectionString}", _connectionString);
     }
 
@@ -540,7 +537,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             foreach (var chunk in requestIds.Chunk(500))
             {
                 var paramNames = chunk.Select((_, i) => $"@id{i}").ToList();
-                cmd.CommandText = $"UPDATE requests SET session_id = @sid WHERE id IN ({string.Join(',', paramNames)})";
+                cmd.CommandText = $"UPDATE requests SET session_id = @sid WHERE id IN ({string.Join(',', paramNames)}) AND session_id IS NULL";
                 cmd.Parameters.Clear();
                 cmd.Parameters.AddWithValue("@sid", sessionId);
                 for (var i = 0; i < chunk.Length; i++)
@@ -1434,9 +1431,10 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         }
     }
 
-    private async Task EnsureInitializedAsync(CancellationToken ct)
+    private Task EnsureInitializedAsync(CancellationToken ct = default)
     {
-        if (!_initialized) await InitializeAsync(ct);
+        if (_initTask is { IsCompleted: true }) return _initTask;
+        return _initTask ??= InitializeAsync(ct);
     }
 
     private static async Task<List<PersistedSession>> ReadSessionsAsync(SqliteCommand cmd, CancellationToken ct)
