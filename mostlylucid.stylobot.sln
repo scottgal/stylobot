@@ -90,6 +90,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Ll
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Sample", "Mostlylucid.BotDetection.Sample\Mostlylucid.BotDetection.Sample.csproj", "{5FB7D6E6-D286-4CE0-99AD-E0DFBFDBB4E3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Sidecar", "Mostlylucid.BotDetection.Sidecar\Mostlylucid.BotDetection.Sidecar.csproj", "{56325BBE-65AA-4333-A66C-F26B94A927E4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -448,6 +450,18 @@ Global
 		{5FB7D6E6-D286-4CE0-99AD-E0DFBFDBB4E3}.Release|x64.Build.0 = Release|Any CPU
 		{5FB7D6E6-D286-4CE0-99AD-E0DFBFDBB4E3}.Release|x86.ActiveCfg = Release|Any CPU
 		{5FB7D6E6-D286-4CE0-99AD-E0DFBFDBB4E3}.Release|x86.Build.0 = Release|Any CPU
+		{56325BBE-65AA-4333-A66C-F26B94A927E4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{56325BBE-65AA-4333-A66C-F26B94A927E4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{56325BBE-65AA-4333-A66C-F26B94A927E4}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{56325BBE-65AA-4333-A66C-F26B94A927E4}.Debug|x64.Build.0 = Debug|Any CPU
+		{56325BBE-65AA-4333-A66C-F26B94A927E4}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{56325BBE-65AA-4333-A66C-F26B94A927E4}.Debug|x86.Build.0 = Debug|Any CPU
+		{56325BBE-65AA-4333-A66C-F26B94A927E4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{56325BBE-65AA-4333-A66C-F26B94A927E4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{56325BBE-65AA-4333-A66C-F26B94A927E4}.Release|x64.ActiveCfg = Release|Any CPU
+		{56325BBE-65AA-4333-A66C-F26B94A927E4}.Release|x64.Build.0 = Release|Any CPU
+		{56325BBE-65AA-4333-A66C-F26B94A927E4}.Release|x86.ActiveCfg = Release|Any CPU
+		{56325BBE-65AA-4333-A66C-F26B94A927E4}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
