@@ -3,6 +3,19 @@ using Mostlylucid.BotDetection.UI.Services;
 namespace Mostlylucid.BotDetection.UI.Models;
 
 /// <summary>
+///     View model for the shared pagination partial.
+///     Renders an ellipsis-aware page button strip via HTMX.
+/// </summary>
+public sealed record PaginationModel
+{
+    public required Func<int, string> PageUrl { get; init; }
+    public required int Page { get; init; }
+    public required int TotalPages { get; init; }
+    public required string TargetId { get; init; }
+    public string CssClass { get; init; } = "";
+}
+
+/// <summary>
 ///     View model for the visitor list partial.
 ///     Server-rendered, no client-side state management.
 /// </summary>
@@ -491,6 +504,10 @@ public sealed class ThreatsListModel
     public IReadOnlyList<ThreatEntry> Threats { get; init; } = [];
     public int TotalCount { get; init; }
     public int ActiveHoneypotSessions { get; init; }
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 25;
+    public required string BasePath { get; init; }
+    public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
 }
 
 /// <summary>

@@ -106,21 +106,14 @@
                 }
             </div>
 
-            @* Pagination *@
-            @if (Model.TotalPages > 1)
-            {
-                <div class="flex justify-center mt-3">
-                    <div class="join">
-                        @for (var p = 1; p <= Math.Min(Model.TotalPages, 10); p++)
-                        {
-                            <button class="join-item btn btn-xs @(p == Model.Page ? "btn-active" : "")"
-                                    hx-get="@bp/partials/sessions?page=@p&pageSize=@Model.PageSize&filter=@Model.Filter" hx-target="#sessions-list" hx-swap="outerHTML transition:true">
-                                @p
-                            </button>
-                        }
-                    </div>
-                </div>
-            }
+            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Pagination.cshtml",
+                new PaginationModel
+                {
+                    PageUrl = p => $"{bp}/partials/sessions?page={p}&pageSize={Model.PageSize}&filter={Model.Filter}",
+                    Page = Model.Page,
+                    TotalPages = Model.TotalPages,
+                    TargetId = "sessions-list"
+                })
         }
     </div>
 </div>

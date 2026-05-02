@@ -1,10 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
+using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 
-public class SbThreatsListViewComponent(IDashboardEventStore eventStore)
+public class SbThreatsListViewComponent(IDashboardEventStore eventStore, StyloBotDashboardOptions options)
     : ViewComponent
 {
     public async Task<IViewComponentResult> InvokeAsync(int page = 1, int pageSize = 20)
@@ -21,7 +22,10 @@ public class SbThreatsListViewComponent(IDashboardEventStore eventStore)
         {
             Threats = threats,
             TotalCount = totalCount,
-            ActiveHoneypotSessions = allThreats.Count(t => t.InHoneypot)
+            ActiveHoneypotSessions = allThreats.Count(t => t.InHoneypot),
+            Page = page,
+            PageSize = pageSize,
+            BasePath = options.BasePath.TrimEnd('/')
         });
     }
 }

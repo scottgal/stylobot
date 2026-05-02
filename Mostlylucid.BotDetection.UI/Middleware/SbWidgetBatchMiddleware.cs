@@ -251,7 +251,8 @@ public sealed class SbWidgetBatchMiddleware
         {
             Threats = threats,
             TotalCount = threats.Count,
-            ActiveHoneypotSessions = threats.Count(t => t.InHoneypot)
+            ActiveHoneypotSessions = threats.Count(t => t.InHoneypot),
+            BasePath = _options.BasePath.TrimEnd('/')
         };
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbThreats/Default.cshtml", model, context);

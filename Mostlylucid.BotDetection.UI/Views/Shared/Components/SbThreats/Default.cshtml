@@ -1,5 +1,8 @@
 @using Mostlylucid.BotDetection.UI.Models
 @model ThreatsListModel
+@{
+    var bp = Model.BasePath;
+}
 
 <div id="threats-widget" data-sb-widget="threats" data-sb-depends="threats">
     <div class="card bg-base-200 transition-all duration-200">
@@ -98,6 +101,15 @@
                         </tbody>
                     </table>
                 </div>
+
+                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Pagination.cshtml",
+                    new PaginationModel
+                    {
+                        PageUrl = p => $"{bp}/partials/threats?page={p}&pageSize={Model.PageSize}",
+                        Page = Model.Page,
+                        TotalPages = Model.TotalPages,
+                        TargetId = "threats-widget"
+                    })
             }
         </div>
     </div>

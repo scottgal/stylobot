@@ -99,28 +99,13 @@
             </div>
         </div>
 
-        @if (Model.TotalPages > 1)
-        {
-            <div class="flex items-center justify-between mt-3">
-                <span class="text-[10px] text-base-content/40">@Model.Page/@Model.TotalPages (@Model.TotalCount endpoints)</span>
-                <div class="join">
-                    @if (Model.Page > 1)
-                    {
-                        <button hx-get="@PageUrl(1)" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" class="join-item btn btn-xs">&laquo;</button>
-                        <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" class="join-item btn btn-xs">&lsaquo;</button>
-                    }
-                    @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
-                    {
-                        var pageNum = p;
-                        <button hx-get="@PageUrl(pageNum)" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" class="join-item btn btn-xs @(pageNum == Model.Page ? "btn-active" : "")">@pageNum</button>
-                    }
-                    @if (Model.Page < Model.TotalPages)
-                    {
-                        <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" class="join-item btn btn-xs">&rsaquo;</button>
-                        <button hx-get="@PageUrl(Model.TotalPages)" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" class="join-item btn btn-xs">&raquo;</button>
-                    }
-                </div>
-            </div>
-        }
+        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Pagination.cshtml",
+            new PaginationModel
+            {
+                PageUrl = p => PageUrl(p),
+                Page = Model.Page,
+                TotalPages = Model.TotalPages,
+                TargetId = "endpoints-list"
+            })
     }
 </div>

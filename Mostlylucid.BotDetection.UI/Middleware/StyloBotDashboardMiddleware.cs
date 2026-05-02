@@ -2874,7 +2874,7 @@ public class StyloBotDashboardMiddleware
     private async Task ServeThreatsPartialAsync(HttpContext context)
     {
         var threats = await _eventStore.GetThreatsAsync(20);
-        var model = new ThreatsListModel { Threats = threats, TotalCount = threats.Count };
+        var model = new ThreatsListModel { Threats = threats, TotalCount = threats.Count, BasePath = _options.BasePath.TrimEnd('/') };
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -2892,7 +2892,8 @@ public class StyloBotDashboardMiddleware
         {
             Threats = threats,
             TotalCount = threats.Count,
-            ActiveHoneypotSessions = threats.Count(t => t.InHoneypot)
+            ActiveHoneypotSessions = threats.Count(t => t.InHoneypot),
+            BasePath = _options.BasePath.TrimEnd('/')
         };
     }
 

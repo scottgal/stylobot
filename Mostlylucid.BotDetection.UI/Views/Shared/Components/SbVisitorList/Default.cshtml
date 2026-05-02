@@ -56,30 +56,6 @@
         </div>
     </div>
 
-    @* Pagination top *@
-    @if (Model.TotalPages > 1)
-    {
-        <div class="flex items-center justify-between mb-2 text-xs text-base-content/50">
-            <span>Page @Model.Page of @Model.TotalPages (@Model.TotalCount visitors)</span>
-            <div class="join">
-                @if (Model.Page > 1)
-                {
-                    <button hx-get="@PageUrl(1)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                            class="join-item btn btn-xs" title="First">&laquo;</button>
-                    <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                            class="join-item btn btn-xs" title="Previous">&lsaquo;</button>
-                }
-                @if (Model.Page < Model.TotalPages)
-                {
-                    <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                            class="join-item btn btn-xs" title="Next">&rsaquo;</button>
-                    <button hx-get="@PageUrl(Model.TotalPages)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                            class="join-item btn btn-xs" title="Last">&raquo;</button>
-                }
-            </div>
-        </div>
-    }
-
     @* Visitor cards grid *@
     <div id="visitor-cards" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
         @if (Model.Visitors.Count == 0)
@@ -95,32 +71,12 @@
         }
     </div>
 
-    @* Pagination bottom *@
-    @if (Model.TotalPages > 1)
-    {
-        <div class="flex items-center justify-center mt-3">
-            <div class="join">
-                @if (Model.Page > 1)
-                {
-                    <button hx-get="@PageUrl(1)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                            class="join-item btn btn-xs" title="First">&laquo;</button>
-                    <button hx-get="@PageUrl(Model.Page - 1)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                            class="join-item btn btn-xs" title="Previous">&lsaquo;</button>
-                }
-                @for (var p = Math.Max(1, Model.Page - 2); p <= Math.Min(Model.TotalPages, Model.Page + 2); p++)
-                {
-                    var pageNum = p;
-                    <button hx-get="@PageUrl(pageNum)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                            class="join-item btn btn-xs @(pageNum == Model.Page ? "btn-active" : "")">@pageNum</button>
-                }
-                @if (Model.Page < Model.TotalPages)
-                {
-                    <button hx-get="@PageUrl(Model.Page + 1)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                            class="join-item btn btn-xs" title="Next">&rsaquo;</button>
-                    <button hx-get="@PageUrl(Model.TotalPages)" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                            class="join-item btn btn-xs" title="Last">&raquo;</button>
-                }
-            </div>
-        </div>
-    }
+    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Pagination.cshtml",
+        new PaginationModel
+        {
+            PageUrl = p => PageUrl(p),
+            Page = Model.Page,
+            TotalPages = Model.TotalPages,
+            TargetId = "visitor-list"
+        })
 </div>
