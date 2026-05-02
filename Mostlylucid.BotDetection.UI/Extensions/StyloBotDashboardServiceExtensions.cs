@@ -162,6 +162,9 @@ public static class StyloBotDashboardServiceExtensions
         // Razor view renderer for middleware-hosted dashboard
         services.AddSingleton<RazorViewRenderer>();
 
+        // Liquid template renderer for Node SDK widget rendering
+        services.AddSingleton<LiquidWidgetRenderer>();
+
         // Dashboard help system (Markdig-rendered markdown)
         services.AddSingleton<DashboardHelpService>();
 
@@ -363,6 +366,9 @@ public static class StyloBotDashboardServiceExtensions
 
         // Razor view renderer used by SbWidgetBatchMiddleware
         services.TryAddSingleton<RazorViewRenderer>();
+
+        // Liquid template renderer for Node SDK widget rendering
+        services.TryAddSingleton<LiquidWidgetRenderer>();
 
         // Dashboard event store: SQLite for FOSS
         services.TryAddSingleton<IDashboardEventStore, SqliteDashboardEventStore>();
