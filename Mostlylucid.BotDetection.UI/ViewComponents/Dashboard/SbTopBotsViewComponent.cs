@@ -15,9 +15,11 @@ public class SbTopBotsViewComponent(
         int page = 1,
         int pageSize = 10,
         string sortBy = "default",
-        string sortDir = "desc")
+        string sortDir = "desc",
+        string filter = "bots",
+        string widgetId = "topbots")
     {
-        var allBots = signatureCache.GetTopBots(page: 1, pageSize: signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir);
+        var allBots = signatureCache.GetTopBots(page: 1, pageSize: signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir, filter: filter);
         var pagedBots = allBots.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return View(new TopBotsListModel
         {
@@ -27,7 +29,9 @@ public class SbTopBotsViewComponent(
             TotalCount = allBots.Count,
             SortField = sortBy,
             SortDir = sortDir,
-            BasePath = options.Value.BasePath.TrimEnd('/')
+            BasePath = options.Value.BasePath.TrimEnd('/'),
+            Filter = filter,
+            WidgetId = widgetId
         });
     }
 }

@@ -87,11 +87,23 @@ public sealed class SignatureAggregateCache
         int pageSize = 25,
         string? sortBy = null,
         string? sortDir = null,
-        string? filterCountry = null)
+        string? filterCountry = null,
+        string? filter = null)
     {
-        var sorted = GetOrRebuildSortedList();
-
-        IEnumerable<DashboardTopBotEntry> query = sorted;
+        // For "bots" (default) use the pre-built sorted list of bot-only entries.
+        // For "all" or "humans", we need all entries from the dictionary.
+        IEnumerable<DashboardTopBotEntry> query;
+        if (string.IsNullOrEmpty(filter) || filter == "bots")
+        {
+            query = GetOrRebuildSortedList();
+        }
+        else
+        {
+            var all = _entries.Select(kvp => ToEntry(kvp.Key, kvp.Value));
+            query = filter == "humans"
+                ? all.Where(b => !b.IsKnownBot)
+                : all; // "all"
+        }
 
         if (!string.IsNullOrEmpty(filterCountry))
             query = query.Where(b =>

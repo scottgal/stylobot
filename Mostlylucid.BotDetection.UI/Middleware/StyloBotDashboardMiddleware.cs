@@ -2831,8 +2831,10 @@ public class StyloBotDashboardMiddleware
         var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
         var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 50 ? ps : 10;
+        var filter = context.Request.Query["filter"].FirstOrDefault() ?? "bots";
+        var widgetId = context.Request.Query["widgetId"].FirstOrDefault() ?? "topbots";
 
-        var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir);
+        var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId);
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -3320,7 +3322,7 @@ public class StyloBotDashboardMiddleware
                 "endpoints" => await RenderEndpointPartialAsync(context, q),
                 "clusters" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_ClustersList.cshtml", BuildClustersModel(context)),
                 "useragents" => await RenderUaPartialAsync(context, q),
-                "topbots" => await RenderPartialAsync(context, "/Views/Shared/Components/SbTopBots/Default.cshtml", BuildTopBotsModel()),
+                "topbots" or "top-visitors" or "live-visitors" => await RenderPartialAsync(context, "/Views/Shared/Components/SbTopBots/Default.cshtml", BuildTopBotsModelFromQuery(widgetId, q)),
                 "sessions" => await RenderPartialAsync(context, "/Views/Shared/Components/SbSessionsList/Default.cshtml", await BuildSessionsModel(context)),
                 "recent" => await RenderRecentActivityPartialAsync(context),
                 "your-detection" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_YourDetection.cshtml", BuildYourDetectionPartialModel(context)),
@@ -3906,10 +3908,10 @@ public class StyloBotDashboardMiddleware
         }
     }
 
-    private TopBotsListModel BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "default", string sortDir = "desc")
+    private TopBotsListModel BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "default", string sortDir = "desc", string filter = "bots", string widgetId = "topbots")
     {
-        // Get all bots once for accurate count, then take the page
-        var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir);
+        // Get all matching entries for accurate count, then take the page
+        var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir, filter: filter);
         var pagedBots = allBots.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return new TopBotsListModel
         {
@@ -3919,8 +3921,21 @@ public class StyloBotDashboardMiddleware
             TotalCount = allBots.Count,
             SortField = sortBy,
             SortDir = sortDir,
-            BasePath = _options.BasePath.TrimEnd('/')
+            BasePath = _options.BasePath.TrimEnd('/'),
+            Filter = filter,
+            WidgetId = widgetId
         };
+    }
+
+    private TopBotsListModel BuildTopBotsModelFromQuery(string widgetId, IQueryCollection q)
+    {
+        var sortBy = q["sort"].FirstOrDefault() ?? q["sortBy"].FirstOrDefault() ?? "default";
+        var sortDir = q["dir"].FirstOrDefault() ?? q["sortDir"].FirstOrDefault() ?? "desc";
+        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var pageSize = int.TryParse(q["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 50 ? ps : 10;
+        var filter = q["filter"].FirstOrDefault() ?? "bots";
+        var wid = q["widgetId"].FirstOrDefault() ?? widgetId;
+        return BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, wid);
     }
 
     private async Task<List<DashboardCountryStats>> GetCountriesDataAsync()

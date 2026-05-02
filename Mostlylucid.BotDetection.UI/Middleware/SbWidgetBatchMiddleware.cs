@@ -124,7 +124,7 @@ public sealed class SbWidgetBatchMiddleware
                 "endpoints" => await RenderEndpointsAsync(context, q),
                 "useragents" => await RenderUserAgentsAsync(context, q),
                 "sessions" => await RenderSessionsAsync(context, q),
-                "topbots" => await RenderTopBotsAsync(context, q),
+                "topbots" or "top-visitors" or "live-visitors" => await RenderTopBotsAsync(context, q),
                 "threats" => await RenderThreatsAsync(context, q),
                 _ => ""
             };
@@ -232,11 +232,13 @@ public sealed class SbWidgetBatchMiddleware
 
     private async Task<string> RenderTopBotsAsync(HttpContext context, IQueryCollection q)
     {
-        var sortBy = q["sortBy"].FirstOrDefault() ?? "default";
-        var sortDir = q["sortDir"].FirstOrDefault() ?? "desc";
+        var sortBy = q["sort"].FirstOrDefault() ?? q["sortBy"].FirstOrDefault() ?? "default";
+        var sortDir = q["dir"].FirstOrDefault() ?? q["sortDir"].FirstOrDefault() ?? "desc";
         var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var pageSize = int.TryParse(q["pageSize"].FirstOrDefault(), out var ps) && ps > 0 ? ps : 10;
-        var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir);
+        var filter = q["filter"].FirstOrDefault() ?? "bots";
+        var widgetId = q["widgetId"].FirstOrDefault() ?? "topbots";
+        var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbTopBots/Default.cshtml", model, context);
     }
@@ -272,9 +274,9 @@ public sealed class SbWidgetBatchMiddleware
     // Model builders (mirrors private methods in StyloBotDashboardMiddleware)
     // -------------------------------------------------------------------------
 
-    private TopBotsListModel BuildTopBotsModel(int page, int pageSize, string sortBy, string sortDir)
+    private TopBotsListModel BuildTopBotsModel(int page, int pageSize, string sortBy, string sortDir, string filter = "bots", string widgetId = "topbots")
     {
-        var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir);
+        var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir, filter: filter);
         var pagedBots = allBots.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return new TopBotsListModel
         {
@@ -284,7 +286,9 @@ public sealed class SbWidgetBatchMiddleware
             TotalCount = allBots.Count,
             SortField = sortBy,
             SortDir = sortDir,
-            BasePath = _options.BasePath.TrimEnd('/')
+            BasePath = _options.BasePath.TrimEnd('/'),
+            Filter = filter,
+            WidgetId = widgetId
         };
     }
 
