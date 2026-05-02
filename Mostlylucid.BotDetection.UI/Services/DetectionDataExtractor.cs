@@ -29,6 +29,8 @@ public class DetectionDataExtractor
     // Cache key used by SbDetectionMiddleware to store pre-fetched API results in Items.
     internal const string ApiCacheKey = "BotDetection.ApiResult";
 
+    private static readonly object _apiSentinel = new();
+
     private readonly IHttpClientFactory? _httpClientFactory;
     private readonly string? _apiEndpoint;
 
@@ -77,6 +79,13 @@ public class DetectionDataExtractor
         if (string.IsNullOrEmpty(_apiEndpoint) || _httpClientFactory == null)
             return;
 
+        // Guard against concurrent calls on the same HttpContext.
+        // If another concurrent invocation already claimed the slot, return immediately.
+        if (context.Items.ContainsKey(ApiCacheKey))
+            return;
+
+        context.Items[ApiCacheKey] = _apiSentinel; // claim the slot
+
         var apiModel = await TryFetchFromApiAsync(context);
         if (apiModel is { HasData: true })
         {
@@ -84,6 +93,7 @@ public class DetectionDataExtractor
             // but since the API returns a ready model we store it directly and short-circuit.
             context.Items[ApiCacheKey] = apiModel;
         }
+        // If fetch failed, leave the sentinel - prevents retry storms on the same request
     }
 
     private DetectionDisplayModel TryExtractFromContextItems(HttpContext context)
