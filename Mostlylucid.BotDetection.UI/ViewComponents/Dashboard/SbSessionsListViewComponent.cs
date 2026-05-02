@@ -17,9 +17,11 @@ public class SbSessionsListViewComponent(
         int pageSize = 25)
     {
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
-        var sessions = await sessionStore.GetRecentSessionsAsync(pageSize, isBot);
 
-        var entries = sessions.Select(s => new SessionListEntry
+        // Fetch a large recent set then paginate in-memory - the store has no server-side pagination.
+        var allSessions = await sessionStore.GetRecentSessionsAsync(200, isBot);
+
+        var allEntries = allSessions.Select(s => new SessionListEntry
         {
             Id = s.Id,
             Signature = s.Signature,
@@ -41,13 +43,19 @@ public class SbSessionsListViewComponent(
                 : null
         }).ToList();
 
+        var totalCount = allEntries.Count;
+        var pagedEntries = allEntries
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
         return View(new SessionsListModel
         {
-            Sessions = entries,
+            Sessions = pagedEntries,
             BasePath = options.Value.BasePath.TrimEnd('/'),
             Page = page,
             PageSize = pageSize,
-            TotalCount = entries.Count,
+            TotalCount = totalCount,
             Filter = filter
         });
     }
