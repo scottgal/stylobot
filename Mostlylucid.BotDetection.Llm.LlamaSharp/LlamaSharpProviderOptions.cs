@@ -25,6 +25,9 @@ public class LlamaSharpProviderOptions
     /// <summary>Number of CPU threads for inference. Default: all cores</summary>
     public int ThreadCount { get; set; } = Environment.ProcessorCount;
 
+    /// <summary>Number of model layers to offload to GPU. -1 = all layers. 0 = CPU only. Default: -1 (full Metal offload)</summary>
+    public int GpuLayerCount { get; set; } = -1;
+
     /// <summary>Temperature for generation. Default: 0.1f</summary>
     public float Temperature { get; set; } = 0.1f;
 

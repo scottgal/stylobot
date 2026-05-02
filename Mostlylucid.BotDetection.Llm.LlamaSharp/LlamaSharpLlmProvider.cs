@@ -41,7 +41,7 @@ public class LlamaSharpLlmProvider : ILlmProvider, IDisposable
         try
         {
             if (_initialized || _initializationFailed) return;
-            _logger.LogInformation("Initializing LlamaSharp model (CPU-only): {ModelPath}", _options.ModelPath);
+            _logger.LogInformation("Initializing LlamaSharp model: {ModelPath}", _options.ModelPath);
 
             var modelPath = _options.ModelPath;
             var cacheDir = _options.ModelCacheDir ?? GetDefaultCacheDir();
@@ -56,7 +56,8 @@ public class LlamaSharpLlmProvider : ILlmProvider, IDisposable
 
             var @params = new ModelParams(modelPath)
             {
-                ContextSize = (uint)_options.ContextSize
+                ContextSize = (uint)_options.ContextSize,
+                GpuLayerCount = _options.GpuLayerCount
             };
 
             if (_options.ThreadCount > 0)
@@ -66,8 +67,8 @@ public class LlamaSharpLlmProvider : ILlmProvider, IDisposable
             _context = _model.CreateContext(@params);
 
             _initialized = true;
-            _logger.LogInformation("LlamaSharp model initialized. CPU cores: {Threads}, IsReady: {IsReady}",
-                _options.ThreadCount, IsReady);
+            _logger.LogInformation("LlamaSharp model initialized. CPU cores: {Threads}, GPU layers: {GpuLayers}, IsReady: {IsReady}",
+                _options.ThreadCount, _options.GpuLayerCount, IsReady);
         }
         catch (Exception ex)
         {

@@ -1,0 +1,53 @@
+version: "3.9"
+
+# Sidecar pattern: StyloBot runs as a lightweight detection API alongside your app.
+# Your app calls it per-request via gRPC (port 5090) or REST (/api/v1/detect).
+# No reverse proxy, no header injection - your app drives detection explicitly.
+#
+# Usage:
+#   STYLOBOT_API_KEY=changeme docker compose -f docker-compose.sidecar.yml up
+#
+# Then call from your app:
+#   gRPC:  host=stylobot-sidecar:5090
+#   REST:  POST http://stylobot-sidecar:5090/api/v1/detect
+
+services:
+  stylobot-sidecar:
+    image: scottgal/stylobot-sidecar:latest
+    restart: unless-stopped
+    environment:
+      STYLOBOT_PORT: "5090"
+      # API key required for REST /api/v1/* endpoints.
+      # gRPC is network-isolated (loopback or internal network only).
+      BotDetection__ApiKeys__0__Key: "${STYLOBOT_API_KEY:-changeme}"
+      BotDetection__ApiKeys__0__Name: "app"
+      BotDetection__BotThreshold: "0.7"
+      BotDetection__DefaultActionPolicyName: "logonly"
+    ports:
+      # Only expose externally if your app is not on the same Docker network.
+      # For same-network apps, remove this and use service name as hostname.
+      - "127.0.0.1:5090:5090"
+    volumes:
+      - stylobot-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5090/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Example: your application consuming the sidecar
+  your-app:
+    image: your-app:latest
+    depends_on:
+      stylobot-sidecar:
+        condition: service_healthy
+    environment:
+      # gRPC endpoint (primary - binary protobuf, lowest latency)
+      STYLOBOT_GRPC_URL: "http://stylobot-sidecar:5090"
+      # REST endpoint (for SDKs/languages without gRPC)
+      STYLOBOT_API_URL: "http://stylobot-sidecar:5090"
+      STYLOBOT_API_KEY: "${STYLOBOT_API_KEY:-changeme}"
+
+volumes:
+  stylobot-data:

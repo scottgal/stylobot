@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.ObjectPool;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Markov;
@@ -237,6 +238,7 @@ public class BlackboardOrchestrator
 
     // Circuit breaker state per detector
     private readonly ConcurrentDictionary<string, CircuitState> _circuitStates = new();
+
     private readonly BackgroundEnrichmentService? _enrichmentService;
     private readonly BotClusterService? _clusterService;
     private readonly CountryReputationTracker? _countryTracker;
@@ -251,6 +253,8 @@ public class BlackboardOrchestrator
     private readonly IPolicyEvaluator? _policyEvaluator;
     private readonly IPolicyRegistry? _policyRegistry;
     private readonly SignatureCoordinator? _signatureCoordinator;
+    private readonly ISessionStore? _sessionStore;
+    private readonly RequestPersistenceService? _requestPersistence;
 
     [ThreadStatic] private static Random? t_random;
 
@@ -267,7 +271,9 @@ public class BlackboardOrchestrator
         CountryReputationTracker? countryTracker = null,
         BotClusterService? clusterService = null,
         BackgroundEnrichmentService? enrichmentService = null,
-        MarkovTracker? markovTracker = null)
+        MarkovTracker? markovTracker = null,
+        ISessionStore? sessionStore = null,
+        RequestPersistenceService? requestPersistence = null)
     {
         _logger = logger;
         _fullOptions = options.Value;
@@ -283,6 +289,8 @@ public class BlackboardOrchestrator
         _clusterService = clusterService;
         _enrichmentService = enrichmentService;
         _markovTracker = markovTracker;
+        _sessionStore = sessionStore;
+        _requestPersistence = requestPersistence;
     }
 
     /// <summary>
@@ -731,6 +739,16 @@ public class BlackboardOrchestrator
 
                 // Enqueue for background enrichment (ProjectHoneypot DNS lookup) when confidence is low
                 TryEnqueueBackgroundEnrichment(httpContext, result);
+
+                // Persist per-request data to SQLite for session atomization and dashboard analytics.
+                TryPersistRequest(httpContext, result, httpContext.Request.Path.ToString(), httpContext.Response.StatusCode);
+
+                // Increment 1-minute bucket counters for dashboard traffic charts.
+                if (_sessionStore != null)
+                    _ = _sessionStore.IncrementBucketAsync(
+                            DateTime.UtcNow,
+                            result.BotProbability > 0.5,
+                            result.TotalProcessingTimeMs);
             }
 
             _logger.LogDebug(
@@ -969,6 +987,34 @@ public class BlackboardOrchestrator
     }
 
     #endregion
+
+    private void TryPersistRequest(HttpContext httpContext, AggregatedEvidence result, string path, int statusCode)
+    {
+        if (_requestPersistence == null) return;
+        try
+        {
+            var signature = ComputeSignatureHash(httpContext);
+            var markovState = result.Signals.TryGetValue("session.current_state", out var stateObj)
+                ? stateObj?.ToString() ?? "Unknown"
+                : "Unknown";
+            if (statusCode == 0) statusCode = httpContext.Response.StatusCode;
+
+            _ = _requestPersistence.EnqueueAsync(
+                signature,
+                path,
+                markovState,
+                statusCode,
+                result.BotProbability,
+                result.Confidence,
+                result.RiskBand.ToString(),
+                result.TotalProcessingTimeMs,
+                DateTime.UtcNow);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Non-critical: failed to enqueue request for persistence");
+        }
+    }
 
     #region Learning Events
 

@@ -22,7 +22,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
     public string? PersistenceConnectionString => _connectionString;
     private readonly ILogger<SqliteSessionStore> _logger;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
-    private bool _initialized;
+    private Task? _initTask;
     private ISessionVectorSearch? _vectorSearch;
 
     public SqliteSessionStore(
@@ -42,8 +42,6 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
 
     public async Task InitializeAsync(CancellationToken ct = default)
     {
-        if (_initialized) return;
-
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
 
@@ -161,6 +159,24 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             CREATE INDEX IF NOT EXISTS idx_edges_signature ON entity_edges(signature, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_edges_entity ON entity_edges(entity_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_edges_active ON entity_edges(signature) WHERE reverted_at IS NULL;
+
+            CREATE TABLE IF NOT EXISTS requests (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                signature       TEXT    NOT NULL,
+                timestamp       TEXT    NOT NULL,
+                path            TEXT    NOT NULL,
+                markov_state    TEXT    NOT NULL,
+                status_code     INTEGER NOT NULL,
+                bot_probability REAL    NOT NULL,
+                confidence      REAL    NOT NULL,
+                risk_band       TEXT    NOT NULL,
+                processing_ms   REAL    NOT NULL DEFAULT 0,
+                session_id      INTEGER REFERENCES sessions(id) ON DELETE SET NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_requests_sig_time  ON requests(signature, timestamp ASC);
+            CREATE INDEX IF NOT EXISTS idx_requests_unatomized ON requests(signature, timestamp ASC) WHERE session_id IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_requests_ts_desc   ON requests(timestamp DESC);
         """;
         await cmd.ExecuteNonQueryAsync(ct);
 
@@ -170,7 +186,6 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         await MigrateAddColumnAsync(conn, "sessions", "drift_vector", "BLOB", ct);
         await MigrateAddColumnAsync(conn, "signatures", "frequency_centroid", "BLOB", ct);
 
-        _initialized = true;
         _logger.LogInformation("SQLite session store initialized at {ConnectionString}", _connectionString);
     }
 
@@ -197,7 +212,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
 
     // === Write path ===
 
-    public async Task AddSessionAsync(PersistedSession session, CancellationToken ct = default)
+    public async Task<long> AddSessionAsync(PersistedSession session, CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
         await _writeLock.WaitAsync(ct);
@@ -253,17 +268,23 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("@driftVec", (object?)session.DriftVectorBlob ?? DBNull.Value);
 
             await cmd.ExecuteNonQueryAsync(ct);
+            cmd.CommandText = "SELECT last_insert_rowid()";
+            return (long)(await cmd.ExecuteScalarAsync(ct))!;
         }
-        finally { _writeLock.Release(); }
-
-        // Feed session vector into the HNSW index (non-blocking, fire-and-forget on the Task)
-        if (_vectorSearch != null && session.Vector is { Length: > 0 })
+        finally
         {
-            var vector = DeserializeVector(session.Vector);
-            if (vector != null)
-                _ = AddToVectorSearchAsync(vector, session.Signature, session.IsBot, session.AvgBotProbability,
-                    session.FrequencyFingerprintBlob, session.DriftVectorBlob);
+            _writeLock.Release();
+            FeedSessionVectorToHnsw(session);
         }
+    }
+
+    private void FeedSessionVectorToHnsw(PersistedSession session)
+    {
+        if (_vectorSearch == null || session.Vector is not { Length: > 0 }) return;
+        var vector = DeserializeVector(session.Vector);
+        if (vector != null)
+            _ = AddToVectorSearchAsync(vector, session.Signature, session.IsBot, session.AvgBotProbability,
+                session.FrequencyFingerprintBlob, session.DriftVectorBlob);
     }
 
     public async Task UpsertSignatureAsync(PersistedSignature signature, CancellationToken ct = default)
@@ -291,13 +312,16 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                     session_count = session_count + @sessions,
                     total_request_count = total_request_count + @requests,
                     last_seen = @last,
-                    is_bot = @isBot,
-                    bot_probability = @prob,
-                    confidence = @conf,
-                    risk_band = @risk,
-                    bot_name = COALESCE(@botName, bot_name),
-                    bot_type = COALESCE(@botType, bot_type),
-                    action = COALESCE(@action, action),
+                    -- Preserve the highest-confidence detection result seen so far.
+                    -- Session finalization may update bot_probability, so use MAX to preserve the
+                    -- highest confidence value across all updates.
+                    is_bot = CASE WHEN @prob > bot_probability THEN @isBot ELSE is_bot END,
+                    bot_probability = MAX(bot_probability, @prob),
+                    confidence = MAX(confidence, @conf),
+                    risk_band = CASE WHEN @prob > bot_probability THEN @risk ELSE risk_band END,
+                    bot_name = COALESCE(CASE WHEN @prob > bot_probability THEN @botName ELSE NULL END, bot_name),
+                    bot_type = COALESCE(CASE WHEN @prob > bot_probability THEN @botType ELSE NULL END, bot_type),
+                    action = COALESCE(CASE WHEN @prob > bot_probability THEN @action ELSE NULL END, action),
                     country_code = COALESCE(@country, country_code),
                     root_vector = COALESCE(@rootVec, root_vector),
                     root_vector_maturity = CASE WHEN @rootMat > root_vector_maturity THEN @rootMat ELSE root_vector_maturity END,
@@ -323,6 +347,152 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("@reasons", (object?)signature.TopReasonsJson ?? DBNull.Value);
 
             await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally { _writeLock.Release(); }
+    }
+
+    public async Task AddRequestAsync(PersistedRequest request, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO requests
+                    (signature, timestamp, path, markov_state, status_code,
+                     bot_probability, confidence, risk_band, processing_ms)
+                VALUES
+                    (@sig, @ts, @path, @state, @sc,
+                     @prob, @conf, @risk, @ms)
+                """;
+            cmd.Parameters.AddWithValue("@sig",   request.Signature);
+            cmd.Parameters.AddWithValue("@ts",    request.Timestamp.ToString("O"));
+            cmd.Parameters.AddWithValue("@path",  request.Path);
+            cmd.Parameters.AddWithValue("@state", request.MarkovState);
+            cmd.Parameters.AddWithValue("@sc",    request.StatusCode);
+            cmd.Parameters.AddWithValue("@prob",  request.BotProbability);
+            cmd.Parameters.AddWithValue("@conf",  request.Confidence);
+            cmd.Parameters.AddWithValue("@risk",  request.RiskBand);
+            cmd.Parameters.AddWithValue("@ms",    request.ProcessingMs);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally { _writeLock.Release(); }
+    }
+
+    public async Task AddRequestBatchAsync(IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default)
+    {
+        if (requests.Count == 0) return;
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var tx = conn.BeginTransaction();
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO requests
+                    (signature, timestamp, path, markov_state, status_code,
+                     bot_probability, confidence, risk_band, processing_ms)
+                VALUES
+                    (@sig, @ts, @path, @state, @sc,
+                     @prob, @conf, @risk, @ms)
+                """;
+            var pSig  = cmd.Parameters.Add("@sig",   SqliteType.Text);
+            var pTs   = cmd.Parameters.Add("@ts",    SqliteType.Text);
+            var pPath = cmd.Parameters.Add("@path",  SqliteType.Text);
+            var pSt   = cmd.Parameters.Add("@state", SqliteType.Text);
+            var pSc   = cmd.Parameters.Add("@sc",    SqliteType.Integer);
+            var pProb = cmd.Parameters.Add("@prob",  SqliteType.Real);
+            var pConf = cmd.Parameters.Add("@conf",  SqliteType.Real);
+            var pRisk = cmd.Parameters.Add("@risk",  SqliteType.Text);
+            var pMs   = cmd.Parameters.Add("@ms",    SqliteType.Real);
+
+            foreach (var r in requests)
+            {
+                pSig.Value  = r.Signature;
+                pTs.Value   = r.Timestamp.ToString("O");
+                pPath.Value = r.Path;
+                pSt.Value   = r.MarkovState;
+                pSc.Value   = r.StatusCode;
+                pProb.Value = r.BotProbability;
+                pConf.Value = r.Confidence;
+                pRisk.Value = r.RiskBand;
+                pMs.Value   = r.ProcessingMs;
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            await tx.CommitAsync(ct);
+        }
+        finally { _writeLock.Release(); }
+    }
+
+    public async Task<List<PersistedRequest>> GetUnatomizedRequestsAsync(
+        int limit = 5000, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, signature, timestamp, path, markov_state,
+                   status_code, bot_probability, confidence, risk_band, processing_ms
+            FROM requests
+            WHERE session_id IS NULL
+            ORDER BY signature, timestamp ASC
+            LIMIT @limit
+            """;
+        cmd.Parameters.AddWithValue("@limit", limit);
+        var results = new List<PersistedRequest>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            results.Add(new PersistedRequest
+            {
+                Id             = reader.GetInt64(0),
+                Signature      = reader.GetString(1),
+                Timestamp      = DateTime.Parse(reader.GetString(2), null,
+                                     System.Globalization.DateTimeStyles.RoundtripKind),
+                Path           = reader.GetString(3),
+                MarkovState    = reader.GetString(4),
+                StatusCode     = reader.GetInt32(5),
+                BotProbability = reader.GetDouble(6),
+                Confidence     = reader.GetDouble(7),
+                RiskBand       = reader.GetString(8),
+                ProcessingMs   = reader.GetDouble(9),
+            });
+        }
+        return results;
+    }
+
+    public async Task LinkRequestsToSessionAsync(
+        long sessionId, IReadOnlyList<long> requestIds, CancellationToken ct = default)
+    {
+        if (requestIds.Count == 0) return;
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var tx = conn.BeginTransaction();
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            // SQLite has a 999-parameter limit; process in chunks of 500
+            foreach (var chunk in requestIds.Chunk(500))
+            {
+                var paramNames = chunk.Select((_, i) => $"@id{i}").ToList();
+                cmd.CommandText = $"UPDATE requests SET session_id = @sid WHERE id IN ({string.Join(',', paramNames)}) AND session_id IS NULL";
+                cmd.Parameters.Clear();
+                cmd.Parameters.AddWithValue("@sid", sessionId);
+                for (var i = 0; i < chunk.Length; i++)
+                    cmd.Parameters.AddWithValue(paramNames[i], chunk[i]);
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            await tx.CommitAsync(ct);
         }
         finally { _writeLock.Release(); }
     }
@@ -1209,9 +1379,10 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         }
     }
 
-    private async Task EnsureInitializedAsync(CancellationToken ct)
+    private Task EnsureInitializedAsync(CancellationToken ct = default)
     {
-        if (!_initialized) await InitializeAsync(ct);
+        if (_initTask is { IsCompleted: true }) return _initTask;
+        return _initTask ??= InitializeAsync(ct);
     }
 
     private static async Task<List<PersistedSession>> ReadSessionsAsync(SqliteCommand cmd, CancellationToken ct)

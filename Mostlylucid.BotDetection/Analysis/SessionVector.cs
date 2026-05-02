@@ -692,6 +692,10 @@ public sealed class SessionStore
     private readonly int _maxRequestsPerSession;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
 
+    // Tracks signatures that have an active in-memory session, enabling flush-on-shutdown.
+    // Value is the most recent FingerprintContext for vector encoding on shutdown.
+    private readonly ConcurrentDictionary<string, FingerprintContext?> _activeSignatures = new();
+
     /// <summary>
     ///     Fired when a session is finalized (boundary detected).
     ///     Used by persistence layer to write completed sessions to SQLite.
@@ -763,11 +767,50 @@ public sealed class SessionStore
                 SlidingExpiration = _sessionGapThreshold + TimeSpan.FromMinutes(5)
             });
 
+            _activeSignatures[signature] = fingerprint;
+
             return completedSnapshot;
         }
         finally
         {
             sessionLock.Release();
+        }
+    }
+
+    /// <summary>
+    ///     Finalizes all active in-memory sessions and fires SessionFinalized for each.
+    ///     Called on graceful shutdown to ensure no sessions are silently dropped.
+    ///     Sessions with fewer than 3 requests are skipped (no meaningful vector).
+    /// </summary>
+    public async Task FlushAllActiveSessionsAsync()
+    {
+        var signatures = _activeSignatures.Keys.ToList();
+        _logger.LogInformation("Flushing {Count} active sessions on shutdown", signatures.Count);
+
+        foreach (var signature in signatures)
+        {
+            var sessionLock = _locks.GetOrAdd(signature, _ => new SemaphoreSlim(1, 1));
+            await sessionLock.WaitAsync();
+            try
+            {
+                var sessionKey = $"session:current:{signature}";
+                var currentSession = _cache.Get<List<SessionRequest>>(sessionKey);
+                if (currentSession is { Count: >= 3 })
+                {
+                    _activeSignatures.TryGetValue(signature, out var fingerprint);
+                    FinalizeSession(signature, currentSession, fingerprint);
+                    _cache.Remove(sessionKey);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to flush session for {Signature}", signature);
+            }
+            finally
+            {
+                sessionLock.Release();
+            }
+            _activeSignatures.TryRemove(signature, out _);
         }
     }
 

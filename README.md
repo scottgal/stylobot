@@ -41,10 +41,18 @@ tar xzf stylobot-linux-x64.tar.gz && chmod +x stylobot && sudo mv stylobot /usr/
 stylobot 5080 http://localhost:3000
 ```
 
-**Docker**
+**Docker (gateway - transparent proxy in front of your app)**
 ```bash
 docker run --rm -p 8080:8080 -e DEFAULT_UPSTREAM=http://host.docker.internal:3000 \
   scottgal/stylobot-gateway:latest
+```
+
+**Docker (sidecar - detection API your app calls explicitly, gRPC + REST)**
+```bash
+docker run --rm -p 5090:5090 \
+  -e BotDetection__ApiKeys__0__Key=changeme \
+  scottgal/stylobot-sidecar:latest
+# gRPC: localhost:5090  |  REST: POST localhost:5090/api/v1/detect
 ```
 
 **NuGet (embed as ASP.NET Core middleware)**
@@ -287,6 +295,7 @@ scripts/                                Load tests, Docker compose, build toolin
 - [Content sequence detection](Mostlylucid.BotDetection/docs/content-sequence-detection.md)
 - [Centroid freshness](Mostlylucid.BotDetection/docs/centroid-freshness.md)
 - [Click fraud detection](Mostlylucid.BotDetection/docs/click-fraud-detection.md)
+- [Sidecar deployment](Mostlylucid.BotDetection/docs/sidecar-deployment.md) - gRPC/REST detection API for non-.NET backends
 - [Local GPU tunnel](Mostlylucid.BotDetection/docs/local-llm-tunnel.md)
 - [CHANGELOG](CHANGELOG.md)
 
