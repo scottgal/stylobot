@@ -47,6 +47,10 @@ public class SbLiveUpdatesTagHelper : TagHelper
     [HtmlAttributeName("debounce")]
     public int DebounceMs { get; set; } = 500;
 
+    /// <summary>Periodic refresh interval in seconds. Set to 0 to disable. Defaults to 30.</summary>
+    [HtmlAttributeName("refresh-interval")]
+    public int RefreshInterval { get; set; } = 30;
+
     /// <summary>Show a connection status indicator. Defaults to true.</summary>
     [HtmlAttributeName("show-status")]
     public bool ShowStatus { get; set; } = true;
@@ -104,7 +108,24 @@ public class SbLiveUpdatesTagHelper : TagHelper
         var ids = Object.keys(pending);
         if (ids.length === 0) return;
         pending = {{}};
-        var url = BASE + '/partials/update?widgets=' + ids.join(',');
+
+        var qs = new URLSearchParams();
+        qs.set('widgets', ids.join(','));
+
+        ids.forEach(function(wid) {{
+            var el = document.querySelector('[data-sb-widget=""' + wid + '""]');
+            if (!el) return;
+            var raw = el.getAttribute('data-sb-params');
+            if (!raw) return;
+            try {{
+                new URLSearchParams(raw).forEach(function(val, key) {{
+                    if (val !== '' && val !== 'undefined' && val !== 'null')
+                        qs.set(wid + '.' + key, val);
+                }});
+            }} catch(e) {{ }}
+        }});
+
+        var url = BASE + '/partials/update?' + qs.toString();
         if (typeof htmx !== 'undefined') {{
             htmx.ajax('GET', url, {{ target: 'body', swap: 'none' }});
         }}
@@ -136,6 +157,18 @@ public class SbLiveUpdatesTagHelper : TagHelper
     connection.start()
         .then(function()  {{ setStatus('connected'); }})
         .catch(function() {{ setStatus('disconnected'); }});
+
+    var REFRESH_MS = {RefreshInterval * 1000};
+    if (REFRESH_MS > 0) {{
+        setInterval(function() {{
+            document.querySelectorAll('[data-sb-widget]').forEach(function(el) {{
+                var wid = el.getAttribute('data-sb-widget');
+                if (wid) pending[wid] = true;
+            }});
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(flush, DEBOUNCE_MS);
+        }}, REFRESH_MS);
+    }}
 }})();
 </script>");
     }
