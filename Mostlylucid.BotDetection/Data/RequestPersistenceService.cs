@@ -103,7 +103,7 @@ public sealed class RequestPersistenceService : IAsyncDisposable
 
         try
         {
-            await _coordinator.DrainAsync().ConfigureAwait(false);
+            await _coordinator.DrainAsync(CancellationToken.None).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -142,7 +142,10 @@ public sealed class RequestPersistenceService : IAsyncDisposable
     private bool SampleRequest(string signature, int modulo)
     {
         if (_writeState.Count > 50_000)
-            _writeState.Clear();
+        {
+            foreach (var key in _writeState.Keys.Take(5_000))
+                _writeState.TryRemove(key, out _);
+        }
         var state = _writeState.GetOrAdd(signature, _ => new SignatureWriteState());
         var writeCount = Interlocked.Increment(ref state.WriteCount) & int.MaxValue;
         return writeCount % modulo == 0;
