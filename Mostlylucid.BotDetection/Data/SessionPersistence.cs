@@ -240,6 +240,18 @@ public interface ISessionStore
         DateTime requestTime,
         CancellationToken ct = default);
 
+    /// <summary>Persist a single request record immediately after detection.</summary>
+    Task AddRequestAsync(PersistedRequest request, CancellationToken ct = default);
+
+    /// <summary>Batch insert for coordinator write path.</summary>
+    Task AddRequestBatchAsync(IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default);
+
+    /// <summary>Get all requests not yet assigned to a session, up to limit rows, oldest-first per signature.</summary>
+    Task<List<PersistedRequest>> GetUnatomizedRequestsAsync(int limit = 5000, CancellationToken ct = default);
+
+    /// <summary>Link a list of request IDs to a session row.</summary>
+    Task LinkRequestsToSessionAsync(long sessionId, IReadOnlyList<long> requestIds, CancellationToken ct = default);
+
     // === Read path: Sessions ===
 
     /// <summary>Get sessions for a signature, ordered by most recent.</summary>

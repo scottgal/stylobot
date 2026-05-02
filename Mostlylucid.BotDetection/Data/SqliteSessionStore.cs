@@ -161,6 +161,24 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             CREATE INDEX IF NOT EXISTS idx_edges_signature ON entity_edges(signature, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_edges_entity ON entity_edges(entity_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_edges_active ON entity_edges(signature) WHERE reverted_at IS NULL;
+
+            CREATE TABLE IF NOT EXISTS requests (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                signature       TEXT    NOT NULL,
+                timestamp       TEXT    NOT NULL,
+                path            TEXT    NOT NULL,
+                markov_state    TEXT    NOT NULL,
+                status_code     INTEGER NOT NULL,
+                bot_probability REAL    NOT NULL,
+                confidence      REAL    NOT NULL,
+                risk_band       TEXT    NOT NULL,
+                processing_ms   REAL    NOT NULL DEFAULT 0,
+                session_id      INTEGER REFERENCES sessions(id) ON DELETE SET NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_requests_sig_time  ON requests(signature, timestamp ASC);
+            CREATE INDEX IF NOT EXISTS idx_requests_unatomized ON requests(signature, timestamp ASC) WHERE session_id IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_requests_ts_desc   ON requests(timestamp DESC);
         """;
         await cmd.ExecuteNonQueryAsync(ct);
 
@@ -384,6 +402,152 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("@botType", (object?)botType ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@action", (object?)action ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally { _writeLock.Release(); }
+    }
+
+    public async Task AddRequestAsync(PersistedRequest request, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO requests
+                    (signature, timestamp, path, markov_state, status_code,
+                     bot_probability, confidence, risk_band, processing_ms)
+                VALUES
+                    (@sig, @ts, @path, @state, @sc,
+                     @prob, @conf, @risk, @ms)
+                """;
+            cmd.Parameters.AddWithValue("@sig",   request.Signature);
+            cmd.Parameters.AddWithValue("@ts",    request.Timestamp.ToString("O"));
+            cmd.Parameters.AddWithValue("@path",  request.Path);
+            cmd.Parameters.AddWithValue("@state", request.MarkovState);
+            cmd.Parameters.AddWithValue("@sc",    request.StatusCode);
+            cmd.Parameters.AddWithValue("@prob",  request.BotProbability);
+            cmd.Parameters.AddWithValue("@conf",  request.Confidence);
+            cmd.Parameters.AddWithValue("@risk",  request.RiskBand);
+            cmd.Parameters.AddWithValue("@ms",    request.ProcessingMs);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally { _writeLock.Release(); }
+    }
+
+    public async Task AddRequestBatchAsync(IReadOnlyList<PersistedRequest> requests, CancellationToken ct = default)
+    {
+        if (requests.Count == 0) return;
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var tx = conn.BeginTransaction();
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO requests
+                    (signature, timestamp, path, markov_state, status_code,
+                     bot_probability, confidence, risk_band, processing_ms)
+                VALUES
+                    (@sig, @ts, @path, @state, @sc,
+                     @prob, @conf, @risk, @ms)
+                """;
+            var pSig  = cmd.Parameters.Add("@sig",   SqliteType.Text);
+            var pTs   = cmd.Parameters.Add("@ts",    SqliteType.Text);
+            var pPath = cmd.Parameters.Add("@path",  SqliteType.Text);
+            var pSt   = cmd.Parameters.Add("@state", SqliteType.Text);
+            var pSc   = cmd.Parameters.Add("@sc",    SqliteType.Integer);
+            var pProb = cmd.Parameters.Add("@prob",  SqliteType.Real);
+            var pConf = cmd.Parameters.Add("@conf",  SqliteType.Real);
+            var pRisk = cmd.Parameters.Add("@risk",  SqliteType.Text);
+            var pMs   = cmd.Parameters.Add("@ms",    SqliteType.Real);
+
+            foreach (var r in requests)
+            {
+                pSig.Value  = r.Signature;
+                pTs.Value   = r.Timestamp.ToString("O");
+                pPath.Value = r.Path;
+                pSt.Value   = r.MarkovState;
+                pSc.Value   = r.StatusCode;
+                pProb.Value = r.BotProbability;
+                pConf.Value = r.Confidence;
+                pRisk.Value = r.RiskBand;
+                pMs.Value   = r.ProcessingMs;
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            await tx.CommitAsync(ct);
+        }
+        finally { _writeLock.Release(); }
+    }
+
+    public async Task<List<PersistedRequest>> GetUnatomizedRequestsAsync(
+        int limit = 5000, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, signature, timestamp, path, markov_state,
+                   status_code, bot_probability, confidence, risk_band, processing_ms
+            FROM requests
+            WHERE session_id IS NULL
+            ORDER BY signature, timestamp ASC
+            LIMIT @limit
+            """;
+        cmd.Parameters.AddWithValue("@limit", limit);
+        var results = new List<PersistedRequest>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            results.Add(new PersistedRequest
+            {
+                Id             = reader.GetInt64(0),
+                Signature      = reader.GetString(1),
+                Timestamp      = DateTime.Parse(reader.GetString(2), null,
+                                     System.Globalization.DateTimeStyles.RoundtripKind),
+                Path           = reader.GetString(3),
+                MarkovState    = reader.GetString(4),
+                StatusCode     = reader.GetInt32(5),
+                BotProbability = reader.GetDouble(6),
+                Confidence     = reader.GetDouble(7),
+                RiskBand       = reader.GetString(8),
+                ProcessingMs   = reader.GetDouble(9),
+            });
+        }
+        return results;
+    }
+
+    public async Task LinkRequestsToSessionAsync(
+        long sessionId, IReadOnlyList<long> requestIds, CancellationToken ct = default)
+    {
+        if (requestIds.Count == 0) return;
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var tx = conn.BeginTransaction();
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            // SQLite has a 999-parameter limit; process in chunks of 500
+            foreach (var chunk in requestIds.Chunk(500))
+            {
+                var paramNames = chunk.Select((_, i) => $"@id{i}").ToList();
+                cmd.CommandText = $"UPDATE requests SET session_id = @sid WHERE id IN ({string.Join(',', paramNames)})";
+                cmd.Parameters.Clear();
+                cmd.Parameters.AddWithValue("@sid", sessionId);
+                for (var i = 0; i < chunk.Length; i++)
+                    cmd.Parameters.AddWithValue(paramNames[i], chunk[i]);
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            await tx.CommitAsync(ct);
         }
         finally { _writeLock.Release(); }
     }
