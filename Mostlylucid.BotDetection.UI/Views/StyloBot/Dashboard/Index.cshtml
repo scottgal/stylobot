@@ -416,6 +416,16 @@
         }
     </footer>
 
+    <!-- TODO(task8-part-c): Replace this script block with <sb-live-updates show-status="true" />
+         near </body> and move the BroadcastAttackArc handler to the map init script below.
+         Blocked by: the visitor-list filter state preservation logic in flush() (lines ~470-490)
+         is tightly coupled to the current visitor-list HTML structure. The generic
+         SbLiveUpdatesTagHelper flush() uses data-sb-params but does not query the DOM for the
+         active filter button class. Until the visitor-list widget exposes its current filter
+         via data-sb-params dynamically, splitting this script would break live visitor refresh.
+         Also blocked by: the hardcoded <span id="sb-connection-status"> in the brand header above
+         must be removed simultaneously, replaced by the span emitted by <sb-live-updates show-status="true" />.
+         See: SbLiveUpdatesTagHelper.cs -->
     <!-- SignalR → HTMX coordinator (the entire client-side JS) -->
     <script nonce="@Model.CspNonce">
     (function() {
