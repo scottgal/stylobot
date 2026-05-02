@@ -740,15 +740,10 @@ public class BlackboardOrchestrator
                 // Enqueue for background enrichment (ProjectHoneypot DNS lookup) when confidence is low
                 TryEnqueueBackgroundEnrichment(httpContext, result);
 
-                // Persist per-request data to SQLite for session atomization and dashboard analytics.
+                // Persist per-request data to SQLite. Bucket counters are updated
+                // in the same batch write inside AddRequestBatchAsync (coordinator thread),
+                // so no separate IncrementBucketAsync call is needed here.
                 TryPersistRequest(httpContext, result, httpContext.Request.Path.ToString(), httpContext.Response.StatusCode);
-
-                // Increment 1-minute bucket counters for dashboard traffic charts.
-                if (_sessionStore != null)
-                    _ = _sessionStore.IncrementBucketAsync(
-                            DateTime.UtcNow,
-                            result.BotProbability > 0.5,
-                            result.TotalProcessingTimeMs);
             }
 
             _logger.LogDebug(

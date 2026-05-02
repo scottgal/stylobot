@@ -425,6 +425,36 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                 pMs.Value   = r.ProcessingMs;
                 await cmd.ExecuteNonQueryAsync(ct);
             }
+
+            // Upsert 1-minute bucket counters in the same transaction — avoids a
+            // separate per-request write-lock acquisition on the hot path.
+            using var bucketCmd = conn.CreateCommand();
+            bucketCmd.Transaction = tx;
+            bucketCmd.CommandText = """
+                INSERT INTO buckets (bucket_time, total_count, bot_count, human_count, avg_processing_time_ms)
+                VALUES (@time, 1, @bot, @human, @avgTime)
+                ON CONFLICT(bucket_time) DO UPDATE SET
+                    total_count = total_count + 1,
+                    bot_count   = bot_count   + @bot,
+                    human_count = human_count + @human,
+                    avg_processing_time_ms =
+                        (avg_processing_time_ms * total_count + @avgTime) / (total_count + 1)
+                """;
+            var pBTime  = bucketCmd.Parameters.Add("@time",    SqliteType.Text);
+            var pBBot   = bucketCmd.Parameters.Add("@bot",     SqliteType.Integer);
+            var pBHuman = bucketCmd.Parameters.Add("@human",   SqliteType.Integer);
+            var pBMs    = bucketCmd.Parameters.Add("@avgTime", SqliteType.Real);
+            foreach (var r in requests)
+            {
+                var bucket = new DateTime(r.Timestamp.Year, r.Timestamp.Month, r.Timestamp.Day,
+                    r.Timestamp.Hour, r.Timestamp.Minute, 0, DateTimeKind.Utc);
+                pBTime.Value  = bucket.ToString("O");
+                pBBot.Value   = r.BotProbability > 0.5 ? 1 : 0;
+                pBHuman.Value = r.BotProbability > 0.5 ? 0 : 1;
+                pBMs.Value    = r.ProcessingMs;
+                await bucketCmd.ExecuteNonQueryAsync(ct);
+            }
+
             await tx.CommitAsync(ct);
         }
         finally { _writeLock.Release(); }
@@ -1381,8 +1411,10 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
 
     private Task EnsureInitializedAsync(CancellationToken ct = default)
     {
-        if (_initTask is { IsCompleted: true }) return _initTask;
-        return _initTask ??= InitializeAsync(ct);
+        if (_initTask is { IsCompletedSuccessfully: true }) return _initTask;
+        // Reset on fault/cancellation so the next caller retries with a live token.
+        if (_initTask is { IsFaulted: true } or { IsCanceled: true }) _initTask = null;
+        return _initTask ??= InitializeAsync(CancellationToken.None);
     }
 
     private static async Task<List<PersistedSession>> ReadSessionsAsync(SqliteCommand cmd, CancellationToken ct)
