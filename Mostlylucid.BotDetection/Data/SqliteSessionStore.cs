@@ -313,8 +313,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                     total_request_count = total_request_count + @requests,
                     last_seen = @last,
                     -- Preserve the highest-confidence detection result seen so far.
-                    -- Session finalization writes prob=0 (no per-session result yet), so
-                    -- we must never let that overwrite a real classification from UpdateSignatureDetectionAsync.
+                    -- Session finalization may update bot_probability, so use MAX to preserve the
+                    -- highest confidence value across all updates.
                     is_bot = CASE WHEN @prob > bot_probability THEN @isBot ELSE is_bot END,
                     bot_probability = MAX(bot_probability, @prob),
                     confidence = MAX(confidence, @conf),
@@ -346,64 +346,6 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("@narrative", (object?)signature.Narrative ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@reasons", (object?)signature.TopReasonsJson ?? DBNull.Value);
 
-            await cmd.ExecuteNonQueryAsync(ct);
-        }
-        finally { _writeLock.Release(); }
-    }
-
-    public async Task UpdateSignatureDetectionAsync(
-        string signatureId,
-        bool isBot,
-        double botProbability,
-        double confidence,
-        string riskBand,
-        string? botName,
-        string? botType,
-        string? action,
-        DateTime requestTime,
-        CancellationToken ct = default)
-    {
-        await EnsureInitializedAsync(ct);
-        await _writeLock.WaitAsync(ct);
-        try
-        {
-            await using var conn = new SqliteConnection(_connectionString);
-            await conn.OpenAsync(ct);
-            await using var cmd = conn.CreateCommand();
-            // Create row if new; update only classification fields on conflict.
-            // session_count stays 0 until a session actually finalizes (via UpsertSignatureAsync).
-            cmd.CommandText = """
-                INSERT INTO signatures (
-                    signature_id, session_count, total_request_count,
-                    first_seen, last_seen,
-                    is_bot, bot_probability, confidence, risk_band,
-                    bot_name, bot_type, action
-                ) VALUES (
-                    @id, 0, 1,
-                    @time, @time,
-                    @isBot, @prob, @conf, @risk,
-                    @botName, @botType, @action
-                )
-                ON CONFLICT(signature_id) DO UPDATE SET
-                    total_request_count = total_request_count + 1,
-                    last_seen           = @time,
-                    is_bot              = @isBot,
-                    bot_probability     = @prob,
-                    confidence          = @conf,
-                    risk_band           = @risk,
-                    bot_name            = COALESCE(@botName, bot_name),
-                    bot_type            = COALESCE(@botType, bot_type),
-                    action              = COALESCE(@action, action)
-                """;
-            cmd.Parameters.AddWithValue("@id", signatureId);
-            cmd.Parameters.AddWithValue("@time", requestTime.ToString("O"));
-            cmd.Parameters.AddWithValue("@isBot", isBot ? 1 : 0);
-            cmd.Parameters.AddWithValue("@prob", botProbability);
-            cmd.Parameters.AddWithValue("@conf", confidence);
-            cmd.Parameters.AddWithValue("@risk", riskBand);
-            cmd.Parameters.AddWithValue("@botName", (object?)botName ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@botType", (object?)botType ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@action", (object?)action ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct);
         }
         finally { _writeLock.Release(); }
