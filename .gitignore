@@ -473,3 +473,4 @@ stylobot-react/
 docs/legacy/
 .worktrees/
 *.xml
+.worktrees/
