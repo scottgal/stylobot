@@ -118,6 +118,8 @@
                 </table>
             </div>
 
+            @* Custom Prev/Next footer: preserves the "N visitors · page X/Y" count line,
+               which _Pagination.cshtml (designed for full-page tabs) does not render. *@
             @if (Model.TotalPages > 1)
             {
                 <div class="flex items-center justify-between mt-1.5 pt-1.5 border-t border-base-300">

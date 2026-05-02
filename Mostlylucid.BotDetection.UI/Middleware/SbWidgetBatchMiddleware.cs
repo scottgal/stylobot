@@ -124,7 +124,7 @@ public sealed class SbWidgetBatchMiddleware
                 "endpoints" => await RenderEndpointsAsync(context, q),
                 "useragents" => await RenderUserAgentsAsync(context, q),
                 "sessions" => await RenderSessionsAsync(context, q),
-                "topbots" or "top-visitors" or "live-visitors" => await RenderTopBotsAsync(context, q),
+                "topbots" or "top-visitors" or "live-visitors" => await RenderTopBotsAsync(context, q, widgetId),
                 "threats" => await RenderThreatsAsync(context, q),
                 _ => ""
             };
@@ -230,14 +230,14 @@ public sealed class SbWidgetBatchMiddleware
             "/Views/Shared/Components/SbSessionsList/Default.cshtml", model, context);
     }
 
-    private async Task<string> RenderTopBotsAsync(HttpContext context, IQueryCollection q)
+    private async Task<string> RenderTopBotsAsync(HttpContext context, IQueryCollection q, string routeWidgetId = "topbots")
     {
         var sortBy = q["sort"].FirstOrDefault() ?? q["sortBy"].FirstOrDefault() ?? "default";
         var sortDir = q["dir"].FirstOrDefault() ?? q["sortDir"].FirstOrDefault() ?? "desc";
         var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var pageSize = int.TryParse(q["pageSize"].FirstOrDefault(), out var ps) && ps > 0 ? ps : 10;
         var filter = q["filter"].FirstOrDefault() ?? "bots";
-        var widgetId = q["widgetId"].FirstOrDefault() ?? "topbots";
+        var widgetId = q["widgetId"].FirstOrDefault() ?? routeWidgetId;
         var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbTopBots/Default.cshtml", model, context);
