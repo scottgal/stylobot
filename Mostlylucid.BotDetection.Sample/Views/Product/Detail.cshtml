@@ -1,0 +1,161 @@
+@model Mostlylucid.BotDetection.Sample.Models.Product
+@{
+    ViewData["Title"] = Model.Name;
+    ViewBag.PageContext = "Pricing, discounts, and add-to-cart visibility adapt to your risk score.";
+}
+
+@*
+    PRODUCT DETAIL PAGE - demonstrates:
+      <sb-gate max-risk="Low">   exclusive discount for low-risk visitors
+      <sb-gate min-risk="Medium"> security escalation for elevated-risk visitors
+      <sb-gate human-only>        cart action hidden from bots
+      <sb-signal>                 datacenter / VPN signal gating
+      <sb-confidence display="bar"> probability progress bar
+      <sb-summary>                 mini detection card
+*@
+
+<div style="margin-bottom:.75rem;">
+    <a href="/" class="muted">&larr; Back to shop</a>
+</div>
+
+<div class="grid-2">
+    <div>
+        <div class="product-img" style="background:@Model.Color; height:280px; border-radius:8px; font-size:4rem;">
+            &#128722;
+        </div>
+    </div>
+
+    <div>
+        <div class="muted mb-1">@Model.Category</div>
+        <h1>@Model.Name</h1>
+        <div style="color:#f59e0b;margin:.3rem 0;">
+            @(new string('★', (int)Model.Rating))@(new string('☆', 5 - (int)Model.Rating))
+            <span class="muted">@Model.Rating / 5</span>
+        </div>
+        <p class="muted mb-2">@Model.Description</p>
+        <div style="font-size:2rem;font-weight:700;color:#1a1a2e;margin-bottom:.5rem;">
+            $@Model.Price.ToString("N2")
+        </div>
+        <div class="muted mb-2">
+            @if (Model.Stock > 20)
+            {
+                <span style="color:#16a34a;">&#10003; In stock (@Model.Stock units)</span>
+            }
+            else if (Model.Stock > 0)
+            {
+                <span style="color:#d97706;">&#9888; Low stock (@Model.Stock left)</span>
+            }
+            else
+            {
+                <span style="color:#dc2626;">&#10007; Out of stock</span>
+            }
+        </div>
+
+        @*
+            Discount code: only shown to low-risk visitors (risk <= Low).
+            Max-risk="Low" means the gate opens when RiskBand is VeryLow or Low.
+            High-confidence scrapers and scanners won't see this offer.
+        *@
+        <sb-gate max-risk="Low">
+            <div class="alert alert-success mb-2">
+                &#127881; First-order discount: use code <strong>WELCOME10</strong> at checkout
+                for 10% off! (Low-risk visitors only)
+            </div>
+        </sb-gate>
+
+        @*
+            For medium-to-high risk visitors: show a friction message but don't block.
+            This is an example of graceful degradation rather than hard blocking.
+        *@
+        <sb-gate min-risk="Medium">
+            <div class="alert alert-warning mb-2">
+                &#128274; Additional verification may be required at checkout
+                due to elevated risk signals from your connection.
+            </div>
+        </sb-gate>
+
+        @*
+            <sb-signal> gates on a specific detection signal key.
+            "ip.is_datacenter" is true when the IP is a cloud/hosting provider.
+            This warns datacenter visitors that residential checkout verification applies.
+        *@
+        <sb-signal signal="ip.is_datacenter" condition="true">
+            <div class="alert alert-info mb-2">
+                &#9729; Datacenter IP detected. If you are a developer testing this integration,
+                note that additional checkout steps apply to non-residential IPs.
+            </div>
+        </sb-signal>
+
+        @*
+            <sb-gate human-only> — the primary purchase action.
+            Bots never see this button, so there's nothing to click/scrape.
+        *@
+        <sb-gate human-only>
+            @if (Model.Stock > 0)
+            {
+                <a href="/Cart/Checkout" class="btn btn-success">
+                    &#128722; Add to Cart &mdash; $@Model.Price.ToString("N2")
+                </a>
+            }
+        </sb-gate>
+
+        @*
+            Bots get a contextual message instead of a button.
+            Verified bots (price trackers, search engines) see useful structured data.
+        *@
+        <sb-gate bot-type="VerifiedBot,SearchEngine">
+            <div class="muted" style="font-size:0.85rem;margin-top:.5rem;">
+                <strong>Structured data:</strong> Price $@Model.Price — Stock @Model.Stock —
+                Category @Model.Category — Rating @Model.Rating/5
+            </div>
+        </sb-gate>
+
+        <sb-bot>
+            <sb-gate bot-type="VerifiedBot,SearchEngine" negate="true">
+                <div class="muted" style="margin-top:.5rem;font-size:0.85rem;">
+                    Automated purchase is not supported. Please visit from a browser.
+                </div>
+            </sb-gate>
+        </sb-bot>
+    </div>
+</div>
+
+@* -----------------------------------------------------------------------
+   Detection Panel: shows the StyloBot tag helpers that display detection
+   data back to the visitor. Useful for debugging and tutorials.
+   ----------------------------------------------------------------------- *@
+<hr style="margin:2rem 0; border:none; border-top:1px solid #dee2e6;" />
+<h2>Your Detection Profile</h2>
+<div class="grid-2">
+    <div>
+        @*
+            <sb-summary> renders a compact detection card using a ViewComponent.
+            variant="card" wraps it in a bordered box.
+        *@
+        <sb-summary variant="card"></sb-summary>
+    </div>
+    <div>
+        <div class="card">
+            <div class="mb-1"><strong>Bot probability</strong></div>
+            @*
+                <sb-confidence display="bar"> renders a colour-coded progress bar
+                showing the bot likelihood from 0% to 100%.
+                Colours: green (<40%), yellow (40-70%), red (>70%).
+            *@
+            <sb-confidence display="bar" width="100%"></sb-confidence>
+
+            <div style="margin-top:1rem;">
+                <div class="mb-1"><strong>Risk level</strong></div>
+                @*
+                    <sb-risk-pill> renders the current risk band as a small coloured pill.
+                    VeryLow/Low = green, Elevated/Medium = yellow, High/VeryHigh = red.
+                *@
+                <sb-risk-pill></sb-risk-pill>
+            </div>
+
+            <div style="margin-top:1rem;" class="muted">
+                <a href="/Me">View full detection profile &rarr;</a>
+            </div>
+        </div>
+    </div>
+</div>

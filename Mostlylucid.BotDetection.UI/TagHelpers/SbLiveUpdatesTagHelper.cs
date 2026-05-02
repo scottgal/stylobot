@@ -131,6 +131,23 @@ public class SbLiveUpdatesTagHelper : TagHelper
         }}
     }}
 
+    // Restore previously-saved widget filter/sort params from sessionStorage so that
+    // switching dashboard tabs preserves the user's last filter selection.
+    document.querySelectorAll('[data-sb-widget]').forEach(function(el) {{
+        var wid = el.getAttribute('data-sb-widget');
+        var saved = sessionStorage.getItem('sb:wp:' + wid);
+        if (saved) el.setAttribute('data-sb-params', saved);
+    }});
+
+    // After any HTMX swap settles (including OOB), persist current widget params.
+    document.body.addEventListener('htmx:afterSettle', function() {{
+        document.querySelectorAll('[data-sb-widget]').forEach(function(el) {{
+            var wid = el.getAttribute('data-sb-widget');
+            var params = el.getAttribute('data-sb-params');
+            if (wid && params) sessionStorage.setItem('sb:wp:' + wid, params);
+        }});
+    }});
+
     if (typeof signalR === 'undefined') {{ console.warn('StyloBot: signalR not loaded'); return; }}
 
     var statusEl = document.getElementById('sb-connection-status');

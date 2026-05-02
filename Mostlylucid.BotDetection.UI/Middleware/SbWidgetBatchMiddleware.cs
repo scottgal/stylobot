@@ -159,7 +159,7 @@ public sealed class SbWidgetBatchMiddleware
         var filter = q["filter"].FirstOrDefault() ?? "all";
         var sortField = q["sort"].FirstOrDefault() ?? "lastSeen";
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
-        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var page = WidgetRenderHelpers.QueryPage(q);
         var (items, totalCount, _, _) = visitorCache.GetFiltered(filter, sortField, sortDir, page, 24);
         var model = new VisitorListModel
         {
@@ -181,7 +181,7 @@ public sealed class SbWidgetBatchMiddleware
     {
         var sortField = q["sort"].FirstOrDefault() ?? "total";
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
-        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var page = WidgetRenderHelpers.QueryPage(q);
 
         var cached = _aggregateCache.Current.Countries;
         var data = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(100);
@@ -194,7 +194,7 @@ public sealed class SbWidgetBatchMiddleware
     {
         var sortField = q["sort"].FirstOrDefault() ?? "total";
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
-        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var page = WidgetRenderHelpers.QueryPage(q);
 
         var cached = _aggregateCache.Current.Endpoints;
         var data = cached.Count > 0 ? cached : await _eventStore.GetEndpointStatsAsync(100);
@@ -208,7 +208,7 @@ public sealed class SbWidgetBatchMiddleware
         var filter = q["filter"].FirstOrDefault() ?? "all";
         var sortField = q["sort"].FirstOrDefault() ?? "requests";
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
-        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+        var page = WidgetRenderHelpers.QueryPage(q);
 
         // Use the aggregate cache (populated by DashboardSummaryBroadcaster).
         // IDashboardEventStore does not expose a GetUserAgentStatsAsync method, so no DB
@@ -223,8 +223,8 @@ public sealed class SbWidgetBatchMiddleware
     private async Task<string> RenderSessionsAsync(HttpContext context, IQueryCollection q)
     {
         var filter = q["filter"].FirstOrDefault();
-        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
-        var pageSize = int.TryParse(q["pageSize"].FirstOrDefault(), out var ps) && ps > 0 ? ps : 25;
+        var page = WidgetRenderHelpers.QueryPage(q);
+        var pageSize = WidgetRenderHelpers.QueryPageSize(q, 25);
         var model = await BuildSessionsModelAsync(context, page, pageSize, filter);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbSessionsList/Default.cshtml", model, context);
@@ -232,10 +232,10 @@ public sealed class SbWidgetBatchMiddleware
 
     private async Task<string> RenderTopBotsAsync(HttpContext context, IQueryCollection q, string routeWidgetId = "topbots")
     {
-        var sortBy = q["sort"].FirstOrDefault() ?? q["sortBy"].FirstOrDefault() ?? "default";
-        var sortDir = q["dir"].FirstOrDefault() ?? q["sortDir"].FirstOrDefault() ?? "desc";
-        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
-        var pageSize = int.TryParse(q["pageSize"].FirstOrDefault(), out var ps) && ps > 0 ? ps : 10;
+        var sortBy = q["sort"].FirstOrDefault() ?? "default";
+        var sortDir = q["dir"].FirstOrDefault() ?? "desc";
+        var page = WidgetRenderHelpers.QueryPage(q);
+        var pageSize = WidgetRenderHelpers.QueryPageSize(q, 10, 50);
         var filter = q["filter"].FirstOrDefault() ?? "bots";
         var widgetId = q["widgetId"].FirstOrDefault() ?? routeWidgetId;
         var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId);
@@ -245,10 +245,8 @@ public sealed class SbWidgetBatchMiddleware
 
     private async Task<string> RenderThreatsAsync(HttpContext context, IQueryCollection q)
     {
-        var pageStr = q["page"].FirstOrDefault();
-        var pageSizeStr = q["pageSize"].FirstOrDefault();
-        var page = int.TryParse(pageStr, out var p) ? Math.Max(1, p) : 1;
-        var pageSize = int.TryParse(pageSizeStr, out var ps) ? Math.Clamp(ps, 1, 100) : 20;
+        var page = WidgetRenderHelpers.QueryPage(q);
+        var pageSize = WidgetRenderHelpers.QueryPageSize(q, 20, 100);
 
         List<ThreatEntry> allThreats;
         try { allThreats = await _eventStore.GetThreatsAsync(pageSize * 10); }

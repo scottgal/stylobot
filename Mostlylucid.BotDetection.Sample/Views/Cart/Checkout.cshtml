@@ -1,0 +1,127 @@
+@{
+    ViewData["Title"] = "Checkout";
+    ViewBag.PageContext = "Express checkout, pay options, and form visibility change with your risk score.";
+}
+
+@*
+    CHECKOUT PAGE - demonstrates:
+      <sb-gate human-only>   guard the entire form
+      <sb-gate max-risk>     express checkout for trusted visitors
+      <sb-honeypot>          hidden trap fields added to the form
+      <sb-risk max="Low">    loyalty reward gate
+      Server-side:           HoneypotValidator.IsTriggered() in CartController
+*@
+
+<h1 style="margin-bottom:1.5rem;">&#128722; Checkout</h1>
+
+@*
+    Gate the entire checkout UI on human-only.
+    A detected bot will see the bot-specific message below instead.
+*@
+<sb-gate human-only>
+    <div class="grid-2">
+        <div>
+            @*
+                Express checkout: only shown to low-risk visitors.
+                max-risk="Low" opens when risk is VeryLow or Low.
+            *@
+            <sb-risk max="Low">
+                <div class="card mb-2" style="border-color:#16a34a;">
+                    <h2 style="color:#16a34a;">&#9889; Express Checkout</h2>
+                    <p class="muted mb-2">Trusted visitor — skip address verification.</p>
+                    <button class="btn btn-success">Pay Now (Express)</button>
+                </div>
+            </sb-risk>
+
+            <div class="card">
+                <h2>Shipping Details</h2>
+                <form method="post" action="/Cart/Checkout">
+                    @Html.AntiForgeryToken()
+
+                    @*
+                        <sb-honeypot> injects hidden off-screen trap fields.
+                        Bots that auto-fill forms will trigger these fields.
+                        Server-side: CartController calls HoneypotValidator.IsTriggered(Request)
+                        and silently redirects if triggered — the bot learns nothing.
+
+                        Default prefix is "sb"; generates fields named sb_email_confirm,
+                        sb_website_url. The stylesheet hides them with position:absolute;left:-9999px.
+                    *@
+                    <sb-honeypot fields="2"></sb-honeypot>
+
+                    <div class="form-group">
+                        <label>Full name</label>
+                        <input type="text" name="name" placeholder="Jane Smith" autocomplete="name" />
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" name="email" placeholder="jane@example.com" autocomplete="email" />
+                    </div>
+                    <div class="form-group">
+                        <label>Shipping address</label>
+                        <input type="text" name="address" placeholder="123 Main St" autocomplete="street-address" />
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;" class="mb-2">
+                        <div class="form-group" style="margin:0;">
+                            <label>City</label>
+                            <input type="text" name="city" autocomplete="address-level2" />
+                        </div>
+                        <div class="form-group" style="margin:0;">
+                            <label>Postcode</label>
+                            <input type="text" name="postcode" autocomplete="postal-code" />
+                        </div>
+                    </div>
+
+                    @*
+                        Payment button is also gated on risk.
+                        Elevated-risk visitors see a warning; the button is still present
+                        (we don't hard-block), but the UX signals extra care is needed.
+                    *@
+                    <sb-risk max="Elevated">
+                        <button type="submit" class="btn btn-primary" style="width:100%;">
+                            &#128274; Place Order
+                        </button>
+                    </sb-risk>
+                    <sb-gate min-risk="Medium">
+                        <button type="submit" class="btn btn-outline" style="width:100%;">
+                            Place Order (verification may be required)
+                        </button>
+                    </sb-gate>
+                </form>
+            </div>
+        </div>
+
+        <div>
+            <div class="card">
+                <h2>Order Summary</h2>
+                <p class="muted">Items in cart: <strong>3</strong></p>
+                <hr style="margin:.75rem 0;border:none;border-top:1px solid #dee2e6;" />
+                <div style="display:flex;justify-content:space-between;font-size:1.1rem;font-weight:700;">
+                    <span>Total</span><span>$149.95</span>
+                </div>
+            </div>
+
+            <div class="card mt-2">
+                <div class="muted" style="font-size:0.8rem;">
+                    <strong>Security note:</strong> This form uses StyloBot honeypot protection.
+                    Automated form-fillers are silently rejected. No CAPTCHA required.
+                </div>
+            </div>
+        </div>
+    </div>
+</sb-gate>
+
+@*
+    Bots see this instead of the form.
+    <sb-bot> defaults to fallback="hide", so it only renders when IsBot is confirmed true.
+*@
+<sb-bot>
+    <div class="card text-center" style="max-width:480px;margin:2rem auto;">
+        <div style="font-size:3rem;margin-bottom:.75rem;">&#128683;</div>
+        <h2>Checkout unavailable</h2>
+        <p class="muted mb-2">
+            Automated checkout is not supported. Please complete your purchase in a browser.
+        </p>
+        <a href="/" class="btn btn-outline">Return to shop</a>
+    </div>
+</sb-bot>

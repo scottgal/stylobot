@@ -5,10 +5,8 @@
     var totalFingerprints = Model.HumanSessions + Model.BotSessions;
     var botPct = totalFingerprints > 0 ? ((double)Model.BotSessions / totalFingerprints * 100).ToString("F1") : "0.0";
 
-    // SVG semicircle gauge for bot traffic %
-    // Path: M 4 40 A 32 32 0 0 1 68 40 traces a semicircle arc of radius 32, left (4,40) to right (68,40), center (36,40)
-    // pathLength normalizes the coordinate system so stroke-dasharray uses units matching arcFull
     var botFraction = totalFingerprints > 0 ? (double)Model.BotSessions / totalFingerprints : 0.0;
+    // pathLength on the SVG path normalises the coordinate system so stroke-dasharray units match arcFull directly
     var arcFull = Math.PI * 32;           // half-circumference (the visible semicircle arc)
     var arcFilled = botFraction * arcFull;
     var arcCircum = 2 * Math.PI * 32;     // full circle circumference (for dasharray gap)

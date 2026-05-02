@@ -33,6 +33,12 @@ internal static class WidgetRenderHelpers
         return $"sb:widget:{widgetId}:{string.Join("&", sorted)}";
     }
 
+    internal static int QueryPage(IQueryCollection q) =>
+        int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
+
+    internal static int QueryPageSize(IQueryCollection q, int defaultSize, int max = int.MaxValue) =>
+        int.TryParse(q["pageSize"].FirstOrDefault(), out var ps) && ps > 0 ? Math.Min(ps, max) : defaultSize;
+
     internal static string InjectOobAttribute(string html)
     {
         var match = FirstTagRegex.Match(html);

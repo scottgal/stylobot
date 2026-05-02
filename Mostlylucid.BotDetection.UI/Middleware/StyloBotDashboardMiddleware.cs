@@ -3717,42 +3717,14 @@ public class StyloBotDashboardMiddleware
                 }
                 else
                 {
-                    context.Response.StatusCode = 404;
-                    context.Response.ContentType = "text/html; charset=utf-8";
-                    var notFoundHtml = $"""
-                        <!DOCTYPE html><html lang="en" data-theme="dark">
-                        <head><meta charset="utf-8"><title>Signature Not Found - StyloBot</title>
-                        <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css" /></head>
-                        <body class="min-h-screen flex items-center justify-center bg-base-100">
-                        <div class="text-center">
-                            <p class="text-4xl font-black text-base-content/20 mb-2">404</p>
-                            <p class="text-sm text-base-content/60">Signature not found</p>
-                            <p class="text-xs text-base-content/40 mt-1 font-mono">{System.Web.HttpUtility.HtmlEncode(decodedSignature[..Math.Min(24, decodedSignature.Length)])}&hellip;</p>
-                            <a href="{basePath}" class="btn btn-sm btn-ghost mt-4">Back to dashboard</a>
-                        </div></body></html>
-                        """;
-                    await context.Response.WriteAsync(notFoundHtml);
+                    await WriteSignatureNotFoundAsync(context, decodedSignature, basePath);
                     return;
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Failed to reconstruct signature from event store for {Signature}", decodedSignature);
-                context.Response.StatusCode = 404;
-                context.Response.ContentType = "text/html; charset=utf-8";
-                var notFoundHtml = $"""
-                    <!DOCTYPE html><html lang="en" data-theme="dark">
-                    <head><meta charset="utf-8"><title>Signature Not Found - StyloBot</title>
-                    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css" /></head>
-                    <body class="min-h-screen flex items-center justify-center bg-base-100">
-                    <div class="text-center">
-                        <p class="text-4xl font-black text-base-content/20 mb-2">404</p>
-                        <p class="text-sm text-base-content/60">Signature not found</p>
-                        <p class="text-xs text-base-content/40 mt-1 font-mono">{System.Web.HttpUtility.HtmlEncode(decodedSignature[..Math.Min(24, decodedSignature.Length)])}&hellip;</p>
-                        <a href="{basePath}" class="btn btn-sm btn-ghost mt-4">Back to dashboard</a>
-                    </div></body></html>
-                    """;
-                await context.Response.WriteAsync(notFoundHtml);
+                await WriteSignatureNotFoundAsync(context, decodedSignature, basePath);
                 return;
             }
         }
@@ -3761,6 +3733,24 @@ public class StyloBotDashboardMiddleware
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/_SignatureDetail.cshtml", model, context);
         await context.Response.WriteAsync(html);
+    }
+
+    private static async Task WriteSignatureNotFoundAsync(HttpContext context, string signature, string basePath)
+    {
+        context.Response.StatusCode = 404;
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync($"""
+            <!DOCTYPE html><html lang="en" data-theme="dark">
+            <head><meta charset="utf-8"><title>Signature Not Found - StyloBot</title>
+            <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css" /></head>
+            <body class="min-h-screen flex items-center justify-center bg-base-100">
+            <div class="text-center">
+                <p class="text-4xl font-black text-base-content/20 mb-2">404</p>
+                <p class="text-sm text-base-content/60">Signature not found</p>
+                <p class="text-xs text-base-content/40 mt-1 font-mono">{System.Web.HttpUtility.HtmlEncode(signature[..Math.Min(24, signature.Length)])}&hellip;</p>
+                <a href="{basePath}" class="btn btn-sm btn-ghost mt-4">Back to dashboard</a>
+            </div></body></html>
+            """);
     }
 
     /// <summary>Render the user agent detail panel partial.</summary>
@@ -3929,13 +3919,13 @@ public class StyloBotDashboardMiddleware
 
     private TopBotsListModel BuildTopBotsModelFromQuery(string widgetId, IQueryCollection q)
     {
-        var sortBy = q["sort"].FirstOrDefault() ?? q["sortBy"].FirstOrDefault() ?? "default";
-        var sortDir = q["dir"].FirstOrDefault() ?? q["sortDir"].FirstOrDefault() ?? "desc";
-        var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
-        var pageSize = int.TryParse(q["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 50 ? ps : 10;
+        var sortBy = q["sort"].FirstOrDefault() ?? "default";
+        var sortDir = q["dir"].FirstOrDefault() ?? "desc";
+        var page = WidgetRenderHelpers.QueryPage(q);
+        var pageSize = WidgetRenderHelpers.QueryPageSize(q, 10, 50);
         var filter = q["filter"].FirstOrDefault() ?? "bots";
-        var wid = q["widgetId"].FirstOrDefault() ?? widgetId;
-        return BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, wid);
+        var routeWidgetId = q["widgetId"].FirstOrDefault() ?? widgetId;
+        return BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, routeWidgetId);
     }
 
     private async Task<List<DashboardCountryStats>> GetCountriesDataAsync()
