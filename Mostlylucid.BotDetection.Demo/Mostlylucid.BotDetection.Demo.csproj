@@ -25,6 +25,7 @@
         <ProjectReference Include="..\Mostlylucid.GeoDetection.Contributor\Mostlylucid.GeoDetection.Contributor.csproj"/>
         <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj"/>
         <ProjectReference Include="..\Mostlylucid.BotDetection.Api\Mostlylucid.BotDetection.Api.csproj"/>
+        <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.LlamaSharp\Mostlylucid.BotDetection.Llm.LlamaSharp.csproj"/>
     </ItemGroup>
 
 </Project>

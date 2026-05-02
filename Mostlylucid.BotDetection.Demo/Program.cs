@@ -13,6 +13,7 @@ using Mostlylucid.BotDetection.Api;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.GeoDetection.Contributor.Extensions;
 using Mostlylucid.GeoDetection.Extensions;
+using Mostlylucid.BotDetection.Llm.LlamaSharp.Extensions;
 using mostlylucid.mockllmapi;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -79,6 +80,9 @@ builder.Services.AddStyloBotApi(options =>
 // Add ApiHolodeck for honeypot detection and bot redirection
 // Configuration from BotDetection:Holodeck section in appsettings.json
 builder.Services.AddApiHolodeck();
+
+// LlamaSharp in-process LLM (Metal GPU on Apple Silicon)
+builder.Services.AddStylobotLlamaSharp();
 
 // Add MockLLMApi for generating fake API responses to detected bots
 // This powers the holodeck - bots get redirected here and receive LLM-generated fake data
