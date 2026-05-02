@@ -611,7 +611,7 @@ public class StyloBotDashboardMiddleware
             Clusters = BuildClustersModel(context),
             UserAgents = BuildUserAgentsModel("all", "requests", "desc", 1, 25, allUserAgents),
             TopBots = BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
-            Sessions = BuildSessionsModel(context),
+            Sessions = await BuildSessionsModel(context),
             Threats = await BuildThreatsModelAsync(),
             License = BuildLicenseCardModel(context),
             // Only build the editor model when the operator is on the Configuration tab --
@@ -2902,7 +2902,7 @@ public class StyloBotDashboardMiddleware
         var filter = context.Request.Query["filter"].FirstOrDefault();
         var page = int.TryParse(context.Request.Query["page"], out var p) ? p : 1;
         var pageSize = int.TryParse(context.Request.Query["pageSize"], out var ps) ? ps : 25;
-        var model = BuildSessionsModel(context, page, pageSize, filter);
+        var model = await BuildSessionsModel(context, page, pageSize, filter);
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -3270,13 +3270,14 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "text/html";
 
-        var tasks = widgets.Select(w => RenderOobWidgetAsync(context, w)).ToList();
-        var results = await Task.WhenAll(tasks);
-        foreach (var html in results)
+        var sb = new System.Text.StringBuilder();
+        foreach (var widget in widgets)
         {
+            var html = await RenderOobWidgetAsync(context, widget);
             if (!string.IsNullOrEmpty(html))
-                await context.Response.WriteAsync(html);
+                sb.Append(html);
         }
+        await context.Response.WriteAsync(sb.ToString());
     }
 
     /// <summary>
@@ -3303,7 +3304,7 @@ public class StyloBotDashboardMiddleware
                 "clusters" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_ClustersList.cshtml", BuildClustersModel(context)),
                 "useragents" => await RenderUaPartialAsync(context, q),
                 "topbots" => await RenderPartialAsync(context, "/Views/Shared/Components/SbTopBots/Default.cshtml", BuildTopBotsModel()),
-                "sessions" => await RenderPartialAsync(context, "/Views/Shared/Components/SbSessionsList/Default.cshtml", BuildSessionsModel(context)),
+                "sessions" => await RenderPartialAsync(context, "/Views/Shared/Components/SbSessionsList/Default.cshtml", await BuildSessionsModel(context)),
                 "recent" => await RenderRecentActivityPartialAsync(context),
                 "your-detection" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_YourDetection.cshtml", BuildYourDetectionPartialModel(context)),
                 _ => ""
@@ -4009,7 +4010,7 @@ public class StyloBotDashboardMiddleware
         };
     }
 
-    private SessionsListModel BuildSessionsModel(HttpContext context, int page = 1, int pageSize = 25, string? filter = null)
+    private async Task<SessionsListModel> BuildSessionsModel(HttpContext context, int page = 1, int pageSize = 25, string? filter = null)
     {
         var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.ISessionStore>();
         if (sessionStore == null)
@@ -4023,7 +4024,7 @@ public class StyloBotDashboardMiddleware
         }
 
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
-        var sessions = sessionStore.GetRecentSessionsAsync(pageSize, isBot).GetAwaiter().GetResult();
+        var sessions = await sessionStore.GetRecentSessionsAsync(pageSize, isBot);
 
         var entries = sessions.Select(s => new SessionListEntry
         {
