@@ -36,6 +36,7 @@ public sealed class SbWidgetBatchMiddleware
     private readonly IDashboardEventStore _eventStore;
     private readonly DashboardAggregateCache _aggregateCache;
     private readonly SignatureAggregateCache _signatureCache;
+    private readonly LiquidWidgetRenderer _liquidRenderer;
     private readonly IMemoryCache _cache;
     private readonly ILogger<SbWidgetBatchMiddleware> _logger;
 
@@ -48,6 +49,7 @@ public sealed class SbWidgetBatchMiddleware
         IDashboardEventStore eventStore,
         DashboardAggregateCache aggregateCache,
         SignatureAggregateCache signatureCache,
+        LiquidWidgetRenderer liquidRenderer,
         IMemoryCache cache,
         ILogger<SbWidgetBatchMiddleware> logger)
     {
@@ -57,6 +59,7 @@ public sealed class SbWidgetBatchMiddleware
         _eventStore = eventStore;
         _aggregateCache = aggregateCache;
         _signatureCache = signatureCache;
+        _liquidRenderer = liquidRenderer;
         _cache = cache;
         _logger = logger;
     }
@@ -65,6 +68,14 @@ public sealed class SbWidgetBatchMiddleware
     {
         var path = context.Request.Path.Value ?? string.Empty;
         var basePath = _options.BasePath.TrimEnd('/');
+
+        // Handle: POST {basePath}/partials/render — Liquid template rendering for Node SDK
+        if (context.Request.Method.Equals("POST", StringComparison.OrdinalIgnoreCase)
+            && path.Equals($"{basePath}/partials/render", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleLiquidRenderAsync(context);
+            return;
+        }
 
         // Only handle: GET {basePath}/partials/update
         if (!context.Request.Method.Equals("GET", StringComparison.OrdinalIgnoreCase)
@@ -423,6 +434,239 @@ public sealed class SbWidgetBatchMiddleware
             TotalCount = entries.Count,
             Filter = filter
         };
+    }
+
+    // -------------------------------------------------------------------------
+    // POST /partials/render — Liquid widget rendering for Node SDK
+    // -------------------------------------------------------------------------
+
+    private async Task HandleLiquidRenderAsync(HttpContext context)
+    {
+        context.Response.ContentType = "text/html; charset=utf-8";
+
+        Dictionary<string, string>? body;
+        try
+        {
+            using var doc = await JsonDocument.ParseAsync(context.Request.Body);
+            if (!doc.RootElement.TryGetProperty("widgets", out var widgetsEl))
+            {
+                context.Response.StatusCode = 400;
+                return;
+            }
+            body = widgetsEl.EnumerateObject()
+                .ToDictionary(p => p.Name, p => p.Value.GetString() ?? "");
+        }
+        catch
+        {
+            context.Response.StatusCode = 400;
+            return;
+        }
+
+        var sb = new StringBuilder();
+        foreach (var (widgetId, template) in body)
+        {
+            var q = WidgetRenderHelpers.ExtractWidgetParams(context, widgetId);
+            string html = string.IsNullOrWhiteSpace(template)
+                ? await RenderWidgetAsync(context, widgetId, q)
+                : await RenderLiquidWidgetAsync(context, widgetId, template) ?? "";
+
+            if (!string.IsNullOrEmpty(html))
+            {
+                html = WidgetRenderHelpers.InjectOobAttribute(html);
+                sb.Append(html);
+            }
+        }
+
+        await context.Response.WriteAsync(sb.ToString());
+    }
+
+    private async Task<string?> RenderLiquidWidgetAsync(
+        HttpContext context, string widgetId, string template)
+    {
+        try
+        {
+            var data = await BuildLiquidContextAsync(context, widgetId);
+            return data == null ? null
+                : await _liquidRenderer.RenderAsync(widgetId, template, data);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex,
+                "SbWidgetBatch: Liquid render failed for '{Widget}'", widgetId);
+            return null;
+        }
+    }
+
+    private async Task<Dictionary<string, object>?> BuildLiquidContextAsync(
+        HttpContext context, string widgetId)
+    {
+        try
+        {
+            return widgetId switch
+            {
+                "summary" => await BuildSummaryContextAsync(),
+                "topbots" or "top-visitors" or "live-visitors" => await BuildTopBotsContextAsync(),
+                "visitors" => BuildVisitorsContext(context),
+                "countries" => await BuildCountriesContextAsync(),
+                "endpoints" => await BuildEndpointsContextAsync(),
+                "useragents" => BuildUserAgentsContext(),
+                "threats" => await BuildThreatsContextAsync(),
+                _ => new Dictionary<string, object>()
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex,
+                "SbWidgetBatch: BuildLiquidContext failed for '{Widget}'", widgetId);
+            return null;
+        }
+    }
+
+    private async Task<Dictionary<string, object>> BuildSummaryContextAsync()
+    {
+        var summary = await _eventStore.GetSummaryAsync();
+        return new Dictionary<string, object>
+        {
+            ["bot_requests"] = summary.BotRequests,
+            ["human_requests"] = summary.HumanRequests,
+            ["total_requests"] = summary.TotalRequests,
+            ["uncertain_requests"] = summary.UncertainRequests,
+            ["bot_rate"] = summary.TotalRequests > 0
+                ? (double)summary.BotRequests / summary.TotalRequests : 0d,
+            ["bot_percentage"] = summary.BotPercentage,
+            ["unique_signatures"] = summary.UniqueSignatures,
+            ["avg_processing_ms"] = summary.AverageProcessingTimeMs,
+        };
+    }
+
+    private async Task<Dictionary<string, object>> BuildTopBotsContextAsync()
+    {
+        var allBots = _signatureCache.GetTopBots(
+            page: 1, pageSize: 50, sortBy: "default", sortDir: "desc", filter: "bots");
+
+        var bots = allBots.Select(b => new Dictionary<string, object?>
+        {
+            ["signature_id"] = b.PrimarySignature,
+            ["bot_name"] = b.BotName,
+            ["bot_type"] = b.BotType,
+            ["risk_band"] = b.RiskBand,
+            ["hit_count"] = b.HitCount,
+            ["bot_probability"] = b.BotProbability,
+            ["action"] = b.Action,
+            ["country_code"] = b.CountryCode,
+            ["last_seen"] = b.LastSeen.ToString("O"),
+        }).ToList();
+
+        return new Dictionary<string, object> { ["bots"] = bots };
+    }
+
+    private Dictionary<string, object> BuildVisitorsContext(HttpContext context)
+    {
+        var visitorCache = context.RequestServices.GetService<VisitorListCache>();
+        if (visitorCache == null)
+            return new Dictionary<string, object> { ["visitors"] = new List<object>() };
+
+        var (items, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, 50);
+        var visitors = items.Select(v => new Dictionary<string, object?>
+        {
+            ["signature_id"] = v.PrimarySignature,
+            ["is_bot"] = v.IsBot,
+            ["risk_band"] = v.RiskBand,
+            ["bot_name"] = v.BotName,
+            ["bot_type"] = v.BotType,
+            ["hits"] = v.Hits,
+            ["country_code"] = v.CountryCode,
+            ["last_seen"] = v.LastSeen.ToString("O"),
+        }).ToList();
+
+        return new Dictionary<string, object>
+        {
+            ["visitors"] = visitors,
+            ["total_count"] = totalCount,
+        };
+    }
+
+    private async Task<Dictionary<string, object>> BuildCountriesContextAsync()
+    {
+        var cached = _aggregateCache.Current.Countries;
+        var data = cached.Count > 0 ? cached : await _eventStore.GetCountryStatsAsync(50);
+
+        var countries = data.Select(c => new Dictionary<string, object?>
+        {
+            ["country_code"] = c.CountryCode,
+            ["country_name"] = c.CountryName,
+            ["total_count"] = c.TotalCount,
+            ["bot_count"] = c.BotCount,
+            ["human_count"] = c.HumanCount,
+            ["bot_rate"] = c.BotRate,
+        }).ToList();
+
+        return new Dictionary<string, object> { ["countries"] = countries };
+    }
+
+    private async Task<Dictionary<string, object>> BuildEndpointsContextAsync()
+    {
+        var cached = _aggregateCache.Current.Endpoints;
+        var data = cached.Count > 0 ? cached : await _eventStore.GetEndpointStatsAsync(50);
+
+        var endpoints = data.Select(e => new Dictionary<string, object?>
+        {
+            ["method"] = e.Method,
+            ["path"] = e.Path,
+            ["total_count"] = e.TotalCount,
+            ["bot_count"] = e.BotCount,
+            ["human_count"] = e.HumanCount,
+            ["bot_rate"] = e.BotRate,
+            ["unique_signatures"] = e.UniqueSignatures,
+            ["avg_processing_ms"] = e.AvgProcessingTimeMs,
+            ["avg_threat_score"] = e.AvgThreatScore,
+            ["last_seen"] = e.LastSeen.ToString("O"),
+        }).ToList();
+
+        return new Dictionary<string, object> { ["endpoints"] = endpoints };
+    }
+
+    private Dictionary<string, object> BuildUserAgentsContext()
+    {
+        var all = _aggregateCache.Current.UserAgents;
+        var useragents = all.Select(u => new Dictionary<string, object?>
+        {
+            ["family"] = u.Family,
+            ["category"] = u.Category,
+            ["total_count"] = u.TotalCount,
+            ["bot_count"] = u.BotCount,
+            ["human_count"] = u.HumanCount,
+            ["bot_rate"] = u.BotRate,
+            ["avg_confidence"] = u.AvgConfidence,
+            ["last_seen"] = u.LastSeen.ToString("O"),
+        }).ToList();
+
+        return new Dictionary<string, object> { ["useragents"] = useragents };
+    }
+
+    private async Task<Dictionary<string, object>> BuildThreatsContextAsync()
+    {
+        List<ThreatEntry> allThreats;
+        try { allThreats = await _eventStore.GetThreatsAsync(50); }
+        catch { allThreats = []; }
+
+        var threats = allThreats.Select(t => new Dictionary<string, object?>
+        {
+            ["signature"] = t.Signature,
+            ["path"] = t.Path,
+            ["cve_id"] = t.CveId,
+            ["cve_severity"] = t.CveSeverity,
+            ["threat_score"] = t.ThreatScore,
+            ["threat_band"] = t.ThreatBand,
+            ["bot_name"] = t.BotName,
+            ["bot_type"] = t.BotType,
+            ["bot_probability"] = t.BotProbability,
+            ["country_code"] = t.CountryCode,
+            ["in_honeypot"] = t.InHoneypot,
+            ["timestamp"] = t.Timestamp.ToString("O"),
+        }).ToList();
+
+        return new Dictionary<string, object> { ["threats"] = threats };
     }
 
     private static void PopulateSessionAnalytics(SummaryStatsModel model, VisitorListCache visitorCache)
