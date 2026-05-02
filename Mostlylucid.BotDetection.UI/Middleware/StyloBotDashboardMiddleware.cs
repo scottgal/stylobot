@@ -3715,28 +3715,43 @@ public class StyloBotDashboardMiddleware
                 }
                 else
                 {
-                    model = new SignatureDetailModel
-                    {
-                        SignatureId = decodedSignature,
-                        BasePath = basePath,
-                        NavBasePath = navBasePath,
-                        CspNonce = cspNonce,
-                        HubPath = _options.HubPath,
-                        Found = false
-                    };
+                    context.Response.StatusCode = 404;
+                    context.Response.ContentType = "text/html; charset=utf-8";
+                    var notFoundHtml = $"""
+                        <!DOCTYPE html><html lang="en" data-theme="dark">
+                        <head><meta charset="utf-8"><title>Signature Not Found - StyloBot</title>
+                        <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css" /></head>
+                        <body class="min-h-screen flex items-center justify-center bg-base-100">
+                        <div class="text-center">
+                            <p class="text-4xl font-black text-base-content/20 mb-2">404</p>
+                            <p class="text-sm text-base-content/60">Signature not found</p>
+                            <p class="text-xs text-base-content/40 mt-1 font-mono">{System.Web.HttpUtility.HtmlEncode(decodedSignature[..Math.Min(24, decodedSignature.Length)])}&hellip;</p>
+                            <a href="{basePath}" class="btn btn-sm btn-ghost mt-4">Back to dashboard</a>
+                        </div></body></html>
+                        """;
+                    await context.Response.WriteAsync(notFoundHtml);
+                    return;
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Failed to reconstruct signature from event store for {Signature}", decodedSignature);
-                model = new SignatureDetailModel
-                {
-                    SignatureId = decodedSignature,
-                    BasePath = basePath,
-                    CspNonce = cspNonce,
-                    HubPath = _options.HubPath,
-                    Found = false
-                };
+                context.Response.StatusCode = 404;
+                context.Response.ContentType = "text/html; charset=utf-8";
+                var notFoundHtml = $"""
+                    <!DOCTYPE html><html lang="en" data-theme="dark">
+                    <head><meta charset="utf-8"><title>Signature Not Found - StyloBot</title>
+                    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css" /></head>
+                    <body class="min-h-screen flex items-center justify-center bg-base-100">
+                    <div class="text-center">
+                        <p class="text-4xl font-black text-base-content/20 mb-2">404</p>
+                        <p class="text-sm text-base-content/60">Signature not found</p>
+                        <p class="text-xs text-base-content/40 mt-1 font-mono">{System.Web.HttpUtility.HtmlEncode(decodedSignature[..Math.Min(24, decodedSignature.Length)])}&hellip;</p>
+                        <a href="{basePath}" class="btn btn-sm btn-ghost mt-4">Back to dashboard</a>
+                    </div></body></html>
+                    """;
+                await context.Response.WriteAsync(notFoundHtml);
+                return;
             }
         }
 
