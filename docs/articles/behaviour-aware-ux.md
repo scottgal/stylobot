@@ -58,7 +58,14 @@ None of these are the same problem. A single block-everything strategy solves th
 
 The sample app is a minimal ASP.NET Core MVC store: forty generated products, five categories, a checkout flow, a newsletter signup, and a login page. It demonstrates StyloBot's tag helper API across six pages, each built around a realistic commercial scenario.
 
-Setup is a single call in `Program.cs`:
+Install the NuGet packages:
+
+```bash
+dotnet add package Mostlylucid.BotDetection
+dotnet add package Mostlylucid.BotDetection.UI
+```
+
+Then wire it up in `Program.cs`:
 
 ```csharp
 builder.Services.AddStyloBot(
@@ -289,7 +296,7 @@ public IActionResult Login(LoginModel model)
 }
 ```
 
-The login page is one case where outright refusal is the right answer for bot-classified sessions. Unlike checkout (where a false positive costs a sale), a false positive here just means a retry. The cost is low; the cost of a missed credential-stuffing hit is an account takeover.
+The form is rendered for everyone - the three layers are deterrence (`<sb-bot>` warning), detection (honeypot catches bots that submit), and enforcement (server-side check). Unlike checkout, where a false positive costs a sale, a false positive here just means a retry. The cost is low; the cost of a missed credential-stuffing hit is an account takeover.
 
 ---
 
