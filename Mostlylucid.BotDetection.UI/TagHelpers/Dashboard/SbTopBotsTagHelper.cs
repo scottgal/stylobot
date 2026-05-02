@@ -12,7 +12,7 @@ public class SbTopBotsTagHelper(IViewComponentHelper vc) : TagHelper
     public ViewContext? ViewContext { get; set; }
 
     [HtmlAttributeName("sort")]
-    public string Sort { get; set; } = "hits";
+    public string Sort { get; set; } = "default";
 
     [HtmlAttributeName("dir")]
     public string Dir { get; set; } = "desc";
