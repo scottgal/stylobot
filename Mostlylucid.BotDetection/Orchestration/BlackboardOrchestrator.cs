@@ -238,8 +238,6 @@ public class BlackboardOrchestrator
 
     // Circuit breaker state per detector
     private readonly ConcurrentDictionary<string, CircuitState> _circuitStates = new();
-    // Debounce per-signature SQLite writes: only persist detection results once per 30s per signature.
-    private readonly ConcurrentDictionary<string, DateTimeOffset> _signatureWriteDebounce = new();
 
     private readonly BackgroundEnrichmentService? _enrichmentService;
     private readonly BotClusterService? _clusterService;
@@ -256,6 +254,7 @@ public class BlackboardOrchestrator
     private readonly IPolicyRegistry? _policyRegistry;
     private readonly SignatureCoordinator? _signatureCoordinator;
     private readonly ISessionStore? _sessionStore;
+    private readonly RequestPersistenceService? _requestPersistence;
 
     [ThreadStatic] private static Random? t_random;
 
@@ -273,7 +272,8 @@ public class BlackboardOrchestrator
         BotClusterService? clusterService = null,
         BackgroundEnrichmentService? enrichmentService = null,
         MarkovTracker? markovTracker = null,
-        ISessionStore? sessionStore = null)
+        ISessionStore? sessionStore = null,
+        RequestPersistenceService? requestPersistence = null)
     {
         _logger = logger;
         _fullOptions = options.Value;
@@ -290,6 +290,7 @@ public class BlackboardOrchestrator
         _enrichmentService = enrichmentService;
         _markovTracker = markovTracker;
         _sessionStore = sessionStore;
+        _requestPersistence = requestPersistence;
     }
 
     /// <summary>
@@ -739,10 +740,8 @@ public class BlackboardOrchestrator
                 // Enqueue for background enrichment (ProjectHoneypot DNS lookup) when confidence is low
                 TryEnqueueBackgroundEnrichment(httpContext, result);
 
-                // Persist detection classification to SQLite so signatures survive restart.
-                // Debounced to one write per 30s per signature to keep write volume low.
-                if (_sessionStore != null)
-                    TryPersistSignatureDetection(httpContext, result);
+                // Persist per-request data to SQLite for session atomization and dashboard analytics.
+                TryPersistRequest(httpContext, result, httpContext.Request.Path.ToString(), httpContext.Response.StatusCode);
             }
 
             _logger.LogDebug(
@@ -982,35 +981,31 @@ public class BlackboardOrchestrator
 
     #endregion
 
-    private void TryPersistSignatureDetection(HttpContext httpContext, AggregatedEvidence result)
+    private void TryPersistRequest(HttpContext httpContext, AggregatedEvidence result, string path, int statusCode)
     {
+        if (_requestPersistence == null) return;
         try
         {
             var signature = ComputeSignatureHash(httpContext);
-            var now = DateTimeOffset.UtcNow;
+            var markovState = result.Signals.TryGetValue("session.current_state", out var stateObj)
+                ? stateObj?.ToString() ?? "Unknown"
+                : "Unknown";
+            if (statusCode == 0) statusCode = httpContext.Response.StatusCode;
 
-            // Debounce: skip if we wrote this signature within the last 30 seconds
-            if (_signatureWriteDebounce.TryGetValue(signature, out var lastWrite) &&
-                (now - lastWrite).TotalSeconds < 30)
-                return;
-
-            _signatureWriteDebounce[signature] = now;
-
-            var isBot = result.BotProbability > 0.5;
-            _ = _sessionStore!.UpdateSignatureDetectionAsync(
+            _ = _requestPersistence.EnqueueAsync(
                 signature,
-                isBot,
+                path,
+                markovState,
+                statusCode,
                 result.BotProbability,
                 result.Confidence,
                 result.RiskBand.ToString(),
-                isBot ? result.PrimaryBotName : null,
-                isBot ? result.PrimaryBotType?.ToString() : null,
-                null,
+                result.TotalProcessingTimeMs,
                 DateTime.UtcNow);
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Non-critical: failed to persist signature detection");
+            _logger.LogDebug(ex, "Non-critical: failed to enqueue request for persistence");
         }
     }
 
