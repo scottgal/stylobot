@@ -217,9 +217,9 @@ public sealed class TopBotsListModel
     public string ResolvedNavBasePath => string.IsNullOrEmpty(NavBasePath) ? BasePath : NavBasePath;
     public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
     /// <summary>Entry filter: "bots" (default), "humans", or "all".</summary>
-    public string Filter { get; set; } = "bots";
+    public string Filter { get; init; } = "bots";
     /// <summary>HTML id prefix; allows multiple widget instances on the same page.</summary>
-    public string WidgetId { get; set; } = "topbots";
+    public string WidgetId { get; init; } = "topbots";
 }
 
 /// <summary>
