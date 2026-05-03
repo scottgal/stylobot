@@ -4,7 +4,7 @@
 
 **Goal:** Fix `http_req_duration p(95)` (currently 1817ms, target <500ms) by making all three `OnCompleted` callbacks in `BotDetectionMiddleware` truly synchronous, and fix unbounded `SignalSink` memory growth in `SignatureResponseCoordinator`.
 
-**Architecture:** Pre-capture all HttpContext values synchronously before registering each `OnCompleted` callback; inside the callback, build snapshots and enqueue to coordinators with fire-and-forget (`_ = ...`), returning `Task.CompletedTask` immediately. `AuditProcessorDispatcher` gets a public `BuildContext` + `DispatchPrebuiltAsync` pair to support this. `SignatureResponseCoordinator` switches from owning a per-instance `SignalSink(10000, 24h)` to accepting a shared sink from `SignatureResponseCoordinatorCache`. **Note:** `SlidingCacheAtom` already implements LFU-first eviction (`OrderBy(AccessCount)` at line 261) - no changes needed there.
+**Architecture:** Pre-capture all HttpContext values synchronously before registering each `OnCompleted` callback; inside the callback, build snapshots and enqueue to coordinators with fire-and-forget (`_ = ...`), returning `Task.CompletedTask` immediately. `AuditProcessorDispatcher` gets a public `BuildContext` + `DispatchPrebuiltAsync` pair to support this. `SignatureResponseCoordinator` switches from owning a per-instance `SignalSink(10000, 24h)` to accepting a shared sink from `SignatureResponseCoordinatorCache`. `SlidingCacheAtom` gains risk-weighted retention scoring and a tunable cleanup interval. `ClientResponseTrackingAtom` gains session-style compaction so old responses compress to a summary instead of being dropped.
 
 **Tech Stack:** ASP.NET Core 10 middleware, `KeyedSequentialAtom`, `SlidingCacheAtom` (from `mostlylucid.ephemeral`), xUnit, Moq
 
@@ -22,6 +22,12 @@
 | `Mostlylucid.BotDetection.Test/Orchestration/Audit/AuditProcessorTests.cs` | Add tests for `BuildContext` public, `DispatchPrebuiltAsync`, nullable HttpContext |
 | `Mostlylucid.BotDetection.Test/Orchestration/SignatureResponseCoordinatorTests.cs` | Add test verifying shared sink is used |
 | `Mostlylucid.BotDetection.Test/Middleware/BotDetectionMiddlewareTests.cs` | Add test for `BuildResponseSignal` signal accuracy |
+| `mostlylucid.ephemeral` `SlidingCacheAtom.cs` | Add `retentionScorer` delegate + `CacheEntry.RetentionScore` + `cleanupInterval` parameter |
+| `mostlylucid.ephemeral` tests | Add test for risk-weighted eviction and tunable cleanup interval |
+| `Mostlylucid.BotDetection/Orchestration/ResponseCoordinator.cs` | `ClientResponseTrackingAtom`: add `CompactedResponseSummary` + `GetCurrentBotProbability()`; `ResponseCoordinator`: pass retention scorer + cleanup interval |
+| `Mostlylucid.BotDetection/Orchestration/SignatureResponseCoordinator.cs` | Add `GetRiskScore()` |
+| `Mostlylucid.BotDetection/Orchestration/SignatureEscalator.cs` | Pass retention scorer to `SignatureResponseCoordinatorCache` |
+| `Mostlylucid.BotDetection/Models/BotDetectionOptions.cs` | Add `CacheCleanupInterval` and `CompactionThreshold` to `ResponseCoordinatorOptions` |
 
 ---
 
@@ -873,7 +879,509 @@ git commit -m "fix(orchestration): shared SignalSink in SignatureResponseCoordin
 
 ---
 
-## Task 4: Run the demo and verify performance
+## Task 4: SlidingCacheAtom - retention scorer + tunable cleanup interval (ephemeral)
+
+**Files:**
+- Modify: `/Users/scottgalloway/RiderProjects/mostlylucid.atoms/mostlylucid.ephemeral/src/mostlylucid.ephemeral.atoms.slidingcache/SlidingCacheAtom.cs`
+- Test: corresponding test file in the ephemeral repo
+
+`SlidingCacheAtom` currently drops entries purely by `AccessCount`. This keeps frequently-accessed low-risk clients over rare high-risk bots that have gone quiet. The fix: risk-weighted retention score computed at eviction time. Cleanup interval is also hardcoded at 30s - expose it as a constructor parameter.
+
+- [ ] **Step 1: Add `RetentionScore` to `CacheEntry`**
+
+In `SlidingCacheAtom.cs`, find the `private sealed class CacheEntry` (around line 307). Add one field:
+
+```csharp
+public double RetentionScore { get; set; }  // refreshed by retentionScorer at cleanup time
+```
+
+- [ ] **Step 2: Add `retentionScorer` and `cleanupInterval` constructor parameters**
+
+In the `SlidingCacheAtom` constructor, add two optional parameters after `sampleRate`:
+
+```csharp
+public SlidingCacheAtom(
+    Func<TKey, CancellationToken, Task<TResult>> factory,
+    TimeSpan? slidingExpiration = null,
+    TimeSpan? absoluteExpiration = null,
+    int maxSize = 1000,
+    int? maxConcurrency = null,
+    int sampleRate = 1,
+    SignalSink? signals = null,
+    Func<TKey, TResult, double>? retentionScorer = null,
+    TimeSpan? cleanupInterval = null)
+```
+
+Store them as fields:
+
+```csharp
+private readonly Func<TKey, TResult, double>? _retentionScorer;
+private readonly TimeSpan _cleanupInterval;
+```
+
+In the constructor body, after the existing field assignments:
+
+```csharp
+_retentionScorer = retentionScorer;
+_cleanupInterval = cleanupInterval ?? TimeSpan.FromSeconds(30);
+```
+
+- [ ] **Step 3: Update `RunCleanupLoopAsync` to use tunable interval**
+
+Find the cleanup loop (around line 280):
+
+```csharp
+await Task.Delay(TimeSpan.FromSeconds(30), _cts.Token).ConfigureAwait(false);
+```
+
+Replace with:
+
+```csharp
+await Task.Delay(_cleanupInterval, _cts.Token).ConfigureAwait(false);
+```
+
+- [ ] **Step 4: Update `TriggerCleanupAsync` to use risk-weighted eviction**
+
+Find `TriggerCleanupAsync` (around line 238). Replace the "Second pass" block:
+
+```csharp
+// Second pass: if still over size, remove lowest-retention entries
+// Retention score = (AccessCount + 1) * (1.0 + RetentionScore)
+// High frequency AND high risk stays; low frequency AND low risk evicts first.
+if (_cache.Count > _maxSize)
+{
+    // Refresh retention scores if scorer is registered
+    if (_retentionScorer != null)
+    {
+        foreach (var kvp in _cache)
+        {
+            try { kvp.Value.RetentionScore = _retentionScorer(kvp.Key, kvp.Value.Value); }
+            catch { /* non-critical - leave existing score */ }
+        }
+    }
+
+    var toRemove = _cache
+        .OrderBy(kvp => (kvp.Value.AccessCount + 1) * (1.0 + kvp.Value.RetentionScore))
+        .Take(_cache.Count - _maxSize)
+        .Select(kvp => kvp.Key)
+        .ToList();
+
+    foreach (var key in toRemove)
+        if (_cache.TryRemove(key, out _))
+            EmitSignal($"cache.evict.cold:{key}");
+}
+```
+
+- [ ] **Step 5: Write tests for the new behaviour**
+
+Find the test file for `SlidingCacheAtom` in the ephemeral repo:
+
+```bash
+find /Users/scottgalloway/RiderProjects/mostlylucid.atoms -name "*SlidingCache*Test*" -o -name "*Test*SlidingCache*" 2>/dev/null
+```
+
+Add two tests:
+
+```csharp
+[Fact]
+public async Task Eviction_WithRetentionScorer_KeepsHighRiskOverHighFrequency()
+{
+    // High-risk entry accessed once should survive over low-risk entry accessed many times
+    var cache = new SlidingCacheAtom<string, (double risk, int accesses)>(
+        (key, _) => Task.FromResult((risk: key == "high-risk" ? 0.9 : 0.0, accesses: 0)),
+        maxSize: 2,
+        cleanupInterval: TimeSpan.FromMilliseconds(50),
+        retentionScorer: (_, v) => v.risk);
+
+    // Fill to capacity: one high-risk (low access), one low-risk (high access)
+    await cache.GetOrComputeAsync("high-risk");
+    for (var i = 0; i < 10; i++)
+        await cache.GetOrComputeAsync("low-risk");  // boost AccessCount
+
+    // Add third entry to trigger eviction
+    await cache.GetOrComputeAsync("new-entry");
+    await Task.Delay(100);  // let cleanup run
+
+    // high-risk must survive; low-risk may be evicted
+    var stats = cache.GetStats();
+    Assert.True(cache.TryGet("high-risk", out _), "High-risk entry must survive eviction");
+}
+
+[Fact]
+public async Task CleanupInterval_Tunable_RunsAtConfiguredRate()
+{
+    var cleanupCount = 0;
+    var cache = new SlidingCacheAtom<string, int>(
+        (_, _) => Task.FromResult(1),
+        slidingExpiration: TimeSpan.FromMilliseconds(50),
+        maxSize: 10,
+        cleanupInterval: TimeSpan.FromMilliseconds(60));
+
+    await cache.GetOrComputeAsync("k1");
+    await Task.Delay(200);  // enough for 2-3 cleanup sweeps
+
+    // Entry should have been evicted by cleanup (TTL 50ms, cleanup every 60ms)
+    Assert.False(cache.TryGet("k1", out _), "Expired entry should be evicted by cleanup loop");
+    await cache.DisposeAsync();
+}
+```
+
+- [ ] **Step 6: Run ephemeral tests**
+
+```bash
+cd /Users/scottgalloway/RiderProjects/mostlylucid.atoms
+dotnet test --filter "FullyQualifiedName~SlidingCache" -v minimal 2>&1 | tail -20
+```
+
+Expected: all pass including new tests.
+
+- [ ] **Step 7: Commit ephemeral changes**
+
+```bash
+cd /Users/scottgalloway/RiderProjects/mostlylucid.atoms
+git add mostlylucid.ephemeral/src/mostlylucid.ephemeral.atoms.slidingcache/SlidingCacheAtom.cs
+git add -p  # add test file
+git commit -m "feat(SlidingCacheAtom): risk-weighted retention scorer + tunable cleanup interval"
+```
+
+---
+
+## Task 5: Wire retention scorer + expose tunable settings to coordinators
+
+**Files:**
+- Modify: `Mostlylucid.BotDetection/Orchestration/ResponseCoordinator.cs`
+- Modify: `Mostlylucid.BotDetection/Orchestration/SignatureResponseCoordinator.cs`
+- Modify: `Mostlylucid.BotDetection/Orchestration/SignatureEscalator.cs`
+- Modify: `Mostlylucid.BotDetection/Models/BotDetectionOptions.cs`
+
+`ClientResponseTrackingAtom` already computes `ResponseScore` (0.0-1.0) on every `RecordResponseAsync` - this is the retention input. `SignatureResponseCoordinator` needs to track the highest risk it has seen from its lanes.
+
+- [ ] **Step 1: Add `GetCurrentBotProbability()` to `ClientResponseTrackingAtom`**
+
+In `Mostlylucid.BotDetection/Orchestration/ResponseCoordinator.cs`, inside `ClientResponseTrackingAtom`, add:
+
+```csharp
+/// <summary>Returns the most recently computed response score (0.0-1.0). Thread-safe, lock-free read.</summary>
+internal double GetCurrentBotProbability() => _cachedBehavior?.ResponseScore ?? 0.0;
+```
+
+`_cachedBehavior` is a reference type assigned atomically under `_lock`. The lock-free read is safe for the scorer: it runs during eviction cleanup (not on the hot path), and a slightly stale score is fine.
+
+- [ ] **Step 2: Add `GetRiskScore()` to `SignatureResponseCoordinator`**
+
+In `Mostlylucid.BotDetection/Orchestration/SignatureResponseCoordinator.cs`, add a field and method:
+
+```csharp
+private double _maxRiskSeen;  // updated by ReceiveRequestAsync; Volatile read is fine for scorer
+
+internal double GetRiskScore() => Volatile.Read(ref _maxRiskSeen);
+```
+
+In `ReceiveRequestAsync`, after existing signal emission, update the field:
+
+```csharp
+if (signal.Risk > _maxRiskSeen)
+    Volatile.Write(ref _maxRiskSeen, signal.Risk);
+```
+
+- [ ] **Step 3: Add tuning options to `ResponseCoordinatorOptions`**
+
+In `Mostlylucid.BotDetection/Models/BotDetectionOptions.cs` (or wherever `ResponseCoordinatorOptions` is defined - it's in `ResponseCoordinator.cs`), add two properties to `ResponseCoordinatorOptions`:
+
+```csharp
+/// <summary>
+///     How often the SlidingCacheAtom cleanup sweep runs.
+///     Smaller = more aggressive eviction, lower memory ceiling, slightly more CPU.
+///     Default: 30 seconds. Tune down to 5s for high-churn workloads.
+/// </summary>
+public TimeSpan CacheCleanupInterval { get; set; } = TimeSpan.FromSeconds(30);
+```
+
+- [ ] **Step 4: Pass scorer + cleanup interval to `_clientCache` in `ResponseCoordinator`**
+
+In `ResponseCoordinator` constructor (around line 235), update the `SlidingCacheAtom` construction:
+
+```csharp
+_clientCache = new SlidingCacheAtom<string, ClientResponseTrackingAtom>(
+    async (clientId, ct) =>
+    {
+        _logger.LogDebug("Creating new ClientResponseTrackingAtom for client: {ClientId}", clientId);
+        return await Task.FromResult(new ClientResponseTrackingAtom(clientId, _options, _logger));
+    },
+    _options.ClientTtl,
+    _options.ClientTtl * 2,
+    _options.MaxClientsInWindow,
+    Environment.ProcessorCount,
+    10,
+    _signals,
+    retentionScorer: (_, atom) => atom.GetCurrentBotProbability(),
+    cleanupInterval: _options.CacheCleanupInterval);
+```
+
+- [ ] **Step 5: Pass scorer + cleanup interval to `SignatureResponseCoordinatorCache`**
+
+In `SignatureResponseCoordinatorCache` constructor, add `TimeSpan? cleanupInterval = null` parameter and update the `SlidingCacheAtom`:
+
+```csharp
+_cache = new SlidingCacheAtom<string, SignatureResponseCoordinator>(
+    async (signature, ct) =>
+    {
+        _logger.LogDebug("Creating SignatureResponseCoordinator for {Signature}", signature);
+        return new SignatureResponseCoordinator(signature, logger, _sharedSink);
+    },
+    ttl ?? TimeSpan.FromMinutes(30),
+    (ttl ?? TimeSpan.FromMinutes(30)) * 2,
+    maxSignatures,
+    Environment.ProcessorCount,
+    10,
+    _sharedSink,
+    retentionScorer: (_, coordinator) => coordinator.GetRiskScore(),
+    cleanupInterval: cleanupInterval ?? TimeSpan.FromSeconds(30));
+```
+
+- [ ] **Step 6: Build**
+
+```bash
+dotnet build Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj -c Debug 2>&1 | tail -5
+```
+
+Expected: `Build succeeded.`
+
+- [ ] **Step 7: Run full test suite**
+
+```bash
+dotnet test Mostlylucid.BotDetection.Test -v minimal 2>&1 | tail -20
+```
+
+Expected: all pass.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add Mostlylucid.BotDetection/Orchestration/ResponseCoordinator.cs \
+        Mostlylucid.BotDetection/Orchestration/SignatureResponseCoordinator.cs \
+        Mostlylucid.BotDetection/Orchestration/SignatureEscalator.cs \
+        Mostlylucid.BotDetection/Models/BotDetectionOptions.cs
+git commit -m "feat(coordinators): risk-weighted LFU retention scorer + tunable cache cleanup interval"
+```
+
+---
+
+## Task 6: ClientResponseTrackingAtom compaction
+
+**Files:**
+- Modify: `Mostlylucid.BotDetection/Orchestration/ResponseCoordinator.cs`
+- Test: `Mostlylucid.BotDetection.Test/Orchestration/ResponseAnalysisContextTests.cs`
+
+Currently when the response ring buffer overflows `MaxResponsesPerClient`, old entries are dropped. This loses behavioral history for high-risk clients. Replace with session-style compaction: when the ring hits `CompactionThreshold`, the oldest half merges into a `CompactedResponseSummary` that preserves all scoring signals at O(1) cost.
+
+- [ ] **Step 1: Write a failing test for compaction**
+
+Add to `Mostlylucid.BotDetection.Test/Orchestration/ResponseAnalysisContextTests.cs`:
+
+```csharp
+[Fact]
+public async Task RecordResponseAsync_WhenBufferExceedsCompactionThreshold_CompactedCountsArePreserved()
+{
+    var options = new ResponseCoordinatorOptions
+    {
+        MaxResponsesPerClient = 20,
+        CompactionThreshold = 10,
+        MinResponsesForScoring = 1,
+        ResponseWindow = TimeSpan.FromHours(1)
+    };
+    var atom = new ClientResponseTrackingAtomAccessor("client-1", options,
+        NullLogger.Instance);
+
+    // Record 15 responses: 5 are 404s
+    for (var i = 0; i < 5; i++)
+        await atom.RecordResponseAsync(MakeSignal(404), CancellationToken.None);
+    for (var i = 0; i < 10; i++)
+        await atom.RecordResponseAsync(MakeSignal(200), CancellationToken.None);
+
+    var behavior = await atom.GetBehaviorAsync(CancellationToken.None);
+
+    // Compacted + live counts must include all 15 responses
+    Assert.Equal(15, behavior.TotalResponses);
+    Assert.Equal(5, behavior.Count404);
+}
+
+private static ResponseSignal MakeSignal(int statusCode) => new()
+{
+    RequestId = Guid.NewGuid().ToString(),
+    ClientId = "client-1",
+    Timestamp = DateTimeOffset.UtcNow,
+    StatusCode = statusCode,
+    Path = "/test",
+    Method = "GET",
+    BodySummary = new ResponseBodySummary()
+};
+```
+
+- [ ] **Step 2: Run the test to confirm it fails**
+
+```bash
+dotnet test Mostlylucid.BotDetection.Test --filter "RecordResponseAsync_WhenBufferExceedsCompactionThreshold" -v minimal
+```
+
+Expected: compile error - `CompactionThreshold` property does not exist on `ResponseCoordinatorOptions`; `ClientResponseTrackingAtomAccessor` does not exist.
+
+- [ ] **Step 3: Add `CompactionThreshold` to `ResponseCoordinatorOptions`**
+
+In `ResponseCoordinator.cs`, inside `ResponseCoordinatorOptions`, add:
+
+```csharp
+/// <summary>
+///     When the live response ring buffer exceeds this count, compact the oldest half
+///     into a summary. Preserves all scoring signals with O(1) storage.
+///     Default: 100. Set lower for tighter memory, higher for more response detail.
+/// </summary>
+public int CompactionThreshold { get; set; } = 100;
+```
+
+- [ ] **Step 4: Add `CompactedResponseSummary` struct**
+
+Add inside `ResponseCoordinator.cs` (after `ClientResponseBehavior`, before `ClientResponseTrackingAtom`):
+
+```csharp
+/// <summary>
+///     Compressed summary of an older response window.
+///     Preserves all scoring-relevant counts with O(1) memory.
+/// </summary>
+internal sealed class CompactedResponseSummary
+{
+    public int TotalCount { get; set; }
+    public int Count4xx { get; set; }
+    public int Count404 { get; set; }
+    public int Count5xx { get; set; }
+    public int AuthFailures { get; set; }
+    public int HoneypotHits { get; set; }
+    public Dictionary<string, int> PatternCounts { get; set; } = new();
+    public DateTimeOffset FirstSeen { get; set; }
+    public DateTimeOffset LastSeen { get; set; }
+}
+```
+
+- [ ] **Step 5: Add compaction to `ClientResponseTrackingAtom`**
+
+In `ClientResponseTrackingAtom`, add a field:
+
+```csharp
+private CompactedResponseSummary? _compacted;
+```
+
+Replace the "Enforce max responses" block in `RecordResponseAsync`:
+
+```csharp
+// Compact oldest half if buffer exceeds threshold (session-style compaction)
+if (_responses.Count > _options.CompactionThreshold)
+{
+    var compactCount = _responses.Count / 2;
+    var toCompact = new List<ResponseSignal>(compactCount);
+    for (var i = 0; i < compactCount; i++)
+    {
+        toCompact.Add(_responses.First!.Value);
+        _responses.RemoveFirst();
+    }
+    MergeIntoCompacted(toCompact);
+}
+```
+
+Add the `MergeIntoCompacted` method:
+
+```csharp
+private void MergeIntoCompacted(List<ResponseSignal> signals)
+{
+    _compacted ??= new CompactedResponseSummary { FirstSeen = signals[0].Timestamp };
+
+    _compacted.TotalCount += signals.Count;
+    _compacted.Count4xx += signals.Count(s => s.StatusCode is >= 400 and < 500);
+    _compacted.Count404 += signals.Count(s => s.StatusCode == 404);
+    _compacted.Count5xx += signals.Count(s => s.StatusCode >= 500);
+    _compacted.AuthFailures += signals.Count(s => s.StatusCode is 401 or 403);
+    _compacted.HoneypotHits += signals.Count(s =>
+        _options.HoneypotPaths.Any(hp => MatchesHoneypotPattern(s.Path, hp)));
+
+    foreach (var signal in signals)
+    foreach (var pattern in signal.BodySummary.MatchedPatterns)
+        _compacted.PatternCounts[pattern] = _compacted.PatternCounts.GetValueOrDefault(pattern) + 1;
+
+    _compacted.LastSeen = signals[^1].Timestamp;
+}
+```
+
+- [ ] **Step 6: Update `ComputeBehavior` to merge compacted counts**
+
+In `ComputeBehavior`, after computing counts from `responseList`, add compacted merging:
+
+```csharp
+// Merge compacted summary into live counts
+if (_compacted != null)
+{
+    count4xx += _compacted.Count4xx;
+    count404 += _compacted.Count404;
+    count5xx += _compacted.Count5xx;
+    authFailures += _compacted.AuthFailures;
+    honeypotHits += _compacted.HoneypotHits;
+    foreach (var (k, v) in _compacted.PatternCounts)
+        patternCounts[k] = patternCounts.GetValueOrDefault(k) + v;
+}
+
+// Total includes compacted responses
+var totalCount = responseList.Count + (_compacted?.TotalCount ?? 0);
+var firstSeen = _compacted?.FirstSeen.UtcDateTime ?? responseList.First().Timestamp.UtcDateTime;
+```
+
+Update the `return` to use `totalCount` for `TotalResponses` and `firstSeen` for `FirstSeen`. Pass `totalCount` to `ComputeResponseScore` instead of `responseList.Count`.
+
+- [ ] **Step 7: Add `ClientResponseTrackingAtomAccessor` test helper**
+
+In the test file, add an `internal` accessor class so tests can construct `ClientResponseTrackingAtom` directly (it's `internal sealed`):
+
+```csharp
+// Test accessor - thin wrapper to expose internal ClientResponseTrackingAtom
+internal sealed class ClientResponseTrackingAtomAccessor(
+    string clientId,
+    ResponseCoordinatorOptions options,
+    ILogger logger)
+{
+    private readonly ClientResponseTrackingAtom _inner = new(clientId, options, logger);
+
+    public Task RecordResponseAsync(ResponseSignal signal, CancellationToken ct)
+        => _inner.RecordResponseAsync(signal, ct);
+
+    public Task<ClientResponseBehavior> GetBehaviorAsync(CancellationToken ct)
+        => _inner.GetBehaviorAsync(ct);
+}
+```
+
+- [ ] **Step 8: Run the compaction test**
+
+```bash
+dotnet test Mostlylucid.BotDetection.Test --filter "RecordResponseAsync_WhenBufferExceedsCompactionThreshold" -v minimal
+```
+
+Expected: PASS.
+
+- [ ] **Step 9: Run full test suite**
+
+```bash
+dotnet test Mostlylucid.BotDetection.Test -v minimal 2>&1 | tail -20
+```
+
+Expected: all pass.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add Mostlylucid.BotDetection/Orchestration/ResponseCoordinator.cs \
+        Mostlylucid.BotDetection.Test/Orchestration/ResponseAnalysisContextTests.cs
+git commit -m "feat(coordinator): ClientResponseTrackingAtom session-style compaction + CompactionThreshold config"
+```
+
+---
+
+## Task 7: Run the demo and verify performance
 
 **Files:**
 - None (verification only)
@@ -953,7 +1461,12 @@ git tag -a "perf/coordinator-fire-and-forget" -m "OnCompleted fix + shared sink:
 | `RecordResponseAsync` replaced with sync helper | Task 2 |
 | DI access removed from inside callback | Task 2 |
 | SignatureResponseCoordinator shared sink | Task 3 |
-| LFU eviction | No task - already implemented in `SlidingCacheAtom` (line 261: `OrderBy(AccessCount)`) |
+| Risk-weighted LFU retention scorer | Task 4 (`SlidingCacheAtom`) + Task 5 (wiring) |
+| Tunable cleanup interval | Task 4 (`SlidingCacheAtom`) + Task 5 (wiring) |
+| `GetCurrentBotProbability()` on `ClientResponseTrackingAtom` | Task 5 |
+| `GetRiskScore()` on `SignatureResponseCoordinator` | Task 5 |
+| `CacheCleanupInterval` in `ResponseCoordinatorOptions` | Task 5 |
+| `ClientResponseTrackingAtom` compaction + `CompactionThreshold` | Task 6 |
 
 **Type consistency:**
 - `BuildResponseSignal` returns `ResponseSignal?` in Task 2 - used consistently in all three callbacks

@@ -124,6 +124,44 @@ Add `EvictionPolicy` enum (`Lru`, `Lfu`) to `SlidingCacheAtom` in `mostlylucid.e
 
 ---
 
+## Rule 5: Risk-weighted retention in SlidingCacheAtom
+
+Add optional `Func<TKey, TResult, double>? retentionScorer` parameter to `SlidingCacheAtom`. Eviction order changes from pure LFU (`OrderBy(AccessCount)`) to frequency-times-risk:
+
+```
+retain_score = (AccessCount + 1) * (1.0 + RetentionScore)
+evict: lowest retain_score first
+```
+
+`RetentionScore` is stored per `CacheEntry` and refreshed during `TriggerCleanupAsync` by calling the scorer (never on the hot access path). Callers:
+
+- `ResponseCoordinator._clientCache`: scorer = `(_, atom) => atom.GetCurrentBotProbability()` where `GetCurrentBotProbability()` returns `_cachedBehavior?.ResponseScore ?? 0.0` (already computed).
+- `SignatureResponseCoordinatorCache`: scorer = `(_, coord) => coord.GetRiskScore()` where `GetRiskScore()` returns the highest risk level seen from `ReputationLane` signals.
+
+High-risk bots stay cached through access pauses. Low-risk quiet entries evict first.
+
+## Rule 6: Tunable cleanup interval in SlidingCacheAtom
+
+`SlidingCacheAtom` cleanup loop currently hardcodes `Task.Delay(30s)`. Add `TimeSpan? cleanupInterval` constructor parameter (default 30s). Smaller values (e.g., 5s) sweep more aggressively, keeping peak memory lower at the cost of more CPU. Exposed via `ResponseCoordinatorOptions.CacheCleanupInterval` for appsettings.json tuning.
+
+## Rule 7: ClientResponseTrackingAtom compaction
+
+`ClientResponseTrackingAtom` currently drops old `ResponseSignal` entries when the window or max-count is exceeded. Replace with session-style compaction: when the ring buffer exceeds `CompactionThreshold` (default: half of `MaxResponsesPerClient`), compact the oldest half into a `CompactedResponseSummary` struct:
+
+```csharp
+record CompactedResponseSummary(
+    int TotalCount,
+    int Count4xx, int Count404, int Count5xx,
+    int AuthFailures, int HoneypotHits,
+    Dictionary<string, int> PatternCounts,
+    double ResponseScore,  // pre-computed from compacted window
+    DateTimeOffset FirstSeen, DateTimeOffset LastSeen);
+```
+
+`ComputeBehavior` merges compacted summary counts with the live ring. The compacted summary preserves all scoring signals with O(1) storage. New appsettings fields: `ResponseCoordinator.CompactionThreshold` (default: 100), `ResponseCoordinator.CacheCleanupInterval` (default: 30s).
+
+---
+
 ## What Does Not Change
 
 - `ResponseCoordinator.RecordResponseAsync(ResponseSignal, CancellationToken)` signature - already correct
