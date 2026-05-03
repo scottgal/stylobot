@@ -36,12 +36,17 @@ public sealed class SignatureResponseCoordinator : IAsyncDisposable
 
         _window = new LinkedList<OperationCompleteSignal>();
 
-        // Initialize lanes - all share this coordinator's sink
+        // Each lane is given a coordinator-scoped key so their signals in the shared sink
+        // cannot be confused with signals from a different coordinator's lanes.
+        // The key is "c.{signature}" - short enough to avoid key bloat but unique per coordinator.
+        var coordinatorKey = $"c.{_signature}";
+
+        // Initialize lanes - all share this coordinator's sink, scoped by coordinatorKey
         _lanes = new List<IAnalysisLane>
         {
-            new BehavioralLane(_sink),
-            new SpectralLane(_sink),
-            new ReputationLane(_sink)
+            new BehavioralLane(_sink, coordinatorKey),
+            new SpectralLane(_sink, coordinatorKey),
+            new ReputationLane(_sink, coordinatorKey)
         };
 
         _logger.LogDebug("SignatureResponseCoordinator created for {Signature} with {LaneCount} lanes",
@@ -151,12 +156,28 @@ public sealed class SignatureResponseCoordinator : IAsyncDisposable
 
     /// <summary>
     ///     Aggregate signals from lanes into signature behavior.
+    ///     Each lane exposes its ScopedScoreKey so we read only signals written by
+    ///     *this* coordinator's lanes, never those of a different coordinator sharing
+    ///     the same SignalSink.
     /// </summary>
     private SignatureResponseBehavior AggregateLaneSignals()
     {
-        var behavioralScore = GetLatestDoubleSignal("behavioral.score");
-        var spectralScore = GetLatestDoubleSignal("spectral.score");
-        var reputationScore = GetLatestDoubleSignal("reputation.score");
+        // Locate each lane by name and read its scoped score key directly.
+        // This guarantees that a shared sink returning signals from coordinator B
+        // cannot influence coordinator A's aggregation.
+        var behavioralLane = _lanes.FirstOrDefault(l => l.Name == "behavioral");
+        var spectralLane = _lanes.FirstOrDefault(l => l.Name == "spectral");
+        var reputationLane = _lanes.FirstOrDefault(l => l.Name == "reputation");
+
+        var behavioralScore = behavioralLane is not null
+            ? GetLatestDoubleSignal(behavioralLane.ScopedScoreKey)
+            : 0.0;
+        var spectralScore = spectralLane is not null
+            ? GetLatestDoubleSignal(spectralLane.ScopedScoreKey)
+            : 0.0;
+        var reputationScore = reputationLane is not null
+            ? GetLatestDoubleSignal(reputationLane.ScopedScoreKey)
+            : 0.0;
 
         // Weighted average (configurable in future)
         var combinedScore = behavioralScore * 0.4 + spectralScore * 0.3 + reputationScore * 0.3;

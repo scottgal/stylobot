@@ -8,7 +8,7 @@ namespace Mostlylucid.BotDetection.Orchestration.Lanes;
 /// </summary>
 internal sealed class BehavioralLane : AnalysisLaneBase
 {
-    public BehavioralLane(SignalSink sink) : base(sink)
+    public BehavioralLane(SignalSink sink, string coordinatorKey) : base(sink, coordinatorKey)
     {
     }
 
@@ -35,11 +35,11 @@ internal sealed class BehavioralLane : AnalysisLaneBase
                     requestRateScore * 0.25 +    // High rate = bot-like
                     scanScore * 0.25;            // Sequential paths = bot-like
 
-        // Emit component signals for observability
-        Sink.Raise("behavioral.timing_entropy", timingEntropy.ToString("F4"));
-        Sink.Raise("behavioral.path_diversity", pathDiversity.ToString("F4"));
-        Sink.Raise("behavioral.request_rate", requestRateScore.ToString("F4"));
-        Sink.Raise("behavioral.scan_score", scanScore.ToString("F4"));
+        // Emit component signals for observability (scoped to this coordinator via EmitMetric)
+        EmitMetric("timing_entropy", timingEntropy.ToString("F4"));
+        EmitMetric("path_diversity", pathDiversity.ToString("F4"));
+        EmitMetric("request_rate", requestRateScore.ToString("F4"));
+        EmitMetric("scan_score", scanScore.ToString("F4"));
 
         EmitScore(Math.Clamp(score, 0.0, 1.0));
         return Task.CompletedTask;

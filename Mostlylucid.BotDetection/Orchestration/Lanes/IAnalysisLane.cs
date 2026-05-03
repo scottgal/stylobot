@@ -12,6 +12,13 @@ public interface IAnalysisLane
     string Name { get; }
 
     /// <summary>
+    ///     The fully-qualified signal key under which this lane emits its score into the shared sink.
+    ///     Includes the owning coordinator's key prefix so that different coordinators sharing the same
+    ///     sink can never pick up each other's lane scores.
+    /// </summary>
+    string ScopedScoreKey { get; }
+
+    /// <summary>
     ///     Analyze a window of operations and emit results to sink.
     /// </summary>
     Task AnalyzeAsync(IReadOnlyList<OperationCompleteSignal> window, CancellationToken cancellationToken = default);

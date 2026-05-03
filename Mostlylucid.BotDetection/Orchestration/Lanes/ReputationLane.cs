@@ -10,7 +10,7 @@ internal sealed class ReputationLane : AnalysisLaneBase
 {
     private const double DecayFactor = 0.95; // Per-request decay
 
-    public ReputationLane(SignalSink sink) : base(sink)
+    public ReputationLane(SignalSink sink, string coordinatorKey) : base(sink, coordinatorKey)
     {
     }
 
@@ -37,11 +37,11 @@ internal sealed class ReputationLane : AnalysisLaneBase
                     badBehaviorScore * 0.25 +
                     consistencyScore * 0.15;
 
-        // Emit component signals for observability
-        Sink.Raise("reputation.decayed_score", decayedScore.ToString("F4"));
-        Sink.Raise("reputation.trend", trendScore.ToString("F4"));
-        Sink.Raise("reputation.bad_behavior", badBehaviorScore.ToString("F4"));
-        Sink.Raise("reputation.consistency", consistencyScore.ToString("F4"));
+        // Emit component signals for observability (scoped to this coordinator via EmitMetric)
+        EmitMetric("decayed_score", decayedScore.ToString("F4"));
+        EmitMetric("trend", trendScore.ToString("F4"));
+        EmitMetric("bad_behavior", badBehaviorScore.ToString("F4"));
+        EmitMetric("consistency", consistencyScore.ToString("F4"));
 
         EmitScore(Math.Clamp(score, 0.0, 1.0));
         return Task.CompletedTask;
