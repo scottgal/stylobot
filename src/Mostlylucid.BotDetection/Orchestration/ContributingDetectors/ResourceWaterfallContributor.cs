@@ -77,12 +77,19 @@ public class ResourceWaterfallContributor : ConfiguredContributorBase
         var isFont = IsFontRequest(secFetchDest, path);
         var isFavicon = path is "/favicon.ico" or "/favicon.svg";
 
+        // Sec-Fetch-Dest: empty = fetch() / XHR API call — proves JavaScript is executing.
+        // A service-worker-cached SPA will have documents + API calls but zero network asset
+        // requests (assets served from SW cache). This is NOT a scraper pattern.
+        var isApiCall = secFetchDest == "empty"
+            || path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase);
+
         // Update per-signature tracking
         var tracker = GetOrCreateTracker(signature);
         if (isDocument) tracker.DocumentCount++;
         if (isAsset) tracker.AssetCount++;
         if (isFont) tracker.FontRequested = true;
         if (isFavicon) tracker.FaviconRequested = true;
+        if (isApiCall) tracker.HasApiCalls = true;
         SaveTracker(signature, tracker);
 
         // Write signals to blackboard
@@ -110,8 +117,11 @@ public class ResourceWaterfallContributor : ConfiguredContributorBase
 
         // Strong bot signal: multiple documents, zero assets (no rendering at all)
         // Skip if sequence.cache_warm — browser has warm CDN cache, no static asset requests expected
+        // Skip if the client has made API/XHR calls — a service-worker-cached SPA loads documents
+        // and makes API calls but serves all assets from the SW cache (no network asset requests).
+        // Scrapers don't execute JavaScript and therefore never make XHR/fetch API calls.
         var cacheWarm = state.Signals.TryGetValue(SignalKeys.SequenceCacheWarm, out var cwObj) && cwObj is bool cw && cw;
-        if (tracker.AssetCount == 0 && !cacheWarm)
+        if (tracker.AssetCount == 0 && !cacheWarm && !tracker.HasApiCalls)
         {
             contributions.Add(BotContribution(
                 "NoAssets",
@@ -233,5 +243,6 @@ public class ResourceWaterfallContributor : ConfiguredContributorBase
         public int AssetCount { get; set; }
         public bool FontRequested { get; set; }
         public bool FaviconRequested { get; set; }
+        public bool HasApiCalls { get; set; }
     }
 }

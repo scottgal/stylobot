@@ -136,6 +136,20 @@ public partial class TransportProtocolContributor : ConfiguredContributorBase
                     _ => "unknown"
                 };
 
+            // Classify regular API/XHR calls that aren't already tagged.
+            // Sec-Fetch-Dest: empty = fetch() / XMLHttpRequest from browser JavaScript.
+            // Path prefix /api/ covers programmatic REST calls without Fetch Metadata.
+            // Both tell the heuristic model to apply API-appropriate scoring (no Accept-Language
+            // penalty, no cookie requirement, relaxed header expectations).
+            if (protocolClass == "unknown" && !isSignalR)
+            {
+                var secFetchDest = request.Headers["Sec-Fetch-Dest"].FirstOrDefault() ?? "";
+                var requestPath = request.Path.Value ?? "";
+                if (secFetchDest.Equals("empty", StringComparison.OrdinalIgnoreCase)
+                    || requestPath.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+                    protocolClass = "api";
+            }
+
             var isStreaming = transportClass != "http" || isSignalR;
 
             state.WriteSignals([

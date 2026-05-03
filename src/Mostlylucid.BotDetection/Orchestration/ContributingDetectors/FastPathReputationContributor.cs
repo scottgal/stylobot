@@ -180,9 +180,11 @@ public class FastPathReputationContributor : ConfiguredContributorBase
         var mtLower = matchType.ToLowerInvariant();
 
         // Check for browser attestation via Sec-Fetch-Site header.
-        // This header is set by the browser itself and attests the request origin.
+        // Any non-empty value attests that a real browser sent this request — including
+        // "none" (direct navigation), "same-site", and "same-origin". Bots rarely send
+        // Sec-Fetch-* headers at all; when they do, other detectors catch the inconsistency.
         var secFetchSite = state.HttpContext.Request.Headers["Sec-Fetch-Site"].FirstOrDefault();
-        var hasBrowserAttestation = string.Equals(secFetchSite, "same-origin", StringComparison.OrdinalIgnoreCase);
+        var hasBrowserAttestation = !string.IsNullOrEmpty(secFetchSite);
 
         state.WriteSignals([
             new(SignalKeys.ReputationFastPathHit, true),

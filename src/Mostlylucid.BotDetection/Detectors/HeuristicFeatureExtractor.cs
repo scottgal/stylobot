@@ -133,10 +133,25 @@ public static class HeuristicFeatureExtractor
         var isSameOriginFetch = secFetchSite.Equals("same-origin", StringComparison.OrdinalIgnoreCase);
         if (isSameOriginFetch) features["hdr:sec_fetch_same_origin"] = 1f;
 
-        // Missing header penalties - absence of expected headers is a bot signal
-        // Suppress for same-origin fetch: browser fetch() legitimately omits Accept-Language
-        if (!hasAcceptLanguage && !isSameOriginFetch) features["hdr:missing_accept_language"] = 1f;
-        if (!hasReferer) features["hdr:missing_referer"] = 1f;
+        // Any Sec-Fetch-Site value (including "none" for navigations and "same-site" for
+        // cross-site same-schemeless-site requests) attests that a real browser sent this.
+        // Bots rarely send Sec-Fetch-* headers at all, let alone consistently.
+        var hasFetchMetadata = secFetchSite.Length > 0;
+
+        // Service-Worker: script header — browser explicitly registering a service worker.
+        var isServiceWorkerFetch = headers["Service-Worker"].FirstOrDefault()
+            ?.Equals("script", StringComparison.OrdinalIgnoreCase) == true;
+
+        // Missing header penalties - absence of expected headers is a bot signal.
+        // Suppress when any Sec-Fetch-Site is present: the browser is attesting the request
+        // origin, which bots can't easily fake while remaining consistent across TLS/TCP/H2.
+        // Also suppress for service worker fetches (browser-only header).
+        if (!hasAcceptLanguage && !hasFetchMetadata && !isServiceWorkerFetch)
+            features["hdr:missing_accept_language"] = 1f;
+        // Referer is legitimately absent on direct navigations and many programmatic fetches.
+        // Only penalise it when no browser attestation at all is present.
+        if (!hasReferer && !hasFetchMetadata && !isServiceWorkerFetch)
+            features["hdr:missing_referer"] = 1f;
 
         // User-Agent pattern features — OrdinalIgnoreCase avoids ToLowerInvariant() allocation
         if (userAgent.Contains("bot", StringComparison.OrdinalIgnoreCase)) features["ua:contains_bot"] = 1f;
@@ -172,8 +187,9 @@ public static class HeuristicFeatureExtractor
             || userAgent.Contains("edge", StringComparison.OrdinalIgnoreCase);
 
         // Composite: browser UA without typical browser headers = spoofed UA
-        // Suppress for same-origin fetch: browser fetch() legitimately omits Accept-Language
-        if (isBrowserUa && !hasAcceptLanguage && !isSameOriginFetch) features["combo:browser_no_accept_lang"] = 1f;
+        // Suppress when any Sec-Fetch-Site is present (browser attestation) or service worker fetch
+        if (isBrowserUa && !hasAcceptLanguage && !hasFetchMetadata && !isServiceWorkerFetch)
+            features["combo:browser_no_accept_lang"] = 1f;
         if (isBrowserUa && context.Request.Cookies.Count == 0) features["combo:browser_no_cookies"] = 1f;
 
         // HTTP method - HEAD is commonly used by scanners/probers

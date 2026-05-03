@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Serilog;
 using ILogger = Serilog.ILogger;
+using SysConsole = System.Console;
 
 namespace Mostlylucid.BotDetection.Console.Services;
 
@@ -44,24 +45,24 @@ public static class CloudflaredTunnelLauncher
             check?.WaitForExit(5000);
             if (check is null || check.ExitCode != 0)
             {
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("  Error: cloudflared not found or returned non-zero exit code.");
-                Console.Error.WriteLine("  Install: brew install cloudflared (macOS)");
-                Console.Error.WriteLine("           apt install cloudflared (Linux)");
-                Console.Error.WriteLine("           winget install Cloudflare.cloudflared (Windows)");
-                Console.Error.WriteLine();
+                SysConsole.Error.WriteLine();
+                SysConsole.Error.WriteLine("  Error: cloudflared not found or returned non-zero exit code.");
+                SysConsole.Error.WriteLine("  Install: brew install cloudflared (macOS)");
+                SysConsole.Error.WriteLine("           apt install cloudflared (Linux)");
+                SysConsole.Error.WriteLine("           winget install Cloudflare.cloudflared (Windows)");
+                SysConsole.Error.WriteLine();
                 Log.Error("cloudflared not found");
                 return null;
             }
         }
         catch
         {
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("  Error: cloudflared not found. Install it to use --tunnel.");
-            Console.Error.WriteLine("  Install: brew install cloudflared (macOS)");
-            Console.Error.WriteLine("           apt install cloudflared (Linux)");
-            Console.Error.WriteLine("           winget install Cloudflare.cloudflared (Windows)");
-            Console.Error.WriteLine();
+            SysConsole.Error.WriteLine();
+            SysConsole.Error.WriteLine("  Error: cloudflared not found. Install it to use --tunnel.");
+            SysConsole.Error.WriteLine("  Install: brew install cloudflared (macOS)");
+            SysConsole.Error.WriteLine("           apt install cloudflared (Linux)");
+            SysConsole.Error.WriteLine("           winget install Cloudflare.cloudflared (Windows)");
+            SysConsole.Error.WriteLine();
             Log.Error("cloudflared not found");
             return null;
         }
@@ -106,7 +107,7 @@ public static class CloudflaredTunnelLauncher
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"  Error: failed to start cloudflared: {ex.Message}");
+            SysConsole.Error.WriteLine($"  Error: failed to start cloudflared: {ex.Message}");
             Log.Error(ex, "Failed to start cloudflared process");
             return null;
         }
@@ -125,14 +126,14 @@ public static class CloudflaredTunnelLauncher
 
                     if (line.Contains(".trycloudflare.com") || line.Contains("Registered tunnel connection"))
                     {
-                        Console.Error.WriteLine($"  Tunnel: {line.Trim()}");
+                        SysConsole.Error.WriteLine($"  Tunnel: {line.Trim()}");
                         Log.Information("  ✓ Tunnel: {TunnelInfo}", line.Trim());
                         var match = System.Text.RegularExpressions.Regex.Match(line, @"(https://[^\s|]+\.trycloudflare\.com)");
                         if (match.Success) onTunnelUrl.Invoke(match.Groups[1].Value);
                     }
                     else if (line.Contains("ERR") || line.Contains("error") || line.Contains("fatal"))
                     {
-                        Console.Error.WriteLine($"  [cloudflared] {line.Trim()}");
+                        SysConsole.Error.WriteLine($"  [cloudflared] {line.Trim()}");
                         Log.Warning("[cloudflared] {Line}", line.Trim());
                     }
                     else
@@ -145,11 +146,11 @@ public static class CloudflaredTunnelLauncher
                 var uptime = DateTime.UtcNow - launchTime;
                 if (uptime.TotalSeconds < 5)
                 {
-                    Console.Error.WriteLine();
-                    Console.Error.WriteLine($"  Warning: cloudflared exited after {uptime.TotalSeconds:F1}s (exit code {process.ExitCode}).");
-                    Console.Error.WriteLine("  Check that cloudflared is configured correctly.");
-                    Console.Error.WriteLine("  Quick tunnel docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/");
-                    Console.Error.WriteLine();
+                    SysConsole.Error.WriteLine();
+                    SysConsole.Error.WriteLine($"  Warning: cloudflared exited after {uptime.TotalSeconds:F1}s (exit code {process.ExitCode}).");
+                    SysConsole.Error.WriteLine("  Check that cloudflared is configured correctly.");
+                    SysConsole.Error.WriteLine("  Quick tunnel docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/");
+                    SysConsole.Error.WriteLine();
                 }
             }
             catch (Exception ex)

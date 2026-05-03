@@ -70,7 +70,6 @@ public class IpContributor : ConfiguredContributorBase
 
     // Config-driven parameters (from YAML defaults.parameters)
     private double MissingIpPenalty => GetParam("missing_ip_penalty", 0.6);
-    private double LoopbackPenalty => GetParam("loopback_penalty", 0.0);
     private double PrivateIpPenalty => GetParam("private_ip_penalty", 0.1);
     private double DatacenterConfidence => GetParam("datacenter_confidence", 0.6);
     private double IspHumanConfidence => GetParam("isp_human_confidence", 0.15);
@@ -111,19 +110,27 @@ public class IpContributor : ConfiguredContributorBase
                                   state.HttpContext.Request.Headers.ContainsKey("Forwarded");
             var isProxied = !isLoopback && hasProxyHeaders;
 
-            var penalty = isLoopback ? LoopbackPenalty : (isProxied ? 0.0 : PrivateIpPenalty);
-            contributions.Add(new DetectionContribution
+            if (isLoopback && !hasProxyHeaders)
             {
-                DetectorName = Name,
-                Category = "IP",
-                ConfidenceDelta = penalty,
-                Weight = WeightBase * 0.5,
-                Reason = isLoopback
-                    ? $"Localhost/loopback address: {MaskIp(clientIp)} (neutral in dev)"
-                    : isProxied
+                // Direct loopback - only the local machine can originate this; treat as trusted
+                contributions.Add(HumanContribution(
+                    "IP",
+                    $"Loopback address: {MaskIp(clientIp)} - direct local connection"));
+            }
+            else
+            {
+                var penalty = isProxied ? 0.0 : PrivateIpPenalty;
+                contributions.Add(new DetectionContribution
+                {
+                    DetectorName = Name,
+                    Category = "IP",
+                    ConfidenceDelta = penalty,
+                    Weight = WeightBase * 0.5,
+                    Reason = isProxied
                         ? $"Behind reverse proxy: {MaskIp(clientIp)} (proxy headers present)"
                         : $"Private network IP: {MaskIp(clientIp)}"
-            });
+                });
+            }
         }
 
         // Check for datacenter IP (skip if already identified as local/loopback)

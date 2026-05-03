@@ -66,13 +66,20 @@ public class HeaderContributor : ConfiguredContributorBase
         state.WriteSignal(SignalKeys.HeaderSecFetchDest, secFetchDest ?? "");
         state.WriteSignal(SignalKeys.HeaderSecFetchSameOrigin, isSameOriginFetch);
 
+        // Service-Worker: script - browser explicitly fetching a service worker registration script.
+        // Only real browsers send this; it is defined by the Service Workers spec and cannot
+        // be mimicked without also sending the corresponding Sec-Fetch-* headers consistently.
+        var isServiceWorkerFetch = headers.TryGetValue("Service-Worker", out var swHeader)
+            && string.Equals(swHeader.ToString(), "script", StringComparison.OrdinalIgnoreCase);
+        state.WriteSignal("header.is_service_worker_fetch", isServiceWorkerFetch);
+
         // Write programmatic request attestation signals.
         // These are consumed by downstream detectors (Behavioral, ResponseBehavior,
         // Inconsistency) to avoid penalizing legitimate API/fetch traffic for
         // missing cookies, referer, regular timing, etc.
         var hasFetchMetadata = !string.IsNullOrEmpty(secFetchSite);
         var hasApiKey = state.HttpContext.Items.ContainsKey("BotDetection.ApiKeyContext");
-        var isProgrammatic = hasFetchMetadata || hasApiKey || isWebSocketUpgrade;
+        var isProgrammatic = hasFetchMetadata || hasApiKey || isWebSocketUpgrade || isServiceWorkerFetch;
 
         state.WriteSignal(SignalKeys.ProgrammaticFetchAttestation, hasFetchMetadata);
         state.WriteSignal(SignalKeys.ProgrammaticApiKey, hasApiKey);
@@ -156,6 +163,12 @@ public class HeaderContributor : ConfiguredContributorBase
             contributions.Add(HumanContribution(
                 "Header",
                 $"Browser fetch metadata present (Sec-Fetch-Site: {secFetchSite})"));
+
+        // Service-Worker: script - browser registering a service worker; only real browsers send this
+        if (isServiceWorkerFetch)
+            contributions.Add(HumanContribution(
+                "Header",
+                "Service-Worker: script header - browser service worker registration fetch"));
 
         // API key holder - trusted programmatic client, mild human signal
         if (hasApiKey)

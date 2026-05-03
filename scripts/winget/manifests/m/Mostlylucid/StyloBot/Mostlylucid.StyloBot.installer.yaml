@@ -1,0 +1,23 @@
+PackageIdentifier: Mostlylucid.StyloBot
+PackageVersion: 1.0.0
+InstallerLocale: en-US
+MinimumOSVersion: 10.0.17763.0
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://github.com/scottgal/stylobot/releases/download/console-v1.0.0/stylobot-win-x64.zip
+    InstallerSha256: PLACEHOLDER_SHA256_WIN_X64
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: stylobot.exe
+        PortableCommandAlias: stylobot
+  - Architecture: arm64
+    InstallerType: zip
+    InstallerUrl: https://github.com/scottgal/stylobot/releases/download/console-v1.0.0/stylobot-win-arm64.zip
+    InstallerSha256: PLACEHOLDER_SHA256_WIN_ARM64
+    NestedInstallerType: portable
+    NestedInstallerFiles:
+      - RelativeFilePath: stylobot.exe
+        PortableCommandAlias: stylobot
+ManifestType: installer
+ManifestVersion: 1.6.0

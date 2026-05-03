@@ -1,0 +1,22 @@
+PackageIdentifier: Mostlylucid.StyloBot
+PackageVersion: 1.0.0
+PackageLocale: en-US
+Publisher: Mostlylucid
+PublisherUrl: https://stylobot.net
+PublisherSupportUrl: https://github.com/scottgal/stylobot/issues
+PackageName: StyloBot
+PackageUrl: https://stylobot.net
+License: MIT
+LicenseUrl: https://github.com/scottgal/stylobot/blob/main/LICENSE
+ShortDescription: Self-hosted bot detection gateway
+Description: Native AOT YARP reverse proxy with 49-detector bot detection pipeline. Blocks scrapers, AI crawlers, and malicious bots with under 1ms overhead. Single binary, no dependencies.
+Moniker: stylobot
+Tags:
+  - bot-detection
+  - reverse-proxy
+  - security
+  - yarp
+  - proxy
+ReleaseNotesUrl: https://github.com/scottgal/stylobot/releases
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

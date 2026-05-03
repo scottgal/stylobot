@@ -126,7 +126,8 @@ defaults:
     # Confidence penalty for missing IP
     missing_ip_penalty: 0.6
     # Private/local IP handling
-    loopback_penalty: 0.0     # 127.0.0.1, ::1 - neutral for dev
+    # Loopback IPs (127.0.0.1, ::1) get human_indicated bonus (from confidence.human_indicated)
+    # because only the local machine can originate direct loopback connections.
     private_ip_penalty: 0.0   # 192.168.x.x, 10.x.x.x - neutral (internal services, dev machines, corporate proxies)
     # Datacenter ranges (simplified prefixes)
     datacenter_ranges:
