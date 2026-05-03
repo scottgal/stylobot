@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Orchestration.Manifests;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -110,7 +111,8 @@ public sealed class UaProfileStore
             .IgnoreUnmatchedProperties()
             .Build();
 
-        var file = deserializer.Deserialize<UaProfileFile>(reader);
+        var yaml = reader.ReadToEnd();
+        var file = deserializer.Deserialize<UaProfileFile>(yaml);
         if (file?.Profiles == null)
             return (new Dictionary<string, LiveCentroid>(), new Dictionary<string, string>());
 
@@ -145,25 +147,26 @@ public sealed class UaProfileStore
         return (byFamily, aliases);
     }
 
-    // YAML model
-    private class UaProfileFile
-    {
-        public List<UaProfileEntry>? Profiles { get; set; }
-    }
+}
 
-    private class UaProfileEntry
-    {
-        public string? Family { get; set; }
-        public string? Tier { get; set; }
-        public List<string>? Aliases { get; set; }
-        public Dictionary<string, CentroidDimensionEntry> Dimensions { get; set; } = [];
-    }
+// Internal YAML model types - exposed at namespace level so ManifestYamlContext can register them.
+internal sealed class UaProfileFile
+{
+    public List<UaProfileEntry>? Profiles { get; set; }
+}
 
-    private class CentroidDimensionEntry
-    {
-        public double Mean { get; set; }
-        public double Weight { get; set; } = 1.0;
-    }
+internal sealed class UaProfileEntry
+{
+    public string? Family { get; set; }
+    public string? Tier { get; set; }
+    public List<string>? Aliases { get; set; }
+    public Dictionary<string, CentroidDimensionEntry> Dimensions { get; set; } = [];
+}
+
+internal sealed class CentroidDimensionEntry
+{
+    public double Mean { get; set; }
+    public double Weight { get; set; } = 1.0;
 }
 
 /// <summary>Mutable centroid for a UA family; mutated in-place via EWM under lock.</summary>

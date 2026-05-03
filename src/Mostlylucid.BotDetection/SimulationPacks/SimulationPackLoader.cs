@@ -145,7 +145,7 @@ public sealed class SimulationPackLoader : ISimulationPackRegistry
 
         _logger.LogInformation("Found {Count} simulation pack YAML resources", resourceNames.Count);
 
-        var deserializer = new DeserializerBuilder()
+        var deserializer = new StaticDeserializerBuilder(new Orchestration.Manifests.ManifestYamlContext())
             .WithNamingConvention(UnderscoredNamingConvention.Instance)
             .IgnoreUnmatchedProperties()
             .Build();

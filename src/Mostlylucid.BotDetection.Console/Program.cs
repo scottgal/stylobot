@@ -45,6 +45,9 @@ switch (firstArg)
         return DaemonCommands.Logs();
     case "start":
         return DaemonCommands.Start(cmdArgs);
+    case "genkey":
+        Console.WriteLine(Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)));
+        return 0;
     case "man":
         ShowManPage();
         return 0;
@@ -78,6 +81,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("    stylobot logs                               Show recent log output");
     Console.WriteLine("    stylobot man                                Full reference manual");
     Console.WriteLine("    stylobot llmtunnel [token] [opts]           Start local LLM agent + Cloudflare tunnel");
+    Console.WriteLine("    stylobot genkey                             Generate a random 32-byte base64 key");
     Console.WriteLine();
     Console.WriteLine("  LLM Tunnel Options:");
     Console.WriteLine("    --ollama <url>              Local Ollama URL (default: http://127.0.0.1:11434)");
@@ -89,7 +93,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("  Options:");
     Console.WriteLine("    --port <port>               Port to listen on (default: 5080)");
     Console.WriteLine("    --upstream <url>            Upstream server URL");
-    Console.WriteLine("    --mode <demo|production>    Detection mode (default: production)");
+    Console.WriteLine("    --mode <demo|production>    Detection mode (default: demo)");
     Console.WriteLine("    --policy <name>             Default action policy");
     Console.WriteLine("                                (default: block in production, logonly in demo)");
     Console.WriteLine("    --cert <path>               TLS certificate (.pfx or .pem)");
@@ -170,7 +174,7 @@ else if (positionals.Count == 1)
 
 var port = cliPort ?? positionalPort ?? envPort ?? "5080";
 var upstream = cliUpstream ?? positionalUpstream ?? envUpstream ?? "http://localhost:8080";
-var mode = GetArg(cmdArgs, "--mode") ?? Environment.GetEnvironmentVariable("MODE") ?? "production";
+var mode = GetArg(cmdArgs, "--mode") ?? Environment.GetEnvironmentVariable("MODE") ?? "demo";
 var isDemoLikeMode = mode.Equals("demo", StringComparison.OrdinalIgnoreCase) ||
                      mode.Equals("learning", StringComparison.OrdinalIgnoreCase);
 var defaultActionPolicy = mode.Equals("production", StringComparison.OrdinalIgnoreCase) ? "block" : "logonly";

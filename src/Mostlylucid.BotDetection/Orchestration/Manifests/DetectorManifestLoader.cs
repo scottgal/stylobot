@@ -16,8 +16,6 @@ public sealed class DetectorManifestLoader
 
     public DetectorManifestLoader()
     {
-        // Use regular deserializer - StaticDeserializerBuilder has compatibility issues
-        // with the source generator not implementing GetTypeResolver()
         _deserializer = new DeserializerBuilder()
             .WithNamingConvention(UnderscoredNamingConvention.Instance)
             .IgnoreUnmatchedProperties()

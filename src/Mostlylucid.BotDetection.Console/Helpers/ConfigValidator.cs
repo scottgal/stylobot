@@ -19,7 +19,7 @@ public static class ConfigValidator
             config.SignatureHashKey.Contains("CHANGE_ME", StringComparison.OrdinalIgnoreCase))
         {
             Log.Warning("⚠️  INSECURE HMAC KEY DETECTED - Using default key is DANGEROUS!");
-            Log.Warning("   Generate a secure key with: openssl rand -base64 32");
+            Log.Warning("   Generate a secure key with: stylobot genkey  (or: openssl rand -base64 32)");
             Log.Warning("   Set in appsettings.json: SignatureLogging:SignatureHashKey");
 
             // FAIL-FAST in production mode
@@ -36,7 +36,7 @@ public static class ConfigValidator
                 System.Console.Error.WriteLine("      }");
                 System.Console.Error.WriteLine("    }");
                 System.Console.Error.WriteLine();
-                System.Console.Error.WriteLine("  Generate a key:  openssl rand -base64 32");
+                System.Console.Error.WriteLine("  Generate a key:  stylobot genkey  (or: openssl rand -base64 32)");
                 System.Console.Error.WriteLine();
                 System.Console.Error.WriteLine("  Or run in demo mode (no key needed):");
                 System.Console.Error.WriteLine("    stylobot <port> <upstream> --mode demo");
@@ -45,7 +45,7 @@ public static class ConfigValidator
                 throw new InvalidOperationException(
                     "Cannot use default HMAC key in production mode. " +
                     "Set SignatureLogging:SignatureHashKey to a secure random value. " +
-                    "Generate with: openssl rand -base64 32");
+                    "Generate with: stylobot genkey  (or: openssl rand -base64 32)");
             }
 
             Log.Warning("   Demo mode: Continuing with default key (NOT SECURE FOR PRODUCTION)");
@@ -53,7 +53,7 @@ public static class ConfigValidator
         else if (config.SignatureHashKey.Length < 32)
         {
             Log.Warning("⚠️  SHORT HMAC KEY DETECTED - Key should be at least 32 characters for HMAC-SHA256");
-            Log.Warning("   Generate a secure key with: openssl rand -base64 32");
+            Log.Warning("   Generate a secure key with: stylobot genkey  (or: openssl rand -base64 32)");
         }
         else
         {

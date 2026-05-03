@@ -1,3 +1,7 @@
+using Mostlylucid.BotDetection.Compliance;
+using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.SimulationPacks;
 using YamlDotNet.Serialization;
 
 namespace Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -38,6 +42,33 @@ namespace Mostlylucid.BotDetection.Orchestration.Manifests;
 [YamlSerializable(typeof(Dictionary<string, object>))]
 [YamlSerializable(typeof(Dictionary<string, EscalationRule>))]
 [YamlSerializable(typeof(Dictionary<string, LaneConfig>))]
+// BotPatterns YAML types
+[YamlSerializable(typeof(BotPatternFile))]
+[YamlSerializable(typeof(BotPatternEntry))]
+[YamlSerializable(typeof(List<BotPatternEntry>))]
+// UA profile YAML types
+[YamlSerializable(typeof(UaProfileFile))]
+[YamlSerializable(typeof(UaProfileEntry))]
+[YamlSerializable(typeof(CentroidDimensionEntry))]
+[YamlSerializable(typeof(List<UaProfileEntry>))]
+[YamlSerializable(typeof(Dictionary<string, CentroidDimensionEntry>))]
+// SimulationPack YAML types
+[YamlSerializable(typeof(SimulationPack))]
+[YamlSerializable(typeof(PackHoneypotPath))]
+[YamlSerializable(typeof(PackResponseTemplate))]
+[YamlSerializable(typeof(PackResponseHints))]
+[YamlSerializable(typeof(PackCveModule))]
+[YamlSerializable(typeof(PackTimingProfile))]
+[YamlSerializable(typeof(List<PackHoneypotPath>))]
+[YamlSerializable(typeof(List<PackResponseTemplate>))]
+[YamlSerializable(typeof(List<PackCveModule>))]
+[YamlSerializable(typeof(Dictionary<string, string>))]
+// CompliancePack YAML types
+[YamlSerializable(typeof(CompliancePack))]
+[YamlSerializable(typeof(RetentionPolicy))]
+[YamlSerializable(typeof(AnonymizationPolicy))]
+[YamlSerializable(typeof(DsarPolicy))]
+[YamlSerializable(typeof(AuditPolicy))]
 public partial class ManifestYamlContext : StaticContext
 {
 }

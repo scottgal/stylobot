@@ -54,6 +54,12 @@
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.Tunnel\Mostlylucid.BotDetection.Llm.Tunnel.csproj" />
     </ItemGroup>
 
+    <!-- Preserve reflection metadata for assemblies that use reflection-based YAML deserialization -->
+    <ItemGroup>
+        <TrimmerRootAssembly Include="Mostlylucid.BotDetection" />
+        <TrimmerRootAssembly Include="YamlDotNet" />
+    </ItemGroup>
+
     <ItemGroup>
         <Content Include="appsettings*.json">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
