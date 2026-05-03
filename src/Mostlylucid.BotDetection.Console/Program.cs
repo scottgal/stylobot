@@ -230,6 +230,11 @@ if (keyPath != null && !File.Exists(keyPath))
     return 1;
 }
 
+// Validate Ollama availability before startup
+if (llmProvider?.Equals("ollama", StringComparison.OrdinalIgnoreCase) == true)
+    await CheckOllamaAsync(llmUrl ?? Mostlylucid.BotDetection.Models.LlmDefaults.DefaultEndpoint,
+        llmModel ?? Mostlylucid.BotDetection.Models.LlmDefaults.DefaultModel);
+
 // Parse log level override (default: Warning when live table active, Debug when verbose)
 var minLogLevel = verbose ? LogEventLevel.Debug : LogEventLevel.Warning;
 if (logLevel != null && Enum.TryParse<LogEventLevel>(logLevel, true, out var parsed))
@@ -1121,6 +1126,51 @@ static double CalculateClientBotScore(bool hasCanvas, bool hasWebGL, bool hasAud
         score = Math.Max(0, score - 0.20); // Bonus for passing all checks
 
     return Math.Clamp(score, 0.0, 1.0);
+}
+
+// Checks Ollama is reachable and the requested model is available. Prints a hint if not.
+static async Task CheckOllamaAsync(string endpoint, string model)
+{
+    try
+    {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+        var response = await http.GetAsync($"{endpoint.TrimEnd('/')}/api/tags");
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.Error.WriteLine($"  Warning: Ollama returned {(int)response.StatusCode} at {endpoint}.");
+            return;
+        }
+
+        var json = await response.Content.ReadAsStringAsync();
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        var models = doc.RootElement.TryGetProperty("models", out var arr)
+            ? arr.EnumerateArray().Select(m => m.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "").ToList()
+            : [];
+
+        var modelBase = model.Split(':')[0];
+        var found = models.Any(m => m.Equals(model, StringComparison.OrdinalIgnoreCase)
+                                 || m.StartsWith(modelBase + ":", StringComparison.OrdinalIgnoreCase)
+                                 || m.Equals(modelBase, StringComparison.OrdinalIgnoreCase));
+        if (!found)
+        {
+            var available = models.Count > 0 ? string.Join(", ", models.Take(5)) : "(none)";
+            Console.Error.WriteLine($"  Warning: Ollama model '{model}' not found.");
+            Console.Error.WriteLine($"  Available: {available}");
+            Console.Error.WriteLine($"  Run: ollama pull {model}");
+            Console.Error.WriteLine();
+        }
+    }
+    catch (HttpRequestException)
+    {
+        Console.Error.WriteLine($"  Warning: Ollama not reachable at {endpoint}.");
+        Console.Error.WriteLine($"  Install: https://ollama.com  |  Start: ollama serve");
+        Console.Error.WriteLine($"  Then pull the model: ollama pull {model}");
+        Console.Error.WriteLine();
+    }
+    catch
+    {
+        // non-fatal, startup continues regardless
+    }
 }
 
 // Helper to get command-line argument value

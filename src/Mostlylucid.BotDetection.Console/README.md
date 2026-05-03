@@ -34,6 +34,8 @@ stylobot 5080 http://localhost:3000 --llm ollama
 
 `demo` mode is the default: all 49 detectors run, bots are logged but not blocked. Switch to `--mode production` when you want blocking enabled.
 
+No LLM runs unless you pass `--llm <provider>`. There are no model downloads, no network calls to external services, and no background initialization on first start. `llamasharp` (in-process CPU inference with HuggingFace auto-download) is only activated when you explicitly request it.
+
 ## Security Key
 
 StyloBot uses HMAC-SHA256 to sign visitor signatures. A secure key is strongly recommended for production:
@@ -168,6 +170,8 @@ brew services start stylobot
 ## LLM Providers
 
 Any provider, any tier. Bring your own API key. Detection works fully without LLM.
+
+When you pass `--llm ollama`, stylobot checks whether Ollama is running and whether the requested model is available before startup. If the model is missing, it tells you the exact `ollama pull` command to run.
 
 ```bash
 stylobot 5080 http://localhost:3000 --llm openai --llm-key sk-...
