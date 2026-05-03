@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.Ephemeral;
 
 namespace Mostlylucid.BotDetection.Test.Orchestration;
 
@@ -98,9 +99,10 @@ public class SignatureResponseCoordinatorTests
     {
         // Arrange
         var logger = NullLogger.Instance;
+        var sink = new SignalSink(100, TimeSpan.FromMinutes(5));
 
         // Act
-        var coordinator = new SignatureResponseCoordinator("test-sig", logger);
+        var coordinator = new SignatureResponseCoordinator("test-sig", logger, sink);
 
         // Assert
         Assert.NotNull(coordinator);
@@ -283,10 +285,28 @@ public class SignatureResponseCoordinatorTests
     {
         // Arrange
         var logger = NullLogger.Instance;
-        var coordinator = new SignatureResponseCoordinator("test-sig", logger);
+        var coordinator = new SignatureResponseCoordinator("test-sig", logger, new SignalSink(100, TimeSpan.FromMinutes(5)));
 
         // Act & Assert - should not throw
         await coordinator.DisposeAsync();
+    }
+}
+
+public class SignatureResponseCoordinatorSharedSinkTests
+{
+    [Fact]
+    public async Task GetOrCreateAsync_TwoCoordinators_ShareTheSameSink()
+    {
+        var sharedSink = new SignalSink(100, TimeSpan.FromMinutes(5));
+        var cache = new SignatureResponseCoordinatorCache(
+            NullLogger<SignatureResponseCoordinatorCache>.Instance,
+            sharedSink: sharedSink);
+
+        var coord1 = await cache.GetOrCreateAsync("sig-aaa");
+        var coord2 = await cache.GetOrCreateAsync("sig-bbb");
+
+        Assert.Same(sharedSink, coord1.Sink);
+        Assert.Same(sharedSink, coord2.Sink);
     }
 }
 

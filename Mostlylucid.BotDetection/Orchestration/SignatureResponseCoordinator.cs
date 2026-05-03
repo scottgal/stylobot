@@ -6,8 +6,9 @@ using Mostlylucid.Ephemeral;
 namespace Mostlylucid.BotDetection.Orchestration;
 
 /// <summary>
-///     Signature-level response coordinator with TIGHT coupling to its own sink.
-///     Manages cross-request response state and lanes for a single signature.
+///     Signature-level response coordinator for a single signature.
+///     Receives a shared SignalSink from SignatureResponseCoordinatorCache - does NOT own it.
+///     Manages cross-request response state and lanes for that signature.
 ///     Uses WaveAtom for parallel lane execution.
 /// </summary>
 public sealed class SignatureResponseCoordinator : IAsyncDisposable
@@ -17,18 +18,21 @@ public sealed class SignatureResponseCoordinator : IAsyncDisposable
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly ILogger _logger;
     private readonly string _signature;
-    private readonly SignalSink _sink; // OWNED by this coordinator (TIGHT)
+    internal readonly SignalSink _sink; // SHARED by SignatureResponseCoordinatorCache
     private readonly LinkedList<OperationCompleteSignal> _window;
 
-    public SignatureResponseCoordinator(string signature, ILogger logger)
+    /// <summary>
+    ///     Sink is provided by the cache (shared across all coordinators).
+    /// </summary>
+    internal SignalSink Sink => _sink;
+
+    public SignatureResponseCoordinator(string signature, ILogger logger, SignalSink sharedSink)
     {
         _signature = signature;
         _logger = logger;
 
-        // Create TIGHT sink (owned by this coordinator)
-        _sink = new SignalSink(
-            10000,
-            TimeSpan.FromHours(24));
+        // Sink is shared - NOT owned by this coordinator
+        _sink = sharedSink;
 
         _window = new LinkedList<OperationCompleteSignal>();
 
@@ -46,7 +50,8 @@ public sealed class SignatureResponseCoordinator : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        // SignalSink disposal handled by GC (no Dispose method in v1.6.8)
+        // _sink is NOT owned by this coordinator - do not dispose it here.
+        // The cache (SignatureResponseCoordinatorCache) owns and disposes the shared sink.
         _lock.Dispose();
 
         _logger.LogDebug("SignatureResponseCoordinator disposed for {Signature}", _signature);
