@@ -91,9 +91,6 @@ public class SignatureConvergenceService : BackgroundService
 
     internal void RunEvaluation()
     {
-        var familiesCreated = 0;
-        var familiesSplit = 0;
-
         // Clean up expired cooldowns
         var now = DateTime.UtcNow;
         foreach (var (key, expiry) in _splitCooldowns)
@@ -102,14 +99,15 @@ public class SignatureConvergenceService : BackgroundService
                 _splitCooldowns.TryRemove(key, out _);
         }
 
-        // Phase 1: IP-based merge candidates
-        familiesCreated = EvaluateMerges();
+        // Build shared lookups once: IP merges and vector merges both need these.
+        // Merges run before splits so newly-joined members are split correctly if divergent.
+        var allBehaviors = _signatureCoordinator.GetAllBehaviors()
+            .ToDictionary(b => b.Signature, StringComparer.OrdinalIgnoreCase);
+        var ipIndex = _signatureCoordinator.GetIpIndex();
 
-        // Phase 2: Vector-similarity merge candidates (survives IP rotation)
-        familiesCreated += EvaluateVectorSimilarityMerges();
-
-        // Phase 3: Split divergent members
-        familiesSplit = EvaluateSplits();
+        var familiesCreated = EvaluateMerges(allBehaviors, ipIndex);
+        familiesCreated += EvaluateVectorSimilarityMerges(allBehaviors);
+        var familiesSplit = EvaluateSplits();
 
         var totalFamilies = _signatureCoordinator.GetAllFamilies().Count;
         if (familiesCreated > 0 || familiesSplit > 0)
@@ -124,9 +122,10 @@ public class SignatureConvergenceService : BackgroundService
         }
     }
 
-    private int EvaluateMerges()
+    private int EvaluateMerges(
+        IReadOnlyDictionary<string, SignatureBehavior> allBehaviors,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> ipIndex)
     {
-        var ipIndex = _signatureCoordinator.GetIpIndex();
         var created = 0;
 
         // Under load: process IP groups ordered by highest average bot probability first,
@@ -135,13 +134,9 @@ public class SignatureConvergenceService : BackgroundService
         var cap = _loadSensor?.GetWorstOffenderCap(ipIndex.Count);
         if (cap.HasValue && ipIndex.Count > cap.Value)
         {
-            var allBehaviors = _signatureCoordinator.GetAllBehaviors()
-                .ToDictionary(b => b.Signature, b => b.AverageBotProbability,
-                    StringComparer.OrdinalIgnoreCase);
-
             groups = ipIndex
                 .OrderByDescending(kvp => kvp.Value
-                    .Select(s => allBehaviors.TryGetValue(s, out var p) ? p : 0)
+                    .Select(s => allBehaviors.TryGetValue(s, out var b) ? b.AverageBotProbability : 0)
                     .DefaultIfEmpty(0)
                     .Average())
                 .Take(cap.Value);
@@ -152,14 +147,11 @@ public class SignatureConvergenceService : BackgroundService
             if (signatures.Count < _options.MinSignaturesForMerge)
                 continue;
 
-            // Get behaviors for all signatures under this IP
+            // Get behaviors for all signatures under this IP from the pre-built lookup
             var behaviors = new Dictionary<string, SignatureBehavior>();
             foreach (var sig in signatures)
             {
-                var behavior = _signatureCoordinator
-                    .GetSignatureBehaviorAsync(sig, CancellationToken.None)
-                    .GetAwaiter().GetResult();
-                if (behavior != null && behavior.RequestCount > 0)
+                if (allBehaviors.TryGetValue(sig, out var behavior) && behavior.RequestCount > 0)
                     behaviors[sig] = behavior;
             }
 
@@ -213,20 +205,12 @@ public class SignatureConvergenceService : BackgroundService
             {
                 var c = bestCandidate.Value;
 
-                // Check if either signature is already in a family -> extend it
                 var existingFamily = _signatureCoordinator.GetFamily(c.SignatureA) ??
                                     _signatureCoordinator.GetFamily(c.SignatureB);
 
                 if (existingFamily != null)
                 {
-                    // Add the non-member to existing family
-                    var newSig = existingFamily.MemberSignatures.ContainsKey(c.SignatureA)
-                        ? c.SignatureB
-                        : c.SignatureA;
-                    existingFamily.MemberSignatures.TryAdd(newSig, 0);
-                    existingFamily.LastEvaluatedUtc = DateTime.UtcNow;
-                    existingFamily.EvaluationCount++;
-                    _signatureCoordinator.RegisterFamily(existingFamily);
+                    ExtendFamily(existingFamily, c.SignatureA, c.SignatureB);
                 }
                 else
                 {
@@ -368,29 +352,19 @@ public class SignatureConvergenceService : BackgroundService
         return splits;
     }
 
-    /// <summary>
-    ///     Find merge candidates by 129-dim behavioral vector similarity.
-    ///     This is the cross-IP identity path: same behavioral fingerprint, different IP hash.
-    ///     When two signatures with different IPs are merged, an IdentityRotationEvent is recorded.
-    /// </summary>
-    private int EvaluateVectorSimilarityMerges()
+    private int EvaluateVectorSimilarityMerges(IReadOnlyDictionary<string, SignatureBehavior> allBehaviors)
     {
         if (_vectorSearch == null) return 0;
 
         var snapshot = _vectorSearch.GetAllVectorsSnapshot();
         if (snapshot.Count < 2) return 0;
 
-        // Build sig -> IP hash reverse lookup from the IP index
+        // Reverse lookup: sig -> IP hash, built from the already-fetched IP index
         var sigToIpHash = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (ipHash, sigs) in _signatureCoordinator.GetIpIndex())
             foreach (var sig in sigs)
                 sigToIpHash.TryAdd(sig, ipHash);
 
-        // Build full behavior lookup (single call, shared below)
-        var allBehaviors = _signatureCoordinator.GetAllBehaviors()
-            .ToDictionary(b => b.Signature, StringComparer.OrdinalIgnoreCase);
-
-        // Under load: process highest-bot-probability signatures first
         IEnumerable<(float[] Vector, SessionVectorMetadata Metadata)> candidates = snapshot;
         var cap = _loadSensor?.GetWorstOffenderCap(snapshot.Count);
         if (cap.HasValue && snapshot.Count > cap.Value)
@@ -403,6 +377,7 @@ public class SignatureConvergenceService : BackgroundService
 
         var created = 0;
         var processedPairs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var maxFamilies = _options.MaxFamilies;
 
         foreach (var (vector, meta) in candidates)
         {
@@ -417,25 +392,20 @@ public class SignatureConvergenceService : BackgroundService
                 var sigB = match.Signature;
                 if (string.Equals(sigA, sigB, StringComparison.OrdinalIgnoreCase)) continue;
 
-                var pairKey = string.Compare(sigA, sigB, StringComparison.Ordinal) < 0
-                    ? $"{sigA}|{sigB}" : $"{sigB}|{sigA}";
-                if (!processedPairs.Add(pairKey)) continue;
+                if (!processedPairs.Add(GetCooldownKey(sigA, sigB))) continue;
 
-                // Skip if already co-located in a family
                 var famA = _signatureCoordinator.GetFamily(sigA);
                 var famB = _signatureCoordinator.GetFamily(sigB);
                 if (famA != null && famB != null && famA.FamilyId == famB.FamilyId) continue;
 
-                // Skip if on split cooldown
                 if (_splitCooldowns.ContainsKey(GetCooldownKey(sigA, sigB))) continue;
 
-                // Detect IP rotation: same behavioral identity, different IP hash
                 sigToIpHash.TryGetValue(sigA, out var ipA);
                 sigToIpHash.TryGetValue(sigB, out var ipB);
                 if (ipA != null && ipB != null &&
                     !string.Equals(ipA, ipB, StringComparison.OrdinalIgnoreCase))
                 {
-                    var rotation = new IdentityRotationEvent
+                    _signatureCoordinator.RecordRotationEvent(new IdentityRotationEvent
                     {
                         CanonicalSignature = sigA,
                         RotatedSignature = sigB,
@@ -443,34 +413,26 @@ public class SignatureConvergenceService : BackgroundService
                         PreviousIpHash = ipA,
                         NewIpHash = ipB,
                         DetectedUtc = DateTime.UtcNow
-                    };
-                    _signatureCoordinator.RecordRotationEvent(rotation);
-
+                    });
                     _logger.LogInformation(
                         "Identity rotation: {SigA}→{SigB} similarity={Sim:F3} (IP changed)",
                         sigA[..Math.Min(8, sigA.Length)], sigB[..Math.Min(8, sigB.Length)],
                         match.Similarity);
                 }
 
-                // Merge into family
                 var existingFamily = famA ?? famB;
                 if (existingFamily != null)
                 {
-                    var newSig = existingFamily.MemberSignatures.ContainsKey(sigA) ? sigB : sigA;
-                    existingFamily.MemberSignatures.TryAdd(newSig, 0);
-                    existingFamily.LastEvaluatedUtc = DateTime.UtcNow;
-                    existingFamily.EvaluationCount++;
-                    _signatureCoordinator.RegisterFamily(existingFamily);
+                    ExtendFamily(existingFamily, sigA, sigB);
                 }
                 else
                 {
-                    if (_signatureCoordinator.GetAllFamilies().Count >= _options.MaxFamilies) continue;
+                    if (_signatureCoordinator.GetAllFamilies().Count >= maxFamilies) continue;
 
                     var members = new HashSet<string> { sigA, sigB };
                     var memberBehaviors = members
                         .Where(allBehaviors.ContainsKey)
                         .ToDictionary(s => s, s => allBehaviors[s]);
-
                     var canonical = memberBehaviors.Count > 0
                         ? DetermineCanonicalSignature(members, memberBehaviors)
                         : sigA;
@@ -486,7 +448,6 @@ public class SignatureConvergenceService : BackgroundService
                         MergeConfidence = match.Similarity,
                         EvaluationCount = 1
                     };
-
                     _signatureCoordinator.RegisterFamily(family);
                     created++;
 
@@ -499,6 +460,15 @@ public class SignatureConvergenceService : BackgroundService
         }
 
         return created;
+    }
+
+    private void ExtendFamily(SignatureFamily family, string sigA, string sigB)
+    {
+        var newSig = family.MemberSignatures.ContainsKey(sigA) ? sigB : sigA;
+        family.MemberSignatures.TryAdd(newSig, 0);
+        family.LastEvaluatedUtc = DateTime.UtcNow;
+        family.EvaluationCount++;
+        _signatureCoordinator.RegisterFamily(family);
     }
 
     private MergeCandidate ComputeMergeScore(

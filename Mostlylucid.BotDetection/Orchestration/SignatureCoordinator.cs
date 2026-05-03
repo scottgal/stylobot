@@ -213,8 +213,8 @@ public class SignatureCoordinator : IAsyncDisposable
     // FamilyId -> SignatureFamily
     private readonly ConcurrentDictionary<string, SignatureFamily> _families = new();
 
-    // Ring buffer for identity rotation events (IP rotation detected via vector similarity)
     private readonly ConcurrentQueue<IdentityRotationEvent> _rotationEvents = new();
+    private readonly object _rotationEventsLock = new();
     private const int MaxRotationEvents = 100;
 
     public SignatureCoordinator(
@@ -568,9 +568,12 @@ public class SignatureCoordinator : IAsyncDisposable
     /// </summary>
     public void RecordRotationEvent(IdentityRotationEvent ev)
     {
-        _rotationEvents.Enqueue(ev);
-        while (_rotationEvents.Count > MaxRotationEvents)
-            _rotationEvents.TryDequeue(out _);
+        lock (_rotationEventsLock)
+        {
+            _rotationEvents.Enqueue(ev);
+            while (_rotationEvents.Count > MaxRotationEvents)
+                _rotationEvents.TryDequeue(out _);
+        }
     }
 
     /// <summary>
