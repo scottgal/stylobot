@@ -41,7 +41,6 @@ public sealed class SignatureResponseCoordinatorCache : IAsyncDisposable
             Environment.ProcessorCount,
             10,
             null, // No external signals
-            retentionScorer: (_, coordinator) => coordinator.GetRiskScore(),
             cleanupInterval: cleanupInterval ?? TimeSpan.FromSeconds(30));
     }
 

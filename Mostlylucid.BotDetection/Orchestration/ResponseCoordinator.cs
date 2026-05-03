@@ -257,7 +257,6 @@ public sealed class ResponseCoordinator : IAsyncDisposable
             Environment.ProcessorCount,
             10,
             _signals,
-            retentionScorer: (_, atom) => atom.GetCurrentBotProbability(),
             cleanupInterval: _options.CacheCleanupInterval);
 
         // Initialize sequential processing atom
