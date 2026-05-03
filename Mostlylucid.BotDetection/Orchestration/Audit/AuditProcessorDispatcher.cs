@@ -35,6 +35,23 @@ public sealed class AuditProcessorDispatcher
         if (!HasProcessors) return;
 
         var context = BuildContext(httpContext, evidence);
+        // Fix up StatusCode: response is already finalized when DispatchAsync is called inline
+        context = context with
+        {
+            Metadata = context.Metadata with { StatusCode = httpContext.Response.StatusCode }
+        };
+        await DispatchPrebuiltAsync(context, ct);
+    }
+
+    /// <summary>
+    ///     Dispatches a pre-built audit context. Safe to call fire-and-forget
+    ///     because the context holds no HttpContext reference.
+    /// </summary>
+    public async ValueTask DispatchPrebuiltAsync(
+        AuditProcessingContext context,
+        CancellationToken ct = default)
+    {
+        if (!HasProcessors) return;
 
         foreach (var processor in _processors)
         {
@@ -42,10 +59,7 @@ public sealed class AuditProcessorDispatcher
             {
                 await processor.ProcessAsync(context, _writer, ct);
             }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                // Request is completing/cancelled. Do not turn audit cancellation into request failure.
-            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
             catch (Exception ex)
             {
                 _logger.LogWarning(
@@ -57,13 +71,13 @@ public sealed class AuditProcessorDispatcher
         }
     }
 
-    private AuditProcessingContext BuildContext(HttpContext httpContext, AggregatedEvidence evidence)
+    public AuditProcessingContext BuildContext(HttpContext httpContext, AggregatedEvidence evidence)
     {
         var signals = RetainSignals(evidence.Signals);
 
         return new AuditProcessingContext
         {
-            HttpContext = httpContext,
+            HttpContext = null,   // do not hold a reference - HttpContext is pooled
             Evidence = evidence,
             Signals = signals,
             Contributions = evidence.Contributions,
@@ -74,7 +88,7 @@ public sealed class AuditProcessorDispatcher
                 PrimarySignature = TryGetPrimarySignature(httpContext),
                 Path = httpContext.Request.Path.Value,
                 Method = httpContext.Request.Method,
-                StatusCode = httpContext.Response.StatusCode,
+                StatusCode = null,  // set by caller after response is finalized
                 PolicyName = evidence.PolicyName,
                 Action = evidence.TriggeredActionPolicyName ?? evidence.PolicyAction?.ToString(),
                 RiskBand = evidence.RiskBand.ToString(),

@@ -13,6 +13,43 @@ namespace Mostlylucid.BotDetection.Test.Orchestration.Audit;
 public class AuditProcessorTests
 {
     [Fact]
+    public async Task DispatchPrebuiltAsync_WithNullHttpContext_ProcessorStillReceivesSignals()
+    {
+        var processor = new SnapshotProcessor();
+        var sink = new CaptureSink();
+        var dispatcher = CreateDispatcher(
+            [processor],
+            sink,
+            new AuditProcessorOptions { Enabled = true });
+
+        var ctx = new AuditProcessingContext
+        {
+            HttpContext = null,
+            Evidence = CreateEvidence(signals: new Dictionary<string, object> { ["test.signal"] = 1 }),
+            Signals = new Dictionary<string, object> { ["test.signal"] = 1 },
+            Contributions = [],
+            Metadata = new AuditTraceMetadata
+            {
+                Timestamp = DateTime.UtcNow,
+                RequestId = "test-req-id",
+                PrimarySignature = "sig123",
+                Path = "/test",
+                Method = "GET",
+                StatusCode = 200,
+                PolicyName = "default",
+                Action = null,
+                RiskBand = "low",
+                BotProbability = 0.1,
+                Confidence = 0.9,
+                ProcessingTimeMs = 5.0
+            }
+        };
+        await dispatcher.DispatchPrebuiltAsync(ctx);
+
+        Assert.Equal(1, processor.InvocationCount);
+    }
+
+    [Fact]
     public async Task DispatchAsync_WhenDisabled_DoesNotInvokeProcessors()
     {
         var processor = new SnapshotProcessor();
