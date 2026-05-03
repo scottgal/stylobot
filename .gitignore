@@ -481,7 +481,8 @@ signing/
 test-suites/
 test-bdf-scenarios/
 bot-signatures/
-demo/caddy/
+demo/
+.claude/
 src/Mostlylucid.BotDetection.Demo/hnsw-index/
 docs/legacy/
 .worktrees/
