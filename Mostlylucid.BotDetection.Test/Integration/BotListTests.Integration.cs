@@ -385,7 +385,7 @@ public class BotListIntegrationTests : IAsyncLifetime
         // Assert - Googlebot is whitelisted, so confidence is 0 (known good bot)
         Assert.Equal(0, result.Confidence);
         Assert.Equal(BotType.VerifiedBot, result.BotType);
-        Assert.Equal("Google Search", result.BotName);
+        Assert.Equal("Googlebot", result.BotName);
     }
 
     [Fact]

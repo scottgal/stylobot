@@ -263,6 +263,7 @@ public class SignatureCoordinator : IAsyncDisposable
             _options.SignatureTtl);
     }
 
+
     public async ValueTask DisposeAsync()
     {
         // Drain the update atom to complete pending updates
@@ -720,12 +721,10 @@ public class SignatureCoordinator : IAsyncDisposable
             }
             else
             {
-                // Signature has been evicted from cache, remove from tracking
+                // Cache miss: atom not yet created (async processing still in flight) or evicted.
+                // Only clean up known signatures — PruneShadowIndexesIfNeeded owns _ipIndex cleanup
+                // to avoid a race where a newly-registered sig is removed before its atom is cached.
                 _knownSignatures.TryRemove(key, out _);
-
-                // Clean up IP index entries for evicted signatures
-                foreach (var (_, sigSet) in _ipIndex)
-                    sigSet.TryRemove(key, out _);
 
                 // Clean up family membership for evicted signatures
                 if (_signatureToFamily.TryRemove(key, out var familyId) &&

@@ -331,8 +331,6 @@ public class SignatureConvergenceServiceTests
         await SeedIpAsync(coordinator, "sig-a", "ip-hash-1");
         await SeedIpAsync(coordinator, "sig-b", "ip-hash-2");
 
-        // Short wait for the update atom to drain
-        await Task.Delay(50);
 
         var vecA = MakeVector(129, 0.1f);
         var vecB = MakeVector(129, 0.101f);
@@ -368,7 +366,6 @@ public class SignatureConvergenceServiceTests
         await SeedIpAsync(coordinator, "sig-a", "ip-hash-same");
         await SeedIpAsync(coordinator, "sig-b", "ip-hash-same");
 
-        await Task.Delay(50);
 
         var vecA = MakeVector(129, 0.1f);
         var vecB = MakeVector(129, 0.101f);
@@ -397,7 +394,6 @@ public class SignatureConvergenceServiceTests
         var coordinator = CreateCoordinator();
         // Only seed sig-a's IP; sig-b has no IP in the index
         await SeedIpAsync(coordinator, "sig-a", "ip-hash-1");
-        await Task.Delay(50);
 
         var vecA = MakeVector(129, 0.1f);
         var vecB = MakeVector(129, 0.101f);
