@@ -234,11 +234,43 @@ public class BotDetectionMiddleware(
             if (upstreamEvidence != null)
             {
                 var upstreamStartTime = DateTime.UtcNow;
-                context.Response.OnCompleted(async () =>
+                var upstreamIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                var upstreamUa = context.Request.Headers.UserAgent.ToString();
+                var upstreamClientId = $"{upstreamIp}:{GetHash(upstreamUa)}";
+                var upstreamRequestId = context.TraceIdentifier;
+                var upstreamPath = context.Request.Path.Value ?? "/";
+                var upstreamMethod = context.Request.Method;
+                var upstreamBotProbability = upstreamEvidence.BotProbability;
+                var upstreamAction = upstreamEvidence.PolicyAction;
+                var upstreamAuditCtx = auditProcessorDispatcher?.HasProcessors == true
+                    ? auditProcessorDispatcher.BuildContext(context, upstreamEvidence)
+                    : null;
+
+                context.Response.OnCompleted(() =>
                 {
-                    await RecordResponseAsync(context, upstreamEvidence, responseCoordinator, upstreamStartTime);
-                    if (auditProcessorDispatcher?.HasProcessors == true)
-                        await auditProcessorDispatcher.DispatchAsync(context, upstreamEvidence);
+                    var statusCode = context.Response.StatusCode;
+                    var contentLength = context.Response.ContentLength ?? 0;
+                    var contentType = context.Response.ContentType;
+                    var processingTimeMs = (DateTime.UtcNow - upstreamStartTime).TotalMilliseconds;
+
+                    var signal = BuildResponseSignal(
+                        upstreamClientId, upstreamRequestId, upstreamPath, upstreamMethod,
+                        statusCode, contentLength, contentType,
+                        processingTimeMs, upstreamBotProbability, upstreamAction);
+
+                    if (signal is not null)
+                        _ = responseCoordinator.RecordResponseAsync(signal, CancellationToken.None);
+
+                    if (upstreamAuditCtx is not null)
+                    {
+                        var finalAuditCtx = upstreamAuditCtx with
+                        {
+                            Metadata = upstreamAuditCtx.Metadata with { StatusCode = statusCode }
+                        };
+                        _ = auditProcessorDispatcher!.DispatchPrebuiltAsync(finalAuditCtx, CancellationToken.None);
+                    }
+
+                    return Task.CompletedTask;
                 });
             }
 
@@ -300,38 +332,76 @@ public class BotDetectionMiddleware(
 
         // Register response recording BEFORE any early exits (blocked, action policy, etc.)
         // so all response codes (403, 404, 500) are captured for behavioral analysis.
+        // Pre-capture all HttpContext values synchronously - DI scopes and the connection
+        // may be tearing down by the time the OnCompleted callback fires.
         var requestStartTime = DateTime.UtcNow;
-        context.Response.OnCompleted(async () =>
+        var capturedIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var capturedUa = context.Request.Headers.UserAgent.ToString();
+        var capturedClientId = $"{capturedIp}:{GetHash(capturedUa)}";
+        var capturedRequestId = context.TraceIdentifier;
+        var capturedPath = context.Request.Path.Value ?? "/";
+        var capturedMethod = context.Request.Method;
+        var capturedBotProbability = aggregatedResult.BotProbability;
+        var capturedAction = aggregatedResult.PolicyAction;
+        var capturedSig = context.Items["BotDetection:Signature"] as string;
+        var capturedSigCoordinator = context.RequestServices.GetService<SignatureCoordinator>();
+        var capturedWaveform = context.RequestServices
+            .GetService<IEnumerable<IContributingDetector>>()?
+            .OfType<Orchestration.ContributingDetectors.BehavioralWaveformContributor>()
+            .FirstOrDefault();
+        var capturedAuditCtx = auditProcessorDispatcher?.HasProcessors == true
+            ? auditProcessorDispatcher.BuildContext(context, aggregatedResult)
+            : null;
+
+        int? capturedRetryAfter = null;
+        if (context.Response.Headers.TryGetValue("Retry-After", out var raHeader)
+            && int.TryParse(raHeader.ToString(), out var raParsed))
+            capturedRetryAfter = raParsed;
+
+        context.Response.OnCompleted(() =>
         {
             // Read final evidence from context (may have been boosted by ApplyResponseStatusBoost)
             var finalEvidence = context.Items[AggregatedEvidenceKey] as AggregatedEvidence ?? aggregatedResult;
-            await RecordResponseAsync(context, finalEvidence, responseCoordinator, requestStartTime);
-            if (auditProcessorDispatcher?.HasProcessors == true)
-                await auditProcessorDispatcher.DispatchAsync(context, finalEvidence);
+            var finalAction = finalEvidence.PolicyAction;
+
+            var statusCode = context.Response.StatusCode;
+            var contentLength = context.Response.ContentLength ?? 0;
+            var contentType = context.Response.ContentType;
+            var processingTimeMs = (DateTime.UtcNow - requestStartTime).TotalMilliseconds;
+
+            var signal = BuildResponseSignal(
+                capturedClientId, capturedRequestId, capturedPath, capturedMethod,
+                statusCode, contentLength, contentType,
+                processingTimeMs, capturedBotProbability, finalAction);
+
+            if (signal is not null)
+                _ = responseCoordinator.RecordResponseAsync(signal, CancellationToken.None);
+
+            capturedWaveform?.UpdateResponseContentType(capturedClientId, contentType);
+
+            if (capturedAuditCtx is not null)
+            {
+                var finalAuditCtx = capturedAuditCtx with
+                {
+                    Metadata = capturedAuditCtx.Metadata with { StatusCode = statusCode }
+                };
+                _ = auditProcessorDispatcher!.DispatchPrebuiltAsync(finalAuditCtx, CancellationToken.None);
+            }
 
             // Update response bytes in the signature coordinator now that the response is complete.
             // ContentLength may be null for chunked responses; we record 0 in that case.
-            var responseSig = context.Items["BotDetection:Signature"] as string;
-            if (!string.IsNullOrEmpty(responseSig))
+            if (!string.IsNullOrEmpty(capturedSig))
             {
-                var responseBytes = context.Response.ContentLength ?? 0;
-                var sigCoordinator = context.RequestServices.GetService<SignatureCoordinator>();
-                if (sigCoordinator != null)
-                    _ = sigCoordinator.RecordResponseBytesAsync(responseSig, context.TraceIdentifier, responseBytes);
+                if (capturedSigCoordinator is not null)
+                    _ = capturedSigCoordinator.RecordResponseBytesAsync(capturedSig, capturedRequestId, contentLength);
 
                 // Record 4xx/5xx responses for reactive pattern analysis (including bot-detection-triggered ones).
                 // This intentionally captures our own 429s and 403s: those are exactly what bots react to.
-                if (_reactiveTracker != null && context.Response.StatusCode >= 400)
-                {
-                    int? retryAfter = null;
-                    if (context.Response.Headers.TryGetValue("Retry-After", out var raVal)
-                        && int.TryParse(raVal.ToString(), out var parsed))
-                        retryAfter = parsed;
-                    _reactiveTracker.RecordErrorServed(
-                        responseSig, context.Response.StatusCode,
-                        context.Request.Path.Value ?? "/", retryAfter);
-                }
+                if (_reactiveTracker is not null && statusCode >= 400)
+                    _reactiveTracker.RecordErrorServed(capturedSig, statusCode, capturedPath, capturedRetryAfter);
             }
+
+            return Task.CompletedTask;
         });
 
         // Log detection result
@@ -1329,12 +1399,46 @@ public class BotDetectionMiddleware(
         if (aggregatedResult != null)
         {
             var testStartTime = DateTime.UtcNow;
-            context.Response.OnCompleted(async () =>
+            var testIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            var testUa = context.Request.Headers.UserAgent.ToString();
+            var testClientId = $"{testIp}:{GetHash(testUa)}";
+            var testRequestId = context.TraceIdentifier;
+            var testPath = context.Request.Path.Value ?? "/";
+            var testMethod = context.Request.Method;
+            var testBotProbability = aggregatedResult.BotProbability;
+            var testAction = aggregatedResult.PolicyAction;
+            var testAuditCtx = auditProcessorDispatcher?.HasProcessors == true
+                ? auditProcessorDispatcher.BuildContext(context, aggregatedResult)
+                : null;
+
+            context.Response.OnCompleted(() =>
             {
                 var finalEvidence = context.Items[AggregatedEvidenceKey] as AggregatedEvidence ?? aggregatedResult;
-                await RecordResponseAsync(context, finalEvidence, responseCoordinator, testStartTime);
-                if (auditProcessorDispatcher?.HasProcessors == true)
-                    await auditProcessorDispatcher.DispatchAsync(context, finalEvidence);
+                var finalAction = finalEvidence.PolicyAction;
+
+                var statusCode = context.Response.StatusCode;
+                var contentLength = context.Response.ContentLength ?? 0;
+                var contentType = context.Response.ContentType;
+                var processingTimeMs = (DateTime.UtcNow - testStartTime).TotalMilliseconds;
+
+                var signal = BuildResponseSignal(
+                    testClientId, testRequestId, testPath, testMethod,
+                    statusCode, contentLength, contentType,
+                    processingTimeMs, testBotProbability, finalAction);
+
+                if (signal is not null)
+                    _ = responseCoordinator.RecordResponseAsync(signal, CancellationToken.None);
+
+                if (testAuditCtx is not null)
+                {
+                    var finalAuditCtx = testAuditCtx with
+                    {
+                        Metadata = testAuditCtx.Metadata with { StatusCode = statusCode }
+                    };
+                    _ = auditProcessorDispatcher!.DispatchPrebuiltAsync(finalAuditCtx, CancellationToken.None);
+                }
+
+                return Task.CompletedTask;
             });
         }
 
@@ -2171,102 +2275,58 @@ public class BotDetectionMiddleware(
     #region Response Recording
 
     /// <summary>
-    ///     Records response signal for behavioral analysis.
-    ///     Called asynchronously after response is sent (zero request latency impact).
-    ///     IMPORTANT: Skips recording when the bot detection system itself modified the
-    ///     response (Block→403, Challenge→403, etc.) to prevent positive feedback loops
-    ///     where our own 403s cascade into higher bot scores via ResponseBehavior.
+    ///     Builds a ResponseSignal from pre-captured values.
+    ///     Returns null when the action is Block, Challenge, or Throttle to prevent
+    ///     positive feedback loops where our own synthetic responses raise bot scores.
     /// </summary>
-    private async Task RecordResponseAsync(
-        HttpContext context,
-        AggregatedEvidence evidence,
-        ResponseCoordinator coordinator,
-        DateTime requestStartTime)
+    private static ResponseSignal? BuildResponseSignal(
+        string clientId,
+        string requestId,
+        string path,
+        string method,
+        int statusCode,
+        long contentLength,
+        string? contentType,
+        double processingTimeMs,
+        double requestBotProbability,
+        Policies.PolicyAction? action)
     {
-        try
+        if (action is Policies.PolicyAction.Block
+            or Policies.PolicyAction.Challenge
+            or Policies.PolicyAction.Throttle)
+            return null;
+
+        return new ResponseSignal
         {
-            // Skip recording when bot detection itself modified the response.
-            // Our own 403s/429s are synthetic - they tell us nothing about the client's
-            // actual behavior with the server, and counting them creates a positive
-            // feedback loop (403 → auth failure → higher bot score → more 403s).
-            var action = evidence.PolicyAction;
-            if (action is Policies.PolicyAction.Block
-                or Policies.PolicyAction.Challenge
-                or Policies.PolicyAction.Throttle)
+            RequestId = requestId,
+            ClientId = clientId,
+            Timestamp = DateTimeOffset.UtcNow,
+            StatusCode = statusCode,
+            ResponseBytes = contentLength,
+            Path = path,
+            Method = method,
+            ProcessingTimeMs = processingTimeMs,
+            RequestBotProbability = requestBotProbability,
+            InlineAnalysis = false,
+            BodySummary = new ResponseBodySummary
             {
-                _logger.LogDebug(
-                    "Skipping response recording for {Path} - status {Status} was set by bot detection action '{Action}', not the server",
-                    context.Request.Path, context.Response.StatusCode, action);
-                return;
+                IsPresent = contentLength > 0,
+                Length = (int)contentLength,
+                ContentType = contentType
             }
-
-            // Also skip if the dashboard middleware or another bot-detection component
-            // set a 403 that wasn't from the action policy (e.g., dashboard data API hard-block).
-            // Check via the well-known context item: if bot detection blocked this request,
-            // the status code is ours, not the server's.
-            if (context.Response.StatusCode == 403 &&
-                context.Items.ContainsKey(IsBotKey) &&
-                context.Items[IsBotKey] is true &&
-                string.IsNullOrEmpty(evidence.TriggeredActionPolicyName))
-            {
-                _logger.LogDebug(
-                    "Skipping response recording for {Path} - 403 likely set by middleware bot-block, not the server",
-                    context.Request.Path);
-                return;
-            }
-
-            // Build client ID (same as ResponseBehaviorContributor)
-            var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-            var ua = context.Request.Headers.UserAgent.ToString();
-            var clientId = $"{ip}:{GetHash(ua)}";
-
-            // Calculate processing time
-            var processingTimeMs = (DateTime.UtcNow - requestStartTime).TotalMilliseconds;
-
-            // Build response signal
-            var signal = new ResponseSignal
-            {
-                RequestId = context.TraceIdentifier,
-                ClientId = clientId,
-                Timestamp = DateTimeOffset.UtcNow,
-                StatusCode = context.Response.StatusCode,
-                ResponseBytes = context.Response.ContentLength ?? 0,
-                Path = context.Request.Path.Value ?? "/",
-                Method = context.Request.Method,
-                ProcessingTimeMs = processingTimeMs,
-                RequestBotProbability = evidence.BotProbability,
-                InlineAnalysis = false,
-                BodySummary = new ResponseBodySummary
-                {
-                    IsPresent = context.Response.ContentLength > 0,
-                    Length = (int)(context.Response.ContentLength ?? 0),
-                    ContentType = context.Response.ContentType
-                }
-            };
-
-            // Record response (async, fire-and-forget style)
-            await coordinator.RecordResponseAsync(signal, CancellationToken.None);
-
-            // Feed response content type back to behavioral waveform for Markov chain accuracy
-            try
-            {
-                var waveform = context.RequestServices
-                    .GetService<IEnumerable<IContributingDetector>>()?
-                    .OfType<Orchestration.ContributingDetectors.BehavioralWaveformContributor>()
-                    .FirstOrDefault();
-                waveform?.UpdateResponseContentType(clientId, context.Response.ContentType);
-            }
-            catch
-            {
-                // Non-critical feedback - swallow silently
-            }
-        }
-        catch (Exception ex)
-        {
-            // Never throw from OnCompleted callback - just log
-            _logger.LogWarning(ex, "Failed to record response signal for {Path}", context.Request.Path);
-        }
+        };
     }
+
+    /// <summary>
+    ///     Test shim: exposes BuildResponseSignal for unit testing.
+    /// </summary>
+    internal static ResponseSignal? BuildResponseSignalForTest(
+        string clientId, string requestId, string path, string method,
+        int statusCode, long contentLength, string? contentType,
+        double processingTimeMs, double requestBotProbability, Policies.PolicyAction? action)
+        => BuildResponseSignal(clientId, requestId, path, method,
+            statusCode, contentLength, contentType,
+            processingTimeMs, requestBotProbability, action);
 
     /// <summary>
     /// Computes a stable hash for the input string.

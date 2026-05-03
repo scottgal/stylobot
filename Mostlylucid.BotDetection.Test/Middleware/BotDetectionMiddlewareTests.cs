@@ -962,4 +962,48 @@ public class BotDetectionMiddlewareTests
     }
 
     #endregion
+
+    #region BuildResponseSignal tests
+
+    [Fact]
+    public void BuildResponseSignal_ReturnsNull_WhenActionIsBlock()
+    {
+        var signal = BotDetectionMiddleware.BuildResponseSignalForTest(
+            clientId: "127.0.0.1:ABCD1234",
+            requestId: "test-req",
+            path: "/test",
+            method: "GET",
+            statusCode: 403,
+            contentLength: 0,
+            contentType: "text/html",
+            processingTimeMs: 5.0,
+            requestBotProbability: 0.9,
+            action: PolicyAction.Block);
+
+        Assert.Null(signal);
+    }
+
+    [Fact]
+    public void BuildResponseSignal_ReturnsSignal_WhenActionIsNull()
+    {
+        var signal = BotDetectionMiddleware.BuildResponseSignalForTest(
+            clientId: "127.0.0.1:ABCD1234",
+            requestId: "test-req",
+            path: "/page",
+            method: "GET",
+            statusCode: 200,
+            contentLength: 1024,
+            contentType: "text/html",
+            processingTimeMs: 10.0,
+            requestBotProbability: 0.1,
+            action: null);
+
+        Assert.NotNull(signal);
+        Assert.Equal("127.0.0.1:ABCD1234", signal!.ClientId);
+        Assert.Equal(200, signal.StatusCode);
+        Assert.Equal("/page", signal.Path);
+        Assert.Equal(1024, signal.ResponseBytes);
+    }
+
+    #endregion
 }
