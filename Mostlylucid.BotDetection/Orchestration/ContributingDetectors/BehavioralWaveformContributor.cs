@@ -480,25 +480,28 @@ public partial class BehavioralWaveformContributor : ConfiguredContributorBase
     {
         if (string.IsNullOrEmpty(responseContentType)) return;
 
-        var cacheKey = CacheKeyPrefix + clientSignature;
-        if (!_cache.TryGetValue(cacheKey, out List<RequestSnapshot>? history) || history == null || history.Count == 0)
-            return;
-
-        var last = history[^1];
-        var actualClass = ClassifyResponseContentType(responseContentType);
-        if (actualClass != last.ContentClass)
+        var signatureLock = _signatureLocks.GetOrAdd(clientSignature, _ => new object());
+        lock (signatureLock)
         {
-            // Replace last entry with corrected content class
-            history[^1] = new RequestSnapshot
+            var cacheKey = CacheKeyPrefix + clientSignature;
+            if (!_cache.TryGetValue(cacheKey, out List<RequestSnapshot>? history) || history == null || history.Count == 0)
+                return;
+
+            var last = history[^1];
+            var actualClass = ClassifyResponseContentType(responseContentType);
+            if (actualClass != last.ContentClass)
             {
-                Timestamp = last.Timestamp,
-                Path = last.Path,
-                Method = last.Method,
-                StatusCode = last.StatusCode,
-                UserAgent = last.UserAgent,
-                RefererHash = last.RefererHash,
-                ContentClass = actualClass
-            };
+                history[^1] = new RequestSnapshot
+                {
+                    Timestamp = last.Timestamp,
+                    Path = last.Path,
+                    Method = last.Method,
+                    StatusCode = last.StatusCode,
+                    UserAgent = last.UserAgent,
+                    RefererHash = last.RefererHash,
+                    ContentClass = actualClass
+                };
+            }
         }
     }
 
