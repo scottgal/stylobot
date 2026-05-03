@@ -1,6 +1,5 @@
 using System.Reflection;
 using Microsoft.Extensions.Logging;
-using Mostlylucid.BotDetection.Orchestration.Manifests;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
