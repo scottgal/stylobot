@@ -423,6 +423,8 @@ public sealed class ResponseCoordinator : IAsyncDisposable
 internal sealed class CompactedResponseSummary
 {
     public int TotalCount { get; set; }
+    public int Count2xx { get; set; }
+    public int Count3xx { get; set; }
     public int Count4xx { get; set; }
     public int Count404 { get; set; }
     public int Count5xx { get; set; }
@@ -526,6 +528,8 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
     {
         _compacted ??= new CompactedResponseSummary { FirstSeen = signals[0].Timestamp };
         _compacted.TotalCount += signals.Count;
+        _compacted.Count2xx += signals.Count(s => s.StatusCode is >= 200 and < 300);
+        _compacted.Count3xx += signals.Count(s => s.StatusCode is >= 300 and < 400);
         _compacted.Count4xx += signals.Count(s => s.StatusCode is >= 400 and < 500);
         _compacted.Count404 += signals.Count(s => s.StatusCode == 404);
         _compacted.Count5xx += signals.Count(s => s.StatusCode >= 500);
@@ -607,6 +611,8 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
         // Merge compacted summary counts into live counts
         if (_compacted != null)
         {
+            count2xx += _compacted.Count2xx;
+            count3xx += _compacted.Count3xx;
             count4xx += _compacted.Count4xx;
             count404 += _compacted.Count404;
             count5xx += _compacted.Count5xx;
