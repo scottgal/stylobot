@@ -227,7 +227,9 @@ public class BotClusterService : BackgroundService
 
         // Under load: focus CPU budget on worst offenders (highest bot probability) first.
         // Low-threat signatures wait for the next run when the system has more capacity.
-        var behaviors = allBehaviors.ToList();
+        var behaviors = allBehaviors
+            .Where(b => b.AverageBotProbability >= _options.MinBotProbabilityForClustering)
+            .ToList();
         var cap = _loadSensor?.GetWorstOffenderCap(behaviors.Count);
         if (cap.HasValue && behaviors.Count > cap.Value)
         {
@@ -246,16 +248,20 @@ public class BotClusterService : BackgroundService
             {
                 LastRunAt = DateTime.UtcNow,
                 Algorithm = _options.Algorithm,
-                Status = $"Insufficient signatures: {behaviors.Count} below MinClusterSize={_options.MinClusterSize}",
+                Status = $"Insufficient botlike signatures: {behaviors.Count} below MinClusterSize={_options.MinClusterSize} " +
+                         $"after MinBotProbabilityForClustering={_options.MinBotProbabilityForClustering:F2}",
                 InputBehaviorCount = behaviors.Count,
                 FeatureCount = behaviors.Count,
                 SimilarityThreshold = _options.SimilarityThreshold,
                 MinClusterSize = _options.MinClusterSize
             };
             _logger.LogInformation(
-                "Clustering: {Count} signatures below MinClusterSize={Min}. " +
-                "Top bot probs: [{TopProbs}]",
-                behaviors.Count, _options.MinClusterSize,
+                "Clustering: {Count}/{Total} botlike signatures below MinClusterSize={Min} (minBotProb={MinBotProb:F2}). " +
+                "Top all-signature bot probs: [{TopProbs}]",
+                behaviors.Count,
+                allBehaviors.Count,
+                _options.MinClusterSize,
+                _options.MinBotProbabilityForClustering,
                 string.Join(", ", allBehaviors
                     .OrderByDescending(b => b.AverageBotProbability)
                     .Take(5)

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Threading.Channels;
 
 namespace Mostlylucid.BotDetection.Events;
@@ -13,6 +14,12 @@ public interface ILearningEventBus
     ///     Get the event reader for background processing
     /// </summary>
     ChannelReader<LearningEvent> Reader { get; }
+
+    /// <summary>
+    ///     Create or retrieve an independent subscriber stream.
+    ///     Each subscriber receives every event published after subscription.
+    /// </summary>
+    ChannelReader<LearningEvent> Subscribe(string subscriberName, int capacity = 10_000);
 
     /// <summary>
     ///     Publish a learning event (non-blocking, fire-and-forget)
@@ -136,12 +143,18 @@ public class LearningEvent
 public sealed class LearningEventBus : ILearningEventBus, IDisposable
 {
     private readonly Channel<LearningEvent> _channel;
+    private readonly ConcurrentDictionary<string, Channel<LearningEvent>> _subscribers = new(StringComparer.Ordinal);
     private bool _disposed;
 
     public LearningEventBus(int capacity = 10_000)
     {
         // Bounded channel to prevent memory issues if processing falls behind
-        _channel = Channel.CreateBounded<LearningEvent>(new BoundedChannelOptions(capacity)
+        _channel = CreateChannel(capacity);
+    }
+
+    private static Channel<LearningEvent> CreateChannel(int capacity)
+    {
+        return Channel.CreateBounded<LearningEvent>(new BoundedChannelOptions(capacity)
         {
             FullMode = BoundedChannelFullMode.DropOldest, // Drop oldest if full
             SingleReader = true, // Single background processor
@@ -160,13 +173,27 @@ public sealed class LearningEventBus : ILearningEventBus, IDisposable
     public bool TryPublish(LearningEvent evt)
     {
         if (_disposed) return false;
-        return _channel.Writer.TryWrite(evt);
+        var wrote = _channel.Writer.TryWrite(evt);
+        foreach (var subscriber in _subscribers.Values)
+            subscriber.Writer.TryWrite(evt);
+        return wrote;
     }
 
     public ChannelReader<LearningEvent> Reader => _channel.Reader;
 
+    public ChannelReader<LearningEvent> Subscribe(string subscriberName, int capacity = 10_000)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subscriberName);
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(LearningEventBus));
+
+        return _subscribers.GetOrAdd(subscriberName, _ => CreateChannel(capacity)).Reader;
+    }
+
     public void Complete()
     {
         _channel.Writer.TryComplete();
+        foreach (var subscriber in _subscribers.Values)
+            subscriber.Writer.TryComplete();
     }
 }

@@ -335,13 +335,14 @@ public class SignatureCoordinator : IAsyncDisposable
         string? countryCode = null,
         string? asn = null,
         bool isDatacenter = false,
-        string? ipHash = null)
+        string? ipHash = null,
+        DateTime? timestampUtc = null)
     {
         // Create request record
         var request = new SignatureRequest
         {
             RequestId = requestId,
-            Timestamp = DateTime.UtcNow,
+            Timestamp = timestampUtc ?? DateTime.UtcNow,
             Path = path,
             BotProbability = botProbability,
             Signals = signals,

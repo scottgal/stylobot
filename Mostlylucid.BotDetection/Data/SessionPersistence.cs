@@ -232,6 +232,12 @@ public interface ISessionStore
     /// <summary>Get all requests not yet assigned to a session, up to limit rows, oldest-first per signature.</summary>
     Task<List<PersistedRequest>> GetUnatomizedRequestsAsync(int limit = 5000, CancellationToken ct = default);
 
+    /// <summary>Get recent persisted requests, newest window first but returned oldest-first for replay.</summary>
+    Task<List<PersistedRequest>> GetRecentRequestsAsync(
+        int limit = 5000,
+        DateTime? sinceUtc = null,
+        CancellationToken ct = default);
+
     /// <summary>Link a list of request IDs to a session row.</summary>
     Task LinkRequestsToSessionAsync(long sessionId, IReadOnlyList<long> requestIds, CancellationToken ct = default);
 

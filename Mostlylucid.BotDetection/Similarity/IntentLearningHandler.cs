@@ -89,7 +89,10 @@ public sealed class IntentLearningHandler : ILearningEventHandler
         var hasAttack = evt.Metadata.TryGetValue("attack_detected", out var atk) && atk is true;
         if (!hasAttack) return;
 
-        var signature = evt.RequestId ?? Guid.NewGuid().ToString("N")[..12];
+        var signature = evt.Metadata.TryGetValue("primarySignature", out var primary) &&
+                        !string.IsNullOrWhiteSpace(primary?.ToString())
+            ? primary.ToString()!
+            : evt.RequestId ?? Guid.NewGuid().ToString("N")[..12];
         var category = evt.Metadata.TryGetValue("attack_category", out var cat)
             ? cat?.ToString() ?? "attacking" : "attacking";
 

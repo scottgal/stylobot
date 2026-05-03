@@ -498,6 +498,55 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         return results;
     }
 
+    public async Task<List<PersistedRequest>> GetRecentRequestsAsync(
+        int limit = 5000,
+        DateTime? sinceUtc = null,
+        CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, signature, timestamp, path, markov_state,
+                   status_code, bot_probability, confidence, risk_band, processing_ms, session_id
+            FROM (
+                SELECT id, signature, timestamp, path, markov_state,
+                       status_code, bot_probability, confidence, risk_band, processing_ms, session_id
+                FROM requests
+                WHERE (@since IS NULL OR timestamp >= @since)
+                ORDER BY timestamp DESC
+                LIMIT @limit
+            )
+            ORDER BY timestamp ASC
+            """;
+        cmd.Parameters.AddWithValue("@limit", limit);
+        cmd.Parameters.AddWithValue("@since", sinceUtc.HasValue ? sinceUtc.Value.ToString("O") : DBNull.Value);
+
+        var results = new List<PersistedRequest>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            results.Add(new PersistedRequest
+            {
+                Id             = reader.GetInt64(0),
+                Signature      = reader.GetString(1),
+                Timestamp      = DateTime.Parse(reader.GetString(2), null,
+                                     System.Globalization.DateTimeStyles.RoundtripKind),
+                Path           = reader.GetString(3),
+                MarkovState    = reader.GetString(4),
+                StatusCode     = reader.GetInt32(5),
+                BotProbability = reader.GetDouble(6),
+                Confidence     = reader.GetDouble(7),
+                RiskBand       = reader.GetString(8),
+                ProcessingMs   = reader.GetDouble(9),
+                SessionId      = reader.IsDBNull(10) ? null : reader.GetInt64(10)
+            });
+        }
+
+        return results;
+    }
+
     public async Task LinkRequestsToSessionAsync(
         long sessionId, IReadOnlyList<long> requestIds, CancellationToken ct = default)
     {

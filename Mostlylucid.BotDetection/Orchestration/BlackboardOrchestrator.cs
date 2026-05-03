@@ -1072,6 +1072,10 @@ public class BlackboardOrchestrator
             metadata["ip"] = ip;
         if (result.Signals.TryGetValue("path", out var path))
             metadata["path"] = path;
+        if (result.Signals.TryGetValue(SignalKeys.PrimarySignature, out var primarySig))
+            metadata["primarySignature"] = primarySig;
+        else
+            metadata["primarySignature"] = ComputeSignatureHash(httpContext);
 
         // Extract features for similarity learning vector storage.
         // Without this, SimilarityLearningHandler gets null features and skips AddAsync.

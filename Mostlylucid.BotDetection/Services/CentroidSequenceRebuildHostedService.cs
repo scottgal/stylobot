@@ -30,7 +30,19 @@ internal sealed class CentroidSequenceRebuildHostedService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        await _centroidStore.InitializeAsync(cancellationToken);
+        try
+        {
+            await _centroidStore.InitializeAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogWarning("CentroidSequenceStore initialization was canceled; content sequence detection will use defaults until restart.");
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "CentroidSequenceStore initialization failed; content sequence detection will use defaults.");
+        }
 
         if (_clusterService != null)
         {
@@ -71,8 +83,23 @@ internal sealed class CentroidSequenceRebuildHostedService : IHostedService
 }
 
 /// <summary>Calls AssetHashStore.InitializeAsync on startup to create the SQLite table.</summary>
-internal sealed class AssetHashInitHostedService(AssetHashStore store) : IHostedService
+internal sealed class AssetHashInitHostedService(AssetHashStore store, ILogger<AssetHashInitHostedService> logger) : IHostedService
 {
-    public Task StartAsync(CancellationToken ct) => store.InitializeAsync(ct);
+    public async Task StartAsync(CancellationToken ct)
+    {
+        try
+        {
+            await store.InitializeAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            logger.LogWarning("AssetHashStore initialization was canceled; asset hash matching will use live data only.");
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "AssetHashStore initialization failed; asset hash matching will use live data only.");
+        }
+    }
+
     public Task StopAsync(CancellationToken ct) => Task.CompletedTask;
 }

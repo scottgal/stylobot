@@ -609,6 +609,7 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<ILogger<Data.SqliteSessionStore>>(),
                 sp.GetRequiredService<IOptions<BotDetectionOptions>>(),
                 sp.GetService<ISessionVectorSearch>()));
+        services.AddHostedService<Services.SignatureCoordinatorWarmupService>();
         services.AddHostedService<Data.SessionPersistenceService>();
         // Per-request persistence (every request → SQLite, LFU sampled under load)
         services.AddSingleton<Data.RequestPersistenceService>();

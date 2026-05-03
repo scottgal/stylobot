@@ -50,8 +50,9 @@ public sealed class SimilarityLearningHandler : ILearningEventHandler
             var wasBot = evt.Label ?? (evt.Confidence.HasValue && evt.Confidence.Value > 0.7);
             var confidence = evt.Confidence ?? 0.5;
 
-            // Generate a signature ID from request context
-            var signatureId = evt.RequestId ?? Guid.NewGuid().ToString("N")[..12];
+            // Prefer the stable visitor signature over the per-request ID so learning
+            // survives repeated visits and does not fill the index with one-off IDs.
+            var signatureId = ExtractStableSignature(evt) ?? evt.RequestId ?? Guid.NewGuid().ToString("N")[..12];
 
             // Build embedding context from metadata for semantic similarity.
             // Uses User-Agent + request path - these are the signals that best distinguish
@@ -78,5 +79,20 @@ public sealed class SimilarityLearningHandler : ILearningEventHandler
         {
             _logger.LogWarning(ex, "Failed to add vector to similarity index");
         }
+    }
+
+    private static string? ExtractStableSignature(LearningEvent evt)
+    {
+        if (evt.Metadata == null) return null;
+
+        if (evt.Metadata.TryGetValue("primarySignature", out var primary) &&
+            !string.IsNullOrWhiteSpace(primary?.ToString()))
+            return primary.ToString();
+
+        if (evt.Metadata.TryGetValue("signature", out var signature) &&
+            !string.IsNullOrWhiteSpace(signature?.ToString()))
+            return signature.ToString();
+
+        return null;
     }
 }

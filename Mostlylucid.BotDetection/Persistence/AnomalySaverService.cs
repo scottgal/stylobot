@@ -228,7 +228,7 @@ public class AnomalySaverService : BackgroundService
     /// </summary>
     private async Task LearningEventReaderAsync(CancellationToken cancellationToken)
     {
-        var reader = _eventBus!.Reader;
+        var reader = _eventBus!.Subscribe(nameof(AnomalySaverService));
 
         while (!cancellationToken.IsCancellationRequested)
             try

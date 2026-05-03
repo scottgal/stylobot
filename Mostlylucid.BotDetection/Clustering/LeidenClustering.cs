@@ -35,13 +35,22 @@ public static class LeidenClustering
 
         // Pre-compute total edge weight for normalization
         var totalWeight = 0.0;
+        var directedEdgeCount = 0;
         foreach (var (_, neighbors) in adjacency)
+        {
             foreach (var (_, w) in neighbors)
+            {
                 totalWeight += w;
+                directedEdgeCount++;
+            }
+        }
         totalWeight /= 2.0; // Each edge counted twice
 
         if (totalWeight < 1e-9)
             return communities;
+
+        var undirectedEdgeCount = Math.Max(1, directedEdgeCount / 2);
+        var averageEdgeWeight = totalWeight / undirectedEdgeCount;
 
         var rng = new Random(42); // Deterministic
 
@@ -50,7 +59,7 @@ public static class LeidenClustering
             var improved = false;
 
             // Phase 1: Local moving - try moving each node to best neighboring community
-            improved |= LocalMovingPhase(adjacency, communities, nodeCount, resolution, totalWeight, rng);
+            improved |= LocalMovingPhase(adjacency, communities, nodeCount, resolution, averageEdgeWeight, rng);
 
             // Phase 2: Refinement - ensure communities are well-connected
             RefinePhase(adjacency, communities, nodeCount, resolution);
@@ -72,7 +81,7 @@ public static class LeidenClustering
         int[] communities,
         int nodeCount,
         double resolution,
-        double totalWeight,
+        double averageEdgeWeight,
         Random rng)
     {
         var improved = false;
@@ -139,13 +148,21 @@ public static class LeidenClustering
                 if (candidateComm == currentComm)
                     continue;
 
-                // CPM quality gain for moving node from currentComm to candidateComm:
-                // gain = (weight_to_candidate - weight_to_current) - resolution * (size_candidate - size_current + 1)
+                // CPM-style quality gain for moving node from currentComm to candidateComm.
+                //
+                // Edge weights in this pipeline are normalized similarities in [0, 1]. A literal
+                // CPM penalty of resolution * candidateSize with the documented default
+                // resolution=1.0 makes the first merge require weight > 1.0, which is impossible.
+                // Scale the penalty to the observed graph's average edge weight so the resolution
+                // parameter controls granularity without making normalized graphs unmergeable.
                 commSizes.TryGetValue(candidateComm, out var candidateSize);
                 commSizes.TryGetValue(currentComm, out var currentSize);
 
-                var gain = (weightToCandidate - weightToOwn)
-                           - resolution * (candidateSize - (currentSize - 1));
+                var ownSizeAfterMove = Math.Max(0, currentSize - 1);
+                var effectiveResolution = Math.Clamp(resolution, 0.0, 10.0) * averageEdgeWeight * 0.5;
+                var candidatePenalty = effectiveResolution * candidateSize;
+                var ownPenaltyRelief = effectiveResolution * ownSizeAfterMove;
+                var gain = (weightToCandidate - weightToOwn) - candidatePenalty + ownPenaltyRelief;
 
                 if (gain > bestGain)
                 {

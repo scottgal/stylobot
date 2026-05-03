@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies;
@@ -405,7 +406,7 @@ public class EphemeralDetectionOrchestrator : IAsyncDisposable
             $"detection.completed:{result.RiskBand}:{result.BotProbability:F2}",
             requestId);
 
-        PublishLearningEvent(result, requestId, stopwatch.Elapsed);
+        PublishLearningEvent(result, httpContext, requestId, stopwatch.Elapsed);
 
         _logger.LogDebug(
             "Ephemeral detection complete for {RequestId}: {RiskBand} (prob={Probability:F2}) in {Elapsed}ms, {Waves} waves, quorum: {Completed}/{Total}",
@@ -757,6 +758,7 @@ public class EphemeralDetectionOrchestrator : IAsyncDisposable
 
     private void PublishLearningEvent(
         AggregatedEvidence result,
+        HttpContext httpContext,
         string requestId,
         TimeSpan elapsed)
     {
@@ -790,6 +792,23 @@ public class EphemeralDetectionOrchestrator : IAsyncDisposable
         if (result.Signals.TryGetValue(Models.SignalKeys.PrimarySignature, out var primarySig))
             metadata["primarySignature"] = primarySig;
 
+        var isUncertain = result.Confidence < 0.6 && result.BotProbability is >= 0.3 and <= 0.8;
+        Dictionary<string, double>? features = null;
+        if (isHighConfidenceBot || isHighConfidenceHuman || isUncertain)
+        {
+            try
+            {
+                var floatFeatures = HeuristicFeatureExtractor.ExtractFeatures(httpContext, result);
+                features = new Dictionary<string, double>(floatFeatures.Count, StringComparer.OrdinalIgnoreCase);
+                foreach (var (key, value) in floatFeatures)
+                    features[key] = value;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Feature extraction failed for learning event {RequestId}", requestId);
+            }
+        }
+
         _learningBus.TryPublish(new LearningEvent
         {
             Type = eventType,
@@ -797,6 +816,7 @@ public class EphemeralDetectionOrchestrator : IAsyncDisposable
             Confidence = result.Confidence,
             Label = result.BotProbability >= 0.5,
             RequestId = requestId,
+            Features = features,
             Metadata = metadata
         });
     }
