@@ -721,13 +721,13 @@ public sealed class SessionStore
     ///     This is the retrogressive detection: the arrival of THIS request tells us the
     ///     PREVIOUS session has ended (because the gap exceeded the threshold).
     /// </summary>
-    public SessionSnapshot? RecordRequest(
+    public async Task<SessionSnapshot?> RecordRequestAsync(
         string signature,
         SessionRequest request,
         FingerprintContext? fingerprint = null)
     {
         var sessionLock = _locks.GetOrAdd(signature, _ => new SemaphoreSlim(1, 1));
-        sessionLock.Wait();
+        await sessionLock.WaitAsync();
 
         try
         {

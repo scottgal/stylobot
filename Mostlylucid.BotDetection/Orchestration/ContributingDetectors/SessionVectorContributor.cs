@@ -124,7 +124,7 @@ public class SessionVectorContributor : ConfiguredContributorBase
             var fpContext = BuildFingerprintContext(state);
 
             // Record request - may return a completed session snapshot (retrogressive boundary)
-            var completedSession = _sessionStore.RecordRequest(signature, sessionRequest, fpContext);
+            var completedSession = await _sessionStore.RecordRequestAsync(signature, sessionRequest, fpContext);
 
             // Store header hashes on first request of a session (for progressive identity)
             var currentSession = _sessionStore.GetCurrentSession(signature);
