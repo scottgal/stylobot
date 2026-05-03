@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.Test.Orchestration;
@@ -152,6 +153,73 @@ public class ResponseAnalysisContextTests
         Assert.Equal(ResponseAnalysisMode.Async, context.Mode);
         Assert.Equal(ResponseAnalysisThoroughness.Thorough, context.Thoroughness);
         Assert.Equal("AWS", context.TriggerSignals["datacenter"]);
+    }
+}
+
+public class ClientResponseTrackingAtomCompactionTests
+{
+    private static ResponseSignal MakeSignal(int statusCode, string clientId) => new()
+    {
+        RequestId = Guid.NewGuid().ToString(),
+        ClientId = clientId,
+        Timestamp = DateTimeOffset.UtcNow,
+        StatusCode = statusCode,
+        ResponseBytes = 0,
+        Path = "/test",
+        Method = "GET",
+        BodySummary = new ResponseBodySummary { IsPresent = false, Length = 0 }
+    };
+
+    [Fact]
+    public async Task RecordResponseAsync_WhenBufferExceedsCompactionThreshold_CompactedCountsArePreserved()
+    {
+        var options = new ResponseCoordinatorOptions
+        {
+            MaxResponsesPerClient = 200,
+            CompactionThreshold = 10,
+            MinResponsesForScoring = 1,
+            ResponseWindow = TimeSpan.FromHours(1)
+        };
+        var atom = new ClientResponseTrackingAtom("client-1", options, NullLogger.Instance);
+
+        // Record 15 responses: 5 are 404s, then 10 are 200s
+        // After the 11th response the buffer (11 entries) exceeds CompactionThreshold=10,
+        // so the oldest 5 are compacted. The 5 x 404s fall in the oldest half.
+        for (var i = 0; i < 5; i++)
+            await atom.RecordResponseAsync(MakeSignal(404, "client-1"), CancellationToken.None);
+        for (var i = 0; i < 10; i++)
+            await atom.RecordResponseAsync(MakeSignal(200, "client-1"), CancellationToken.None);
+
+        var behavior = await atom.GetBehaviorAsync(CancellationToken.None);
+
+        // Total must include both compacted and live responses
+        Assert.True(behavior.TotalResponses >= 15,
+            $"Expected >= 15 total responses, got {behavior.TotalResponses}");
+
+        // 404 count must survive compaction
+        Assert.True(behavior.Count404 >= 5,
+            $"Expected >= 5 404s, got {behavior.Count404}");
+    }
+
+    [Fact]
+    public async Task RecordResponseAsync_BelowThreshold_NothingCompacted()
+    {
+        var options = new ResponseCoordinatorOptions
+        {
+            MaxResponsesPerClient = 200,
+            CompactionThreshold = 100,
+            MinResponsesForScoring = 1,
+            ResponseWindow = TimeSpan.FromHours(1)
+        };
+        var atom = new ClientResponseTrackingAtom("client-2", options, NullLogger.Instance);
+
+        for (var i = 0; i < 5; i++)
+            await atom.RecordResponseAsync(MakeSignal(404, "client-2"), CancellationToken.None);
+
+        var behavior = await atom.GetBehaviorAsync(CancellationToken.None);
+
+        Assert.Equal(5, behavior.TotalResponses);
+        Assert.Equal(5, behavior.Count404);
     }
 }
 

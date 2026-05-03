@@ -154,6 +154,12 @@ public sealed class ResponseCoordinatorOptions
     ///     Default: 30 seconds. Set lower (e.g., 5s) for high-churn workloads.
     /// </summary>
     public TimeSpan CacheCleanupInterval { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    ///     When the live response ring buffer exceeds this count, compact the oldest half
+    ///     into a summary. Default: 100.
+    /// </summary>
+    public int CompactionThreshold { get; set; } = 100;
 }
 
 /// <summary>
@@ -411,6 +417,23 @@ public sealed class ResponseCoordinator : IAsyncDisposable
 }
 
 /// <summary>
+///     Compacted summary of older response signals that have been evicted from the live ring buffer.
+///     Preserves all scoring-relevant counts at O(1) storage instead of dropping them.
+/// </summary>
+internal sealed class CompactedResponseSummary
+{
+    public int TotalCount { get; set; }
+    public int Count4xx { get; set; }
+    public int Count404 { get; set; }
+    public int Count5xx { get; set; }
+    public int AuthFailures { get; set; }
+    public int HoneypotHits { get; set; }
+    public Dictionary<string, int> PatternCounts { get; set; } = new();
+    public DateTimeOffset FirstSeen { get; set; }
+    public DateTimeOffset LastSeen { get; set; }
+}
+
+/// <summary>
 ///     Tracks response behavior for a single client using sliding window.
 /// </summary>
 internal sealed class ClientResponseTrackingAtom : IDisposable
@@ -423,6 +446,7 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
     private readonly LinkedList<ResponseSignal> _responses;
 
     private ClientResponseBehavior? _cachedBehavior;
+    private CompactedResponseSummary? _compacted;
 
     public ClientResponseTrackingAtom(
         string clientId,
@@ -460,8 +484,18 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
             var cutoff = DateTimeOffset.UtcNow - _options.ResponseWindow;
             while (_responses.Count > 0 && _responses.First!.Value.Timestamp < cutoff) _responses.RemoveFirst();
 
-            // Enforce max responses
-            while (_responses.Count > _options.MaxResponsesPerClient) _responses.RemoveFirst();
+            // Compact oldest half into summary instead of dropping when buffer exceeds threshold
+            if (_responses.Count > _options.CompactionThreshold)
+            {
+                var compactCount = _responses.Count / 2;
+                var toCompact = new List<ResponseSignal>(compactCount);
+                for (var i = 0; i < compactCount; i++)
+                {
+                    toCompact.Add(_responses.First!.Value);
+                    _responses.RemoveFirst();
+                }
+                MergeIntoCompacted(toCompact);
+            }
 
             // Recompute behavior
             _cachedBehavior = ComputeBehavior();
@@ -486,12 +520,31 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
     }
 
     /// <summary>
+    ///     Merge a batch of signals into the compacted summary, preserving all scoring counts.
+    /// </summary>
+    private void MergeIntoCompacted(List<ResponseSignal> signals)
+    {
+        _compacted ??= new CompactedResponseSummary { FirstSeen = signals[0].Timestamp };
+        _compacted.TotalCount += signals.Count;
+        _compacted.Count4xx += signals.Count(s => s.StatusCode is >= 400 and < 500);
+        _compacted.Count404 += signals.Count(s => s.StatusCode == 404);
+        _compacted.Count5xx += signals.Count(s => s.StatusCode >= 500);
+        _compacted.AuthFailures += signals.Count(s => s.StatusCode is 401 or 403);
+        _compacted.HoneypotHits += signals.Count(s =>
+            _options.HoneypotPaths.Any(hp => MatchesHoneypotPattern(s.Path, hp)));
+        foreach (var signal in signals)
+        foreach (var pattern in signal.BodySummary.MatchedPatterns)
+            _compacted.PatternCounts[pattern] = _compacted.PatternCounts.GetValueOrDefault(pattern) + 1;
+        _compacted.LastSeen = signals[^1].Timestamp;
+    }
+
+    /// <summary>
     ///     Compute response behavior metrics and score.
     ///     This is where response-side bot detection happens.
     /// </summary>
     private ClientResponseBehavior ComputeBehavior()
     {
-        if (_responses.Count == 0)
+        if (_responses.Count == 0 && _compacted == null)
             return new ClientResponseBehavior
             {
                 ClientId = _clientId,
@@ -512,10 +565,18 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
             };
 
         var responseList = _responses.ToList();
-        var firstSeen = responseList.First().Timestamp.UtcDateTime;
-        var lastSeen = responseList.Last().Timestamp.UtcDateTime;
 
-        // Count status codes
+        // Determine time range: prefer compacted FirstSeen if available and earlier
+        var firstSeen = _compacted != null
+            ? _compacted.FirstSeen.UtcDateTime
+            : responseList.Count > 0
+                ? responseList.First().Timestamp.UtcDateTime
+                : DateTime.UtcNow;
+        var lastSeen = responseList.Count > 0
+            ? responseList.Last().Timestamp.UtcDateTime
+            : _compacted?.LastSeen.UtcDateTime ?? DateTime.UtcNow;
+
+        // Count status codes from live ring buffer
         var count2xx = responseList.Count(r => r.StatusCode >= 200 && r.StatusCode < 300);
         var count3xx = responseList.Count(r => r.StatusCode >= 300 && r.StatusCode < 400);
         var count4xx = responseList.Count(r => r.StatusCode >= 400 && r.StatusCode < 500);
@@ -537,15 +598,29 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
         var honeypotHits = responseList.Count(r =>
             _options.HoneypotPaths.Any(hp => MatchesHoneypotPattern(r.Path, hp)));
 
-        // Count pattern matches
+        // Count pattern matches from live ring buffer
         var patternCounts = new Dictionary<string, int>();
         foreach (var response in responseList)
         foreach (var pattern in response.BodySummary.MatchedPatterns)
             patternCounts[pattern] = patternCounts.GetValueOrDefault(pattern) + 1;
 
+        // Merge compacted summary counts into live counts
+        if (_compacted != null)
+        {
+            count4xx += _compacted.Count4xx;
+            count404 += _compacted.Count404;
+            count5xx += _compacted.Count5xx;
+            authFailures += _compacted.AuthFailures;
+            honeypotHits += _compacted.HoneypotHits;
+            foreach (var (pattern, count) in _compacted.PatternCounts)
+                patternCounts[pattern] = patternCounts.GetValueOrDefault(pattern) + count;
+        }
+
+        var totalCount = responseList.Count + (_compacted?.TotalCount ?? 0);
+
         // Compute response score
         var responseScore = ComputeResponseScore(
-            responseList.Count,
+            totalCount,
             count2xx,
             count3xx,
             count4xx,
@@ -560,7 +635,7 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
         {
             ClientId = _clientId,
             Responses = responseList,
-            TotalResponses = responseList.Count,
+            TotalResponses = totalCount,
             Count2xx = count2xx,
             Count3xx = count3xx,
             Count4xx = count4xx,
