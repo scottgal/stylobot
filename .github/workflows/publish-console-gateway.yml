@@ -15,6 +15,7 @@ on:
 permissions:
   contents: write   # Needed to create releases
   id-token: write   # Needed for Azure OIDC federation with Trusted Signing
+  actions: write    # Needed to dispatch update-homebrew.yml workflow
 
 jobs:
   build-binaries:
