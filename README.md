@@ -29,7 +29,8 @@ StyloBot runs in your own infrastructure. It knows what a real page-load sequenc
 **macOS (Homebrew)**
 ```bash
 brew install scottgal/stylobot/stylobot
-stylobot 5080 http://localhost:3000
+stylobot 5080 http://localhost:3000        # starts in demo mode (observe only)
+stylobot 5080 http://localhost:3000 --mode production   # enable blocking
 ```
 
 **Linux (apt - Debian/Ubuntu)**
@@ -37,6 +38,7 @@ stylobot 5080 http://localhost:3000
 curl -1sLf 'https://dl.cloudsmith.io/public/mostlylucid/stylobot/setup.deb.sh' | sudo bash
 sudo apt update && sudo apt install stylobot
 stylobot 5080 http://localhost:3000
+stylobot genkey   # generate a secure HMAC key for production
 ```
 
 **Linux (manual / ARM64)**
@@ -204,9 +206,9 @@ Blackboard is ephemeral per-request. Signals are hierarchical keys (`request.ip.
 Detection works fully without any LLM. LLM enriches bot names and handles ambiguous cases at the edge of the heuristic model's confidence range.
 
 ```bash
-stylobot 5080 http://localhost:3000 --llm ollama           # local (default: gemma4)
-stylobot 5080 http://localhost:3000 --llm openai --llm-key sk-...
-stylobot 5080 http://localhost:3000 --llm anthropic --llm-key sk-ant-...
+stylobot 5080 http://localhost:3000 --mode production --llm ollama           # local (default: gemma4)
+stylobot 5080 http://localhost:3000 --mode production --llm openai --llm-key sk-...
+stylobot 5080 http://localhost:3000 --mode production --llm anthropic --llm-key sk-ant-...
 
 # Route cloud LLM inference to a local GPU
 stylobot llmtunnel                                          # on GPU machine, prints connection key

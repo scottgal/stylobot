@@ -18,11 +18,11 @@ curl -fsSL https://raw.githubusercontent.com/scottgal/stylobot/main/scripts/inst
 ## Quick Start
 
 ```bash
-# Production mode with live detection table
+# Start in demo mode (observe only, zero config required)
 stylobot 5080 http://localhost:3000
 
-# Demo mode with local test surfaces enabled
-stylobot 5080 http://localhost:3000 --mode demo
+# Enable blocking (production mode)
+stylobot 5080 http://localhost:3000 --mode production
 
 # With Cloudflare Tunnel (instant public URL)
 stylobot 5080 http://localhost:3000 --tunnel
@@ -31,6 +31,22 @@ stylobot 5080 http://localhost:3000 --tunnel
 stylobot 5080 http://localhost:3000 --llm openai --llm-key sk-...
 stylobot 5080 http://localhost:3000 --llm ollama
 ```
+
+`demo` mode is the default: all 49 detectors run, bots are logged but not blocked. Switch to `--mode production` when you want blocking enabled.
+
+## Security Key
+
+StyloBot uses HMAC-SHA256 to sign visitor signatures. A secure key is strongly recommended for production:
+
+```bash
+# Generate a random key
+stylobot genkey
+
+# Set it in appsettings.json or via environment
+export SignatureLogging__SignatureHashKey="<key from genkey>"
+```
+
+In demo mode the default key is used with a warning shown on startup. In production, set a real key.
 
 The current detector set is 49 detectors total, including the `Threat Intelligence` detector.
 
@@ -68,7 +84,21 @@ are explicit opt-ins instead of surprise first-run network behavior.
 
 ```
 stylobot <port> <upstream> [options]
+stylobot genkey
 ```
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `stylobot <port> <upstream>` | Start the proxy (demo mode by default) |
+| `stylobot start <port> <upstream>` | Start as background daemon |
+| `stylobot stop` | Stop the running daemon |
+| `stylobot status` | Check if daemon is running |
+| `stylobot logs` | Show recent log output |
+| `stylobot man` | Full reference manual |
+| `stylobot genkey` | Generate a random 32-byte base64 HMAC key |
+| `stylobot llmtunnel [token]` | Start local LLM agent + Cloudflare tunnel |
 
 ### Positional Arguments
 
@@ -81,7 +111,7 @@ stylobot <port> <upstream> [options]
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--mode <name>` | Detection mode: `demo`, `production` | `production` |
+| `--mode <name>` | Detection mode: `demo`, `production` | `demo` |
 | `--policy <name>` | Action policy: `logonly`, `block`, `throttle`, `challenge` | `block` in production, `logonly` in demo |
 | `--threshold <0.0-1.0>` | Bot probability threshold | `0.7` |
 | `--cert <path>` | TLS certificate (.pfx or .pem) | - |
