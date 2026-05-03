@@ -76,12 +76,12 @@ jobs:
       run: git tag -f "botdetection-v${{ needs.validate-version.outputs.version }}"
 
     - name: Restore dependencies
-      run: dotnet restore Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
+      run: dotnet restore src/Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
 
     - name: Build and Pack
       run: |
-        dotnet build Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj -c Release --no-restore
-        dotnet pack Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj -c Release --no-build -o ./artifacts
+        dotnet build src/Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj -c Release --no-build -o ./artifacts
 
     - name: Login to NuGet (OIDC)
       id: nuget_login
@@ -189,8 +189,8 @@ jobs:
     - name: Restore, Build, Pack
       run: |
         dotnet restore ci.slnf
-        dotnet build Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj -c Release --no-restore
-        dotnet pack Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj -c Release --no-build -o ./artifacts
+        dotnet build src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj -c Release --no-build -o ./artifacts
     - uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544
       id: nuget_login
       with:
@@ -270,8 +270,8 @@ jobs:
     - name: Restore, Build, Pack
       run: |
         dotnet restore ci.slnf
-        dotnet build Mostlylucid.BotDetection.Api/Mostlylucid.BotDetection.Api.csproj -c Release --no-restore
-        dotnet pack Mostlylucid.BotDetection.Api/Mostlylucid.BotDetection.Api.csproj -c Release --no-build -o ./artifacts
+        dotnet build src/Mostlylucid.BotDetection.Api/Mostlylucid.BotDetection.Api.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.BotDetection.Api/Mostlylucid.BotDetection.Api.csproj -c Release --no-build -o ./artifacts
     - uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544
       id: nuget_login
       with:
@@ -295,14 +295,14 @@ jobs:
     - name: Restore, Build, Pack Llm packages
       run: |
         dotnet restore ci.slnf
-        dotnet build Mostlylucid.BotDetection.Llm/Mostlylucid.BotDetection.Llm.csproj -c Release --no-restore
-        dotnet pack Mostlylucid.BotDetection.Llm/Mostlylucid.BotDetection.Llm.csproj -c Release --no-build -o ./artifacts
-        dotnet build Mostlylucid.BotDetection.Llm.Ollama/Mostlylucid.BotDetection.Llm.Ollama.csproj -c Release --no-restore
-        dotnet pack Mostlylucid.BotDetection.Llm.Ollama/Mostlylucid.BotDetection.Llm.Ollama.csproj -c Release --no-build -o ./artifacts
-        dotnet build Mostlylucid.BotDetection.Llm.Cloud/Mostlylucid.BotDetection.Llm.Cloud.csproj -c Release --no-restore
-        dotnet pack Mostlylucid.BotDetection.Llm.Cloud/Mostlylucid.BotDetection.Llm.Cloud.csproj -c Release --no-build -o ./artifacts
-        dotnet build Mostlylucid.BotDetection.Llm.LlamaSharp/Mostlylucid.BotDetection.Llm.LlamaSharp.csproj -c Release --no-restore
-        dotnet pack Mostlylucid.BotDetection.Llm.LlamaSharp/Mostlylucid.BotDetection.Llm.LlamaSharp.csproj -c Release --no-build -o ./artifacts
+        dotnet build src/Mostlylucid.BotDetection.Llm/Mostlylucid.BotDetection.Llm.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.BotDetection.Llm/Mostlylucid.BotDetection.Llm.csproj -c Release --no-build -o ./artifacts
+        dotnet build src/Mostlylucid.BotDetection.Llm.Ollama/Mostlylucid.BotDetection.Llm.Ollama.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.BotDetection.Llm.Ollama/Mostlylucid.BotDetection.Llm.Ollama.csproj -c Release --no-build -o ./artifacts
+        dotnet build src/Mostlylucid.BotDetection.Llm.Cloud/Mostlylucid.BotDetection.Llm.Cloud.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.BotDetection.Llm.Cloud/Mostlylucid.BotDetection.Llm.Cloud.csproj -c Release --no-build -o ./artifacts
+        dotnet build src/Mostlylucid.BotDetection.Llm.LlamaSharp/Mostlylucid.BotDetection.Llm.LlamaSharp.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.BotDetection.Llm.LlamaSharp/Mostlylucid.BotDetection.Llm.LlamaSharp.csproj -c Release --no-build -o ./artifacts
     - uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544
       id: nuget_login
       with:
@@ -326,8 +326,8 @@ jobs:
     - name: Restore, Build, Pack
       run: |
         dotnet restore ci.slnf
-        dotnet build Mostlylucid.BotDetection.ApiHolodeck/Mostlylucid.BotDetection.ApiHolodeck.csproj -c Release --no-restore
-        dotnet pack Mostlylucid.BotDetection.ApiHolodeck/Mostlylucid.BotDetection.ApiHolodeck.csproj -c Release --no-build -o ./artifacts
+        dotnet build src/Mostlylucid.BotDetection.ApiHolodeck/Mostlylucid.BotDetection.ApiHolodeck.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.BotDetection.ApiHolodeck/Mostlylucid.BotDetection.ApiHolodeck.csproj -c Release --no-build -o ./artifacts
     - uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544
       id: nuget_login
       with:
@@ -351,8 +351,8 @@ jobs:
     - name: Restore, Build, Pack
       run: |
         dotnet restore ci.slnf
-        dotnet build Mostlylucid.BotDetection.Llm.Holodeck/Mostlylucid.BotDetection.Llm.Holodeck.csproj -c Release --no-restore
-        dotnet pack Mostlylucid.BotDetection.Llm.Holodeck/Mostlylucid.BotDetection.Llm.Holodeck.csproj -c Release --no-build -o ./artifacts
+        dotnet build src/Mostlylucid.BotDetection.Llm.Holodeck/Mostlylucid.BotDetection.Llm.Holodeck.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.BotDetection.Llm.Holodeck/Mostlylucid.BotDetection.Llm.Holodeck.csproj -c Release --no-build -o ./artifacts
     - uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544
       id: nuget_login
       with:

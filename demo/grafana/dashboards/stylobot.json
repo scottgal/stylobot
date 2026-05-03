@@ -1,0 +1,431 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "id": 100,
+      "title": "Command Center",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }] },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "id": 1,
+      "options": { "graphMode": "area", "reduceOptions": { "calcs": ["sum"] } },
+      "title": "Total Requests",
+      "type": "stat",
+      "targets": [{ "expr": "sum(increase(stylobot_detections_total[5m]))", "legendFormat": "requests" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 30 },
+              { "color": "red", "value": 70 }
+            ]
+          },
+          "unit": "percent"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "id": 2,
+      "options": { "showThresholdLabels": false, "showThresholdMarkers": true },
+      "title": "Bot Rate %",
+      "type": "gauge",
+      "targets": [{ "expr": "sum(rate(stylobot_detections_total{is_bot=\"true\"}[5m])) / sum(rate(stylobot_detections_total[5m])) * 100", "legendFormat": "bot_rate" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.05 },
+              { "color": "red", "value": 0.2 }
+            ]
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "id": 3,
+      "options": { "reduceOptions": { "calcs": ["mean"] } },
+      "title": "Avg Detection Latency",
+      "type": "stat",
+      "targets": [{ "expr": "histogram_quantile(0.50, sum(rate(stylobot_detection_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "blue", "value": null }] },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "id": 4,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "title": "Early Exit Rate %",
+      "type": "stat",
+      "targets": [{ "expr": "sum(rate(stylobot_early_exits_total[5m])) / sum(rate(stylobot_detections_total[5m])) * 100", "legendFormat": "early_exit_pct" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "purple", "value": null }] },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "id": 5,
+      "options": { "reduceOptions": { "calcs": ["sum"] } },
+      "title": "Attacks Detected",
+      "type": "stat",
+      "targets": [{ "expr": "sum(increase(stylobot_attacks_total[1h]))", "legendFormat": "attacks" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": { "steps": [{ "color": "orange", "value": null }] },
+          "unit": "short"
+        }
+      },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "id": 6,
+      "options": { "reduceOptions": { "calcs": ["sum"] } },
+      "title": "Verified Bots",
+      "type": "stat",
+      "targets": [{ "expr": "sum(increase(stylobot_verified_bots_total[1h]))", "legendFormat": "verified" }]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "id": 200,
+      "title": "Threat Geography",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "continuous-YlRd" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 100 }] }
+        }
+      },
+      "gridPos": { "h": 10, "w": 16, "x": 0, "y": 6 },
+      "id": 7,
+      "options": {
+        "basemap": { "name": "Layer 0", "type": "default" },
+        "layers": [
+          {
+            "config": {
+              "style": {
+                "color": { "field": "Value", "fixed": "dark-red" },
+                "opacity": 0.6,
+                "size": { "field": "Value", "max": 15, "min": 2 }
+              }
+            },
+            "location": { "lookup": "country", "mode": "lookup" },
+            "name": "Bot Requests",
+            "type": "markers"
+          }
+        ],
+        "tooltip": { "mode": "details" },
+        "view": { "id": "zero", "lat": 30, "lon": 10, "zoom": 2 }
+      },
+      "title": "Bot Requests by Country",
+      "type": "geomap",
+      "targets": [{ "expr": "sum by (country) (increase(stylobot_country_requests_total{is_bot=\"true\"}[1h]))", "legendFormat": "{{country}}", "format": "table", "instant": true }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "continuous-YlRd" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "gridPos": { "h": 10, "w": 8, "x": 16, "y": 6 },
+      "id": 8,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["sum"] }
+      },
+      "title": "Top 10 Countries (Bot Volume)",
+      "type": "bargauge",
+      "targets": [{ "expr": "topk(10, sum by (country) (increase(stylobot_country_requests_total{is_bot=\"true\"}[1h])))", "legendFormat": "{{country}}", "instant": true }]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 16 },
+      "id": 300,
+      "title": "Detection Timeline",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 30, "stacking": { "mode": "normal" } }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 },
+      "id": 9,
+      "options": { "tooltip": { "mode": "multi" } },
+      "title": "Detections by Risk Band",
+      "type": "timeseries",
+      "targets": [{ "expr": "sum by (risk_band) (rate(stylobot_detections_total[5m]))", "legendFormat": "{{risk_band}}" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "fillOpacity": 10 }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 },
+      "id": 10,
+      "title": "Detection Latency (p50/p95/p99)",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(stylobot_detection_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(stylobot_detection_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(stylobot_detection_duration_seconds_bucket[5m])) by (le))", "legendFormat": "p99" }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 25 },
+      "id": 400,
+      "title": "Bot Taxonomy",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } }
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 26 },
+      "id": 11,
+      "options": { "pieType": "donut", "reduceOptions": { "calcs": ["sum"] } },
+      "title": "Bot Types",
+      "type": "piechart",
+      "targets": [{ "expr": "sum by (bot_type) (increase(stylobot_detections_total{is_bot=\"true\"}[1h]))", "legendFormat": "{{bot_type}}", "instant": true }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" } }
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 26 },
+      "id": 12,
+      "options": { "pieType": "donut", "reduceOptions": { "calcs": ["sum"] } },
+      "title": "Actions Taken",
+      "type": "piechart",
+      "targets": [{ "expr": "sum by (action) (increase(stylobot_detections_total{is_bot=\"true\"}[1h]))", "legendFormat": "{{action}}", "instant": true }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 26 },
+      "id": 13,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["sum"] }
+      },
+      "title": "Early Exit Verdicts",
+      "type": "bargauge",
+      "targets": [{ "expr": "sum by (verdict) (increase(stylobot_early_exits_total[1h]))", "legendFormat": "{{verdict}}", "instant": true }]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 34 },
+      "id": 500,
+      "title": "Detector Performance",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "continuous-YlRd" },
+          "unit": "s",
+          "custom": { "scaleDistribution": { "type": "log", "log": 2 } }
+        }
+      },
+      "gridPos": { "h": 10, "w": 16, "x": 0, "y": 35 },
+      "id": 14,
+      "options": {
+        "calculate": true,
+        "calculation": { "xBuckets": { "mode": "size" }, "yBuckets": { "mode": "size" } },
+        "cellGap": 1,
+        "color": { "mode": "scheme", "scheme": "Oranges" },
+        "yAxis": { "axisLabel": "Detector" }
+      },
+      "title": "Detector Duration Heatmap",
+      "type": "heatmap",
+      "targets": [{ "expr": "sum by (detector) (rate(stylobot_detector_duration_seconds_sum[5m]) / rate(stylobot_detector_duration_seconds_count[5m]))", "legendFormat": "{{detector}}" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "gridPos": { "h": 10, "w": 8, "x": 16, "y": 35 },
+      "id": 15,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["sum"] }
+      },
+      "title": "Detector Frequency",
+      "type": "bargauge",
+      "targets": [{ "expr": "sum by (detector) (increase(stylobot_detectors_runs_total[1h]))", "legendFormat": "{{detector}}", "instant": true }]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 45 },
+      "id": 600,
+      "title": "Attack Intelligence",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 30, "stacking": { "mode": "normal" } }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 46 },
+      "id": 16,
+      "title": "Attack Categories Over Time",
+      "type": "timeseries",
+      "targets": [{ "expr": "sum by (category) (rate(stylobot_attacks_total[5m]))", "legendFormat": "{{category}}" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 30, "stacking": { "mode": "normal" } }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 46 },
+      "id": 17,
+      "title": "Verified vs Spoofed Bots",
+      "type": "timeseries",
+      "targets": [
+        { "expr": "sum by (bot_name) (rate(stylobot_verified_bots_total{verified=\"true\"}[5m]))", "legendFormat": "Verified: {{bot_name}}" },
+        { "expr": "sum by (bot_name) (rate(stylobot_verified_bots_total{verified=\"false\"}[5m]))", "legendFormat": "Spoofed: {{bot_name}}" }
+      ]
+    },
+
+    {
+      "collapsed": false,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 54 },
+      "id": 700,
+      "title": "Score Escalation Analysis",
+      "type": "row"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 30, "stacking": { "mode": "normal" } }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 55 },
+      "id": 18,
+      "title": "Detector Weighted Contribution",
+      "type": "timeseries",
+      "targets": [{ "expr": "sum by (detector) (rate(stylobot_detector_contribution_sum[5m]))", "legendFormat": "{{detector}}" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 30, "stacking": { "mode": "normal" } }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 55 },
+      "id": 19,
+      "title": "Band Escalation Rate",
+      "type": "timeseries",
+      "targets": [{ "expr": "sum by (from_band, to_band) (rate(stylobot_score_escalation_total[5m]))", "legendFormat": "{{from_band}} -> {{to_band}}" }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": { "unit": "short" }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 63 },
+      "id": 20,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["sum"] }
+      },
+      "title": "Tipping Point Detectors (Highest Contribution)",
+      "type": "bargauge",
+      "targets": [{ "expr": "topk(10, sum by (detector) (increase(stylobot_detector_contribution_sum{direction=\"bot\"}[1h])))", "legendFormat": "{{detector}}", "instant": true }]
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 20 }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 63 },
+      "id": 21,
+      "title": "Wave Score Distribution",
+      "type": "timeseries",
+      "targets": [{ "expr": "histogram_quantile(0.50, sum by (wave, le) (rate(stylobot_detection_wave_score_bucket[5m])))", "legendFormat": "Wave {{wave}} p50" }]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["stylobot", "bot-detection", "security"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "StyloBot - Bot Detection Intelligence",
+  "uid": "stylobot-main",
+  "version": 1
+}

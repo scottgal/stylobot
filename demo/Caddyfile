@@ -1,0 +1,14 @@
+# Demo Caddyfile - routes traffic through Stylobot Gateway
+# Dashboard goes direct to website (SignalR needs direct connection)
+
+:80 {
+    # Dashboard direct to website (bypasses gateway)
+    handle /_stylobot* {
+        reverse_proxy website:8080
+    }
+
+    # Everything else through the gateway
+    handle {
+        reverse_proxy gateway:8080
+    }
+}

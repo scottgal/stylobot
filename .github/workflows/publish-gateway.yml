@@ -76,16 +76,16 @@ jobs:
       run: |
         dotnet restore src/Stylobot.Gateway/Stylobot.Gateway.csproj
         dotnet restore src/Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj
-        dotnet restore Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
-        dotnet restore Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj
-        dotnet restore Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj
+        dotnet restore src/Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
+        dotnet restore src/Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj
+        dotnet restore src/Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj
 
     - name: Build projects
       run: |
         dotnet build src/Stylobot.Gateway/Stylobot.Gateway.csproj --configuration Release --no-restore
         dotnet build src/Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-restore
-        dotnet build Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj --configuration Release --no-restore
-        dotnet build Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj --configuration Release --no-restore
+        dotnet build src/Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj --configuration Release --no-restore
+        dotnet build src/Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj --configuration Release --no-restore
 
     - name: Run Gateway unit tests
       run: |
@@ -96,12 +96,12 @@ jobs:
 
     - name: Run BotDetection unit tests
       run: |
-        dotnet test Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj \
+        dotnet test src/Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj \
           --configuration Release \
           --no-build \
           --verbosity normal \
           --filter "Category!=Integration"
-        dotnet test Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj \
+        dotnet test src/Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj \
           --configuration Release \
           --no-build \
           --verbosity normal \
