@@ -54,10 +54,10 @@
         <PackageReference Include="Mostlylucid.StyloFlow.Core" Version="2.4.0" />
         <PackageReference Include="Mostlylucid.StyloFlow.Retrieval.Core" Version="2.4.0" />
         <!-- Ephemeral: Core signal/coordination infrastructure (NuGet packages) -->
-        <PackageReference Include="Mostlylucid.Ephemeral" Version="2.3.2" />
+        <PackageReference Include="Mostlylucid.Ephemeral" Version="2.3.3" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Taxonomy" Version="2.3.2" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.KeyedSequential" Version="2.3.2" />
-        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.SlidingCache" Version="2.3.2" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.SlidingCache" Version="2.3.3" />
         <PackageReference Include="HNSW" Version="26.4.177" />
         <PackageReference Include="Qdrant.Client" Version="1.17.0" />
         <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.4" />

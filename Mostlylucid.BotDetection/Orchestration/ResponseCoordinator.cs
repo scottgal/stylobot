@@ -148,6 +148,12 @@ public sealed class ResponseCoordinatorOptions
     ///     Feature weights for response score computation
     /// </summary>
     public ResponseFeatureWeights FeatureWeights { get; set; } = new();
+
+    /// <summary>
+    ///     How often the SlidingCacheAtom cleanup sweep runs.
+    ///     Default: 30 seconds. Set lower (e.g., 5s) for high-churn workloads.
+    /// </summary>
+    public TimeSpan CacheCleanupInterval { get; set; } = TimeSpan.FromSeconds(30);
 }
 
 /// <summary>
@@ -244,7 +250,9 @@ public sealed class ResponseCoordinator : IAsyncDisposable
             _options.MaxClientsInWindow,
             Environment.ProcessorCount,
             10,
-            _signals);
+            _signals,
+            retentionScorer: (_, atom) => atom.GetCurrentBotProbability(),
+            cleanupInterval: _options.CacheCleanupInterval);
 
         // Initialize sequential processing atom
         _analysisAtom = new KeyedSequentialAtom<ResponseSignal, string>(
@@ -426,6 +434,12 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
         _logger = logger;
         _responses = new LinkedList<ResponseSignal>();
     }
+
+    /// <summary>
+    ///     Lock-free read of the last computed bot probability score.
+    ///     Used by the SlidingCacheAtom retention scorer at cleanup time; a slightly stale value is acceptable.
+    /// </summary>
+    internal double GetCurrentBotProbability() => _cachedBehavior?.ResponseScore ?? 0.0;
 
     public void Dispose()
     {

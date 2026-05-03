@@ -20,11 +20,18 @@ public sealed class SignatureResponseCoordinator : IAsyncDisposable
     private readonly string _signature;
     internal readonly SignalSink _sink; // SHARED by SignatureResponseCoordinatorCache
     private readonly LinkedList<OperationCompleteSignal> _window;
+    private double _maxRiskSeen;
 
     /// <summary>
     ///     Sink is provided by the cache (shared across all coordinators).
     /// </summary>
     internal SignalSink Sink => _sink;
+
+    /// <summary>
+    ///     Returns the highest aggregated risk score seen by this coordinator.
+    ///     Used by the SlidingCacheAtom retention scorer during eviction; a slightly stale value is acceptable.
+    /// </summary>
+    internal double GetRiskScore() => Volatile.Read(ref _maxRiskSeen);
 
     public SignatureResponseCoordinator(string signature, ILogger logger, SignalSink sharedSink)
     {
@@ -75,6 +82,10 @@ public sealed class SignatureResponseCoordinator : IAsyncDisposable
         {
             // Emit notification signal (lanes can query state when they see this)
             _sink.Raise("request.early.arrived", signal.RequestId);
+
+            // Track highest risk seen (also covers early request signals before lane results)
+            if (signal.Risk > _maxRiskSeen)
+                Volatile.Write(ref _maxRiskSeen, signal.Risk);
 
             // If honeypot or very high risk, emit heuristic feedback signals
             if (signal.Honeypot || signal.Risk > 0.8)
@@ -136,6 +147,10 @@ public sealed class SignatureResponseCoordinator : IAsyncDisposable
 
             // Aggregate lane signals from own sink
             var behavior = AggregateLaneSignals();
+
+            // Track highest risk score seen for retention scoring during cache eviction
+            if (behavior.Score > _maxRiskSeen)
+                Volatile.Write(ref _maxRiskSeen, behavior.Score);
 
             // Emit aggregated signature behavior as granular signals
             _sink.Raise("signature.behavior.score", behavior.Score.ToString("F4"));

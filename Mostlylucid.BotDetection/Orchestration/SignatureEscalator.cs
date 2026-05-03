@@ -20,7 +20,8 @@ public sealed class SignatureResponseCoordinatorCache : IAsyncDisposable
         ILogger<SignatureResponseCoordinatorCache> logger,
         int maxSignatures = 5000,
         TimeSpan? ttl = null,
-        SignalSink? sharedSink = null)
+        SignalSink? sharedSink = null,
+        TimeSpan? cleanupInterval = null)
     {
         _logger = logger;
 
@@ -49,7 +50,9 @@ public sealed class SignatureResponseCoordinatorCache : IAsyncDisposable
             maxSignatures,
             Environment.ProcessorCount,
             10,
-            null); // No external signals
+            null, // No external signals
+            retentionScorer: (_, coordinator) => coordinator.GetRiskScore(),
+            cleanupInterval: cleanupInterval ?? TimeSpan.FromSeconds(30));
     }
 
     public async ValueTask DisposeAsync()
