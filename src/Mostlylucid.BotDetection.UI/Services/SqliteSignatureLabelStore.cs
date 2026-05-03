@@ -13,6 +13,7 @@ public sealed class SqliteSignatureLabelStore : ISignatureLabelStore, IAsyncDisp
 {
     private readonly string _connectionString;
     private readonly ILogger<SqliteSignatureLabelStore> _logger;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private bool _initialized;
 
@@ -32,32 +33,41 @@ public sealed class SqliteSignatureLabelStore : ISignatureLabelStore, IAsyncDisp
     private async Task EnsureInitializedAsync(CancellationToken ct = default)
     {
         if (_initialized) return;
+        await _initLock.WaitAsync(ct);
+        try
+        {
+            if (_initialized) return;
 
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
 
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                PRAGMA journal_mode=WAL;
+                PRAGMA synchronous=NORMAL;
 
-            CREATE TABLE IF NOT EXISTS labels (
-                signature TEXT NOT NULL,
-                kind INTEGER NOT NULL,
-                confidence REAL NOT NULL DEFAULT 1.0,
-                labeled_by TEXT NOT NULL,
-                labeled_at TEXT NOT NULL,
-                note TEXT,
-                PRIMARY KEY (signature, labeled_by)
-            );
+                CREATE TABLE IF NOT EXISTS labels (
+                    signature TEXT NOT NULL,
+                    kind INTEGER NOT NULL,
+                    confidence REAL NOT NULL DEFAULT 1.0,
+                    labeled_by TEXT NOT NULL,
+                    labeled_at TEXT NOT NULL,
+                    note TEXT,
+                    PRIMARY KEY (signature, labeled_by)
+                );
 
-            CREATE INDEX IF NOT EXISTS idx_labels_signature ON labels(signature);
-            CREATE INDEX IF NOT EXISTS idx_labels_at ON labels(labeled_at DESC);
-            """;
-        await cmd.ExecuteNonQueryAsync(ct);
+                CREATE INDEX IF NOT EXISTS idx_labels_signature ON labels(signature);
+                CREATE INDEX IF NOT EXISTS idx_labels_at ON labels(labeled_at DESC);
+                """;
+            await cmd.ExecuteNonQueryAsync(ct);
 
-        _initialized = true;
-        _logger.LogInformation("SQLite label store initialized");
+            _initialized = true;
+            _logger.LogInformation("SQLite label store initialized");
+        }
+        finally
+        {
+            _initLock.Release();
+        }
     }
 
     public async Task<SignatureLabel> UpsertAsync(SignatureLabel label, CancellationToken ct = default)
@@ -168,6 +178,7 @@ public sealed class SqliteSignatureLabelStore : ISignatureLabelStore, IAsyncDisp
 
     public ValueTask DisposeAsync()
     {
+        _initLock.Dispose();
         _writeLock.Dispose();
         return ValueTask.CompletedTask;
     }

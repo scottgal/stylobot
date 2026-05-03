@@ -136,7 +136,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             {
                 ("detections", "user_agent_raw", "TEXT"),
                 ("detections", "risk_justification", "TEXT"),
-                ("signatures", "risk_justification", "TEXT")
+                ("signatures", "risk_justification", "TEXT"),
+                ("signatures", "top_reasons_json", "TEXT")
             })
             {
                 var colExists = false;
@@ -288,7 +289,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
 
         var sql = "SELECT * FROM detections";
         var conditions = new List<string>();
-        var cmd = conn.CreateCommand();
+        await using var cmd = conn.CreateCommand();
 
         if (filter?.StartTime.HasValue == true)
         {
@@ -355,11 +356,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await conn.OpenAsync();
 
         var sql = "SELECT * FROM signatures";
-        if (isBot.HasValue) sql += " WHERE is_bot = " + (isBot.Value ? "1" : "0");
+        if (isBot.HasValue) sql += " WHERE is_bot = @isBot";
         sql += " ORDER BY last_seen DESC LIMIT @limit OFFSET @offset";
 
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
+        if (isBot.HasValue) cmd.Parameters.AddWithValue("@isBot", isBot.Value ? 1 : 0);
         cmd.Parameters.AddWithValue("@limit", limit);
         cmd.Parameters.AddWithValue("@offset", offset);
 
@@ -420,46 +422,85 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     public async Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(DateTime startTime, DateTime endTime, TimeSpan bucketSize)
     {
         await EnsureInitializedAsync();
-        var points = new List<DashboardTimeSeriesPoint>();
-        var current = startTime;
+
+        // Determine SQLite strftime format and gap-fill key format from bucket size
+        string bucketFormat;
+        int bucketSeconds;
+        string keyFormat;
+        if (bucketSize >= TimeSpan.FromDays(1))
+        {
+            bucketFormat = "%Y-%m-%dT00:00:00";
+            bucketSeconds = (int)TimeSpan.FromDays(1).TotalSeconds;
+            keyFormat = "yyyy-MM-ddT00:00:00";
+        }
+        else if (bucketSize >= TimeSpan.FromHours(1))
+        {
+            bucketFormat = "%Y-%m-%dT%H:00:00";
+            bucketSeconds = (int)TimeSpan.FromHours(1).TotalSeconds;
+            keyFormat = "yyyy-MM-ddTHH:00:00";
+        }
+        else
+        {
+            bucketFormat = "%Y-%m-%dT%H:%M:00";
+            bucketSeconds = (int)bucketSize.TotalSeconds;
+            keyFormat = "yyyy-MM-ddTHH:mm:00";
+        }
 
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
-        while (current < endTime)
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT
+                strftime('{bucketFormat}', timestamp) AS bucket,
+                SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots,
+                SUM(CASE WHEN is_bot = 0 THEN 1 ELSE 0 END) AS humans,
+                COUNT(*) AS total
+            FROM detections
+            WHERE timestamp >= @start AND timestamp < @end
+            GROUP BY bucket
+            ORDER BY bucket
+            """;
+        cmd.Parameters.AddWithValue("@start", startTime.ToString("O"));
+        cmd.Parameters.AddWithValue("@end", endTime.ToString("O"));
+
+        var dbPoints = new Dictionary<string, DashboardTimeSeriesPoint>(StringComparer.Ordinal);
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
         {
-            var bucketEnd = current.Add(bucketSize);
-
-            await using var cmd = conn.CreateCommand();
-            cmd.CommandText = """
-                SELECT
-                    SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots,
-                    SUM(CASE WHEN is_bot = 0 THEN 1 ELSE 0 END) as humans,
-                    COUNT(*) as total
-                FROM detections
-                WHERE timestamp >= @start AND timestamp < @end
-                """;
-            cmd.Parameters.AddWithValue("@start", current.ToString("O"));
-            cmd.Parameters.AddWithValue("@end", bucketEnd.ToString("O"));
-
-            await using var reader = await cmd.ExecuteReaderAsync();
-            if (await reader.ReadAsync())
-            {
-                points.Add(new DashboardTimeSeriesPoint
+            var bucket = reader.GetString(0);
+            if (DateTime.TryParse(bucket, out var ts))
+                dbPoints[bucket] = new DashboardTimeSeriesPoint
                 {
-                    Timestamp = current,
-                    BotCount = reader.IsDBNull(0) ? 0 : reader.GetInt32(0),
-                    HumanCount = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
-                    TotalCount = reader.IsDBNull(2) ? 0 : reader.GetInt32(2)
-                });
-            }
-
-            current = bucketEnd;
+                    Timestamp = ts,
+                    BotCount = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
+                    HumanCount = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
+                    TotalCount = reader.IsDBNull(3) ? 0 : reader.GetInt32(3)
+                };
         }
 
+        // Fill gaps with zero-count buckets to keep chart series continuous
+        var points = new List<DashboardTimeSeriesPoint>();
+        var current = startTime;
+        while (current < endTime)
+        {
+            var key = current.ToString(keyFormat);
+            points.Add(dbPoints.TryGetValue(key, out var p) ? p : new DashboardTimeSeriesPoint
+            {
+                Timestamp = current,
+                BotCount = 0,
+                HumanCount = 0,
+                TotalCount = 0
+            });
+            current = current.Add(bucketSize);
+        }
         return points;
     }
 
+    // NOTE: This query joins the 'sessions' table created by SqliteSessionStore (core package).
+    // Both stores share the same database file. The join is intentional; on a fresh DB with no
+    // sessions yet, the subquery returns NULL for last_path, which is handled via reader.IsDBNull(12).
+    // top_reasons_json is migrated by EnsureInitializedAsync — absent on pre-migration DBs it reads NULL.
     public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null)
     {
         await EnsureInitializedAsync();
@@ -551,16 +592,38 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     public async Task<DashboardCountryDetail?> GetCountryDetailAsync(string countryCode, DateTime? startTime = null, DateTime? endTime = null)
     {
         await EnsureInitializedAsync();
-        var stats = await GetCountryStatsAsync(1000);
-        var country = stats.FirstOrDefault(c => c.CountryCode == countryCode);
-        if (country == null) return null;
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync();
+
+        var timeFilter = "";
+        if (startTime.HasValue) timeFilter += " AND timestamp >= @start";
+        if (endTime.HasValue)   timeFilter += " AND timestamp <= @end";
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots
+            FROM detections
+            WHERE country_code = @cc{timeFilter}
+            """;
+        cmd.Parameters.AddWithValue("@cc", countryCode);
+        if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync() || reader.IsDBNull(0)) return null;
+
+        var total = reader.GetInt32(0);
+        if (total == 0) return null;
+        var bots = reader.GetInt32(1);
 
         return new DashboardCountryDetail
         {
-            CountryCode = country.CountryCode,
-            TotalCount = country.TotalCount,
-            BotCount = country.BotCount,
-            BotRate = country.BotRate,
+            CountryCode = countryCode,
+            TotalCount = total,
+            BotCount = bots,
+            BotRate = total > 0 ? (double)bots / total : 0,
             TopBotTypes = new Dictionary<string, int>(),
             TopBots = new List<DashboardTopBotEntry>()
         };
@@ -612,20 +675,47 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
 
     public async Task<DashboardEndpointDetail?> GetEndpointDetailAsync(string method, string path, DateTime? startTime = null, DateTime? endTime = null)
     {
-        var stats = await GetEndpointStatsAsync(1000);
-        var endpoint = stats.FirstOrDefault(e => e.Method == method && e.Path == path);
-        if (endpoint == null) return null;
+        await EnsureInitializedAsync();
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync();
+
+        var timeFilter = "";
+        if (startTime.HasValue) timeFilter += " AND timestamp >= @start";
+        if (endTime.HasValue)   timeFilter += " AND timestamp <= @end";
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots,
+                COUNT(DISTINCT signature) AS sigs,
+                AVG(processing_time_ms) AS avg_ms,
+                AVG(threat_score) AS avg_threat
+            FROM detections
+            WHERE method = @method AND path = @path{timeFilter}
+            """;
+        cmd.Parameters.AddWithValue("@method", method);
+        cmd.Parameters.AddWithValue("@path", path);
+        if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
+
+        await using var reader = await cmd.ExecuteReaderAsync();
+        if (!await reader.ReadAsync() || reader.IsDBNull(0)) return null;
+
+        var total = reader.GetInt32(0);
+        if (total == 0) return null;
+        var bots = reader.GetInt32(1);
 
         return new DashboardEndpointDetail
         {
             Method = method,
             Path = path,
-            TotalCount = endpoint.TotalCount,
-            BotCount = endpoint.BotCount,
-            BotRate = endpoint.BotRate,
-            UniqueSignatures = endpoint.UniqueSignatures,
-            AvgProcessingTimeMs = endpoint.AvgProcessingTimeMs,
-            AvgThreatScore = endpoint.AvgThreatScore,
+            TotalCount = total,
+            BotCount = bots,
+            BotRate = total > 0 ? (double)bots / total : 0,
+            UniqueSignatures = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
+            AvgProcessingTimeMs = reader.IsDBNull(3) ? 0 : reader.GetDouble(3),
+            AvgThreatScore = reader.IsDBNull(4) ? 0 : reader.GetDouble(4),
             TopActions = new Dictionary<string, int>(),
             TopCountries = new Dictionary<string, int>(),
             RiskBands = new Dictionary<string, int>(),
@@ -1078,8 +1168,29 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         }
     }
 
+    public async Task<int> PruneOldDetectionsAsync(DateTime cutoff, CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DELETE FROM detections WHERE timestamp < @cutoff";
+            cmd.Parameters.AddWithValue("@cutoff", cutoff.ToString("O"));
+            return await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
     public ValueTask DisposeAsync()
     {
+        _initLock.Dispose();
         _writeLock.Dispose();
         return ValueTask.CompletedTask;
     }

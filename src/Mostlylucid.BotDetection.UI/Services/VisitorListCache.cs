@@ -311,17 +311,50 @@ public class VisitorListCache
 
     private void EvictOldest()
     {
-        if (_visitors.Count <= _maxVisitors) return;
+        // Only evict when 10% over capacity to amortize the O(n log n) sort cost.
+        var overage = _visitors.Count - _maxVisitors;
+        if (overage <= _maxVisitors / 10) return;
 
         var toRemove = _visitors
             .OrderBy(kv => kv.Value.LastSeen)
-            .Take(_visitors.Count - _maxVisitors)
+            .Take(overage)
             .Select(kv => kv.Key)
             .ToList();
 
         foreach (var key in toRemove)
             _visitors.TryRemove(key, out _);
     }
+
+    // UA-based bot identity regexes — compiled once, used in hot path per detection.
+    private static readonly Regex AiBotUaRegex = new(
+        @"GPTBot|ChatGPT|CCBot|anthropic-ai|ClaudeBot|Google-Extended|PerplexityBot|Bytespider|Applebot-Extended|cohere-ai|FacebookBot|Meta-ExternalAgent",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex SearchBotUaRegex = new(
+        @"Googlebot|bingbot|YandexBot|Baiduspider|DuckDuckBot|Slurp|Sogou|Applebot(?!-Extended)",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex SeoBotUaRegex = new(
+        @"SemrushBot|AhrefsBot|MJ12bot|DotBot|PetalBot|MegaIndex|SerpstatBot|Sistrix|Screaming",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex MonitorBotUaRegex = new(
+        @"UptimeRobot|Pingdom|Site24x7|StatusCake|Datadog|NewRelic|GTmetrix|PageSpeed|Lighthouse",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex PythonBotUaRegex = new(
+        @"python-requests|python-urllib|python-httpx|aiohttp",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex CurlUaRegex = new(@"^curl/", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex WgetUaRegex = new(@"^wget/", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex GoBotUaRegex = new(@"Go-http-client|golang", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex JavaBotUaRegex = new(@"Java/|Apache-HttpClient|okhttp", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex NodeBotUaRegex = new(@"node-fetch|axios|undici", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex RubyBotUaRegex = new(@"Ruby|Faraday|Typhoeus", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex PhpBotUaRegex = new(@"PHP/|Guzzle|php-curl", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex PerlBotUaRegex = new(@"libwww-perl|LWP|Mechanize", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex CrawlerUaRegex = new(@"Scrapy|Nutch|Heritrix", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex HeadlessUaRegex = new(@"HeadlessChrome|Headless", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex PhantomUaRegex = new(@"PhantomJS", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex SeleniumUaRegex = new(@"Selenium|WebDriver", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex PlaywrightUaRegex = new(@"Playwright", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex PuppeteerUaRegex = new(@"Puppeteer", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private static readonly System.Text.RegularExpressions.Regex AiNameRegex =
         new(@"\bai\b|gpt|claude|llm|chatbot|copilot|gemini|bard|anthropic|perplexity|cohere",
@@ -391,49 +424,43 @@ public class VisitorListCache
         if (!string.IsNullOrEmpty(userAgent))
         {
             var ua = userAgent;
-            // AI bots
-            if (Regex.IsMatch(ua, @"GPTBot|ChatGPT|CCBot|anthropic-ai|ClaudeBot|Google-Extended|PerplexityBot|Bytespider|Applebot-Extended|cohere-ai|FacebookBot|Meta-ExternalAgent", RegexOptions.IgnoreCase))
+            if (AiBotUaRegex.IsMatch(ua))
                 return (ExtractUaBotName(ua) ?? "AI Crawler", "AiBot");
-            // Search engines
-            if (Regex.IsMatch(ua, @"Googlebot|bingbot|YandexBot|Baiduspider|DuckDuckBot|Slurp|Sogou|Applebot(?!-Extended)", RegexOptions.IgnoreCase))
+            if (SearchBotUaRegex.IsMatch(ua))
                 return (ExtractUaBotName(ua) ?? "Search Bot", "SearchEngine");
-            // SEO/marketing tools
-            if (Regex.IsMatch(ua, @"SemrushBot|AhrefsBot|MJ12bot|DotBot|PetalBot|MegaIndex|SerpstatBot|Sistrix|Screaming", RegexOptions.IgnoreCase))
+            if (SeoBotUaRegex.IsMatch(ua))
                 return (ExtractUaBotName(ua) ?? "SEO Crawler", "Scraper");
-            // Monitoring
-            if (Regex.IsMatch(ua, @"UptimeRobot|Pingdom|Site24x7|StatusCake|Datadog|NewRelic|GTmetrix|PageSpeed|Lighthouse", RegexOptions.IgnoreCase))
+            if (MonitorBotUaRegex.IsMatch(ua))
                 return (ExtractUaBotName(ua) ?? "Monitor", "MonitoringBot");
-            // HTTP libraries
-            if (Regex.IsMatch(ua, @"python-requests|python-urllib|python-httpx|aiohttp", RegexOptions.IgnoreCase))
+            if (PythonBotUaRegex.IsMatch(ua))
                 return ("Python Bot", "Scraper");
-            if (Regex.IsMatch(ua, @"^curl/", RegexOptions.IgnoreCase))
+            if (CurlUaRegex.IsMatch(ua))
                 return ("curl", "Scraper");
-            if (Regex.IsMatch(ua, @"^wget/", RegexOptions.IgnoreCase))
+            if (WgetUaRegex.IsMatch(ua))
                 return ("wget", "Scraper");
-            if (Regex.IsMatch(ua, @"Go-http-client|golang", RegexOptions.IgnoreCase))
+            if (GoBotUaRegex.IsMatch(ua))
                 return ("Go Bot", "Scraper");
-            if (Regex.IsMatch(ua, @"Java/|Apache-HttpClient|okhttp", RegexOptions.IgnoreCase))
+            if (JavaBotUaRegex.IsMatch(ua))
                 return ("Java Bot", "Scraper");
-            if (Regex.IsMatch(ua, @"node-fetch|axios|undici", RegexOptions.IgnoreCase))
+            if (NodeBotUaRegex.IsMatch(ua))
                 return ("Node.js Bot", "Scraper");
-            if (Regex.IsMatch(ua, @"Ruby|Faraday|Typhoeus", RegexOptions.IgnoreCase))
+            if (RubyBotUaRegex.IsMatch(ua))
                 return ("Ruby Bot", "Scraper");
-            if (Regex.IsMatch(ua, @"PHP/|Guzzle|php-curl", RegexOptions.IgnoreCase))
+            if (PhpBotUaRegex.IsMatch(ua))
                 return ("PHP Bot", "Scraper");
-            if (Regex.IsMatch(ua, @"libwww-perl|LWP|Mechanize", RegexOptions.IgnoreCase))
+            if (PerlBotUaRegex.IsMatch(ua))
                 return ("Perl Bot", "Scraper");
-            if (Regex.IsMatch(ua, @"Scrapy|Nutch|Heritrix", RegexOptions.IgnoreCase))
+            if (CrawlerUaRegex.IsMatch(ua))
                 return ("Web Crawler", "Scraper");
-            // Headless browsers
-            if (Regex.IsMatch(ua, @"HeadlessChrome|Headless", RegexOptions.IgnoreCase))
+            if (HeadlessUaRegex.IsMatch(ua))
                 return ("Headless Chrome", "Scraper");
-            if (Regex.IsMatch(ua, @"PhantomJS", RegexOptions.IgnoreCase))
+            if (PhantomUaRegex.IsMatch(ua))
                 return ("PhantomJS", "Scraper");
-            if (Regex.IsMatch(ua, @"Selenium|WebDriver", RegexOptions.IgnoreCase))
+            if (SeleniumUaRegex.IsMatch(ua))
                 return ("Selenium Bot", "Scraper");
-            if (Regex.IsMatch(ua, @"Playwright", RegexOptions.IgnoreCase))
+            if (PlaywrightUaRegex.IsMatch(ua))
                 return ("Playwright Bot", "Scraper");
-            if (Regex.IsMatch(ua, @"Puppeteer", RegexOptions.IgnoreCase))
+            if (PuppeteerUaRegex.IsMatch(ua))
                 return ("Puppeteer Bot", "Scraper");
         }
 

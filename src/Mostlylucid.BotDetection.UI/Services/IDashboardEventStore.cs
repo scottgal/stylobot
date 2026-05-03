@@ -80,4 +80,7 @@ public interface IDashboardEventStore
 
     /// <summary>Unified investigation query -- filter by any entity type, get cross-associated results.</summary>
     Task<InvestigationResult> GetInvestigationAsync(InvestigationFilter filter, CancellationToken ct = default);
+
+    /// <summary>Deletes detection records older than the specified cutoff. Returns count pruned.</summary>
+    Task<int> PruneOldDetectionsAsync(DateTime cutoff, CancellationToken ct = default);
 }

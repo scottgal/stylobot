@@ -96,6 +96,20 @@ public class DashboardSummaryBroadcaster : BackgroundService
                 await _hubContext.Clients.All.BroadcastInvalidation("signature");
                 await _hubContext.Clients.All.BroadcastInvalidation("useragents");
 
+                // Prune detections older than 7 days on each tick so storage stays bounded
+                // without requiring a process restart.
+                try
+                {
+                    var pruned = await _eventStore.PruneOldDetectionsAsync(
+                        DateTime.UtcNow.AddDays(-7), stoppingToken);
+                    if (pruned > 0)
+                        _logger.LogDebug("Pruned {Count} old dashboard detections", pruned);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to prune old detections");
+                }
+
                 await Task.Delay(
                     TimeSpan.FromSeconds(_options.SummaryBroadcastIntervalSeconds),
                     stoppingToken);

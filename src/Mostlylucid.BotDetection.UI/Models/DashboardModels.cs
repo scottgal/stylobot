@@ -20,6 +20,7 @@ public sealed record DashboardDetectionEvent
     public required string Path { get; init; }
     public int StatusCode { get; init; }
     public double ProcessingTimeMs { get; init; }
+    /// <summary>Always null. Raw IPs are never persisted (zero-PII design). Present for interface compatibility only.</summary>
     public string? IpAddress { get; init; }
     public string? UserAgent { get; init; }
     public List<string> TopReasons { get; init; } = new();

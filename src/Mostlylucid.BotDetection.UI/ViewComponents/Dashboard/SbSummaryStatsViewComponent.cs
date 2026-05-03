@@ -18,7 +18,10 @@ public class SbSummaryStatsViewComponent(
         var basePath = options.Value.BasePath.TrimEnd('/');
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
 
-        var (allVisitors, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, int.MaxValue);
+        // Fetch all cached visitors for summary totals. The cache is bounded (default 100 entries);
+        // this constant must be >= VisitorListCache._maxVisitors to ensure we get the full snapshot.
+        const int maxCachedVisitors = 1_000;
+        var (allVisitors, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, maxCachedVisitors);
         var humanVisitors = allVisitors.Where(v => !v.IsBot).ToList();
         var botVisitors = allVisitors.Where(v => v.IsBot).ToList();
 

@@ -28,7 +28,11 @@ public sealed class LiquidWidgetRenderer
         try
         {
             if (_cache.Count >= MaxCacheSize)
-                _cache.Clear();
+            {
+                // Evict one arbitrary entry to avoid thundering-herd cost of a full-cache clear.
+                var keyToEvict = _cache.Keys.FirstOrDefault();
+                if (keyToEvict != null) _cache.TryRemove(keyToEvict, out _);
+            }
 
             var compiled = _cache.GetOrAdd(ComputeKey(widgetId, template), _ =>
             {

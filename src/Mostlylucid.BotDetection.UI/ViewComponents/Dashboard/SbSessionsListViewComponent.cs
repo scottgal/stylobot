@@ -18,8 +18,10 @@ public class SbSessionsListViewComponent(
     {
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
 
-        // Fetch a large recent set then paginate in-memory - the store has no server-side pagination.
-        var allSessions = await sessionStore.GetRecentSessionsAsync(200, isBot);
+        // Fetch only enough sessions for the current and any future pages the user is likely to reach.
+        // The store has no server-side pagination, so we over-fetch conservatively.
+        var fetchCount = Math.Min((page * pageSize) + pageSize, 200);
+        var allSessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot);
 
         var allEntries = allSessions.Select(s => new SessionListEntry
         {
