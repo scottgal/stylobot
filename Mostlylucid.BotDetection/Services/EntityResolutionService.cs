@@ -30,10 +30,16 @@ public sealed class EntityResolutionService : BackgroundService
     /// <summary>Velocity variance below this = systematic rotation.</summary>
     private const double RotationVarianceThreshold = 0.05;
 
-    public EntityResolutionService(ISessionStore store, ILogger<EntityResolutionService> logger)
+    private readonly PipelineLoadSensor? _loadSensor;
+
+    public EntityResolutionService(
+        ISessionStore store,
+        ILogger<EntityResolutionService> logger,
+        PipelineLoadSensor? loadSensor = null)
     {
         _store = store;
         _logger = logger;
+        _loadSensor = loadSensor;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -55,7 +61,8 @@ public sealed class EntityResolutionService : BackgroundService
                 _logger.LogWarning(ex, "Entity resolution analysis failed");
             }
 
-            await Task.Delay(Interval, stoppingToken);
+            var adaptiveInterval = _loadSensor?.GetAdaptiveInterval(Interval) ?? Interval;
+            await Task.Delay(adaptiveInterval, stoppingToken);
         }
     }
 

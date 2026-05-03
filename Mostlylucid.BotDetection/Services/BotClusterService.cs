@@ -55,6 +55,8 @@ public class BotClusterService : BackgroundService
     /// </summary>
     public event Action<IReadOnlyList<BotCluster>, IReadOnlyList<SignatureBehavior>>? ClustersUpdated;
 
+    private readonly PipelineLoadSensor? _loadSensor;
+
     public BotClusterService(
         ILogger<BotClusterService> logger,
         IOptions<BotDetectionOptions> options,
@@ -63,7 +65,8 @@ public class BotClusterService : BackgroundService
         IEmbeddingProvider? embeddingProvider = null,
         MarkovTracker? markovTracker = null,
         AdaptiveSimilarityWeighter? adaptiveWeighter = null,
-        UaProfileStore? uaProfileStore = null)
+        UaProfileStore? uaProfileStore = null,
+        PipelineLoadSensor? loadSensor = null)
     {
         _logger = logger;
         _options = options.Value.Cluster;
@@ -73,6 +76,7 @@ public class BotClusterService : BackgroundService
         _markovTracker = markovTracker;
         _adaptiveWeighter = adaptiveWeighter;
         _uaProfileStore = uaProfileStore;
+        _loadSensor = loadSensor;
 
         if (_options.EnableSemanticEmbeddings && _embeddingProvider != null)
             _logger.LogInformation(
@@ -180,8 +184,15 @@ public class BotClusterService : BackgroundService
             {
                 try
                 {
-                    RunClustering();
+                    // Run clustering on a LongRunning thread so it does not steal
+                    // thread-pool slots from the request pipeline.
+                    await Task.Factory.StartNew(
+                        RunClustering,
+                        stoppingToken,
+                        TaskCreationOptions.LongRunning,
+                        TaskScheduler.Default);
                 }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Error during clustering run");
@@ -191,13 +202,14 @@ public class BotClusterService : BackgroundService
             // Reset bot detection counter after each run
             Interlocked.Exchange(ref _botDetectionsSinceLastRun, 0);
 
-            // Wait for either the timer or the trigger signal
+            // Adaptive interval: longer under request-path load so worst offenders
+            // get CPU budget first (next run will scope to them via GetWorstOffenderCap).
+            var baseInterval = TimeSpan.FromSeconds(_options.ClusterIntervalSeconds);
+            var adaptiveInterval = _loadSensor?.GetAdaptiveInterval(baseInterval) ?? baseInterval;
+
             try
             {
-                // WaitAsync with timeout = timer-based + event-driven
-                await _triggerSignal.WaitAsync(
-                    TimeSpan.FromSeconds(_options.ClusterIntervalSeconds),
-                    stoppingToken);
+                await _triggerSignal.WaitAsync(adaptiveInterval, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -211,8 +223,20 @@ public class BotClusterService : BackgroundService
         // 1. Snapshot all behaviors from the signature coordinator
         var allBehaviors = _signatureCoordinator.GetFamilyAwareBehaviors();
 
-        // Cluster ALL traffic - Leiden naturally forms communities for bots AND humans
+        // Under load: focus CPU budget on worst offenders (highest bot probability) first.
+        // Low-threat signatures wait for the next run when the system has more capacity.
         var behaviors = allBehaviors.ToList();
+        var cap = _loadSensor?.GetWorstOffenderCap(behaviors.Count);
+        if (cap.HasValue && behaviors.Count > cap.Value)
+        {
+            behaviors = behaviors
+                .OrderByDescending(b => b.AverageBotProbability)
+                .Take(cap.Value)
+                .ToList();
+            _logger.LogDebug(
+                "Load-adaptive clustering: capped to {Cap}/{Total} worst offenders (load={Band})",
+                cap.Value, allBehaviors.Count, _loadSensor!.CurrentBand);
+        }
 
         if (behaviors.Count < _options.MinClusterSize)
         {

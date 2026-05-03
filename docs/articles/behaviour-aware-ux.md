@@ -199,7 +199,7 @@ The checkout is the highest-value target on the site. Voucher testers, account t
             </button>
         </sb-gate>
 
-        <!-- Standard checkout available up to elevated risk -->
+        <!-- Standard checkout The contributor should not exist in any detection policy.available up to elevated risk -->
         <sb-gate max-risk="Elevated">
             <button type="submit" class="btn btn-primary">Proceed to Payment</button>
         </sb-gate>

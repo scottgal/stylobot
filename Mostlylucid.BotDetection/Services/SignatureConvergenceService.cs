@@ -23,14 +23,18 @@ public class SignatureConvergenceService : BackgroundService
     // Cooldown: recently split signatures can't be re-merged for 5 minutes
     private readonly ConcurrentDictionary<string, DateTime> _splitCooldowns = new();
 
+    private readonly PipelineLoadSensor? _loadSensor;
+
     public SignatureConvergenceService(
         ILogger<SignatureConvergenceService> logger,
         IOptions<BotDetectionOptions> options,
-        SignatureCoordinator signatureCoordinator)
+        SignatureCoordinator signatureCoordinator,
+        PipelineLoadSensor? loadSensor = null)
     {
         _logger = logger;
         _options = options.Value.SignatureConvergence;
         _signatureCoordinator = signatureCoordinator;
+        _loadSensor = loadSensor;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -55,18 +59,24 @@ public class SignatureConvergenceService : BackgroundService
         {
             try
             {
-                RunEvaluation();
+                await Task.Factory.StartNew(
+                    RunEvaluation,
+                    stoppingToken,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Error during convergence evaluation");
             }
 
+            var baseInterval = TimeSpan.FromSeconds(_options.EvaluationIntervalSeconds);
+            var adaptiveInterval = _loadSensor?.GetAdaptiveInterval(baseInterval) ?? baseInterval;
+
             try
             {
-                await Task.Delay(
-                    TimeSpan.FromSeconds(_options.EvaluationIntervalSeconds),
-                    stoppingToken);
+                await Task.Delay(adaptiveInterval, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -112,7 +122,25 @@ public class SignatureConvergenceService : BackgroundService
         var ipIndex = _signatureCoordinator.GetIpIndex();
         var created = 0;
 
-        foreach (var (ipHash, signatures) in ipIndex)
+        // Under load: process IP groups ordered by highest average bot probability first,
+        // capped to worst offenders so CPU time goes where it matters most.
+        IEnumerable<KeyValuePair<string, IReadOnlyList<string>>> groups = ipIndex;
+        var cap = _loadSensor?.GetWorstOffenderCap(ipIndex.Count);
+        if (cap.HasValue && ipIndex.Count > cap.Value)
+        {
+            var allBehaviors = _signatureCoordinator.GetAllBehaviors()
+                .ToDictionary(b => b.Signature, b => b.AverageBotProbability,
+                    StringComparer.OrdinalIgnoreCase);
+
+            groups = ipIndex
+                .OrderByDescending(kvp => kvp.Value
+                    .Select(s => allBehaviors.TryGetValue(s, out var p) ? p : 0)
+                    .DefaultIfEmpty(0)
+                    .Average())
+                .Take(cap.Value);
+        }
+
+        foreach (var (ipHash, signatures) in groups)
         {
             if (signatures.Count < _options.MinSignaturesForMerge)
                 continue;
@@ -239,8 +267,28 @@ public class SignatureConvergenceService : BackgroundService
 
     private int EvaluateSplits()
     {
-        var families = _signatureCoordinator.GetAllFamilies();
+        var allFamilies = _signatureCoordinator.GetAllFamilies();
         var splits = 0;
+
+        // Under load: evaluate highest-bot-probability families first.
+        // Build a quick lookup from FamilyAwareBehaviors which already aggregates per family.
+        IEnumerable<SignatureFamily> families = allFamilies;
+        var cap = _loadSensor?.GetWorstOffenderCap(allFamilies.Count);
+        if (cap.HasValue && allFamilies.Count > cap.Value)
+        {
+            var behaviorBySignature = _signatureCoordinator
+                .GetFamilyAwareBehaviors()
+                .ToDictionary(b => b.Signature, b => b.AverageBotProbability,
+                    StringComparer.OrdinalIgnoreCase);
+
+            families = allFamilies
+                .OrderByDescending(f =>
+                    f.MemberSignatures.Keys
+                        .Select(s => behaviorBySignature.TryGetValue(s, out var p) ? p : 0)
+                        .DefaultIfEmpty(0)
+                        .Max())
+                .Take(cap.Value);
+        }
 
         foreach (var family in families)
         {

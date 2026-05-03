@@ -50,7 +50,8 @@ public class BotDetectionMiddleware(
     Orchestration.ContributingDetectors.BehavioralWaveformContributor? waveformContributor = null,
     MultiFactorSignatureService? signatureService = null,
     SignatureCoordinator? signatureCoordinator = null,
-    IApiKeyStore? apiKeyStore = null)
+    IApiKeyStore? apiKeyStore = null,
+    Services.PipelineLoadSensor? loadSensor = null)
 {
     // Default test mode simulations - used as fallback when options don't contain the mode
     private static readonly Dictionary<string, string> DefaultTestModeSimulations =
@@ -101,6 +102,7 @@ public class BotDetectionMiddleware(
     private readonly MultiFactorSignatureService? _signatureService = signatureService;
     private readonly SignatureCoordinator? _signatureCoordinator = signatureCoordinator;
     private readonly IApiKeyStore? _apiKeyStore = apiKeyStore;
+    private readonly Services.PipelineLoadSensor? _loadSensor = loadSensor;
 
     /// <summary>
     ///     Main middleware entry point. Runs bot detection and handles blocking/throttling.
@@ -115,6 +117,8 @@ public class BotDetectionMiddleware(
         BotDetection.Telemetry.BotDetectionInstrumentation? telemetryInstrumentation = null,
         AuditProcessorDispatcher? auditProcessorDispatcher = null)
     {
+        _loadSensor?.RecordRequest();
+
         // Check if bot detection is globally enabled
         if (!_options.Enabled)
         {

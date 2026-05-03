@@ -612,6 +612,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService<Data.SessionPersistenceService>();
         // Per-request persistence (every request → SQLite, LFU sampled under load)
         services.AddSingleton<Data.RequestPersistenceService>();
+        // Pipeline load sensor — tracks req/s via EMA; used by background services to self-throttle
+        services.TryAddSingleton<Services.PipelineLoadSensor>();
         // Session atomization from raw requests (background, runs every 2 min)
         services.AddHostedService<Services.SessionAtomizerService>();
         // Entity resolution - background service for merge/split/rewind analysis
