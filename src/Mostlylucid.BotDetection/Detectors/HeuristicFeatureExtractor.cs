@@ -190,7 +190,11 @@ public static class HeuristicFeatureExtractor
         // Suppress when any Sec-Fetch-Site is present (browser attestation) or service worker fetch
         if (isBrowserUa && !hasAcceptLanguage && !hasFetchMetadata && !isServiceWorkerFetch)
             features["combo:browser_no_accept_lang"] = 1f;
-        if (isBrowserUa && context.Request.Cookies.Count == 0) features["combo:browser_no_cookies"] = 1f;
+        // Missing cookies with browser UA - suppress when browser attestation is present.
+        // Sec-Fetch-Site attests the request origin; absent cookies just means first visit,
+        // incognito mode, or cross-domain proxy testing. Cookie signal is redundant here.
+        if (isBrowserUa && context.Request.Cookies.Count == 0 && !hasFetchMetadata)
+            features["combo:browser_no_cookies"] = 1f;
 
         // HTTP method - HEAD is commonly used by scanners/probers
         if (string.Equals(context.Request.Method, "HEAD", StringComparison.OrdinalIgnoreCase))
