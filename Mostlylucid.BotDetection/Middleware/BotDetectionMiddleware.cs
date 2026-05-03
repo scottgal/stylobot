@@ -353,11 +353,6 @@ public class BotDetectionMiddleware(
             ? auditProcessorDispatcher.BuildContext(context, aggregatedResult)
             : null;
 
-        int? capturedRetryAfter = null;
-        if (context.Response.Headers.TryGetValue("Retry-After", out var raHeader)
-            && int.TryParse(raHeader.ToString(), out var raParsed))
-            capturedRetryAfter = raParsed;
-
         context.Response.OnCompleted(() =>
         {
             // Read final evidence from context (may have been boosted by ApplyResponseStatusBoost)
@@ -367,6 +362,12 @@ public class BotDetectionMiddleware(
             var statusCode = context.Response.StatusCode;
             var contentLength = context.Response.ContentLength ?? 0;
             var contentType = context.Response.ContentType;
+
+            // Read Retry-After here, after HandleThrottle has set it on the response.
+            int? retryAfterForTracker = null;
+            if (context.Response.Headers.TryGetValue("Retry-After", out var ra)
+                && int.TryParse(ra.ToString(), out var raParsed))
+                retryAfterForTracker = raParsed;
             var processingTimeMs = (DateTime.UtcNow - requestStartTime).TotalMilliseconds;
 
             var signal = BuildResponseSignal(
@@ -398,7 +399,7 @@ public class BotDetectionMiddleware(
                 // Record 4xx/5xx responses for reactive pattern analysis (including bot-detection-triggered ones).
                 // This intentionally captures our own 429s and 403s: those are exactly what bots react to.
                 if (_reactiveTracker is not null && statusCode >= 400)
-                    _reactiveTracker.RecordErrorServed(capturedSig, statusCode, capturedPath, capturedRetryAfter);
+                    _reactiveTracker.RecordErrorServed(capturedSig, statusCode, capturedPath, retryAfterForTracker);
             }
 
             return Task.CompletedTask;
