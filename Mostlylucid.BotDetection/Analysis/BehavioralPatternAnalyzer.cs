@@ -253,26 +253,19 @@ public partial class BehavioralPatternAnalyzer
 
     private List<string> GetRecentPaths(string identityKey)
     {
-        // Use hashed identity to protect PII
         var hashedKey = HashIdentity(identityKey);
         var key = $"pattern_paths_{hashedKey}";
-        return _cache.GetOrCreate(key, entry =>
-        {
-            entry.SlidingExpiration = _analysisWindow;
-            return new List<string>();
-        }) ?? new List<string>();
+        // Return a snapshot so callers can iterate without concurrent-modification risk.
+        var stored = _cache.Get<List<string>>(key);
+        return stored != null ? new List<string>(stored) : new List<string>();
     }
 
     private List<DateTime> GetRecentTimings(string identityKey)
     {
-        // Use hashed identity to protect PII
         var hashedKey = HashIdentity(identityKey);
         var key = $"pattern_timings_{hashedKey}";
-        return _cache.GetOrCreate(key, entry =>
-        {
-            entry.SlidingExpiration = _analysisWindow;
-            return new List<DateTime>();
-        }) ?? new List<DateTime>();
+        var stored = _cache.Get<List<DateTime>>(key);
+        return stored != null ? new List<DateTime>(stored) : new List<DateTime>();
     }
 
     /// <summary>
@@ -298,24 +291,15 @@ public partial class BehavioralPatternAnalyzer
         // Use hashed identity to protect PII
         var hashedKey = HashIdentity(identityKey);
 
-        // Record path
+        // Copy-on-write: create a new list so concurrent readers of the old reference are safe.
         var pathKey = $"pattern_paths_{hashedKey}";
-        var paths = GetRecentPaths(identityKey);
-        paths.Add(path);
-
-        // Keep last 50 paths
+        var paths = new List<string>(GetRecentPaths(identityKey)) { path };
         if (paths.Count > 50) paths.RemoveAt(0);
-
         _cache.Set(pathKey, paths, _analysisWindow);
 
-        // Record timing
         var timingKey = $"pattern_timings_{hashedKey}";
-        var timings = GetRecentTimings(identityKey);
-        timings.Add(timestamp);
-
-        // Keep last 100 timings
+        var timings = new List<DateTime>(GetRecentTimings(identityKey)) { timestamp };
         if (timings.Count > 100) timings.RemoveAt(0);
-
         _cache.Set(timingKey, timings, _analysisWindow);
     }
 

@@ -93,8 +93,10 @@ public class BotClusterService : BackgroundService
         var count = Interlocked.Increment(ref _botDetectionsSinceLastRun);
         if (count >= _options.MinBotDetectionsToTrigger)
         {
-            // Signal the background loop to run clustering early
-            try { _triggerSignal.Release(); } catch (SemaphoreFullException) { /* already signaled */ }
+            // Under load the adaptive interval already controls frequency -- suppress early
+            // triggers so we don't spin up LongRunning threads at the incoming request rate.
+            if (_loadSensor == null || _loadSensor.CurrentBand < LoadBand.High)
+                try { _triggerSignal.Release(); } catch (SemaphoreFullException) { /* already signaled */ }
         }
     }
 
