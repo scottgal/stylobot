@@ -11,11 +11,11 @@ on:
 
 jobs:
   update-formula:
-    # Only run on console-v* releases, skip prereleases (betas don't go to Homebrew)
+    # Run on allbot-v* or console-v* releases, skip prereleases (betas don't go to Homebrew)
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'release' &&
-       startsWith(github.event.release.tag_name, 'console-v') &&
+       (startsWith(github.event.release.tag_name, 'allbot-v') || startsWith(github.event.release.tag_name, 'console-v')) &&
        github.event.release.prerelease == false)
     runs-on: ubuntu-latest
     steps:
@@ -27,16 +27,18 @@ jobs:
         RELEASE_TAG: ${{ github.event.release.tag_name }}
       run: |
         if [ -n "$INPUT_VERSION" ]; then
-          TAG="console-v${INPUT_VERSION}"
+          TAG="allbot-v${INPUT_VERSION}"
           VERSION="$INPUT_VERSION"
         elif [ -n "$RELEASE_TAG" ]; then
           TAG="$RELEASE_TAG"
-          VERSION="${TAG#console-v}"
+          VERSION="${TAG#allbot-v}"
+          VERSION="${VERSION#console-v}"
         else
-          # Find latest stable console release
+          # Find latest stable release
           TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 --json tagName,isPrerelease \
-            | jq -r '[.[] | select(.tagName | startswith("console-v")) | select(.isPrerelease == false)][0].tagName')
-          VERSION="${TAG#console-v}"
+            | jq -r '[.[] | select(.tagName | (startswith("allbot-v") or startswith("console-v"))) | select(.isPrerelease == false)][0].tagName')
+          VERSION="${TAG#allbot-v}"
+          VERSION="${VERSION#console-v}"
         fi
         echo "tag=$TAG" >> "$GITHUB_OUTPUT"
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
