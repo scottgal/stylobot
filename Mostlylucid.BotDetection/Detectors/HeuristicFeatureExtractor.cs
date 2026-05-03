@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Detectors;
 
@@ -44,6 +45,8 @@ public static class HeuristicFeatureExtractor
     public static Dictionary<string, float> ExtractFeatures(HttpContext context, AggregatedEvidence evidence)
     {
         var features = new Dictionary<string, float>(128, StringComparer.OrdinalIgnoreCase);
+        // Snapshot once: DetectionLedger.Contributions calls ToList() on each access.
+        var contributions = evidence.Contributions;
 
         // === Basic Request Metadata ===
         ExtractRequestMetadata(context, features);
@@ -55,22 +58,22 @@ public static class HeuristicFeatureExtractor
         ExtractTransportContext(evidence, features);
 
         // === Detector Results (named by actual detector) ===
-        ExtractDetectorResults(evidence, features);
+        ExtractDetectorResults(contributions, features);
 
         // === Category Breakdown (named by actual category) ===
         ExtractCategoryBreakdown(evidence, features);
 
         // === Signal Presence (named by actual signal type) ===
-        ExtractSignalPresence(evidence, features);
+        ExtractSignalPresence(evidence, contributions, features);
 
         // === High-signal structured values (preserve magnitudes, not just presence) ===
         ExtractStructuredSignalValues(evidence, features);
 
         // === AI/LLM Results (extract actual values, not just presence) ===
-        ExtractAiResults(evidence, features);
+        ExtractAiResults(evidence, contributions, features);
 
         // === Aggregated Statistics ===
-        ExtractStatistics(evidence, features);
+        ExtractStatistics(evidence, contributions, features);
 
         // === Final Results ===
         ExtractFinalResults(evidence, features);
@@ -244,27 +247,23 @@ public static class HeuristicFeatureExtractor
     /// <summary>
     ///     Extracts detector results using actual detector names as feature keys.
     /// </summary>
-    private static void ExtractDetectorResults(AggregatedEvidence evidence, Dictionary<string, float> features)
+    private static void ExtractDetectorResults(IReadOnlyList<DetectionContribution> contributions, Dictionary<string, float> features)
     {
-        // Group by detector name and get max confidence
-        var detectorResults = evidence.Contributions
-            .GroupBy(c => NormalizeKey(c.DetectorName), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(
-                g => $"det:{g.Key}",
-                g => (float)g.Max(c => c.ConfidenceDelta),
-                StringComparer.OrdinalIgnoreCase);
+        // Single pass: write max-signed and max-abs per detector directly to features.
+        // Avoids two GroupBy+ToDictionary allocations and two separate enumerations.
+        foreach (var c in contributions)
+        {
+            var key = NormalizeKey(c.DetectorName);
+            var detKey = $"det:{key}";
+            var absKey = $"det_abs:{key}";
+            var delta = (float)c.ConfidenceDelta;
+            var abs = Math.Abs(delta);
 
-        foreach (var (key, value) in detectorResults) features[key] = value;
-
-        // Also store absolute confidence for ranking
-        var absResults = evidence.Contributions
-            .GroupBy(c => NormalizeKey(c.DetectorName), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(
-                g => $"det_abs:{g.Key}",
-                g => (float)g.Max(c => Math.Abs(c.ConfidenceDelta)),
-                StringComparer.OrdinalIgnoreCase);
-
-        foreach (var (key, value) in absResults) features[key] = value;
+            if (!features.TryGetValue(detKey, out var curr) || delta > curr)
+                features[detKey] = delta;
+            if (!features.TryGetValue(absKey, out var currAbs) || abs > currAbs)
+                features[absKey] = abs;
+        }
     }
 
     /// <summary>
@@ -283,7 +282,7 @@ public static class HeuristicFeatureExtractor
     /// <summary>
     ///     Extracts signal presence using actual signal types as feature keys.
     /// </summary>
-    private static void ExtractSignalPresence(AggregatedEvidence evidence, Dictionary<string, float> features)
+    private static void ExtractSignalPresence(AggregatedEvidence evidence, IReadOnlyList<DetectionContribution> contributions, Dictionary<string, float> features)
     {
         // Signal presence indicators
         foreach (var signal in evidence.Signals)
@@ -300,11 +299,11 @@ public static class HeuristicFeatureExtractor
         }
 
         // Client-side fingerprint specific features - this is a STRONG human indicator
-        var hasClientSide = evidence.Contributions.Any(c =>
+        var hasClientSide = contributions.Any(c =>
             c.DetectorName.Contains("Client", StringComparison.OrdinalIgnoreCase) ||
             c.Category.Equals("ClientSide", StringComparison.OrdinalIgnoreCase));
 
-        var clientSideContrib = evidence.Contributions
+        var clientSideContrib = contributions
             .FirstOrDefault(c => c.Category.Equals("ClientSide", StringComparison.OrdinalIgnoreCase));
 
         if (hasClientSide && clientSideContrib != null)
@@ -384,7 +383,7 @@ public static class HeuristicFeatureExtractor
     ///     This provides the actual prediction values, not just presence indicators.
     ///     Critical for late heuristic to incorporate AI feedback.
     /// </summary>
-    private static void ExtractAiResults(AggregatedEvidence evidence, Dictionary<string, float> features)
+    private static void ExtractAiResults(AggregatedEvidence evidence, IReadOnlyList<DetectionContribution> contributions, Dictionary<string, float> features)
     {
         // Check if AI ran
         if (!evidence.AiRan)
@@ -431,7 +430,7 @@ public static class HeuristicFeatureExtractor
         }
 
         // Get the actual confidence delta from the LLM contribution
-        var llmContribution = evidence.Contributions
+        var llmContribution = contributions
             .FirstOrDefault(c => c.DetectorName.Equals("Llm", StringComparison.OrdinalIgnoreCase));
 
         if (llmContribution != null)
@@ -445,31 +444,58 @@ public static class HeuristicFeatureExtractor
     /// <summary>
     ///     Extracts aggregated statistics from evidence.
     /// </summary>
-    private static void ExtractStatistics(AggregatedEvidence evidence, Dictionary<string, float> features)
+    private static void ExtractStatistics(AggregatedEvidence evidence, IReadOnlyList<DetectionContribution> contributions, Dictionary<string, float> features)
     {
-        var detectorScores = evidence.Contributions
-            .GroupBy(c => c.DetectorName, StringComparer.OrdinalIgnoreCase)
-            .Select(g => g.Max(c => Math.Abs(c.ConfidenceDelta)))
-            .ToList();
+        // Per-detector max-absolute score (one pass, no LINQ materialization).
+        var detMaxAbs = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in contributions)
+        {
+            var abs = Math.Abs(c.ConfidenceDelta);
+            if (!detMaxAbs.TryGetValue(c.DetectorName, out var cur) || abs > cur)
+                detMaxAbs[c.DetectorName] = abs;
+        }
 
-        var categoryScores = evidence.CategoryBreakdown.Values
-            .Select(c => c.Score)
-            .ToList();
+        var detCount = detMaxAbs.Count;
+        var detFlagged = 0;
+        var detMax = 0.0;
+        var detSum = 0.0;
+        foreach (var score in detMaxAbs.Values)
+        {
+            if (score > 0.3) detFlagged++;
+            if (score > detMax) detMax = score;
+            detSum += score;
+        }
+        var detAvg = detCount > 0 ? detSum / detCount : 0.0;
 
-        // Detector stats
-        features["stat:detector_count"] = Math.Min(detectorScores.Count / 10f, 1f);
-        features["stat:detector_flagged"] = Math.Min(detectorScores.Count(s => s > 0.3) / 6f, 1f);
-        features["stat:detector_max"] = detectorScores.Count > 0 ? (float)detectorScores.Max() : 0f;
-        features["stat:detector_avg"] = detectorScores.Count > 0 ? (float)detectorScores.Average() : 0f;
-        features["stat:detector_variance"] = detectorScores.Count > 1 ? (float)CalculateVariance(detectorScores) : 0f;
+        // Inline variance (two-pass over the small dictionary values).
+        var detVar = 0.0;
+        if (detCount > 1)
+        {
+            foreach (var score in detMaxAbs.Values)
+                detVar += (score - detAvg) * (score - detAvg);
+            detVar /= detCount;
+        }
 
-        // Category stats
-        features["stat:category_count"] = Math.Min(categoryScores.Count / 8f, 1f);
-        features["stat:category_max"] = categoryScores.Count > 0 ? (float)categoryScores.Max() : 0f;
-        features["stat:category_avg"] = categoryScores.Count > 0 ? (float)categoryScores.Average() : 0f;
+        features["stat:detector_count"] = Math.Min(detCount / 10f, 1f);
+        features["stat:detector_flagged"] = Math.Min(detFlagged / 6f, 1f);
+        features["stat:detector_max"] = (float)detMax;
+        features["stat:detector_avg"] = (float)detAvg;
+        features["stat:detector_variance"] = (float)detVar;
 
-        // Other stats
-        features["stat:contribution_count"] = Math.Min(evidence.Contributions.Count / 20f, 1f);
+        // Category stats: direct iteration, no Select+ToList.
+        var catCount = evidence.CategoryBreakdown.Count;
+        var catMax = 0.0;
+        var catSum = 0.0;
+        foreach (var breakdown in evidence.CategoryBreakdown.Values)
+        {
+            if (breakdown.Score > catMax) catMax = breakdown.Score;
+            catSum += breakdown.Score;
+        }
+        features["stat:category_count"] = Math.Min(catCount / 8f, 1f);
+        features["stat:category_max"] = (float)catMax;
+        features["stat:category_avg"] = catCount > 0 ? (float)(catSum / catCount) : 0f;
+
+        features["stat:contribution_count"] = Math.Min(contributions.Count / 20f, 1f);
         features["stat:signal_count"] = Math.Min(evidence.Signals.Count / 50f, 1f);
         features["stat:failed_count"] = Math.Min(evidence.FailedDetectors.Count / 5f, 1f);
         features["stat:processing_time"] = Math.Min((float)evidence.TotalProcessingTimeMs / 1000f, 1f);
@@ -506,13 +532,6 @@ public static class HeuristicFeatureExtractor
             .Replace("-", "_")
             .Replace(".", "_")
             .Replace(":", "_");
-    }
-
-    private static double CalculateVariance(List<double> values)
-    {
-        if (values.Count < 2) return 0;
-        var avg = values.Average();
-        return values.Sum(v => Math.Pow(v - avg, 2)) / values.Count;
     }
 
     private static void AddBooleanSignalFeature(

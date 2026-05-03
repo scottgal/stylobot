@@ -235,6 +235,8 @@ public class BlackboardOrchestrator
 {
     // Object pool for reusing state collections
     private static readonly ObjectPool<PooledDetectionState> StatePool = DetectionStatePoolFactory.Create();
+    private static readonly HashSet<string> KnownAiDetectors =
+        new(StringComparer.OrdinalIgnoreCase) { "Onnx", "Llm" };
 
     // Circuit breaker state per detector
     private readonly ConcurrentDictionary<string, CircuitState> _circuitStates = new();
@@ -511,11 +513,9 @@ public class BlackboardOrchestrator
                                 if (evalResult.Action.Value == PolicyAction.EscalateToAi)
                                 {
                                     // Default AI detectors if none specified in policy
-                                    var knownAiDetectors = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                                        { "Onnx", "Llm" };
                                     var aiDetectorNames = policy.AiPathDetectors.Count > 0
                                         ? policy.AiPathDetectors.ToHashSet(StringComparer.OrdinalIgnoreCase)
-                                        : knownAiDetectors; // Empty = run ALL known AI detectors
+                                        : KnownAiDetectors;
 
                                     // Get AI detectors that haven't run yet
                                     var aiDetectors = new List<IContributingDetector>();
