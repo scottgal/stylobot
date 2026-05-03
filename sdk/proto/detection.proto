@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 option csharp_namespace = "Stylobot.Detection.V1";
+option go_package = "github.com/scottgal/caddy-stylobot/proto;proto";
 
 package stylobot.detection.v1;
 

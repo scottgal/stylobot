@@ -1,0 +1,28 @@
+name: Sync caddy-stylobot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'sdk/caddy/**'
+      - 'sdk/proto/detection.proto'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push sdk/caddy to caddy-stylobot repo
+        uses: cpina/github-action-push-to-another-repository@main
+        env:
+          SSH_DEPLOY_KEY: ${{ secrets.CADDY_STYLOBOT_DEPLOY_KEY }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        with:
+          source-directory: sdk/caddy
+          destination-github-username: scottgal
+          destination-repository-name: caddy-stylobot
+          target-branch: main
+          commit-message: "sync: ${{ github.event.head_commit.message }}"

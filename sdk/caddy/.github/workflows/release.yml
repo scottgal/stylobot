@@ -1,0 +1,149 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            runner: ubuntu-latest
+            suffix: ''
+          - goos: linux
+            goarch: arm64
+            runner: ubuntu-latest
+            suffix: ''
+          - goos: darwin
+            goarch: amd64
+            runner: macos-latest
+            suffix: ''
+          - goos: darwin
+            goarch: arm64
+            runner: macos-latest
+            suffix: ''
+          - goos: windows
+            goarch: amd64
+            runner: windows-latest
+            suffix: '.exe'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Install xcaddy
+        run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+
+      - name: Build Caddy with stylobot module
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          xcaddy build \
+            --with github.com/scottgal/caddy-stylobot@${TAG_NAME}
+
+      - name: Rename binary
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          BINARY="caddy-stylobot_${GOOS}_${GOARCH}${SUFFIX}"
+          mv caddy${SUFFIX} "$BINARY"
+          sha256sum "$BINARY" > "$BINARY.sha256" 2>/dev/null || \
+            certutil -hashfile "$BINARY" SHA256 > "$BINARY.sha256"
+          echo "BINARY=$BINARY" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            caddy-stylobot_*
+            *.sha256
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            **Build with xcaddy (recommended):**
+            ```bash
+            xcaddy build --with github.com/scottgal/caddy-stylobot@${{ github.ref_name }}
+            ```
+
+            **Docker:**
+            ```bash
+            docker pull ghcr.io/scottgal/caddy-stylobot:${{ github.ref_name }}
+            ```
+
+            **Pre-built binary** (download for your platform below, verify SHA256):
+            ```bash
+            # Linux amd64 example:
+            curl -LO https://github.com/scottgal/caddy-stylobot/releases/download/${{ github.ref_name }}/caddy-stylobot_linux_amd64
+            chmod +x caddy-stylobot_linux_amd64
+            ./caddy-stylobot_linux_amd64 version
+            ```
+
+            See [README](https://github.com/scottgal/caddy-stylobot#readme) for Caddyfile configuration.
+
+  docker:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/scottgal/caddy-stylobot:latest
+            ghcr.io/scottgal/caddy-stylobot:${{ github.ref_name }}
+          build-args: |
+            MODULE_VERSION=${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
