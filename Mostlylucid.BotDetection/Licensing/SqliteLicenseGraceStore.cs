@@ -11,16 +11,21 @@ namespace Mostlylucid.BotDetection.Licensing;
 internal sealed class SqliteLicenseGraceStore
 {
     private readonly string _connectionString;
+    private readonly string _dbPath;
 
     public SqliteLicenseGraceStore(IOptions<BotDetectionOptions> options)
     {
-        var dbPath = options.Value.DatabasePath
-                     ?? System.IO.Path.Combine(AppContext.BaseDirectory, "botdetection.db");
-        _connectionString = $"Data Source={dbPath}";
+        _dbPath = options.Value.DatabasePath
+                  ?? System.IO.Path.Combine(AppContext.BaseDirectory, "botdetection.db");
+        _connectionString = $"Data Source={_dbPath}";
     }
 
     public async Task InitializeAsync(CancellationToken ct = default)
     {
+        var directory = Path.GetDirectoryName(Path.GetFullPath(_dbPath));
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
         using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
         using var cmd = conn.CreateCommand();

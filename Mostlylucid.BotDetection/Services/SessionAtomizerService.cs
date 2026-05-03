@@ -31,7 +31,8 @@ public sealed class SessionAtomizerService : BackgroundService
             try { await AtomizePassAsync(forceFlush: false, stoppingToken); }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { _logger.LogError(ex, "SessionAtomizerService pass failed"); }
-            await Task.Delay(RunInterval, stoppingToken).ConfigureAwait(false);
+            try { await Task.Delay(RunInterval, stoppingToken).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
         }
         try { await AtomizePassAsync(forceFlush: true, CancellationToken.None); }
         catch (Exception ex) { _logger.LogWarning(ex, "SessionAtomizerService shutdown flush failed"); }

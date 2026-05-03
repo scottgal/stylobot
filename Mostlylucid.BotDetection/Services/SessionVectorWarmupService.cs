@@ -31,7 +31,8 @@ public sealed class SessionVectorWarmupService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Wait for HNSW LoadAsync (fires on startup as a background task) to complete
-        await Task.Delay(TimeSpan.FromSeconds(12), stoppingToken);
+        try { await Task.Delay(TimeSpan.FromSeconds(12), stoppingToken); }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
 
         if (_vectorSearch.Count > 0)
         {

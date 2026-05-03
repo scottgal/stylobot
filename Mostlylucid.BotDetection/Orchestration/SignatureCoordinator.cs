@@ -263,7 +263,6 @@ public class SignatureCoordinator : IAsyncDisposable
             _options.SignatureTtl);
     }
 
-
     public async ValueTask DisposeAsync()
     {
         // Drain the update atom to complete pending updates

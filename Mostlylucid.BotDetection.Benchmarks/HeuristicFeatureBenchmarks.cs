@@ -12,7 +12,7 @@ using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 namespace Mostlylucid.BotDetection.Benchmarks;
 
 /// <summary>
-///     Benchmarks for HeuristicFeatureExtractor — the highest-allocated path in the heuristic detector.
+///     Benchmarks for HeuristicFeatureExtractor (the highest-allocated path in the heuristic detector).
 ///     Run: cd Mostlylucid.BotDetection.Benchmarks && dotnet run -c Release -- --filter *HeuristicFeature*
 /// </summary>
 [Config(typeof(HeuristicConfig))]
@@ -57,15 +57,15 @@ public class HeuristicFeatureBenchmarks
         _evidenceNoContribs = BuildEvidence(0, detectorNames, categories);
     }
 
-    [Benchmark(Description = "ExtractFeatures — 10 contributions")]
+    [Benchmark(Description = "ExtractFeatures: 10 contributions")]
     public Dictionary<string, float> Extract10() =>
         HeuristicFeatureExtractor.ExtractFeatures(_context, _evidence10);
 
-    [Benchmark(Description = "ExtractFeatures — 30 contributions")]
+    [Benchmark(Description = "ExtractFeatures: 30 contributions")]
     public Dictionary<string, float> Extract30() =>
         HeuristicFeatureExtractor.ExtractFeatures(_context, _evidence30);
 
-    [Benchmark(Description = "ExtractFeatures — no contributions")]
+    [Benchmark(Description = "ExtractFeatures: no contributions")]
     public Dictionary<string, float> ExtractEmpty() =>
         HeuristicFeatureExtractor.ExtractFeatures(_context, _evidenceNoContribs);
 

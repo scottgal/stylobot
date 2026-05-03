@@ -47,7 +47,8 @@ public sealed class EntityResolutionService : BackgroundService
         _logger.LogInformation("EntityResolutionService started (interval: {Interval}s)", Interval.TotalSeconds);
 
         // Wait for system to warm up
-        await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+        try { await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken); }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -62,7 +63,8 @@ public sealed class EntityResolutionService : BackgroundService
             }
 
             var adaptiveInterval = _loadSensor?.GetAdaptiveInterval(Interval) ?? Interval;
-            await Task.Delay(adaptiveInterval, stoppingToken);
+            try { await Task.Delay(adaptiveInterval, stoppingToken); }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
         }
     }
 

@@ -105,12 +105,19 @@ public class BackgroundEnrichmentService : BackgroundService
 
         using var semaphore = new SemaphoreSlim(_options.MaxConcurrency);
 
-        await foreach (var request in _channel.Reader.ReadAllAsync(stoppingToken))
+        try
         {
-            await semaphore.WaitAsync(stoppingToken);
+            await foreach (var request in _channel.Reader.ReadAllAsync(stoppingToken))
+            {
+                await semaphore.WaitAsync(stoppingToken);
 
-            // Fire-and-forget with semaphore release
-            _ = ProcessRequestAsync(request, semaphore, stoppingToken);
+                // Fire-and-forget with semaphore release
+                _ = ProcessRequestAsync(request, semaphore, stoppingToken);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Expected during host shutdown.
         }
     }
 

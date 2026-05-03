@@ -52,7 +52,8 @@ public sealed class VectorCompactionService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // Delay initial run until configured hour today (or wait until tomorrow if past)
-        await WaitForCompactionWindowAsync(stoppingToken);
+        try { await WaitForCompactionWindowAsync(stoppingToken); }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -67,7 +68,8 @@ public sealed class VectorCompactionService : BackgroundService
             }
 
             // Wait for the next nightly window
-            await WaitForCompactionWindowAsync(stoppingToken);
+            try { await WaitForCompactionWindowAsync(stoppingToken); }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
         }
     }
 

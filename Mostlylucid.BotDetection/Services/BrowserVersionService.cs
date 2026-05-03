@@ -88,7 +88,8 @@ public partial class BrowserVersionService : BackgroundService, IBrowserVersionS
             _options.VersionAge.UpdateIntervalHours);
 
         // Initial update (with delay to not slow startup)
-        await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+        try { await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken); }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
         await UpdateVersionsSafeAsync(stoppingToken);
 
         // Periodic updates

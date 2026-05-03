@@ -13,7 +13,7 @@ namespace Mostlylucid.BotDetection.Services;
 ///     coordinator on startup. This prevents clustering from starting from zero after
 ///     a restart when request persistence is enabled.
 /// </summary>
-public sealed class SignatureCoordinatorWarmupService : IHostedService
+public sealed class SignatureCoordinatorWarmupService : BackgroundService
 {
     private readonly ISessionStore _store;
     private readonly SignatureCoordinator _signatureCoordinator;
@@ -35,19 +35,20 @@ public sealed class SignatureCoordinatorWarmupService : IHostedService
         _markovTracker = markovTracker;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         try
         {
             var coordinatorOptions = _options.SignatureCoordinator;
-            var limit = Math.Max(
-                coordinatorOptions.MaxSignaturesInWindow,
-                coordinatorOptions.MaxSignaturesInWindow * Math.Min(coordinatorOptions.MaxRequestsPerSignature, 20));
+            var limit = coordinatorOptions.MaxSignaturesInWindow *
+                        Math.Min(coordinatorOptions.MaxRequestsPerSignature, 20);
             var since = DateTime.UtcNow - coordinatorOptions.SignatureWindow;
-            var requests = await _store.GetRecentRequestsAsync(limit, since, cancellationToken);
+            var requests = await _store.GetRecentRequestsAsync(limit, since, stoppingToken);
 
             foreach (var request in requests)
             {
+                stoppingToken.ThrowIfCancellationRequested();
+
                 await _signatureCoordinator.RecordRequestAsync(
                     request.Signature,
                     request.Id > 0 ? $"persisted-{request.Id}" : Guid.NewGuid().ToString("N"),
@@ -60,7 +61,7 @@ public sealed class SignatureCoordinatorWarmupService : IHostedService
                         ["persisted.risk_band"] = request.RiskBand
                     },
                     new HashSet<string> { "persisted" },
-                    cancellationToken,
+                    stoppingToken,
                     timestampUtc: request.Timestamp);
 
                 _markovTracker?.RecordTransition(
@@ -77,15 +78,13 @@ public sealed class SignatureCoordinatorWarmupService : IHostedService
                     "Replayed {Count} persisted requests into SignatureCoordinator warmup window",
                     requests.Count);
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Normal host shutdown/start cancellation.
+            // Normal host shutdown.
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "SignatureCoordinator warmup failed; clustering will start from live traffic only");
         }
     }
-
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

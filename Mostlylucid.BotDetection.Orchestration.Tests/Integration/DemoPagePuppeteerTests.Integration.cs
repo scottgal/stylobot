@@ -29,8 +29,7 @@ public class DemoPagePuppeteerTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         _output.WriteLine("Downloading Chromium browser...");
-        var browserFetcher = new BrowserFetcher();
-        await browserFetcher.DownloadAsync();
+        await PuppeteerBrowserDownload.EnsureDownloadedAsync();
 
         _output.WriteLine("Launching headless browser...");
         _browser = await Puppeteer.LaunchAsync(new LaunchOptions
@@ -316,8 +315,7 @@ public class StealthModePuppeteerTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        var browserFetcher = new BrowserFetcher();
-        await browserFetcher.DownloadAsync();
+        await PuppeteerBrowserDownload.EnsureDownloadedAsync();
 
         // Launch with args that try to hide headless nature
         _browser = await Puppeteer.LaunchAsync(new LaunchOptions
@@ -400,5 +398,38 @@ public class StealthModePuppeteerTests : IAsyncLifetime
             response.Status == HttpStatusCode.OK ||
             response.Status == HttpStatusCode.Forbidden,
             $"Expected 200 or 403, got {response.Status}");
+    }
+}
+
+internal static class PuppeteerBrowserDownload
+{
+    private static readonly SemaphoreSlim Lock = new(1, 1);
+
+    public static async Task EnsureDownloadedAsync()
+    {
+        await Lock.WaitAsync();
+        try
+        {
+            var browserFetcher = new BrowserFetcher();
+            if (HasUsableChrome(browserFetcher))
+                return;
+
+            var chromeCachePath = Path.Combine(browserFetcher.CacheDir, "Chrome");
+            if (Directory.Exists(chromeCachePath))
+                Directory.Delete(chromeCachePath, recursive: true);
+
+            await browserFetcher.DownloadAsync();
+        }
+        finally
+        {
+            Lock.Release();
+        }
+    }
+
+    private static bool HasUsableChrome(BrowserFetcher browserFetcher)
+    {
+        return browserFetcher.GetInstalledBrowsers()
+            .Any(browser => browser.Browser == SupportedBrowser.Chrome &&
+                            File.Exists(browser.GetExecutablePath()));
     }
 }

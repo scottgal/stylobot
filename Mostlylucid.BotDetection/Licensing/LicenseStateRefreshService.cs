@@ -31,12 +31,31 @@ internal sealed class LicenseStateRefreshService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await _graceStore.InitializeAsync(stoppingToken);
+        try
+        {
+            await _graceStore.InitializeAsync(stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to initialize license grace store; using in-memory FOSS license state until the next refresh.");
+        }
+
         await RefreshAsync(stoppingToken);
 
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(60));
-        while (await timer.WaitForNextTickAsync(stoppingToken))
-            await RefreshAsync(stoppingToken);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(stoppingToken))
+                await RefreshAsync(stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Expected during host shutdown.
+        }
     }
 
     private async Task RefreshAsync(CancellationToken ct)
