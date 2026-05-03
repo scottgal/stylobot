@@ -256,7 +256,8 @@ public sealed class ResponseCoordinator : IAsyncDisposable
             _options.MaxClientsInWindow,
             Environment.ProcessorCount,
             10,
-            _signals);
+            _signals,
+            cleanupInterval: _options.CacheCleanupInterval);
 
         // Initialize sequential processing atom
         _analysisAtom = new KeyedSequentialAtom<ResponseSignal, string>(

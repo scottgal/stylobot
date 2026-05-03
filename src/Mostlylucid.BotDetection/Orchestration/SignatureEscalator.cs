@@ -40,7 +40,8 @@ public sealed class SignatureResponseCoordinatorCache : IAsyncDisposable
             maxSignatures,
             Environment.ProcessorCount,
             10,
-            null); // No external signals
+            null, // No external signals
+            cleanupInterval: cleanupInterval ?? TimeSpan.FromSeconds(30));
     }
 
     public async ValueTask DisposeAsync()
