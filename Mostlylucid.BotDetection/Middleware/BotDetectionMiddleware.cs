@@ -47,7 +47,10 @@ public class BotDetectionMiddleware(
     CountryReputationTracker? countryTracker = null,
     BotClusterService? clusterService = null,
     ReactiveSignalTracker? reactiveTracker = null,
-    Orchestration.ContributingDetectors.BehavioralWaveformContributor? waveformContributor = null)
+    Orchestration.ContributingDetectors.BehavioralWaveformContributor? waveformContributor = null,
+    MultiFactorSignatureService? signatureService = null,
+    SignatureCoordinator? signatureCoordinator = null,
+    IApiKeyStore? apiKeyStore = null)
 {
     // Default test mode simulations - used as fallback when options don't contain the mode
     private static readonly Dictionary<string, string> DefaultTestModeSimulations =
@@ -95,6 +98,9 @@ public class BotDetectionMiddleware(
     private readonly BotDetectionOptions _options = options.Value;
     private readonly ReactiveSignalTracker? _reactiveTracker = reactiveTracker;
     private readonly Orchestration.ContributingDetectors.BehavioralWaveformContributor? _waveformContributor = waveformContributor;
+    private readonly MultiFactorSignatureService? _signatureService = signatureService;
+    private readonly SignatureCoordinator? _signatureCoordinator = signatureCoordinator;
+    private readonly IApiKeyStore? _apiKeyStore = apiKeyStore;
 
     /// <summary>
     ///     Main middleware entry point. Runs bot detection and handles blocking/throttling.
@@ -134,8 +140,9 @@ public class BotDetectionMiddleware(
         }
 
         // Rich API key: per-key detection overlay (detection still runs, but with detector exclusions)
-        var apiKeyStore = context.RequestServices?.GetService<IApiKeyStore>();
-        var apiKeyContext = TryValidateRichApiKey(context, apiKeyStore);
+        // _apiKeyStore is null in test contexts that inject the store via RequestServices.
+        var effectiveApiKeyStore = _apiKeyStore ?? context.RequestServices?.GetService<IApiKeyStore>();
+        var apiKeyContext = TryValidateRichApiKey(context, effectiveApiKeyStore);
         if (apiKeyContext != null)
         {
             if (apiKeyContext.DisablesAllDetectors)
@@ -337,7 +344,7 @@ public class BotDetectionMiddleware(
         var capturedBotProbability = aggregatedResult.BotProbability;
         var capturedAction = aggregatedResult.PolicyAction;
         var capturedSig = context.Items["BotDetection:Signature"] as string;
-        var capturedSigCoordinator = context.RequestServices.GetService<SignatureCoordinator>();
+        var capturedSigCoordinator = _signatureCoordinator;
         var capturedAuditCtx = auditProcessorDispatcher?.HasProcessors == true
             ? auditProcessorDispatcher.BuildContext(context, aggregatedResult)
             : null;
@@ -991,10 +998,9 @@ public class BotDetectionMiddleware(
 
     private void ComputeAndStoreSignature(HttpContext context)
     {
-        var sigService = context.RequestServices.GetService<MultiFactorSignatureService>();
-        if (sigService == null) return;
+        if (_signatureService == null) return;
 
-        var sigs = sigService.GenerateSignatures(context);
+        var sigs = _signatureService.GenerateSignatures(context);
         context.Items["BotDetection.Signatures"] = sigs;
         context.Items["BotDetection:Signature"] = sigs.PrimarySignature;
     }
