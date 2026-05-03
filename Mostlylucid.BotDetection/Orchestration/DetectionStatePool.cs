@@ -17,6 +17,13 @@ internal sealed class PooledDetectionState
     public HashSet<string> AllPolicyDetectors { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    ///     Reusable lists for available and ready detectors per request.
+    ///     Eliminates two List allocations per wave.
+    /// </summary>
+    public List<IContributingDetector> AvailableDetectors { get; } = new(64);
+    public List<IContributingDetector> ReadyDetectors { get; } = new(64);
+
+    /// <summary>
     ///     Zero-allocation read-only set views over the ConcurrentDictionary keys.
     ///     Avoids creating new HashSet copies in BuildState on every wave.
     /// </summary>
@@ -30,6 +37,8 @@ internal sealed class PooledDetectionState
         FailedDetectors.Clear();
         RanDetectors.Clear();
         AllPolicyDetectors.Clear();
+        AvailableDetectors.Clear();
+        ReadyDetectors.Clear();
         CompletedDetectorKeys.SetSource(null!);
         FailedDetectorKeys.SetSource(null!);
     }

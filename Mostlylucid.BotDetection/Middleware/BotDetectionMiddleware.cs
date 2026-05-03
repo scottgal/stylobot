@@ -86,7 +86,8 @@ public class BotDetectionMiddleware(
             ["uptimerobot"] = "UptimeRobot/2.0"
         };
 
-    // Random.Shared is thread-safe in .NET 6+
+    // Caches PropertyInfo lookups for the GeoLocation duck-type (avoids reflection on every request).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(Type Type, string Name), System.Reflection.PropertyInfo?> GeoLocationPropertyCache = new();
 
     private readonly ILicenseState _licenseState = licenseState;
     private readonly ILogger<BotDetectionMiddleware> _logger = logger;
@@ -538,10 +539,12 @@ public class BotDetectionMiddleware(
                 geoLocObj != null)
             {
                 var geoType = geoLocObj.GetType();
-                var ccProp = geoType.GetProperty("CountryCode");
+                var ccProp = GeoLocationPropertyCache.GetOrAdd(
+                    (geoType, "CountryCode"), k => k.Type.GetProperty(k.Name));
                 if (ccProp?.GetValue(geoLocObj) is string geoCC && !string.IsNullOrEmpty(geoCC))
                     countryCode = geoCC;
-                var cnProp = geoType.GetProperty("CountryName");
+                var cnProp = GeoLocationPropertyCache.GetOrAdd(
+                    (geoType, "CountryName"), k => k.Type.GetProperty(k.Name));
                 if (cnProp?.GetValue(geoLocObj) is string geoCN && !string.IsNullOrEmpty(geoCN))
                     countryName = geoCN;
             }

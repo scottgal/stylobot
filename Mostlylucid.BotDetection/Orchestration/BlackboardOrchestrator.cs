@@ -362,7 +362,7 @@ public class BlackboardOrchestrator
 
             // Get enabled detectors (respecting circuit breakers, policy, and exclusions)
             // _sortedDetectors is pre-sorted at construction time, so no per-request sort.
-            var availableDetectors = new List<IContributingDetector>(_sortedDetectors.Length);
+            var availableDetectors = pooledState.AvailableDetectors;
             foreach (var d in _sortedDetectors)
             {
                 if (d.IsEnabled && IsCircuitClosed(d.Name) &&
@@ -377,6 +377,11 @@ public class BlackboardOrchestrator
 
             var waveNumber = 0;
             var aiRan = false; // Track whether AI detectors executed (affects probability clamping)
+
+            // Create per-request semaphore once; reuse across waves (safe: WhenAll drains before next wave).
+            using var parallelSemaphore = _options.EnableParallelExecution
+                ? new SemaphoreSlim(_options.MaxParallelDetectors)
+                : null;
 
             try
             {
@@ -394,8 +399,9 @@ public class BlackboardOrchestrator
                         aiRan,
                         _fullOptions);
 
-                    // Find detectors that can run in this wave - no LINQ allocation
-                    var readyDetectorsList = new List<IContributingDetector>();
+                    // Find detectors that can run in this wave - reuse pooled list, no allocation
+                    var readyDetectorsList = pooledState.ReadyDetectors;
+                    readyDetectorsList.Clear();
                     foreach (var d in availableDetectors)
                     {
                         if (!ranDetectors.Contains(d.Name) &&
@@ -430,11 +436,12 @@ public class BlackboardOrchestrator
                         break;
                     }
 
-                    _logger.LogDebug(
-                        "Wave {Wave}: Running {Count} detectors: {Names}",
-                        waveNumber,
-                        readyDetectorsList.Count,
-                        string.Join(", ", readyDetectorsList.Select(d => d.Name)));
+                    if (_logger.IsEnabled(LogLevel.Debug))
+                        _logger.LogDebug(
+                            "Wave {Wave}: Running {Count} detectors: {Names}",
+                            waveNumber,
+                            readyDetectorsList.Count,
+                            string.Join(", ", readyDetectorsList.Select(d => d.Name)));
 
                     // Mark as ran (before execution to prevent re-triggering)
                     foreach (var detector in readyDetectorsList) ranDetectors.Add(detector.Name);
@@ -447,7 +454,8 @@ public class BlackboardOrchestrator
                         signals,
                         completedDetectors,
                         failedDetectors,
-                        cts.Token);
+                        cts.Token,
+                        parallelSemaphore);
 
                     // Check for early exit - but still run policy evaluation for transitions
                     var earlyExitTriggered = false;
@@ -521,11 +529,12 @@ public class BlackboardOrchestrator
 
                                     if (aiDetectors.Count > 0)
                                     {
-                                        _logger.LogDebug(
-                                            "Policy {Policy} escalating to AI, running {Count} AI detectors: {Names}",
-                                            policy.Name,
-                                            aiDetectors.Count,
-                                            string.Join(", ", aiDetectors.Select(d => d.Name)));
+                                        if (_logger.IsEnabled(LogLevel.Debug))
+                                            _logger.LogDebug(
+                                                "Policy {Policy} escalating to AI, running {Count} AI detectors: {Names}",
+                                                policy.Name,
+                                                aiDetectors.Count,
+                                                string.Join(", ", aiDetectors.Select(d => d.Name)));
 
                                         // Mark as ran
                                         foreach (var detector in aiDetectors) ranDetectors.Add(detector.Name);
@@ -545,7 +554,8 @@ public class BlackboardOrchestrator
                                             signals,
                                             completedDetectors,
                                             failedDetectors,
-                                            cts.Token);
+                                            cts.Token,
+                                            parallelSemaphore);
 
                                         // Mark that AI detectors have run (removes probability clamping)
                                         aiRan = true;
@@ -589,10 +599,6 @@ public class BlackboardOrchestrator
                     if (earlyExitTriggered) break;
 
                     waveNumber++;
-
-                    // Signals propagate immediately via ConcurrentDictionary (no delay needed).
-                    // Yield to avoid starving other tasks, but don't burn 50ms per wave.
-                    if (waveNumber < _options.MaxWaves) await Task.Yield();
                 }
             }
             catch (OperationCanceledException) when (cts.IsCancellationRequested &&
@@ -772,7 +778,8 @@ public class BlackboardOrchestrator
         ConcurrentDictionary<string, object> signals,
         ConcurrentDictionary<string, bool> completedDetectors,
         ConcurrentDictionary<string, bool> failedDetectors,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        SemaphoreSlim? parallelSemaphore = null)
     {
         if (!_options.EnableParallelExecution || detectors.Count == 1)
         {
@@ -789,10 +796,9 @@ public class BlackboardOrchestrator
         }
         else
         {
-            // Parallel execution with semaphore - allocated per-wave intentionally.
-            // A class-level semaphore would throttle across concurrent requests, not per-request.
-            // Use explicit array instead of LINQ .Select() to avoid closure allocations.
-            using var semaphore = new SemaphoreSlim(_options.MaxParallelDetectors);
+            // Parallel execution with per-request semaphore (not class-level to avoid cross-request throttling).
+            // Semaphore is hoisted to request scope and passed in to avoid one allocation per wave.
+            var semaphore = parallelSemaphore ?? new SemaphoreSlim(_options.MaxParallelDetectors);
             var tasks = new Task[detectors.Count];
             for (var i = 0; i < detectors.Count; i++)
             {
@@ -838,52 +844,62 @@ public class BlackboardOrchestrator
         ConcurrentDictionary<string, bool> failedDetectors,
         CancellationToken cancellationToken)
     {
-        var stopwatch = Stopwatch.StartNew();
+        var startTs = Stopwatch.GetTimestamp();
+
+        // Only create a linked CTS when the detector has a shorter timeout than the remaining
+        // pipeline budget. Avoids 49 CTS allocations on the common (fast-path) case.
+        var detectorTimeout = detector.ExecutionTimeout;
+        var usePerDetectorCts = detectorTimeout < _options.TotalTimeout;
 
         try
         {
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(detector.ExecutionTimeout);
+            IReadOnlyList<DetectionContribution> contributions;
+            if (usePerDetectorCts)
+            {
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(detectorTimeout);
+                contributions = await detector.ContributeAsync(state, cts.Token);
+            }
+            else
+            {
+                contributions = await detector.ContributeAsync(state, cancellationToken);
+            }
 
-            var contributions = await detector.ContributeAsync(state, cts.Token);
-
-            stopwatch.Stop();
+            var elapsedMs = (long)Stopwatch.GetElapsedTime(startTs).TotalMilliseconds;
 
             foreach (var contribution in contributions)
             {
-                // Set processing time and priority for pipeline ordering
                 var withMetadata = contribution with
                 {
-                    ProcessingTimeMs = stopwatch.ElapsedMilliseconds,
+                    ProcessingTimeMs = elapsedMs,
                     Priority = detector.Priority
                 };
                 aggregator.AddContribution(withMetadata);
 
-                // Merge signals
                 foreach (var signal in contribution.Signals) signals[signal.Key] = signal.Value;
             }
 
             completedDetectors[detector.Name] = true;
             RecordSuccess(detector.Name);
 
-            _logger.LogDebug(
-                "Detector {Name} completed in {Elapsed}ms with {ContributionCount} contributions",
-                detector.Name, stopwatch.ElapsedMilliseconds, contributions.Count);
+            if (_logger.IsEnabled(LogLevel.Debug))
+                _logger.LogDebug(
+                    "Detector {Name} completed in {Elapsed}ms with {ContributionCount} contributions",
+                    detector.Name, elapsedMs, contributions.Count);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // Detector timeout
-            stopwatch.Stop();
-            HandleDetectorFailure(detector, aggregator, failedDetectors, "Timeout", stopwatch.ElapsedMilliseconds);
+            var elapsedMs = (long)Stopwatch.GetElapsedTime(startTs).TotalMilliseconds;
+            HandleDetectorFailure(detector, aggregator, failedDetectors, "Timeout", elapsedMs);
         }
         catch (Exception ex)
         {
-            stopwatch.Stop();
-            HandleDetectorFailure(detector, aggregator, failedDetectors, ex.Message, stopwatch.ElapsedMilliseconds);
+            var elapsedMs = (long)Stopwatch.GetElapsedTime(startTs).TotalMilliseconds;
+            HandleDetectorFailure(detector, aggregator, failedDetectors, ex.Message, elapsedMs);
 
             _logger.LogWarning(ex,
                 "Detector {Name} failed after {Elapsed}ms: {Message}",
-                detector.Name, stopwatch.ElapsedMilliseconds, ex.Message);
+                detector.Name, elapsedMs, ex.Message);
         }
     }
 
