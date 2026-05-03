@@ -1,0 +1,16 @@
+name: Heuristic_Bot
+description: Heuristic extraction on bot request
+detector: Heuristic
+request:
+  method: GET
+  path: /api/data
+  ip: 198.51.100.10
+  headers:
+    user-agent: "curl/8.4.0"
+    accept: "*/*"
+signals:
+  transport.protocol_class: api
+thresholds:
+  max_mean_ns: 15000
+  max_allocated_bytes: 4096
+tags: [fast-path, heuristic, bot]

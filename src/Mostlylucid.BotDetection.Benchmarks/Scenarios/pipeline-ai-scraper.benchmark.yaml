@@ -1,0 +1,13 @@
+name: Pipeline_AiScraper
+description: Full pipeline with AI scraper bot
+detector: _pipeline
+request:
+  method: GET
+  path: /articles/latest
+  ip: 20.15.240.1
+  headers:
+    user-agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.0; +https://openai.com/gptbot)"
+    accept: "text/html"
+thresholds:
+  max_mean_ns: 500000
+tags: [pipeline, bot, ai-scraper]

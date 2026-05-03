@@ -1,0 +1,17 @@
+name: Inconsistency_TlsUaMismatch
+description: Inconsistency detector with TLS/UA mismatch signals
+detector: Inconsistency
+request:
+  method: GET
+  path: /
+  ip: 198.51.100.10
+  headers:
+    user-agent: "Mozilla/5.0 Chrome/120.0"
+signals:
+  tls.ja3_hash: "b32309a26951912be7dba376398abc3b"
+  detection.useragent.family: Chrome
+  tls.client_type: python
+thresholds:
+  max_mean_ns: 10000
+  max_allocated_bytes: 2048
+tags: [advanced, inconsistency, bot]

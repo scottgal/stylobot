@@ -1,0 +1,69 @@
+name: ChallengeVerificationContributor
+priority: 25
+enabled: true
+scope: request
+description: >
+  Analyzes proof-of-work challenge solve characteristics as detection signals.
+  Reads timing metadata from a previously solved PoW challenge and emits
+  human/bot signals based on solve duration, timing jitter, and worker count.
+  This is the feedback loop: challenge-as-confidence-booster for edge cases.
+
+taxonomy:
+  category: challenge
+  subcategory: verification
+  threat_model: behavioral_analysis
+  data_sources:
+    - challenge_store
+  false_positive_risk: low
+
+input:
+  signals:
+    - challenge.verified
+    - challenge.solve_duration_ms
+    - challenge.timing_jitter
+    - challenge.worker_count
+    - challenge.puzzle_count
+
+output:
+  emits:
+    - challenge.verified
+    - challenge.solve_duration_ms
+    - challenge.timing_jitter
+    - challenge.worker_count
+    - challenge.puzzle_count
+
+defaults:
+  weights:
+    base: 0.8
+    bot_signal: 1.2
+    human_signal: 1.5
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.15
+    human_indicated: -0.35
+  parameters:
+    # Solve timing thresholds (milliseconds per puzzle)
+    suspicious_fast_ms_per_puzzle: 50
+    expected_min_ms_per_puzzle: 200
+    expected_max_ms_per_puzzle: 5000
+    # Timing jitter thresholds (coefficient of variation)
+    suspicious_low_jitter: 0.05
+    normal_jitter_min: 0.15
+    # Worker count thresholds
+    suspicious_max_worker_count: 1
+    min_puzzles_for_worker_check: 4
+    # Confidence/weight for fast solve (bot indicator)
+    fast_solve_confidence: 0.15
+    fast_solve_weight: 1.2
+    # Confidence/weight for realistic solve (human indicator)
+    realistic_solve_confidence: -0.35
+    realistic_solve_weight: 1.5
+    # Confidence/weight for low timing jitter (bot indicator)
+    low_jitter_confidence: 0.10
+    low_jitter_weight: 1.0
+    # Confidence/weight for normal timing jitter (human indicator)
+    normal_jitter_confidence: -0.05
+    normal_jitter_weight: 0.8
+    # Confidence/weight for low worker count (bot indicator)
+    low_worker_confidence: 0.08
+    low_worker_weight: 0.9

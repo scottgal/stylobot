@@ -1,0 +1,14 @@
+name: Header_BotCurl
+description: Minimal headers from curl
+detector: Header
+request:
+  method: GET
+  path: /api/data
+  ip: 198.51.100.10
+  headers:
+    user-agent: "curl/8.4.0"
+    accept: "*/*"
+thresholds:
+  max_mean_ns: 10000
+  max_allocated_bytes: 2048
+tags: [fast-path, header, bot]

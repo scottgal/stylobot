@@ -1,0 +1,246 @@
+@page
+@model SignatureDemoModel
+@{
+    ViewData["Title"] = "Bot Detection Signature Demo";
+}
+
+<div class="container mt-4">
+    <h1>Bot Detection Signature Demo</h1>
+    <p class="lead">Real-time bot detection signatures with comprehensive fingerprinting</p>
+
+    <!-- Current Request Signature -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h3>Current Request Signature</h3>
+        </div>
+        <div class="card-body">
+            <bot-signature-display mode="current" show-headers="true" show-contributions="true" show-signals="true"/>
+        </div>
+    </div>
+
+    <!-- Real-time Signature Stream -->
+    <div class="card mb-4">
+        <div class="card-header bg-success text-white">
+            <h3>Live Signature Stream <span class="badge bg-light text-dark" id="connection-status">Connecting...</span>
+            </h3>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <button id="subscribe-btn" class="btn btn-success">Subscribe to Live Stream</button>
+                <button id="unsubscribe-btn" class="btn btn-danger" disabled>Unsubscribe</button>
+                <span class="ms-3">Total signatures: <strong id="total-count">0</strong></span>
+            </div>
+
+            <div id="signature-stream" style="max-height: 600px; overflow-y: auto;">
+                <p class="text-muted">Click "Subscribe to Live Stream" to see signatures in real-time...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics -->
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white">
+            <h3>Statistics</h3>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="stat-box">
+                        <h4 id="stat-total">0</h4>
+                        <p>Total Signatures</p>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-box">
+                        <h4 id="stat-bots" class="text-danger">0</h4>
+                        <p>Bots Detected</p>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-box">
+                        <h4 id="stat-humans" class="text-success">0</h4>
+                        <p>Humans</p>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="stat-box">
+                        <h4 id="stat-avg">0.00</h4>
+                        <p>Avg Bot Probability</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .stat-box {
+        text-align: center;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #f8f9fa;
+    }
+
+    .stat-box h4 {
+        font-size: 2em;
+        font-weight: bold;
+        margin: 0;
+    }
+
+    .stat-box p {
+        margin: 10px 0 0 0;
+        color: #666;
+    }
+
+    .signature-item {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 15px;
+        background: #fff;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .signature-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .signature-id {
+        font-family: monospace;
+        font-size: 0.9em;
+        color: #666;
+    }
+</style>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/@@microsoft/signalr@latest/dist/browser/signalr.min.js"></script>
+    <script>
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/hubs/signatures")
+            .withAutomaticReconnect()
+            .build();
+
+        let isSubscribed = false;
+
+        connection.on("ReceiveNewSignature", (signature) => {
+            console.log("New signature received:", signature);
+            addSignatureToStream(signature);
+        });
+
+        connection.on("ReceiveRecentSignatures", (signatures) => {
+            console.log("Recent signatures received:", signatures.length);
+            const stream = document.getElementById("signature-stream");
+            stream.innerHTML = "";
+            signatures.forEach(sig => addSignatureToStream(sig));
+        });
+
+        connection.on("ReceiveStats", (stats) => {
+            updateStats(stats);
+        });
+
+        connection.onreconnecting(() => {
+            document.getElementById("connection-status").textContent = "Reconnecting...";
+            document.getElementById("connection-status").className = "badge bg-warning text-dark";
+        });
+
+        connection.onreconnected(() => {
+            document.getElementById("connection-status").textContent = "Connected";
+            document.getElementById("connection-status").className = "badge bg-success";
+        });
+
+        connection.onclose(() => {
+            document.getElementById("connection-status").textContent = "Disconnected";
+            document.getElementById("connection-status").className = "badge bg-danger";
+        });
+
+        connection.start()
+            .then(() => {
+                document.getElementById("connection-status").textContent = "Connected";
+                document.getElementById("connection-status").className = "badge bg-success";
+                console.log("SignalR connected");
+            })
+            .catch(err => {
+                console.error("SignalR connection error:", err);
+                document.getElementById("connection-status").textContent = "Error";
+                document.getElementById("connection-status").className = "badge bg-danger";
+            });
+
+        document.getElementById("subscribe-btn").addEventListener("click", async () => {
+            try {
+                await connection.invoke("SubscribeToSignatures");
+                isSubscribed = true;
+                document.getElementById("subscribe-btn").disabled = true;
+                document.getElementById("unsubscribe-btn").disabled = false;
+                console.log("Subscribed to signatures");
+            } catch (err) {
+                console.error("Subscribe error:", err);
+            }
+        });
+
+        document.getElementById("unsubscribe-btn").addEventListener("click", async () => {
+            try {
+                await connection.invoke("UnsubscribeFromSignatures");
+                isSubscribed = false;
+                document.getElementById("subscribe-btn").disabled = false;
+                document.getElementById("unsubscribe-btn").disabled = true;
+                console.log("Unsubscribed from signatures");
+            } catch (err) {
+                console.error("Unsubscribe error:", err);
+            }
+        });
+
+        function addSignatureToStream(signature) {
+            const stream = document.getElementById("signature-stream");
+
+            const item = document.createElement("div");
+            item.className = "signature-item";
+
+            const probColor = signature.evidence.botProbability >= 0.8 ? "danger" :
+                signature.evidence.botProbability >= 0.5 ? "warning" : "success";
+
+            item.innerHTML = `
+                <div class="signature-header">
+                    <span class="signature-id">${signature.signatureId}</span>
+                    <span class="badge bg-${probColor}">${(signature.evidence.botProbability * 100).toFixed(1)}% Bot</span>
+                </div>
+                <div><strong>Path:</strong> ${signature.requestMetadata.path}</div>
+                <div><strong>IP:</strong> ${signature.requestMetadata.remoteIp}</div>
+                <div><strong>User-Agent:</strong> <small>${signature.requestMetadata.userAgent}</small></div>
+                <div><strong>Risk Band:</strong> ${signature.evidence.riskBand}</div>
+                <div><strong>Detectors:</strong> ${signature.evidence.contributions.length} contributions</div>
+            `;
+
+            stream.insertBefore(item, stream.firstChild);
+
+            // Keep only last 20 signatures
+            while (stream.children.length > 20) {
+                stream.removeChild(stream.lastChild);
+            }
+
+            // Update total count
+            const currentCount = parseInt(document.getElementById("total-count").textContent);
+            document.getElementById("total-count").textContent = currentCount + 1;
+        }
+
+        function updateStats(stats) {
+            document.getElementById("stat-total").textContent = stats.totalSignatures;
+            document.getElementById("stat-bots").textContent = stats.botCount;
+            document.getElementById("stat-humans").textContent = stats.humanCount;
+            document.getElementById("stat-avg").textContent = (stats.avgBotProbability * 100).toFixed(2) + "%";
+        }
+
+        // Poll stats every 5 seconds
+        setInterval(async () => {
+            try {
+                const stats = await connection.invoke("GetStats");
+                updateStats(stats);
+            } catch (err) {
+                console.error("Stats error:", err);
+            }
+        }, 5000);
+    </script>
+}

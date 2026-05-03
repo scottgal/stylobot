@@ -1,0 +1,99 @@
+@model Mostlylucid.BotDetection.UI.Models.ShapeInvestigationViewModel
+@{
+    var bp = Model.BasePath;
+    var f = Model.Filter;
+}
+
+<div id="shape-filter" style="display:flex; gap:1rem; margin-bottom:1rem;">
+    <!-- Left: Radar Shape (always visible) -->
+    <div style="flex:0 0 300px;">
+        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_RadarShape.cshtml", Model)
+
+        <!-- Fuzz slider -->
+        <div style="padding:0.5rem; text-align:center;">
+            <label style="font-size:0.75rem; color:var(--sb-brand-muted);">
+                Match precision
+            </label>
+            <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.7rem;">
+                <span>Exact</span>
+                <input type="range" min="0.05" max="0.4" step="0.01"
+                       value="@f.FuzzThreshold"
+                       name="fuzz"
+                       style="flex:1;"
+                       hx-get="@bp/investigate"
+                       hx-trigger="change"
+                       hx-include="#shape-filter"
+                       hx-target="#investigate-view"
+                       hx-swap="outerHTML transition:true" />
+                <span>Broad</span>
+            </div>
+        </div>
+
+        <!-- Preset picker -->
+        <div style="padding:0.5rem;">
+            <select name="preset"
+                    style="width:100%; padding:0.3rem; border-radius:4px; border:1px solid var(--sb-card-border); background:var(--sb-surface); color:inherit; font-size:0.8rem;"
+                    hx-get="@bp/investigate/load-preset"
+                    hx-trigger="change"
+                    hx-target="#investigate-view"
+                    hx-swap="outerHTML transition:true">
+                <option value="">Select a preset...</option>
+                @foreach (var preset in Model.Presets)
+                {
+                    <option value="@preset.Id">@preset.Name (@preset.Source)</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    <!-- Right: Relational filters + Accordion groups -->
+    <div style="flex:1; display:flex; flex-direction:column; gap:0.75rem;">
+        <!-- Relational filters row -->
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap; padding:0.5rem; background:var(--sb-card-bg); border:1px solid var(--sb-card-border); border-radius:8px; font-size:0.8rem;">
+            <input type="text" name="endpointPath" value="@f.EndpointPath" placeholder="Endpoint path"
+                   style="flex:1; min-width:120px; padding:0.3rem 0.5rem; border-radius:4px; border:1px solid var(--sb-card-border); background:var(--sb-surface); color:inherit;" />
+            <input type="text" name="userAgent" value="@f.UserAgent" placeholder="User Agent"
+                   style="flex:1; min-width:120px; padding:0.3rem 0.5rem; border-radius:4px; border:1px solid var(--sb-card-border); background:var(--sb-surface); color:inherit;" />
+            <input type="text" name="country" value="@f.Country" placeholder="Country"
+                   style="width:60px; padding:0.3rem 0.5rem; border-radius:4px; border:1px solid var(--sb-card-border); background:var(--sb-surface); color:inherit;" />
+            <input type="text" name="botName" value="@f.BotName" placeholder="Bot name"
+                   style="flex:1; min-width:100px; padding:0.3rem 0.5rem; border-radius:4px; border:1px solid var(--sb-card-border); background:var(--sb-surface); color:inherit;" />
+            @if (Model.IsPaid)
+            {
+                <input type="text" name="ipHmac" value="@f.IpHmac" placeholder="IP (HMAC)"
+                       style="flex:1; min-width:100px; padding:0.3rem 0.5rem; border-radius:4px; border:1px solid var(--sb-card-border); background:var(--sb-surface); color:inherit;" />
+            }
+        </div>
+
+        <!-- Time range pills -->
+        <div style="display:flex; gap:2px;">
+            @foreach (var (val, label) in new[] { ("1h", "1 hour"), ("6h", "6 hours"), ("24h", "24 hours"), ("7d", "7 days"), ("30d", "30 days") })
+            {
+                <button name="range" value="@val"
+                        class="sb-pill"
+                        style="padding:0.3rem 0.6rem; border-radius:4px; border:1px solid var(--sb-card-border); background:var(--sb-surface); color:inherit; font-size:0.75rem; cursor:pointer;"
+                        hx-get="@bp/investigate"
+                        hx-include="#shape-filter"
+                        hx-target="#investigate-view"
+                        hx-swap="outerHTML transition:true">
+                    @val
+                </button>
+            }
+        </div>
+
+        <!-- Accordion filter groups -->
+        @foreach (var group in Model.FilterGroups)
+        {
+            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_FilterGroup.cshtml", (group, Model))
+        }
+
+        <!-- Apply button -->
+        <button hx-get="@bp/investigate"
+                hx-include="#shape-filter"
+                hx-target="#investigate-view"
+                hx-swap="outerHTML transition:true"
+                style="align-self:flex-end; padding:0.4rem 1rem; border-radius:6px; background:var(--sb-accent); color:white; border:none; cursor:pointer; font-size:0.85rem;">
+            Search
+        </button>
+    </div>
+</div>

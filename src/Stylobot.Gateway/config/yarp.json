@@ -1,0 +1,40 @@
+{
+  "ReverseProxy": {
+    "Routes": {
+      "api-route": {
+        "ClusterId": "api-cluster",
+        "Match": {
+          "Path": "/api/{**catch-all}"
+        }
+      },
+      "web-route": {
+        "ClusterId": "web-cluster",
+        "Match": {
+          "Path": "/{**catch-all}"
+        }
+      }
+    },
+    "Clusters": {
+      "api-cluster": {
+        "LoadBalancingPolicy": "RoundRobin",
+        "Destinations": {
+          "api1": {
+            "Address": "http://api-server:3000"
+          }
+        },
+        "HealthCheck": {
+          "Passive": {
+            "Enabled": true
+          }
+        }
+      },
+      "web-cluster": {
+        "Destinations": {
+          "web1": {
+            "Address": "http://web-server:80"
+          }
+        }
+      }
+    }
+  }
+}

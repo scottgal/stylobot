@@ -1,0 +1,23 @@
+name: Signature
+priority: 1
+enabled: true
+description: >
+  Computes unified PrimarySignature (HMAC-SHA256) and collects discriminatory
+  header hashes for progressive identity resolution. Runs first (Priority 1)
+  so all downstream detectors share one identity key.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: signature
+
+taxonomy:
+  kind: identity
+  determinism: deterministic
+  persistence: ephemeral
+
+defaults:
+  weights:
+    base: 0.0
+  confidence:
+    base: 0.0

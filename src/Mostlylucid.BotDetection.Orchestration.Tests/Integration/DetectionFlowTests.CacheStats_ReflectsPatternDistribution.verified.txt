@@ -1,0 +1,7 @@
+{
+  TotalPatterns: 5,
+  ConfirmedBadCount: 1,
+  SuspectCount: 3,
+  ConfirmedGoodCount: 1,
+  AverageBotScore: 0.8
+}

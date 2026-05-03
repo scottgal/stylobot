@@ -1,0 +1,40 @@
+name: HeaderCorrelation
+priority: 21
+enabled: true
+description: >
+  Detects User-Agent rotation by correlating requests with different signatures
+  but identical non-UA header profiles. When a bot rotates UAs, everything else
+  stays the same. Multiple distinct signatures sharing one header fingerprint
+  from the same IP = rotation detected.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: identity
+
+taxonomy:
+  kind: correlator
+  determinism: statistical
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+
+output:
+  emits:
+    - header_correlation.distinct_signatures
+    - header_correlation.header_fingerprint
+
+defaults:
+  weights:
+    BotSignal: 1.8
+    HumanSignal: 0.8
+  confidence:
+    bot_detected: 0.5
+    human_indicated: -0.1
+  parameters:
+    min_signatures_for_rotation: 3
+    rotation_bot_confidence: 0.5
+    rotation_bot_weight: 1.8

@@ -1,0 +1,52 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model PaginationModel
+@{
+    var page = Model.Page;
+    var total = Model.TotalPages;
+    var target = "#" + Model.TargetId;
+    var url = Model.PageUrl;
+
+    // Build the page window: always include 1, last page, and a window of 3 around current page.
+    // Fill in null where there are gaps (rendered as "...").
+    var pages = new System.Collections.Generic.List<int?>();
+    void AddPage(int p) {
+        if (pages.Count > 0 && pages[^1] is int prev && p - prev > 1) pages.Add(null); // ellipsis
+        pages.Add(p);
+    }
+    if (total <= 7) {
+        for (var i = 1; i <= total; i++) AddPage(i);
+    } else {
+        AddPage(1);
+        for (var i = Math.Max(2, page - 1); i <= Math.Min(total - 1, page + 1); i++) AddPage(i);
+        AddPage(total);
+    }
+}
+@if (total > 1)
+{
+    <div class="flex items-center justify-center mt-3 @Model.CssClass">
+        <div class="join">
+            @if (page > 1)
+            {
+                <button hx-get="@url(page - 1)" hx-target="@target" hx-swap="outerHTML transition:true"
+                        class="join-item btn btn-xs" title="Previous">&lsaquo;</button>
+            }
+            @foreach (var p in pages)
+            {
+                if (p is null)
+                {
+                    <span class="join-item btn btn-xs btn-disabled">...</span>
+                }
+                else
+                {
+                    <button hx-get="@url(p.Value)" hx-target="@target" hx-swap="outerHTML transition:true"
+                            class="join-item btn btn-xs @(p.Value == page ? "btn-active" : "")">@p.Value</button>
+                }
+            }
+            @if (page < total)
+            {
+                <button hx-get="@url(page + 1)" hx-target="@target" hx-swap="outerHTML transition:true"
+                        class="join-item btn btn-xs" title="Next">&rsaquo;</button>
+            }
+        </div>
+    </div>
+}

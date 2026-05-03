@@ -1,0 +1,107 @@
+# Client-Side Fingerprint Detector - Browser fingerprint analysis
+name: ClientSideContributor
+priority: 18  # Run early
+enabled: true
+description: Analyzes client-side browser fingerprint data for headless browser detection
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: clientside
+
+taxonomy:
+  kind: classifier
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with optional client-side fingerprint
+
+  required_signals: []
+  optional_signals: []
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Client-side fingerprint contribution
+
+  signals:
+    - key: fingerprint.headless_score
+      entity_type: float
+      salience: 0.9
+      description: Headless browser detection score
+    - key: js.layout_time_ms
+      entity_type: float
+      salience: 0.7
+      description: DOM layout timing from requestAnimationFrame probe
+    - key: js.settimeout_drift
+      entity_type: float
+      salience: 0.7
+      description: setTimeout accuracy drift measurement
+    - key: js.performance_resolution
+      entity_type: float
+      salience: 0.6
+      description: Minimum observable performance.now() resolution
+    - key: js.timing_anomaly
+      entity_type: bool
+      salience: 0.8
+      description: Whether any JS timing anomaly was detected
+
+triggers:
+  requires: []
+
+emits:
+  on_start:
+    - detector.clientside.started
+  on_complete:
+    - key: fingerprint.headless_score
+      type: float
+      description: Headless score
+  on_failure:
+    - detector.clientside.failed
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:ClientSideContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.8
+    human_signal: 1.5
+    verified: 2.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.5
+    human_indicated: -0.2
+    strong_signal: 0.8
+
+  timing:
+    timeout_ms: 10
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: true
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Weight for client-side fingerprint contributions
+    fingerprint_weight: 1.8
+    # JS timing probe thresholds
+    layout_time_min_ms: 0.5         # Below this = instant layout (no rendering pipeline)
+    layout_time_max_ms: 50.0        # Above this = artificial delay injection
+    settimeout_drift_min_ms: 0.5    # Below this = no timer coalescing (headless)
+    settimeout_drift_max_ms: 50.0   # Above this = deliberately throttled
+    perf_resolution_max_ms: 0.1     # Above this = coarse resolution (post-Spectre reduced)
+    perf_resolution_min_ms: 0.001   # Below this = unrealistically fine (unpatched/non-standard)
+
+tags:
+  - clientside
+  - fingerprint
+  - headless

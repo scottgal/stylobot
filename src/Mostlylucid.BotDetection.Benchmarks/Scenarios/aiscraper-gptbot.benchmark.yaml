@@ -1,0 +1,14 @@
+name: AiScraper_GPTBot
+description: AI scraper detection for GPTBot
+detector: AiScraper
+request:
+  method: GET
+  path: /articles/latest
+  ip: 20.15.240.1
+  headers:
+    user-agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.0; +https://openai.com/gptbot)"
+    accept: "text/html"
+thresholds:
+  max_mean_ns: 10000
+  max_allocated_bytes: 2048
+tags: [fast-path, ai-scraper, bot]

@@ -1,0 +1,71 @@
+@{
+    ViewData["Title"] = "Sign In";
+    ViewBag.PageContext = "High-risk sessions see additional friction; bots see a different message.";
+}
+
+@*
+    LOGIN PAGE - demonstrates:
+      <sb-honeypot>         hidden trap fields in the login form
+      <sb-gate min-risk>    friction escalation for elevated-risk sessions
+      <sb-human>/<sb-bot>   different messaging per visitor type
+      Server-side:          HoneypotValidator.IsTriggered() in AccountController
+*@
+
+<div style="max-width:420px;margin:2rem auto;">
+    <h1 class="mb-1">Sign In</h1>
+
+    @*
+        High-risk visitors see an elevated warning before the form.
+        This doesn't block them but signals that their session is scrutinised.
+    *@
+    <sb-gate min-risk="High">
+        <div class="alert alert-danger mb-2">
+            &#128683; High-risk signals detected from this connection.
+            Login attempts are logged and may be blocked.
+        </div>
+    </sb-gate>
+
+    @*
+        Bots see a different call-to-action before the form so they don't
+        get useful feedback from failed login attempts.
+    *@
+    <sb-bot>
+        <div class="alert alert-warning mb-2">
+            &#9888; Automated login attempts are detected and blocked.
+            Please use a real browser to sign in.
+        </div>
+    </sb-bot>
+
+    <div class="card">
+        <form method="post" action="/Account/Login">
+            @Html.AntiForgeryToken()
+
+            @*
+                <sb-honeypot> with prefix="hp" uses field names hp_email_confirm and hp_website_url.
+                Real users never see or fill these fields (they're positioned off-screen).
+                Bots that fill all inputs will trigger HoneypotValidator.IsTriggered(Request, "hp")
+                in the controller and be silently redirected to LoginDenied.
+            *@
+            <sb-honeypot prefix="hp" fields="2"></sb-honeypot>
+
+            <div class="form-group">
+                <label for="email">Email address</label>
+                <input type="email" id="email" name="email"
+                       placeholder="you@example.com" autocomplete="email" />
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password"
+                       placeholder="••••••••" autocomplete="current-password" />
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;">
+                Sign In
+            </button>
+        </form>
+    </div>
+
+    <div class="muted text-center mt-2" style="font-size:0.8rem;">
+        This form is protected by StyloBot honeypot detection.
+        No CAPTCHA needed for genuine human visitors.
+    </div>
+</div>

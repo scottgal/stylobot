@@ -1,0 +1,131 @@
+# Multi-Layer Correlation Detector - Cross-layer identity consistency
+name: MultiLayerCorrelationContributor
+priority: 4  # Run late, after fingerprinting
+enabled: true
+description: Analyzes consistency across TLS, TCP, HTTP/2, headers, and geo layers
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: multilayercorrelation
+
+taxonomy:
+  kind: analyst
+  determinism: statistical
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for multi-layer correlation
+
+  required_signals:
+    - detection.useragent
+
+  optional_signals:
+    - tcp.os_hint_ttl
+    - tls.protocol
+    - h2.protocol
+    - h3.protocol
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Multi-layer correlation contribution
+
+  signals:
+    - key: correlation.consistency_score
+      entity_type: float
+      salience: 0.9
+      description: Overall cross-layer consistency score (0-1)
+    - key: correlation.anomaly_count
+      entity_type: integer
+      salience: 0.8
+      description: Number of anomalous layer mismatches
+    - key: correlation.os_mismatch
+      entity_type: bool
+      salience: 0.8
+      description: TCP OS vs User-Agent OS mismatch
+
+triggers:
+  requires:
+    - signal: detection.useragent
+      description: Needs UA and at least one fingerprint layer
+
+emits:
+  on_start:
+    - detector.multilayercorrelation.started
+  on_complete:
+    - key: correlation.consistency_score
+      type: float
+      description: Cross-layer consistency score
+  on_failure:
+    - detector.multilayercorrelation.failed
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:MultiLayerCorrelationContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.5
+    human_signal: 1.3
+    verified: 2.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.5
+    human_indicated: -0.2
+    strong_signal: 0.8
+
+  timing:
+    timeout_ms: 10
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: true
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # --- OS mismatch ---
+    os_mismatch_confidence: 0.65
+    os_mismatch_weight: 1.7
+
+    # --- Browser mismatch ---
+    browser_mismatch_confidence: 0.7
+    browser_mismatch_weight: 1.8
+
+    # --- TLS mismatch ---
+    tls_mismatch_confidence: 0.4
+    tls_mismatch_weight: 1.4
+
+    # --- Geo mismatch ---
+    geo_mismatch_confidence: 0.3
+    geo_mismatch_weight: 1.2
+
+    # --- Datacenter + browser claims ---
+    datacenter_browser_confidence: 0.75
+    datacenter_browser_weight: 1.9
+
+    # --- Multi-anomaly aggregation ---
+    # Number of anomaly layers for triple-anomaly signal
+    triple_anomaly_count: 3
+    triple_anomaly_confidence: 0.85
+    triple_anomaly_weight: 2.0
+    # Number of anomaly layers for double-anomaly signal
+    double_anomaly_count: 2
+    double_anomaly_confidence: 0.6
+    double_anomaly_weight: 1.5
+
+    # --- Perfect consistency (human) ---
+    perfect_consistency_confidence: -0.25
+    perfect_consistency_weight: 1.8
+
+tags:
+  - correlation
+  - fingerprint
+  - identity

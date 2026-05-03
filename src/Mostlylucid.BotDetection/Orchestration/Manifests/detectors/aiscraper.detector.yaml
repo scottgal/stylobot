@@ -1,0 +1,136 @@
+# AI Scraper/Crawler Detection - Identifies AI training bots, search bots, and assistants
+name: AiScraperContributor
+priority: 9  # Runs early with other stage-0 detectors, before heuristics
+enabled: true
+description: Detects AI scrapers via User-Agent patterns, Cloudflare signals, Web Bot Auth, and content negotiation
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: aiscraper
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request to analyze for AI scraper indicators
+      signal_pattern: request.aiscraper.*
+
+  required_signals: []
+  optional_signals:
+    - request.headers.user-agent
+    - request.headers.accept
+    - request.headers.signature
+    - request.headers.signature-agent
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: AI scraper detection contribution
+
+  signals:
+    - key: aiscraper.detected
+      entity_type: boolean
+      salience: 0.95
+      description: Whether a known AI scraper was detected
+    - key: aiscraper.name
+      entity_type: string
+      salience: 0.9
+      description: Name of the detected AI bot
+    - key: aiscraper.operator
+      entity_type: string
+      salience: 0.8
+      description: Operator company of the AI bot
+    - key: aiscraper.category
+      entity_type: string
+      salience: 0.85
+      description: Category (Training, Search, Assistant, ScrapingService)
+
+triggers:
+  requires: []
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.aiscraper.started
+
+  on_complete:
+    - key: aiscraper.detected
+      type: bool
+      description: Whether a known AI scraper was detected
+
+    - key: aiscraper.name
+      type: string
+      description: Name of the detected AI bot
+
+    - key: aiscraper.category
+      type: string
+      description: AI bot category
+
+    - key: aiscraper.accept_markdown
+      type: bool
+      description: Whether Accept text/markdown header was present
+
+    - key: aiscraper.web_bot_auth
+      type: bool
+      description: Whether Web Bot Auth headers were present
+
+  on_failure:
+    - detector.aiscraper.failed
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 100
+
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 2.0     # AI bot detection is very reliable
+    human_signal: 1.0   # Not applicable - this detector only finds bots
+    verified: 2.0       # Verified AI bots get high weight
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.8
+    human_indicated: 0.0  # This detector does not emit human signals
+    strong_signal: 0.95
+    high_threshold: 0.7
+    low_threshold: 0.2
+    escalation_threshold: 0.5
+
+  timing:
+    timeout_ms: 15       # Very fast - string matching only
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Confidence values for different detection methods
+    known_ai_bot_confidence: 0.95
+    accept_markdown_confidence: 0.85
+    ai_gateway_confidence: 0.8
+    web_bot_auth_confidence: 0.95
+    ai_discovery_path_confidence: 0.7
+    browser_rendering_confidence: 0.9
+    jina_reader_confidence: 0.85
+
+tags:
+  - fast-path
+  - ai-scraper
+  - stage-0

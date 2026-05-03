@@ -1,0 +1,634 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Inventory Management API",
+    "description": "REST API for warehouse and inventory management",
+    "version": "2.1.0"
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "paths": {
+    "/inventory": {
+      "get": {
+        "summary": "List inventory items",
+        "operationId": "listInventory",
+        "parameters": [
+          {
+            "name": "warehouse",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lowStock",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of inventory items",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/InventoryItem"
+                      }
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "page": {
+                      "type": "integer"
+                    },
+                    "pages": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Add inventory item",
+        "operationId": "addInventoryItem",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryItemCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Item created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryItem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/inventory/{sku}": {
+      "get": {
+        "summary": "Get inventory item by SKU",
+        "operationId": "getInventoryItem",
+        "parameters": [
+          {
+            "name": "sku",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Inventory item details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryItem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Item not found"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Update inventory item",
+        "operationId": "updateInventoryItem",
+        "parameters": [
+          {
+            "name": "sku",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryItemUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Item updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InventoryItem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/inventory/{sku}/stock": {
+      "post": {
+        "summary": "Adjust stock level",
+        "operationId": "adjustStock",
+        "parameters": [
+          {
+            "name": "sku",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockAdjustment"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stock adjusted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockAdjustmentResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/warehouses": {
+      "get": {
+        "summary": "List warehouses",
+        "operationId": "listWarehouses",
+        "responses": {
+          "200": {
+            "description": "List of warehouses",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Warehouse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/warehouses/{id}/inventory": {
+      "get": {
+        "summary": "Get warehouse inventory",
+        "operationId": "getWarehouseInventory",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Warehouse inventory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "warehouse": {
+                      "$ref": "#/components/schemas/Warehouse"
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/WarehouseStock"
+                      }
+                    },
+                    "totalValue": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/transfers": {
+      "post": {
+        "summary": "Create stock transfer",
+        "operationId": "createTransfer",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StockTransfer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Transfer created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StockTransferResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "InventoryItem": {
+        "type": "object",
+        "properties": {
+          "sku": {
+            "type": "string",
+            "example": "WH-WIDGET-001"
+          },
+          "name": {
+            "type": "string",
+            "example": "Industrial Widget Type A"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "example": "widgets"
+          },
+          "unitPrice": {
+            "type": "number",
+            "example": 24.99
+          },
+          "costPrice": {
+            "type": "number",
+            "example": 12.50
+          },
+          "totalStock": {
+            "type": "integer",
+            "example": 1500
+          },
+          "reservedStock": {
+            "type": "integer",
+            "example": 200
+          },
+          "availableStock": {
+            "type": "integer",
+            "example": 1300
+          },
+          "reorderPoint": {
+            "type": "integer",
+            "example": 100
+          },
+          "reorderQuantity": {
+            "type": "integer",
+            "example": 500
+          },
+          "warehouseBreakdown": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WarehouseStock"
+            }
+          },
+          "lastStockUpdate": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "InventoryItemCreate": {
+        "type": "object",
+        "required": [
+          "sku",
+          "name",
+          "category"
+        ],
+        "properties": {
+          "sku": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "unitPrice": {
+            "type": "number"
+          },
+          "costPrice": {
+            "type": "number"
+          },
+          "reorderPoint": {
+            "type": "integer"
+          },
+          "reorderQuantity": {
+            "type": "integer"
+          }
+        }
+      },
+      "InventoryItemUpdate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "unitPrice": {
+            "type": "number"
+          },
+          "costPrice": {
+            "type": "number"
+          },
+          "reorderPoint": {
+            "type": "integer"
+          },
+          "reorderQuantity": {
+            "type": "integer"
+          }
+        }
+      },
+      "Warehouse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "wh-east-01"
+          },
+          "name": {
+            "type": "string",
+            "example": "East Coast Distribution Center"
+          },
+          "address": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "capacity": {
+            "type": "integer",
+            "example": 50000
+          },
+          "currentUtilization": {
+            "type": "number",
+            "example": 0.72
+          },
+          "itemCount": {
+            "type": "integer",
+            "example": 12500
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "maintenance",
+              "closed"
+            ]
+          }
+        }
+      },
+      "Address": {
+        "type": "object",
+        "properties": {
+          "street": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "postalCode": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          }
+        }
+      },
+      "WarehouseStock": {
+        "type": "object",
+        "properties": {
+          "warehouseId": {
+            "type": "string"
+          },
+          "warehouseName": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer"
+          },
+          "location": {
+            "type": "string",
+            "example": "Aisle 4, Shelf B3"
+          },
+          "lastUpdated": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "StockAdjustment": {
+        "type": "object",
+        "required": [
+          "warehouseId",
+          "quantity",
+          "reason"
+        ],
+        "properties": {
+          "warehouseId": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Positive for add, negative for remove"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "received",
+              "sold",
+              "damaged",
+              "lost",
+              "audit",
+              "transfer"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          },
+          "referenceId": {
+            "type": "string"
+          }
+        }
+      },
+      "StockAdjustmentResult": {
+        "type": "object",
+        "properties": {
+          "adjustmentId": {
+            "type": "string"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "previousQuantity": {
+            "type": "integer"
+          },
+          "newQuantity": {
+            "type": "integer"
+          },
+          "adjustment": {
+            "type": "integer"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "StockTransfer": {
+        "type": "object",
+        "required": [
+          "fromWarehouse",
+          "toWarehouse",
+          "items"
+        ],
+        "properties": {
+          "fromWarehouse": {
+            "type": "string"
+          },
+          "toWarehouse": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sku": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "express",
+              "urgent"
+            ]
+          },
+          "notes": {
+            "type": "string"
+          }
+        }
+      },
+      "StockTransferResult": {
+        "type": "object",
+        "properties": {
+          "transferId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in-transit",
+              "completed",
+              "cancelled"
+            ]
+          },
+          "estimatedArrival": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    }
+  }
+}

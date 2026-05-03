@@ -1,0 +1,23 @@
+@model Mostlylucid.BotDetection.UI.Models.InvestigationViewModel
+
+<div class="sb-investigate-geo" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:0.5rem;">
+    @foreach (var c in Model.Result.CountryBreakdown)
+    {
+        <div style="padding:0.75rem; background:var(--sb-card-bg); border:1px solid var(--sb-card-border); border-radius:8px; cursor:pointer;"
+             hx-get="@Model.BasePath/investigate?type=country&value=@c.CountryCode"
+             hx-target="#investigate-view"
+             hx-swap="outerHTML transition:true">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-weight:600;">@c.CountryCode</span>
+                <span style="font-size:0.85rem;">@c.Count detections</span>
+            </div>
+            <div style="font-size:0.75rem; color:var(--sb-brand-muted); margin-top:0.25rem;">
+                @c.BotCount bots / @(c.Count - c.BotCount) human
+            </div>
+        </div>
+    }
+    @if (!Model.Result.CountryBreakdown.Any())
+    {
+        <p style="color:var(--sb-brand-muted); padding:1rem;">No country data in this result set.</p>
+    }
+</div>

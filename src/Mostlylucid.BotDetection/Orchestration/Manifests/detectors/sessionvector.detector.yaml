@@ -1,0 +1,243 @@
+# Session Vector Detector - Markov-chain-based session behavioral analysis
+name: SessionVectorContributor
+priority: 30  # After behavioral analysis, before heuristic
+enabled: true
+description: Compresses per-session request transitions into vectors for anomaly detection
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: sessionvector
+
+taxonomy:
+  kind: analyst  # Behavioral pattern analysis
+  determinism: statistical
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for session tracking
+      signal_pattern: waveform.*
+
+  required_signals:
+    - signature.primary
+
+  optional_signals:
+    - transport.is_streaming
+    - transport.is_signalr
+    - transport.is_upgrade
+    - transport.protocol_class
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Session vector analysis contribution
+
+  signals:
+    - key: session.request_count
+      entity_type: integer
+      salience: 0.3
+      description: Requests in current session
+    - key: session.self_similarity
+      entity_type: float
+      salience: 0.8
+      description: Cosine similarity of current session vs client history
+    - key: session.velocity_magnitude
+      entity_type: float
+      salience: 0.9
+      description: Behavioral shift magnitude between sessions
+    - key: session.frequency_fingerprint
+      entity_type: float[]
+      salience: 0.7
+      description: 8D autocorrelation rhythm vector at [1s,3s,10s,30s,1m,3m,10m,30m] lag scales
+    - key: session.frequency_periodicity_score
+      entity_type: float
+      salience: 0.75
+      description: RMS deviation from broadband baseline; high = bot-like periodic timing
+    - key: session.frequency_dominant_lag
+      entity_type: integer
+      salience: 0.6
+      description: Index of dominant lag bin (>0.6); -1 if no dominant periodicity
+    - key: session.drift_vector
+      entity_type: float[]
+      salience: 0.8
+      description: OLS regression slope over N recent session vectors (trajectory direction)
+    - key: session.trajectory_cluster_similarity
+      entity_type: float
+      salience: 0.85
+      description: Similarity of projected future position to nearest known bot cluster
+    - key: session.trajectory_in_attack_cluster
+      entity_type: bool
+      salience: 0.9
+      description: Predicted future position lands inside a known attack cluster (pre-crime flag)
+    - key: session.is_void
+      entity_type: bool
+      salience: 0.85
+      description: No similar sessions found in HNSW index; genuinely novel behavior
+    - key: session.top_similarity
+      entity_type: float
+      salience: 0.7
+      description: Highest cosine similarity from HNSW search (0 if void)
+    - key: session.mahalanobis_nearest_distance
+      entity_type: float
+      salience: 0.75
+      description: Nearest Mahalanobis distance to a known centroid (variance-aware ghost matching)
+
+triggers:
+  requires:
+    - signal: signature.primary
+      description: Needs client signature from behavioral waveform
+
+emits:
+  on_start:
+    - detector.sessionvector.started
+
+  on_complete:
+    - key: session.request_count
+      type: int
+      description: Current session size
+
+    - key: session.partial_chain_match
+      type: string
+      description: Name of the matched behavioral archetype (early detection)
+
+    - key: session.partial_chain_similarity
+      type: float
+      description: Cosine similarity to matched archetype
+
+    - key: session.partial_chain_confidence
+      type: float
+      description: Scaled confidence delta from partial chain match
+
+    - key: session.boundary_detected
+      type: bool
+      description: Whether a session boundary was just detected
+
+    - key: session.frequency_fingerprint
+      type: float[]
+      description: 8D autocorrelation rhythm vector (requires >= 5 requests)
+
+    - key: session.frequency_periodicity_score
+      type: float
+      description: Periodicity score [0,1]; values above periodicity_bot_threshold flag bot rhythm
+
+    - key: session.frequency_dominant_lag
+      type: int
+      description: Dominant lag index; -1 if aperiodic
+
+    - key: session.drift_vector
+      type: float[]
+      description: Trajectory drift direction from OLS regression over recent sessions
+
+    - key: session.trajectory_cluster_similarity
+      type: float
+      description: Similarity of predicted future position to nearest bot cluster
+
+    - key: session.trajectory_in_attack_cluster
+      type: bool
+      description: Pre-crime flag; predicted behavior lands in known attack cluster
+
+    - key: session.is_void
+      type: bool
+      description: No HNSW neighbors found; novel behavioral shape
+
+    - key: session.top_similarity
+      type: float
+      description: Best cosine neighbor similarity (0 when void)
+
+    - key: session.mahalanobis_nearest_distance
+      type: float
+      description: Nearest variance-aware centroid distance; float.MaxValue if no centroids exist
+
+  on_failure:
+    - detector.sessionvector.failed
+
+lane:
+  name: standard
+  max_concurrency: 8
+  priority: 50
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:SessionVectorContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 0.0
+    bot_signal: 1.5
+    human_signal: 1.3
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.5
+    human_indicated: -0.2
+
+  timing:
+    timeout_ms: 10
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: true
+    enable_cache: true
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Minimum requests before a session vector is meaningful
+    min_session_requests: 5
+    # Minimum maturity score to use a session for scoring
+    min_maturity_for_scoring: 0.3
+    # Velocity magnitude threshold for anomaly detection
+    # Higher = less sensitive; lower = more false positives
+    velocity_anomaly_threshold: 0.6
+    # Cosine similarity below which current session is flagged as dissimilar
+    dissimilarity_bot_threshold: 0.3
+    # Confidence deltas for various signals
+    high_velocity_confidence: 0.5
+    dissimilar_session_confidence: 0.4
+    consistent_session_human_confidence: -0.2
+    stable_velocity_human_confidence: -0.15
+    # Session boundary: gap in minutes before a new session starts
+    session_gap_minutes: 30
+    # Maximum completed session snapshots to retain per signature
+    max_snapshots_per_signature: 10
+    # Maximum requests tracked per in-progress session
+    max_requests_per_session: 200
+    # Partial chain early detection: minimum requests before archetype matching
+    partial_chain_min_requests: 3
+    # Partial chain: cosine similarity threshold for archetype match
+    partial_chain_similarity_threshold: 0.6
+    # Partial chain: maximum confidence delta to emit
+    partial_chain_max_confidence: 0.35
+    # Frequency fingerprinting: periodicity score above which bot rhythm is flagged
+    periodicity_bot_threshold: 0.5
+    # Confidence for periodic rhythm detection
+    periodicity_bot_confidence: 0.35
+    # Cosine similarity threshold for frequency rhythm comparison (cross-session)
+    frequency_rhythm_similarity_threshold: 0.85
+    # Gap-normalized velocity: bots rotate faster than humans per unit time
+    gap_normalized_velocity_threshold: 0.4
+    gap_normalized_velocity_confidence: 0.45
+    # Fingerprint rotation: velocity dominated by transport fingerprint dims
+    fingerprint_rotation_threshold: 0.15
+    fingerprint_rotation_confidence: 0.55
+    # Acceleration: constant rotation rate across 3 sessions
+    acceleration_threshold: 0.25
+    acceleration_confidence: 0.35
+    # Trajectory modeling: predicted position similarity to attack cluster
+    trajectory_attack_cluster_threshold: 0.72
+    trajectory_attack_cluster_confidence: 0.45
+    # How many normalized time units to project forward (1.0 = one session-interval forward)
+    trajectory_projection_steps: 1.5
+    # Void detection: min similarity to consider a session "in empty space"
+    void_detection_min_similarity: 0.40
+    void_detection_top_k: 5
+
+tags:
+  - behavioral
+  - session
+  - markov
+  - vector
+  - anomaly-detection

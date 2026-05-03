@@ -1,0 +1,32 @@
+@model Mostlylucid.BotDetection.UI.Models.InvestigationViewModel
+
+<div class="sb-investigate-endpoints">
+    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+        <thead>
+            <tr style="border-bottom:2px solid var(--sb-card-border); text-align:left;">
+                <th style="padding:0.5rem;">Endpoint</th>
+                <th style="padding:0.5rem;">Count</th>
+                <th style="padding:0.5rem;">Avg Bot Prob</th>
+                <th style="padding:0.5rem;">Risk</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var ep in Model.Result.EndpointStats)
+            {
+                <tr style="border-bottom:1px solid var(--sb-card-divider); cursor:pointer;"
+                    hx-get="@Model.BasePath/investigate?type=path&value=@ep.Path"
+                    hx-target="#investigate-view"
+                    hx-swap="outerHTML transition:true">
+                    <td style="padding:0.5rem; font-family:monospace; font-size:0.8rem;">@ep.Method @ep.Path</td>
+                    <td style="padding:0.5rem;">@ep.Count</td>
+                    <td style="padding:0.5rem;">@ep.AvgBotProbability.ToString("P0")</td>
+                    <td style="padding:0.5rem;">@(ep.DominantRiskBand ?? "--")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+    @if (!Model.Result.EndpointStats.Any())
+    {
+        <p style="color:var(--sb-brand-muted); padding:1rem;">No endpoint data in this result set.</p>
+    }
+</div>

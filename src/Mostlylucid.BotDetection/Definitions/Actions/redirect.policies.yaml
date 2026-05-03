@@ -1,0 +1,47 @@
+# Built-in Redirect action policies
+# These define how detected bots are redirected to other pages
+
+policies:
+  redirect:
+    type: Redirect
+    description: Default redirect to blocked page
+    tags: [default]
+    target_url: /blocked
+    permanent: false
+    preserve_query_string: false
+    include_return_url: false
+    add_metadata: false
+
+  redirect-honeypot:
+    type: Redirect
+    extends: redirect
+    description: Redirect bots to honeypot for analysis and trapping
+    tags: [honeypot, security, research]
+    target_url: /honeypot
+    preserve_query_string: true
+    add_metadata: true
+
+  redirect-tarpit:
+    type: Redirect
+    extends: redirect
+    description: Redirect to tarpit - slow response page to waste bot resources
+    tags: [tarpit, security, anti-scraping]
+    target_url: /tarpit
+    add_metadata: true
+
+  redirect-error:
+    type: Redirect
+    extends: redirect
+    description: Redirect to generic error page - hides bot detection from attackers
+    tags: [stealth, security]
+    target_url: /error
+    status_code: 302
+
+  redirect-challenge:
+    type: Redirect
+    extends: redirect
+    description: Redirect to challenge page with return URL
+    tags: [challenge, verification]
+    target_url: /challenge
+    include_return_url: true
+    return_url_param: returnUrl

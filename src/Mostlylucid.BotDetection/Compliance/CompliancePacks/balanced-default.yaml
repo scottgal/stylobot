@@ -1,0 +1,36 @@
+id: balanced-default
+name: "Balanced Default"
+description: "Sensible defaults for most deployments. 30-day retention, PII hashing, no DSAR tooling."
+jurisdiction: none
+requires_tier: oss
+
+retention:
+  detections: 30d
+  signatures: 90d
+  sessions: 30d
+  ip_search_index: 30d
+  audit_log: 365d
+  config_changes: 365d
+  incident_records: 365d
+  dsar_request_log: 365d
+
+anonymization:
+  pii_hashing: required
+  key_rotation_days: 0
+  ip_subnet_mask: 0
+  strip_raw_user_agent_after: "0"
+  raw_payload_storage: false
+
+dsar:
+  enabled: false
+
+audit:
+  log_deletions: false
+  log_exports: false
+  log_admin_access: false
+  tamper_evident: false
+
+explain: >
+  Standard settings for most deployments. Detection data kept 30 days,
+  signatures 90 days. IP addresses hashed on ingest. No DSAR tooling
+  or audit logging -- suitable for internal tools and development.

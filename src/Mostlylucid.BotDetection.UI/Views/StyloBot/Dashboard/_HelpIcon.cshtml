@@ -1,0 +1,13 @@
+@* Usage: @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "section-id") *@
+@model string
+@{
+    var basePath = ViewData["BasePath"]?.ToString() ?? "/stylobot";
+}
+<button class="btn btn-ghost btn-xs btn-circle opacity-40 hover:opacity-100"
+        hx-get="@basePath/help/@Model"
+        hx-target="body"
+        hx-swap="beforeend"
+        title="Help: @Model"
+        style="margin-left:0.25rem; vertical-align:middle;">
+    <i class="bx bx-help-circle text-sm"></i>
+</button>

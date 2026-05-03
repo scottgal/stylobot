@@ -1,0 +1,28 @@
+@model Mostlylucid.BotDetection.UI.Models.InvestigationViewModel
+
+<div class="sb-investigate-signatures" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:0.75rem;">
+    @foreach (var sig in Model.Result.Signatures)
+    {
+        var riskColor = sig.RiskBand switch { "high" => "var(--sb-signal-danger)", "medium" => "var(--sb-signal-warn)", _ => "var(--sb-signal-pos)" };
+        <div style="padding:0.75rem; background:var(--sb-card-bg); border:1px solid var(--sb-card-border); border-radius:8px; cursor:pointer;"
+             hx-get="@Model.BasePath/investigate?type=signature&value=@sig.PrimarySignature"
+             hx-target="#investigate-view"
+             hx-swap="outerHTML transition:true">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                <span style="font-weight:600; font-size:0.9rem;">@(sig.BotName ?? sig.PrimarySignature?[..Math.Min(sig.PrimarySignature?.Length ?? 0, 20)])</span>
+                <span style="color:@riskColor; font-weight:600; font-size:0.8rem;">@sig.RiskBand</span>
+            </div>
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; font-size:0.75rem; color:var(--sb-brand-muted);">
+                <span>@sig.HitCount hits</span>
+                @if (sig.IsKnownBot) { <span style="color:var(--sb-signal-danger);">known bot</span> }
+                @if (sig.BotType != null) { <span>@sig.BotType</span> }
+                @if (sig.UaFamily != null) { <span>UA: @sig.UaFamily</span> }
+                <span>last: @sig.LastSeen.ToString("MMM dd HH:mm")</span>
+            </div>
+        </div>
+    }
+    @if (!Model.Result.Signatures.Any())
+    {
+        <p style="color:var(--sb-brand-muted); padding:1rem;">No distinct signatures in this result set.</p>
+    }
+</div>

@@ -1,0 +1,13 @@
+name: UserAgent_Googlebot
+description: Known search engine bot
+detector: UserAgent
+request:
+  method: GET
+  path: /
+  ip: 66.249.79.1
+  headers:
+    user-agent: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+thresholds:
+  max_mean_ns: 10000
+  max_allocated_bytes: 4096
+tags: [fast-path, useragent, bot]

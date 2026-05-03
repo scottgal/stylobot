@@ -1,0 +1,123 @@
+# Claimed Identity Detector
+# Tests whether observed request behavior is consistent with the UA family claimed in the User-Agent.
+# Centroids are seeded from ua_profiles.yaml and auto-adapt via EWM (alpha=0.99).
+name: ClaimedIdentityContributor
+priority: 35
+enabled: true
+description: Measures behavioral consistency between observed request signals and the claimed UA family centroid
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: claimedidentity
+
+taxonomy:
+  kind: analyst
+  determinism: probabilistic
+  persistence: adaptive
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for behavioral consistency analysis
+
+  required_signals:
+    - ua.family
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: UA behavioral consistency contribution
+
+  signals:
+    - key: claimed_identity.family
+      entity_type: string
+      salience: 0.6
+      description: Canonical UA family name (Chrome, Firefox, curl, etc.)
+    - key: claimed_identity.tier
+      entity_type: string
+      salience: 0.4
+      description: Profile tier (browser, crawler, tool, reader, unknown)
+    - key: claimed_identity.consistency_score
+      entity_type: double
+      salience: 0.85
+      description: Weighted similarity to UA family centroid [0,1] (low = behavioral mismatch)
+    - key: claimed_identity.has_profile
+      entity_type: bool
+      salience: 0.3
+      description: False when no seed profile exists for this UA family
+
+triggers:
+  requires:
+    - signal: ua.family
+      description: UA family must be detected by UserAgentContributor first
+
+emits:
+  on_start:
+    - detector.claimedidentity.started
+
+  on_complete:
+    - key: claimed_identity.consistency_score
+      type: double
+      description: Match score against UA family centroid; low = inconsistent = likely spoofing
+
+    - key: claimed_identity.family
+      type: string
+      description: Resolved UA family name
+
+    - key: claimed_identity.tier
+      type: string
+      description: Profile tier for the family
+
+    - key: claimed_identity.has_profile
+      type: bool
+      description: Whether a profile centroid exists for this UA family
+
+  on_failure:
+    - detector.claimedidentity.failed
+
+lane:
+  name: standard
+  max_concurrency: 8
+  priority: 50
+
+# ============================================
+# DEFAULT CONFIGURATION
+# Override via appsettings.json: BotDetection:Detectors:ClaimedIdentityContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 0.0
+    bot_signal: 1.5
+    human_signal: 1.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.35
+    human_indicated: -0.15
+
+  timing:
+    timeout_ms: 2
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: true
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Consistency score below which a bot signal is emitted
+    consistency_threshold: 0.55
+    # Confidence delta for behavioral profile mismatch
+    bot_signal_confidence: 0.35
+    # EWM alpha for centroid updates (0.99 = very slow drift; ~100 samples to shift 50%)
+    update_alpha: 0.99
+
+tags:
+  - identity
+  - behavioral
+  - ua-spoofing
+  - claimed-identity
+  - centroid

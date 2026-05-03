@@ -1,0 +1,73 @@
+category: social_media
+description: "Centralised social media preview crawlers and share enrichment bots"
+patterns:
+  # === Meta ===
+  # facebookexternalhit is a link-preview crawler, NOT an AI training bot
+  - pattern: facebookexternalhit
+    bot_name: FacebookBot
+    bot_type: SocialMediaBot
+    vendor: Meta
+  - pattern: facebot
+    bot_name: FacebookBot
+    bot_type: SocialMediaBot
+    vendor: Meta
+
+  # === X / Twitter — FCrDNS verifiable via *.twttr.com ===
+  - pattern: Twitterbot
+    bot_name: TwitterBot
+    bot_type: SocialMediaBot
+    vendor: X Corp
+    verified_domains:
+      - "*.twttr.com"
+
+  # === LinkedIn — FCrDNS verifiable via *.linkedin.com ===
+  - pattern: LinkedInBot
+    bot_name: LinkedInBot
+    bot_type: SocialMediaBot
+    vendor: LinkedIn
+    verified_domains:
+      - "*.linkedin.com"
+
+  # === Messaging platforms ===
+  - pattern: Slackbot
+    bot_name: SlackBot
+    bot_type: SocialMediaBot
+    vendor: Salesforce
+  - pattern: Discordbot
+    bot_name: DiscordBot
+    bot_type: SocialMediaBot
+    vendor: Discord
+  - pattern: TelegramBot
+    bot_name: TelegramBot
+    bot_type: SocialMediaBot
+    vendor: Telegram
+  - pattern: WhatsApp
+    bot_name: WhatsApp
+    bot_type: SocialMediaBot
+    vendor: Meta
+
+  # === Content / media platforms ===
+  - pattern: Flipboard
+    bot_name: Flipboard
+    bot_type: SocialMediaBot
+    vendor: Flipboard
+  - pattern: PinterestBot
+    bot_name: Pinterest
+    bot_type: SocialMediaBot
+    vendor: Pinterest
+  - pattern: Pinterest
+    bot_name: Pinterest
+    bot_type: SocialMediaBot
+    vendor: Pinterest
+  - pattern: Tumblr
+    bot_name: Tumblr
+    bot_type: SocialMediaBot
+    vendor: Automattic
+  - pattern: Snapchat
+    bot_name: Snapchat
+    bot_type: SocialMediaBot
+    vendor: Snap Inc.
+  - pattern: vkShare
+    bot_name: VKontakte
+    bot_type: SocialMediaBot
+    vendor: VK

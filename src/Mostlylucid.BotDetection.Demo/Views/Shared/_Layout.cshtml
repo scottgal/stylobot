@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>@ViewData["Title"] - StyloBot MVC Demo</title>
+    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/css/sb-components.css"/>
+    <style>
+        :root { color-scheme: dark; }
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #0d1117;
+            color: #c9d1d9;
+        }
+        a { color: #58a6ff; }
+        h1 { color: #58a6ff; margin-bottom: 6px; }
+        .subtitle { color: #8b949e; margin-bottom: 24px; }
+        .nav { display: flex; gap: 10px; margin-bottom: 24px; flex-wrap: wrap; }
+        .nav a {
+            padding: 8px 16px; background: #238636; color: #fff; text-decoration: none;
+            border-radius: 6px; font-weight: 500; font-size: 0.9em;
+        }
+        .nav a:hover { background: #2ea043; }
+        .nav a.secondary { background: #1f6feb; }
+        .nav a.secondary:hover { background: #388bfd; }
+        .section {
+            background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+            padding: 24px; margin-bottom: 24px;
+        }
+        .section h2 {
+            margin-top: 0; font-size: 1.15em; border-bottom: 1px solid #30363d;
+            padding-bottom: 10px; margin-bottom: 16px;
+        }
+        .info { background: #21262d; border-left: 3px solid #58a6ff; padding: 12px 16px; border-radius: 0 6px 6px 0; margin-bottom: 16px; }
+        .info strong { color: #58a6ff; }
+        code.hl { background: #21262d; padding: 2px 6px; border-radius: 3px; font-size: 0.85em; color: #7ee787; }
+        .demo-row { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; flex-wrap: wrap; }
+        .demo-label { color: #8b949e; min-width: 200px; font-family: monospace; font-size: 0.85em; }
+        .demo-out { background: #21262d; padding: 6px 12px; border-radius: 6px; border: 1px solid #30363d; }
+        .gated { background: #1c2333; border: 1px dashed #30363d; padding: 10px 14px; border-radius: 6px; margin: 6px 0; }
+        .gated.ok { border-color: #238636; }
+        .muted { color: #8b949e; font-style: italic; }
+        .result { padding: 10px 14px; border-radius: 6px; margin-top: 10px; font-weight: 600; }
+        .result.pass { background: #1f3d1f; border: 1px solid #22c55e; color: #86efac; }
+        .result.fail { background: #3d1f1f; border: 1px solid #ef4444; color: #fca5a5; }
+        form button { padding: 8px 16px; background: #238636; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; }
+        form button:hover { background: #2ea043; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+        th { text-align: left; padding: 8px; color: #8b949e; border-bottom: 1px solid #30363d; }
+        td { padding: 8px; border-bottom: 1px solid #21262d; }
+        footer { text-align: center; padding: 24px 0; color: #484f58; font-size: 0.85em; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>@ViewData["Title"]</h1>
+        @if (ViewData["Subtitle"] != null)
+        {
+            <p class="subtitle">@ViewData["Subtitle"]</p>
+        }
+        <nav class="nav">
+            <a asp-controller="Components" asp-action="Index">All Components</a>
+            <a asp-controller="Components" asp-action="Gating" class="secondary">Content Gating</a>
+            <a asp-controller="Components" asp-action="Honeypot" class="secondary">Honeypot</a>
+            <a href="/component-demo" class="secondary">Razor Pages Demo</a>
+            <a href="/bot-test" class="secondary">Main Demo</a>
+        </nav>
+    </header>
+
+    <main>
+        @RenderBody()
+    </main>
+
+    <footer>
+        StyloBot &mdash; Enterprise Bot Detection for ASP.NET Core
+    </footer>
+</body>
+</html>

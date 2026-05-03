@@ -1,0 +1,19 @@
+name: MultiLayerCorrelation_FullSignals
+description: Multi-layer correlation with TLS+HTTP2+UA signals
+detector: MultiLayerCorrelation
+request:
+  method: GET
+  path: /
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 Chrome/120.0"
+signals:
+  tls.ja3_hash: "e7d705a3286e19ea42f587b344ee6865"
+  tls.version: "TLSv1.3"
+  h2.settings_initial_window_size: 6291456
+  detection.useragent.family: Chrome
+  transport.protocol_class: document
+thresholds:
+  max_mean_ns: 15000
+  max_allocated_bytes: 4096
+tags: [fingerprint, multilayer, human]

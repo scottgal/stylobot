@@ -1,0 +1,87 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+    <PropertyGroup>
+        <TargetFrameworks>net10.0</TargetFrameworks>
+        <LangVersion>preview</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+        <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+        <IsPackable>true</IsPackable>
+        <EnableDefaultContentItems>false</EnableDefaultContentItems>
+
+        <!-- Package metadata -->
+        <PackageId>Mostlylucid.BotDetection.UI</PackageId>
+        <MinVerTagPrefix>botdetection-v</MinVerTagPrefix>
+        <Authors>Mostlylucid</Authors>
+        <Description>Real-time bot detection dashboard with SignalR and DaisyUI. Includes sb-badge, sb-confidence, sb-gate, sb-honeypot, sb-human, sb-risk, sb-signal, and sb-summary Tag Helpers plus View Components for embedding detection results in ASP.NET Core views.</Description>
+        <PackageTags>bot-detection;ui;dashboard;signalr;daisyui;taghelper;viewcomponent;aspnetcore;security</PackageTags>
+        <PackageIcon>icon.png</PackageIcon>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj"/>
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Fluid.Core" Version="2.7.0" />
+        <PackageReference Include="Markdig" Version="0.45.0" />
+        <PackageReference Include="MinVer" Version="7.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <EmbeddedResource Include="Help\*.md" />
+    </ItemGroup>
+
+    <PropertyGroup>
+        <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
+    </PropertyGroup>
+
+    <!-- Static web assets (CSS, JS) for package consumption -->
+    <ItemGroup>
+        <!-- Include wwwroot files as static web assets for Razor Class Library -->
+        <Content Update="wwwroot\**\*">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+            <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        </Content>
+    </ItemGroup>
+
+    <!-- Ensure Razor views are compiled -->
+    <ItemGroup>
+        <Content Include="Views\**\*.cshtml"/>
+    </ItemGroup>
+
+    <!-- Package icon -->
+    <ItemGroup>
+        <None Include=".\icon.png" Pack="true" PackagePath="">
+            <Link>Properties\icon.png</Link>
+        </None>
+    </ItemGroup>
+
+    <!-- Exclude examples from compilation -->
+    <ItemGroup>
+        <Compile Remove="Examples\**\*.cs"/>
+        <None Include="Examples\**\*.cs"/>
+    </ItemGroup>
+
+    <!-- Tailwind CSS build: compile on dotnet build if node_modules exists -->
+    <Target Name="BuildTailwindCSS" BeforeTargets="Build"
+            Condition="Exists('node_modules')">
+        <Exec Command="npx @tailwindcss/cli -i ./wwwroot/css/tailwind-input.css -o ./wwwroot/vendor/css/tailwind.min.css --minify"
+              WorkingDirectory="$(MSBuildProjectDirectory)" />
+    </Target>
+
+    <!-- Exclude node_modules and package-lock from packaging -->
+    <ItemGroup>
+        <Content Remove="node_modules\**" />
+        <None Remove="node_modules\**" />
+    </ItemGroup>
+
+</Project>

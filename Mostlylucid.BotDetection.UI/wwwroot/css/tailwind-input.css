@@ -1,6 +1,0 @@
-@import "tailwindcss";
-@import "./sb-components.css";
-@plugin "daisyui" {
-  themes: light --default, dark;
-}
-@source "../../Views/**/*.cshtml";

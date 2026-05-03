@@ -1,0 +1,132 @@
+# TCP/IP Fingerprint Detector - Passive OS fingerprinting
+name: TcpIpFingerprintContributor
+priority: 11  # Run early
+enabled: true
+description: >
+  Analyzes TCP/IP stack characteristics to detect OS and identify automation.
+  Uses TCP window size, TTL, TCP options, MSS, and IP fragmentation patterns
+  similar to p0f (passive OS fingerprinting).
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: tcpipfingerprint
+
+taxonomy:
+  kind: analyzer
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with TCP/IP headers from reverse proxy
+
+  optional_signals: []
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: TCP/IP fingerprint analysis contribution
+
+  signals:
+    - key: tcp.window_size
+      entity_type: integer
+      salience: 0.6
+      description: TCP window size
+    - key: tcp.ttl
+      entity_type: integer
+      salience: 0.6
+      description: Time To Live value
+    - key: tcp.os_fingerprint
+      entity_type: string
+      salience: 0.7
+      description: OS identified from TCP/IP stack
+
+triggers:
+  requires: []
+
+emits:
+  on_start:
+    - detector.tcpipfingerprint.started
+  on_complete:
+    - key: tcp.window_size
+      type: int
+    - key: tcp.ttl
+      type: int
+    - key: tcp.os_hint
+      type: string
+  on_failure:
+    - detector.tcpipfingerprint.failed
+
+lane:
+  name: normal
+  max_concurrency: 8
+  priority: 70
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:TcpIpFingerprintContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.3
+    human_signal: 1.0
+    verified: 1.5
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.25
+    human_indicated: -0.1
+    strong_signal: 0.6
+    high_threshold: 0.5
+    low_threshold: 0.15
+    escalation_threshold: 0.4
+
+  timing:
+    timeout_ms: 20
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Window size analysis
+    window_bot_confidence: 0.55
+    window_bot_weight: 1.3
+    window_unusual_confidence: 0.25
+    window_unusual_weight: 1.1
+    # TTL analysis
+    ttl_bot_confidence: 0.6
+    ttl_bot_weight: 1.4
+    ttl_unusual_confidence: 0.3
+    ttl_unusual_weight: 1.2
+    # TCP options analysis
+    tcp_options_missing_modern_confidence: 0.2
+    tcp_options_missing_modern_weight: 0.9
+    tcp_options_minimal_confidence: 0.25
+    tcp_options_minimal_weight: 1.0
+    # MSS analysis
+    mss_old_default_confidence: 0.3
+    mss_old_default_weight: 1.1
+    mss_unusual_confidence: 0.15
+    mss_unusual_weight: 0.8
+    # IP fragmentation
+    ip_no_df_confidence: 0.15
+    ip_no_df_weight: 0.8
+    # Connection header
+    connection_missing_confidence: 0.2
+    connection_missing_weight: 0.7
+    connection_close_confidence: 0.1
+    connection_close_weight: 0.6
+
+tags:
+  - tcp-ip
+  - os-fingerprint
+  - passive
+  - p0f

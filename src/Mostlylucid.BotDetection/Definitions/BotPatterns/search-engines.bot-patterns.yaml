@@ -1,0 +1,125 @@
+category: search_engines
+description: "Search engine crawlers; many support IP-range or FCrDNS verification"
+patterns:
+  # === Google ===
+  - pattern: Googlebot
+    bot_name: Googlebot
+    bot_type: SearchEngine
+    vendor: Google
+    ip_ranges_url: "https://developers.google.com/static/search/apis/ipranges/googlebot.json"
+    verified_domains:
+      - "*.googlebot.com"
+      - "*.google.com"
+  - pattern: Googlebot-Image
+    bot_name: Google Image Search
+    bot_type: SearchEngine
+    vendor: Google
+    ip_ranges_url: "https://developers.google.com/static/search/apis/ipranges/googlebot.json"
+    verified_domains:
+      - "*.googlebot.com"
+      - "*.google.com"
+  - pattern: Googlebot-News
+    bot_name: Google News
+    bot_type: SearchEngine
+    vendor: Google
+    ip_ranges_url: "https://developers.google.com/static/search/apis/ipranges/googlebot.json"
+    verified_domains:
+      - "*.googlebot.com"
+      - "*.google.com"
+  - pattern: Googlebot-Video
+    bot_name: Google Video Search
+    bot_type: SearchEngine
+    vendor: Google
+    ip_ranges_url: "https://developers.google.com/static/search/apis/ipranges/googlebot.json"
+    verified_domains:
+      - "*.googlebot.com"
+      - "*.google.com"
+  - pattern: Google-InspectionTool
+    bot_name: Google Search Console
+    bot_type: SearchEngine
+    vendor: Google
+  - pattern: Google-Site-Verification
+    bot_name: Google Site Verification
+    bot_type: SearchEngine
+    vendor: Google
+  - pattern: Storebot-Google
+    bot_name: Google Store Bot
+    bot_type: SearchEngine
+    vendor: Google
+
+  # === Microsoft / Bing ===
+  - pattern: bingbot
+    bot_name: Bingbot
+    bot_type: SearchEngine
+    vendor: Microsoft
+    ip_ranges_url: "https://www.bing.com/toolbox/bingbot.json"
+    verified_domains:
+      - "*.search.msn.com"
+  - pattern: msnbot
+    bot_name: MSN Search
+    bot_type: SearchEngine
+    vendor: Microsoft
+    ip_ranges_url: "https://www.bing.com/toolbox/bingbot.json"
+    verified_domains:
+      - "*.search.msn.com"
+  - pattern: BingPreview
+    bot_name: Bing Preview
+    bot_type: SearchEngine
+    vendor: Microsoft
+
+  # === Other major engines ===
+  - pattern: Slurp
+    bot_name: Yahoo Search
+    bot_type: SearchEngine
+    vendor: Yahoo
+  - pattern: DuckDuckBot
+    bot_name: DuckDuckBot
+    bot_type: SearchEngine
+    vendor: DuckDuckGo
+    verified_domains:
+      - "*.duckduckgo.com"
+  - pattern: Baiduspider
+    bot_name: Baidu Search
+    bot_type: SearchEngine
+    vendor: Baidu
+    verified_domains:
+      - "*.baidu.com"
+      - "*.baidu.jp"
+  - pattern: YandexBot
+    bot_name: Yandex Search
+    bot_type: SearchEngine
+    vendor: Yandex
+    verified_domains:
+      - "*.yandex.ru"
+      - "*.yandex.net"
+      - "*.yandex.com"
+  - pattern: Sogou
+    bot_name: Sogou Search
+    bot_type: SearchEngine
+    vendor: Sogou
+  - pattern: Exabot
+    bot_name: Exalead Search
+    bot_type: SearchEngine
+    vendor: Dassault Systemes
+
+  # === Archives ===
+  - pattern: ia_archiver
+    bot_name: Internet Archive
+    bot_type: SearchEngine
+    vendor: Internet Archive
+  - pattern: archive.org_bot
+    bot_name: Internet Archive
+    bot_type: SearchEngine
+    vendor: Internet Archive
+
+  # === Apple / Amazon ===
+  - pattern: Applebot
+    bot_name: Applebot
+    bot_type: SearchEngine
+    vendor: Apple
+    verified_domains:
+      - "*.applebot.apple.com"
+  - pattern: Amazonbot
+    bot_name: Amazonbot
+    bot_type: SearchEngine
+    vendor: Amazon

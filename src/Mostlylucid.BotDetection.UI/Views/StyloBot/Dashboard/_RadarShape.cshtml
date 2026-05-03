@@ -1,0 +1,73 @@
+@model Mostlylucid.BotDetection.UI.Models.ShapeInvestigationViewModel
+@{
+    var shape = Model.CurrentShape;
+    var weights = Model.CurrentWeights;
+    var labels = Mostlylucid.BotDetection.Analysis.RadarDimensions.All;
+    var count = shape.Length;
+    var cx = 150; var cy = 150; var radius = 120;
+    var fuzz = (float)Model.Filter.FuzzThreshold;
+
+    string Point(int i, float value)
+    {
+        var angle = (Math.PI * 2 * i / count) - Math.PI / 2;
+        var r = radius * value;
+        return $"{cx + r * Math.Cos(angle):F1},{cy + r * Math.Sin(angle):F1}";
+    }
+
+    string FuzzPoint(int i, float value, float delta)
+    {
+        var v = Math.Max(0f, Math.Min(1f, value + delta));
+        return Point(i, v);
+    }
+}
+
+<svg viewBox="0 0 300 300" style="width:100%; max-width:300px; aspect-ratio:1;">
+    <!-- Grid rings -->
+    @for (var ring = 0.25f; ring <= 1.0f; ring += 0.25f)
+    {
+        <circle cx="@cx" cy="@cy" r="@(radius * ring)" fill="none"
+                stroke="var(--sb-card-border)" stroke-width="0.5" opacity="0.3" />
+    }
+
+    <!-- Axis lines + labels -->
+    @for (var i = 0; i < count; i++)
+    {
+        var angle = (Math.PI * 2 * i / count) - Math.PI / 2;
+        var x2 = cx + radius * Math.Cos(angle);
+        var y2 = cy + radius * Math.Sin(angle);
+        var lx = cx + (radius + 15) * Math.Cos(angle);
+        var ly = cy + (radius + 15) * Math.Sin(angle);
+        <line x1="@cx" y1="@cy" x2="@x2" y2="@y2"
+              stroke="var(--sb-card-border)" stroke-width="0.5" opacity="0.3" />
+        @if (weights[i] > 0)
+        {
+            @:<text x="@lx" y="@ly" text-anchor="middle" dominant-baseline="middle" fill="var(--sb-brand-muted)" font-size="6">@labels[i].Replace("_", " ").Substring(0, Math.Min(labels[i].Length, 8))</text>
+        }
+    }
+
+    <!-- Fuzz band (outer edge) -->
+    @{
+        var fuzzOuterPoints = string.Join(" ", Enumerable.Range(0, count).Select(i => FuzzPoint(i, shape[i], fuzz)));
+        var fuzzInnerPoints = string.Join(" ", Enumerable.Range(0, count).Select(i => FuzzPoint(i, shape[i], -fuzz)));
+    }
+    <polygon points="@fuzzOuterPoints" fill="var(--sb-accent)" opacity="0.08" stroke="none" />
+    <polygon points="@fuzzInnerPoints" fill="var(--sb-card-bg)" stroke="none" />
+
+    <!-- Main shape polygon -->
+    @{
+        var shapePoints = string.Join(" ", Enumerable.Range(0, count).Select(i => Point(i, shape[i])));
+    }
+    <polygon points="@shapePoints"
+             fill="var(--sb-accent)" fill-opacity="0.15"
+             stroke="var(--sb-accent)" stroke-width="1.5" />
+
+    <!-- Active dimension dots -->
+    @for (var i = 0; i < count; i++)
+    {
+        if (weights[i] > 0 && shape[i] > 0.05f)
+        {
+            var pt = Point(i, shape[i]).Split(',');
+            <circle cx="@pt[0]" cy="@pt[1]" r="3" fill="var(--sb-accent)" />
+        }
+    }
+</svg>

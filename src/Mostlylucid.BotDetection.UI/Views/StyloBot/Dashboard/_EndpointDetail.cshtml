@@ -1,0 +1,80 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model EndpointDetailModel
+<div class="p-4">
+    @if (!Model.Found)
+    {
+        <div class="text-xs text-base-content/40 text-center py-8">Endpoint detail not found</div>
+    }
+    else
+    {
+        <div class="flex items-start justify-between gap-3">
+            <div>
+                <div class="text-[10px] uppercase tracking-wider text-base-content/40">@Model.Method</div>
+                <div class="text-sm font-bold break-all">@Model.Path</div>
+            </div>
+            <div class="text-right">
+                <div class="text-lg font-bold">@(Model.BotRate * 100).ToString("F0")%</div>
+                <div class="text-[10px] text-base-content/40">bot rate</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-4 gap-2 mt-4 text-center">
+            <div><div class="text-sm font-bold">@Model.TotalCount</div><div class="text-[10px] text-base-content/40">Req</div></div>
+            <div><div class="text-sm font-bold text-error">@Model.BotCount</div><div class="text-[10px] text-base-content/40">Bots</div></div>
+            <div><div class="text-sm font-bold text-success">@Model.HumanCount</div><div class="text-[10px] text-base-content/40">Humans</div></div>
+            <div><div class="text-sm font-bold">@Model.UniqueSignatures</div><div class="text-[10px] text-base-content/40">Sigs</div></div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
+            <div>
+                <div class="font-semibold mb-1">Top Actions</div>
+                @foreach (var item in Model.TopActions.Take(5))
+                {
+                    <div class="flex items-center justify-between text-base-content/70"><span>@item.Key</span><span>@item.Value</span></div>
+                }
+            </div>
+            <div>
+                <div class="font-semibold mb-1">Top Countries</div>
+                @foreach (var item in Model.TopCountries.Take(5))
+                {
+                    <div class="flex items-center justify-between text-base-content/70"><span>@item.Key</span><span>@item.Value</span></div>
+                }
+            </div>
+        </div>
+
+        <div class="mt-4">
+            <div class="flex items-center justify-between text-xs mb-1">
+                <span class="font-semibold">Top Bots</span>
+                <span class="text-base-content/40">Threat @Model.AvgThreatScore.ToString("F1") • @Model.AvgProcessingTimeMs.ToString("F0")ms</span>
+            </div>
+            @if (Model.TopBots.Count == 0)
+            {
+                <div class="text-xs text-base-content/40">No bot signatures on this endpoint yet</div>
+            }
+            else
+            {
+                @foreach (var bot in Model.TopBots.Take(5))
+                {
+                    <div class="flex items-center justify-between py-1 text-xs border-b border-base-300/40">
+                        <span class="truncate max-w-[180px]">@(bot.BotName ?? bot.PrimarySignature)</span>
+                        <span class="font-mono">@bot.HitCount</span>
+                    </div>
+                }
+            }
+        </div>
+
+        <div class="mt-4 pt-3 border-t border-base-300/40">
+            <div class="flex items-center justify-between text-xs">
+                <span class="font-semibold text-base-content/70">Bot Policy</span>
+                <button type="button"
+                        class="btn btn-xs btn-ghost gap-1 text-base-content/60 hover:text-base-content"
+                        onclick="sbOpenPolicyModal(event, '@Html.Raw(Model.Method.Replace("'", "\\'"))', '@Html.Raw(Uri.EscapeDataString(Model.Path))', '')">
+                    <i class="bx bx-shield-alt text-sm"></i>Apply Policy
+                </button>
+            </div>
+            <div class="text-[10px] text-base-content/40 mt-1">
+                Configure how bots are handled on this endpoint
+            </div>
+        </div>
+    }
+</div>

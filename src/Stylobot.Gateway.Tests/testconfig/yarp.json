@@ -1,0 +1,35 @@
+{
+  "ReverseProxy": {
+    "Routes": {
+      "api-route": {
+        "ClusterId": "api-cluster",
+        "Match": {
+          "Path": "/api/{**catch-all}"
+        }
+      },
+      "health-route": {
+        "ClusterId": "health-cluster",
+        "Match": {
+          "Path": "/upstream-health"
+        }
+      }
+    },
+    "Clusters": {
+      "api-cluster": {
+        "LoadBalancingPolicy": "RoundRobin",
+        "Destinations": {
+          "api1": {
+            "Address": "http://localhost:{{UPSTREAM_PORT}}"
+          }
+        }
+      },
+      "health-cluster": {
+        "Destinations": {
+          "health1": {
+            "Address": "http://localhost:{{UPSTREAM_PORT}}"
+          }
+        }
+      }
+    }
+  }
+}

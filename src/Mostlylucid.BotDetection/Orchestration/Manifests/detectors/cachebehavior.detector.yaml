@@ -1,0 +1,129 @@
+# Cache Behavior Detector - Browser caching pattern analysis
+name: CacheBehaviorContributor
+priority: 15  # Run early, lightweight
+enabled: true
+description: >
+  Analyzes caching behavior to detect bots. Real browsers send cache validation
+  headers (If-None-Match, If-Modified-Since), support compression, and cache
+  static resources. Bots often skip all of this.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: cachebehavior
+
+taxonomy:
+  kind: analyzer
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for cache behavior analysis
+
+  required_signals:
+    - transport.protocol
+
+  optional_signals:
+    - transport.is_streaming
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Cache behavior analysis contribution
+
+  signals:
+    - key: cache.validation_missing
+      entity_type: bool
+      salience: 0.6
+      description: Whether cache validation headers are missing
+    - key: cache.compression_supported
+      entity_type: bool
+      salience: 0.5
+      description: Whether client supports compression
+    - key: cache.behavior_anomaly
+      entity_type: bool
+      salience: 0.7
+      description: Whether cache behavior anomaly detected
+
+triggers:
+  requires:
+    - signal: transport.protocol
+      condition: HasValue
+
+emits:
+  on_start:
+    - detector.cachebehavior.started
+  on_complete:
+    - key: cache.validation_missing
+      type: bool
+    - key: cache.compression_supported
+      type: bool
+  on_failure:
+    - detector.cachebehavior.failed
+
+lane:
+  name: normal
+  max_concurrency: 8
+  priority: 70
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:CacheBehaviorContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.2
+    human_signal: 1.0
+    verified: 1.5
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.25
+    human_indicated: -0.15
+    strong_signal: 0.5
+    high_threshold: 0.5
+    low_threshold: 0.15
+    escalation_threshold: 0.4
+
+  timing:
+    timeout_ms: 30
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: true
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Static resource repeated requests
+    repeat_base_confidence: 0.2       # Base confidence for repeat requests
+    repeat_increment_confidence: 0.1  # Per-additional-request increment
+    repeat_max_confidence: 0.5        # Maximum confidence for repeat requests
+    repeat_weight: 1.2                # Weight for repeat request signal
+    # No compression support
+    no_compression_confidence: 0.25
+    no_compression_weight: 1.0
+    # Rapid repeated request timing
+    rapid_repeat_threshold_seconds: 5  # Seconds threshold for rapid repeat
+    rapid_repeat_fast_confidence: 0.4  # Under 1 second
+    rapid_repeat_slow_confidence: 0.3  # 1-5 seconds
+    rapid_repeat_weight: 1.3
+    # Profile analysis thresholds
+    profile_min_requests: 10           # Minimum requests for profile analysis
+    profile_min_static_requests: 5     # Minimum static requests for rate calc
+    cache_validation_rate_threshold: 0.3  # Below = anomaly
+    profile_anomaly_confidence: 0.3
+    profile_anomaly_weight: 1.5
+    # Good cache behavior (human indicator)
+    good_cache_confidence: -0.15
+    good_cache_weight: 1.0
+
+tags:
+  - cache
+  - browser-behavior
+  - compression

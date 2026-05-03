@@ -1,0 +1,192 @@
+@model Mostlylucid.BotDetection.UI.Models.ComplianceTabModel
+@{
+    var bp = Model.BasePath;
+}
+
+<div class="space-y-4">
+    <!-- Active Pack Card -->
+    <div class="rounded-xl border p-4" style="border-color:var(--sb-card-border); background:var(--sb-card-bg);">
+        <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+                <h3 class="text-sm font-bold">Active Compliance Pack</h3>
+                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "compliance")
+            </div>
+            @if (Model.IsCommercial)
+            {
+                <select class="select select-xs select-bordered"
+                        hx-put="@bp/../api/compliance/active"
+                        hx-trigger="change"
+                        hx-target="closest div"
+                        hx-swap="outerHTML">
+                    @foreach (var pack in Model.AvailablePacks)
+                    {
+                        <option value="@pack.Id" @(pack.Id == Model.ActivePackId ? "selected" : "")>
+                            @pack.Name @(pack.Jurisdiction is not null ? $"({pack.Jurisdiction})" : "")
+                        </option>
+                    }
+                </select>
+            }
+        </div>
+
+        <div class="flex items-center gap-2 mb-2">
+            <span class="badge badge-primary badge-sm">@Model.ActivePackName</span>
+            @if (Model.Jurisdiction is not null)
+            {
+                <span class="badge badge-ghost badge-sm">@Model.Jurisdiction</span>
+            }
+        </div>
+
+        @if (Model.Position is not null)
+        {
+            <p class="text-xs text-base-content/60 mb-2 italic">@Model.Position</p>
+        }
+
+        <!-- Explain This Pack -->
+        @if (Model.ActivePackExplain is not null)
+        {
+            <details class="mt-2">
+                <summary class="text-xs font-medium cursor-pointer text-primary">
+                    <i class="bx bx-info-circle"></i> Explain This Pack
+                </summary>
+                <div class="mt-2 p-3 rounded-lg bg-base-200 text-xs leading-relaxed">
+                    @Model.ActivePackExplain
+                </div>
+            </details>
+        }
+
+        @if (Model.LegalReferences is not null && Model.LegalReferences.Count > 0)
+        {
+            <details class="mt-2">
+                <summary class="text-xs font-medium cursor-pointer text-base-content/50">
+                    Legal references (@Model.LegalReferences.Count)
+                </summary>
+                <ul class="mt-1 text-[10px] text-base-content/40 space-y-0.5 pl-4 list-disc">
+                    @foreach (var reference in Model.LegalReferences)
+                    {
+                        <li>@reference</li>
+                    }
+                </ul>
+            </details>
+        }
+    </div>
+
+    <!-- Status Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+
+        <!-- Guardians -->
+        <div class="rounded-xl border p-3" style="border-color:var(--sb-card-border); background:var(--sb-card-bg);">
+            <div class="flex items-center gap-1 mb-2">
+                <h4 class="text-xs font-bold">Guardians</h4>
+                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "guardians")
+            </div>
+            @if (Model.GuardianCount > 0)
+            {
+                <div class="text-2xl font-bold text-success">@Model.GuardianCount</div>
+                <div class="text-[10px] text-base-content/50">active guardians</div>
+                @if (Model.GuardianAlerts > 0)
+                {
+                    <div class="badge badge-warning badge-sm mt-1">@Model.GuardianAlerts alert(s)</div>
+                }
+            }
+            else
+            {
+                <div class="text-xs text-base-content/40">Not configured</div>
+            }
+        </div>
+
+        <!-- Overrides -->
+        <div class="rounded-xl border p-3" style="border-color:var(--sb-card-border); background:var(--sb-card-bg);">
+            <div class="flex items-center gap-1 mb-2">
+                <h4 class="text-xs font-bold">Operator Overrides</h4>
+                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "overrides")
+            </div>
+            <div class="text-2xl font-bold">@Model.TotalOverrides</div>
+            <div class="text-[10px] text-base-content/50">total corrections</div>
+            @if (Model.FalsePositives > 0 || Model.FalseNegatives > 0)
+            {
+                <div class="flex gap-2 mt-1 text-[10px]">
+                    <span class="text-warning">@Model.FalsePositives FP</span>
+                    <span class="text-error">@Model.FalseNegatives FN</span>
+                </div>
+            }
+        </div>
+
+        <!-- DSAR Queue -->
+        <div class="rounded-xl border p-3" style="border-color:var(--sb-card-border); background:var(--sb-card-bg);">
+            <div class="flex items-center gap-1 mb-2">
+                <h4 class="text-xs font-bold">DSAR Requests</h4>
+            </div>
+            @if (Model.PendingDsarRequests > 0 || Model.OverdueDsarRequests > 0)
+            {
+                <div class="text-2xl font-bold @(Model.OverdueDsarRequests > 0 ? "text-error" : "text-warning")">
+                    @Model.PendingDsarRequests
+                </div>
+                <div class="text-[10px] text-base-content/50">pending</div>
+                @if (Model.OverdueDsarRequests > 0)
+                {
+                    <div class="badge badge-error badge-sm mt-1">@Model.OverdueDsarRequests overdue!</div>
+                }
+            }
+            else
+            {
+                <div class="text-2xl font-bold text-success">0</div>
+                <div class="text-[10px] text-base-content/50">all clear</div>
+            }
+        </div>
+    </div>
+
+    <!-- Drift Alerts -->
+    @if (Model.DriftAlerts.Count > 0)
+    {
+        <div class="rounded-xl border p-3 border-warning/30" style="background:var(--sb-card-bg);">
+            <h4 class="text-xs font-bold text-warning mb-2">
+                <i class="bx bx-error"></i> Policy Drift Detected
+            </h4>
+            <table class="w-full text-xs">
+                <thead>
+                    <tr class="text-left text-base-content/50">
+                        <th class="py-1">Setting</th>
+                        <th>Expected</th>
+                        <th>Actual</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var drift in Model.DriftAlerts)
+                    {
+                        <tr class="border-t border-base-300">
+                            <td class="py-1 font-medium">@drift.Setting</td>
+                            <td class="text-success">@drift.Expected</td>
+                            <td class="text-error">@drift.Actual</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <!-- Recent Guardian Runs -->
+    @if (Model.RecentGuardianRuns.Count > 0)
+    {
+        <div class="rounded-xl border p-3" style="border-color:var(--sb-card-border); background:var(--sb-card-bg);">
+            <h4 class="text-xs font-bold mb-2">Recent Guardian Activity</h4>
+            <div class="space-y-1">
+                @foreach (var run in Model.RecentGuardianRuns.Take(10))
+                {
+                    <div class="flex items-center justify-between text-[10px]">
+                        <span class="font-medium">@run.Name</span>
+                        <div class="flex items-center gap-2">
+                            <span class="badge badge-xs @(run.Status == "ok" ? "badge-success" : run.Status == "alert" ? "badge-warning" : "badge-error")">
+                                @run.Status
+                            </span>
+                            @if (run.RecordsAffected > 0)
+                            {
+                                <span class="text-base-content/40">@run.RecordsAffected records</span>
+                            }
+                            <span class="text-base-content/30">@run.ExecutedAt.ToString("HH:mm")</span>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>

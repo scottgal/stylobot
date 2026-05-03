@@ -114,7 +114,7 @@ jobs:
         echo "Publishing version: $VERSION (prerelease: $IS_PRERELEASE)"
 
     - name: Restore dependencies
-      run: dotnet restore Mostlylucid.BotDetection.Console/Mostlylucid.BotDetection.Console.csproj
+      run: dotnet restore src/Mostlylucid.BotDetection.Console/Mostlylucid.BotDetection.Console.csproj
 
     - name: Publish ${{ matrix.runtime }} binary
       shell: bash
@@ -126,7 +126,7 @@ jobs:
           OBJCOPY_PARAM=""
         fi
 
-        dotnet publish Mostlylucid.BotDetection.Console/Mostlylucid.BotDetection.Console.csproj \
+        dotnet publish src/Mostlylucid.BotDetection.Console/Mostlylucid.BotDetection.Console.csproj \
           --configuration Release \
           --runtime ${{ matrix.runtime }} \
           --self-contained true \
@@ -186,17 +186,17 @@ jobs:
         cp *.dylib ../../dist/ 2>/dev/null || true
 
         # Copy config files
-        cp ../../Mostlylucid.BotDetection.Console/appsettings.json ../../dist/ || true
-        cp ../../Mostlylucid.BotDetection.Console/appsettings.production.json ../../dist/ || true
+        cp ../../src/Mostlylucid.BotDetection.Console/appsettings.json ../../dist/ || true
+        cp ../../src/Mostlylucid.BotDetection.Console/appsettings.production.json ../../dist/ || true
 
         # Copy wwwroot folder (client-side detection test page)
-        if [ -d "../../Mostlylucid.BotDetection.Console/wwwroot" ]; then
+        if [ -d "../../src/Mostlylucid.BotDetection.Console/wwwroot" ]; then
           mkdir -p ../../dist/wwwroot
-          cp -r ../../Mostlylucid.BotDetection.Console/wwwroot/* ../../dist/wwwroot/ || true
+          cp -r ../../src/Mostlylucid.BotDetection.Console/wwwroot/* ../../dist/wwwroot/ || true
         fi
 
         # Copy README.md if it exists
-        cp ../../Mostlylucid.BotDetection.Console/README.md ../../dist/ || true
+        cp ../../src/Mostlylucid.BotDetection.Console/README.md ../../dist/ || true
 
         # Create README
         cat > ../../dist/README.txt << 'READMEEOF'
@@ -349,7 +349,7 @@ jobs:
 
         ### Documentation
 
-        - [Console Gateway README](https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection.Console/README.md)
+        - [Console Gateway README](https://github.com/scottgal/stylobot/blob/main/src/Mostlylucid.BotDetection.Console/README.md)
         - [Vector Search Projection](https://github.com/scottgal/stylobot/blob/main/docs/vector-search-projection.md)
         - [Documentation](https://github.com/scottgal/stylobot)
 

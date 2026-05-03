@@ -5,6 +5,42 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.1.2] - 2026-05-03
+
+### Added
+
+- **`SignatureCoordinatorWarmupService`** — replays recently persisted requests into the in-memory `SignatureCoordinator` on startup, preventing clustering from starting from zero after a restart; runs as `BackgroundService` (post-startup, does not block host readiness)
+- **`ISessionStore.GetRecentRequestsAsync`** — fetches the N most-recent persisted requests within a time window, newest-first internally then returned oldest-first for chronological replay
+- **`LearningEventBus.Subscribe`** — independent subscriber streams for fan-out event delivery; each subscriber receives a copy of every published event without consuming from the primary reader. `AnomalySaverService` migrated to subscriber pattern
+- **`SignatureCoordinator.RecordRequestAsync`** `timestampUtc` optional parameter — allows replaying historical requests with their original timestamps
+- **`LeidenClustering`** — CPM penalty now scales by `averageEdgeWeight * 0.5` instead of raw `totalWeight`, fixing unmergeable graphs when edge weights are normalized similarities in [0, 1]
+- **`BotClusterService`** — pre-filters signatures by `MinBotProbabilityForClustering` before applying worst-offender cap, focusing CPU on genuinely suspect signatures
+- Startup error handling in `CentroidSequenceRebuildHostedService` and `AssetHashInitHostedService` — initialization failures degrade gracefully instead of crashing the host
+
+### Changed
+
+- **`BlackboardOrchestrator`** — `primarySignature` is now included in learning event metadata, enabling `SimilarityLearningHandler` and `IntentLearningHandler` to use stable visitor signatures instead of per-request IDs
+- **`SimilarityLearningHandler`** — prefers `primarySignature` from event metadata over `RequestId` to prevent index filling with one-off IDs
+- **`IntentLearningHandler`** — same stable-signature preference for attack event attribution
+- **`EphemeralDetectionOrchestrator`** — feature extraction now runs for uncertain events (confidence < 0.6, probability 0.3-0.8) in addition to high-confidence detections
+- **`HeuristicFeatureExtractor`** — single-pass rewrite of `ExtractDetectorResults` and `ExtractStatistics`: eliminates 6x `ToList()` allocations, two `GroupBy+ToDictionary` allocations, and inline LINQ in the hot path
+- **`BlackboardOrchestrator`** — `KnownAiDetectors` promoted to static field (eliminates per-request `HashSet` allocation)
+
+### Fixed
+
+- **`SignatureCoordinator.GetAllBehaviors`** — cache miss on a signature no longer evicts its `_ipIndex` entry; only `PruneShadowIndexesIfNeeded` owns `_ipIndex` cleanup, preventing a race where a newly-registered signature was removed before its async atom was cached
+- **CI** — removed `retentionScorer` named argument in `SlidingCacheAtom` constructor calls; parameter exists in local project reference but not in published NuGet 2.4.0, causing `CS1739` build failures on CI
+- **CI** — removed `/tmp/local-nuget` source from `NuGet.Config` that caused `NU1301` on GitHub Actions hosts
+
+### Tests Added
+
+- `SignatureConvergenceServiceTests` — removed spurious `Task.Delay(50)` calls; tests now rely on synchronous `_ipIndex` population
+- `LeidenClusteringTests` — verifies two disconnected clusters stay separated at default resolution
+- `LearningEventBusTests` — verifies subscriber receives copy without consuming primary reader
+- `SimilarityLearningHandlerTests` — verifies `primarySignature` metadata is used as the stable vector ID
+
+---
+
 ## [6.0.4-rc0] - 2026-04-26
 
 ### Added

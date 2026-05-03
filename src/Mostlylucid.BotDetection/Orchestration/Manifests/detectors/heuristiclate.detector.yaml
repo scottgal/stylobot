@@ -1,0 +1,96 @@
+# Heuristic Late Detector - Final meta-layer after all other detectors
+name: HeuristicLateContributor
+priority: 100  # Run after AI detectors (priority ~80-90)
+enabled: true
+description: Late-stage heuristic that consumes all accumulated evidence as the final pass
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: heuristiclate
+
+taxonomy:
+  kind: aggregator
+  determinism: statistical
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with accumulated blackboard evidence
+
+  required_signals: []
+
+  optional_signals:
+    - ai.prediction
+    - ai.confidence
+    - heuristic.prediction
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Late heuristic contribution
+
+  signals:
+    - key: heuristic.late_prediction
+      entity_type: string
+      salience: 0.9
+      description: Late heuristic prediction (bot/human)
+    - key: heuristic.late_confidence
+      entity_type: float
+      salience: 0.9
+      description: Late heuristic confidence
+
+triggers:
+  requires:
+    - signal: ai.prediction
+      description: Needs AI or heuristic prediction
+    - signal: heuristic.prediction
+      description: Needs heuristic prediction
+
+emits:
+  on_start:
+    - detector.heuristiclate.started
+  on_complete:
+    - key: heuristic.late_prediction
+      type: string
+      description: Late heuristic prediction
+  on_failure:
+    - detector.heuristiclate.failed
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:HeuristicLateContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 2.5
+    human_signal: 2.5
+    verified: 3.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.5
+    human_indicated: -0.3
+    strong_signal: 0.8
+
+  timing:
+    timeout_ms: 50
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: true
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Weight for late heuristic contributions (highest in system - final say)
+    late_weight: 2.5
+
+tags:
+  - heuristic
+  - meta
+  - late

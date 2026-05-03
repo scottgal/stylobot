@@ -1,0 +1,108 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model ApprovalFormModel
+@{
+    Layout = null;
+    var bp = Model.BasePath;
+}
+<div id="approval-form" class="space-y-3">
+    <h4 class="text-xs font-semibold text-base-content/70 uppercase">Approve Fingerprint</h4>
+
+    <div class="space-y-2">
+        <label class="text-[10px] text-base-content/50 block">Approval Token (from X-SB-Approval-Id header)</label>
+        <input type="text" id="approval-token" placeholder="Paste approval ID here..."
+               class="input input-xs input-bordered w-full font-mono text-xs" />
+    </div>
+
+    <div class="space-y-2">
+        <label class="text-[10px] text-base-content/50 block">Justification</label>
+        <textarea id="approval-justification" rows="2" placeholder="Why is this fingerprint being approved?"
+                  class="textarea textarea-xs textarea-bordered w-full text-xs"></textarea>
+    </div>
+
+    <div class="space-y-2">
+        <label class="text-[10px] text-base-content/50 block">Lock Dimensions (optional - drift from these values voids the approval)</label>
+        <div class="grid grid-cols-2 gap-1">
+            @if (Model.CurrentSignals != null)
+            {
+                @foreach (var signal in Model.CurrentSignals)
+                {
+                    <label class="flex items-center gap-1.5 text-[10px] cursor-pointer">
+                        <input type="checkbox" class="checkbox checkbox-xs approval-lock-dim"
+                               data-key="@signal.Key" data-value="@signal.Value" />
+                        <span class="text-base-content/50">@signal.Key:</span>
+                        <span class="font-mono text-base-content/70">@signal.Value</span>
+                    </label>
+                }
+            }
+            else
+            {
+                <span class="text-[10px] text-base-content/40 col-span-2">No signal data available for locking</span>
+            }
+        </div>
+    </div>
+
+    <div class="space-y-2">
+        <label class="text-[10px] text-base-content/50 block">Expiry</label>
+        <select id="approval-expiry" class="select select-xs select-bordered w-full text-xs">
+            <option value="">No expiry (permanent)</option>
+            <option value="7">7 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="90">90 days</option>
+            <option value="365">1 year</option>
+        </select>
+    </div>
+
+    <div class="flex gap-2">
+        <button id="approval-submit" class="btn btn-xs btn-primary"
+                onclick="submitApproval('@Html.Raw(bp)')">Approve</button>
+        <span id="approval-status" class="text-[10px] text-base-content/40 self-center"></span>
+    </div>
+</div>
+
+<script nonce="@Model.CspNonce">
+function submitApproval(basePath) {
+    var token = document.getElementById('approval-token').value.trim();
+    var justification = document.getElementById('approval-justification').value.trim();
+    var expiryDays = document.getElementById('approval-expiry').value;
+    var statusEl = document.getElementById('approval-status');
+
+    if (!token) { statusEl.textContent = 'Approval token is required'; return; }
+    if (!justification) { statusEl.textContent = 'Justification is required'; return; }
+
+    // Collect locked dimensions from checked checkboxes
+    var lockedDimensions = {};
+    document.querySelectorAll('.approval-lock-dim:checked').forEach(function(cb) {
+        lockedDimensions[cb.dataset.key] = cb.dataset.value;
+    });
+
+    var payload = {
+        approvalId: token,
+        justification: justification,
+        lockedDimensions: Object.keys(lockedDimensions).length > 0 ? lockedDimensions : null,
+        expiresInDays: expiryDays ? parseInt(expiryDays) : null
+    };
+
+    statusEl.textContent = 'Submitting...';
+
+    fetch(basePath + '/api/approvals/by-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        credentials: 'same-origin'
+    })
+    .then(function(resp) { return resp.json().then(function(data) { return { ok: resp.ok, data: data }; }); })
+    .then(function(result) {
+        if (result.ok) {
+            statusEl.textContent = 'Approved! Signature: ' + (result.data.signature || '').substring(0, 12) + '...';
+            statusEl.className = 'text-[10px] text-success self-center font-semibold';
+        } else {
+            statusEl.textContent = result.data.error || 'Approval failed';
+            statusEl.className = 'text-[10px] text-error self-center';
+        }
+    })
+    .catch(function() {
+        statusEl.textContent = 'Network error';
+        statusEl.className = 'text-[10px] text-error self-center';
+    });
+}
+</script>

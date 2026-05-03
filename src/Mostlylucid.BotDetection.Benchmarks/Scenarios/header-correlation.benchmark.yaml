@@ -1,0 +1,22 @@
+name: HeaderCorrelation_FullHeaders
+description: Header correlation analysis with full browser headers
+detector: HeaderCorrelation
+request:
+  method: GET
+  path: /products/123
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0"
+    accept: "text/html,application/xhtml+xml,application/xml;q=0.9"
+    accept-language: "en-US,en;q=0.9"
+    accept-encoding: "gzip, deflate, br"
+    sec-ch-ua: "\"Chromium\";v=\"120\", \"Google Chrome\";v=\"120\""
+    sec-ch-ua-mobile: "?0"
+    sec-ch-ua-platform: "\"Windows\""
+    sec-fetch-mode: navigate
+    sec-fetch-site: none
+    sec-fetch-dest: document
+thresholds:
+  max_mean_ns: 8000
+  max_allocated_bytes: 2048
+tags: [fast-path, header-correlation, human]

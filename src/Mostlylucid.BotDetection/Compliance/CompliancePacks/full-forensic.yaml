@@ -1,0 +1,38 @@
+id: full-forensic
+name: "Full Forensic"
+description: "Maximum evidence retention for incident investigation and threat research."
+jurisdiction: none
+requires_tier: oss
+
+retention:
+  detections: 365d
+  signatures: 365d
+  sessions: 365d
+  ip_search_index: 365d
+  audit_log: 730d
+  config_changes: 730d
+  incident_records: 1095d
+  dsar_request_log: 1095d
+
+anonymization:
+  pii_hashing: required
+  key_rotation_days: 0
+  ip_subnet_mask: 0
+  strip_raw_user_agent_after: "0"
+  raw_payload_storage: true
+
+dsar:
+  enabled: false
+
+audit:
+  log_deletions: true
+  log_exports: true
+  log_admin_access: true
+  tamper_evident: true
+
+explain: >
+  Maximum retention for threat investigation. All detection data kept
+  1 year, audit logs 2 years, incident records 3 years. Full user agent
+  strings preserved. Tamper-evident audit logging enabled. WARNING: may
+  conflict with GDPR/CCPA -- consult legal before using in production
+  with EU/California traffic.

@@ -1,0 +1,38 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model BotBreakdownModel
+
+<div id="bot-breakdown" data-sb-widget="bot-breakdown" data-sb-depends="detection"
+     class="p-4 rounded-xl border border-base-content/10 bg-base-100">
+    <h3 class="text-sm font-bold mb-3">What's Hitting You</h3>
+
+    @if (Model.TotalBotSessions == 0)
+    {
+        <p class="text-sm text-base-content/50">No bot traffic detected yet.</p>
+    }
+    else
+    {
+        <div class="space-y-3">
+        @foreach (var cat in Model.Categories)
+        {
+            <div>
+                <div class="flex justify-between text-xs mb-1">
+                    <span class="font-medium">@cat.DisplayName</span>
+                    <span class="text-base-content/50">@cat.SessionCount (@cat.Percentage.ToString("F0")%)</span>
+                </div>
+                <div class="h-2.5 bg-base-300 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full transition-all" style="width:@cat.Percentage%; background:@cat.Color"></div>
+                </div>
+                @if (cat.TopEndpoints.Count > 0)
+                {
+                    <div class="text-[10px] text-base-content/40 mt-0.5 truncate">
+                        Targeting: @string.Join(", ", cat.TopEndpoints.Take(3))
+                    </div>
+                }
+            </div>
+        }
+        </div>
+        <div class="text-xs text-base-content/40 mt-3 pt-2 border-t border-base-content/5">
+            @Model.TotalBotSessions bot sessions detected
+        </div>
+    }
+</div>

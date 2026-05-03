@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://botdetection.dev/schemas/detector-manifest.schema.json",
+  "title": "BotDetection Detector Manifest",
+  "description": "Schema for BotDetection detector manifest files (*.detector.yaml)",
+  "type": "object",
+  "required": ["name", "scope"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Detector contributor name (must end with 'Contributor')",
+      "pattern": "^[A-Za-z][A-Za-z0-9]*Contributor$"
+    },
+    "priority": {
+      "type": "integer",
+      "description": "Execution priority (lower runs first). Stage-0: 1-15, Stage-1: 16-30, Stage-2: 31-50, Stage-3: 51+",
+      "minimum": 0,
+      "maximum": 1000
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "Whether this detector is enabled",
+      "default": true
+    },
+    "description": {
+      "type": "string",
+      "description": "Human-readable description of the detector"
+    },
+    "scope": {
+      "$ref": "#/$defs/detectorScope"
+    },
+    "taxonomy": {
+      "$ref": "#/$defs/detectorTaxonomy"
+    },
+    "input": {
+      "$ref": "#/$defs/inputContract"
+    },
+    "output": {
+      "$ref": "#/$defs/outputContract"
+    },
+    "triggers": {
+      "$ref": "#/$defs/triggers"
+    },
+    "emits": {
+      "$ref": "#/$defs/emits"
+    },
+    "listens": {
+      "$ref": "#/$defs/listens"
+    },
+    "lane": {
+      "$ref": "#/$defs/lane"
+    },
+    "budget": {
+      "$ref": "#/$defs/budget"
+    },
+    "config": {
+      "$ref": "#/$defs/config"
+    },
+    "defaults": {
+      "$ref": "#/$defs/detectorDefaults"
+    },
+    "tags": {
+      "type": "array",
+      "description": "Tags for categorization (stage-0, stage-1, fast-path, etc.)",
+      "items": {
+        "type": "string",
+        "enum": [
+          "stage-0", "stage-1", "stage-2", "stage-3",
+          "fast-path", "early-exit", "circuit-breaker",
+          "fingerprinting", "behavioral", "reputation",
+          "ai", "llm", "ml", "expensive",
+          "security", "threat-detection",
+          "ua-analysis", "header-analysis", "ip-analysis",
+          "tls", "http2", "scoring"
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "detectorScope": {
+      "type": "object",
+      "description": "Detector scope within the botdetection namespace",
+      "required": ["sink", "coordinator", "atom"],
+      "properties": {
+        "sink": {
+          "type": "string",
+          "description": "Must be 'botdetection'",
+          "const": "botdetection"
+        },
+        "coordinator": {
+          "type": "string",
+          "description": "Coordinator name",
+          "enum": ["detection", "learning", "reputation"]
+        },
+        "atom": {
+          "type": "string",
+          "description": "Atom identifier (detector short name)",
+          "pattern": "^[a-z][a-z0-9]*$"
+        }
+      }
+    },
+    "detectorTaxonomy": {
+      "type": "object",
+      "description": "Classification of the detector's behavior",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Detector kind - determines its role in the detection pipeline",
+          "enum": ["sensor", "analyzer", "proposer", "gatekeeper"]
+        },
+        "determinism": {
+          "type": "string",
+          "description": "Whether outputs are deterministic",
+          "enum": ["deterministic", "probabilistic"],
+          "default": "deterministic"
+        },
+        "persistence": {
+          "type": "string",
+          "description": "How the detector accesses/stores data",
+          "enum": ["ephemeral", "direct_read", "direct_write", "cached"],
+          "default": "ephemeral"
+        }
+      }
+    },
+    "inputContract": {
+      "type": "object",
+      "description": "Defines what the detector consumes",
+      "properties": {
+        "accepts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "description": "Entity type (botdetection.request, botdetection.signature, etc.)",
+                "pattern": "^botdetection\\.[a-z_]+$"
+              },
+              "required": {
+                "type": "boolean",
+                "default": true
+              },
+              "description": {
+                "type": "string"
+              },
+              "signal_pattern": {
+                "type": "string",
+                "description": "Signal pattern to match"
+              }
+            }
+          }
+        },
+        "required_signals": {
+          "type": "array",
+          "description": "Signals that must be present (e.g., 'request.headers.user-agent')",
+          "items": {
+            "type": "string"
+          }
+        },
+        "optional_signals": {
+          "type": "array",
+          "description": "Signals that may enhance detection if present",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "outputContract": {
+      "type": "object",
+      "description": "Defines what the detector produces",
+      "properties": {
+        "produces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "description": "Output entity type (typically botdetection.contribution)",
+                "pattern": "^botdetection\\.[a-z_]+$"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "signals": {
+          "type": "array",
+          "description": "Signals emitted by this detector",
+          "items": {
+            "$ref": "#/$defs/detectorSignal"
+          }
+        }
+      }
+    },
+    "detectorSignal": {
+      "type": "object",
+      "required": ["key", "entity_type"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "description": "Signal key (e.g., 'detection.useragent.confidence')",
+          "pattern": "^detection\\.[a-z_]+\\.[a-z_]+$"
+        },
+        "entity_type": {
+          "type": "string",
+          "enum": ["string", "number", "boolean", "object", "string[]", "number[]"]
+        },
+        "salience": {
+          "type": "number",
+          "description": "Signal importance (0.0-1.0)",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "confidence_range": {
+          "type": "array",
+          "items": {"type": "number"},
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "triggers": {
+      "type": "object",
+      "properties": {
+        "requires": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {"type": "string"},
+              {
+                "type": "object",
+                "properties": {
+                  "signal": {"type": "string"},
+                  "condition": {"type": "string", "enum": ["HasValue", "IsTrue", "IsFalse", "Exists"]},
+                  "value": {}
+                },
+                "required": ["signal"]
+              }
+            ]
+          }
+        },
+        "skip_when": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "when": {
+          "type": "array",
+          "description": "Conditional expressions",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "emits": {
+      "type": "object",
+      "properties": {
+        "on_start": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^detector\\.[a-z]+\\.started$"}
+        },
+        "on_complete": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {"type": "string"},
+              {"$ref": "#/$defs/detectorSignal"}
+            ]
+          }
+        },
+        "on_failure": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^detector\\.[a-z]+\\.failed$"}
+        },
+        "conditional": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "when"],
+            "properties": {
+              "key": {"type": "string"},
+              "type": {"type": "string"},
+              "when": {"type": "string"},
+              "description": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "listens": {
+      "type": "object",
+      "properties": {
+        "required": {"type": "array", "items": {"type": "string"}},
+        "optional": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "lane": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": ["fast", "normal", "slow", "llm"]
+        },
+        "max_concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "max_duration": {"type": "string", "pattern": "^\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?$"},
+        "max_tokens": {"type": "integer", "minimum": 1},
+        "max_cost": {"type": "number", "minimum": 0}
+      }
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "bindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["config_key"],
+            "properties": {
+              "config_key": {"type": "string"},
+              "skip_if_false": {"type": "boolean"},
+              "skip_if_null": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    },
+    "detectorDefaults": {
+      "type": "object",
+      "description": "Default configuration values for the detector",
+      "properties": {
+        "weights": {
+          "type": "object",
+          "properties": {
+            "base": {"type": "number", "description": "Base contribution weight"},
+            "bot_signal": {"type": "number", "description": "Weight for bot-like signals"},
+            "human_signal": {"type": "number", "description": "Weight for human-like signals"},
+            "verified": {"type": "number", "description": "Weight for verified patterns"},
+            "early_exit": {"type": "number", "description": "Weight for early exit decisions"}
+          }
+        },
+        "confidence": {
+          "type": "object",
+          "properties": {
+            "neutral": {"type": "number"},
+            "bot_detected": {"type": "number"},
+            "human_indicated": {"type": "number"},
+            "strong_signal": {"type": "number"},
+            "high_threshold": {"type": "number"},
+            "low_threshold": {"type": "number"},
+            "escalation_threshold": {"type": "number"}
+          }
+        },
+        "timing": {
+          "type": "object",
+          "properties": {
+            "timeout_ms": {"type": "integer", "minimum": 1},
+            "cache_refresh_sec": {"type": "integer", "minimum": 0}
+          }
+        },
+        "features": {
+          "type": "object",
+          "properties": {
+            "detailed_logging": {"type": "boolean"},
+            "enable_cache": {"type": "boolean"},
+            "can_early_exit": {"type": "boolean"},
+            "can_escalate": {"type": "boolean"}
+          }
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Detector-specific parameters",
+          "additionalProperties": true
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+name: Haxxor_SqlInjection
+description: SQL injection attempt detection
+detector: Haxxor
+request:
+  method: GET
+  path: "/products?id=1' OR '1'='1"
+  ip: 198.51.100.10
+  headers:
+    user-agent: "python-requests/2.31.0"
+thresholds:
+  max_mean_ns: 10000
+  max_allocated_bytes: 2048
+tags: [fast-path, haxxor, attack]

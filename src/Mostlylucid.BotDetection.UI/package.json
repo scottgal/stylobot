@@ -1,0 +1,13 @@
+{
+  "name": "mostlylucid-botdetection-ui",
+  "private": true,
+  "scripts": {
+    "build:css": "npx @tailwindcss/cli -i ./wwwroot/css/tailwind-input.css -o ./wwwroot/vendor/css/tailwind.min.css --minify",
+    "watch:css": "npx @tailwindcss/cli -i ./wwwroot/css/tailwind-input.css -o ./wwwroot/vendor/css/tailwind.min.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.5",
+    "tailwindcss": "^4.1.5",
+    "daisyui": "^5.0.28"
+  }
+}

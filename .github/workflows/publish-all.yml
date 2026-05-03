@@ -117,9 +117,9 @@ jobs:
 
     - name: Restore, Build, Pack
       run: |
-        dotnet restore Mostlylucid.Common/Mostlylucid.Common.csproj
-        dotnet build Mostlylucid.Common/Mostlylucid.Common.csproj --configuration Release --no-restore
-        dotnet pack Mostlylucid.Common/Mostlylucid.Common.csproj --configuration Release --no-build --output ./artifacts
+        dotnet restore src/Mostlylucid.Common/Mostlylucid.Common.csproj
+        dotnet build src/Mostlylucid.Common/Mostlylucid.Common.csproj --configuration Release --no-restore
+        dotnet pack src/Mostlylucid.Common/Mostlylucid.Common.csproj --configuration Release --no-build --output ./artifacts
 
     - name: Login to NuGet (OIDC)
       id: nuget_login
@@ -155,9 +155,9 @@ jobs:
 
     - name: Restore, Build, Pack
       run: |
-        dotnet restore Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj
-        dotnet build Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj -c Release --no-restore
-        dotnet pack Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj -c Release --no-build -o ./artifacts
+        dotnet restore src/Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj
+        dotnet build src/Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj -c Release --no-build -o ./artifacts
 
     - name: Login to NuGet (OIDC)
       id: nuget_login
@@ -217,8 +217,8 @@ jobs:
     - name: Restore, Build, Pack
       run: |
         dotnet restore ci.slnf
-        dotnet build Mostlylucid.BotDetection.UI.PostgreSQL/Mostlylucid.BotDetection.UI.PostgreSQL.csproj -c Release --no-restore
-        dotnet pack Mostlylucid.BotDetection.UI.PostgreSQL/Mostlylucid.BotDetection.UI.PostgreSQL.csproj -c Release --no-build -o ./artifacts
+        dotnet build src/Mostlylucid.BotDetection.UI.PostgreSQL/Mostlylucid.BotDetection.UI.PostgreSQL.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.BotDetection.UI.PostgreSQL/Mostlylucid.BotDetection.UI.PostgreSQL.csproj -c Release --no-build -o ./artifacts
     - uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544
       id: nuget_login
       with:
@@ -245,8 +245,8 @@ jobs:
     - name: Restore, Build, Pack
       run: |
         dotnet restore ci.slnf
-        dotnet build Mostlylucid.GeoDetection.Contributor/Mostlylucid.GeoDetection.Contributor.csproj -c Release --no-restore
-        dotnet pack Mostlylucid.GeoDetection.Contributor/Mostlylucid.GeoDetection.Contributor.csproj -c Release --no-build -o ./artifacts
+        dotnet build src/Mostlylucid.GeoDetection.Contributor/Mostlylucid.GeoDetection.Contributor.csproj -c Release --no-restore
+        dotnet pack src/Mostlylucid.GeoDetection.Contributor/Mostlylucid.GeoDetection.Contributor.csproj -c Release --no-build -o ./artifacts
     - uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544
       id: nuget_login
       with:
@@ -362,7 +362,7 @@ jobs:
         NUGET_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
       run: dotnet nuget push ./artifacts/*.nupkg --api-key "$NUGET_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
-  # Publish Stylobot.Gateway Docker image
+  # Publish src/Stylobot.Gateway Docker image
   publish-gateway:
     needs: validate-version
     if: needs.validate-version.outputs.components == 'all' || needs.validate-version.outputs.components == 'docker-only'
@@ -380,11 +380,11 @@ jobs:
 
     - name: Build and test
       run: |
-        dotnet restore Stylobot.Gateway/Stylobot.Gateway.csproj
-        dotnet restore Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj
-        dotnet build Stylobot.Gateway/Stylobot.Gateway.csproj --configuration Release --no-restore
-        dotnet build Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-restore
-        dotnet test Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-build --verbosity normal
+        dotnet restore src/Stylobot.Gateway/Stylobot.Gateway.csproj
+        dotnet restore src/Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj
+        dotnet build src/Stylobot.Gateway/Stylobot.Gateway.csproj --configuration Release --no-restore
+        dotnet build src/Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-restore
+        dotnet test src/Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-build --verbosity normal
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3

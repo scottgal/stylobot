@@ -1,0 +1,18 @@
+name: TlsFingerprint_Chrome
+description: TLS fingerprint matching for Chrome
+detector: TlsFingerprint
+request:
+  method: GET
+  path: /
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 Chrome/120.0"
+signals:
+  tls.ja3_hash: "e7d705a3286e19ea42f587b344ee6865"
+  tls.ja4: "t13d1517h2_8daaf6152771_b0da82dd1658"
+  tls.version: "TLSv1.3"
+  tls.cipher_suite: "TLS_AES_256_GCM_SHA384"
+thresholds:
+  max_mean_ns: 8000
+  max_allocated_bytes: 2048
+tags: [fingerprint, tls, human]

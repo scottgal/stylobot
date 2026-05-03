@@ -1,0 +1,194 @@
+# Heuristic Detector - ML-based aggregation of all signals
+name: HeuristicContributor
+priority: 50  # Runs after all other detectors have contributed
+enabled: true
+description: Aggregates signals from all prior detectors using learned weights
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: heuristic
+
+taxonomy:
+  kind: proposer
+  determinism: probabilistic
+  persistence: direct_write  # Writes learned patterns
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.ledger
+      required: true
+      description: Detection ledger with all contributions
+      signal_pattern: ledger.*
+    - type: botdetection.signature
+      required: true
+      description: Complete bot detection signature
+      signal_pattern: botdetection.*
+
+  required_signals:
+    - detection.useragent
+
+  optional_signals:
+    - detection.header.confidence
+    - detection.ip.confidence
+    - detection.tls.confidence
+    - detection.http2.confidence
+    - detection.behavioral.confidence
+    - detection.version_age.analyzed
+    - detection.security_tool.detected
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Heuristic aggregation contribution
+    - type: botdetection.result
+      description: Final detection result with classification
+
+  signals:
+    - key: detection.heuristic.score
+      entity_type: number
+      salience: 0.95
+      description: Aggregated bot probability
+    - key: detection.heuristic.confidence
+      entity_type: number
+      salience: 0.9
+      description: Confidence in the prediction
+    - key: detection.heuristic.dominant_category
+      entity_type: string
+      salience: 0.7
+      description: Category contributing most to score
+
+triggers:
+  requires:
+    - signal: detection.useragent
+      condition: HasValue
+  skip_when:
+    - detection.early_exit.allow
+    - detection.early_exit.block
+
+emits:
+  on_start:
+    - detector.heuristic.started
+
+  on_complete:
+    - key: detection.heuristic.score
+      type: double
+      description: Aggregated bot probability from learned weights
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.heuristic.confidence
+      type: double
+      description: Confidence in the prediction
+      confidence_range: [0.0, 1.0]
+
+    - key: detection.heuristic.dominant_category
+      type: string
+      description: Category contributing most to the score
+
+    - key: detection.heuristic.feature_count
+      type: int
+      description: Number of features used in scoring
+
+  on_failure:
+    - detector.heuristic.failed
+
+  conditional:
+    - key: detection.heuristic.escalate_to_ai
+      type: bool
+      when: confidence < 0.5 && !detection.budget.exhausted
+      description: Signal to escalate to LLM for disambiguation
+
+listens:
+  required:
+    - detection.useragent
+  optional:
+    - detection.header.confidence
+    - detection.ip.confidence
+    - detection.tls.confidence
+    - detection.http2.confidence
+    - detection.version_age.analyzed
+    - detection.security_tool.detected
+
+escalation:
+  targets:
+    to_llm:
+      when:
+        - signal: detection.heuristic.confidence
+          condition: "< 0.5"
+        - signal: detection.heuristic.escalate_to_ai
+          value: true
+      skip_when:
+        - signal: detection.budget.exhausted
+          value: true
+      description: Escalate ambiguous cases to LLM detector
+
+lane:
+  name: ml
+  max_concurrency: 4
+  priority: 60
+
+budget:
+  max_duration: "00:00:00.500"  # 500ms max
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:HeuristicContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0           # Base contribution weight
+    bot_signal: 1.8     # Aggregated bot signal weight
+    human_signal: 1.2   # Aggregated human signal weight
+    verified: 2.5       # Weight for high-confidence results
+    early_exit: 0.0     # Does not trigger early exit
+
+  confidence:
+    neutral: 0.5        # Starting baseline
+    bot_detected: 0.7   # Aggregated indicates bot
+    human_indicated: 0.3  # Aggregated indicates human
+    strong_signal: 0.9  # Very high confidence
+    high_threshold: 0.8 # Threshold for "bot"
+    low_threshold: 0.3  # Threshold for "human"
+    escalation_threshold: 0.5  # Ambiguous range triggers escalation
+
+  timing:
+    timeout_ms: 500     # Max execution time
+    cache_refresh_sec: 0  # No caching
+
+  features:
+    detailed_logging: true  # Log aggregation for tuning
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: true  # Can escalate to LLM
+
+  # ML/Heuristic-specific parameters
+  parameters:
+    # Prediction weight
+    heuristic_weight: 2.0
+    # Category weights for scoring (learned/tunable)
+    category_weights:
+      UserAgent: 1.0
+      Header: 0.8
+      IP: 0.9
+      TLS: 0.7
+      HTTP2: 0.6
+      Behavioral: 1.2
+      VersionAge: 0.5
+      SecurityTool: 2.0
+      Reputation: 1.5
+    # Minimum signals required before scoring
+    min_signals_required: 2
+    # Weight decay for low-confidence signals
+    low_confidence_decay: 0.5
+    # Enable adaptive weight learning
+    enable_learning: true
+    # Learning rate for weight updates
+    learning_rate: 0.01
+
+tags:
+  - aggregation
+  - ml
+  - scoring
+  - stage-2

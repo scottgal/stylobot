@@ -1,0 +1,15 @@
+name: FastPathReputation_CachedSignature
+description: Fast path reputation lookup with cached signature
+detector: FastPathReputation
+request:
+  method: GET
+  path: /
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 Chrome/120.0"
+signals:
+  identity.primary_signature: "abc123def456"
+thresholds:
+  max_mean_ns: 3000
+  max_allocated_bytes: 512
+tags: [fast-path, reputation]

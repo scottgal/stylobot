@@ -1,0 +1,16 @@
+name: Ip_Datacenter
+description: Datacenter IP with hosting signals
+detector: Ip
+request:
+  method: GET
+  path: /
+  ip: 34.120.0.1
+  headers:
+    user-agent: "python-requests/2.31.0"
+signals:
+  request.ip.is_datacenter: true
+  geo.is_hosting: true
+thresholds:
+  max_mean_ns: 5000
+  max_allocated_bytes: 1024
+tags: [fast-path, ip, bot]

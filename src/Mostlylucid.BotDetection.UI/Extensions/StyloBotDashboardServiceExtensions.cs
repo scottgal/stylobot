@@ -1,0 +1,545 @@
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.Middleware;
+using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Policies;
+using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Hubs;
+using Mostlylucid.BotDetection.UI.Middleware;
+using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Models.Auth;
+using Mostlylucid.BotDetection.UI.Services;
+using Mostlylucid.BotDetection.UI.Services.Auth;
+
+namespace Mostlylucid.BotDetection.UI.Extensions;
+
+/// <summary>
+///     Extension methods for registering Stylobot Dashboard services.
+/// </summary>
+public static class StyloBotDashboardServiceExtensions
+{
+    /// <summary>
+    ///     Adds StyloBot UI services (tag helpers, view components, detection data extraction)
+    ///     WITHOUT the full dashboard route or SignalR hub.
+    ///     <para>
+    ///     Use this when you want to embed individual StyloBot widgets in your own pages
+    ///     using tag helpers like <c>&lt;sb-badge /&gt;</c>, <c>&lt;sb-gate&gt;</c>, etc.
+    ///     </para>
+    ///     <para>
+    ///     For the full standalone dashboard at a configurable route, use
+    ///     <see cref="AddStyloBotDashboard(IServiceCollection, Action{StyloBotDashboardOptions}?)"/> instead.
+    ///     </para>
+    /// </summary>
+    /// <example>
+    ///     Lightweight setup (tag helpers only):
+    ///     <code>
+    ///     builder.Services.AddBotDetection();
+    ///     builder.Services.AddStyloBotUI();
+    ///     // Now use &lt;sb-badge /&gt;, &lt;sb-gate&gt;, &lt;sb-human&gt; etc. in your Razor views
+    ///     </code>
+    /// </example>
+    public static IServiceCollection AddStyloBotUI(this IServiceCollection services)
+    {
+        services.AddHttpContextAccessor(); // Needed by sb-* gating TagHelpers
+
+        // Detection data extraction for ViewComponents and TagHelpers.
+        // Uses a factory so DI does not attempt to resolve IHttpClientFactory unless it is registered.
+        services.TryAddSingleton<DetectionDataExtractor>(sp =>
+        {
+            var factory = sp.GetService<IHttpClientFactory>();
+            var options = sp.GetService<IOptions<DetectionApiOptions>>();
+            return new DetectionDataExtractor(factory, options);
+        });
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Enables API-mode detection data extraction.
+    ///     When neither inline middleware (HttpContext.Items) nor YARP headers provide detection data,
+    ///     <see cref="DetectionDataExtractor"/> will call <paramref name="apiEndpoint"/> to retrieve
+    ///     detection results for the current visitor.
+    ///     <para>
+    ///     The result is cached in <c>HttpContext.Items</c> by <see cref="SbDetectionMiddleware"/> so
+    ///     synchronous <c>sb-*</c> tag helpers always see the data without making async calls.
+    ///     </para>
+    ///     <para>
+    ///     After calling this, add <see cref="SbDetectionMiddleware"/> to the pipeline:
+    ///     <code>app.UseMiddleware&lt;SbDetectionMiddleware&gt;();</code>
+    ///     </para>
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="apiEndpoint">
+    ///     URL of the StyloBot API detection endpoint,
+    ///     e.g. <c>"http://gateway:8080/api/v1/me"</c>.
+    /// </param>
+    /// <example>
+    ///     <code>
+    ///     builder.Services.AddBotDetection();
+    ///     builder.Services.AddStyloBotUI();
+    ///     builder.Services.AddStyloBotApiMode("http://gateway:8080/api/v1/me");
+    ///     // ...
+    ///     app.UseMiddleware&lt;SbDetectionMiddleware&gt;();
+    ///     </code>
+    /// </example>
+    public static IServiceCollection AddStyloBotApiMode(
+        this IServiceCollection services,
+        string apiEndpoint)
+    {
+        services.Configure<DetectionApiOptions>(o => o.Endpoint = apiEndpoint);
+
+        // Register the named HTTP client used for API calls.
+        services.AddHttpClient("stylobot");
+
+        // DetectionDataExtractor auto-detects API mode via optional IOptions<DetectionApiOptions>.
+        // If AddStyloBotUI has already registered it, remove and re-register so the DI container
+        // resolves the constructor with IHttpClientFactory + IOptions<DetectionApiOptions>.
+        services.RemoveAll<DetectionDataExtractor>();
+        services.AddSingleton<DetectionDataExtractor>();
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Full StyloBot setup: detection + dashboard services.
+    ///     This is the recommended entry point for most applications.
+    ///     Pair with <see cref="UseStyloBot"/> in the middleware pipeline.
+    /// </summary>
+    /// <example>
+    ///     <code>
+    ///     builder.Services.AddStyloBot(dashboard => {
+    ///         dashboard.AllowUnauthenticatedAccess = true; // dev only
+    ///     });
+    ///     app.UseRouting();
+    ///     app.UseStyloBot();
+    ///     app.MapControllers();
+    ///     </code>
+    /// </example>
+    public static IServiceCollection AddStyloBot(
+        this IServiceCollection services,
+        Action<StyloBotDashboardOptions>? configureDashboard = null,
+        Action<BotDetectionOptions>? configureDetection = null)
+    {
+        services.AddBotDetection(configureDetection);
+        services.AddStyloBotDashboard(configureDashboard);
+        return services;
+    }
+
+    /// <summary>
+    ///     Adds Stylobot Dashboard services to the service collection.
+    ///     For most applications, use <see cref="AddStyloBot"/> instead which includes detection.
+    ///     <para>
+    ///     Internally calls <see cref="AddStyloBotUI"/> so all tag helpers are available too.
+    ///     </para>
+    /// </summary>
+    /// <param name="services">The service collection</param>
+    /// <param name="configure">Configuration options</param>
+    /// <returns>The service collection for chaining</returns>
+    public static IServiceCollection AddStyloBotDashboard(
+        this IServiceCollection services,
+        Action<StyloBotDashboardOptions>? configure = null)
+    {
+        var options = new StyloBotDashboardOptions();
+        configure?.Invoke(options);
+
+        services.AddSingleton(options);
+
+        // Register lightweight UI services (tag helpers, view components)
+        services.AddStyloBotUI();
+
+        services.AddSignalR();
+
+        // Memory cache - used by StyloBotDashboardMiddleware widget render cache (2s TTL per widget)
+        services.AddMemoryCache();
+
+        // Ensure MVC services are available for Razor view rendering (idempotent)
+        services.AddControllersWithViews();
+
+        // Razor view renderer for middleware-hosted dashboard
+        services.AddSingleton<RazorViewRenderer>();
+
+        // Liquid template renderer for Node SDK widget rendering
+        services.AddSingleton<LiquidWidgetRenderer>();
+
+        // Dashboard help system (Markdig-rendered markdown)
+        services.AddSingleton<DashboardHelpService>();
+
+        // Dashboard event store: SQLite for FOSS (persists across restarts).
+        // Commercial PostgreSQL package overrides via TryAddSingleton.
+        services.TryAddSingleton<IDashboardEventStore, SqliteDashboardEventStore>();
+
+        // Operator-supplied signature labels (for detector weighting / ground truth).
+        // In-memory by default; production hosts can register SQLite / PostgreSQL impls.
+        services.TryAddSingleton<ISignatureLabelStore, SqliteSignatureLabelStore>();
+
+        // Aggregate cache - populated by beacon, read by API endpoints
+        services.AddSingleton<DashboardAggregateCache>();
+
+        // Write-through signature cache - single source of truth for top bots
+        services.AddSingleton<SignatureAggregateCache>();
+
+        // Background beacon - computes all dashboard aggregates periodically
+        services.AddHostedService<DashboardSummaryBroadcaster>();
+
+        // Server-side visitor cache for HTMX rendering
+        services.AddSingleton<VisitorListCache>();
+
+        // BDF export service for generating BDF v2 documents from detection data
+        services.AddSingleton<BdfExportService>();
+
+        // Warm visitor cache from DB on startup so "Top Bots" isn't empty after restarts
+        services.AddHostedService<VisitorCacheWarmupService>();
+
+        // LLM result callback for background classification coordinator
+        services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();
+
+        // Cluster description callback for background LLM cluster naming
+        services.TryAddSingleton<IClusterDescriptionCallback, ClusterDescriptionSignalRCallback>();
+
+        // Built-in Identity bearer/cookie auth for the dashboard (FOSS tier).
+        // Mounts register/login/refresh endpoints at {BasePath}/auth/*.
+        // Commercial OIDC is a separate concern - use AuthorizationFilter instead.
+        if (options.RequireAuthentication)
+        {
+            services.AddIdentityApiEndpoints<StyloBotUser>()
+                .AddUserStore<StyloBotUserStore>()
+                .AddDefaultTokenProviders();
+
+            // Dev no-op sender: logs tokens to console. Override with AddStyloBotSmtp()
+            // or register your own IEmailSender<StyloBotUser> after this call.
+            services.TryAddTransient<IEmailSender<StyloBotUser>, StyloBotDevEmailSender>();
+        }
+
+        // Register dashboard data API paths with the bot detection policy system.
+        // Detection runs on ALL paths including dashboard API - no exclusions.
+        // BotDetectionMiddleware resolves the detection policy for these paths
+        // and applies the configured action policy automatically.
+        services.PostConfigure<BotDetectionOptions>(opts =>
+        {
+            var policyName = options.DataApiDetectionPolicy;
+            var basePath = options.BasePath.TrimEnd('/');
+
+            if (!opts.Policies.TryGetValue(policyName, out var policyConfig) || policyConfig == null)
+            {
+                policyConfig = new DetectionPolicyConfig();
+                opts.Policies[policyName] = policyConfig;
+            }
+
+            if (string.IsNullOrWhiteSpace(policyConfig.ActionPolicyName))
+                policyConfig.ActionPolicyName = options.DataApiActionPolicyName;
+            policyConfig.ActionPolicyOverridable = true;
+
+            opts.PathPolicies[$"{basePath}/api/**"] = policyName;
+        });
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Full StyloBot setup: detection + dashboard in the correct middleware order.
+    ///     This is the recommended way to add StyloBot to your application.
+    ///     <para>
+    ///     Registers: detection middleware, broadcast middleware, dashboard UI, SignalR hub.
+    ///     The broadcast middleware wraps detection so ALL detections (including blocked requests)
+    ///     are recorded in the dashboard - no middleware ordering issues.
+    ///     </para>
+    /// </summary>
+    /// <example>
+    ///     <code>
+    ///     builder.Services.AddStyloBot();             // or AddBotDetection() + AddStyloBotDashboard()
+    ///     app.UseRouting();
+    ///     app.UseStyloBot();                           // detection + dashboard, correct order guaranteed
+    ///     app.MapControllers();
+    ///     </code>
+    /// </example>
+    public static IApplicationBuilder UseStyloBot(this IApplicationBuilder app)
+    {
+        var options = app.ApplicationServices.GetService<StyloBotDashboardOptions>();
+
+        if (options?.Enabled == true)
+        {
+            // Broadcast middleware goes FIRST - it wraps detection.
+            // When _next returns (whether detection blocked or allowed the request),
+            // the broadcast middleware ALWAYS runs and records the result.
+            // This solves the "blocked requests invisible in dashboard" problem.
+            app.UseMiddleware<DetectionBroadcastMiddleware>();
+        }
+
+        // Detection middleware
+        app.UseBotDetection();
+
+        if (options?.Enabled == true)
+        {
+            // Dashboard UI middleware
+            app.UseMiddleware<StyloBotDashboardMiddleware>();
+
+            // SignalR hub for live updates
+            // Use IEndpointRouteBuilder directly (not UseEndpoints) to avoid creating
+            // a terminal middleware that blocks endpoint routing for later MapGroup/MapGet calls.
+            if (app is IEndpointRouteBuilder routeBuilder)
+            {
+                routeBuilder.MapHub<StyloBotDashboardHub>(options.HubPath)
+                    .WithMetadata(new BotDetection.Attributes.BotPolicyAttribute("default") { BlockThreshold = 0.95 });
+
+                // Mount Identity API endpoints at /_stylobot/auth/* when auth is enabled.
+                // StyloBotDashboardMiddleware bypasses these paths to let endpoint routing handle them.
+                if (options.RequireAuthentication)
+                    routeBuilder.MapGroup(options.BasePath.TrimEnd('/') + "/auth")
+                        .MapIdentityApi<StyloBotUser>();
+            }
+        }
+
+        return app;
+    }
+
+    /// <summary>
+    ///     Maps Stylobot Dashboard endpoints (UI and SignalR hub).
+    ///     Prefer <see cref="UseStyloBot"/> which handles middleware ordering automatically.
+    ///     Use this only if you need to register detection and dashboard middleware separately.
+    /// </summary>
+    public static IApplicationBuilder UseStyloBotDashboard(this IApplicationBuilder app)
+    {
+        var options = app.ApplicationServices.GetRequiredService<StyloBotDashboardOptions>();
+
+        if (!options.Enabled) return app;
+
+        app.UseMiddleware<DetectionBroadcastMiddleware>();
+        app.UseMiddleware<StyloBotDashboardMiddleware>();
+
+        if (app is IEndpointRouteBuilder routeBuilder2)
+        {
+            routeBuilder2.MapHub<StyloBotDashboardHub>(options.HubPath)
+                .WithMetadata(new BotDetection.Attributes.BotPolicyAttribute("default") { BlockThreshold = 0.95 });
+        }
+
+        return app;
+    }
+
+    /// <summary>
+    ///     Quick setup: Adds services and middleware with authorization filter.
+    /// </summary>
+    /// <param name="services">The service collection</param>
+    /// <param name="authFilter">Authorization filter (return true to allow, false to deny)</param>
+    /// <param name="configure">Additional configuration options</param>
+    /// <returns>The service collection for chaining</returns>
+    public static IServiceCollection AddStyloBotDashboard(
+        this IServiceCollection services,
+        Func<HttpContext, Task<bool>> authFilter,
+        Action<StyloBotDashboardOptions>? configure = null)
+    {
+        return services.AddStyloBotDashboard(options =>
+        {
+            options.AuthorizationFilter = authFilter;
+            configure?.Invoke(options);
+        });
+    }
+
+    // ==========================================
+    // Widget embedding tier (no full dashboard)
+    // ==========================================
+
+    /// <summary>
+    ///     Adds the minimal services needed to embed StyloBot widgets in your own pages
+    ///     using tag helpers like <c>&lt;sb-visitor-list /&gt;</c>, <c>&lt;sb-summary-stats /&gt;</c>, etc.
+    ///     <para>
+    ///     Does NOT register the full dashboard route, the help system, or background hosted services
+    ///     (no <see cref="DashboardSummaryBroadcaster"/>, no warmup service).
+    ///     Use <see cref="AddStyloBotDashboard(IServiceCollection, Action{StyloBotDashboardOptions}?)"/>
+    ///     if you want the full <c>/_stylobot</c> dashboard.
+    ///     </para>
+    ///     <para>
+    ///     Pair with <c>app.UseMiddleware&lt;SbWidgetBatchMiddleware&gt;()</c> to enable the
+    ///     <c>GET {basePath}/partials/update?widgets=w1,w2</c> HTMX batch-update endpoint
+    ///     that powers live widget refreshes.
+    ///     </para>
+    /// </summary>
+    /// <example>
+    ///     <code>
+    ///     builder.Services.AddBotDetection();
+    ///     builder.Services.AddStyloBotWidgets(new StyloBotDashboardOptions { BasePath = "/_sb" });
+    ///     // ...
+    ///     app.UseBotDetection();
+    ///     app.UseMiddleware&lt;SbWidgetBatchMiddleware&gt;();
+    ///     </code>
+    /// </example>
+    public static IServiceCollection AddStyloBotWidgets(
+        this IServiceCollection services,
+        StyloBotDashboardOptions? dashboardOptions = null)
+    {
+        // Tag helpers, DetectionDataExtractor
+        services.AddStyloBotUI();
+
+        services.AddMemoryCache();
+        services.AddSignalR();
+
+        // Ensure MVC/Razor services are available for view rendering (idempotent)
+        services.AddControllersWithViews();
+
+        if (dashboardOptions != null)
+            services.AddSingleton(dashboardOptions);
+        else
+            services.TryAddSingleton(new StyloBotDashboardOptions());
+
+        // Razor view renderer used by SbWidgetBatchMiddleware
+        services.TryAddSingleton<RazorViewRenderer>();
+
+        // Liquid template renderer for Node SDK widget rendering
+        services.TryAddSingleton<LiquidWidgetRenderer>();
+
+        // Dashboard event store: SQLite for FOSS
+        services.TryAddSingleton<IDashboardEventStore, SqliteDashboardEventStore>();
+
+        // Aggregate cache - populated by beacon, read by widget render helpers
+        services.TryAddSingleton<DashboardAggregateCache>();
+
+        // Write-through signature cache
+        services.TryAddSingleton<SignatureAggregateCache>();
+
+        // Server-side visitor cache used by the visitor-list widget
+        services.TryAddSingleton<VisitorListCache>();
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Adds the <see cref="SbWidgetBatchMiddleware"/> to the pipeline so that
+    ///     <c>GET {basePath}/partials/update?widgets=w1,w2</c> HTMX batch-update requests are handled.
+    ///     Call after <c>app.UseBotDetection()</c>.
+    /// </summary>
+    /// <example>
+    ///     <code>
+    ///     builder.Services.AddBotDetection();
+    ///     builder.Services.AddStyloBotWidgets();
+    ///     // ...
+    ///     app.UseBotDetection();
+    ///     app.UseStyloBotWidgets();
+    ///     </code>
+    /// </example>
+    public static IApplicationBuilder UseStyloBotWidgets(this IApplicationBuilder app)
+    {
+        app.UseMiddleware<SbWidgetBatchMiddleware>();
+        return app;
+    }
+
+    // ==========================================
+    // Lightweight persistence (for gateways/proxies)
+    // ==========================================
+
+    /// <summary>
+    ///     Adds detection persistence services WITHOUT the full dashboard UI.
+    ///     Use this in gateways/proxies that run detection and should save results
+    ///     to the shared database, but don't serve the dashboard page.
+    ///     <para>
+    ///     Registers: event store, SignalR hub, broadcast middleware, visitor cache.
+    ///     Does NOT register: dashboard UI, simulator, ViewComponent data extraction.
+    ///     </para>
+    /// </summary>
+    /// <example>
+    ///     Gateway setup:
+    ///     <code>
+    ///     builder.Services.AddBotDetection();
+    ///     builder.Services.AddBotDetectionPersistence();
+    ///     // ...
+    ///     app.UseBotDetection();
+    ///     app.UseBotDetectionPersistence(); // saves detections to shared DB
+    ///     </code>
+    /// </example>
+    public static IServiceCollection AddBotDetectionPersistence(this IServiceCollection services)
+    {
+        // Shared options (Enabled=true but no UI path needed)
+        services.TryAddSingleton(new StyloBotDashboardOptions { Enabled = true });
+
+        // SignalR for broadcasting to connected dashboard clients
+        services.AddSignalR();
+
+        // Event store: SQLite by default (persists across restarts).
+        // PostgreSQL package overrides via RemoveAll + AddSingleton when configured.
+        services.TryAddSingleton<IDashboardEventStore, SqliteDashboardEventStore>();
+
+        // Operator-supplied signature labels for detector weighting / ground truth
+        // (in-memory by default; production wires a SQLite or PostgreSQL implementation).
+        services.TryAddSingleton<ISignatureLabelStore, SqliteSignatureLabelStore>();
+
+        // Aggregate cache - populated by beacon, read by API endpoints
+        services.TryAddSingleton<DashboardAggregateCache>();
+
+        // Write-through signature cache - single source of truth for top bots
+        services.TryAddSingleton<SignatureAggregateCache>();
+
+        // Server-side visitor cache (needed by broadcast middleware)
+        services.TryAddSingleton<VisitorListCache>();
+
+        // Warm visitor cache from DB on startup so "Top Bots" isn't empty after restarts
+        services.AddHostedService<VisitorCacheWarmupService>();
+
+        // LLM result callback (needed if LLM classification is enabled)
+        services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();
+
+        // Cluster description callback for live cluster updates
+        services.TryAddSingleton<IClusterDescriptionCallback, ClusterDescriptionSignalRCallback>();
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Enables the built-in SMTP email sender for dashboard auth flows (confirmation,
+    ///     password reset, 2FA codes). Reads configuration from <c>StyloBot:Smtp</c> in
+    ///     appsettings.json. Call this after <see cref="AddStyloBot"/> or
+    ///     <see cref="AddStyloBotDashboard(IServiceCollection, Action{StyloBotDashboardOptions}?)"/>.
+    ///     <para>
+    ///     Without this, StyloBot logs tokens to the console (dev no-op sender).
+    ///     Commercial deployments can skip this and register a custom
+    ///     <c>IEmailSender&lt;StyloBotUser&gt;</c> directly.
+    ///     </para>
+    /// </summary>
+    /// <example>
+    ///     <code>
+    ///     // appsettings.json:
+    ///     // "StyloBot": { "Smtp": { "Host": "smtp.example.com", "Port": 587,
+    ///     //   "Username": "user", "Password": "pass", "FromAddress": "bot@example.com" } }
+    ///     builder.Services.AddStyloBot(d => d.RequireAuthentication = true);
+    ///     builder.Services.AddStyloBotSmtp();
+    ///     </code>
+    /// </example>
+    public static IServiceCollection AddStyloBotSmtp(this IServiceCollection services)
+    {
+        services.AddOptions<StyloBotSmtpOptions>()
+            .BindConfiguration(StyloBotSmtpOptions.Section);
+
+        // Remove dev no-op and register SMTP sender
+        services.RemoveAll<IEmailSender<StyloBotUser>>();
+        services.AddTransient<IEmailSender<StyloBotUser>, StyloBotSmtpEmailSender>();
+
+        return services;
+    }
+
+    /// <summary>
+    ///     Adds the detection broadcast middleware that persists detection results
+    ///     to the event store and broadcasts via SignalR.
+    ///     Use after <see cref="Mostlylucid.BotDetection.Middleware.BotDetectionMiddlewareExtensions.UseBotDetection"/>.
+    ///     <para>
+    ///     This is the lightweight counterpart to <see cref="UseStyloBotDashboard"/> -
+    ///     it saves detection data but doesn't serve the dashboard UI.
+    ///     </para>
+    /// </summary>
+    public static IApplicationBuilder UseBotDetectionPersistence(this IApplicationBuilder app)
+    {
+        // Broadcast middleware: persists detections to event store + broadcasts to SignalR
+        app.UseMiddleware<DetectionBroadcastMiddleware>();
+
+        // Map SignalR hub so dashboard clients (on other hosts) can connect
+        var options = app.ApplicationServices.GetService<StyloBotDashboardOptions>();
+        var hubPath = options?.HubPath ?? "/stylobot/hub";
+        if (app is IEndpointRouteBuilder erb)
+            erb.MapHub<StyloBotDashboardHub>(hubPath);
+
+        return app;
+    }
+}

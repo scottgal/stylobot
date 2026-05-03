@@ -1,0 +1,17 @@
+name: TlsFingerprint_PythonBot
+description: TLS fingerprint for Python requests library
+detector: TlsFingerprint
+request:
+  method: GET
+  path: /api/data
+  ip: 198.51.100.10
+  headers:
+    user-agent: "python-requests/2.31.0"
+signals:
+  tls.ja3_hash: "b32309a26951912be7dba376398abc3b"
+  tls.version: "TLSv1.2"
+  tls.cipher_suite: "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+thresholds:
+  max_mean_ns: 8000
+  max_allocated_bytes: 2048
+tags: [fingerprint, tls, bot]

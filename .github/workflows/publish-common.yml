@@ -1,4 +1,4 @@
-name: Publish Mostlylucid.Common
+name: Publish src/Mostlylucid.Common
 
 on:
   push:
@@ -61,13 +61,13 @@ jobs:
         echo "Publishing version: $VERSION"
 
     - name: Restore dependencies
-      run: dotnet restore Mostlylucid.Common/Mostlylucid.Common.csproj
+      run: dotnet restore src/Mostlylucid.Common/Mostlylucid.Common.csproj
 
     - name: Build
-      run: dotnet build Mostlylucid.Common/Mostlylucid.Common.csproj --configuration Release --no-restore
+      run: dotnet build src/Mostlylucid.Common/Mostlylucid.Common.csproj --configuration Release --no-restore
 
     - name: Pack
-      run: dotnet pack Mostlylucid.Common/Mostlylucid.Common.csproj --configuration Release --no-build --output ./artifacts
+      run: dotnet pack src/Mostlylucid.Common/Mostlylucid.Common.csproj --configuration Release --no-build --output ./artifacts
 
     - name: Login to NuGet (OIDC)
       id: nuget_login

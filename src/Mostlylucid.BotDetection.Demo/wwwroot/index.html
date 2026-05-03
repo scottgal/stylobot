@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StyloBot Test Site</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 4rem auto; padding: 0 1.5rem; color: #1a1a1a; }
+    h1 { font-size: 1.4rem; font-weight: 600; margin-bottom: 0.5rem; }
+    p { color: #555; line-height: 1.6; }
+    code { background: #f3f3f3; padding: 0.15em 0.35em; border-radius: 3px; font-size: 0.9em; }
+    ul { color: #555; line-height: 2; }
+    a { color: #2563eb; }
+    .warning { border-left: 3px solid #f59e0b; background: #fffbeb; padding: 0.75rem 1rem; margin: 1.5rem 0; border-radius: 0 4px 4px 0; }
+  </style>
+</head>
+<body>
+  <h1>StyloBot Test Site</h1>
+
+  <div class="warning">
+    <strong>This is not a real application.</strong>
+    It exists solely as a detection target for testing the StyloBot bot detection library.
+  </div>
+
+  <p>Use the API endpoints below to fire requests through the full detection pipeline:</p>
+
+  <ul>
+    <li><a href="/_stylobot">/_stylobot</a> — Detection dashboard</li>
+    <li><code>GET /api/demo/open</code> — Unprotected endpoint</li>
+    <li><code>GET /api/demo/protected</code> — Default policy (block ≥0.7)</li>
+    <li><code>GET /api/demo/strict</code> — Strict policy (block ≥0.5)</li>
+    <li><code>GET /api/demo/lenient</code> — Lenient policy (block ≥0.9)</li>
+    <li><code>GET /api/demo/analyze</code> — Full detection breakdown (JSON)</li>
+    <li><code>POST /bot-detection/bdf-replay/replay</code> — BDF scenario replay</li>
+    <li><a href="/SignatureDemo">SignatureDemo</a> — Bot signature viewer</li>
+  </ul>
+
+  <p>BDF scenarios: <code>test-bdf-scenarios/*.json</code> in the repository.</p>
+</body>
+</html>

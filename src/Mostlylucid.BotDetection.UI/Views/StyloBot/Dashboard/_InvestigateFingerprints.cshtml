@@ -1,0 +1,136 @@
+@model Mostlylucid.BotDetection.UI.Models.InvestigationViewModel
+@{
+    var fpSignals = new Dictionary<string, List<string>>();
+    foreach (var d in Model.Result.Detections)
+    {
+        if (d.ImportantSignals == null) continue;
+        foreach (var (key, val) in d.ImportantSignals.Where(kv => kv.Key.StartsWith("fp.") || kv.Key.StartsWith("tls.") || kv.Key.StartsWith("http.")))
+        {
+            if (!fpSignals.ContainsKey(key)) fpSignals[key] = new List<string>();
+            fpSignals[key].Add(val?.ToString() ?? "null");
+        }
+    }
+
+    // Signatures that have a frequency centroid from compacted session data
+    var sigsWithRhythm = Model.Result.Signatures
+        .Where(s => s.FrequencyCentroid is { Length: > 0 })
+        .ToList();
+    var lagLabels = new[] { "1s", "3s", "10s", "30s", "1m", "3m", "10m", "30m" };
+}
+
+<div class="sb-investigate-fingerprints">
+
+    @* ── Temporal Rhythm (frequency fingerprint) ──────────────────────────── *@
+    @if (sigsWithRhythm.Count > 0)
+    {
+        <div style="margin-bottom:1.5rem;">
+            <h4 style="font-size:0.9rem; font-weight:600; color:var(--sb-accent); margin:0 0 0.75rem;">
+                Temporal Rhythm
+                <span style="font-size:0.75rem; font-weight:400; color:var(--sb-brand-muted); margin-left:0.5rem;">
+                    8-dim autocorrelation fingerprint (compacted sessions) -- bots show spikes; humans are flat
+                </span>
+            </h4>
+            @foreach (var sig in sigsWithRhythm.Take(6))
+            {
+                var fp = sig.FrequencyCentroid!;
+                var maxVal = fp.Max();
+                var sigShort = sig.PrimarySignature.Length > 12 ? sig.PrimarySignature[..12] + "…" : sig.PrimarySignature;
+                var periodicityScore = 0f;
+                if (fp.Length > 0)
+                {
+                    var sumSq = 0f;
+                    foreach (var v in fp) { var d = v - 0.5f; sumSq += d * d; }
+                    periodicityScore = MathF.Min(1f, MathF.Sqrt(sumSq / fp.Length) * 2f);
+                }
+                var periodicityColor = periodicityScore > 0.4f ? "var(--sb-signal-danger)"
+                                     : periodicityScore > 0.2f ? "var(--sb-signal-warn)"
+                                     : "var(--sb-signal-pos)";
+                <div style="margin-bottom:1rem; padding:0.75rem; background:var(--sb-surface); border:1px solid var(--sb-card-divider); border-radius:6px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                        <span style="font-family:monospace; font-size:0.8rem; color:var(--sb-brand-muted);" title="@sig.PrimarySignature">@sigShort</span>
+                        <div style="display:flex; gap:0.5rem; align-items:center;">
+                            @if (sig.RiskBand != null)
+                            {
+                                <span style="padding:0.1rem 0.4rem; background:var(--sb-card-bg); border-radius:3px; font-size:0.7rem; color:var(--sb-brand-muted);">@sig.RiskBand</span>
+                            }
+                            <span style="font-size:0.75rem; font-weight:600; color:@periodicityColor;"
+                                  title="Periodicity: how much this rhythm deviates from white noise (random timing)">
+                                @(periodicityScore > 0.4f ? "periodic" : periodicityScore > 0.15f ? "irregular" : "aperiodic")
+                                @((periodicityScore * 100).ToString("F0"))%
+                            </span>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:3px; align-items:flex-end; height:48px;">
+                        @for (var i = 0; i < fp.Length && i < lagLabels.Length; i++)
+                        {
+                            var pct = maxVal > 0 ? (fp[i] / maxVal) * 100f : 0f;
+                            var barColor = fp[i] > 0.7f ? "var(--sb-signal-danger)"
+                                         : fp[i] > 0.5f ? "var(--sb-signal-warn)"
+                                         : "var(--sb-accent)";
+                            <div style="display:flex; flex-direction:column; align-items:center; flex:1;">
+                                <div style="width:100%; background:@barColor; opacity:0.8; border-radius:2px 2px 0 0; height:@(pct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture))%;"
+                                     title="@lagLabels[i]: @(fp[i].ToString("F3", System.Globalization.CultureInfo.InvariantCulture))"></div>
+                                <span style="font-size:0.6rem; color:var(--sb-brand-muted); margin-top:2px;">@lagLabels[i]</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            @if (sigsWithRhythm.Count > 6)
+            {
+                <p style="font-size:0.75rem; color:var(--sb-brand-muted);">+@(sigsWithRhythm.Count - 6) more signatures with rhythm data</p>
+            }
+        </div>
+    }
+
+    @* ── HTTP/TLS Fingerprint signals ─────────────────────────────────────── *@
+    @if (!fpSignals.Any())
+    {
+        @if (sigsWithRhythm.Count == 0)
+        {
+            <p style="color:var(--sb-brand-muted); padding:1rem;">No fingerprint data available for this result set.</p>
+        }
+    }
+    else
+    {
+        <div>
+            <h4 style="font-size:0.9rem; font-weight:600; margin:0 0 0.75rem;">HTTP / TLS Signals</h4>
+            <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+                <thead>
+                    <tr style="border-bottom:2px solid var(--sb-card-border); text-align:left;">
+                        <th style="padding:0.5rem;">Signal</th>
+                        <th style="padding:0.5rem;">Values Seen</th>
+                        <th style="padding:0.5rem;">Consistency</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var (key, values) in fpSignals.OrderBy(kv => kv.Key))
+                    {
+                        var distinct = values.Distinct().ToList();
+                        var isConsistent = distinct.Count == 1;
+                        <tr style="border-bottom:1px solid var(--sb-card-divider);">
+                            <td style="padding:0.5rem; font-family:monospace; font-size:0.8rem;">@key</td>
+                            <td style="padding:0.5rem;">
+                                @foreach (var v in distinct.Take(5))
+                                {
+                                    <span style="padding:0.1rem 0.4rem; background:var(--sb-surface); border-radius:3px; margin-right:0.25rem; font-size:0.75rem;">@v</span>
+                                }
+                                @if (distinct.Count > 5) { <span style="font-size:0.75rem; color:var(--sb-brand-muted);">+@(distinct.Count - 5) more</span> }
+                            </td>
+                            <td style="padding:0.5rem;">
+                                @if (isConsistent)
+                                {
+                                    <span style="color:var(--sb-signal-pos);">consistent</span>
+                                }
+                                else
+                                {
+                                    <span style="color:var(--sb-signal-warn);">@distinct.Count variants</span>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>

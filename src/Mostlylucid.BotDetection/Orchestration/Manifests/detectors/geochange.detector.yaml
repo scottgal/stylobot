@@ -1,0 +1,63 @@
+name: GeoChange
+priority: 16
+enabled: true
+scope: request
+
+taxonomy:
+  category: Geographic
+  subcategory: DriftDetection
+
+input:
+  - geo.country_code
+
+output:
+  - geo.change.checked
+  - geo.change.distinct_countries
+  - geo.change.total_changes
+  - geo.change.drift_detected
+  - geo.change.rapid_drift
+  - geo.change.country_bot_rate
+  - geo.change.reputation_level
+
+triggers:
+  requires:
+    - geo.country_code
+
+emits:
+  signals:
+    - geo.change.checked
+    - geo.change.distinct_countries
+    - geo.change.total_changes
+    - geo.change.drift_detected
+    - geo.change.previous_country
+    - geo.change.rapid_drift
+    - geo.change.country_bot_rate
+    - geo.change.reputation_level
+
+features:
+  can_early_exit: false
+  requires_async: false
+
+defaults:
+  weights:
+    BotSignal: 1.5
+    HumanSignal: 1.0
+  confidence:
+    base: 0.5
+  timing:
+    timeout_ms: 100
+  parameters:
+    # Drift detection thresholds
+    drift_confidence: 0.6
+    drift_weight: 1.5
+    rapid_drift_confidence: 0.8
+    rapid_drift_weight: 1.8
+    rapid_drift_threshold: 3
+    rapid_drift_window_minutes: 60
+    # Country reputation
+    country_reputation_confidence: 0.3
+    country_reputation_weight: 1.3
+    high_bot_rate_threshold: 0.6
+    very_high_bot_rate_threshold: 0.85
+    # History management
+    max_history_entries: 10000

@@ -1,0 +1,140 @@
+# Advanced Behavioral Detector - Statistical pattern detection
+name: AdvancedBehavioralContributor
+priority: 25  # Runs after basic behavioral (priority 20)
+enabled: true
+description: >
+  Advanced behavioral analysis using statistical pattern detection.
+  Applies entropy analysis, Markov chains, and time-series anomaly detection.
+  Runs after basic behavioral detection to provide deeper insights.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: advancedbehavioral
+
+taxonomy:
+  kind: analyzer
+  determinism: statistical
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for behavioral pattern analysis
+
+  optional_signals:
+    - transport.is_streaming
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Advanced behavioral analysis contribution
+
+  signals:
+    - key: PathEntropy
+      entity_type: number
+      salience: 0.7
+      description: Shannon entropy of visited paths
+    - key: TimingEntropy
+      entity_type: number
+      salience: 0.7
+      description: Entropy of request timing intervals
+    - key: BurstDetected
+      entity_type: bool
+      salience: 0.8
+      description: Whether a request burst was detected
+
+triggers:
+  requires: []
+
+emits:
+  on_start:
+    - detector.advancedbehavioral.started
+  on_complete:
+    - key: PathEntropy
+      type: double
+      description: Path entropy value
+    - key: TimingEntropy
+      type: double
+      description: Timing entropy value
+    - key: BurstDetected
+      type: bool
+      description: Whether burst was detected
+  on_failure:
+    - detector.advancedbehavioral.failed
+
+lane:
+  name: normal
+  max_concurrency: 8
+  priority: 70
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:AdvancedBehavioralContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.3
+    human_signal: 1.0
+    verified: 1.5
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.3
+    human_indicated: -0.2
+    strong_signal: 0.5
+    high_threshold: 0.5
+    low_threshold: 0.15
+    escalation_threshold: 0.4
+
+  timing:
+    timeout_ms: 50
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: true
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Path entropy thresholds
+    path_entropy_high: 3.5          # Above = random scanning (bot)
+    path_entropy_low: 0.5           # Below = too repetitive (bot)
+    # Path entropy confidence deltas
+    path_entropy_high_confidence: 0.35
+    path_entropy_low_confidence: 0.25
+    # Path entropy weights
+    path_entropy_high_weight: 1.3
+    path_entropy_low_weight: 1.2
+    # Timing entropy threshold
+    timing_entropy_low: 0.3         # Below = too regular (bot)
+    timing_entropy_confidence: 0.3
+    timing_entropy_weight: 1.3
+    # Timing anomaly
+    timing_anomaly_confidence: 0.25
+    timing_anomaly_weight: 1.1
+    # Regular pattern (CV)
+    regular_pattern_confidence: 0.35
+    regular_pattern_weight: 1.4
+    # Navigation pattern
+    navigation_pattern_weight: 1.2
+    # Burst detection
+    burst_window_seconds: 30
+    burst_confidence: 0.4
+    burst_weight: 1.5
+    # Natural patterns (human indicator)
+    natural_patterns_confidence: -0.2
+    natural_patterns_weight: 1.0
+    # Natural pattern thresholds
+    natural_entropy_min: 0.5
+    natural_entropy_max: 3.0
+    natural_cv_min: 0.3
+
+tags:
+  - behavioral
+  - entropy
+  - timing
+  - burst-detection

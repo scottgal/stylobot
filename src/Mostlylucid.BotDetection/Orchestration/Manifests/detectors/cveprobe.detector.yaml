@@ -1,0 +1,22 @@
+name: CveProbe
+priority: 11
+enabled: true
+description: >
+  Detects CVE vulnerability probes via simulation pack path matching.
+  Paths and CVE modules defined in simulation pack YAML, not here.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: security
+
+taxonomy:
+  kind: security
+  determinism: deterministic
+  persistence: ephemeral
+
+defaults:
+  weights:
+    BotSignal: 2.0
+  confidence:
+    bot_detected: 0.9

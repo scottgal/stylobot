@@ -22,10 +22,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 dotnet build mostlylucid.stylobot.sln
 
 # Build specific project
-dotnet build Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
+dotnet build src/Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
 
 # Run the full demo application (all 49 detectors + dashboard)
-dotnet run --project Mostlylucid.BotDetection.Demo
+dotnet run --project src/Mostlylucid.BotDetection.Demo
 # Visit: https://localhost:5001/SignatureDemo
 # Dashboard: http://localhost:5080/_stylobot
 
@@ -33,8 +33,8 @@ dotnet run --project Mostlylucid.BotDetection.Demo
 dotnet test
 
 # Run specific test project
-dotnet test Mostlylucid.BotDetection.Test/
-dotnet test Mostlylucid.BotDetection.Orchestration.Tests/
+dotnet test src/Mostlylucid.BotDetection.Test/
+dotnet test src/Mostlylucid.BotDetection.Orchestration.Tests/
 
 # Run single test file
 dotnet test --filter "FullyQualifiedName~UserAgentDetectorTests"
@@ -43,10 +43,10 @@ dotnet test --filter "FullyQualifiedName~UserAgentDetectorTests"
 dotnet test /p:CollectCoverage=true
 
 # Run benchmarks
-dotnet run --project Mostlylucid.BotDetection.Benchmarks -c Release
+dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release
 
 # Pack NuGet package
-dotnet pack Mostlylucid.BotDetection -c Release
+dotnet pack src/Mostlylucid.BotDetection -c Release
 ```
 
 ## Solution Structure
@@ -105,7 +105,7 @@ Detection uses an ephemeral blackboard where detectors write signals:
 
 ### Detector Benchmark Numbers
 
-Measured via YAML-driven BenchmarkDotNet harness (`Mostlylucid.BotDetection.Benchmarks/Scenarios/*.benchmark.yaml`). Run: `dotnet run --project Mostlylucid.BotDetection.Benchmarks -c Release -- --filter '*DetectorBenchmarkRunner*'`
+Measured via YAML-driven BenchmarkDotNet harness (`Mostlylucid.BotDetection.Benchmarks/Scenarios/*.benchmark.yaml`). Run: `dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --filter '*DetectorBenchmarkRunner*'`
 
 | Detector | Scenario | Mean | Allocated |
 |----------|----------|------|-----------|
@@ -377,9 +377,9 @@ Core interfaces in `Mostlylucid.BotDetection/SimulationPacks/`: `IHolodeckRespon
 YAML-driven BenchmarkDotNet harness in `Mostlylucid.BotDetection.Benchmarks/Scenarios/*.benchmark.yaml`.
 
 ```bash
-dotnet run --project Mostlylucid.BotDetection.Benchmarks -c Release -- --filter '*DetectorBenchmarkRunner*'
-dotnet run --project Mostlylucid.BotDetection.Benchmarks -c Release -- --list-scenarios
-dotnet run --project Mostlylucid.BotDetection.Benchmarks -c Release -- --regression  # CI mode
+dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --filter '*DetectorBenchmarkRunner*'
+dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --list-scenarios
+dotnet run --project src/Mostlylucid.BotDetection.Benchmarks -c Release -- --regression  # CI mode
 ```
 
 ## Production Architecture

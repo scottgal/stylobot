@@ -1,0 +1,13 @@
+{
+  beforeRehab: {
+    Phase: Before Rehabilitation,
+    State: ConfirmedBad,
+    BotScore: 1.0,
+    Support: 60.0
+  },
+  afterRehab: {
+    Phase: After Rehabilitation,
+    State: ConfirmedGood,
+    Support: 210.0
+  }
+}

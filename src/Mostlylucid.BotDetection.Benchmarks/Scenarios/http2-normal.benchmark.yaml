@@ -1,0 +1,18 @@
+name: Http2Fingerprint_Chrome
+description: HTTP/2 fingerprint for standard Chrome
+detector: Http2Fingerprint
+request:
+  method: GET
+  path: /
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 Chrome/120.0"
+signals:
+  h2.settings_initial_window_size: 6291456
+  h2.settings_max_concurrent_streams: 1000
+  h2.settings_max_header_list_size: 262144
+  h2.settings_header_table_size: 65536
+thresholds:
+  max_mean_ns: 8000
+  max_allocated_bytes: 2048
+tags: [fingerprint, http2, human]

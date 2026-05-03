@@ -1,4 +1,4 @@
-name: Publish Mostlylucid.GeoDetection
+name: Publish src/Mostlylucid.GeoDetection
 
 on:
   push:
@@ -61,16 +61,16 @@ jobs:
         echo "Publishing version: $VERSION"
 
     - name: Restore dependencies
-      run: dotnet restore Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj
+      run: dotnet restore src/Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj
 
     - name: Build
-      run: dotnet build Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj --configuration Release --no-restore
+      run: dotnet build src/Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj --configuration Release --no-restore
 
     - name: Run tests
-      run: dotnet test Mostlylucid.GeoDetection.Test/Mostlylucid.GeoDetection.Test.csproj --configuration Release --verbosity normal
+      run: dotnet test src/Mostlylucid.GeoDetection.Test/Mostlylucid.GeoDetection.Test.csproj --configuration Release --verbosity normal
 
     - name: Pack
-      run: dotnet pack Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj --configuration Release --no-build --output ./artifacts
+      run: dotnet pack src/Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj --configuration Release --no-build --output ./artifacts
 
     - name: Login to NuGet (OIDC)
       id: nuget_login

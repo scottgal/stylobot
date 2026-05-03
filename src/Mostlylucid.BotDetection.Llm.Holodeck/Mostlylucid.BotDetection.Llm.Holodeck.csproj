@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFrameworks>net10.0</TargetFrameworks>
+        <LangVersion>preview</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <IsPackable>true</IsPackable>
+        <PackageId>Mostlylucid.BotDetection.Llm.Holodeck</PackageId>
+        <MinVerTagPrefix>botdetection-v</MinVerTagPrefix>
+        <Authors>Mostlylucid</Authors>
+        <Description>LLM-powered dynamic response generation for StyloBot holodeck honeypots</Description>
+    </PropertyGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj"/>
+        <ProjectReference Include="..\Mostlylucid.BotDetection.Llm\Mostlylucid.BotDetection.Llm.csproj"/>
+    </ItemGroup>
+</Project>

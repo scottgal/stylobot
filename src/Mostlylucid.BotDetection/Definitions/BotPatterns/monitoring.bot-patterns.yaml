@@ -1,0 +1,47 @@
+category: monitoring
+description: "Uptime monitors and performance monitoring bots"
+patterns:
+  - pattern: UptimeRobot
+    bot_name: UptimeRobot
+    bot_type: MonitoringBot
+    vendor: UptimeRobot
+
+  - pattern: Pingdom
+    bot_name: Pingdom
+    bot_type: MonitoringBot
+    vendor: SolarWinds
+
+  - pattern: StatusCake
+    bot_name: StatusCake
+    bot_type: MonitoringBot
+    vendor: StatusCake
+
+  - pattern: Site24x7
+    bot_name: Site24x7
+    bot_type: MonitoringBot
+    vendor: Zoho
+
+  - pattern: NewRelicPinger
+    bot_name: New Relic
+    bot_type: MonitoringBot
+    vendor: New Relic
+
+  - pattern: Datadog
+    bot_name: Datadog
+    bot_type: MonitoringBot
+    vendor: Datadog
+
+  - pattern: Uptimebot
+    bot_name: Uptimebot
+    bot_type: MonitoringBot
+    vendor: Unknown
+
+  - pattern: freshping
+    bot_name: Freshping
+    bot_type: MonitoringBot
+    vendor: Freshworks
+
+  - pattern: GTmetrix
+    bot_name: GTmetrix
+    bot_type: MonitoringBot
+    vendor: GT.net

@@ -1,0 +1,15 @@
+name: Ip_Residential
+description: Residential IP, no datacenter signals
+detector: Ip
+request:
+  method: GET
+  path: /
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 Chrome/120.0"
+signals:
+  request.ip.is_datacenter: false
+thresholds:
+  max_mean_ns: 5000
+  max_allocated_bytes: 1024
+tags: [fast-path, ip, human]

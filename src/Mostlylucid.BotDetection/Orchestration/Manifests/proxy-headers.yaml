@@ -1,0 +1,93 @@
+# Known proxy/CDN headers for infrastructure context detection.
+# StyloBot uses these to:
+# 1. Extract real client IP from proxy headers
+# 2. Detect which CDN/proxy is in front (for fingerprint context)
+# 3. Avoid fingerprinting the CDN instead of the client
+
+providers:
+  cloudflare:
+    detection_headers:
+      - cf-ray
+      - cf-connecting-ip
+      - cf-ipcountry
+      - cf-visitor
+    real_ip_header: cf-connecting-ip
+    country_header: cf-ipcountry
+    signals:
+      - name: cdn.provider
+        value: cloudflare
+      - name: cdn.rocket_loader
+        detect_header: cf-mitigated
+    features:
+      - rocket_loader  # JS rewriting
+      - bot_management  # Cloudflare Bot Management
+      - turnstile  # CAPTCHA alternative
+
+  aws_alb:
+    detection_headers:
+      - x-amzn-trace-id
+    real_ip_header: x-forwarded-for
+    signals:
+      - name: cdn.provider
+        value: aws-alb
+
+  aws_cloudfront:
+    detection_headers:
+      - x-amz-cf-id
+      - cloudfront-viewer-country
+    real_ip_header: x-forwarded-for
+    country_header: cloudfront-viewer-country
+    signals:
+      - name: cdn.provider
+        value: cloudfront
+
+  nginx:
+    detection_headers:
+      - x-real-ip
+    real_ip_header: x-real-ip
+
+  akamai:
+    detection_headers:
+      - x-akamai-edgescape
+      - true-client-ip
+    real_ip_header: true-client-ip
+    signals:
+      - name: cdn.provider
+        value: akamai
+
+  fastly:
+    detection_headers:
+      - fastly-client-ip
+      - x-fastly-request-id
+    real_ip_header: fastly-client-ip
+    signals:
+      - name: cdn.provider
+        value: fastly
+
+  google_cloud:
+    detection_headers:
+      - x-cloud-trace-context
+      - x-google-real-ip
+    real_ip_header: x-forwarded-for
+
+  azure_front_door:
+    detection_headers:
+      - x-azure-ref
+      - x-fd-healthprobe
+    real_ip_header: x-forwarded-for
+    signals:
+      - name: cdn.provider
+        value: azure-front-door
+
+  vercel:
+    detection_headers:
+      - x-vercel-id
+      - x-vercel-ip
+    real_ip_header: x-vercel-ip
+    signals:
+      - name: cdn.provider
+        value: vercel
+
+  caddy:
+    detection_headers: []
+    real_ip_header: x-forwarded-for

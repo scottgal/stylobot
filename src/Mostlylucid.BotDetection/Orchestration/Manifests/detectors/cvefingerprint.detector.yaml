@@ -1,0 +1,109 @@
+# CVE Fingerprint Detector - CVE-derived radar shape matching
+name: CveFingerprintContributor
+priority: 55  # After Heuristic (50), before Similarity (60)
+enabled: true
+description: Matches current session radar shape against CVE-derived fingerprints
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: cvefingerprint
+
+taxonomy:
+  kind: analyst
+  determinism: statistical
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with heuristic features
+
+  required_signals:
+    - heuristic.prediction
+
+  optional_signals: []
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: CVE fingerprint match contribution
+
+  signals:
+    - key: cve.match_count
+      entity_type: integer
+      salience: 0.8
+      description: Number of CVE fingerprint matches
+    - key: cve.top_advisory_id
+      entity_type: string
+      salience: 0.9
+      description: Top matching CVE advisory ID
+    - key: cve.top_similarity
+      entity_type: float
+      salience: 0.9
+      description: Similarity score of top CVE match
+    - key: cve.top_severity
+      entity_type: string
+      salience: 0.9
+      description: Severity of top CVE match
+
+triggers:
+  requires:
+    - signal: heuristic.prediction
+      description: Needs heuristic features to build radar shape
+
+emits:
+  on_start:
+    - detector.cvefingerprint.started
+  on_complete:
+    - key: cve.match_count
+      type: int
+      description: Number of CVE matches
+  on_failure:
+    - detector.cvefingerprint.failed
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:CveFingerprintContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.5
+    human_signal: 1.0
+    verified: 2.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.3
+    human_indicated: -0.1
+    strong_signal: 0.6
+
+  timing:
+    timeout_ms: 50
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: true
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Minimum similarity to consider a CVE fingerprint match actionable
+    match_threshold: 0.80
+    # Weight for CVE match contributions
+    cve_weight: 1.5
+    # Severity boost values
+    severity_boost_critical: 0.35
+    severity_boost_high: 0.25
+    severity_boost_medium: 0.15
+    severity_boost_low: 0.08
+    # Default severity boost for unknown severity levels
+    severity_boost_default: 0.10
+
+tags:
+  - cve
+  - threat-intel
+  - fingerprint

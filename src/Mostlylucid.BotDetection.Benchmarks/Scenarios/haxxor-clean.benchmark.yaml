@@ -1,0 +1,13 @@
+name: Haxxor_CleanRequest
+description: Normal request through attack detector (should be fast)
+detector: Haxxor
+request:
+  method: GET
+  path: /products/123
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 Chrome/120.0"
+thresholds:
+  max_mean_ns: 5000
+  max_allocated_bytes: 1024
+tags: [fast-path, haxxor, human]

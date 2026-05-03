@@ -1,0 +1,213 @@
+# UA Family Behavioral Centroids
+# --------------------------------
+# SEED VALUES ONLY - these auto-adapt via EWM as real traffic is observed.
+# alpha=0.99 means ~100 consistent samples to shift a dimension by 50%.
+# Restarting resets to these seeds.
+#
+# Dimensions:
+#   sec_fetch_present : W3C Sec-Fetch-* headers present (modern browsers ~1.0, tools ~0.0)
+#   accept_html       : Accept includes text/html (browsers high, raw tools low)
+#   accept_language   : Accept-Language header present (browsers high, tools low)
+#   accept_encoding   : Accept-Encoding present (most clients, informative)
+#   datacenter_ip     : IP is datacenter/VPN (consumer browsers low, crawlers high)
+#   reactive_precision: Retry-After compliance ratio near 1.0 (mechanical = high, human = low)
+#   reactive_mechanical: Mechanical backoff pattern (exponential/fibonacci/linear = high)
+#
+# Tier values: browser | crawler | tool | reader | unknown
+
+profiles:
+  - family: Chrome
+    tier: browser
+    aliases:
+      - Chrome
+      - "Chrome Mobile"
+      - "Chrome iOS"
+      - Chromium
+    dimensions:
+      sec_fetch_present: { mean: 0.95, weight: 2.0 }
+      accept_html:       { mean: 0.92, weight: 1.0 }
+      accept_language:   { mean: 0.97, weight: 1.5 }
+      accept_encoding:   { mean: 0.99, weight: 0.5 }
+      datacenter_ip:     { mean: 0.04, weight: 1.5 }
+      reactive_precision:    { mean: 0.10, weight: 1.0 }
+      reactive_mechanical:   { mean: 0.05, weight: 0.8 }
+
+  - family: Firefox
+    tier: browser
+    aliases:
+      - Firefox
+      - "Firefox Mobile"
+      - "Firefox iOS"
+    dimensions:
+      sec_fetch_present: { mean: 0.93, weight: 2.0 }
+      accept_html:       { mean: 0.95, weight: 1.0 }
+      accept_language:   { mean: 0.98, weight: 1.5 }
+      accept_encoding:   { mean: 0.99, weight: 0.5 }
+      datacenter_ip:     { mean: 0.04, weight: 1.5 }
+      reactive_precision:    { mean: 0.10, weight: 1.0 }
+      reactive_mechanical:   { mean: 0.05, weight: 0.8 }
+
+  - family: Safari
+    tier: browser
+    aliases:
+      - Safari
+      - "Mobile Safari"
+      - "Safari iOS"
+    dimensions:
+      sec_fetch_present: { mean: 0.80, weight: 1.5 }
+      accept_html:       { mean: 0.92, weight: 1.0 }
+      accept_language:   { mean: 0.97, weight: 1.5 }
+      accept_encoding:   { mean: 0.99, weight: 0.5 }
+      datacenter_ip:     { mean: 0.02, weight: 1.5 }
+      reactive_precision:    { mean: 0.10, weight: 0.8 }
+      reactive_mechanical:   { mean: 0.05, weight: 0.6 }
+
+  - family: Edge
+    tier: browser
+    aliases:
+      - Edge
+      - "Edge Mobile"
+      - "Edg"
+    dimensions:
+      sec_fetch_present: { mean: 0.94, weight: 2.0 }
+      accept_html:       { mean: 0.92, weight: 1.0 }
+      accept_language:   { mean: 0.97, weight: 1.5 }
+      accept_encoding:   { mean: 0.99, weight: 0.5 }
+      datacenter_ip:     { mean: 0.05, weight: 1.5 }
+      reactive_precision:    { mean: 0.10, weight: 1.0 }
+      reactive_mechanical:   { mean: 0.05, weight: 0.8 }
+
+  - family: curl
+    tier: tool
+    aliases:
+      - curl
+      - "curl/"
+    dimensions:
+      sec_fetch_present: { mean: 0.00, weight: 1.5 }
+      accept_html:       { mean: 0.15, weight: 0.5 }
+      accept_language:   { mean: 0.00, weight: 1.0 }
+      accept_encoding:   { mean: 0.50, weight: 0.3 }
+      datacenter_ip:     { mean: 0.50, weight: 0.5 }
+      reactive_precision:    { mean: 0.65, weight: 1.2 }
+      reactive_mechanical:   { mean: 0.55, weight: 1.0 }
+
+  - family: wget
+    tier: tool
+    aliases:
+      - Wget
+      - wget
+    dimensions:
+      sec_fetch_present: { mean: 0.00, weight: 1.5 }
+      accept_html:       { mean: 0.10, weight: 0.5 }
+      accept_language:   { mean: 0.00, weight: 1.0 }
+      accept_encoding:   { mean: 0.30, weight: 0.3 }
+      datacenter_ip:     { mean: 0.50, weight: 0.5 }
+      reactive_precision:    { mean: 0.60, weight: 1.2 }
+      reactive_mechanical:   { mean: 0.50, weight: 1.0 }
+
+  - family: Googlebot
+    tier: crawler
+    aliases:
+      - Googlebot
+      - "Googlebot-Image"
+      - "Googlebot-Video"
+      - "Googlebot-News"
+      - AdsBot-Google
+    dimensions:
+      sec_fetch_present: { mean: 0.00, weight: 1.0 }
+      accept_html:       { mean: 0.95, weight: 0.8 }
+      accept_language:   { mean: 0.00, weight: 0.8 }
+      accept_encoding:   { mean: 0.90, weight: 0.3 }
+      datacenter_ip:     { mean: 1.00, weight: 1.0 }
+      reactive_precision:    { mean: 0.70, weight: 0.8 }
+      reactive_mechanical:   { mean: 0.60, weight: 0.8 }
+
+  - family: Bingbot
+    tier: crawler
+    aliases:
+      - Bingbot
+      - msnbot
+      - "BingPreview"
+    dimensions:
+      sec_fetch_present: { mean: 0.00, weight: 1.0 }
+      accept_html:       { mean: 0.90, weight: 0.8 }
+      accept_language:   { mean: 0.00, weight: 0.8 }
+      accept_encoding:   { mean: 0.85, weight: 0.3 }
+      datacenter_ip:     { mean: 1.00, weight: 1.0 }
+      reactive_precision:    { mean: 0.65, weight: 0.8 }
+      reactive_mechanical:   { mean: 0.55, weight: 0.8 }
+
+  - family: Lynx
+    tier: browser
+    aliases:
+      - Lynx
+      - "Lynx/"
+    dimensions:
+      sec_fetch_present: { mean: 0.00, weight: 1.0 }
+      accept_html:       { mean: 0.90, weight: 1.0 }
+      accept_language:   { mean: 0.20, weight: 1.0 }
+      accept_encoding:   { mean: 0.10, weight: 0.5 }
+      datacenter_ip:     { mean: 0.05, weight: 1.2 }
+      reactive_precision:    { mean: 0.20, weight: 0.8 }
+      reactive_mechanical:   { mean: 0.10, weight: 0.6 }
+
+  - family: Feedly
+    tier: reader
+    aliases:
+      - Feedly
+      - "FeedlyBot"
+      - "feedly/"
+    dimensions:
+      sec_fetch_present: { mean: 0.00, weight: 1.0 }
+      accept_html:       { mean: 0.20, weight: 0.5 }
+      accept_language:   { mean: 0.05, weight: 0.8 }
+      accept_encoding:   { mean: 0.80, weight: 0.3 }
+      datacenter_ip:     { mean: 0.97, weight: 0.5 }
+      reactive_precision:    { mean: 0.50, weight: 0.6 }
+      reactive_mechanical:   { mean: 0.40, weight: 0.6 }
+
+  - family: Python
+    tier: tool
+    aliases:
+      - "python-requests"
+      - "Python-urllib"
+      - Scrapy
+      - httpx
+      - aiohttp
+    dimensions:
+      sec_fetch_present: { mean: 0.00, weight: 1.5 }
+      accept_html:       { mean: 0.10, weight: 0.5 }
+      accept_language:   { mean: 0.00, weight: 1.0 }
+      accept_encoding:   { mean: 0.70, weight: 0.3 }
+      datacenter_ip:     { mean: 0.65, weight: 0.8 }
+      reactive_precision:    { mean: 0.72, weight: 1.2 }
+      reactive_mechanical:   { mean: 0.65, weight: 1.0 }
+
+  - family: Go
+    tier: tool
+    aliases:
+      - "Go-http-client"
+      - "Go http package"
+    dimensions:
+      sec_fetch_present: { mean: 0.00, weight: 1.5 }
+      accept_html:       { mean: 0.05, weight: 0.5 }
+      accept_language:   { mean: 0.00, weight: 1.0 }
+      accept_encoding:   { mean: 0.80, weight: 0.3 }
+      datacenter_ip:     { mean: 0.70, weight: 0.8 }
+      reactive_precision:    { mean: 0.75, weight: 1.2 }
+      reactive_mechanical:   { mean: 0.70, weight: 1.0 }
+
+  - family: Java
+    tier: tool
+    aliases:
+      - "Java/"
+      - "okhttp"
+      - "Apache-HttpClient"
+    dimensions:
+      sec_fetch_present: { mean: 0.00, weight: 1.5 }
+      accept_html:       { mean: 0.05, weight: 0.5 }
+      accept_language:   { mean: 0.00, weight: 1.0 }
+      accept_encoding:   { mean: 0.60, weight: 0.3 }
+      datacenter_ip:     { mean: 0.65, weight: 0.8 }
+      reactive_precision:    { mean: 0.70, weight: 1.2 }
+      reactive_mechanical:   { mean: 0.65, weight: 1.0 }

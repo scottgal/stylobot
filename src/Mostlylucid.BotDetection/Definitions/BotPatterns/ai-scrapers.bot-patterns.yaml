@@ -1,0 +1,247 @@
+category: ai_scrapers
+description: "AI training crawlers, AI search bots, AI assistants, and AI scraping services"
+patterns:
+  # === AI Training Crawlers (high-risk: harvest content without consent) ===
+  - pattern: GPTBot
+    bot_name: GPTBot
+    bot_type: AiBot
+    vendor: OpenAI
+    ai_category: Training
+    ip_ranges_url: "https://openai.com/gptbot-ranges.json"
+  - pattern: ClaudeBot
+    bot_name: ClaudeBot
+    bot_type: AiBot
+    vendor: Anthropic
+    ai_category: Training
+  - pattern: Claude-Web
+    bot_name: Claude-Web
+    bot_type: AiBot
+    vendor: Anthropic
+    ai_category: Training
+  - pattern: anthropic-ai
+    bot_name: Anthropic-AI
+    bot_type: AiBot
+    vendor: Anthropic
+    ai_category: Training
+  - pattern: Google-Extended
+    bot_name: Google-Extended
+    bot_type: AiBot
+    vendor: Google
+    ai_category: Training
+  - pattern: Google-CloudVertexBot
+    bot_name: Google-CloudVertexBot
+    bot_type: AiBot
+    vendor: Google
+    ai_category: Training
+  - pattern: Bytespider
+    bot_name: Bytespider
+    bot_type: AiBot
+    vendor: ByteDance
+    ai_category: Training
+  - pattern: CCBot
+    bot_name: CCBot
+    bot_type: AiBot
+    vendor: Common Crawl
+    ai_category: Training
+  - pattern: Meta-ExternalAgent
+    bot_name: Meta-ExternalAgent
+    bot_type: AiBot
+    vendor: Meta
+    ai_category: Training
+  - pattern: Diffbot
+    bot_name: Diffbot
+    bot_type: AiBot
+    vendor: Diffbot
+    ai_category: Training
+  - pattern: Cohere-AI
+    bot_name: Cohere-AI
+    bot_type: AiBot
+    vendor: Cohere
+    ai_category: Training
+  - pattern: DeepseekBot
+    bot_name: DeepseekBot
+    bot_type: AiBot
+    vendor: DeepSeek
+    ai_category: Training
+  - pattern: xAI-Bot
+    bot_name: xAI-Bot
+    bot_type: AiBot
+    vendor: xAI
+    ai_category: Training
+  - pattern: AI2Bot
+    bot_name: AI2Bot
+    bot_type: AiBot
+    vendor: Allen Institute
+    ai_category: Training
+  - pattern: HuggingFace-Bot
+    bot_name: HuggingFace-Bot
+    bot_type: AiBot
+    vendor: Hugging Face
+    ai_category: Training
+  - pattern: Brightbot
+    bot_name: Brightbot
+    bot_type: AiBot
+    vendor: Bright Data
+    ai_category: Training
+  - pattern: Together-Bot
+    bot_name: Together-Bot
+    bot_type: AiBot
+    vendor: Together AI
+    ai_category: Training
+  - pattern: ImagesiftBot
+    bot_name: ImagesiftBot
+    bot_type: AiBot
+    vendor: The Hive
+    ai_category: Training
+  - pattern: Webzio-Extended
+    bot_name: Webzio-Extended
+    bot_type: AiBot
+    vendor: Webz.io
+    ai_category: Training
+  - pattern: Kangaroo Bot
+    bot_name: Kangaroo Bot
+    bot_type: AiBot
+    vendor: Unknown
+    ai_category: Training
+  - pattern: PanguBot
+    bot_name: PanguBot
+    bot_type: AiBot
+    vendor: Unknown
+    ai_category: Training
+  - pattern: Timpi
+    bot_name: TimpiBot
+    bot_type: AiBot
+    vendor: Timpi
+    ai_category: Training
+  # Apple-Extended is in search-engines.yaml (has FCrDNS) but also has AI training category
+  - pattern: Applebot-Extended
+    bot_name: Applebot-Extended
+    bot_type: AiBot
+    vendor: Apple
+    ai_category: Training
+    verified_domains:
+      - "*.applebot.apple.com"
+
+  # === AI Search Bots (user-initiated queries, lower risk) ===
+  - pattern: Amazonbot
+    bot_name: Amazonbot
+    bot_type: GoodBot
+    vendor: Amazon
+    ai_category: Search
+    verified_domains:
+      - "*.amazonbot.amazon.com"
+  - pattern: OAI-SearchBot
+    bot_name: OAI-SearchBot
+    bot_type: GoodBot
+    vendor: OpenAI
+    ai_category: Search
+  - pattern: PerplexityBot
+    bot_name: PerplexityBot
+    bot_type: GoodBot
+    vendor: Perplexity
+    ai_category: Search
+  - pattern: DuckAssistBot
+    bot_name: DuckAssistBot
+    bot_type: GoodBot
+    vendor: DuckDuckGo
+    ai_category: Search
+  - pattern: YouBot
+    bot_name: YouBot
+    bot_type: GoodBot
+    vendor: You.com
+    ai_category: Search
+  - pattern: IbouBot
+    bot_name: IbouBot
+    bot_type: GoodBot
+    vendor: Ibou.io
+    ai_category: Search
+  - pattern: Andibot
+    bot_name: Andibot
+    bot_type: GoodBot
+    vendor: Andi
+    ai_category: Search
+  - pattern: Claude-SearchBot
+    bot_name: Claude-SearchBot
+    bot_type: GoodBot
+    vendor: Anthropic
+    ai_category: Search
+
+  # === AI Assistants (user-triggered real-time fetch, not bulk training) ===
+  - pattern: ChatGPT-User
+    bot_name: ChatGPT-User
+    bot_type: GoodBot
+    vendor: OpenAI
+    ai_category: Assistant
+    ip_ranges_url: "https://openai.com/gptbot-ranges.json"
+  - pattern: ChatGPT-Browser
+    bot_name: ChatGPT-Browser
+    bot_type: GoodBot
+    vendor: OpenAI
+    ai_category: Assistant
+  - pattern: Claude-User
+    bot_name: Claude-User
+    bot_type: GoodBot
+    vendor: Anthropic
+    ai_category: Assistant
+  - pattern: Perplexity-User
+    bot_name: Perplexity-User
+    bot_type: GoodBot
+    vendor: Perplexity
+    ai_category: Assistant
+  - pattern: Meta-ExternalFetcher
+    bot_name: Meta-ExternalFetcher
+    bot_type: GoodBot
+    vendor: Meta
+    ai_category: Assistant
+  - pattern: MistralAI-User
+    bot_name: MistralAI-User
+    bot_type: GoodBot
+    vendor: Mistral
+    ai_category: Assistant
+  - pattern: Cohere-Command
+    bot_name: Cohere-Command
+    bot_type: GoodBot
+    vendor: Cohere
+    ai_category: Assistant
+  - pattern: Google-NotebookLM
+    bot_name: Google-NotebookLM
+    bot_type: GoodBot
+    vendor: Google
+    ai_category: Assistant
+  - pattern: Gemini-AI
+    bot_name: Gemini-AI
+    bot_type: GoodBot
+    vendor: Google
+    ai_category: Assistant
+  - pattern: Gemini-Deep-Research
+    bot_name: Gemini-Deep-Research
+    bot_type: GoodBot
+    vendor: Google
+    ai_category: Assistant
+  - pattern: GoogleAgent-Mariner
+    bot_name: GoogleAgent-Mariner
+    bot_type: GoodBot
+    vendor: Google
+    ai_category: Assistant
+  - pattern: Character-AI
+    bot_name: Character-AI
+    bot_type: GoodBot
+    vendor: Character.AI
+    ai_category: Assistant
+  - pattern: Devin
+    bot_name: Devin
+    bot_type: GoodBot
+    vendor: Cognition
+    ai_category: Assistant
+
+  # === AI Scraping Services (commercial, on-demand scraping) ===
+  - pattern: FirecrawlAgent
+    bot_name: FirecrawlAgent
+    bot_type: AiBot
+    vendor: Firecrawl
+    ai_category: ScrapingService
+  - pattern: JinaBot
+    bot_name: JinaBot
+    bot_type: AiBot
+    vendor: Jina
+    ai_category: ScrapingService

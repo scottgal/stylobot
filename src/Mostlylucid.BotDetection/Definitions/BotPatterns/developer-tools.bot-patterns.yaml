@@ -1,0 +1,133 @@
+category: developer_tools
+description: "HTTP client libraries, CLI tools, and developer testing tools"
+patterns:
+  # === CLI tools ===
+  - pattern: curl
+    bot_name: curl
+    bot_type: Tool
+    vendor: curl project
+
+  - pattern: Wget
+    bot_name: wget
+    bot_type: Tool
+    vendor: GNU
+
+  # === Python HTTP clients ===
+  - pattern: python-requests
+    bot_name: python-requests
+    bot_type: Tool
+    vendor: Python
+
+  - pattern: python-urllib
+    bot_name: python-urllib
+    bot_type: Tool
+    vendor: Python
+
+  - pattern: python-httpx
+    bot_name: python-httpx
+    bot_type: Tool
+    vendor: Python
+
+  - pattern: aiohttp
+    bot_name: aiohttp
+    bot_type: Tool
+    vendor: Python
+
+  - pattern: httpie
+    bot_name: HTTPie
+    bot_type: Tool
+    vendor: HTTPie
+
+  # === JVM HTTP clients ===
+  - pattern: java/
+    bot_name: Java HTTP client
+    bot_type: Tool
+    vendor: Oracle
+
+  - pattern: apache-httpclient
+    bot_name: Apache HttpClient
+    bot_type: Tool
+    vendor: Apache
+
+  - pattern: okhttp
+    bot_name: OkHttp
+    bot_type: Tool
+    vendor: Square
+
+  # === Go / Node HTTP clients ===
+  - pattern: go-http-client
+    bot_name: Go HTTP client
+    bot_type: Tool
+    vendor: Go
+
+  - pattern: node-fetch
+    bot_name: node-fetch
+    bot_type: Tool
+    vendor: Node.js
+
+  - pattern: axios/
+    bot_name: axios
+    bot_type: Tool
+    vendor: axios
+
+  # === API testing tools ===
+  - pattern: Postman
+    bot_name: Postman
+    bot_type: Tool
+    vendor: Postman
+
+  - pattern: Insomnia
+    bot_name: Insomnia
+    bot_type: Tool
+    vendor: Kong
+
+  # === Automation / scraping frameworks ===
+  - pattern: scrapy
+    bot_name: Scrapy
+    bot_type: Scraper
+    vendor: Scrapy
+
+  - pattern: selenium
+    bot_name: Selenium
+    bot_type: Scraper
+    vendor: Selenium HQ
+
+  - pattern: HeadlessChrome
+    bot_name: Headless Chrome
+    bot_type: Scraper
+    vendor: Google
+
+  - pattern: headless
+    bot_name: Headless browser
+    bot_type: Scraper
+    vendor: Unknown
+
+  - pattern: phantomjs
+    bot_name: PhantomJS
+    bot_type: Scraper
+    vendor: PhantomJS
+
+  - pattern: puppeteer
+    bot_name: Puppeteer
+    bot_type: Scraper
+    vendor: Google
+
+  - pattern: playwright
+    bot_name: Playwright
+    bot_type: Scraper
+    vendor: Microsoft
+
+  - pattern: httrack
+    bot_name: HTTrack
+    bot_type: Scraper
+    vendor: HTTrack
+
+  - pattern: libwww-perl
+    bot_name: libwww-perl
+    bot_type: Scraper
+    vendor: Perl
+
+  - pattern: colly
+    bot_name: Colly
+    bot_type: Scraper
+    vendor: Colly

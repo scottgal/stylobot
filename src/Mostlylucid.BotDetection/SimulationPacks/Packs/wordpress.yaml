@@ -1,0 +1,276 @@
+id: wordpress-5.9
+name: WordPress 5.9 Honeypot
+framework: wordpress
+version: "5.9"
+description: Simulates an unpatched WordPress 5.9 installation to detect WP-targeting bots
+
+timing_profile:
+  min_response_ms: 150
+  max_response_ms: 800
+  jitter_ms: 100
+
+honeypot_paths:
+  - path: /wp-login.php
+    confidence: 0.85
+    weight: 1.8
+    category: wordpress-auth
+  - path: /wp-admin/*
+    confidence: 0.90
+    weight: 2.0
+    category: wordpress-admin
+  - path: /xmlrpc.php
+    confidence: 0.90
+    weight: 2.0
+    category: wordpress-xmlrpc
+  - path: /wp-json/wp/v2/users
+    confidence: 0.80
+    weight: 1.5
+    category: wordpress-api
+  - path: /wp-content/plugins/*
+    confidence: 0.75
+    weight: 1.5
+    category: wordpress-plugins
+  - path: /wp-includes/*
+    confidence: 0.70
+    weight: 1.2
+    category: wordpress-core
+  - path: /readme.html
+    confidence: 0.65
+    weight: 1.0
+    category: wordpress-fingerprint
+  - path: /wp-cron.php
+    confidence: 0.70
+    weight: 1.2
+    category: wordpress-cron
+  - path: /wp-config.php*
+    confidence: 0.95
+    weight: 2.5
+    category: wordpress-config
+  - path: /wp-content/uploads/*
+    confidence: 0.60
+    weight: 1.0
+    category: wordpress-uploads
+  - path: /wp-content/themes/*/style.css
+    confidence: 0.55
+    weight: 0.8
+    category: wordpress-theme-enum
+
+response_templates:
+  - path_pattern: /wp-login.php
+    status_code: 200
+    content_type: "text/html; charset=UTF-8"
+    min_delay_ms: 200
+    max_delay_ms: 600
+    headers:
+      X-Powered-By: "PHP/7.4.33"
+      X-Frame-Options: SAMEORIGIN
+      X-Content-Type-Options: nosniff
+    body: |
+      <!DOCTYPE html>
+      <html lang="en-US">
+      <head><meta charset="UTF-8"><title>Log In &lsaquo; My WordPress Site &#8212; WordPress</title>
+      <link rel="stylesheet" href="/wp-admin/css/login.min.css?ver=5.9" type="text/css">
+      </head><body class="login wp-core-ui locale-en-us">
+      <div id="login"><h1><a href="https://wordpress.org/">Powered by WordPress</a></h1>
+      <form name="loginform" id="loginform" action="/wp-login.php" method="post">
+      <p><label for="user_login">Username or Email Address</label>
+      <input type="text" name="log" id="user_login" class="input" value="" size="20" autocapitalize="off" autocomplete="username"></p>
+      <p><label for="user_pass">Password</label>
+      <input type="password" name="pwd" id="user_pass" class="input" value="" size="20" autocomplete="current-password"></p>
+      <p class="forgetmenot"><input name="rememberme" type="checkbox" id="rememberme" value="forever">
+      <label for="rememberme">Remember Me</label></p>
+      <p class="submit"><input type="submit" name="wp-submit" id="wp-submit" class="button button-primary button-large" value="Log In"></p>
+      </form></div></body></html>
+
+  - path_pattern: /xmlrpc.php
+    status_code: 200
+    content_type: "text/xml; charset=UTF-8"
+    min_delay_ms: 100
+    max_delay_ms: 400
+    dynamic: true
+    headers:
+      X-Powered-By: "PHP/7.4.33"
+    body: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <methodResponse><params><param><value><string>XML-RPC server accepts POST requests only.</string></value></param></params></methodResponse>
+    response_hints:
+      endpoint_description: "WordPress XML-RPC endpoint supporting pingbacks, trackbacks, and remote publishing"
+      response_format: xml
+      body_schema: "XMLRPC methodResponse with fault or params depending on request method"
+      expected_methods: ["POST"]
+      exploit_flow: "Step 1: GET returns 'POST only' message. Step 2: POST with system.listMethods returns method list. Step 3: POST with wp.getUsersBlogs attempts credential stuffing. Step 4: POST with pingback.ping attempts SSRF."
+      product_context:
+        php_version: "7.4.33"
+        wordpress_version: "5.9"
+        xmlrpc_enabled: "true"
+      error_template: '<?xml version="1.0"?><methodResponse><fault><value><struct><member><name>faultCode</name><value><int>-32601</int></value></member><member><name>faultString</name><value><string>Requested method not found.</string></value></member></struct></value></fault></methodResponse>'
+
+  - path_pattern: /wp-json/wp/v2/users
+    status_code: 200
+    content_type: "application/json; charset=UTF-8"
+    min_delay_ms: 150
+    max_delay_ms: 500
+    headers:
+      X-WP-Total: "3"
+      X-WP-TotalPages: "1"
+      X-Powered-By: "PHP/7.4.33"
+    body: |
+      [{"id":1,"name":"admin","url":"","description":"","link":"http://localhost/author/admin/","slug":"admin","avatar_urls":{"24":"https://secure.gravatar.com/avatar/?s=24","48":"https://secure.gravatar.com/avatar/?s=48","96":"https://secure.gravatar.com/avatar/?s=96"},"meta":[]},{"id":2,"name":"editor","url":"","description":"","link":"http://localhost/author/editor/","slug":"editor","avatar_urls":{"24":"https://secure.gravatar.com/avatar/?s=24","48":"https://secure.gravatar.com/avatar/?s=48","96":"https://secure.gravatar.com/avatar/?s=96"},"meta":[]},{"id":3,"name":"subscriber","url":"","description":"","link":"http://localhost/author/subscriber/","slug":"subscriber","avatar_urls":{"24":"https://secure.gravatar.com/avatar/?s=24","48":"https://secure.gravatar.com/avatar/?s=48","96":"https://secure.gravatar.com/avatar/?s=96"},"meta":[]}]
+
+  - path_pattern: /wp-admin/*
+    status_code: 302
+    content_type: "text/html; charset=UTF-8"
+    min_delay_ms: 100
+    max_delay_ms: 200
+    headers:
+      Location: "/wp-login.php?redirect_to=%2Fwp-admin%2F&reauth=1"
+      X-Powered-By: "PHP/7.4.33"
+    body: ""
+
+  - path_pattern: /readme.html
+    status_code: 200
+    content_type: "text/html; charset=UTF-8"
+    min_delay_ms: 50
+    max_delay_ms: 150
+    body: |
+      <!DOCTYPE html><html><head><title>WordPress &rsaquo; ReadMe</title></head>
+      <body><h1>WordPress</h1><p>Version 5.9</p>
+      <p>Semantic Personal Publishing Platform</p></body></html>
+
+  - path_pattern: /wp-content/plugins/*
+    status_code: 200
+    content_type: "text/html; charset=UTF-8"
+    min_delay_ms: 50
+    max_delay_ms: 200
+    headers:
+      X-Powered-By: "PHP/7.4.33"
+    body: |
+      <!DOCTYPE html><html><head><title>Index of /wp-content/plugins</title></head>
+      <body><h1>Index of /wp-content/plugins</h1>
+      <table><tr><th>Name</th><th>Last modified</th><th>Size</th></tr>
+      <tr><td><a href="../">Parent Directory</a></td><td>-</td><td>-</td></tr>
+      <tr><td><a href="akismet/">akismet/</a></td><td>2024-01-15 08:30</td><td>-</td></tr>
+      <tr><td><a href="contact-form-7/">contact-form-7/</a></td><td>2024-02-20 14:22</td><td>-</td></tr>
+      <tr><td><a href="wpml-multilingual-cms/">wpml-multilingual-cms/</a></td><td>2024-03-10 09:45</td><td>-</td></tr>
+      </table></body></html>
+
+  - path_pattern: /wp-config.php*
+    status_code: 200
+    content_type: "text/plain; charset=UTF-8"
+    min_delay_ms: 50
+    max_delay_ms: 100
+    body: |
+      <?php
+      define( 'DB_NAME', 'wordpress_db' );
+      define( 'DB_USER', 'wp_user' );
+      define( 'DB_PASSWORD', 's3cur3_p4ssw0rd_2024!' );
+      define( 'DB_HOST', 'localhost' );
+      define( 'DB_CHARSET', 'utf8mb4' );
+      $table_prefix = 'wp_';
+      define( 'AUTH_KEY', 'put your unique phrase here' );
+      define( 'SECURE_AUTH_KEY', 'put your unique phrase here' );
+      define( 'LOGGED_IN_KEY', 'put your unique phrase here' );
+      define( 'NONCE_KEY', 'put your unique phrase here' );
+      define( 'WP_DEBUG', false );
+      if ( ! defined( 'ABSPATH' ) ) { define( 'ABSPATH', __DIR__ . '/' ); }
+      require_once ABSPATH . 'wp-settings.php';
+
+cve_modules:
+  - cve_id: CVE-2017-5487
+    severity: medium
+    description: WordPress REST API user enumeration
+    affected_versions: ["4.7", "4.7.1", "4.8", "4.9", "5.0", "5.1", "5.2", "5.3", "5.4", "5.5", "5.6", "5.7", "5.8", "5.9"]
+    probe_paths:
+      - /wp-json/wp/v2/users
+      - "/wp-json/wp/v2/users?_fields=id,slug"
+      - "/?rest_route=/wp/v2/users"
+
+  - cve_id: CVE-2024-6386
+    severity: critical
+    description: WPML plugin remote code execution via Twig SSTI
+    affected_versions: ["5.8", "5.9", "6.0", "6.1", "6.2", "6.3", "6.4", "6.5"]
+    probe_paths:
+      - /wp-admin/admin-ajax.php
+    probe_response:
+      path_pattern: /wp-admin/admin-ajax.php
+      status_code: 200
+      content_type: application/json
+      min_delay_ms: 200
+      max_delay_ms: 600
+      dynamic: true
+      body: '{"success":false,"data":"0"}'
+      response_hints:
+        endpoint_description: "WordPress admin-ajax.php handler - processes AJAX actions for plugins"
+        response_format: json
+        body_schema: '{"success": true/false, "data": "response data or error code"}'
+        expected_methods: ["POST"]
+        exploit_flow: "Step 1: POST with action=wpml_action probes for WPML. Step 2: POST with Twig SSTI payload {{7*7}} in translatable string. Step 3: Check response for '49' to confirm code execution."
+        product_context:
+          wpml_version: "4.6.3"
+          twig_version: "2.x"
+        error_template: '{"success":false,"data":"-1"}'
+
+  - cve_id: CVE-2023-2982
+    severity: critical
+    description: miniOrange Social Login authentication bypass
+    affected_versions: ["5.5", "5.6", "5.7", "5.8", "5.9", "6.0", "6.1", "6.2"]
+    probe_paths:
+      - /wp-json/mo/v1/
+      - /wp-json/mo/v1/verify
+      - "/?rest_route=/mo/v1/verify"
+    probe_response:
+      path_pattern: /wp-json/mo/v1/*
+      status_code: 200
+      content_type: application/json
+      min_delay_ms: 150
+      max_delay_ms: 400
+      dynamic: true
+      body: '{"code":"rest_no_route","message":"No route was found matching the URL and request method.","data":{"status":404}}'
+      response_hints:
+        endpoint_description: "miniOrange Social Login REST API - handles OAuth callbacks and verification"
+        response_format: json
+        body_schema: '{"code": "error_code", "message": "description", "data": {"status": 404}}'
+        expected_methods: ["GET", "POST"]
+        exploit_flow: "Step 1: GET /wp-json/mo/v1/ probes for plugin existence. Step 2: POST /wp-json/mo/v1/verify with crafted nonce bypasses authentication. Step 3: Attacker gains admin access."
+        product_context:
+          miniorange_version: "7.6.5"
+
+  - cve_id: CVE-2023-32243
+    severity: critical
+    description: Essential Addons for Elementor privilege escalation
+    affected_versions: ["5.7", "5.8", "5.9", "6.0", "6.1", "6.2"]
+    probe_paths:
+      - /wp-json/starter-templates/
+      - /wp-json/starter-templates/v1/
+      - "/wp-admin/admin-ajax.php?action=starter_templates_import"
+
+  - cve_id: CVE-2022-21661
+    severity: high
+    description: WordPress Core WP_Query SQL injection
+    affected_versions: ["5.7", "5.8", "5.8.1", "5.8.2", "5.8.3", "5.9"]
+    probe_paths:
+      - /wp-json/wp/v2/posts
+      - /wp-json/wp/v2/pages
+
+  - cve_id: CVE-2023-6553
+    severity: critical
+    description: Backup Migration plugin RCE
+    affected_versions: ["5.5", "5.6", "5.7", "5.8", "5.9", "6.0", "6.1", "6.2", "6.3", "6.4"]
+    probe_paths:
+      - /wp-content/plugins/backup-migration/includes/backup-heart.php
+
+  - cve_id: CVE-2024-27956
+    severity: critical
+    description: WP-Automatic SQL injection
+    affected_versions: ["5.5", "5.6", "5.7", "5.8", "5.9", "6.0", "6.1", "6.2", "6.3", "6.4", "6.5"]
+    probe_paths:
+      - /wp-content/plugins/wp-automatic/inc/csv.php
+      - /wp-content/plugins/wp-automatic/
+
+  - cve_id: CVE-2024-2876
+    severity: critical
+    description: Icegram Express SQL injection
+    affected_versions: ["5.8", "5.9", "6.0", "6.1", "6.2", "6.3", "6.4", "6.5"]
+    probe_paths:
+      - "/wp-admin/admin-ajax.php?action=ig_es_"
+      - /wp-content/plugins/email-subscribers/

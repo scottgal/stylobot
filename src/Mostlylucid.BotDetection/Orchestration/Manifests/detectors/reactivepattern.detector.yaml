@@ -1,0 +1,181 @@
+# Reactive Pattern Detector - Post-error client behavior analysis
+name: ReactivePatternContributor
+priority: 32  # After SessionVector (30), before heuristic
+enabled: true
+description: Detects bot retry patterns by analyzing how a client behaves after receiving 4xx/429 responses
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: reactivepattern
+
+taxonomy:
+  kind: analyst    # Cross-request behavioral analysis
+  determinism: statistical
+  persistence: transient  # ReactiveSignalTracker holds state in memory with 2h TTL
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for post-error behavior analysis
+
+  required_signals:
+    - signature.primary
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Reactive pattern analysis contribution
+
+  signals:
+    - key: reactive.error_event_count
+      entity_type: integer
+      salience: 0.3
+      description: Number of 4xx/5xx events recorded for this signature
+    - key: reactive.post_4xx_gap_ms
+      entity_type: float
+      salience: 0.5
+      description: Milliseconds since the last error response was served
+    - key: reactive.retry_after_compliance
+      entity_type: float
+      salience: 0.9
+      description: Ratio of actual retry gap to Retry-After header (1.0 = inhuman precision)
+    - key: reactive.path_persistence_post_403
+      entity_type: float
+      salience: 0.85
+      description: Client retrying a path that previously received a 403
+    - key: reactive.geometric_ratio_cv
+      entity_type: float
+      salience: 0.85
+      description: CV of consecutive retry gap ratios (low = mechanical geometric backoff)
+    - key: reactive.backoff_base
+      entity_type: float
+      salience: 0.7
+      description: Mean gap ratio (2.0 = exponential, 1.618 = Fibonacci, 1.0 = linear)
+    - key: reactive.rate_adapted
+      entity_type: float
+      salience: 0.75
+      description: Monotone increase score for 429 gaps (automated rate adaptation)
+    - key: reactive.coordinated_retry
+      entity_type: float
+      salience: 0.8
+      description: Multiple signatures retrying same blocked paths simultaneously
+
+triggers:
+  requires:
+    - signal: signature.primary
+      description: Needs client signature to look up error history
+
+emits:
+  on_start:
+    - detector.reactivepattern.started
+
+  on_complete:
+    - key: reactive.error_event_count
+      type: int
+      description: Number of error events recorded for this signature
+
+    - key: reactive.post_4xx_gap_ms
+      type: float
+      description: Milliseconds since last 4xx/5xx response
+
+    - key: reactive.retry_after_compliance
+      type: float
+      description: Compliance ratio relative to Retry-After header; -1 if no Retry-After seen
+
+    - key: reactive.path_persistence_post_403
+      type: float
+      description: 1.0 if current path was previously 403'd
+
+    - key: reactive.path_persistence_ratio
+      type: float
+      description: Fraction of error events on 403'd paths
+
+    - key: reactive.geometric_ratio_cv
+      type: float
+      description: CV of gap ratios; low CV = mechanical retry cadence; -1 if insufficient data
+
+    - key: reactive.backoff_base
+      type: float
+      description: Mean gap ratio approximating a known backoff multiplier
+
+    - key: reactive.backoff_pattern
+      type: string
+      description: Named backoff pattern (exponential, fibonacci, linear, mild_exponential, unknown)
+
+    - key: reactive.rate_adapted
+      type: float
+      description: Monotone increase score [0,1] for 429 gap series
+
+    - key: reactive.coordinated_retry
+      type: float
+      description: 1.0 if co-retriers detected on same blocked paths
+
+    - key: reactive.co_retryer_count
+      type: int
+      description: Number of signatures co-retrying same blocked paths
+
+  on_failure:
+    - detector.reactivepattern.failed
+
+lane:
+  name: standard
+  max_concurrency: 8
+  priority: 50
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:ReactivePatternContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 0.0
+    bot_signal: 1.5
+    human_signal: 1.3
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.5
+    human_indicated: -0.15
+
+  timing:
+    timeout_ms: 5
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: true
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Minimum error events before pattern analysis runs
+    min_error_events: 2
+    # Retry-After compliance deviation below which precision is flagged as bot-like
+    compliance_precision_threshold: 0.15
+    # Confidence delta for inhuman Retry-After compliance
+    compliance_bot_confidence: 0.45
+    # CV below which gap ratio series is flagged as mechanical geometric backoff
+    geometric_cv_threshold: 0.25
+    # Confidence delta for geometric retry pattern
+    geometric_bot_confidence: 0.5
+    # Minimum consecutive gap steps needed for geometric analysis
+    geometric_min_steps: 3
+    # Fraction of error events on blocked paths to flag persistence
+    path_persistence_threshold: 0.6
+    # Confidence delta for path persistence post-403
+    path_persistence_bot_confidence: 0.4
+    # Minimum number of co-retrying signatures to flag coordinated retry
+    coordinated_retry_min_signatures: 3
+    # Confidence delta for coordinated retry detection
+    coordinated_retry_bot_confidence: 0.35
+    # Confidence delta for automated rate adaptation
+    rate_adapted_bot_confidence: 0.3
+
+tags:
+  - behavioral
+  - session
+  - retry
+  - reactive
+  - anomaly-detection

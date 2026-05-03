@@ -1,0 +1,54 @@
+@model Mostlylucid.BotDetection.UI.Models.InvestigationViewModel
+
+<div class="sb-investigate-signaltrace" style="font-family:monospace; font-size:0.8rem;">
+    @foreach (var d in Model.Result.Detections)
+    {
+        <details style="border-bottom:1px solid var(--sb-card-divider); padding:0.5rem 0;">
+            <summary style="cursor:pointer; padding:0.25rem;">
+                <span style="color:var(--sb-brand-muted);">@d.Timestamp.ToString("HH:mm:ss.fff")</span>
+                <span>@d.Method @d.Path</span>
+                <span style="color:@(d.RiskBand == "high" ? "var(--sb-signal-danger)" : d.RiskBand == "medium" ? "var(--sb-signal-warn)" : "var(--sb-signal-pos)");">[@d.RiskBand]</span>
+                <span>p=@d.BotProbability.ToString("F2") c=@d.Confidence.ToString("F2")</span>
+            </summary>
+            <div style="padding:0.5rem 1.5rem;">
+                @if (d.TopReasons?.Any() == true)
+                {
+                    <div style="margin-bottom:0.5rem;">
+                        <span style="color:var(--sb-brand-muted);">reasons:</span>
+                        @foreach (var r in d.TopReasons)
+                        {
+                            <span style="padding:0.1rem 0.4rem; background:var(--sb-surface); border-radius:3px; margin-left:0.25rem;">@r</span>
+                        }
+                    </div>
+                }
+                @if (d.DetectorContributions?.Any() == true)
+                {
+                    <div style="margin-bottom:0.5rem;">
+                        <span style="color:var(--sb-brand-muted);">detectors:</span>
+                        @foreach (var (name, c) in d.DetectorContributions)
+                        {
+                            <div style="margin-left:1rem;">
+                                @name delta=@c.ConfidenceDelta.ToString("F3") contrib=@c.Contribution.ToString("F3")
+                                @if (!string.IsNullOrEmpty(c.Reason)) { <span style="color:var(--sb-brand-muted);">(@c.Reason)</span> }
+                            </div>
+                        }
+                    </div>
+                }
+                @if (d.ImportantSignals?.Any() == true)
+                {
+                    <div>
+                        <span style="color:var(--sb-brand-muted);">signals:</span>
+                        @foreach (var (key, val) in d.ImportantSignals.OrderBy(kv => kv.Key))
+                        {
+                            <div style="margin-left:1rem;">@key = @val</div>
+                        }
+                    </div>
+                }
+            </div>
+        </details>
+    }
+    @if (!Model.Result.Detections.Any())
+    {
+        <p style="color:var(--sb-brand-muted); padding:1rem;">No signal trace data available.</p>
+    }
+</div>

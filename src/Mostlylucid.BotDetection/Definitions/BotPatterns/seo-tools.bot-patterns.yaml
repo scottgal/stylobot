@@ -1,0 +1,37 @@
+category: seo_tools
+description: "SEO crawlers and link analysis tools"
+patterns:
+  - pattern: AhrefsBot
+    bot_name: AhrefsBot
+    bot_type: GoodBot
+    vendor: Ahrefs
+
+  - pattern: SemrushBot
+    bot_name: SemrushBot
+    bot_type: GoodBot
+    vendor: SEMrush
+
+  - pattern: MJ12bot
+    bot_name: MJ12bot
+    bot_type: GoodBot
+    vendor: Majestic
+
+  - pattern: DotBot
+    bot_name: DotBot
+    bot_type: GoodBot
+    vendor: Moz
+
+  - pattern: Screaming Frog
+    bot_name: Screaming Frog SEO
+    bot_type: GoodBot
+    vendor: Screaming Frog
+
+  - pattern: SEOkicks
+    bot_name: SEOkicks
+    bot_type: GoodBot
+    vendor: SEOkicks
+
+  - pattern: rogerbot
+    bot_name: Moz Rogerbot
+    bot_type: GoodBot
+    vendor: Moz

@@ -1,0 +1,17 @@
+name: Intent_Navigation
+description: Intent classification for navigation request
+detector: Intent
+request:
+  method: GET
+  path: /products/123
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 Chrome/120.0"
+    accept: "text/html"
+    sec-fetch-mode: navigate
+    sec-fetch-site: same-origin
+    referer: "https://example.com/"
+thresholds:
+  max_mean_ns: 5000
+  max_allocated_bytes: 1024
+tags: [fast-path, intent, human]

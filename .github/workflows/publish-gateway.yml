@@ -1,4 +1,4 @@
-name: Publish Stylobot.Gateway
+name: Publish src/Stylobot.Gateway
 
 on:
   push:
@@ -74,22 +74,22 @@ jobs:
 
     - name: Restore dependencies
       run: |
-        dotnet restore Stylobot.Gateway/Stylobot.Gateway.csproj
-        dotnet restore Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj
+        dotnet restore src/Stylobot.Gateway/Stylobot.Gateway.csproj
+        dotnet restore src/Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj
         dotnet restore Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj
         dotnet restore Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj
         dotnet restore Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj
 
     - name: Build projects
       run: |
-        dotnet build Stylobot.Gateway/Stylobot.Gateway.csproj --configuration Release --no-restore
-        dotnet build Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-restore
+        dotnet build src/Stylobot.Gateway/Stylobot.Gateway.csproj --configuration Release --no-restore
+        dotnet build src/Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj --configuration Release --no-restore
         dotnet build Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj --configuration Release --no-restore
         dotnet build Mostlylucid.BotDetection.Orchestration.Tests/Mostlylucid.BotDetection.Orchestration.Tests.csproj --configuration Release --no-restore
 
     - name: Run Gateway unit tests
       run: |
-        dotnet test Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj \
+        dotnet test src/Stylobot.Gateway.Tests/Stylobot.Gateway.Tests.csproj \
           --configuration Release \
           --no-build \
           --verbosity normal

@@ -1,0 +1,313 @@
+using System.Text.RegularExpressions;
+using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Orchestration.Manifests;
+using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
+
+namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
+
+/// <summary>
+///     Early-stage contributor that queries the PatternReputationCache to provide
+///     initial bias based on learned patterns from prior detections.
+///     This closes the learning feedback loop by ensuring that:
+///     1. Patterns learned from prior requests (via ReputationMaintenanceService)
+///     2. Are fed back into early detection for similar future requests
+///     Pattern types checked:
+///     - User-Agent hash (normalized)
+///     - IP range (/24 for IPv4, /48 for IPv6)
+///     - Combined signature (UA + IP + Path)
+///     Runs in Wave 0 (first wave) with high priority to provide bias before
+///     other detectors run their analysis.
+///
+///     Configuration loaded from: reputation.detector.yaml
+///     Override via: appsettings.json → BotDetection:Detectors:ReputationBiasContributor:*
+/// </summary>
+public partial class ReputationBiasContributor : ConfiguredContributorBase
+{
+
+    private readonly ILogger<ReputationBiasContributor> _logger;
+    private readonly IPatternReputationCache _reputationCache;
+
+    public ReputationBiasContributor(
+        ILogger<ReputationBiasContributor> logger,
+        IPatternReputationCache reputationCache,
+        IDetectorConfigProvider configProvider)
+        : base(configProvider)
+    {
+        _logger = logger;
+        _reputationCache = reputationCache;
+    }
+
+    public override string Name => "ReputationBias";
+
+    public override int Priority => Manifest?.Priority ?? 45;
+
+    // Config-driven parameters from YAML
+    private double ConfirmedBadWeight => GetParam("confirmed_bad_weight", 2.5);
+    private double CombinedPatternMultiplier => GetParam("combined_pattern_multiplier", 1.5);
+    private double ReputationWeightMultiplier => GetParam("reputation_weight_multiplier", 1.0);
+
+    // Trigger when we have the basic signals extracted
+    public override IReadOnlyList<TriggerCondition> TriggerConditions =>
+    [
+        Triggers.WhenSignalExists(SignalKeys.UserAgent) // Wait until UA is extracted
+    ];
+
+    public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
+        BlackboardState state,
+        CancellationToken cancellationToken = default)
+    {
+        var contributions = new List<DetectionContribution>();
+
+        // Check User-Agent reputation
+        if (!string.IsNullOrWhiteSpace(state.UserAgent))
+        {
+            var uaPatternId = CreateUaPatternId(state.UserAgent);
+            var uaReputation = _reputationCache.Get(uaPatternId);
+
+            if (uaReputation != null && uaReputation.State != ReputationState.Neutral)
+            {
+                var contribution = CreateReputationContribution(
+                    state,
+                    uaReputation,
+                    "UserAgent",
+                    $"UA pattern {uaReputation.State} (score={uaReputation.BotScore:F2}, support={uaReputation.Support:F0})");
+
+                if (contribution != null)
+                {
+                    contributions.Add(contribution);
+
+                    _logger.LogDebug(
+                        "UA reputation bias applied: {PatternId} state={State} score={Score:F2}",
+                        uaPatternId, uaReputation.State, uaReputation.BotScore);
+                }
+            }
+        }
+
+        // Check IP reputation - prefer resolved IP from IpContributor
+        var resolvedIp = state.Signals.TryGetValue(SignalKeys.ClientIp, out var ipObj)
+            ? ipObj?.ToString()
+            : state.ClientIp;
+        if (!string.IsNullOrWhiteSpace(resolvedIp))
+        {
+            var ipPatternId = CreateIpPatternId(resolvedIp);
+            var ipReputation = _reputationCache.Get(ipPatternId);
+
+            if (ipReputation != null && ipReputation.State != ReputationState.Neutral)
+            {
+                var contribution = CreateReputationContribution(
+                    state,
+                    ipReputation,
+                    "IP",
+                    $"IP range {ipReputation.State} (score={ipReputation.BotScore:F2}, support={ipReputation.Support:F0})");
+
+                if (contribution != null)
+                {
+                    contributions.Add(contribution);
+
+                    _logger.LogDebug(
+                        "IP reputation bias applied: {PatternId} state={State} score={Score:F2}",
+                        ipPatternId, ipReputation.State, ipReputation.BotScore);
+                }
+            }
+        }
+
+        // Check combined signature reputation (UA + IP + Path)
+        if (!string.IsNullOrWhiteSpace(state.UserAgent) && !string.IsNullOrWhiteSpace(resolvedIp))
+        {
+            var path = state.HttpContext?.Request?.Path.Value ?? "/";
+            var combinedPatternId = CreateCombinedPatternId(state.UserAgent, resolvedIp, path);
+            var combinedReputation = _reputationCache.Get(combinedPatternId);
+
+            if (combinedReputation != null && combinedReputation.State != ReputationState.Neutral)
+            {
+                var contribution = CreateReputationContribution(
+                    state,
+                    combinedReputation,
+                    "Combined",
+                    $"Combined signature {combinedReputation.State} (score={combinedReputation.BotScore:F2}, support={combinedReputation.Support:F0})");
+
+                if (contribution != null)
+                {
+                    // Combined patterns get higher weight as they're more specific
+                    contributions.Add(contribution with { Weight = contribution.Weight * CombinedPatternMultiplier });
+
+                    _logger.LogDebug(
+                        "Combined reputation bias applied: {PatternId} state={State} score={Score:F2}",
+                        combinedPatternId, combinedReputation.State, combinedReputation.BotScore);
+                }
+            }
+        }
+
+        // If we have any reputation-based contributions, add summary signal
+        if (contributions.Count > 0)
+        {
+            state.WriteSignal(SignalKeys.ReputationBiasApplied, true);
+            state.WriteSignal(SignalKeys.ReputationBiasCount, contributions.Count);
+
+            // Check if any pattern can trigger fast abort
+            var canAbort = state.Signals.TryGetValue(SignalKeys.ReputationCanAbort, out var v) && v is true;
+
+            if (canAbort) state.WriteSignal(SignalKeys.ReputationCanAbort, true);
+        }
+
+        // Always return at least one contribution so detector shows in list
+        if (contributions.Count == 0)
+            contributions.Add(DetectionContribution.Info(Name, "ReputationBias", "No learned reputation patterns matched"));
+
+        return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
+    }
+
+    private DetectionContribution? CreateReputationContribution(
+            BlackboardState state,
+            PatternReputation reputation,
+            string category,
+            string reason)
+    {
+        var catLower = category.ToLowerInvariant();
+        state.WriteSignals([
+            new($"reputation.{catLower}.state", reputation.State.ToString()),
+            new($"reputation.{catLower}.score", reputation.BotScore),
+            new($"reputation.{catLower}.support", reputation.Support)
+        ]);
+
+        // Check for browser attestation via Sec-Fetch-Site header (W3C Fetch Metadata).
+        // When a request carries same-origin attestation, the browser is declaring this
+        // is a programmatic fetch from the same site. Bots can set the header, but they
+        // can't maintain consistency across TLS/TCP/H2 fingerprints. Downgrade reputation
+        // weight so other detectors can confirm or override - prevents reputation from
+        // single-handedly blocking legitimate dashboard/API traffic.
+        // (Same pattern as FastPathReputationContributor.)
+        var secFetchSite = state.HttpContext?.Request.Headers["Sec-Fetch-Site"].FirstOrDefault();
+        var hasBrowserAttestation = string.Equals(secFetchSite, "same-origin", StringComparison.OrdinalIgnoreCase);
+
+        // Calculate contribution based on reputation state and FastPathWeight
+        var weight = reputation.FastPathWeight;
+
+        // ReputationBias is always bias-only (no early exit), regardless of category.
+        // UA, IP, and combined patterns are all too coarse to uniquely identify one client:
+        //   - UA is shared by millions of users (curl, Chrome, etc.)
+        //   - IP conflicts different clients from the same host (curl + browser from localhost)
+        //   - Combined (UA+IP+Path) still lacks TLS/H2/behavioral factors
+        // Only FastPathReputationContributor via PrimarySignature (multi-factor TLS+H2+UA+behavioral)
+        // is specific enough to warrant early exit. All other patterns contribute bias so the
+        // full detector stack can confirm or override.
+        if (reputation.CanTriggerFastAbort)
+        {
+            state.WriteSignal(SignalKeys.ReputationCanAbort, true);
+
+            // With browser attestation, downgrade to mild bias
+            if (hasBrowserAttestation)
+            {
+                _logger.LogInformation(
+                    "Reputation bias downgraded: {PatternId} ({Category}) has Sec-Fetch-Site: same-origin - using mild bias",
+                    reputation.PatternId, category);
+
+                return new DetectionContribution
+                {
+                    DetectorName = Name,
+                    Category = $"Reputation:{category}",
+                    ConfidenceDelta = Math.Min(reputation.BotScore, GetParam("browser_attestation_max_confidence", 0.35)),
+                    Weight = GetParam("browser_attestation_weight", 0.7),
+                    Reason = $"{reason} (downgraded - browser attestation present)"
+                };
+            }
+
+            // Strong bot signal - other detectors still run and can override
+            return new DetectionContribution
+            {
+                DetectorName = Name,
+                Category = $"Reputation:{category}",
+                ConfidenceDelta = Math.Min(reputation.BotScore, 0.75),
+                Weight = ConfirmedBadWeight,
+                Reason = $"[Reputation] {reason}"
+            };
+        }
+
+        // For non-abort cases, return weighted contribution
+        if (Math.Abs(weight) < 0.01)
+            // Negligible weight, skip
+            return null;
+
+        // Downgrade reputation weight when browser attestation is present
+        var effectiveWeight = Math.Abs(weight) * ReputationWeightMultiplier;
+        if (hasBrowserAttestation && weight > 0)
+        {
+            effectiveWeight = Math.Min(effectiveWeight, GetParam("browser_attestation_weight", 0.7));
+            reason += " (downgraded - browser attestation present)";
+        }
+
+        // Amplify reputation bias when paid traffic is detected.
+        // A known-bad fingerprint arriving via paid ads is substantially more suspicious
+        // than organic traffic - the attacker is burning ad spend to reach the target.
+        var isPaidTraffic = state.Signals.TryGetValue(SignalKeys.ClickFraudIsPaidTraffic, out var paidObj)
+            && paidObj is true;
+        if (isPaidTraffic && weight > 0)
+        {
+            var multiplier = GetParam("paid_traffic_bias_multiplier", 1.5);
+            effectiveWeight *= multiplier;
+        }
+
+        string? botType = reputation.State switch
+        {
+            ReputationState.ConfirmedBad => BotType.MaliciousBot.ToString(),
+            ReputationState.Suspect => BotType.Scraper.ToString(),
+            ReputationState.ManuallyBlocked => BotType.MaliciousBot.ToString(),
+            _ => null
+        };
+
+        return new DetectionContribution
+        {
+            DetectorName = Name,
+            Category = $"Reputation:{category}",
+            ConfidenceDelta = weight > 0 ? weight : -Math.Abs(weight),
+            Weight = effectiveWeight,
+            Reason = reason,
+            BotType = botType
+        };
+    }
+
+    private static string CreateUaPatternId(string userAgent)
+        => PatternNormalization.CreateUaPatternId(userAgent);
+
+    private static string CreateIpPatternId(string ip)
+        => PatternNormalization.CreateIpPatternId(ip);
+
+    private static string CreateCombinedPatternId(string userAgent, string ip, string path)
+    {
+        var uaNorm = PatternNormalization.NormalizeUserAgent(userAgent);
+        var ipNorm = PatternNormalization.NormalizeIpToRange(ip);
+        var pathNorm = NormalizePath(path);
+
+        var combined = $"{uaNorm}|{ipNorm}|{pathNorm}";
+        var hash = PatternNormalization.ComputeHash(combined);
+        return $"combined:{hash}";
+    }
+
+    /// <summary>
+    ///     Normalize path for pattern matching.
+    ///     Replaces IDs/GUIDs with placeholders.
+    /// </summary>
+    private static string NormalizePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return "/";
+
+        var normalized = path.ToLowerInvariant();
+
+        // Replace GUIDs
+        normalized = GuidRegex().Replace(normalized, "{guid}");
+
+        // Replace numeric IDs
+        normalized = NumericIdRegex().Replace(normalized, "/{id}$1");
+
+        return normalized;
+    }
+
+    [GeneratedRegex(@"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")]
+    private static partial Regex GuidRegex();
+
+    [GeneratedRegex(@"/\d+(/|$)")]
+    private static partial Regex NumericIdRegex();
+}

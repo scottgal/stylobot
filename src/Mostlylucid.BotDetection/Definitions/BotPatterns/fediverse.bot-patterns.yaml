@@ -1,0 +1,52 @@
+category: fediverse
+description: "Fediverse and ActivityPub decentralised social platform bots. Cannot be verified by IP range (any cloud IP). UA contains platform name and instance domain (e.g. Mastodon/4.2.0 (compatible; +https://mastodon.social/)). Pattern match alone is reliable enough for identification."
+patterns:
+  - pattern: Mastodon
+    bot_name: Mastodon
+    bot_type: SocialMediaBot
+    vendor: Mastodon
+
+  - pattern: Pleroma
+    bot_name: Pleroma
+    bot_type: SocialMediaBot
+    vendor: Pleroma
+
+  - pattern: Misskey
+    bot_name: Misskey
+    bot_type: SocialMediaBot
+    vendor: Misskey
+
+  - pattern: Calckey
+    bot_name: Calckey
+    bot_type: SocialMediaBot
+    vendor: Calckey
+
+  - pattern: Akkoma
+    bot_name: Akkoma
+    bot_type: SocialMediaBot
+    vendor: Akkoma
+
+  - pattern: Pixelfed
+    bot_name: Pixelfed
+    bot_type: SocialMediaBot
+    vendor: Pixelfed
+
+  - pattern: Lemmy
+    bot_name: Lemmy
+    bot_type: SocialMediaBot
+    vendor: Lemmy
+
+  - pattern: Friendica
+    bot_name: Friendica
+    bot_type: SocialMediaBot
+    vendor: Friendica
+
+  - pattern: Hubzilla
+    bot_name: Hubzilla
+    bot_type: SocialMediaBot
+    vendor: Hubzilla
+
+  - pattern: PeerTube
+    bot_name: PeerTube
+    bot_type: SocialMediaBot
+    vendor: Framasoft

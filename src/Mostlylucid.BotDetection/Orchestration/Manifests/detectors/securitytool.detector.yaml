@@ -1,0 +1,170 @@
+# Security Tool Detector - Detects penetration testing and vulnerability scanners
+name: SecurityToolContributor
+priority: 8  # Runs very early - high priority threat detection
+enabled: true
+description: Detects security/hacking tools, vulnerability scanners, and exploit frameworks
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: securitytool
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+# Input contract - what this detector consumes
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for security tool pattern matching
+      signal_pattern: request.*
+
+  required_signals:
+    - request.headers.user-agent
+
+  optional_signals:
+    - request.headers.*
+    - request.path
+
+# Output contract - what this detector produces
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Security tool detection contribution (may trigger early exit)
+
+  signals:
+    - key: detection.security_tool.detected
+      entity_type: boolean
+      salience: 1.0
+      description: Whether a security tool was detected
+    - key: detection.security_tool.name
+      entity_type: string
+      salience: 0.95
+      description: Name of detected security tool
+    - key: detection.security_tool.category
+      entity_type: string
+      salience: 0.8
+      description: Category of tool (scanner, exploit, pentest, fuzzer)
+    - key: detection.security_tool.confidence
+      entity_type: number
+      salience: 0.95
+      description: Confidence level for the detection
+    - key: detection.early_exit.block
+      entity_type: boolean
+      salience: 1.0
+      description: Signal to block request immediately
+
+triggers:
+  requires: []  # No dependencies - runs first wave
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_start:
+    - detector.securitytool.started
+
+  on_complete:
+    - key: detection.security_tool.detected
+      type: bool
+      description: Whether a security tool was detected
+
+    - key: detection.security_tool.name
+      type: string
+      description: Name of detected security tool
+
+    - key: detection.security_tool.category
+      type: string
+      description: Category of tool (scanner, exploit, pentest)
+
+  on_failure:
+    - detector.securitytool.failed
+
+  conditional:
+    - key: detection.early_exit.block
+      type: bool
+      when: security_tool.detected
+      description: Security tools trigger immediate block
+
+listens:
+  required: []
+  optional: []
+
+config:
+  bindings:
+    - config_key: SecurityTools.Enabled
+      skip_if_false: true
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 150  # High priority
+
+# ============================================
+# DEFAULT CONFIGURATION - NO MAGIC NUMBERS
+# Override via appsettings.json: BotDetection:Detectors:SecurityToolContributor:*
+# ============================================
+defaults:
+  weights:
+    base: 1.0           # Base contribution weight
+    bot_signal: 2.0     # High weight - security tools are definitive
+    human_signal: 0.0   # N/A - security tools are always bots
+    verified: 2.5       # Weight for verified tool patterns
+    early_exit: 3.0     # Can trigger early exit
+
+  confidence:
+    neutral: 0.0        # No security tool detected
+    bot_detected: 0.95  # Security tool detected - very high confidence
+    human_indicated: 0.0  # N/A
+    strong_signal: 0.99 # Known exploit framework
+    high_threshold: 0.9 # Threshold for "security tool"
+    low_threshold: 0.0  # N/A
+    escalation_threshold: 0.0  # Never escalates - always blocks
+
+  timing:
+    timeout_ms: 100     # Regex matching can take time
+    cache_refresh_sec: 3600  # Refresh patterns hourly
+
+  features:
+    detailed_logging: true   # Always log security tool detections
+    enable_cache: true       # Cache compiled patterns
+    can_early_exit: true     # Triggers immediate block
+    can_escalate: false      # No need to escalate - definitive
+
+  # SecurityTool-specific parameters
+  parameters:
+    # Pattern sources
+    sources:
+      - name: "digininja/scanner_user_agents"
+        type: "json"
+        url: "https://raw.githubusercontent.com/digininja/scanner_user_agents/master/agents.json"
+      - name: "OWASP CoreRuleSet"
+        type: "text"
+        url: "https://raw.githubusercontent.com/coreruleset/coreruleset/main/rules/scanners-user-agents.data"
+    # Regex match timeout (ms)
+    regex_timeout_ms: 100
+    # Tool categories and their weights
+    category_weights:
+      scanner: 0.9
+      exploit: 0.99
+      pentest: 0.95
+      fuzzer: 0.9
+      crawler: 0.8
+    # Known high-threat tools (immediate block)
+    high_threat_tools:
+      - "sqlmap"
+      - "nikto"
+      - "nmap"
+      - "metasploit"
+      - "burp"
+      - "zap"
+      - "nuclei"
+
+tags:
+  - fast-path
+  - security
+  - threat-detection
+  - stage-0
+  - early-exit

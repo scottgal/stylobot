@@ -1,0 +1,138 @@
+@model Mostlylucid.BotDetection.UI.Models.StatusStripModel
+@{
+    string Dot(bool ok) => ok
+        ? "w-2 h-2 rounded-full bg-success inline-block"
+        : "w-2 h-2 rounded-full bg-error inline-block";
+
+    string Badge(string text, bool active) => active
+        ? "badge badge-sm badge-success gap-1"
+        : "badge badge-sm badge-ghost gap-1";
+}
+
+<div class="flex flex-wrap items-center gap-3 px-4 py-2 mb-3 bg-base-200 rounded-lg text-xs"
+     data-sb-widget="status-strip" data-sb-depends="summary">
+
+    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "status-strip")
+
+    <!-- Compliance Pack -->
+    <div class="flex items-center gap-1.5">
+        <span class="font-semibold text-base-content/60">Pack:</span>
+        <span class="@Badge(Model.ActivePackName, true)">
+            <span class="@Dot(true)"></span>
+            @Model.ActivePackName
+        </span>
+    </div>
+
+    <div class="w-px h-4 bg-base-300"></div>
+
+    <!-- Detection Pipeline -->
+    <div class="flex items-center gap-1.5">
+        <span class="font-semibold text-base-content/60">Detection:</span>
+        <span class="@Badge("Active", Model.DetectionActive)">
+            <span class="@Dot(Model.DetectionActive)"></span>
+            @(Model.DetectionActive ? "Active" : "Inactive")
+        </span>
+    </div>
+
+    <div class="w-px h-4 bg-base-300"></div>
+
+    <!-- Services -->
+    <div class="flex items-center gap-1.5">
+        <span class="font-semibold text-base-content/60">Services:</span>
+        @foreach (var svc in Model.Services)
+        {
+            <span class="@Badge(svc.Name, svc.Connected)" title="@svc.Name: @(svc.Connected ? "connected" : "disconnected")">
+                <span class="@Dot(svc.Connected)"></span>
+                @svc.Name
+            </span>
+        }
+        @if (Model.Services.Count == 0)
+        {
+            <span class="text-base-content/40">None configured</span>
+        }
+    </div>
+
+    <div class="w-px h-4 bg-base-300"></div>
+
+    <!-- Guardians -->
+    <div class="flex items-center gap-1.5">
+        <span class="font-semibold text-base-content/60">Guardians:</span>
+        @if (Model.GuardiansEnabled)
+        {
+            <span class="@Badge($"{Model.GuardianCount} active", true)">
+                <span class="@Dot(true)"></span>
+                @Model.GuardianCount active
+            </span>
+            @if (Model.GuardianAlerts > 0)
+            {
+                <span class="badge badge-sm badge-warning gap-1">
+                    @Model.GuardianAlerts alert@(Model.GuardianAlerts != 1 ? "s" : "")
+                </span>
+            }
+        }
+        else
+        {
+            <span class="text-base-content/40">Not configured</span>
+        }
+    </div>
+
+    @if (Model.IsCommercial)
+    {
+        <div class="w-px h-4 bg-base-300"></div>
+
+        <!-- LLM -->
+        <div class="flex items-center gap-1.5">
+            <span class="font-semibold text-base-content/60">LLM:</span>
+            @if (Model.LlmConnected)
+            {
+                <span class="@Badge(Model.LlmProvider ?? "Connected", true)">
+                    <span class="@Dot(true)"></span>
+                    @(Model.LlmProvider ?? "Connected")
+                </span>
+            }
+            else
+            {
+                <span class="text-base-content/40">Not configured</span>
+            }
+        </div>
+    }
+
+    <div class="w-px h-4 bg-base-300"></div>
+
+    <!-- GPU Tunnel Nodes -->
+    @{
+        var activeCount = Model.TunnelNodes.Count(n => n.Enabled);
+    }
+    <div class="flex items-center gap-1.5">
+        <span class="font-semibold text-base-content/60">GPU Tunnels:</span>
+        @if (Model.TunnelNodes.Count == 0)
+        {
+            <span class="text-base-content/40">None configured</span>
+        }
+        else
+        {
+            <span class="@Badge($"{activeCount}/{Model.TunnelNodes.Count}", activeCount > 0)"
+                  title="@activeCount of @Model.TunnelNodes.Count node(s) active">
+                <span class="@Dot(activeCount > 0)"></span>
+                @activeCount/@Model.TunnelNodes.Count active
+            </span>
+            @foreach (var node in Model.TunnelNodes)
+            {
+                var modelList = node.Models.Count > 0 ? string.Join(", ", node.Models) : "no models";
+                var kindShort = node.TunnelKind == "cloudflare-named" ? "stable" : "ephemeral";
+                var modelSuffix = node.Models.Count > 0
+                    ? $"({node.Models[0]}{(node.Models.Count > 1 ? $"+{node.Models.Count - 1}" : "")})"
+                    : "";
+                <span class="@Badge(node.Name, node.Enabled)"
+                      title="@node.Name · @modelList · @kindShort · queue: @node.QueueDepth">
+                    <span class="@Dot(node.Enabled)"></span>
+                    @node.Name
+                    @if (modelSuffix.Length > 0)
+                    {
+                        <span class="opacity-60">@modelSuffix</span>
+                    }
+                </span>
+            }
+        }
+    </div>
+</div>

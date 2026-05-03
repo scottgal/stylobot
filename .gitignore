@@ -2,6 +2,9 @@
 .env
 !.env.example
 
+# macOS metadata
+.DS_Store
+
 # Screenshots from Playwright / debugging
 *.png
 !**/wwwroot/**/*.png
@@ -470,6 +473,16 @@ BenchmarkDotNet.Artifacts/
 TestSite/
 stylobot-react/
 *.playwright-mcp/
+
+# Local-only working directories
+logs/
+nupkgs/
+signing/
+test-suites/
+test-bdf-scenarios/
+bot-signatures/
+demo/caddy/
+src/Mostlylucid.BotDetection.Demo/hnsw-index/
 docs/legacy/
 .worktrees/
 *.xml

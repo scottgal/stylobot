@@ -1,0 +1,37 @@
+id: strict-privacy
+name: "Strict Privacy"
+description: "Minimal data collection and short retention. No external calls, local-only analytics."
+jurisdiction: none
+requires_tier: oss
+
+retention:
+  detections: 7d
+  signatures: 14d
+  sessions: 7d
+  ip_search_index: 7d
+  audit_log: 30d
+  config_changes: 90d
+  incident_records: 90d
+  dsar_request_log: 90d
+
+anonymization:
+  pii_hashing: required
+  key_rotation_days: 30
+  ip_subnet_mask: 24
+  strip_raw_user_agent_after: "0"
+  raw_payload_storage: false
+
+dsar:
+  enabled: false
+
+audit:
+  log_deletions: false
+  log_exports: false
+  log_admin_access: false
+  tamper_evident: false
+
+explain: >
+  Absolute minimum data retention. Detections purged after 7 days,
+  signatures after 14 days. IP hashing keys rotated monthly. User agents
+  stored as family only. No external API calls, no raw payload storage.
+  For privacy-first deployments where minimisation trumps investigation.

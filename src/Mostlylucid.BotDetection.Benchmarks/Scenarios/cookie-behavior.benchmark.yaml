@@ -1,0 +1,14 @@
+name: CookieBehavior_WithCookies
+description: Cookie behavior analysis with session cookies
+detector: CookieBehavior
+request:
+  method: GET
+  path: /products/123
+  ip: 203.0.113.42
+  headers:
+    user-agent: "Mozilla/5.0 Chrome/120.0"
+    cookie: "_ga=GA1.2.123456; session_id=abc123; pref=dark"
+thresholds:
+  max_mean_ns: 5000
+  max_allocated_bytes: 1024
+tags: [fast-path, cookie, human]

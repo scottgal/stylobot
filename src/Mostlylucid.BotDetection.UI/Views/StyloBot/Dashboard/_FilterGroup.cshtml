@@ -1,0 +1,61 @@
+@{
+    var (group, vm) = ((Mostlylucid.BotDetection.UI.Models.FilterGroup,
+                        Mostlylucid.BotDetection.UI.Models.ShapeInvestigationViewModel))Model;
+    var shape = vm.CurrentShape;
+    var weights = vm.CurrentWeights;
+}
+
+<details style="background:var(--sb-card-bg); border:1px solid var(--sb-card-border); border-radius:8px; overflow:hidden;">
+    <summary style="padding:0.5rem 0.75rem; cursor:pointer; font-size:0.85rem; font-weight:500; user-select:none;">
+        @group.Label
+        @{
+            var activeCount = group.Dimensions.Count(d => shape[d.AxisIndex] > 0.05f);
+        }
+        @if (activeCount > 0)
+        {
+            <span style="margin-left:0.5rem; padding:0.1rem 0.4rem; background:var(--sb-accent); color:white; border-radius:3px; font-size:0.7rem;">
+                @activeCount active
+            </span>
+        }
+    </summary>
+    <div style="padding:0.5rem 0.75rem; display:flex; flex-direction:column; gap:0.5rem;">
+        @foreach (var dim in group.Dimensions)
+        {
+            <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.8rem;">
+                <label style="width:100px; color:var(--sb-brand-muted); font-size:0.75rem;">
+                    @dim.Label
+                </label>
+
+                @if (dim.InputType == "toggle")
+                {
+                    <label style="display:flex; align-items:center; gap:0.3rem; cursor:pointer;">
+                        <input type="checkbox" name="dim_@dim.AxisIndex"
+                               value="@(dim.Threshold ?? 0.7)"
+                               @(shape[dim.AxisIndex] > 0.5 ? "checked" : "")
+                               style="accent-color:var(--sb-accent);" />
+                        <span style="font-size:0.75rem;">Yes</span>
+                    </label>
+                }
+                else
+                {
+                    <input type="range" min="0" max="1" step="0.05"
+                           name="dim_@dim.AxisIndex"
+                           value="@shape[dim.AxisIndex].ToString("F2")"
+                           style="flex:1; accent-color:var(--sb-accent);" />
+                    <span style="width:30px; text-align:right; font-family:monospace; font-size:0.7rem;">
+                        @shape[dim.AxisIndex].ToString("F1")
+                    </span>
+                }
+
+                <!-- Weight slider (advanced -- shown when group is expanded) -->
+                <div style="display:flex; align-items:center; gap:0.25rem; margin-left:0.5rem; opacity:0.5; font-size:0.65rem;">
+                    <span>w:</span>
+                    <input type="range" min="0" max="1" step="0.1"
+                           name="weight_@dim.AxisIndex"
+                           value="@weights[dim.AxisIndex].ToString("F1")"
+                           style="width:50px; accent-color:var(--sb-accent-alt);" />
+                </div>
+            </div>
+        }
+    </div>
+</details>

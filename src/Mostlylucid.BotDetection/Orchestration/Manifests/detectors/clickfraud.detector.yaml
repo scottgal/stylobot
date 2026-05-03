@@ -1,0 +1,104 @@
+name: ClickFraudContributor
+priority: 38
+enabled: true
+description: >
+  Detects click fraud and invalid ad traffic. Reads UTM/click-ID signals from
+  PiiQueryStringContributor plus session/IP/behavioral signals. Priority 38 places
+  it before IntentContributor (40) so downstream detectors can read clickfraud.* signals.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: clickfraud
+
+taxonomy:
+  kind: sensor
+  determinism: probabilistic
+  persistence: ephemeral
+  iab_ivt_class: SIVT
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: Request with UTM signals from PiiQueryStringContributor
+      signal_pattern: utm.*,ip.*,session.*,ua.*,geo.*,fingerprint.*,resource.*,transport.*
+
+  optional_signals:
+    - utm.present
+    - utm.has_gclid
+    - utm.has_fbclid
+    - utm.has_msclkid
+    - utm.has_ttclid
+    - utm.referrer_mismatch
+    - utm.referrer_present
+    - utm.source_platform
+    - ip.is_datacenter
+    - geo.is_vpn
+    - geo.is_proxy
+    - fingerprint.headless_score
+    - resource.asset_count
+    - transport.protocol_class
+
+output:
+  signals:
+    - key: clickfraud.confidence
+      entity_type: double
+      salience: 0.9
+    - key: clickfraud.pattern
+      entity_type: string
+      salience: 0.8
+    - key: clickfraud.is_paid_traffic
+      entity_type: boolean
+      salience: 0.7
+    - key: clickfraud.checked
+      entity_type: boolean
+      salience: 0.3
+
+triggers:
+  requires: []
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_complete:
+    - key: clickfraud.checked
+      type: bool
+      description: Whether click fraud analysis has run
+    - key: clickfraud.confidence
+      type: double
+      description: Composite click fraud score 0.0-1.0
+    - key: clickfraud.pattern
+      type: string
+      description: Primary pattern label (e.g. datacenter_paid, referrer_spoof)
+    - key: clickfraud.is_paid_traffic
+      type: bool
+      description: Whether UTM/click-ID parameters indicate paid ad traffic
+
+  on_failure:
+    - detector.clickfraud.failed
+
+defaults:
+  weights:
+    BotSignal: 1.5
+  confidence:
+    min_to_report: 0.30
+    bot_threshold: 0.55
+  parameters:
+    datacenter_paid_weight: 0.50
+    datacenter_unpaid_weight: 0.15
+    vpn_paid_weight: 0.25
+    proxy_paid_weight: 0.20
+    referrer_mismatch_clickid_weight: 0.40
+    referrer_mismatch_paid_weight: 0.25
+    single_page_weight: 0.20
+    no_assets_weight: 0.15
+    headless_paid_weight: 0.40
+    headless_unpaid_weight: 0.20
+    bot_threshold: 0.55
+
+tags:
+  - wave-1
+  - ad-fraud
+  - click-fraud
+  - sivt

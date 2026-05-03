@@ -3,37 +3,37 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.Common", "Mostlylucid.Common\Mostlylucid.Common.csproj", "{73F8D1E7-293D-4E16-961A-17D8A8892981}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.Common", "src\Mostlylucid.Common\Mostlylucid.Common.csproj", "{73F8D1E7-293D-4E16-961A-17D8A8892981}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection", "Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj", "{E77A60E4-EDC1-4C0D-9112-4C8670E1F22F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection", "src\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj", "{E77A60E4-EDC1-4C0D-9112-4C8670E1F22F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.ApiHolodeck", "Mostlylucid.BotDetection.ApiHolodeck\Mostlylucid.BotDetection.ApiHolodeck.csproj", "{CC70871B-60E9-461F-8E2A-9F15146348DC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.ApiHolodeck", "src\Mostlylucid.BotDetection.ApiHolodeck\Mostlylucid.BotDetection.ApiHolodeck.csproj", "{CC70871B-60E9-461F-8E2A-9F15146348DC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.BdfGenerator", "Mostlylucid.BotDetection.BdfGenerator\Mostlylucid.BotDetection.BdfGenerator.csproj", "{F2C9C153-8508-49B2-9A3E-5971BBF194BC}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.BdfGenerator", "src\Mostlylucid.BotDetection.BdfGenerator\Mostlylucid.BotDetection.BdfGenerator.csproj", "{F2C9C153-8508-49B2-9A3E-5971BBF194BC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Benchmarks", "Mostlylucid.BotDetection.Benchmarks\Mostlylucid.BotDetection.Benchmarks.csproj", "{F9AF2ED6-4656-4D40-B3C9-78B09B98A50D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Benchmarks", "src\Mostlylucid.BotDetection.Benchmarks\Mostlylucid.BotDetection.Benchmarks.csproj", "{F9AF2ED6-4656-4D40-B3C9-78B09B98A50D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Console", "Mostlylucid.BotDetection.Console\Mostlylucid.BotDetection.Console.csproj", "{BE9D5C15-CEFB-4172-8D98-1762E5C81EC2}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Console", "src\Mostlylucid.BotDetection.Console\Mostlylucid.BotDetection.Console.csproj", "{BE9D5C15-CEFB-4172-8D98-1762E5C81EC2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Demo", "Mostlylucid.BotDetection.Demo\Mostlylucid.BotDetection.Demo.csproj", "{C5F9C082-C91A-4CDC-A063-7D5DED12DA13}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Demo", "src\Mostlylucid.BotDetection.Demo\Mostlylucid.BotDetection.Demo.csproj", "{C5F9C082-C91A-4CDC-A063-7D5DED12DA13}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.GeoDetection", "Mostlylucid.GeoDetection\Mostlylucid.GeoDetection.csproj", "{E08FA0B7-891E-4BB4-AC35-62B760B5225F}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.GeoDetection", "src\Mostlylucid.GeoDetection\Mostlylucid.GeoDetection.csproj", "{E08FA0B7-891E-4BB4-AC35-62B760B5225F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.GeoDetection.Contributor", "Mostlylucid.GeoDetection.Contributor\Mostlylucid.GeoDetection.Contributor.csproj", "{8976EB06-D7BA-4989-B507-D57BA2D3C200}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.GeoDetection.Contributor", "src\Mostlylucid.GeoDetection.Contributor\Mostlylucid.GeoDetection.Contributor.csproj", "{8976EB06-D7BA-4989-B507-D57BA2D3C200}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.UI", "Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj", "{305E9224-9A1E-49A7-91A1-13C52201502C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.UI", "src\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj", "{305E9224-9A1E-49A7-91A1-13C52201502C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Demo.Tests", "Mostlylucid.BotDetection.Demo.Tests\Mostlylucid.BotDetection.Demo.Tests.csproj", "{B0BFFC66-08EF-4BCA-BD15-EF9BADD573E0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Demo.Tests", "src\Mostlylucid.BotDetection.Demo.Tests\Mostlylucid.BotDetection.Demo.Tests.csproj", "{B0BFFC66-08EF-4BCA-BD15-EF9BADD573E0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Orchestration.Tests", "Mostlylucid.BotDetection.Orchestration.Tests\Mostlylucid.BotDetection.Orchestration.Tests.csproj", "{E18630B5-BFD3-443F-BE43-07929BA727AA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Orchestration.Tests", "src\Mostlylucid.BotDetection.Orchestration.Tests\Mostlylucid.BotDetection.Orchestration.Tests.csproj", "{E18630B5-BFD3-443F-BE43-07929BA727AA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Test", "Mostlylucid.BotDetection.Test\Mostlylucid.BotDetection.Test.csproj", "{82146812-BD70-49F2-BDB6-47E4D4496DB0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Test", "src\Mostlylucid.BotDetection.Test\Mostlylucid.BotDetection.Test.csproj", "{82146812-BD70-49F2-BDB6-47E4D4496DB0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.GeoDetection.Test", "Mostlylucid.GeoDetection.Test\Mostlylucid.GeoDetection.Test.csproj", "{A37A239F-4888-4C1F-A899-258F60F165EA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.GeoDetection.Test", "src\Mostlylucid.GeoDetection.Test\Mostlylucid.GeoDetection.Test.csproj", "{A37A239F-4888-4C1F-A899-258F60F165EA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Stylobot.Gateway", "Stylobot.Gateway\Stylobot.Gateway.csproj", "{AA9CFA0B-F877-49CF-B634-79743075460A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Stylobot.Gateway", "src\Stylobot.Gateway\Stylobot.Gateway.csproj", "{AA9CFA0B-F877-49CF-B634-79743075460A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Stylobot.Gateway.Tests", "Stylobot.Gateway.Tests\Stylobot.Gateway.Tests.csproj", "{C189A4D3-916A-4EB7-B69B-31A2D0F3001D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Stylobot.Gateway.Tests", "src\Stylobot.Gateway.Tests\Stylobot.Gateway.Tests.csproj", "{C189A4D3-916A-4EB7-B69B-31A2D0F3001D}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "solution", "solution", "{5F8D2911-09EE-4F4E-829E-3D356A1DF107}"
 	ProjectSection(SolutionItems) = preProject
@@ -64,33 +64,33 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "solution", "solution", "{5F
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Mostlylucid.StyloSpam", "Mostlylucid.StyloSpam", "{38A686BC-6C3C-124F-5A1E-A910F678968F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.StyloSpam.Core", "Mostlylucid.StyloSpam\Mostlylucid.StyloSpam.Core\Mostlylucid.StyloSpam.Core.csproj", "{F9D77524-56C7-4047-B190-72102D5BD67D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.StyloSpam.Core", "src\Mostlylucid.StyloSpam\Mostlylucid.StyloSpam.Core\Mostlylucid.StyloSpam.Core.csproj", "{F9D77524-56C7-4047-B190-72102D5BD67D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.StyloSpam.Incoming", "Mostlylucid.StyloSpam\Mostlylucid.StyloSpam.Incoming\Mostlylucid.StyloSpam.Incoming.csproj", "{60BA9A4D-B34C-4206-9F71-5CB6B4667D57}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.StyloSpam.Incoming", "src\Mostlylucid.StyloSpam\Mostlylucid.StyloSpam.Incoming\Mostlylucid.StyloSpam.Incoming.csproj", "{60BA9A4D-B34C-4206-9F71-5CB6B4667D57}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.StyloSpam.Outgoing", "Mostlylucid.StyloSpam\Mostlylucid.StyloSpam.Outgoing\Mostlylucid.StyloSpam.Outgoing.csproj", "{C1C8742B-C0BC-4BB2-B185-316596A4E2F8}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.StyloSpam.Outgoing", "src\Mostlylucid.StyloSpam\Mostlylucid.StyloSpam.Outgoing\Mostlylucid.StyloSpam.Outgoing.csproj", "{C1C8742B-C0BC-4BB2-B185-316596A4E2F8}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.StyloSpam.Tool", "Mostlylucid.StyloSpam\Mostlylucid.StyloSpam.Tool\Mostlylucid.StyloSpam.Tool.csproj", "{899C7D2B-4F06-43A7-862D-E909D8FC1037}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.StyloSpam.Tool", "src\Mostlylucid.StyloSpam\Mostlylucid.StyloSpam.Tool\Mostlylucid.StyloSpam.Tool.csproj", "{899C7D2B-4F06-43A7-862D-E909D8FC1037}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Llm", "Mostlylucid.BotDetection.Llm\Mostlylucid.BotDetection.Llm.csproj", "{F4323A3D-E1F7-4C69-A8FA-4B96D24E1FC4}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Llm", "src\Mostlylucid.BotDetection.Llm\Mostlylucid.BotDetection.Llm.csproj", "{F4323A3D-E1F7-4C69-A8FA-4B96D24E1FC4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Llm.LlamaSharp", "Mostlylucid.BotDetection.Llm.LlamaSharp\Mostlylucid.BotDetection.Llm.LlamaSharp.csproj", "{68EEF162-11CD-474F-BD20-3764D71A62DD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Llm.LlamaSharp", "src\Mostlylucid.BotDetection.Llm.LlamaSharp\Mostlylucid.BotDetection.Llm.LlamaSharp.csproj", "{68EEF162-11CD-474F-BD20-3764D71A62DD}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Llm.Ollama", "Mostlylucid.BotDetection.Llm.Ollama\Mostlylucid.BotDetection.Llm.Ollama.csproj", "{8CF6EAEA-CFE0-42D0-AA71-5FB38DF2361A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Llm.Ollama", "src\Mostlylucid.BotDetection.Llm.Ollama\Mostlylucid.BotDetection.Llm.Ollama.csproj", "{8CF6EAEA-CFE0-42D0-AA71-5FB38DF2361A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Llm.Cloud", "Mostlylucid.BotDetection.Llm.Cloud\Mostlylucid.BotDetection.Llm.Cloud.csproj", "{BB2DA910-91C0-4A86-9A5F-F639FDAF511C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Llm.Cloud", "src\Mostlylucid.BotDetection.Llm.Cloud\Mostlylucid.BotDetection.Llm.Cloud.csproj", "{BB2DA910-91C0-4A86-9A5F-F639FDAF511C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Api", "Mostlylucid.BotDetection.Api\Mostlylucid.BotDetection.Api.csproj", "{D673789A-B11B-478B-96F7-56566A3B7E5B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Api", "src\Mostlylucid.BotDetection.Api\Mostlylucid.BotDetection.Api.csproj", "{D673789A-B11B-478B-96F7-56566A3B7E5B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Api.Tests", "Mostlylucid.BotDetection.Api.Tests\Mostlylucid.BotDetection.Api.Tests.csproj", "{29C499B5-01AF-44E4-9553-975C355A2AFF}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Api.Tests", "src\Mostlylucid.BotDetection.Api.Tests\Mostlylucid.BotDetection.Api.Tests.csproj", "{29C499B5-01AF-44E4-9553-975C355A2AFF}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Llm.Holodeck", "Mostlylucid.BotDetection.Llm.Holodeck\Mostlylucid.BotDetection.Llm.Holodeck.csproj", "{048FD3DE-85F7-4457-9644-AC3E472DD54E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Llm.Holodeck", "src\Mostlylucid.BotDetection.Llm.Holodeck\Mostlylucid.BotDetection.Llm.Holodeck.csproj", "{048FD3DE-85F7-4457-9644-AC3E472DD54E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Llm.Tunnel", "Mostlylucid.BotDetection.Llm.Tunnel\Mostlylucid.BotDetection.Llm.Tunnel.csproj", "{0C26B5BF-94CA-463A-8D16-45137181A9D9}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Llm.Tunnel", "src\Mostlylucid.BotDetection.Llm.Tunnel\Mostlylucid.BotDetection.Llm.Tunnel.csproj", "{0C26B5BF-94CA-463A-8D16-45137181A9D9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Sample", "Mostlylucid.BotDetection.Sample\Mostlylucid.BotDetection.Sample.csproj", "{5FB7D6E6-D286-4CE0-99AD-E0DFBFDBB4E3}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Sample", "src\Mostlylucid.BotDetection.Sample\Mostlylucid.BotDetection.Sample.csproj", "{5FB7D6E6-D286-4CE0-99AD-E0DFBFDBB4E3}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Sidecar", "Mostlylucid.BotDetection.Sidecar\Mostlylucid.BotDetection.Sidecar.csproj", "{56325BBE-65AA-4333-A66C-F26B94A927E4}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Sidecar", "src\Mostlylucid.BotDetection.Sidecar\Mostlylucid.BotDetection.Sidecar.csproj", "{56325BBE-65AA-4333-A66C-F26B94A927E4}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
