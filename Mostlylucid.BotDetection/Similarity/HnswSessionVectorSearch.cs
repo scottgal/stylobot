@@ -48,6 +48,9 @@ public sealed class HnswSessionVectorSearch : ISessionVectorSearch, IDisposable
     private List<SessionVectorMetadata> _metadata = [];
     private bool _dirty;
 
+    // 0 = idle, 1 = rebuild in progress; prevents concurrent rebuilds
+    private int _rebuildInProgress;
+
     public HnswSessionVectorSearch(
         ILogger<HnswSessionVectorSearch> logger,
         IOptions<BotDetectionOptions> options)
@@ -139,6 +142,12 @@ public sealed class HnswSessionVectorSearch : ISessionVectorSearch, IDisposable
             return Task.CompletedTask;
         }
 
+        if (!IsValidVector(vector))
+        {
+            _logger.LogDebug("Skipping zero-norm session vector for {Signature}", signature);
+            return Task.CompletedTask;
+        }
+
         var meta = new SessionVectorMetadata
         {
             Signature = signature,
@@ -153,16 +162,16 @@ public sealed class HnswSessionVectorSearch : ISessionVectorSearch, IDisposable
             DriftVector = driftVector
         };
 
+        bool triggerRebuild;
         lock (_writeLock)
         {
             _pendingVectors.Add(vector);
             _pendingMetadata.Add(meta);
             _dirty = true;
-
-            if (_pendingVectors.Count >= RebuildThreshold)
-                RebuildGraphLocked();
+            triggerRebuild = _pendingVectors.Count >= RebuildThreshold;
         }
-
+        if (triggerRebuild && Interlocked.CompareExchange(ref _rebuildInProgress, 1, 0) == 0)
+            _ = Task.Run(RebuildGraphOffLock);
         return Task.CompletedTask;
     }
 
@@ -297,6 +306,7 @@ public sealed class HnswSessionVectorSearch : ISessionVectorSearch, IDisposable
 
                 // Slow path: rebuild from vectors
                 BuildGraphFromVectorsLocked();
+                _dirty = true;
                 _logger.LogInformation("Session HNSW index rebuilt: {Count} vectors", _graphVectors.Count);
             }
         }
@@ -426,6 +436,45 @@ public sealed class HnswSessionVectorSearch : ISessionVectorSearch, IDisposable
         }
     }
 
+    private void RebuildGraphOffLock()
+    {
+        try
+        {
+            List<float[]> allVectors;
+            lock (_writeLock)
+            {
+                if (_pendingVectors.Count == 0) return;
+                _graphVectors.AddRange(_pendingVectors);
+                _metadata.AddRange(_pendingMetadata);
+                _pendingVectors.Clear();
+                _pendingMetadata.Clear();
+                allVectors = [.. _graphVectors];
+            }
+            if (allVectors.Count < MinVectorsForGraph) return;
+            var newGraph = new SmallWorld<float[], float>(
+                CosineDistance.SIMD, DefaultRandomGenerator.Instance, GraphParameters, threadSafe: true);
+            newGraph.AddItems(allVectors.Where(IsValidVector).ToList(), progressReporter: null);
+            lock (_writeLock)
+            {
+                _graph = newGraph;
+                _dirty = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Background session HNSW rebuild failed");
+        }
+        finally { Interlocked.Exchange(ref _rebuildInProgress, 0); }
+    }
+
+    private static bool IsValidVector(float[] v)
+    {
+        if (v.Length == 0) return false;
+        var normSq = 0f;
+        foreach (var x in v) normSq += x * x;
+        return normSq > 0f && !float.IsNaN(normSq) && !float.IsInfinity(normSq);
+    }
+
     private void RebuildGraphLocked()
     {
         if (_pendingVectors.Count == 0) return;
@@ -449,10 +498,12 @@ public sealed class HnswSessionVectorSearch : ISessionVectorSearch, IDisposable
                 GraphParameters,
                 threadSafe: true);
 
-            graph.AddItems(_graphVectors, progressReporter: null);
+            var validVectors = _graphVectors.Where(IsValidVector).ToList();
+            if (validVectors.Count < MinVectorsForGraph) return;
+            graph.AddItems(validVectors, progressReporter: null);
             _graph = graph;
 
-            _logger.LogDebug("Built session HNSW graph: {Count} vectors", _graphVectors.Count);
+            _logger.LogDebug("Built session HNSW graph: {Count} vectors", validVectors.Count);
         }
         catch (Exception ex)
         {

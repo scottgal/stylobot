@@ -724,11 +724,11 @@ public class BotDetectionMiddleware(
         var path = context.Request.Path;
         var method = context.Request.Method;
         var botName = aggregated.PrimaryBotName ?? "unknown";
-        var detectors = string.Join(",", aggregated.ContributingDetectors);
 
         if (_options.LogDetailedReasons && aggregated.Contributions.Count > 0)
         {
-            // Detailed logging with reasons
+            // Detailed logging with reasons - build strings only in this branch
+            var detectors = string.Join(",", aggregated.ContributingDetectors);
             var topReasons = aggregated.Contributions
                 .OrderByDescending(c => Math.Abs(c.ConfidenceDelta))
                 .Take(3)
@@ -743,7 +743,6 @@ public class BotDetectionMiddleware(
         }
         else
         {
-            // Simple logging
             _logger.LogInformation(
                 "Bot detection: {Method} {Path} -> risk={Risk:F2} ({RiskBand}), bot={BotName}, policy={Policy}, time={Time:F1}ms",
                 method, path, riskScore, riskBand, botName, policyName, aggregated.TotalProcessingTimeMs);
@@ -1904,28 +1903,31 @@ public class BotDetectionMiddleware(
         context.Items[BotTypeKey] = result.PrimaryBotType;
         context.Items[BotNameKey] = result.PrimaryBotName;
 
-        // Primary category from highest-contributing category
+        // Primary category from highest-contributing category (linear scan, no sort allocation)
         if (result.CategoryBreakdown.Count > 0)
         {
-            var primaryCategory = result.CategoryBreakdown
-                .OrderByDescending(kv => Math.Abs(kv.Value.Score))
-                .First();
-            context.Items[BotCategoryKey] = primaryCategory.Key;
+            string? bestKey = null;
+            var bestScore = double.MinValue;
+            foreach (var kv in result.CategoryBreakdown)
+            {
+                var abs = Math.Abs(kv.Value.Score);
+                if (abs > bestScore) { bestScore = abs; bestKey = kv.Key; }
+            }
+            context.Items[BotCategoryKey] = bestKey;
         }
 
         // Also create a legacy BotDetectionResult for compatibility
+        var contributions = result.Contributions;
+        var reasons = new List<DetectionReason>(contributions.Count);
+        foreach (var c in contributions)
+            reasons.Add(new DetectionReason { Category = c.Category, Detail = c.Reason, ConfidenceImpact = c.ConfidenceDelta });
         var legacyResult = new BotDetectionResult
         {
             IsBot = isBot,
             ConfidenceScore = result.BotProbability,
-            BotType = isBot ? result.PrimaryBotType : null, // Only set BotType if actually a bot
-            BotName = isBot ? result.PrimaryBotName : null, // Only set BotName if actually a bot
-            Reasons = result.Contributions.Select(c => new DetectionReason
-            {
-                Category = c.Category,
-                Detail = c.Reason,
-                ConfidenceImpact = c.ConfidenceDelta
-            }).ToList()
+            BotType = isBot ? result.PrimaryBotType : null,
+            BotName = isBot ? result.PrimaryBotName : null,
+            Reasons = reasons
         };
         context.Items[BotDetectionResultKey] = legacyResult;
     }

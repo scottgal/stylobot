@@ -41,6 +41,7 @@ public sealed class HnswIntentSearch : IIntentSimilaritySearch, IDisposable
     private List<float[]> _graphVectors = [];
     private List<IntentMetadata> _metadata = [];
     private bool _dirty;
+    private int _rebuildInProgress;
 
     public HnswIntentSearch(
         ILogger<HnswIntentSearch> logger,
@@ -176,6 +177,12 @@ public sealed class HnswIntentSearch : IIntentSimilaritySearch, IDisposable
             return Task.CompletedTask;
         }
 
+        if (!IsValidVector(vector))
+        {
+            _logger.LogDebug("Skipping zero-norm intent vector for {Signature}", signatureId);
+            return Task.CompletedTask;
+        }
+
         var meta = new IntentMetadata
         {
             SignatureId = signatureId,
@@ -187,16 +194,16 @@ public sealed class HnswIntentSearch : IIntentSimilaritySearch, IDisposable
             VectorDimension = IntentVectorizer.VectorDimension
         };
 
+        bool triggerRebuild;
         lock (_writeLock)
         {
             _pendingVectors.Add(vector);
             _pendingMetadata.Add(meta);
             _dirty = true;
-
-            if (_pendingVectors.Count >= RebuildThreshold)
-                RebuildGraphLocked();
+            triggerRebuild = _pendingVectors.Count >= RebuildThreshold;
         }
-
+        if (triggerRebuild && Interlocked.CompareExchange(ref _rebuildInProgress, 1, 0) == 0)
+            _ = Task.Run(RebuildGraphOffLock);
         return Task.CompletedTask;
     }
 
@@ -345,6 +352,7 @@ public sealed class HnswIntentSearch : IIntentSimilaritySearch, IDisposable
                 }
 
                 BuildGraphFromVectorsLocked();
+                _dirty = true;
                 _logger.LogInformation("Rebuilt intent HNSW index with {Count} vectors", _graphVectors.Count);
             }
         }
@@ -366,6 +374,45 @@ public sealed class HnswIntentSearch : IIntentSimilaritySearch, IDisposable
         {
             _logger.LogWarning(ex, "Failed to save intent HNSW index on shutdown");
         }
+    }
+
+    private void RebuildGraphOffLock()
+    {
+        try
+        {
+            List<float[]> allVectors;
+            lock (_writeLock)
+            {
+                if (_pendingVectors.Count == 0) return;
+                _graphVectors.AddRange(_pendingVectors);
+                _metadata.AddRange(_pendingMetadata);
+                _pendingVectors.Clear();
+                _pendingMetadata.Clear();
+                allVectors = [.. _graphVectors];
+            }
+            if (allVectors.Count < MinVectorsForGraph) return;
+            var newGraph = new SmallWorld<float[], float>(
+                CosineDistance.SIMD, DefaultRandomGenerator.Instance, GraphParameters, threadSafe: true);
+            newGraph.AddItems(allVectors.Where(IsValidVector).ToList(), progressReporter: null);
+            lock (_writeLock)
+            {
+                _graph = newGraph;
+                _dirty = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Background intent HNSW rebuild failed");
+        }
+        finally { Interlocked.Exchange(ref _rebuildInProgress, 0); }
+    }
+
+    private static bool IsValidVector(float[] v)
+    {
+        if (v.Length == 0) return false;
+        var normSq = 0f;
+        foreach (var x in v) normSq += x * x;
+        return normSq > 0f && !float.IsNaN(normSq) && !float.IsInfinity(normSq);
     }
 
     private void RebuildGraphLocked()
@@ -392,10 +439,12 @@ public sealed class HnswIntentSearch : IIntentSimilaritySearch, IDisposable
                 GraphParameters,
                 threadSafe: true);
 
-            graph.AddItems(_graphVectors, progressReporter: null);
+            var validVectors = _graphVectors.Where(IsValidVector).ToList();
+            if (validVectors.Count < MinVectorsForGraph) return;
+            graph.AddItems(validVectors, progressReporter: null);
             _graph = graph;
 
-            _logger.LogDebug("Built intent HNSW graph with {Count} vectors", _graphVectors.Count);
+            _logger.LogDebug("Built intent HNSW graph with {Count} vectors", validVectors.Count);
         }
         catch (Exception ex)
         {

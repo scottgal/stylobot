@@ -32,6 +32,9 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
     private readonly Timer _autoSaveTimer;
     private readonly Task _loadTask;
 
+    // 0 = idle, 1 = rebuild in progress; prevents concurrent rebuilds
+    private int _rebuildInProgress;
+
     // Pending vectors not yet in the HNSW graph (added since last rebuild)
     private readonly List<float[]> _pendingVectors = [];
     private readonly List<SignatureMetadata> _pendingMetadata = [];
@@ -157,6 +160,12 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
 
     public Task AddAsync(float[] vector, string signatureId, bool wasBot, double confidence, string? embeddingContext = null)
     {
+        if (!IsValidVector(vector))
+        {
+            _logger.LogDebug("Skipping zero-norm signature vector for {Signature}", signatureId);
+            return Task.CompletedTask;
+        }
+
         var meta = new SignatureMetadata
         {
             SignatureId = signatureId,
@@ -165,18 +174,76 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
             Timestamp = DateTimeOffset.UtcNow
         };
 
+        bool triggerRebuild;
         lock (_writeLock)
         {
             _pendingVectors.Add(vector);
             _pendingMetadata.Add(meta);
             _dirty = true;
-
-            // Rebuild when pending vectors accumulate
-            if (_pendingVectors.Count >= RebuildThreshold)
-                RebuildGraphLocked();
+            triggerRebuild = _pendingVectors.Count >= RebuildThreshold;
         }
 
+        // Rebuild on a background thread — never block the hot path
+        if (triggerRebuild && Interlocked.CompareExchange(ref _rebuildInProgress, 1, 0) == 0)
+            _ = Task.Run(RebuildGraphOffLock);
+
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    ///     Merges pending vectors and rebuilds the graph on a background thread.
+    ///     The expensive AddItems call runs entirely off the write lock.
+    /// </summary>
+    private void RebuildGraphOffLock()
+    {
+        try
+        {
+            List<float[]> allVectors;
+            List<SignatureMetadata> allMeta;
+
+            lock (_writeLock)
+            {
+                if (_pendingVectors.Count == 0)
+                    return;
+
+                _graphVectors.AddRange(_pendingVectors);
+                _metadata.AddRange(_pendingMetadata);
+                _pendingVectors.Clear();
+                _pendingMetadata.Clear();
+
+                // Snapshot for building — lock released immediately after
+                allVectors = [.. _graphVectors];
+                allMeta = [.. _metadata];
+            }
+
+            if (allVectors.Count < MinVectorsForGraph)
+                return;
+
+            // CPU-intensive work runs completely off the lock
+            var newGraph = new SmallWorld<float[], float>(
+                CosineDistance.SIMD,
+                DefaultRandomGenerator.Instance,
+                GraphParameters,
+                threadSafe: true);
+
+            newGraph.AddItems(allVectors, progressReporter: null);
+
+            lock (_writeLock)
+            {
+                _graph = newGraph;
+                _dirty = true;
+            }
+
+            _logger.LogDebug("Rebuilt HNSW graph with {Count} vectors (background)", allVectors.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to build HNSW graph");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _rebuildInProgress, 0);
+        }
     }
 
     public async Task SaveAsync()
@@ -373,6 +440,7 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
                 }
 
                 BuildGraphFromVectorsLocked();
+                _dirty = true; // ensure graph is serialized on next save so restart skips rebuild
                 _logger.LogInformation("Rebuilt HNSW index with {Count} vectors", _graphVectors.Count);
             }
         }
@@ -388,6 +456,14 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
         var padded = new float[targetDim];
         v.CopyTo(padded, 0);
         return padded;
+    }
+
+    private static bool IsValidVector(float[] v)
+    {
+        if (v.Length == 0) return false;
+        var normSq = 0f;
+        foreach (var x in v) normSq += x * x;
+        return normSq > 0f && !float.IsNaN(normSq) && !float.IsInfinity(normSq);
     }
 
     private void DiscardIndex(params string[] paths)
@@ -440,10 +516,12 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
                 GraphParameters,
                 threadSafe: true);
 
-            graph.AddItems(_graphVectors, progressReporter: null);
+            var validVectors = _graphVectors.Where(IsValidVector).ToList();
+            if (validVectors.Count < MinVectorsForGraph) return;
+            graph.AddItems(validVectors, progressReporter: null);
             _graph = graph;
 
-            _logger.LogDebug("Built HNSW graph with {Count} vectors", _graphVectors.Count);
+            _logger.LogDebug("Built HNSW graph with {Count} vectors", validVectors.Count);
         }
         catch (Exception ex)
         {
