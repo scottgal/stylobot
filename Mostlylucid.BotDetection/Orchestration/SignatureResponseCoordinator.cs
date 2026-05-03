@@ -13,12 +13,14 @@ namespace Mostlylucid.BotDetection.Orchestration;
 /// </summary>
 public sealed class SignatureResponseCoordinator : IAsyncDisposable
 {
-    // Lanes (share the coordinator's sink)
+    private readonly BehavioralLane _behavioralLane;
+    private readonly SpectralLane _spectralLane;
+    private readonly ReputationLane _reputationLane;
     private readonly IReadOnlyList<IAnalysisLane> _lanes;
     private readonly SemaphoreSlim _lock = new(1, 1);
     private readonly ILogger _logger;
     private readonly string _signature;
-    internal readonly SignalSink _sink; // SHARED by SignatureResponseCoordinatorCache
+    private readonly SignalSink _sink;
     private readonly LinkedList<OperationCompleteSignal> _window;
     private double _maxRiskSeen;
 
@@ -48,13 +50,10 @@ public sealed class SignatureResponseCoordinator : IAsyncDisposable
         // The key is "c.{signature}" - short enough to avoid key bloat but unique per coordinator.
         var coordinatorKey = $"c.{_signature}";
 
-        // Initialize lanes - all share this coordinator's sink, scoped by coordinatorKey
-        _lanes = new List<IAnalysisLane>
-        {
-            new BehavioralLane(_sink, coordinatorKey),
-            new SpectralLane(_sink, coordinatorKey),
-            new ReputationLane(_sink, coordinatorKey)
-        };
+        _behavioralLane = new BehavioralLane(_sink, coordinatorKey);
+        _spectralLane = new SpectralLane(_sink, coordinatorKey);
+        _reputationLane = new ReputationLane(_sink, coordinatorKey);
+        _lanes = [_behavioralLane, _spectralLane, _reputationLane];
 
         _logger.LogDebug("SignatureResponseCoordinator created for {Signature} with {LaneCount} lanes",
             signature, _lanes.Count);
@@ -169,30 +168,11 @@ public sealed class SignatureResponseCoordinator : IAsyncDisposable
         }
     }
 
-    /// <summary>
-    ///     Aggregate signals from lanes into signature behavior.
-    ///     Each lane exposes its ScopedScoreKey so we read only signals written by
-    ///     *this* coordinator's lanes, never those of a different coordinator sharing
-    ///     the same SignalSink.
-    /// </summary>
     private SignatureResponseBehavior AggregateLaneSignals()
     {
-        // Locate each lane by name and read its scoped score key directly.
-        // This guarantees that a shared sink returning signals from coordinator B
-        // cannot influence coordinator A's aggregation.
-        var behavioralLane = _lanes.FirstOrDefault(l => l.Name == "behavioral");
-        var spectralLane = _lanes.FirstOrDefault(l => l.Name == "spectral");
-        var reputationLane = _lanes.FirstOrDefault(l => l.Name == "reputation");
-
-        var behavioralScore = behavioralLane is not null
-            ? GetLatestDoubleSignal(behavioralLane.ScopedScoreKey)
-            : 0.0;
-        var spectralScore = spectralLane is not null
-            ? GetLatestDoubleSignal(spectralLane.ScopedScoreKey)
-            : 0.0;
-        var reputationScore = reputationLane is not null
-            ? GetLatestDoubleSignal(reputationLane.ScopedScoreKey)
-            : 0.0;
+        var behavioralScore = GetLatestDoubleSignal(_behavioralLane.ScopedScoreKey);
+        var spectralScore = GetLatestDoubleSignal(_spectralLane.ScopedScoreKey);
+        var reputationScore = GetLatestDoubleSignal(_reputationLane.ScopedScoreKey);
 
         // Weighted average (configurable in future)
         var combinedScore = behavioralScore * 0.4 + spectralScore * 0.3 + reputationScore * 0.3;

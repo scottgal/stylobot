@@ -586,7 +586,8 @@ public static class ServiceCollectionExtensions
         // Multi-layer correlation - runs after fingerprinting to cross-check consistency
         services.AddSingleton<IContributingDetector, MultiLayerCorrelationContributor>();
         // Behavioral waveform analysis - analyzes patterns across multiple requests
-        services.AddSingleton<IContributingDetector, BehavioralWaveformContributor>();
+        services.AddSingleton<BehavioralWaveformContributor>();
+        services.AddSingleton<IContributingDetector>(sp => sp.GetRequiredService<BehavioralWaveformContributor>());
         // Header hash collector for progressive identity resolution
         services.TryAddSingleton<Identity.HeaderHashCollector>();
         // Session vector analysis - Markov chain compression for inter-session anomaly detection

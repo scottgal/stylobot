@@ -528,17 +528,27 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
     {
         _compacted ??= new CompactedResponseSummary { FirstSeen = signals[0].Timestamp };
         _compacted.TotalCount += signals.Count;
-        _compacted.Count2xx += signals.Count(s => s.StatusCode is >= 200 and < 300);
-        _compacted.Count3xx += signals.Count(s => s.StatusCode is >= 300 and < 400);
-        _compacted.Count4xx += signals.Count(s => s.StatusCode is >= 400 and < 500);
-        _compacted.Count404 += signals.Count(s => s.StatusCode == 404);
-        _compacted.Count5xx += signals.Count(s => s.StatusCode >= 500);
-        _compacted.AuthFailures += signals.Count(s => s.StatusCode is 401 or 403);
-        _compacted.HoneypotHits += signals.Count(s =>
-            _options.HoneypotPaths.Any(hp => MatchesHoneypotPattern(s.Path, hp)));
-        foreach (var signal in signals)
-        foreach (var pattern in signal.BodySummary.MatchedPatterns)
-            _compacted.PatternCounts[pattern] = _compacted.PatternCounts.GetValueOrDefault(pattern) + 1;
+
+        foreach (var s in signals)
+        {
+            var code = s.StatusCode;
+            if (code >= 200 && code < 300) _compacted.Count2xx++;
+            else if (code >= 300 && code < 400) _compacted.Count3xx++;
+            else if (code >= 400 && code < 500)
+            {
+                _compacted.Count4xx++;
+                if (code == 404) _compacted.Count404++;
+                if (code == 401 || code == 403) _compacted.AuthFailures++;
+            }
+            else if (code >= 500) _compacted.Count5xx++;
+
+            if (_options.HoneypotPaths.Any(hp => MatchesHoneypotPattern(s.Path, hp)))
+                _compacted.HoneypotHits++;
+
+            foreach (var pattern in s.BodySummary.MatchedPatterns)
+                _compacted.PatternCounts[pattern] = _compacted.PatternCounts.GetValueOrDefault(pattern) + 1;
+        }
+
         _compacted.LastSeen = signals[^1].Timestamp;
     }
 
@@ -580,33 +590,34 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
             ? responseList.Last().Timestamp.UtcDateTime
             : _compacted?.LastSeen.UtcDateTime ?? DateTime.UtcNow;
 
-        // Count status codes from live ring buffer
-        var count2xx = responseList.Count(r => r.StatusCode >= 200 && r.StatusCode < 300);
-        var count3xx = responseList.Count(r => r.StatusCode >= 300 && r.StatusCode < 400);
-        var count4xx = responseList.Count(r => r.StatusCode >= 400 && r.StatusCode < 500);
-        var count5xx = responseList.Count(r => r.StatusCode >= 500);
-        var count404 = responseList.Count(r => r.StatusCode == 404);
-
-        // Count unique 404 paths
-        var unique404Paths = responseList
-            .Where(r => r.StatusCode == 404)
-            .Select(r => r.Path)
-            .Distinct()
-            .Count();
-
-        // Count auth failures (401/403)
-        var authFailures = responseList.Count(r => r.StatusCode == 401 || r.StatusCode == 403);
-
-        // Count honeypot hits - patterns support * and ? glob wildcards
-        // e.g. "/wp-*" matches /wp-admin, /wp-login.php, /wp-config.php
-        var honeypotHits = responseList.Count(r =>
-            _options.HoneypotPaths.Any(hp => MatchesHoneypotPattern(r.Path, hp)));
-
-        // Count pattern matches from live ring buffer
+        // Single-pass count over live ring buffer
+        var count2xx = 0; var count3xx = 0; var count4xx = 0; var count5xx = 0;
+        var count404 = 0; var authFailures = 0; var honeypotHits = 0;
+        var unique404Paths = new HashSet<string?>();
         var patternCounts = new Dictionary<string, int>();
-        foreach (var response in responseList)
-        foreach (var pattern in response.BodySummary.MatchedPatterns)
-            patternCounts[pattern] = patternCounts.GetValueOrDefault(pattern) + 1;
+
+        foreach (var r in responseList)
+        {
+            var code = r.StatusCode;
+            if (code >= 200 && code < 300) count2xx++;
+            else if (code >= 300 && code < 400) count3xx++;
+            else if (code >= 400 && code < 500)
+            {
+                count4xx++;
+                if (code == 404) { count404++; unique404Paths.Add(r.Path); }
+                if (code == 401 || code == 403) authFailures++;
+            }
+            else if (code >= 500) count5xx++;
+
+            // Honeypot hits - patterns support * and ? glob wildcards
+            if (_options.HoneypotPaths.Any(hp => MatchesHoneypotPattern(r.Path, hp)))
+                honeypotHits++;
+
+            foreach (var pattern in r.BodySummary.MatchedPatterns)
+                patternCounts[pattern] = patternCounts.GetValueOrDefault(pattern) + 1;
+        }
+
+        var unique404PathCount = unique404Paths.Count;
 
         // Merge compacted summary counts into live counts
         if (_compacted != null)
@@ -632,7 +643,7 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
             count4xx,
             count5xx,
             count404,
-            unique404Paths,
+            unique404PathCount,
             authFailures,
             honeypotHits,
             patternCounts);
@@ -647,7 +658,7 @@ internal sealed class ClientResponseTrackingAtom : IDisposable
             Count4xx = count4xx,
             Count5xx = count5xx,
             Count404 = count404,
-            UniqueNotFoundPaths = unique404Paths,
+            UniqueNotFoundPaths = unique404PathCount,
             AuthFailures = authFailures,
             HoneypotHits = honeypotHits,
             PatternCounts = patternCounts,

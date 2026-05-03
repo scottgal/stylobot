@@ -78,7 +78,9 @@ public class BotDetectionMiddlewareTests
             null, // countryTracker
             null, // clusterService
             null, // enrichmentService
-            null  // markovTracker
+            null, // markovTracker
+            null, // sessionStore
+            null  // requestPersistence
         );
 
         var evidence = result ?? CreateEvidence();
@@ -797,7 +799,9 @@ public class BotDetectionMiddlewareTests
             null, // countryTracker
             null, // clusterService
             null, // enrichmentService
-            null  // markovTracker
+            null, // markovTracker
+            null, // sessionStore
+            null  // requestPersistence
         );
 
         mockOrchestrator.Setup(o => o.DetectWithPolicyAsync(

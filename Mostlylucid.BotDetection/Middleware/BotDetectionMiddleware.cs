@@ -46,7 +46,8 @@ public class BotDetectionMiddleware(
     ILicenseState licenseState,
     CountryReputationTracker? countryTracker = null,
     BotClusterService? clusterService = null,
-    ReactiveSignalTracker? reactiveTracker = null)
+    ReactiveSignalTracker? reactiveTracker = null,
+    Orchestration.ContributingDetectors.BehavioralWaveformContributor? waveformContributor = null)
 {
     // Default test mode simulations - used as fallback when options don't contain the mode
     private static readonly Dictionary<string, string> DefaultTestModeSimulations =
@@ -92,6 +93,7 @@ public class BotDetectionMiddleware(
     private readonly RequestDelegate _next = next;
     private readonly BotDetectionOptions _options = options.Value;
     private readonly ReactiveSignalTracker? _reactiveTracker = reactiveTracker;
+    private readonly Orchestration.ContributingDetectors.BehavioralWaveformContributor? _waveformContributor = waveformContributor;
 
     /// <summary>
     ///     Main middleware entry point. Runs bot detection and handles blocking/throttling.
@@ -234,12 +236,7 @@ public class BotDetectionMiddleware(
             if (upstreamEvidence != null)
             {
                 var upstreamStartTime = DateTime.UtcNow;
-                var upstreamIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-                var upstreamUa = context.Request.Headers.UserAgent.ToString();
-                var upstreamClientId = $"{upstreamIp}:{GetHash(upstreamUa)}";
-                var upstreamRequestId = context.TraceIdentifier;
-                var upstreamPath = context.Request.Path.Value ?? "/";
-                var upstreamMethod = context.Request.Method;
+                var upstreamReq = CaptureRequestSnapshot(context);
                 var upstreamBotProbability = upstreamEvidence.BotProbability;
                 var upstreamAction = upstreamEvidence.PolicyAction;
                 var upstreamAuditCtx = auditProcessorDispatcher?.HasProcessors == true
@@ -254,7 +251,7 @@ public class BotDetectionMiddleware(
                     var processingTimeMs = (DateTime.UtcNow - upstreamStartTime).TotalMilliseconds;
 
                     var signal = BuildResponseSignal(
-                        upstreamClientId, upstreamRequestId, upstreamPath, upstreamMethod,
+                        upstreamReq.ClientId, upstreamReq.RequestId, upstreamReq.Path, upstreamReq.Method,
                         statusCode, contentLength, contentType,
                         processingTimeMs, upstreamBotProbability, upstreamAction);
 
@@ -335,20 +332,11 @@ public class BotDetectionMiddleware(
         // Pre-capture all HttpContext values synchronously - DI scopes and the connection
         // may be tearing down by the time the OnCompleted callback fires.
         var requestStartTime = DateTime.UtcNow;
-        var capturedIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var capturedUa = context.Request.Headers.UserAgent.ToString();
-        var capturedClientId = $"{capturedIp}:{GetHash(capturedUa)}";
-        var capturedRequestId = context.TraceIdentifier;
-        var capturedPath = context.Request.Path.Value ?? "/";
-        var capturedMethod = context.Request.Method;
+        var capturedReq = CaptureRequestSnapshot(context);
         var capturedBotProbability = aggregatedResult.BotProbability;
         var capturedAction = aggregatedResult.PolicyAction;
         var capturedSig = context.Items["BotDetection:Signature"] as string;
         var capturedSigCoordinator = context.RequestServices.GetService<SignatureCoordinator>();
-        var capturedWaveform = context.RequestServices
-            .GetService<IEnumerable<IContributingDetector>>()?
-            .OfType<Orchestration.ContributingDetectors.BehavioralWaveformContributor>()
-            .FirstOrDefault();
         var capturedAuditCtx = auditProcessorDispatcher?.HasProcessors == true
             ? auditProcessorDispatcher.BuildContext(context, aggregatedResult)
             : null;
@@ -371,14 +359,14 @@ public class BotDetectionMiddleware(
             var processingTimeMs = (DateTime.UtcNow - requestStartTime).TotalMilliseconds;
 
             var signal = BuildResponseSignal(
-                capturedClientId, capturedRequestId, capturedPath, capturedMethod,
+                capturedReq.ClientId, capturedReq.RequestId, capturedReq.Path, capturedReq.Method,
                 statusCode, contentLength, contentType,
                 processingTimeMs, capturedBotProbability, finalAction);
 
             if (signal is not null)
                 _ = responseCoordinator.RecordResponseAsync(signal, CancellationToken.None);
 
-            capturedWaveform?.UpdateResponseContentType(capturedClientId, contentType);
+            _waveformContributor?.UpdateResponseContentType(capturedReq.ClientId, contentType);
 
             if (capturedAuditCtx is not null)
             {
@@ -394,12 +382,11 @@ public class BotDetectionMiddleware(
             if (!string.IsNullOrEmpty(capturedSig))
             {
                 if (capturedSigCoordinator is not null)
-                    _ = capturedSigCoordinator.RecordResponseBytesAsync(capturedSig, capturedRequestId, contentLength);
+                    _ = capturedSigCoordinator.RecordResponseBytesAsync(capturedSig, capturedReq.RequestId, contentLength);
 
-                // Record 4xx/5xx responses for reactive pattern analysis (including bot-detection-triggered ones).
                 // This intentionally captures our own 429s and 403s: those are exactly what bots react to.
                 if (_reactiveTracker is not null && statusCode >= 400)
-                    _reactiveTracker.RecordErrorServed(capturedSig, statusCode, capturedPath, retryAfterForTracker);
+                    _reactiveTracker.RecordErrorServed(capturedSig, statusCode, capturedReq.Path, retryAfterForTracker);
             }
 
             return Task.CompletedTask;
@@ -1400,14 +1387,8 @@ public class BotDetectionMiddleware(
         if (aggregatedResult != null)
         {
             var testStartTime = DateTime.UtcNow;
-            var testIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-            var testUa = context.Request.Headers.UserAgent.ToString();
-            var testClientId = $"{testIp}:{GetHash(testUa)}";
-            var testRequestId = context.TraceIdentifier;
-            var testPath = context.Request.Path.Value ?? "/";
-            var testMethod = context.Request.Method;
+            var testReq = CaptureRequestSnapshot(context);
             var testBotProbability = aggregatedResult.BotProbability;
-            var testAction = aggregatedResult.PolicyAction;
             var testAuditCtx = auditProcessorDispatcher?.HasProcessors == true
                 ? auditProcessorDispatcher.BuildContext(context, aggregatedResult)
                 : null;
@@ -1423,7 +1404,7 @@ public class BotDetectionMiddleware(
                 var processingTimeMs = (DateTime.UtcNow - testStartTime).TotalMilliseconds;
 
                 var signal = BuildResponseSignal(
-                    testClientId, testRequestId, testPath, testMethod,
+                    testReq.ClientId, testReq.RequestId, testReq.Path, testReq.Method,
                     statusCode, contentLength, contentType,
                     processingTimeMs, testBotProbability, finalAction);
 
@@ -2274,6 +2255,23 @@ public class BotDetectionMiddleware(
     #endregion
 
     #region Response Recording
+
+    private sealed record RequestSnapshot(
+        string ClientId,
+        string RequestId,
+        string Path,
+        string Method);
+
+    private RequestSnapshot CaptureRequestSnapshot(HttpContext context)
+    {
+        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var ua = context.Request.Headers.UserAgent.ToString();
+        return new RequestSnapshot(
+            ClientId: $"{ip}:{GetHash(ua)}",
+            RequestId: context.TraceIdentifier,
+            Path: context.Request.Path.Value ?? "/",
+            Method: context.Request.Method);
+    }
 
     /// <summary>
     ///     Builds a ResponseSignal from pre-captured values.

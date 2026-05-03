@@ -14,7 +14,6 @@ public sealed class SignatureResponseCoordinatorCache : IAsyncDisposable
     private readonly SlidingCacheAtom<string, SignatureResponseCoordinator> _cache;
     private readonly ILogger<SignatureResponseCoordinatorCache> _logger;
     private readonly SignalSink _sharedSink;
-    private readonly bool _ownsSink;
 
     public SignatureResponseCoordinatorCache(
         ILogger<SignatureResponseCoordinatorCache> logger,
@@ -25,18 +24,9 @@ public sealed class SignatureResponseCoordinatorCache : IAsyncDisposable
     {
         _logger = logger;
 
-        if (sharedSink is not null)
-        {
-            _sharedSink = sharedSink;
-            _ownsSink = false;
-        }
-        else
-        {
-            _sharedSink = new SignalSink(
-                Math.Min(maxSignatures * 20, 50_000),
-                TimeSpan.FromHours(1));
-            _ownsSink = true;
-        }
+        _sharedSink = sharedSink ?? new SignalSink(
+            Math.Min(maxSignatures * 20, 50_000),
+            TimeSpan.FromHours(1));
 
         _cache = new SlidingCacheAtom<string, SignatureResponseCoordinator>(
             async (signature, ct) =>
@@ -58,8 +48,6 @@ public sealed class SignatureResponseCoordinatorCache : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _cache.DisposeAsync();
-        // SignalSink does not implement IDisposable; it is released to GC.
-        // _ownsSink tracks whether we created it (for future IDisposable support).
         _logger.LogInformation("SignatureResponseCoordinatorCache disposed");
     }
 
