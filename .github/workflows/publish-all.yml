@@ -200,34 +200,6 @@ jobs:
         NUGET_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
       run: dotnet nuget push ./artifacts/*.nupkg --api-key "$NUGET_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
-  # Publish BotDetection.UI.PostgreSQL NuGet package
-  publish-botdetection-ui-postgresql:
-    needs: validate-version
-    if: needs.validate-version.outputs.components == 'all' || needs.validate-version.outputs.components == 'nuget-only'
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    steps:
-    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
-      with:
-        fetch-depth: 0
-    - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
-      with:
-        dotnet-version: '10.0.x'
-    - name: Restore, Build, Pack
-      run: |
-        dotnet restore ci.slnf
-        dotnet build src/Mostlylucid.BotDetection.UI.PostgreSQL/Mostlylucid.BotDetection.UI.PostgreSQL.csproj -c Release --no-restore
-        dotnet pack src/Mostlylucid.BotDetection.UI.PostgreSQL/Mostlylucid.BotDetection.UI.PostgreSQL.csproj -c Release --no-build -o ./artifacts
-    - uses: NuGet/login@d22cc5f58ff5b88bf9bd452535b4335137e24544
-      id: nuget_login
-      with:
-        user: 'mostlylucid'
-    - name: Push to NuGet
-      env:
-        NUGET_KEY: ${{ steps.nuget_login.outputs.NUGET_API_KEY }}
-      run: dotnet nuget push ./artifacts/*.nupkg --api-key "$NUGET_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
-
   # Publish GeoDetection.Contributor NuGet package
   publish-geodetection-contributor:
     needs: validate-version
@@ -399,8 +371,8 @@ jobs:
       id: gateway-build
       uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
       with:
-        context: .
-        file: ./Stylobot.Gateway/Dockerfile
+        context: ./src
+        file: ./src/Stylobot.Gateway/Dockerfile
         push: true
         tags: |
           scottgal/stylobot-gateway:${{ needs.validate-version.outputs.version }}
@@ -441,8 +413,8 @@ jobs:
       id: demo-build
       uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
       with:
-        context: .
-        file: ./Mostlylucid.BotDetection.Demo/Dockerfile
+        context: ./src
+        file: ./src/Mostlylucid.BotDetection.Demo/Dockerfile
         push: true
         tags: |
           scottgal/stylobot-demo:${{ needs.validate-version.outputs.version }}
@@ -464,7 +436,7 @@ jobs:
   # Summary
   summary:
     if: always()
-    needs: [validate-version, publish-botdetection, publish-common, publish-geodetection, publish-botdetection-ui, publish-botdetection-ui-postgresql, publish-geodetection-contributor, publish-botdetection-api, publish-botdetection-llm, publish-botdetection-holodeck, publish-botdetection-llm-holodeck, publish-gateway, publish-demo]
+    needs: [validate-version, publish-botdetection, publish-common, publish-geodetection, publish-botdetection-ui, publish-geodetection-contributor, publish-botdetection-api, publish-botdetection-llm, publish-botdetection-holodeck, publish-botdetection-llm-holodeck, publish-gateway, publish-demo]
     runs-on: ubuntu-latest
     steps:
     - name: Create summary
