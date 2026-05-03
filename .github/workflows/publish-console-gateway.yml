@@ -236,6 +236,8 @@ jobs:
     name: Create GitHub Release
     needs: build-binaries
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.VERSION }}
 
     steps:
     - name: Checkout code
@@ -544,3 +546,21 @@ jobs:
         echo "Install with:"
         echo "  curl -1sLf 'https://dl.cloudsmith.io/public/${NS}/stylobot/setup.deb.sh' | sudo bash"
         echo "  sudo apt update && sudo apt install stylobot"
+
+  # -----------------------------------------------
+  # Homebrew tap update — runs after release is published
+  # -----------------------------------------------
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: create-release
+    if: needs.create-release.result == 'success' && !contains(needs.create-release.outputs.version, '-')
+    runs-on: ubuntu-latest
+    steps:
+    - name: Trigger Homebrew update workflow
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        VERSION: ${{ needs.create-release.outputs.version }}
+      run: |
+        gh workflow run update-homebrew.yml \
+          --repo "$GITHUB_REPOSITORY" \
+          --field version="$VERSION"
