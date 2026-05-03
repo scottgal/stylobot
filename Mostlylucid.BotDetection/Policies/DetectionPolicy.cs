@@ -184,7 +184,8 @@ public sealed record DetectionPolicy
         SlowPathDetectors = [],
         AiPathDetectors = [], // Empty by default - add ONNX/LLM/others via JSON config
         ResponsePathDetectors = ["ResponseBehavior"], // Track response patterns for learning
-        ExcludedDetectors = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "ProjectHoneypot"), // DNS lookups moved to background enrichment
+        ExcludedDetectors = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase,
+            "ProjectHoneypot", "VerifiedBot"), // DNS lookups belong in BackgroundEnrichmentService only
         UseFastPath = true,
         ForceSlowPath = false,
         EscalateToAi = false, // Off by default - enable via JSON with AI detectors
@@ -210,7 +211,9 @@ public sealed record DetectionPolicy
         AiEscalationThreshold = 0.0, // Always escalate to AI for demo
         EarlyExitThreshold = 0.0, // Never early exit
         ImmediateBlockThreshold = 1.0, // Never block immediately
-        BypassTriggerConditions = true // Run ALL detectors in Wave 0, ignore triggers
+        BypassTriggerConditions = true, // Run ALL detectors in Wave 0, ignore triggers
+        ExcludedDetectors = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase,
+            "ProjectHoneypot", "VerifiedBot") // DNS lookups never in request path - run via BackgroundEnrichmentService
     };
 
     /// <summary>
@@ -345,7 +348,9 @@ public sealed record DetectionPolicy
         EarlyExitThreshold = 0.0, // Never early exit - always get full picture
         ImmediateBlockThreshold = 1.0, // Never block - learning mode
         BypassTriggerConditions = true, // Run all detectors regardless of triggers
-        Timeout = TimeSpan.FromSeconds(10) // Allow more time for thorough analysis
+        Timeout = TimeSpan.FromSeconds(10), // Allow more time for thorough analysis
+        ExcludedDetectors = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase,
+            "ProjectHoneypot", "VerifiedBot") // DNS lookups belong in BackgroundEnrichmentService, not even learning pipeline
     };
 
     /// <summary>
@@ -390,7 +395,9 @@ public sealed record DetectionPolicy
         EarlyExitThreshold = 0.0, // Never early exit - always get full picture
         ImmediateBlockThreshold = 1.0, // Never block - learning mode
         BypassTriggerConditions = true, // Run all detectors regardless of triggers
-        Timeout = TimeSpan.FromSeconds(5) // Shorter timeout for gateway performance
+        Timeout = TimeSpan.FromSeconds(5), // Shorter timeout for gateway performance
+        ExcludedDetectors = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase,
+            "ProjectHoneypot", "VerifiedBot") // DNS lookups belong in BackgroundEnrichmentService only
     };
 
     /// <summary>
