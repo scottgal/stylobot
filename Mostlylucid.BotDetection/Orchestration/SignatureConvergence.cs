@@ -9,7 +9,23 @@ public enum FamilyFormationReason
 {
     TemporalProximity,
     BehavioralSimilarity,
-    HighBotProbabilityCluster
+    HighBotProbabilityCluster,
+    VectorSimilarity
+}
+
+/// <summary>
+///     Emitted when a signature is merged into a family via vector similarity and the two
+///     signatures have different IP hashes, indicating the same behavioral actor rotated IPs
+///     (VPN switch, mobile roaming, NAT rebinding, etc.).
+/// </summary>
+public record IdentityRotationEvent
+{
+    public required string CanonicalSignature { get; init; }
+    public required string RotatedSignature { get; init; }
+    public required float VectorSimilarity { get; init; }
+    public required string PreviousIpHash { get; init; }
+    public required string NewIpHash { get; init; }
+    public required DateTime DetectedUtc { get; init; }
 }
 
 /// <summary>
