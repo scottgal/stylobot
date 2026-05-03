@@ -1,8 +1,0 @@
-{
-  "scenarioName": "adversarial-pii-exfiltration",
-  "requests": [
-    {"method":"GET","path":"/search","headers":{"User-Agent":"Mozilla/5.0 Chrome/120.0.0.0 Safari/537.36","Accept":"text/html","Accept-Language":"en-US","Sec-Fetch-Dest":"document"},"delayAfter":1.0},
-    {"method":"GET","path":"/search?email=admin@company.com&token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U","headers":{"User-Agent":"Mozilla/5.0 Chrome/120.0.0.0 Safari/537.36","Accept":"text/html","Accept-Language":"en-US","Sec-Fetch-Dest":"document"},"delayAfter":1.0},
-    {"method":"GET","path":"/api/users?password=hunter2&ssn=123-45-6789","headers":{"User-Agent":"Mozilla/5.0 Chrome/120.0.0.0 Safari/537.36","Accept":"application/json"},"delayAfter":0.5}
-  ]
-}
