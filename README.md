@@ -1,4 +1,9 @@
 # StyloBot
+> NOTE: I know the version numbers make no sense with the Release (RTM) version being v7 but this started small! 
+> PLEASE wait for v7 if Stability is critical for your application!
+
+***COMING SOON***
+Current versions are in development. With version 7 (due early June 2026) this will stabilize (read fewer releases). 
 
 **Bot detection that knows your site.** Cloud scoring services evaluate your traffic against generic baselines trained on other people's users. StyloBot learns what normal looks like on your specific application: the document-asset-API request sequence, the timing distribution of your real users, the session shape your checkout flow produces. Bots that adapt to evade a cloud service still diverge from those patterns.
 
