@@ -9,5 +9,8 @@
     "build": "npm run build --workspaces",
     "test": "npm test --workspaces --if-present",
     "clean": "rm -rf packages/*/dist"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
   }
 }

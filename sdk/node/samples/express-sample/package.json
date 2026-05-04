@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "start": "node --experimental-strip-types src/server.ts",
-    "dev": "node --experimental-strip-types --watch src/server.ts"
+    "dev": "node --experimental-strip-types --watch src/server.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@stylobot/core": "0.1.0",
@@ -13,6 +15,7 @@
     "express": "^5.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0"
   }
