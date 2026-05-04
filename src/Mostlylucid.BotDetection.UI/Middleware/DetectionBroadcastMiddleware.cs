@@ -25,15 +25,28 @@ public partial class DetectionBroadcastMiddleware
 {
     private static readonly ConcurrentDictionary<Type, PropertyInfo?> CountryCodePropertyCache = new();
 
-    /// <summary>Signal key prefixes allowed through to dashboard (non-PII).</summary>
-    private static readonly string[] AllowedSignalPrefixes =
-    [
-        "ua.", "header.", "client.", "geo.", "ip.", "behavioral.",
-        "detection.", "request.", "h2.", "tls.", "tcp.", "h3.",
-        "cluster.", "reputation.", "honeypot.", "similarity.",
-        "attack.", "ato.", "intent.", "heuristic.", "referrer.",
-        "privacy."
-    ];
+    /// <summary>
+    ///     Signal key prefixes allowed through to dashboard (non-PII).
+    ///     Stored as a FrozenSet for O(1) prefix lookup: extract everything up to and
+    ///     including the first '.' from the signal key, then test set membership.
+    ///     This replaces the O(n×m) Any(StartsWith) scan on every detection event.
+    /// </summary>
+    private static readonly System.Collections.Frozen.FrozenSet<string> AllowedSignalPrefixSet =
+        System.Collections.Frozen.FrozenSet.ToFrozenSet(
+        [
+            "ua.", "header.", "client.", "geo.", "ip.", "behavioral.",
+            "detection.", "request.", "h2.", "tls.", "tcp.", "h3.",
+            "cluster.", "reputation.", "honeypot.", "similarity.",
+            "attack.", "ato.", "intent.", "heuristic.", "referrer.",
+            "privacy."
+        ], StringComparer.OrdinalIgnoreCase);
+
+    private static bool IsAllowedSignal(string key)
+    {
+        var dot = key.IndexOf('.');
+        if (dot < 0) return false;
+        return AllowedSignalPrefixSet.Contains(key[..(dot + 1)]);
+    }
 
     /// <summary>Signal keys that must never reach the dashboard.</summary>
     private static readonly HashSet<string> BlockedSignalKeys = new(StringComparer.OrdinalIgnoreCase)
@@ -502,8 +515,7 @@ public partial class DetectionBroadcastMiddleware
         if (signals is { Count: > 0 })
         {
             importantSignals = signals
-                .Where(s => AllowedSignalPrefixes.Any(p => s.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))
-                            && !BlockedSignalKeys.Contains(s.Key))
+                .Where(s => IsAllowedSignal(s.Key) && !BlockedSignalKeys.Contains(s.Key))
                 .Take(MaxSignalsPerDetection)
                 .ToDictionary(s => s.Key, s => s.Value);
         }
@@ -537,7 +549,7 @@ public partial class DetectionBroadcastMiddleware
                 {
                     if (count >= MaxSignalsPerDetection) break;
                     if (BlockedSignalKeys.Contains(kvp.Key)) continue;
-                    if (!AllowedSignalPrefixes.Any(p => kvp.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))) continue;
+                    if (!IsAllowedSignal(kvp.Key)) continue;
 
                     object value = kvp.Value.ValueKind switch
                     {
@@ -724,7 +736,7 @@ public partial class DetectionBroadcastMiddleware
                 GatewayId = Environment.GetEnvironmentVariable("STYLOBOT_GATEWAY_ID")
                             ?? Environment.MachineName
             };
-            await publisher.PublishAsync(evt, context.RequestAborted);
+            await publisher.PublishAsync(evt, CancellationToken.None);
         }
         catch (Exception ex)
         {

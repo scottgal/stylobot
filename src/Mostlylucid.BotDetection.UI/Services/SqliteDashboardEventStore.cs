@@ -281,11 +281,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         }
     }
 
-    public async Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null)
+    public async Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null, CancellationToken ct = default)
     {
-        await EnsureInitializedAsync();
+        await EnsureInitializedAsync(ct);
         await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync();
+        await conn.OpenAsync(ct);
 
         var sql = "SELECT * FROM detections";
         var conditions = new List<string>();
@@ -320,29 +320,48 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         cmd.CommandText = sql;
 
         var results = new List<DashboardDetectionEvent>();
-        await using var reader = await cmd.ExecuteReaderAsync();
-        while (await reader.ReadAsync())
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+
+        // Resolve ordinals once before the loop — GetOrdinal does a linear name scan per call.
+        var ordTimestamp    = reader.GetOrdinal("timestamp");
+        var ordSignature    = reader.GetOrdinal("signature");
+        var ordMethod       = reader.GetOrdinal("method");
+        var ordPath         = reader.GetOrdinal("path");
+        var ordIsBot        = reader.GetOrdinal("is_bot");
+        var ordProb         = reader.GetOrdinal("bot_probability");
+        var ordConf         = reader.GetOrdinal("confidence");
+        var ordRisk         = reader.GetOrdinal("risk_band");
+        var ordBotName      = reader.GetOrdinal("bot_name");
+        var ordBotType      = reader.GetOrdinal("bot_type");
+        var ordAction       = reader.GetOrdinal("action");
+        var ordCountry      = reader.GetOrdinal("country_code");
+        var ordProcMs       = reader.GetOrdinal("processing_time_ms");
+        var ordThreat       = reader.GetOrdinal("threat_score");
+        var ordThreatBand   = reader.GetOrdinal("threat_band");
+        var ordStatus       = reader.GetOrdinal("status_code");
+
+        while (await reader.ReadAsync(ct))
         {
             results.Add(new DashboardDetectionEvent
             {
-                Timestamp = DateTime.Parse(reader.GetString(reader.GetOrdinal("timestamp"))),
-                PrimarySignature = reader.GetString(reader.GetOrdinal("signature")),
-                RequestId = reader.GetString(reader.GetOrdinal("signature")),
-                Method = reader.IsDBNull(reader.GetOrdinal("method")) ? "" : reader.GetString(reader.GetOrdinal("method")),
-                Path = reader.IsDBNull(reader.GetOrdinal("path")) ? "/" : reader.GetString(reader.GetOrdinal("path")),
-                IsBot = reader.GetInt32(reader.GetOrdinal("is_bot")) == 1,
-                BotProbability = reader.GetDouble(reader.GetOrdinal("bot_probability")),
-                Confidence = reader.GetDouble(reader.GetOrdinal("confidence")),
-                RiskBand = reader.IsDBNull(reader.GetOrdinal("risk_band")) ? "Unknown" : reader.GetString(reader.GetOrdinal("risk_band")),
-                BotName = reader.IsDBNull(reader.GetOrdinal("bot_name")) ? null : reader.GetString(reader.GetOrdinal("bot_name")),
-                BotType = reader.IsDBNull(reader.GetOrdinal("bot_type")) ? null : reader.GetString(reader.GetOrdinal("bot_type")),
-                Action = reader.IsDBNull(reader.GetOrdinal("action")) ? null : reader.GetString(reader.GetOrdinal("action")),
-                CountryCode = reader.IsDBNull(reader.GetOrdinal("country_code")) ? null : reader.GetString(reader.GetOrdinal("country_code")),
-                ProcessingTimeMs = reader.GetDouble(reader.GetOrdinal("processing_time_ms")),
-                ThreatScore = reader.GetDouble(reader.GetOrdinal("threat_score")),
-                ThreatBand = reader.IsDBNull(reader.GetOrdinal("threat_band")) ? null : reader.GetString(reader.GetOrdinal("threat_band")),
-                StatusCode = reader.GetInt32(reader.GetOrdinal("status_code")),
-                UserAgentRaw = SafeGetString(reader, "user_agent_raw"),
+                Timestamp       = DateTime.Parse(reader.GetString(ordTimestamp)),
+                PrimarySignature = reader.GetString(ordSignature),
+                RequestId       = reader.GetString(ordSignature),
+                Method          = reader.IsDBNull(ordMethod)  ? "" : reader.GetString(ordMethod),
+                Path            = reader.IsDBNull(ordPath)    ? "/" : reader.GetString(ordPath),
+                IsBot           = reader.GetInt32(ordIsBot) == 1,
+                BotProbability  = reader.GetDouble(ordProb),
+                Confidence      = reader.GetDouble(ordConf),
+                RiskBand        = reader.IsDBNull(ordRisk)     ? "Unknown" : reader.GetString(ordRisk),
+                BotName         = reader.IsDBNull(ordBotName)  ? null : reader.GetString(ordBotName),
+                BotType         = reader.IsDBNull(ordBotType)  ? null : reader.GetString(ordBotType),
+                Action          = reader.IsDBNull(ordAction)   ? null : reader.GetString(ordAction),
+                CountryCode     = reader.IsDBNull(ordCountry)  ? null : reader.GetString(ordCountry),
+                ProcessingTimeMs = reader.GetDouble(ordProcMs),
+                ThreatScore     = reader.GetDouble(ordThreat),
+                ThreatBand      = reader.IsDBNull(ordThreatBand) ? null : reader.GetString(ordThreatBand),
+                StatusCode      = reader.GetInt32(ordStatus),
+                UserAgentRaw    = SafeGetString(reader, "user_agent_raw"),
                 RiskJustification = SafeGetString(reader, "risk_justification")
             });
         }
@@ -756,11 +775,23 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
 
         var results = new List<ThreatEntry>();
         await using var reader = await cmd.ExecuteReaderAsync();
+
+        var tOrdTimestamp   = reader.GetOrdinal("timestamp");
+        var tOrdSignature   = reader.GetOrdinal("signature");
+        var tOrdPath        = reader.GetOrdinal("path");
+        var tOrdBotName     = reader.GetOrdinal("bot_name");
+        var tOrdBotType     = reader.GetOrdinal("bot_type");
+        var tOrdProb        = reader.GetOrdinal("bot_probability");
+        var tOrdThreat      = reader.GetOrdinal("threat_score");
+        var tOrdThreatBand  = reader.GetOrdinal("threat_band");
+        var tOrdCountry     = reader.GetOrdinal("country_code");
+        var tOrdAction      = reader.GetOrdinal("action");
+
         while (await reader.ReadAsync())
         {
-            var path = reader.IsDBNull(reader.GetOrdinal("path")) ? "/" : reader.GetString(reader.GetOrdinal("path"));
-            var action = reader.IsDBNull(reader.GetOrdinal("action")) ? null : reader.GetString(reader.GetOrdinal("action"));
-            var threatScore = reader.IsDBNull(reader.GetOrdinal("threat_score")) ? 0 : reader.GetDouble(reader.GetOrdinal("threat_score"));
+            var path = reader.IsDBNull(tOrdPath) ? "/" : reader.GetString(tOrdPath);
+            var action = reader.IsDBNull(tOrdAction) ? null : reader.GetString(tOrdAction);
+            var threatScore = reader.IsDBNull(tOrdThreat) ? 0 : reader.GetDouble(tOrdThreat);
 
             // Infer CVE and pack info from path patterns
             string? cveId = null;
@@ -797,45 +828,68 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
 
             results.Add(new ThreatEntry
             {
-                Timestamp = DateTime.Parse(reader.GetString(reader.GetOrdinal("timestamp"))),
-                Signature = reader.GetString(reader.GetOrdinal("signature")),
-                Path = path,
-                BotName = reader.IsDBNull(reader.GetOrdinal("bot_name")) ? null : reader.GetString(reader.GetOrdinal("bot_name")),
-                BotType = reader.IsDBNull(reader.GetOrdinal("bot_type")) ? null : reader.GetString(reader.GetOrdinal("bot_type")),
-                BotProbability = reader.GetDouble(reader.GetOrdinal("bot_probability")),
-                ThreatScore = threatScore,
-                ThreatBand = reader.IsDBNull(reader.GetOrdinal("threat_band")) ? null : reader.GetString(reader.GetOrdinal("threat_band")),
-                CountryCode = reader.IsDBNull(reader.GetOrdinal("country_code")) ? null : reader.GetString(reader.GetOrdinal("country_code")),
-                CveId = cveId,
-                CveSeverity = cveSeverity,
-                PackId = packId,
-                InHoneypot = inHoneypot
+                Timestamp      = DateTime.Parse(reader.GetString(tOrdTimestamp)),
+                Signature      = reader.GetString(tOrdSignature),
+                Path           = path,
+                BotName        = reader.IsDBNull(tOrdBotName)    ? null : reader.GetString(tOrdBotName),
+                BotType        = reader.IsDBNull(tOrdBotType)    ? null : reader.GetString(tOrdBotType),
+                BotProbability = reader.GetDouble(tOrdProb),
+                ThreatScore    = threatScore,
+                ThreatBand     = reader.IsDBNull(tOrdThreatBand) ? null : reader.GetString(tOrdThreatBand),
+                CountryCode    = reader.IsDBNull(tOrdCountry)    ? null : reader.GetString(tOrdCountry),
+                CveId          = cveId,
+                CveSeverity    = cveSeverity,
+                PackId         = packId,
+                InHoneypot     = inHoneypot
             });
         }
 
         return results;
     }
 
+    // Ordinal cache for ReadSignature — resolved lazily on first call, valid for the lifetime
+    // of a single SqliteDataReader (same schema). Stored as statics because the columns are fixed.
+    private static int[]? _sigOrdinals;
+
     private static DashboardSignatureEvent ReadSignature(SqliteDataReader reader)
     {
-        var sig = reader.GetString(reader.GetOrdinal("signature"));
+        // Resolve ordinals once per reader schema (all signatures rows have the same columns)
+        _sigOrdinals ??=
+        [
+            reader.GetOrdinal("signature"),
+            reader.GetOrdinal("last_seen"),
+            reader.GetOrdinal("risk_band"),
+            reader.GetOrdinal("bot_name"),
+            reader.GetOrdinal("bot_type"),
+            reader.GetOrdinal("is_bot"),
+            reader.GetOrdinal("bot_probability"),
+            reader.GetOrdinal("confidence"),
+            reader.GetOrdinal("action"),
+            reader.GetOrdinal("hit_count"),
+            reader.GetOrdinal("processing_time_ms"),
+            reader.GetOrdinal("threat_score"),
+            reader.GetOrdinal("threat_band"),
+            reader.GetOrdinal("narrative")
+        ];
+
+        var sig = reader.GetString(_sigOrdinals[0]);
         return new DashboardSignatureEvent
         {
-            SignatureId = sig,
+            SignatureId      = sig,
             PrimarySignature = sig,
-            Timestamp = DateTime.Parse(reader.GetString(reader.GetOrdinal("last_seen"))),
-            RiskBand = reader.IsDBNull(reader.GetOrdinal("risk_band")) ? "Unknown" : reader.GetString(reader.GetOrdinal("risk_band")),
-            BotName = reader.IsDBNull(reader.GetOrdinal("bot_name")) ? null : reader.GetString(reader.GetOrdinal("bot_name")),
-            BotType = reader.IsDBNull(reader.GetOrdinal("bot_type")) ? null : reader.GetString(reader.GetOrdinal("bot_type")),
-            IsKnownBot = reader.GetInt32(reader.GetOrdinal("is_bot")) == 1,
-            BotProbability = reader.GetDouble(reader.GetOrdinal("bot_probability")),
-            Confidence = reader.GetDouble(reader.GetOrdinal("confidence")),
-            Action = reader.IsDBNull(reader.GetOrdinal("action")) ? null : reader.GetString(reader.GetOrdinal("action")),
-            HitCount = reader.GetInt32(reader.GetOrdinal("hit_count")),
-            ProcessingTimeMs = reader.GetDouble(reader.GetOrdinal("processing_time_ms")),
-            ThreatScore = reader.IsDBNull(reader.GetOrdinal("threat_score")) ? 0 : reader.GetDouble(reader.GetOrdinal("threat_score")),
-            ThreatBand = reader.IsDBNull(reader.GetOrdinal("threat_band")) ? null : reader.GetString(reader.GetOrdinal("threat_band")),
-            Narrative = reader.IsDBNull(reader.GetOrdinal("narrative")) ? null : reader.GetString(reader.GetOrdinal("narrative")),
+            Timestamp        = DateTime.Parse(reader.GetString(_sigOrdinals[1])),
+            RiskBand         = reader.IsDBNull(_sigOrdinals[2])  ? "Unknown" : reader.GetString(_sigOrdinals[2]),
+            BotName          = reader.IsDBNull(_sigOrdinals[3])  ? null : reader.GetString(_sigOrdinals[3]),
+            BotType          = reader.IsDBNull(_sigOrdinals[4])  ? null : reader.GetString(_sigOrdinals[4]),
+            IsKnownBot       = reader.GetInt32(_sigOrdinals[5]) == 1,
+            BotProbability   = reader.GetDouble(_sigOrdinals[6]),
+            Confidence       = reader.GetDouble(_sigOrdinals[7]),
+            Action           = reader.IsDBNull(_sigOrdinals[8])  ? null : reader.GetString(_sigOrdinals[8]),
+            HitCount         = reader.GetInt32(_sigOrdinals[9]),
+            ProcessingTimeMs = reader.GetDouble(_sigOrdinals[10]),
+            ThreatScore      = reader.IsDBNull(_sigOrdinals[11]) ? 0 : reader.GetDouble(_sigOrdinals[11]),
+            ThreatBand       = reader.IsDBNull(_sigOrdinals[12]) ? null : reader.GetString(_sigOrdinals[12]),
+            Narrative        = reader.IsDBNull(_sigOrdinals[13]) ? null : reader.GetString(_sigOrdinals[13]),
             RiskJustification = SafeGetString(reader, "risk_justification")
         };
     }
@@ -862,6 +916,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
 
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
+        await using var txn = await conn.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, ct);
 
         // ── Summary ──────────────────────────────────────────────────────────
         await using var summaryCmd = conn.CreateCommand();

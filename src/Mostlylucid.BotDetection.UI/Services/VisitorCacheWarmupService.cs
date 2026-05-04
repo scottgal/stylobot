@@ -37,7 +37,7 @@ public class VisitorCacheWarmupService : BackgroundService
                 StartTime = DateTime.UtcNow.AddHours(-24)
             };
 
-            var detections = await _eventStore.GetDetectionsAsync(filter);
+            var detections = await _eventStore.GetDetectionsAsync(filter, stoppingToken);
 
             if (detections.Count > 0)
             {

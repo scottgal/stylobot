@@ -37,7 +37,7 @@ public sealed class DashboardHelpService
                 if (helpResources.Any())
                     LoadFromAssembly(asm, commercial: true);
             }
-            catch { /* skip assemblies that can't enumerate resources */ }
+            catch (Exception ex) { _logger.LogDebug(ex, "Skipping assembly {Assembly} — cannot enumerate resources", asm.FullName); }
         }
     }
 

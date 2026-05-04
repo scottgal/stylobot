@@ -209,7 +209,7 @@ public static class DetectionNarrativeBuilder
         var evidence = new List<string>();
 
         // Use TopReasons directly - they are already human-readable strings from detectors
-        foreach (var reason in detection.TopReasons.Take(maxItems))
+        foreach (var reason in (detection.TopReasons ?? []).Take(maxItems))
         {
             if (string.IsNullOrWhiteSpace(reason))
                 continue;
@@ -250,9 +250,9 @@ public static class DetectionNarrativeBuilder
             {
                 var action = detection.Action?.ToLowerInvariant() switch
                 {
-                    "block" or "Block" => "blocked",
-                    "throttle-stealth" or "ThrottleStealth" => "throttled",
-                    "challenge" or "Challenge" => "challenged",
+                    "block" => "blocked",
+                    "throttle-stealth" => "throttled",
+                    "challenge" => "challenged",
                     _ => "detected"
                 };
                 return $"{detection.BotName} {action}";

@@ -21,7 +21,7 @@ public interface IDashboardEventStore
     /// <summary>
     ///     Get recent detections with optional filtering.
     /// </summary>
-    Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null);
+    Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null, CancellationToken ct = default);
 
     /// <summary>
     ///     Get recent signatures.

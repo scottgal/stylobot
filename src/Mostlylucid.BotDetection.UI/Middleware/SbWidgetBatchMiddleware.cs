@@ -399,9 +399,15 @@ public sealed class SbWidgetBatchMiddleware
         }
 
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
-        var sessions = await sessionStore.GetRecentSessionsAsync(pageSize, isBot);
+        const int maxFetch = 500;
+        var fetchCount = Math.Min(page * pageSize + pageSize, maxFetch);
+        var sessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot);
+        var totalCount = sessions.Count < maxFetch ? sessions.Count : maxFetch;
 
-        var entries = sessions.Select(s => new SessionListEntry
+        var entries = sessions
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(s => new SessionListEntry
         {
             Id = s.Id,
             Signature = s.Signature,
@@ -429,7 +435,7 @@ public sealed class SbWidgetBatchMiddleware
             BasePath = _options.BasePath.TrimEnd('/'),
             Page = page,
             PageSize = pageSize,
-            TotalCount = entries.Count,
+            TotalCount = totalCount,
             Filter = filter
         };
     }
@@ -441,6 +447,12 @@ public sealed class SbWidgetBatchMiddleware
     private async Task HandleLiquidRenderAsync(HttpContext context)
     {
         context.Response.ContentType = "text/html; charset=utf-8";
+
+        if (context.Request.ContentLength > 64_000)
+        {
+            context.Response.StatusCode = 413;
+            return;
+        }
 
         Dictionary<string, string>? body;
         try
@@ -669,33 +681,42 @@ public sealed class SbWidgetBatchMiddleware
 
     private static void PopulateSessionAnalytics(SummaryStatsModel model, VisitorListCache visitorCache)
     {
-        var (allVisitors, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, int.MaxValue);
-        var humanVisitors = allVisitors.Where(v => !v.IsBot).ToList();
-        var botVisitors = allVisitors.Where(v => v.IsBot).ToList();
+        // maxCachedVisitors must be >= VisitorListCache._maxVisitors (default 100) to get full snapshot.
+        const int maxCachedVisitors = 1_000;
+        var (allVisitors, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, maxCachedVisitors);
 
-        model.UniqueVisitors = totalCount;
-        model.ActiveSessions = allVisitors.Count(v => v.LastSeen > DateTime.UtcNow.AddMinutes(-5));
-        model.BotSessions = botVisitors.Count;
-        model.HumanSessions = humanVisitors.Count;
+        // Single pass to collect all counters — avoids 6 separate LINQ iterations over the same list.
+        var activeThreshold = DateTime.UtcNow.AddMinutes(-5);
+        int bots = 0, humans = 0, active = 0;
+        int botSingles = 0, humanSingles = 0, allSingles = 0, allWithHits = 0;
+        double botDurSum = 0, humanDurSum = 0, allDurSum = 0;
+        int botDurCount = 0, humanDurCount = 0, allDurCount = 0;
 
-        var totalWithHits = allVisitors.Count(v => v.Hits > 0);
-        model.BounceRate = totalWithHits > 0
-            ? Math.Round((double)allVisitors.Count(v => v.Hits == 1) / totalWithHits * 100, 1) : 0;
-        model.HumanBounceRate = humanVisitors.Count > 0
-            ? Math.Round((double)humanVisitors.Count(v => v.Hits == 1) / humanVisitors.Count * 100, 1) : 0;
-        model.BotBounceRate = botVisitors.Count > 0
-            ? Math.Round((double)botVisitors.Count(v => v.Hits == 1) / botVisitors.Count * 100, 1) : 0;
-
-        static double AvgDuration(IReadOnlyList<CachedVisitor> visitors)
+        foreach (var v in allVisitors)
         {
-            var withDuration = visitors.Where(v => v.Hits > 1).ToList();
-            if (withDuration.Count == 0) return 0;
-            return Math.Round(withDuration.Average(v => (v.LastSeen - v.FirstSeen).TotalSeconds), 1);
+            if (v.IsBot) bots++; else humans++;
+            if (v.LastSeen > activeThreshold) active++;
+            if (v.Hits > 0) allWithHits++;
+            if (v.Hits == 1) { allSingles++; if (v.IsBot) botSingles++; else humanSingles++; }
+            if (v.Hits > 1)
+            {
+                var dur = (v.LastSeen - v.FirstSeen).TotalSeconds;
+                allDurSum += dur; allDurCount++;
+                if (v.IsBot) { botDurSum += dur; botDurCount++; }
+                else          { humanDurSum += dur; humanDurCount++; }
+            }
         }
 
-        model.AvgSessionDurationSecs = AvgDuration(allVisitors);
-        model.HumanAvgSessionDurationSecs = AvgDuration(humanVisitors);
-        model.BotAvgSessionDurationSecs = AvgDuration(botVisitors);
+        model.UniqueVisitors  = totalCount;
+        model.ActiveSessions  = active;
+        model.BotSessions     = bots;
+        model.HumanSessions   = humans;
+        model.BounceRate      = allWithHits > 0 ? Math.Round((double)allSingles / allWithHits * 100, 1) : 0;
+        model.HumanBounceRate = humans > 0 ? Math.Round((double)humanSingles / humans * 100, 1) : 0;
+        model.BotBounceRate   = bots > 0 ? Math.Round((double)botSingles / bots * 100, 1) : 0;
+        model.AvgSessionDurationSecs      = allDurCount > 0 ? Math.Round(allDurSum / allDurCount, 1) : 0;
+        model.HumanAvgSessionDurationSecs = humanDurCount > 0 ? Math.Round(humanDurSum / humanDurCount, 1) : 0;
+        model.BotAvgSessionDurationSecs   = botDurCount > 0 ? Math.Round(botDurSum / botDurCount, 1) : 0;
     }
 
 }

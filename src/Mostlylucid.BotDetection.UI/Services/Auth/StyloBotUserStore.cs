@@ -34,7 +34,7 @@ public sealed class StyloBotUserStore :
     public async Task EnsureInitializedAsync(CancellationToken ct = default)
     {
         if (_initialized) return;
-        await _initLock.WaitAsync(ct);
+        await _initLock.WaitAsync(CancellationToken.None);
         try
         {
             if (_initialized) return;

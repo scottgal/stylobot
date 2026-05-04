@@ -324,26 +324,29 @@ public sealed class SignatureAggregateCache
     private void EvictLfuBatch(int count)
     {
         var hotThreshold = 10;
-        var candidates = _entries
-            .Where(kvp => kvp.Value.HitCount <= hotThreshold)
-            .OrderBy(kvp => Interlocked.Read(ref kvp.Value.AccessCount))
-            .Take(count)
-            .Select(kvp => kvp.Key)
-            .ToList();
+        var candidateSet = new HashSet<string>(
+            _entries
+                .Where(kvp => kvp.Value.HitCount <= hotThreshold)
+                .OrderBy(kvp => Interlocked.Read(ref kvp.Value.AccessCount))
+                .Take(count)
+                .Select(kvp => kvp.Key),
+            StringComparer.Ordinal);
 
-        // If not enough non-hot candidates, take from all entries
-        if (candidates.Count < count)
+        // If not enough non-hot candidates, take from all entries (O(1) lookup via HashSet)
+        if (candidateSet.Count < count)
         {
-            var remaining = count - candidates.Count;
-            var hotEvictions = _entries
-                .Where(kvp => !candidates.Contains(kvp.Key))
+            var remaining = count - candidateSet.Count;
+            foreach (var key in _entries
+                .Where(kvp => !candidateSet.Contains(kvp.Key))
                 .OrderBy(kvp => Interlocked.Read(ref kvp.Value.AccessCount))
                 .Take(remaining)
-                .Select(kvp => kvp.Key);
-            candidates.AddRange(hotEvictions);
+                .Select(kvp => kvp.Key))
+            {
+                candidateSet.Add(key);
+            }
         }
 
-        foreach (var key in candidates)
+        foreach (var key in candidateSet)
             _entries.TryRemove(key, out _);
     }
 

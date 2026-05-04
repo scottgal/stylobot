@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 using Mostlylucid.BotDetection.UI.Configuration;
@@ -71,11 +72,15 @@ public class SbLiveUpdatesTagHelper : TagHelper
                 "title=\"SignalR: disconnected\" style=\"display:inline-block\"></span>\n");
         }
 
+        // Serialize via JsonSerializer so any special chars (quotes, backslashes) are JS-safe.
+        var basePathJson = JsonSerializer.Serialize(basePath);
+        var hubUrlJson   = JsonSerializer.Serialize(hubUrl);
+
         output.Content.AppendHtml($@"<script{nonceAttr}>
 (function() {{
     'use strict';
-    var BASE = '{basePath}';
-    var HUB  = '{hubUrl}';
+    var BASE = {basePathJson};
+    var HUB  = {hubUrlJson};
     var DEBOUNCE_MS = {DebounceMs};
 
     function getWidgetMap() {{

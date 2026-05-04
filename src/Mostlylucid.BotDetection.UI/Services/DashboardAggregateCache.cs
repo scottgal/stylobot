@@ -24,7 +24,7 @@ public sealed class DashboardAggregateCache
         public required List<DashboardUserAgentSummary> UserAgents { get; init; }
         public DateTime ComputedAt { get; init; } = DateTime.UtcNow;
 
-        public static AggregateSnapshot Empty => new()
+        public static readonly AggregateSnapshot Empty = new()
         {
             Countries = [],
             Endpoints = [],
