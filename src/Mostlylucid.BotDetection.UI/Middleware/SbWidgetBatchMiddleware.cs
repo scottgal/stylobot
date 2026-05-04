@@ -276,7 +276,7 @@ public sealed class SbWidgetBatchMiddleware
             BasePath = _options.BasePath.TrimEnd('/')
         };
         return await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/Shared/Components/SbThreats/Default.cshtml", model, context);
+            "/Views/Shared/Components/SbThreatsList/Default.cshtml", model, context);
     }
 
     // -------------------------------------------------------------------------

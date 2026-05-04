@@ -3120,7 +3120,7 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/Shared/Components/SbThreats/Default.cshtml", model, context);
+            "/Views/Shared/Components/SbThreatsList/Default.cshtml", model, context);
         await context.Response.WriteAsync(html);
     }
 

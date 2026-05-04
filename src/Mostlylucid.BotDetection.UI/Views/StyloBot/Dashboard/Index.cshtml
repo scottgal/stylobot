@@ -451,7 +451,8 @@
                     }]
                 },
                 onRegionTooltipShow: function(e, tooltip, code) {
-                    var vals = map.series.regions[0].values;
+                    var vals = map.series.regions[0]?.values;
+                    if (!vals) return;
                     var rate = vals[code];
                     if (rate !== undefined) {
                         var span = document.createElement('span');
