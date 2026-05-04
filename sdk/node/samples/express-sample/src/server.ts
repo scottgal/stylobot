@@ -2,7 +2,7 @@ import express from 'express'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { StyloBotClient } from '@stylobot/core'
+import { StyloBotClient, type Verdict } from '@stylobot/core'
 import { SbSsrCoordinator, styloBotMiddleware } from '@stylobot/node'
 
 const dir = dirname(fileURLToPath(import.meta.url))
@@ -22,13 +22,9 @@ app.use(express.static(join(dir, '../public')))
 // Sidecar mode: calls POST /api/v1/detect per request, populates req.stylobot
 app.use(styloBotMiddleware({ mode: 'api', endpoint: STYLOBOT_URL, apiKey: STYLOBOT_API_KEY }))
 
-// Propagate verdict to res.locals for templates
-app.use((req, res, next) => {
-  res.locals.sbVerdictScript = client.verdictGlobal(req.stylobot.verdict)
-  next()
-})
-
-const layout = (body: string, verdictScript: string, isBot: boolean, prob: number, risk: string) => `<!DOCTYPE html>
+const layout = (body: string, verdictScript: string, verdict: Verdict) => {
+  const { isBot, botProbability, riskBand } = verdict
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -53,18 +49,19 @@ const layout = (body: string, verdictScript: string, isBot: boolean, prob: numbe
   </nav>
   <div class="verdict-badge"
        data-isbot="${isBot}"
-       data-risk="${risk}"
-       data-prob="${prob.toFixed(4)}">
+       data-risk="${riskBand}"
+       data-prob="${botProbability.toFixed(4)}">
     <strong>You are: ${isBot ? 'a bot' : 'human'}</strong>
-    &middot; probability: ${(prob * 100).toFixed(1)}%
-    &middot; risk: ${risk}
+    &middot; probability: ${(botProbability * 100).toFixed(1)}%
+    &middot; risk: ${riskBand}
   </div>
   ${body}
 </body>
 </html>`
+}
 
 app.get('/', async (req, res) => {
-  const { isBot, verdict, reasons, meta } = req.stylobot
+  const { verdict, reasons, meta } = req.stylobot
 
   let widgets: Record<string, string> = {}
   try {
@@ -73,7 +70,7 @@ app.get('/', async (req, res) => {
       { widgetId: 'topbots', template: topbotsTemplate },
     ])
   } catch {
-    // Dashboard UI / Liquid render endpoint unavailable; widgets show fallback messages below
+    // /_stylobot/partials/render unavailable; fallback widgets rendered below
   }
 
   const reasonsHtml = reasons.length
@@ -93,17 +90,19 @@ app.get('/', async (req, res) => {
     ${widgets['topbots'] ?? '<div class="sb-card" data-sb-widget="topbots"><em>Widget unavailable</em></div>'}
     ${reasonsHtml}`
 
-  res.send(layout(body, res.locals.sbVerdictScript as string, isBot, verdict.botProbability, verdict.riskBand))
+  res.send(layout(body, client.verdictGlobal(verdict), verdict))
 })
 
 app.get('/protected', (req, res) => {
-  const { isBot, verdict } = req.stylobot
+  const { verdict } = req.stylobot
 
-  if (isBot && verdict.botProbability > 0.8) {
-    res.status(403).send(`<!DOCTYPE html><html lang="en"><body>
-      <h1 id="blocked-heading">Access denied</h1>
-      <p>Bot detected (probability: ${(verdict.botProbability * 100).toFixed(1)}%, risk: ${verdict.riskBand})</p>
-    </body></html>`)
+  if (verdict.isBot && verdict.botProbability > 0.8) {
+    res.status(403).send(layout(
+      `<h1 id="blocked-heading">Access denied</h1>
+       <p>Bot detected (probability: ${(verdict.botProbability * 100).toFixed(1)}%, risk: ${verdict.riskBand})</p>`,
+      client.verdictGlobal(verdict),
+      verdict,
+    ))
     return
   }
 
@@ -114,15 +113,13 @@ app.get('/protected', (req, res) => {
       <p>Probability: ${(verdict.botProbability * 100).toFixed(1)}% &middot; Risk: ${verdict.riskBand} &middot; Action: ${verdict.recommendedAction}</p>
     </div>`
 
-  res.send(layout(body, res.locals.sbVerdictScript as string, isBot, verdict.botProbability, verdict.riskBand))
+  res.send(layout(body, client.verdictGlobal(verdict), verdict))
 })
 
-// Full req.stylobot result for debugging
 app.get('/debug', (req, res) => {
   res.json(req.stylobot)
 })
 
-// Verdict only
 app.get('/api/verdict', (req, res) => {
   res.json(req.stylobot.verdict)
 })

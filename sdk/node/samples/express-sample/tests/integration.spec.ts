@@ -90,39 +90,30 @@ test.describe('/debug', () => {
 test.describe('/protected', () => {
   test('Playwright browser can access protected content', async ({ page }) => {
     await page.goto('/protected')
-    // Chromium should either pass (200 with protected content) or be a bot (403)
-    // We verify the page has a heading either way
     await expect(page.locator('h1')).toBeVisible()
   })
 
-  test('python-requests UA is blocked or gracefully handled', async ({ request }) => {
-    const resp = await request.get('/protected', {
-      headers: {
-        'user-agent': 'python-requests/2.28.0',
-        'accept': '*/*',
-        'accept-encoding': 'gzip, deflate',
-        'connection': 'keep-alive',
-      },
-    })
-    // When StyloBot is live: python-requests UA triggers high bot probability → 403
-    // When StyloBot is down: middleware falls back to empty verdict → 200
-    expect([200, 403]).toContain(resp.status())
-    if (resp.status() === 403) {
-      const body = await resp.text()
-      expect(body).toContain('Access denied')
-    }
-  })
+  const botUAs = [
+    {
+      name: 'python-requests UA is blocked or gracefully handled',
+      ua: 'python-requests/2.28.0',
+      headers: { 'accept': '*/*', 'accept-encoding': 'gzip, deflate', 'connection': 'keep-alive' },
+    },
+    {
+      name: 'masscan UA gets blocked when StyloBot is live',
+      ua: 'masscan/1.3',
+      headers: { 'accept': '*/*' },
+    },
+  ]
 
-  test('masscan UA gets blocked when StyloBot is live', async ({ request }) => {
-    const resp = await request.get('/protected', {
-      headers: {
-        'user-agent': 'masscan/1.3',
-        'accept': '*/*',
-      },
+  for (const { name, ua, headers } of botUAs) {
+    test(name, async ({ request }) => {
+      const resp = await request.get('/protected', { headers: { ...headers, 'user-agent': ua } })
+      // When StyloBot is live: bot UA triggers high probability → 403
+      // When StyloBot is down: middleware falls back to empty verdict → 200
+      expect([200, 403]).toContain(resp.status())
+      if (resp.status() === 403)
+        expect(await resp.text()).toContain('Access denied')
     })
-    expect([200, 403]).toContain(resp.status())
-    if (resp.status() === 403) {
-      expect(await resp.text()).toContain('Access denied')
-    }
-  })
+  }
 })
