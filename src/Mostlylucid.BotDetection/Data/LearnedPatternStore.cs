@@ -105,7 +105,7 @@ public class SqliteLearnedPatternStore : ILearnedPatternStore, IAsyncDisposable
                 @firstSeen, @lastSeen, @action, @botType, @botName, @source, @metadata
             )
             ON CONFLICT(pattern_id) DO UPDATE SET
-                confidence = MAX(confidence, @confidence),
+                confidence = (confidence * CAST(occurrences AS REAL) + @confidence) / CAST(occurrences + 1 AS REAL),
                 occurrences = occurrences + 1,
                 last_seen = @lastSeen,
                 action = @action,

@@ -1,5 +1,24 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using System.Text.Json
 @model EndpointDetailModel
+@{
+    var chartId = "ep-radar-" + Guid.NewGuid().ToString("N")[..8];
+    bool HasRadar = Model.Found && (Model.BotProfile != null || Model.HumanProfile != null || Model.OverallProfile != null);
+
+    string ProfileJson(EndpointBehavioralProfile? p)
+    {
+        if (p == null) return "null";
+        return JsonSerializer.Serialize(new[]
+        {
+            Math.Round(p.Probability, 1),
+            Math.Round(p.Confidence, 1),
+            Math.Round(p.ThreatScore, 1),
+            Math.Round(p.BlockRate, 1),
+            Math.Round(p.ErrorRate, 1),
+            Math.Round(p.LatencyScore, 1)
+        });
+    }
+}
 <div class="p-4">
     @if (!Model.Found)
     {
@@ -13,46 +32,73 @@
                 <div class="text-sm font-bold break-all">@Model.Path</div>
             </div>
             <div class="text-right">
-                <div class="text-lg font-bold">@(Model.BotRate * 100).ToString("F0")%</div>
+                <div class="text-lg font-bold">@((Model.BotRate * 100).ToString("F0"))%</div>
                 <div class="text-[10px] text-base-content/40">bot rate</div>
             </div>
         </div>
 
-        <div class="grid grid-cols-4 gap-2 mt-4 text-center">
+        <div class="grid grid-cols-4 gap-2 mt-3 text-center">
             <div><div class="text-sm font-bold">@Model.TotalCount</div><div class="text-[10px] text-base-content/40">Req</div></div>
             <div><div class="text-sm font-bold text-error">@Model.BotCount</div><div class="text-[10px] text-base-content/40">Bots</div></div>
             <div><div class="text-sm font-bold text-success">@Model.HumanCount</div><div class="text-[10px] text-base-content/40">Humans</div></div>
             <div><div class="text-sm font-bold">@Model.UniqueSignatures</div><div class="text-[10px] text-base-content/40">Sigs</div></div>
         </div>
 
-        <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
-            <div>
-                <div class="font-semibold mb-1">Top Actions</div>
-                @foreach (var item in Model.TopActions.Take(5))
-                {
-                    <div class="flex items-center justify-between text-base-content/70"><span>@item.Key</span><span>@item.Value</span></div>
-                }
+        @if (HasRadar)
+        {
+            <div class="mt-4">
+                <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-2">Behavioral Profile</div>
+                <div id="@chartId" style="height:220px;"></div>
+                <div class="flex items-center justify-center gap-4 mt-1 text-[10px] text-base-content/50">
+                    @if (Model.BotProfile != null) { <span><span class="inline-block w-2 h-2 rounded-full bg-error mr-1"></span>Bot (@Model.BotProfile.SampleCount)</span> }
+                    @if (Model.HumanProfile != null) { <span><span class="inline-block w-2 h-2 rounded-full bg-success mr-1"></span>Human (@Model.HumanProfile.SampleCount)</span> }
+                    @if (Model.OverallProfile != null) { <span><span class="inline-block w-2 h-2 rounded-full bg-info mr-1"></span>All</span> }
+                </div>
             </div>
-            <div>
-                <div class="font-semibold mb-1">Top Countries</div>
-                @foreach (var item in Model.TopCountries.Take(5))
-                {
-                    <div class="flex items-center justify-between text-base-content/70"><span>@item.Key</span><span>@item.Value</span></div>
-                }
-            </div>
+            <script nonce="@Model.CspNonce">
+            setTimeout(function() {
+                var el = document.getElementById('@chartId');
+                if (!el || typeof ApexCharts === 'undefined') return;
+
+                var botData     = @Html.Raw(ProfileJson(Model.BotProfile));
+                var humanData   = @Html.Raw(ProfileJson(Model.HumanProfile));
+                var overallData = @Html.Raw(ProfileJson(Model.OverallProfile));
+
+                var series = [];
+                if (botData)     series.push({ name: 'Bot',   data: botData });
+                if (humanData)   series.push({ name: 'Human', data: humanData });
+                if (overallData) series.push({ name: 'All',   data: overallData });
+
+                var isDark = document.documentElement.getAttribute('data-theme') !== 'sb-light';
+                var labelColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)';
+
+                new ApexCharts(el, {
+                    chart: { type: 'radar', height: 220, toolbar: { show: false }, animations: { enabled: false }, background: 'transparent' },
+                    series: series,
+                    colors: ['#f87272', '#36d399', '#38bdf8'],
+                    xaxis: { categories: ['Probability', 'Confidence', 'Threat', 'Block %', 'Error %', 'Latency'] },
+                    yaxis: { show: false, min: 0, max: 100 },
+                    fill: { opacity: 0.15 },
+                    stroke: { width: 2 },
+                    markers: { size: 3 },
+                    legend: { show: false },
+                    plotOptions: { radar: { polygons: { strokeColors: labelColor, connectorColors: labelColor, fill: { colors: ['transparent'] } } } },
+                    dataLabels: { enabled: false },
+                    theme: { mode: isDark ? 'dark' : 'light' }
+                }).render();
+            }, 50);
+            </script>
+        }
+
+        <div class="mt-4 text-xs flex items-center justify-between text-base-content/40">
+            <span>@Model.AvgProcessingTimeMs.ToString("F0")ms avg</span>
+            <span>Threat @Model.AvgThreatScore.ToString("F1")</span>
         </div>
 
-        <div class="mt-4">
-            <div class="flex items-center justify-between text-xs mb-1">
-                <span class="font-semibold">Top Bots</span>
-                <span class="text-base-content/40">Threat @Model.AvgThreatScore.ToString("F1") • @Model.AvgProcessingTimeMs.ToString("F0")ms</span>
-            </div>
-            @if (Model.TopBots.Count == 0)
-            {
-                <div class="text-xs text-base-content/40">No bot signatures on this endpoint yet</div>
-            }
-            else
-            {
+        @if (Model.TopBots.Count > 0)
+        {
+            <div class="mt-3">
+                <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">Top Bots</div>
                 @foreach (var bot in Model.TopBots.Take(5))
                 {
                     <div class="flex items-center justify-between py-1 text-xs border-b border-base-300/40">
@@ -60,8 +106,8 @@
                         <span class="font-mono">@bot.HitCount</span>
                     </div>
                 }
-            }
-        </div>
+            </div>
+        }
 
         <div class="mt-4 pt-3 border-t border-base-300/40">
             <div class="flex items-center justify-between text-xs">
@@ -72,9 +118,7 @@
                     <i class="bx bx-shield-alt text-sm"></i>Apply Policy
                 </button>
             </div>
-            <div class="text-[10px] text-base-content/40 mt-1">
-                Configure how bots are handled on this endpoint
-            </div>
+            <div class="text-[10px] text-base-content/40 mt-1">Configure how bots are handled on this endpoint</div>
         </div>
     }
 </div>

@@ -30,10 +30,8 @@
     <script nonce="@Model.CspNonce">
         (function() {
             try {
-                var saved = localStorage.getItem('sb-theme');
-                if (saved) document.documentElement.setAttribute('data-theme', saved);
-                else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)
-                    document.documentElement.setAttribute('data-theme', 'light');
+                var saved = localStorage.getItem('sb-theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', saved);
             } catch(e) {}
             if (new URLSearchParams(window.location.search).get('embed') === '1') {
                 document.addEventListener('DOMContentLoaded', function() {
@@ -41,46 +39,35 @@
                     if (hdr) hdr.style.display = 'none';
                 });
             }
+            // Allow HTMX-injected partial scripts to run under this page's CSP nonce
+            htmx.config.inlineScriptNonce = '@Model.CspNonce';
         })();
     </script>
 
     <style nonce="@Model.CspNonce">
         [x-cloak] { display: none !important; }
-        [data-theme="dark"] {
-            --sb-brand-muted: #8b9eb8;
-            --sb-brand-strong: #ffffff;
-            --sb-accent: #5ba3a3;
-            --sb-accent-alt: #0f4c81;
-            --sb-accent-strong: #86b59c;
-            --sb-surface: #0b1220;
-            --sb-card-bg: #141f33;
-            --sb-card-border: rgba(91, 163, 163, 0.28);
-            --sb-card-divider: rgba(148, 163, 184, 0.18);
-            --sb-card-subtle: #334155;
-            --sb-signal-pos: #86B59C;
-            --sb-signal-warn: #DAA564;
-            --sb-signal-danger: #ef4444;
-        }
-        [data-theme="light"] {
-            --sb-brand-muted: #475569;
-            --sb-brand-strong: #0f172a;
-            --sb-accent: #0f766e;
-            --sb-accent-alt: #0f4c81;
-            --sb-accent-strong: #059669;
-            --sb-surface: #f8fafc;
-            --sb-card-bg: #ffffff;
-            --sb-card-border: rgba(15, 118, 110, 0.18);
-            --sb-card-divider: rgba(15, 23, 42, 0.1);
-            --sb-card-subtle: #94a3b8;
-            --sb-signal-pos: #16a34a;
-            --sb-signal-warn: #d97706;
-            --sb-signal-danger: #dc2626;
+
+        /* Map --sb-* aliases to DaisyUI OKLCH tokens -- works for any DaisyUI theme */
+        :root, [data-theme] {
+            --sb-surface:      oklch(var(--b2));
+            --sb-card-bg:      oklch(var(--b1));
+            --sb-card-border:  oklch(var(--bc) / 0.15);
+            --sb-card-divider: oklch(var(--bc) / 0.08);
+            --sb-card-subtle:  oklch(var(--b3));
+            --sb-brand-muted:  oklch(var(--bc) / 0.55);
+            --sb-brand-strong: oklch(var(--bc));
+            --sb-accent:       oklch(var(--a));
+            --sb-accent-alt:   oklch(var(--p));
+            --sb-accent-strong:oklch(var(--su));
+            --sb-signal-pos:   oklch(var(--su));
+            --sb-signal-warn:  oklch(var(--wa));
+            --sb-signal-danger:oklch(var(--er));
         }
 
         body { font-family: 'Inter', sans-serif; background: var(--sb-surface); }
         .brand-header {
-            background: linear-gradient(120deg, color-mix(in oklab, var(--sb-surface) 78%, #0f172a), color-mix(in oklab, var(--sb-card-bg) 70%, #0f172a));
-            border-bottom: 1px solid var(--sb-card-divider);
+            background: oklch(var(--b2));
+            border-bottom: 1px solid oklch(var(--bc) / 0.1);
         }
         .sb-link { color: var(--sb-accent); text-decoration: none; }
         .sb-link:hover { text-decoration: underline; }
@@ -123,10 +110,37 @@
                 }
             </div>
             <div class="flex items-center gap-2">
-                <button onclick="document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); try { localStorage.setItem('sb-theme', document.documentElement.getAttribute('data-theme')); } catch(e) {}"
-                        class="btn btn-ghost btn-xs btn-circle">
-                    <i class="bx bx-moon text-sm"></i>
-                </button>
+                <select id="sb-theme-picker" class="select select-ghost select-xs text-xs opacity-60 hover:opacity-100 transition-opacity"
+                        onchange="document.documentElement.setAttribute('data-theme',this.value);try{localStorage.setItem('sb-theme',this.value);}catch(e){}">
+                    <option value="dark">Dark</option>
+                    <option value="light">Light</option>
+                    <option value="dim">Dim</option>
+                    <option value="night">Night</option>
+                    <option value="dracula">Dracula</option>
+                    <option value="synthwave">Synthwave</option>
+                    <option value="cyberpunk">Cyberpunk</option>
+                    <option value="nord">Nord</option>
+                    <option value="cupcake">Cupcake</option>
+                    <option value="bumblebee">Bumblebee</option>
+                    <option value="emerald">Emerald</option>
+                    <option value="corporate">Corporate</option>
+                    <option value="retro">Retro</option>
+                    <option value="forest">Forest</option>
+                    <option value="aqua">Aqua</option>
+                    <option value="luxury">Luxury</option>
+                    <option value="coffee">Coffee</option>
+                    <option value="sunset">Sunset</option>
+                    <option value="winter">Winter</option>
+                    <option value="lofi">Lo-Fi</option>
+                    <option value="black">Black</option>
+                </select>
+                <script nonce="@Model.CspNonce">
+                    (function(){
+                        var t=localStorage.getItem('sb-theme')||'dark';
+                        var sel=document.getElementById('sb-theme-picker');
+                        if(sel){var opt=sel.querySelector('option[value="'+t+'"]');if(opt)opt.selected=true;}
+                    })();
+                </script>
             </div>
         </div>
     </header>
@@ -195,17 +209,17 @@
                     <i class="bx bx-shield-x text-error text-base shrink-0"></i>
                     @if (highRiskEndpoints > 0)
                     {
-                        <span><span class="font-bold text-error">@highRiskEndpoints</span> endpoint@(highRiskEndpoints != 1 ? "s" : "") under high bot pressure</span>
+                        <a href="@TabUrl("endpoints")" class="hover:underline"><span class="font-bold text-error">@highRiskEndpoints</span> endpoint@(highRiskEndpoints != 1 ? "s" : "") under high bot pressure</a>
                         <span class="text-base-content/20">|</span>
                     }
                     @if (activeBotCount > 0)
                     {
-                        <span><span class="font-bold">@activeBotCount</span> bot signature@(activeBotCount != 1 ? "s" : "") active</span>
+                        <a href="@TabUrl("visitors")?filter=bots" class="hover:underline"><span class="font-bold">@activeBotCount</span> bot signature@(activeBotCount != 1 ? "s" : "") active</a>
                     }
                     @if (botPct > 10)
                     {
                         <span class="text-base-content/20">|</span>
-                        <span class="@(botPct > 30 ? "text-error font-bold" : "")">@botPct.ToString("F0")% bot traffic</span>
+                        <a href="@TabUrl("activity")" class="hover:underline @(botPct > 30 ? "text-error font-bold" : "")">@botPct.ToString("F0")% bot traffic</a>
                     }
                     <a href="@TabUrl("threats")" class="ml-auto text-base-content/50 hover:text-base-content">Threats →</a>
                 </div>
@@ -216,12 +230,7 @@
 
                 <!-- ENDPOINTS BY BOT PRESSURE: 2/3 width -->
                 <div class="lg:col-span-2">
-                    <div id="overview-endpoints"
-                         hx-get="@bp/partials/endpoints?pageSize=10&excludeStatic=true&sort=botrate&dir=desc"
-                         hx-trigger="load, every 15s"
-                         hx-swap="innerHTML"
-                         class="rounded-xl border overflow-hidden"
-                         style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                    <div class="rounded-xl border overflow-hidden" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
                         <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
                             <div class="flex items-center gap-2">
                                 <span class="text-[10px] font-semibold text-base-content/70">ENDPOINTS BY BOT PRESSURE</span>
@@ -229,7 +238,12 @@
                             </div>
                             <a href="@TabUrl("endpoints")" class="text-[9px] text-base-content/40 hover:text-base-content/60">All endpoints →</a>
                         </div>
-                        <div class="p-2 text-xs text-base-content/40 text-center py-4">Loading...</div>
+                        <div id="overview-endpoints"
+                             hx-get="@bp/partials/endpoints-compact?pageSize=10&excludeStatic=true&sort=botrate&dir=desc"
+                             hx-trigger="load, every 15s"
+                             hx-swap="innerHTML">
+                            <div class="p-2 text-xs text-base-content/40 text-center py-4">Loading...</div>
+                        </div>
                     </div>
                 </div>
 
@@ -275,19 +289,20 @@
                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_RecentActivity.cshtml", Model.Visitors)
                 </div>
                 <div>
-                    <div id="activity-endpoints"
-                         hx-get="@bp/partials/endpoints?pageSize=15&excludeStatic=true&sort=total&dir=desc"
-                         hx-trigger="load, every 5s"
-                         hx-swap="innerHTML"
-                         class="rounded-xl border overflow-hidden"
-                         style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                    <div class="rounded-xl border overflow-hidden" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
                         <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
                             <div class="flex items-center gap-2">
                                 <span class="text-[10px] font-semibold text-base-content/70">ACTIVE ENDPOINTS</span>
-                                <span class="text-[9px] px-1 py-0.5 rounded status-badge-danger font-medium">LIVE</span>
+                                <span class="text-[9px] px-1 py-0.5 rounded bg-error/20 text-error font-medium">LIVE</span>
                             </div>
+                            <a href="@TabUrl("endpoints")" class="text-[9px] text-base-content/40 hover:text-base-content/60">All endpoints →</a>
                         </div>
-                        <div class="p-2 text-xs text-base-content/40 text-center py-4">Loading...</div>
+                        <div id="activity-endpoints"
+                             hx-get="@bp/partials/endpoints-compact?pageSize=15&excludeStatic=true&sort=total&dir=desc"
+                             hx-trigger="load, every 5s"
+                             hx-swap="innerHTML">
+                            <div class="p-2 text-xs text-base-content/40 text-center py-4">Loading...</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -312,7 +327,20 @@
         }
         else if (tab == "endpoints")
         {
-            <sb-endpoints-list />
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                <div class="lg:col-span-3">
+                    <sb-endpoints-list />
+                </div>
+                <div class="lg:col-span-2">
+                    <div id="endpoint-detail-panel"
+                         class="rounded-xl border sticky top-4"
+                         style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                        <div class="p-4 text-xs text-base-content/40 text-center py-12">
+                            Click an endpoint to inspect traffic mix, top bots, and recent requests
+                        </div>
+                    </div>
+                </div>
+            </div>
         }
         else if (tab == "sessions")
         {

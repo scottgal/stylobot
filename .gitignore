@@ -329,6 +329,11 @@ UpgradeLog*.htm
 *.mdf
 *.ldf
 
+# SQLite runtime databases (created at runtime, never committed)
+*.db
+*.db-shm
+*.db-wal
+
 # Business Intelligence projects
 *.rdl.data
 *.bim.layout

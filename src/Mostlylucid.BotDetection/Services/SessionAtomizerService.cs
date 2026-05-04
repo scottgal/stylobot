@@ -1,26 +1,34 @@
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.Services;
 
 public sealed class SessionAtomizerService : BackgroundService
 {
-    private static readonly TimeSpan SessionGap  = TimeSpan.FromMinutes(30);
-    private static readonly TimeSpan RunInterval = TimeSpan.FromMinutes(2);
-    private static readonly TimeSpan GraceAge    = TimeSpan.FromMinutes(35);
-    private const int MinRequests = 3;
-    private const int BatchLimit  = 5000;
+    private const int BatchLimit = 5000;
 
     private readonly ISessionStore _store;
     private readonly ILogger<SessionAtomizerService> _logger;
+    private readonly RetentionOptions _retention;
 
-    public SessionAtomizerService(ISessionStore store, ILogger<SessionAtomizerService> logger)
+    private TimeSpan SessionGap     => _retention.SessionGap;
+    private TimeSpan RunInterval    => _retention.AtomizerRunInterval;
+    private TimeSpan GraceAge       => _retention.SessionGraceAge;
+    private int      MinRequests    => _retention.SessionMinRequests;
+
+    public SessionAtomizerService(
+        ISessionStore store,
+        ILogger<SessionAtomizerService> logger,
+        IOptions<BotDetectionOptions> options)
     {
         _store = store;
         _logger = logger;
+        _retention = options.Value.Retention;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -50,7 +58,7 @@ public sealed class SessionAtomizerService : BackgroundService
         foreach (var sigGroup in requests.GroupBy(r => r.Signature))
         {
             var ordered  = sigGroup.OrderBy(r => r.Timestamp).ToList();
-            var sessions = SplitIntoSessionGroups(ordered, now, forceFlush);
+            var sessions = SplitIntoSessionGroups(ordered, now, forceFlush, SessionGap, GraceAge);
 
             foreach (var group in sessions)
             {
@@ -118,20 +126,21 @@ public sealed class SessionAtomizerService : BackgroundService
     }
 
     internal static IReadOnlyList<List<PersistedRequest>> SplitIntoSessionGroups(
-        List<PersistedRequest> ordered, DateTime now, bool forceFlush)
+        List<PersistedRequest> ordered, DateTime now, bool forceFlush,
+        TimeSpan sessionGap, TimeSpan graceAge)
     {
         var groups  = new List<List<PersistedRequest>>();
         var current = new List<PersistedRequest> { ordered[0] };
 
         for (var i = 1; i < ordered.Count; i++)
         {
-            if (ordered[i].Timestamp - ordered[i - 1].Timestamp >= SessionGap)
+            if (ordered[i].Timestamp - ordered[i - 1].Timestamp >= sessionGap)
             { groups.Add(current); current = new List<PersistedRequest>(); }
             current.Add(ordered[i]);
         }
 
         var lastTs = current.Max(r => r.Timestamp);
-        if (forceFlush || (now - lastTs) >= GraceAge)
+        if (forceFlush || (now - lastTs) >= graceAge)
             groups.Add(current);
 
         return groups;

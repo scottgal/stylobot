@@ -48,6 +48,8 @@ switch (firstArg)
     case "genkey":
         Console.WriteLine(Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32)));
         return 0;
+    case "clear":
+        return await ClearLearnedPatternsAsync(cmdArgs);
     case "man":
         ShowManPage();
         return 0;
@@ -82,6 +84,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("    stylobot man                                Full reference manual");
     Console.WriteLine("    stylobot llmtunnel [token] [opts]           Start local LLM agent + Cloudflare tunnel");
     Console.WriteLine("    stylobot genkey                             Generate a random 32-byte base64 key");
+    Console.WriteLine("    stylobot clear [--sessions]                 Clear learned patterns (and optionally sessions)");
     Console.WriteLine();
     Console.WriteLine("  LLM Tunnel Options:");
     Console.WriteLine("    --ollama <url>              Local Ollama URL (default: http://127.0.0.1:11434)");
@@ -958,6 +961,55 @@ finally
 }
 
 return 0;
+
+static async Task<int> ClearLearnedPatternsAsync(string[] args)
+{
+    var clearSessions = args.Contains("--sessions", StringComparer.OrdinalIgnoreCase);
+
+    // Resolve DB path using same priority as the server
+    var dbPath = Environment.GetEnvironmentVariable("STYLOBOT_DatabasePath")
+        ?? Path.Combine(Mostlylucid.BotDetection.Models.BotDetectionOptions.ResolveDataDirectory(), "botdetection.db");
+
+    if (!File.Exists(dbPath))
+    {
+        Console.WriteLine($"  No database found at: {dbPath}");
+        Console.WriteLine("  Nothing to clear.");
+        return 0;
+    }
+
+    try
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}");
+        await conn.OpenAsync();
+
+        await using (var cmd = new Microsoft.Data.Sqlite.SqliteCommand("DELETE FROM learned_patterns", conn))
+        {
+            var rows = await cmd.ExecuteNonQueryAsync();
+            Console.WriteLine($"  Cleared {rows} learned pattern(s).");
+        }
+
+        if (clearSessions)
+        {
+            await using var cmd = new Microsoft.Data.Sqlite.SqliteCommand(
+                "DELETE FROM sessions; DELETE FROM signatures; DELETE FROM buckets", conn);
+            var rows = await cmd.ExecuteNonQueryAsync();
+            Console.WriteLine($"  Cleared {rows} session/signature/bucket row(s).");
+        }
+
+        await using (var cmd = new Microsoft.Data.Sqlite.SqliteCommand("VACUUM", conn))
+        {
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        Console.WriteLine("  Done. Restart stylobot to pick up the fresh state.");
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"  Failed to clear database: {ex.Message}");
+        return 1;
+    }
+}
 
 static void ShowManPage()
 {

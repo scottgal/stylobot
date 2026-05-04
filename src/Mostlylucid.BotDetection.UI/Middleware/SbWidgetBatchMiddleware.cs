@@ -206,10 +206,11 @@ public sealed class SbWidgetBatchMiddleware
         var sortField = q["sort"].FirstOrDefault() ?? "total";
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
         var page = WidgetRenderHelpers.QueryPage(q);
+        var pageSize = WidgetRenderHelpers.QueryPageSize(q, 25);
 
         var cached = _aggregateCache.Current.Endpoints;
         var data = cached.Count > 0 ? cached : await _eventStore.GetEndpointStatsAsync(100);
-        var model = BuildEndpointsModel(sortField, sortDir, page, 25, data);
+        var model = BuildEndpointsModel(sortField, sortDir, page, pageSize, data);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbEndpointsList/Default.cshtml", model, context);
     }

@@ -6,8 +6,9 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 
 internal static class WidgetRenderHelpers
 {
+    // ^\s* tolerates leading whitespace/newlines that Razor emits before the first tag
     private static readonly Regex FirstTagRegex = new(
-        @"^(<[a-zA-Z][^>]*?)(/?>)",
+        @"^\s*(<[a-zA-Z][^>]*?)(/?>)",
         RegexOptions.Compiled | RegexOptions.Singleline);
 
     internal static IQueryCollection ExtractWidgetParams(HttpContext context, string widgetId)

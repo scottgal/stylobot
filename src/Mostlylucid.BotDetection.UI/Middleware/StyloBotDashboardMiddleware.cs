@@ -369,6 +369,10 @@ public class StyloBotDashboardMiddleware
                 await ServeEndpointsPartialAsync(context);
                 break;
 
+            case "partials/endpoints-compact":
+                await ServeEndpointsCompactPartialAsync(context);
+                break;
+
             case "partials/clusters":
                 await ServeClustersPartialAsync(context);
                 break;
@@ -3038,6 +3042,26 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html);
     }
 
+    /// <summary>Compact endpoint table for overview/activity sidebar slots. No widget management attributes — not an OOB target.</summary>
+    private async Task ServeEndpointsCompactPartialAsync(HttpContext context)
+    {
+        var sortField = context.Request.Query["sort"].FirstOrDefault() ?? "botrate";
+        var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
+        var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 100 ? ps : 10;
+        var excludeStatic = context.Request.Query["excludeStatic"].FirstOrDefault() == "true";
+
+        var endpoints = await GetEndpointsDataAsync(context);
+        if (excludeStatic)
+            endpoints = endpoints.Where(e => !IsStaticResource(e.Path)).ToList();
+
+        var model = BuildEndpointsModel(sortField, sortDir, 1, pageSize, endpoints);
+
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/StyloBot/Dashboard/_EndpointsCompact.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
     /// <summary>Render the clusters list partial.</summary>
     private async Task ServeClustersPartialAsync(HttpContext context)
     {
@@ -4039,13 +4063,15 @@ public class StyloBotDashboardMiddleware
         }
 
         var detail = await _eventStore.GetEndpointDetailAsync(method, path);
+        var epNonce = context.Items.TryGetValue("CspNonce", out var epN) && epN is string epNs ? epNs : "";
         var model = detail == null
             ? new EndpointDetailModel
             {
                 Method = method,
                 Path = path,
                 BasePath = _options.BasePath.TrimEnd('/'),
-                Found = false
+                Found = false,
+                CspNonce = epNonce
             }
             : new EndpointDetailModel
             {
@@ -4064,7 +4090,11 @@ public class StyloBotDashboardMiddleware
                 TopCountries = detail.TopCountries,
                 RiskBands = detail.RiskBands,
                 TopBots = detail.TopBots,
-                RecentDetections = detail.RecentDetections
+                RecentDetections = detail.RecentDetections,
+                BotProfile = detail.BotProfile,
+                HumanProfile = detail.HumanProfile,
+                OverallProfile = detail.OverallProfile,
+                CspNonce = epNonce
             };
 
         context.Response.ContentType = "text/html";

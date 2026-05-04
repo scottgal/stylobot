@@ -98,4 +98,30 @@ public sealed class RetentionOptions
     ///     Default: 3am UTC (low-traffic window).
     /// </summary>
     public int CompactionHourUtc { get; set; } = 3;
+
+    // ==========================================
+    // Session atomizer timing
+    // ==========================================
+
+    /// <summary>
+    ///     Inter-request gap that defines a session boundary.
+    ///     Default: 30 minutes. Set shorter (e.g. "00:00:30") for testing.
+    /// </summary>
+    public TimeSpan SessionGap { get; set; } = TimeSpan.FromMinutes(30);
+
+    /// <summary>
+    ///     Minimum age of the last request in an open session group before it is persisted.
+    ///     Prevents writing partial sessions mid-visit. Default: 35 minutes.
+    ///     Set shorter (e.g. "00:01:00") for testing.
+    /// </summary>
+    public TimeSpan SessionGraceAge { get; set; } = TimeSpan.FromMinutes(35);
+
+    /// <summary>
+    ///     How often the atomizer background pass runs. Default: 2 minutes.
+    ///     Set shorter (e.g. "00:00:15") for testing.
+    /// </summary>
+    public TimeSpan AtomizerRunInterval { get; set; } = TimeSpan.FromMinutes(2);
+
+    /// <summary>Minimum number of requests needed to form a persisted session. Default: 3.</summary>
+    public int SessionMinRequests { get; set; } = 3;
 }

@@ -64,7 +64,10 @@ public class SessionAtomizerTests
         };
         var ordered = requests.OrderBy(r => r.Timestamp).ToList();
 
-        var groups = SessionAtomizerService.SplitIntoSessionGroups(ordered, now, forceFlush: true);
+        var groups = SessionAtomizerService.SplitIntoSessionGroups(
+            ordered, now, forceFlush: true,
+            sessionGap: TimeSpan.FromMinutes(30),
+            graceAge: TimeSpan.FromMinutes(35));
 
         Assert.Equal(2, groups.Count(g => g.Count >= 3));
     }

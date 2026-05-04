@@ -182,6 +182,10 @@ public sealed class EndpointDetailModel
     public Dictionary<string, int> RiskBands { get; init; } = new();
     public List<DashboardTopBotEntry> TopBots { get; init; } = [];
     public List<SignatureDetectionRow> RecentDetections { get; init; } = [];
+    public EndpointBehavioralProfile? BotProfile { get; init; }
+    public EndpointBehavioralProfile? HumanProfile { get; init; }
+    public EndpointBehavioralProfile? OverallProfile { get; init; }
+    public string CspNonce { get; init; } = "";
 }
 
 /// <summary>

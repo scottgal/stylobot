@@ -264,14 +264,15 @@ public sealed class EphemeralPatternReputationCache : IPatternReputationCache, I
             {
                 if (ct.IsCancellationRequested) break;
 
-                // Convert LearnedSignature to PatternReputation
-                // Upgrade LogOnly patterns based on confidence (they may have been saved as Neutral initially)
+                // Convert LearnedSignature to PatternReputation.
+                // LogOnly patterns were observed in demo/observe mode and never blocked traffic.
+                // Their high confidence may reflect detector false positives, not real bot behaviour.
+                // Cap them at Suspect so they bias scoring but never fast-path block.
                 var state = signature.Action switch
                 {
                     LearnedPatternAction.Full when signature.Confidence >= 0.9 => ReputationState.ConfirmedBad,
                     LearnedPatternAction.Full => ReputationState.Suspect,
                     LearnedPatternAction.ScoreOnly when signature.Confidence >= 0.6 => ReputationState.Suspect,
-                    LearnedPatternAction.LogOnly when signature.Confidence >= 0.9 => ReputationState.ConfirmedBad,
                     LearnedPatternAction.LogOnly when signature.Confidence >= 0.6 => ReputationState.Suspect,
                     LearnedPatternAction.LogOnly when signature.Confidence <= 0.1 => ReputationState.ConfirmedGood,
                     _ => ReputationState.Neutral

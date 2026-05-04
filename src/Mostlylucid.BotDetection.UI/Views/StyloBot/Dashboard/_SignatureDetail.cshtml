@@ -53,44 +53,38 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@(Model.Found ? (Model.BotName ?? "Signature") : "Not Found") - StyloBot</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@@4.6.0/dist/full.min.css" />
-    <script src="https://cdn.tailwindcss.com" nonce="@Model.CspNonce"></script>
-    <link rel="stylesheet" href="https://unpkg.com/boxicons@@2.1.4/css/boxicons.min.css" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Raleway:wght@700;800;900&display=swap" rel="stylesheet" />
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts" nonce="@Model.CspNonce"></script>
+    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css" />
+    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/daisyui.min.css" />
+    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/boxicons.min.css" />
+    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/fonts.css" />
+    <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js" nonce="@Model.CspNonce"></script>
+    <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/apexcharts.min.js" nonce="@Model.CspNonce"></script>
     <script nonce="@Model.CspNonce">
         (function() {
             try {
-                var saved = localStorage.getItem('sb-theme');
-                if (saved) document.documentElement.setAttribute('data-theme', saved);
-                else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches)
-                    document.documentElement.setAttribute('data-theme', 'light');
+                var saved = localStorage.getItem('sb-theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', saved);
             } catch(e) {}
         })();
     </script>
     <style nonce="@Model.CspNonce">
-        [data-theme="dark"] {
-            --sb-brand-muted: #8b9eb8;
-            --sb-accent: #5ba3a3;
-            --sb-surface: #0b1220;
-            --sb-card-bg: #141f33;
-            --sb-card-border: rgba(91, 163, 163, 0.28);
-            --sb-card-divider: rgba(148, 163, 184, 0.18);
-        }
-        [data-theme="light"] {
-            --sb-brand-muted: #475569;
-            --sb-accent: #0f766e;
-            --sb-surface: #f8fafc;
-            --sb-card-bg: #ffffff;
-            --sb-card-border: rgba(15, 118, 110, 0.18);
-            --sb-card-divider: rgba(15, 23, 42, 0.1);
+        :root, [data-theme] {
+            --sb-surface:      oklch(var(--b2));
+            --sb-card-bg:      oklch(var(--b1));
+            --sb-card-border:  oklch(var(--bc) / 0.15);
+            --sb-card-divider: oklch(var(--bc) / 0.08);
+            --sb-card-subtle:  oklch(var(--b3));
+            --sb-brand-muted:  oklch(var(--bc) / 0.55);
+            --sb-brand-strong: oklch(var(--bc));
+            --sb-accent:       oklch(var(--a));
+            --sb-signal-pos:   oklch(var(--su));
+            --sb-signal-warn:  oklch(var(--wa));
+            --sb-signal-danger:oklch(var(--er));
         }
         body { font-family: 'Inter', sans-serif; background: var(--sb-surface); }
         .brand-header {
-            background: linear-gradient(120deg, color-mix(in oklab, var(--sb-surface) 78%, #0f172a), color-mix(in oklab, var(--sb-card-bg) 70%, #0f172a));
-            border-bottom: 1px solid var(--sb-card-divider);
+            background: oklch(var(--b2));
+            border-bottom: 1px solid oklch(var(--bc) / 0.1);
         }
         .impact-bar { height: 6px; border-radius: 3px; background: var(--sb-card-divider); }
         .impact-bar-fill { height: 100%; border-radius: 3px; }
@@ -110,10 +104,23 @@
                     Signature Detail
                 </span>
             </div>
-            <button onclick="document.documentElement.setAttribute('data-theme', document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'); try { localStorage.setItem('sb-theme', document.documentElement.getAttribute('data-theme')); } catch(e) {}"
-                    class="btn btn-ghost btn-xs btn-circle">
-                <i class="bx bx-moon text-sm"></i>
-            </button>
+            <select class="select select-ghost select-xs text-xs opacity-60 hover:opacity-100 transition-opacity"
+                    onchange="document.documentElement.setAttribute('data-theme',this.value);try{localStorage.setItem('sb-theme',this.value);}catch(e){}">
+                <option value="dark" selected>Dark</option>
+                <option value="light">Light</option>
+                <option value="dim">Dim</option>
+                <option value="night">Night</option>
+                <option value="dracula">Dracula</option>
+                <option value="synthwave">Synthwave</option>
+                <option value="nord">Nord</option>
+                <option value="cupcake">Cupcake</option>
+                <option value="forest">Forest</option>
+                <option value="luxury">Luxury</option>
+                <option value="coffee">Coffee</option>
+            </select>
+            <script nonce="@Model.CspNonce">
+                (function(){var t=localStorage.getItem('sb-theme')||'dark';var s=document.currentScript.previousElementSibling;if(s){var o=s.querySelector('option[value="'+t+'"]');if(o)o.selected=true;}})();
+            </script>
         </div>
     </header>
 
@@ -788,7 +795,7 @@ else
     </script>
 
     <!-- SignalR beacon: auto-refresh when this signature is updated -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js" nonce="@Model.CspNonce"></script>
+    <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/signalr.min.js" nonce="@Model.CspNonce"></script>
     <script nonce="@Model.CspNonce">
     (function() {
         var sigId = '@Html.Raw(Model.SignatureId.Replace("'", "\\'"))';

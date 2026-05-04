@@ -725,6 +725,76 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         if (total == 0) return null;
         var bots = reader.GetInt32(1);
 
+        var uniqueSigs = reader.IsDBNull(2) ? 0 : reader.GetInt32(2);
+        var avgMs = reader.IsDBNull(3) ? 0 : reader.GetDouble(3);
+        var avgThreat = reader.IsDBNull(4) ? 0 : reader.GetDouble(4);
+        await reader.CloseAsync();
+
+        // Query behavioral profiles grouped by bot/human
+        await using var profileCmd = conn.CreateCommand();
+        profileCmd.CommandText = $"""
+            SELECT
+                is_bot,
+                COUNT(*) AS cnt,
+                AVG(COALESCE(bot_probability, 0)) AS avg_prob,
+                AVG(COALESCE(confidence, 0)) AS avg_conf,
+                AVG(COALESCE(threat_score, 0)) AS avg_threat,
+                AVG(COALESCE(processing_time_ms, 0)) AS avg_ms,
+                SUM(CASE WHEN action = 'block' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS block_rate,
+                SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS error_rate
+            FROM detections
+            WHERE method = @method AND path = @path{timeFilter}
+            GROUP BY is_bot
+            """;
+        profileCmd.Parameters.AddWithValue("@method", method);
+        profileCmd.Parameters.AddWithValue("@path", path);
+        if (startTime.HasValue) profileCmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        if (endTime.HasValue)   profileCmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
+
+        EndpointBehavioralProfile? botProfile = null, humanProfile = null;
+        double maxMs = Math.Max(avgMs, 1);
+
+        await using var profileReader = await profileCmd.ExecuteReaderAsync();
+        while (await profileReader.ReadAsync())
+        {
+            var isBot = profileReader.GetInt32(0) == 1;
+            var cnt = profileReader.GetInt32(1);
+            var profile = new EndpointBehavioralProfile
+            {
+                SampleCount    = cnt,
+                Probability    = profileReader.GetDouble(2) * 100,
+                Confidence     = profileReader.GetDouble(3) * 100,
+                ThreatScore    = Math.Min(profileReader.GetDouble(4) * 10, 100),
+                LatencyScore   = Math.Min(profileReader.GetDouble(5) / maxMs * 100, 100),
+                BlockRate      = profileReader.GetDouble(6),
+                ErrorRate      = profileReader.GetDouble(7)
+            };
+            if (isBot) botProfile = profile;
+            else humanProfile = profile;
+        }
+
+        // Overall profile
+        EndpointBehavioralProfile? overallProfile = null;
+        if (botProfile != null || humanProfile != null)
+        {
+            var totalN = (botProfile?.SampleCount ?? 0) + (humanProfile?.SampleCount ?? 0);
+            if (totalN > 0)
+            {
+                double W(EndpointBehavioralProfile? p, Func<EndpointBehavioralProfile, double> f)
+                    => p == null ? 0 : f(p) * p.SampleCount / totalN;
+                overallProfile = new EndpointBehavioralProfile
+                {
+                    SampleCount  = totalN,
+                    Probability  = W(botProfile, p => p.Probability) + W(humanProfile, p => p.Probability),
+                    Confidence   = W(botProfile, p => p.Confidence)  + W(humanProfile, p => p.Confidence),
+                    ThreatScore  = W(botProfile, p => p.ThreatScore) + W(humanProfile, p => p.ThreatScore),
+                    LatencyScore = W(botProfile, p => p.LatencyScore)+ W(humanProfile, p => p.LatencyScore),
+                    BlockRate    = W(botProfile, p => p.BlockRate)   + W(humanProfile, p => p.BlockRate),
+                    ErrorRate    = W(botProfile, p => p.ErrorRate)   + W(humanProfile, p => p.ErrorRate)
+                };
+            }
+        }
+
         return new DashboardEndpointDetail
         {
             Method = method,
@@ -732,14 +802,17 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             TotalCount = total,
             BotCount = bots,
             BotRate = total > 0 ? (double)bots / total : 0,
-            UniqueSignatures = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
-            AvgProcessingTimeMs = reader.IsDBNull(3) ? 0 : reader.GetDouble(3),
-            AvgThreatScore = reader.IsDBNull(4) ? 0 : reader.GetDouble(4),
+            UniqueSignatures = uniqueSigs,
+            AvgProcessingTimeMs = avgMs,
+            AvgThreatScore = avgThreat,
             TopActions = new Dictionary<string, int>(),
             TopCountries = new Dictionary<string, int>(),
             RiskBands = new Dictionary<string, int>(),
             TopBots = new List<DashboardTopBotEntry>(),
-            RecentDetections = new List<SignatureDetectionRow>()
+            RecentDetections = new List<SignatureDetectionRow>(),
+            BotProfile = botProfile,
+            HumanProfile = humanProfile,
+            OverallProfile = overallProfile
         };
     }
 
