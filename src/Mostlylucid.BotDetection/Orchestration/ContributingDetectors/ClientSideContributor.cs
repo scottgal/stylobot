@@ -17,21 +17,24 @@ public class ClientSideContributor : ConfiguredContributorBase
 {
     private readonly ClientSideDetector _detector;
     private readonly ILogger<ClientSideContributor> _logger;
+    private readonly FingerprintPopulationTracker _population;
 
     public ClientSideContributor(
         ILogger<ClientSideContributor> logger,
         ClientSideDetector detector,
+        FingerprintPopulationTracker population,
         IDetectorConfigProvider configProvider)
         : base(configProvider)
     {
         _logger = logger;
         _detector = detector;
+        _population = population;
     }
 
     public override string Name => "ClientSide";
     public override int Priority => Manifest?.Priority ?? 18;
 
-    // No triggers - runs in first wave to check for fingerprint data
+    // TransportProtocol (5) and UserAgent (10) run before us, so their signals are already written.
     public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
 
     public override async Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
@@ -44,17 +47,71 @@ public class ClientSideContributor : ConfiguredContributorBase
         {
             var result = await _detector.DetectAsync(state.HttpContext, cancellationToken);
 
-            // Only contribute if we have actual client-side data
-            // Empty result means client-side detection is disabled or no fingerprint available
-            // Don't penalize requests just because client-side data is missing
+            // Empty = disabled (ClientSideDetector returns empty when Enabled = false)
             if (result.Reasons.Count == 0)
-                // No contribution - client-side detection is disabled or no data available
                 return contributions;
 
-            // Convert each reason to a contribution
+            // Fetch once; reused by both the no-fingerprint and fingerprint-found paths.
+            var transportClass = state.GetSignal<string>(SignalKeys.TransportProtocolClass) ?? TransportClasses.Unknown;
+            var uaFamily = state.GetSignal<string>(SignalKeys.UserAgentFamily) ?? TransportClasses.Unknown;
+
+            var isNoFingerprint = result.Reasons.Count == 1
+                                  && result.Reasons[0].Detail == ClientSideReasons.NoFingerprint;
+
+            if (isNoFingerprint)
+            {
+                // Only meaningful for document requests — API, static, and WebSocket never run the fingerprint script.
+                if (transportClass == TransportClasses.Document)
+                {
+                    // Record population even when not penalizing so the rate stays accurate.
+                    var (rate, samples) = _population.Record(uaFamily, transportClass, hasFingerprint: false);
+
+                    if (GetParam("penalize_no_fingerprint", true))
+                    {
+                        var minSamples = GetParam("population_min_samples", 20);
+                        var rateThreshold = GetParam("population_rate_threshold", 0.7);
+                        var penaltyBase = GetParam("penalize_confidence", 0.15);
+
+                        double bias;
+                        string reason;
+
+                        if (samples >= minSamples)
+                        {
+                            // Below threshold: this UA/context doesn't normally send fingerprints.
+                            if (rate < rateThreshold)
+                                return contributions;
+
+                            bias = penaltyBase * rate;
+                            reason = $"Document request without fingerprint; {rate:P0} of similar requests carry one ({samples} samples)";
+                        }
+                        else
+                        {
+                            // Insufficient population data — conservative half-penalty.
+                            bias = penaltyBase * 0.5;
+                            reason = $"Document request without fingerprint; population data insufficient ({samples} samples)";
+                        }
+
+                        state.WriteSignal(SignalKeys.ClientSideNoFingerprintBias, bias);
+                        contributions.Add(new DetectionContribution
+                        {
+                            DetectorName = Name,
+                            Category = "ClientSide",
+                            ConfidenceDelta = bias,
+                            Weight = GetParam("fingerprint_weight", 1.8),
+                            Reason = reason
+                        });
+                    }
+                }
+
+                return contributions;
+            }
+
+            // Fingerprint found: record population for document requests so no-fingerprint cases are calibrated.
+            if (transportClass == TransportClasses.Document)
+                _population.Record(uaFamily, transportClass, hasFingerprint: true);
+
             foreach (var reason in result.Reasons)
             {
-                // Skip neutral reasons (ConfidenceImpact = 0)
                 if (Math.Abs(reason.ConfidenceImpact) < 0.001) continue;
 
                 state.WriteSignal(SignalKeys.FingerprintHeadlessScore, reason.Detail.Contains("Headless") ? 1.0 : 0.0);
@@ -63,14 +120,13 @@ public class ClientSideContributor : ConfiguredContributorBase
                     DetectorName = Name,
                     Category = reason.Category,
                     ConfidenceDelta = reason.ConfidenceImpact,
-                    Weight = GetParam("fingerprint_weight", 1.8), // Client-side fingerprint is a very strong signal
+                    Weight = GetParam("fingerprint_weight", 1.8),
                     Reason = reason.Detail,
                     BotType = result.BotType?.ToString(),
                     BotName = result.BotName
                 });
             }
 
-            // Write JS execution timing signals for cross-detector consumption
             if (state.HttpContext.Items["__mlbotd_fingerprint"] is BrowserFingerprintResult fp)
             {
                 if (fp.LayoutTimeMs.HasValue)
@@ -81,8 +137,6 @@ public class ClientSideContributor : ConfiguredContributorBase
                     state.WriteSignal(SignalKeys.JsPerformanceResolution, fp.PerformanceResolution.Value);
                 if (fp.TimingAnomaly)
                     state.WriteSignal(SignalKeys.JsTimingAnomaly, true);
-
-                // Write headless automation framework signal for cross-detector consumption
                 if (!string.IsNullOrEmpty(fp.DetectedAutomation))
                     state.WriteSignal(SignalKeys.HeadlessFramework, fp.DetectedAutomation);
             }

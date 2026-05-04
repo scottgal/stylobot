@@ -33,6 +33,10 @@ output:
       entity_type: float
       salience: 0.9
       description: Headless browser detection score
+    - key: clientside.no_fingerprint_bias
+      entity_type: float
+      salience: 0.5
+      description: Adaptive confidence bias when a document request carries no fingerprint
     - key: js.layout_time_ms
       entity_type: float
       salience: 0.7
@@ -100,6 +104,11 @@ defaults:
     settimeout_drift_max_ms: 50.0   # Above this = deliberately throttled
     perf_resolution_max_ms: 0.1     # Above this = coarse resolution (post-Spectre reduced)
     perf_resolution_min_ms: 0.001   # Below this = unrealistically fine (unpatched/non-standard)
+    # Adaptive "no fingerprint" penalty
+    penalize_no_fingerprint: true   # Apply bias when a document request has no fingerprint
+    penalize_confidence: 0.15       # Max confidence bias for missing fingerprint
+    population_min_samples: 20      # Minimum samples before using population rate (below = half-penalty)
+    population_rate_threshold: 0.7  # Fingerprint rate above which missing fingerprint is suspicious
 
 tags:
   - clientside

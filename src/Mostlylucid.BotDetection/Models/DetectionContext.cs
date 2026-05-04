@@ -1359,6 +1359,10 @@ public static class SignalKeys
     /// <summary>Boolean: true if any JS timing anomaly was detected</summary>
     public const string JsTimingAnomaly = "js.timing_anomaly";
 
+    /// <summary>Double: adaptive bias applied when a document request carries no fingerprint, scaled by population rate</summary>
+    public const string ClientSideNoFingerprintBias = "clientside.no_fingerprint_bias";
+
+
     // ==========================================
     // Cookie behavior signals
     // Set by CookieBehaviorContributor when analyzing cookie acceptance patterns
@@ -1456,4 +1460,15 @@ public static class SignalKeys
 
     /// <summary>Bool: true when a static asset's content fingerprint (ETag/Last-Modified) changed since last recorded.</summary>
     public const string AssetContentChanged = "asset.content_changed";
+}
+
+/// <summary>Values written to <see cref="SignalKeys.TransportProtocolClass"/> by TransportProtocolContributor.</summary>
+public static class TransportClasses
+{
+    public const string Document = "document";
+    public const string Api = "api";
+    public const string SignalR = "signalr";
+    public const string Grpc = "grpc";
+    public const string Static = "static";
+    public const string Unknown = "unknown";
 }

@@ -409,6 +409,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IBrowserTokenService, BrowserTokenService>();
         services.TryAddSingleton<IBrowserFingerprintAnalyzer, BrowserFingerprintAnalyzer>();
         services.TryAddSingleton<IBrowserFingerprintStore, BrowserFingerprintStore>();
+        services.TryAddSingleton<FingerprintPopulationTracker>();
 
         // Register signal bus infrastructure (intra-request, event-driven detection)
         services.TryAddTransient<IBotSignalBusFactory, BotSignalBusFactory>();

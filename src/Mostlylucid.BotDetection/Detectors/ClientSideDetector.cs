@@ -59,41 +59,15 @@ public class ClientSideDetector : IDetector
 
             if (fingerprint == null)
             {
-                // Determine if this looks like a browser page load.
-                // If a request claims to be a browser and accepts HTML but never
-                // provided a client-side fingerprint, that's a weak bot signal.
-                // API calls, static assets, and non-browser UAs stay neutral.
-                var accept = context.Request.Headers.Accept.ToString();
-                var ua = context.Request.Headers.UserAgent.ToString();
-                var isBrowserPageLoad = accept.Contains("text/html", StringComparison.OrdinalIgnoreCase)
-                                        && !string.IsNullOrEmpty(ua)
-                                        && (ua.Contains("Mozilla/", StringComparison.OrdinalIgnoreCase)
-                                            || ua.Contains("Chrome/", StringComparison.OrdinalIgnoreCase));
-
-                if (isBrowserPageLoad)
+                // Return a sentinel so ClientSideContributor can apply context-aware adaptive scoring.
+                // Confidence impact is 0 here; the contributor decides based on transport class
+                // and population rate (how often similar requests carry fingerprints).
+                result.Reasons.Add(new DetectionReason
                 {
-                    // Browser claims to render HTML but never ran our JS fingerprint.
-                    // Could be: first load (JS pending), headless bot, script blocker.
-                    // Weak positive signal - enough to contribute alongside other detectors.
-                    var impact = 0.15;
-                    result.Confidence += impact;
-                    result.Reasons.Add(new DetectionReason
-                    {
-                        Category = "ClientSide",
-                        Detail = "Browser request with no client-side fingerprint (JS not executed or blocked)",
-                        ConfidenceImpact = impact
-                    });
-                }
-                else
-                {
-                    result.Reasons.Add(new DetectionReason
-                    {
-                        Category = "ClientSide",
-                        Detail = "No browser fingerprint available (non-browser request)",
-                        ConfidenceImpact = 0
-                    });
-                }
-
+                    Category = "ClientSide",
+                    Detail = ClientSideReasons.NoFingerprint,
+                    ConfidenceImpact = 0
+                });
                 stopwatch.Stop();
                 return Task.FromResult(result);
             }
@@ -162,6 +136,17 @@ public class ClientSideDetector : IDetector
                     Category = "ClientSide",
                     Detail = reason,
                     ConfidenceImpact = 0.1
+                });
+
+            // Ensure at least one reason exists when fingerprint was found — even if the browser
+            // is perfectly clean. This sentinel lets the contributor distinguish "fingerprint found
+            // but clean" from "disabled" (which returns empty Reasons).
+            if (result.Reasons.Count == 0)
+                result.Reasons.Add(new DetectionReason
+                {
+                    Category = "ClientSide",
+                    Detail = ClientSideReasons.FingerprintFoundClean,
+                    ConfidenceImpact = 0
                 });
 
             // Cap confidence at 1.0
