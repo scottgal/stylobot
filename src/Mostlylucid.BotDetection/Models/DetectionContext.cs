@@ -1460,6 +1460,20 @@ public static class SignalKeys
 
     /// <summary>Bool: true when a static asset's content fingerprint (ETag/Last-Modified) changed since last recorded.</summary>
     public const string AssetContentChanged = "asset.content_changed";
+
+    // ==========================================
+    // Degradation / Upstream Response Signals
+    // Set by DegradationAtom when observing upstream HTTP response codes and latency
+    // ==========================================
+
+    /// <summary>Double: EMA-based 5xx error rate (0.0-1.0) across all upstream responses</summary>
+    public const string ResponseErrorRate5Xx = "response.error_rate_5xx";
+
+    /// <summary>Double: EMA-based 429 rate (0.0-1.0) across all upstream responses</summary>
+    public const string ResponseRate429 = "response.rate_429";
+
+    /// <summary>Double: EMA-based p95 latency (milliseconds) across all upstream responses</summary>
+    public const string ResponseLatencyP95 = "response.latency_p95";
 }
 
 /// <summary>Values written to <see cref="SignalKeys.TransportProtocolClass"/> by TransportProtocolContributor.</summary>
