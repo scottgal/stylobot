@@ -838,6 +838,62 @@ public static class ServiceCollectionExtensions
                 compliancePackId,
                 sp.GetRequiredService<ILogger<InMemoryCompliancePackProvider>>());
         });
+
+        // ==========================================
+        // Reaction Packs (signal-group-driven degradation engine)
+        // ==========================================
+
+        // Signal groups loaded from embedded YAML at startup
+        services.AddSingleton<Services.ISignalGroupRegistry>(sp =>
+        {
+            var assembly = typeof(ServiceCollectionExtensions).Assembly;
+            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance)
+                .IgnoreUnmatchedProperties()
+                .Build();
+
+            var groups = assembly.GetManifestResourceNames()
+                .Where(n => n.Contains("SignalGroups") && n.EndsWith(".yaml"))
+                .Select(name =>
+                {
+                    using var stream = assembly.GetManifestResourceStream(name)!;
+                    using var reader = new StreamReader(stream);
+                    return deserializer.Deserialize<Models.SignalGroupDefinition>(reader.ReadToEnd());
+                })
+                .Where(g => !string.IsNullOrWhiteSpace(g.Name))
+                .ToList();
+
+            return new Services.SignalGroupRegistry(groups);
+        });
+
+        // Reaction pack YAML definitions loaded from embedded resources
+        services.AddSingleton<IEnumerable<Models.ReactionPackDefinition>>(sp =>
+        {
+            var assembly = typeof(ServiceCollectionExtensions).Assembly;
+            var deserializer = new YamlDotNet.Serialization.DeserializerBuilder()
+                .WithNamingConvention(YamlDotNet.Serialization.NamingConventions.UnderscoredNamingConvention.Instance)
+                .IgnoreUnmatchedProperties()
+                .Build();
+
+            return assembly.GetManifestResourceNames()
+                .Where(n => n.Contains("ReactionPacks") && n.EndsWith(".yaml"))
+                .Select(name =>
+                {
+                    using var stream = assembly.GetManifestResourceStream(name)!;
+                    using var reader = new StreamReader(stream);
+                    return deserializer.Deserialize<Models.ReactionPackDefinition>(reader.ReadToEnd());
+                })
+                .Where(p => p.Enabled)
+                .ToList();
+        });
+
+        // Reaction pack runtime services
+        services.AddSingleton<Services.DegradationAtom>();
+        services.AddSingleton<Services.ReactionPackContext>();
+        services.AddSingleton<Services.IReactionPackContext>(sp => sp.GetRequiredService<Services.ReactionPackContext>());
+        services.AddSingleton<Services.ReactionRuleEvaluator>();
+        services.AddSingleton<Data.ReactionPackTransitionStore>();
+        services.AddHostedService<Services.ReactionPackEngine>();
     }
 
     /// <summary>
