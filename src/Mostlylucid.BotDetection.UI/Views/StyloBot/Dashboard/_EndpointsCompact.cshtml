@@ -18,6 +18,7 @@ else
                 <th class="py-1 text-right">Req</th>
                 <th class="py-1 text-right">Bot %</th>
                 <th class="py-1 text-right hidden sm:table-cell">Sigs</th>
+                <th class="py-1 hidden md:table-cell">Policy</th>
             </tr>
             </thead>
             <tbody>
@@ -27,10 +28,30 @@ else
                 <tr class="hover:bg-base-200/50 transition-colors cursor-pointer"
                     onclick="window.location='@(bp)?tab=endpoints'">
                     <td class="py-1 text-[10px] font-bold">@endpoint.Method</td>
-                    <td class="py-1 text-xs font-medium max-w-[220px] truncate" title="@endpoint.Path">@endpoint.Path</td>
+                    <td class="py-1 text-xs font-medium max-w-[220px] truncate" title="@endpoint.Path">
+                        @if (endpoint.IsPinned)
+                        {
+                            <i class="bx bx-pin text-base-content/30 mr-0.5" title="Pinned"></i>
+                        }
+                        @if (endpoint.IsHoneypot)
+                        {
+                            <i class="bx bx-bug text-warning mr-0.5" title="Honeypot"></i>
+                        }
+                        @endpoint.Path
+                    </td>
                     <td class="py-1 text-right text-xs font-mono">@endpoint.TotalCount</td>
                     <td class="py-1 text-right text-xs font-bold @botClass">@((endpoint.BotRate * 100).ToString("F0"))%</td>
                     <td class="py-1 text-right text-xs font-mono hidden sm:table-cell">@endpoint.UniqueSignatures</td>
+                    <td class="py-1 hidden md:table-cell">
+                        @if (!string.IsNullOrEmpty(endpoint.ActivePolicyName))
+                        {
+                            <span class="badge badge-xs badge-ghost font-mono text-[9px]">@endpoint.ActivePolicyName</span>
+                        }
+                        else
+                        {
+                            <span class="text-[10px] text-base-content/30">—</span>
+                        }
+                    </td>
                 </tr>
             }
             </tbody>
