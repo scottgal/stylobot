@@ -1,0 +1,257 @@
+@using Mostlylucid.BotDetection.UI.Models
+@using System.Text.Json
+@model SessionFingerprintsModel
+@{
+    var bp = Model.BasePath;
+    var thumbSize = Model.CompactMode ? 56 : 72;
+    var thumbR = Model.CompactMode ? 20 : 26;
+    var thumbCx = thumbSize / 2;
+    var thumbCy = thumbSize / 2;
+    var maxSessions = Model.CompactMode ? 10 : 20;
+    var sessions = Model.Sessions.Take(maxSessions).ToList();
+    var containerId = "sfp-" + Guid.NewGuid().ToString("N")[..8];
+
+    // Build SVG polygon points string for a 10-axis radar
+    string SvgPolygon(float[] freqs, int cx, int cy, int r)
+    {
+        var pts = new System.Text.StringBuilder();
+        for (var i = 0; i < 10; i++)
+        {
+            var angle = -Math.PI / 2 + i * 2 * Math.PI / 10;
+            var v = (double)(freqs.Length > i ? Math.Clamp(freqs[i], 0f, 1f) : 0f);
+            var x = cx + r * v * Math.Cos(angle);
+            var y = cy + r * v * Math.Sin(angle);
+            if (i > 0) pts.Append(' ');
+            pts.Append($"{x:F1},{y:F1}");
+        }
+        return pts.ToString();
+    }
+
+    // Decagon ring at a given radius (grid reference lines)
+    string SvgRing(int cx, int cy, int r)
+    {
+        var pts = new System.Text.StringBuilder();
+        for (var i = 0; i < 10; i++)
+        {
+            var angle = -Math.PI / 2 + i * 2 * Math.PI / 10;
+            var x = cx + r * Math.Cos(angle);
+            var y = cy + r * Math.Sin(angle);
+            if (i > 0) pts.Append(' ');
+            pts.Append($"{x:F1},{y:F1}");
+        }
+        return pts.ToString();
+    }
+
+    // Relative time label
+    string TimeAgo(DateTime dt)
+    {
+        var span = DateTime.UtcNow - dt;
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h";
+        if (span.TotalDays < 7) return $"{(int)span.TotalDays}d";
+        return dt.ToString("MMM d");
+    }
+
+    // Color by risk band
+    string FillColor(bool isBot, string riskBand) => riskBand switch {
+        "VeryHigh" or "High" => "#f87272",
+        "Elevated" or "Medium" => "#fbbf24",
+        _ => isBot ? "#f87272" : "#36d399"
+    };
+
+    var overlaySessions = sessions.Take(10).ToList();
+    var overlayData = overlaySessions.Select((s, i) => new {
+        label = TimeAgo(s.StartedAt),
+        data = s.StateFreqs.Select(v => Math.Round(v * 100, 1)).ToArray(),
+        isBot = s.IsBot,
+        id = s.Id
+    }).ToList();
+    var overlayJson = JsonSerializer.Serialize(overlayData);
+}
+
+@if (sessions.Count == 0)
+{
+    <div class="text-xs text-base-content/40 text-center py-4">
+        No finalized sessions yet. Sessions persist after 30 minutes of inactivity.
+    </div>
+}
+else
+{
+    <div id="@containerId" data-fingerprint-container data-mode="filmstrip">
+
+        @* Header with mode toggle (full mode only) *@
+        @if (!Model.CompactMode && sessions.Count > 1)
+        {
+            <div class="flex items-center justify-between mb-2">
+                <span class="text-[10px] text-base-content/40">@sessions.Count session@(sessions.Count != 1 ? "s" : "") &middot; most recent first</span>
+                <div class="flex rounded-lg overflow-hidden border border-base-300 text-[10px]">
+                    <button class="sfp-mode-btn px-2 py-1 bg-base-100 font-medium"
+                            data-action="toggle-fingerprint-mode"
+                            data-container="@containerId"
+                            data-mode="filmstrip">Filmstrip</button>
+                    <button class="sfp-mode-btn px-2 py-1 text-base-content/40"
+                            data-action="toggle-fingerprint-mode"
+                            data-container="@containerId"
+                            data-mode="overlay">Overlay</button>
+                </div>
+            </div>
+        }
+
+        @* Filmstrip *@
+        <div class="sfp-filmstrip overflow-x-auto pb-1">
+            <div class="flex gap-2 w-max">
+                @foreach (var entry in sessions)
+                {
+                    var isCurrent = entry.Id == Model.CurrentSessionId;
+                    var fillColor = FillColor(entry.IsBot, entry.RiskBand);
+                    var ring50 = SvgRing(thumbCx, thumbCy, thumbR / 2);
+                    var ring100 = SvgRing(thumbCx, thumbCy, thumbR);
+                    var polygon = SvgPolygon(entry.StateFreqs, thumbCx, thumbCy, thumbR);
+                    var borderClass = isCurrent ? "border-2 border-primary" : "border border-base-300";
+                    <div class="flex flex-col items-center gap-0.5 shrink-0">
+                        @{
+                            var probPct = (entry.Probability * 100).ToString("F0");
+                            var thumbTitle = $"{(entry.IsBot ? "Bot" : "Human")} · {probPct}% · {entry.RequestCount} req";
+                        }
+                        <button class="rounded-lg @borderClass hover:border-primary/60 transition-colors bg-base-200 p-0.5"
+                                hx-get="@bp/partials/session-detail?id=@entry.Id&sig=@Uri.EscapeDataString(Model.Signature)"
+                                hx-target="#sfp-session-detail-@containerId"
+                                hx-swap="innerHTML"
+                                title="@thumbTitle">
+                            <svg width="@thumbSize" height="@thumbSize" viewBox="0 0 @thumbSize @thumbSize" xmlns="http://www.w3.org/2000/svg">
+                                <polygon points="@ring100" fill="none" stroke="currentColor" stroke-width="0.5" class="text-base-content/10"/>
+                                <polygon points="@ring50" fill="none" stroke="currentColor" stroke-width="0.5" class="text-base-content/10"/>
+                                <polygon points="@polygon" fill="@fillColor" fill-opacity="0.3" stroke="@fillColor" stroke-width="1.5"/>
+                            </svg>
+                        </button>
+                        <span class="text-[9px] text-base-content/40">@TimeAgo(entry.StartedAt)</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @* Overlay (full mode only, hidden by default) *@
+        @if (!Model.CompactMode && sessions.Count > 1)
+        {
+            <div class="sfp-overlay hidden mt-2">
+                @* Preset buttons *@
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="text-[10px] text-base-content/40">Sessions:</span>
+                    @foreach (var n in new[] { 3, 5, 10 })
+                    {
+                        var available = Math.Min(n, overlaySessions.Count);
+                        <button class="sfp-overlay-preset btn btn-xs btn-ghost text-[10px] @(n == 5 ? "btn-active" : "")"
+                                data-count="@available"
+                                data-chart="@containerId-chart">@available</button>
+                    }
+                </div>
+                <div id="@containerId-chart" style="height:240px;" data-overlay-count="5"></div>
+            </div>
+        }
+
+        @* Session detail target (full mode only) *@
+        @if (!Model.CompactMode)
+        {
+            <div id="sfp-session-detail-@containerId" class="mt-3"></div>
+        }
+    </div>
+
+    @* Script: toggle, overlay presets, ApexCharts overlay render *@
+    @if (!Model.CompactMode && sessions.Count > 1)
+    {
+        <script type="application/json" id="@containerId-data">@Html.Raw(overlayJson)</script>
+        <script nonce="@Model.CspNonce">
+        (function() {
+            var containerId = '@Html.Raw(containerId)';
+            var container = document.getElementById(containerId);
+            var filmstrip = container ? container.querySelector('.sfp-filmstrip') : null;
+            var overlay   = container ? container.querySelector('.sfp-overlay')   : null;
+            var chartEl   = document.getElementById(containerId + '-chart');
+            var dataEl    = document.getElementById(containerId + '-data');
+            if (!container || !dataEl) return;
+
+            var allSessions = JSON.parse(dataEl.textContent);
+            var chart = null;
+
+            var axisLabels = ['Page','API','Asset','WS','SignalR','SSE','Form','Auth','404','Search'];
+            var opacities  = [0.20, 0.15, 0.12, 0.08, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05];
+            var strokeWidths = [2.0, 1.5, 1.0, 0.8, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
+
+            function breakUniform(arr) {
+                if (!arr || arr.length === 0) return arr;
+                var allSame = arr.every(function(v) { return v === arr[0]; });
+                if (allSame) { var out = arr.slice(); out[0] = Math.min(100, out[0] + 0.1); return out; }
+                return arr;
+            }
+
+            function buildOverlay(count) {
+                var subset = allSessions.slice(0, count);
+                var isDark = document.documentElement.getAttribute('data-theme') !== 'sb-light';
+                var labelColor = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.25)';
+                var series = subset.map(function(s, i) {
+                    return { name: s.label, data: breakUniform(s.data) };
+                });
+                var colors = subset.map(function(s, i) {
+                    return i === 0 ? '#38bdf8' : '#a78bfa';
+                });
+                var fillOp = subset.map(function(_, i) { return opacities[i] || 0.05; });
+                var strokeW = subset.map(function(_, i) { return strokeWidths[i] || 0.5; });
+
+                if (!chart) {
+                    chart = new ApexCharts(chartEl, {
+                        chart: { type: 'radar', height: 240, toolbar: { show: false }, animations: { enabled: false }, background: 'transparent' },
+                        series: series,
+                        colors: colors,
+                        xaxis: { categories: axisLabels },
+                        yaxis: { show: false, min: 0, max: 100 },
+                        fill: { opacity: fillOp },
+                        stroke: { width: strokeW },
+                        markers: { size: 0 },
+                        legend: { show: true, position: 'bottom', fontSize: '9px', labels: { colors: labelColor } },
+                        plotOptions: { radar: { polygons: { strokeColors: labelColor, connectorColors: labelColor, fill: { colors: ['transparent'] } } } },
+                        dataLabels: { enabled: false },
+                        theme: { mode: isDark ? 'dark' : 'light' }
+                    });
+                    chart.render();
+                } else {
+                    chart.updateOptions({ series: series, colors: colors, fill: { opacity: fillOp }, stroke: { width: strokeW } });
+                }
+                if (chartEl) chartEl.dataset.overlayCount = count;
+            }
+
+            // Mode toggle (delegated from document in Index.cshtml for dashboard,
+            // and handled here for standalone signature detail page)
+            container.querySelectorAll('[data-action="toggle-fingerprint-mode"]').forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var mode = btn.dataset.mode;
+                    container.dataset.mode = mode;
+                    if (filmstrip) filmstrip.classList.toggle('hidden', mode === 'overlay');
+                    if (overlay)   overlay.classList.toggle('hidden', mode === 'filmstrip');
+                    container.querySelectorAll('.sfp-mode-btn').forEach(function(b) {
+                        var isActive = b.dataset.mode === mode;
+                        b.classList.toggle('bg-base-100', isActive);
+                        b.classList.toggle('font-medium', isActive);
+                        b.classList.toggle('text-base-content/40', !isActive);
+                    });
+                    if (mode === 'overlay' && !chart) {
+                        var count = parseInt(chartEl ? (chartEl.dataset.overlayCount || '5') : '5', 10);
+                        buildOverlay(count);
+                    }
+                });
+            });
+
+            // Preset buttons
+            container.querySelectorAll('.sfp-overlay-preset').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    var count = parseInt(btn.dataset.count, 10);
+                    container.querySelectorAll('.sfp-overlay-preset').forEach(function(b) {
+                        b.classList.toggle('btn-active', b === btn);
+                    });
+                    buildOverlay(count);
+                });
+            });
+        })();
+        </script>
+    }
+}
