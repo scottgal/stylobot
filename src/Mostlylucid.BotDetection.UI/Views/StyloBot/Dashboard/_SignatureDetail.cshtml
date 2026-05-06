@@ -223,6 +223,19 @@ else
         </div>
     </div>
 
+    <!-- Behavioral Fingerprint History - lazy-loaded via HTMX -->
+    <div class="rounded-xl border overflow-hidden mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-border);">
+            <span class="text-[10px] font-semibold text-base-content/70 uppercase tracking-wider">BEHAVIORAL HISTORY</span>
+        </div>
+        <div class="p-3"
+             hx-get="@(bp)/partials/session-fingerprints?signature=@Uri.EscapeDataString(Model.SignatureId)"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+            <div class="text-xs text-base-content/40 text-center py-4">Loading...</div>
+        </div>
+    </div>
+
     <!-- Sessions (Markov chain behavioral sessions) - PRIMARY VIEW, loaded via HTMX -->
     <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
         <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">

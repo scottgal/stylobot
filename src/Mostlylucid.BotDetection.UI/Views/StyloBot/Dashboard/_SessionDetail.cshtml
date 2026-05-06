@@ -114,6 +114,14 @@
             </div>
         </div>
 
+        @* Session context strip - compact behavioral history for this signature *@
+        <div class="mt-4"
+             hx-get="@(bp)/partials/session-fingerprints?signature=@Uri.EscapeDataString(Model.Signature)&currentId=@Model.Id&compact=true"
+             hx-trigger="load"
+             hx-swap="innerHTML">
+            <div class="text-xs text-base-content/40 text-center py-2">Loading context...</div>
+        </div>
+
         @* Paths visited *@
         @if (Model.Paths != null && Model.Paths.Count > 0)
         {

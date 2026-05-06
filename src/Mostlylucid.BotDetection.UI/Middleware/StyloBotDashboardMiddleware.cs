@@ -3217,7 +3217,7 @@ public class StyloBotDashboardMiddleware
         if (long.TryParse(idStr, out var sessionId) && sessionId > 0)
         {
             // Find the specific session by ID within recent sessions for this signature
-            var candidates = await sessionStore.GetSessionsAsync(decodedSig, 50);
+            var candidates = await sessionStore.GetSessionsAsync(decodedSig, 500);
             s = candidates.FirstOrDefault(x => x.Id == sessionId);
         }
 
