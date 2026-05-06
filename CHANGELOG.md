@@ -5,6 +5,45 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.2.0] - 2026-05-06
+
+### Added
+
+#### Endpoint Pinning and Honeypot Path Management
+
+- **`IPinnedEndpointStore`** — interface for operator-pinned endpoints; `PinnedEndpoint` sealed record (`Id`, `Method`, `Path`, `IsHoneypot`, `Note`, `CreatedAt`)
+- **`SqlitePinnedEndpointStore`** — SQLite-backed implementation writing to `sessions.db` (`pinned_endpoints` table); unique index on `(method, path)` with `ON CONFLICT DO NOTHING` + re-SELECT upsert; semaphore write lock; registered automatically by `AddStyloBotDashboard()`
+- **Dashboard pin API** — three routes handled by `StyloBotDashboardMiddleware`: `GET /_stylobot/api/endpoint-pins`, `POST /_stylobot/api/endpoint-pins` (JSON or form body), `DELETE /_stylobot/api/endpoint-pins/{id}`; method validated against allowlist (`ANY`, `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`)
+- **Endpoint detail protection section** — replaces the old Bot Policy section; shows active policy badge, reaction pack coverage rows (pack name, scope, level, policy), and pin/unpin controls with HTMX inline form
+- **Pin Endpoint inline form** — in the Endpoints tab header; method dropdown, path input (required, must start with `/`), honeypot checkbox, optional note; submits via HTMX, replaces the endpoint list on success
+- **Pin and honeypot icons** — pin icon (`bx-pin`) and warning icon (`bx-bug`) shown in the path cell of both the sortable full endpoints list and the compact view; zero-traffic pinned paths are merged into the endpoint data at query time
+- **`DashboardEndpointStats`** — added `IsPinned`, `IsHoneypot`, `PinId` fields
+- **`EndpointDetailModel`** — added `PolicyName`, `PackCoverage` (`IReadOnlyList<EndpointPackCoverage>`), `IsPinned`, `IsHoneypot`, `PinId` fields
+- **`EndpointPackCoverage`** record — `(PackName, Scope, CurrentLevel, CurrentPolicy)` for reaction pack coverage display
+- **Docs**: `src/Mostlylucid.BotDetection/docs/endpoint-pinning.md` — feature overview, dashboard API routes, programmatic usage, curl examples, what pinning does and does not do
+
+#### Simulation Packs, Holodeck, and Custom Pack Authoring Documentation
+
+- **Docs**: `src/Mostlylucid.BotDetection/docs/simulation-packs.md` — pack architecture (all record types), WordPress pack detail (11 paths, 8 CVE modules), path matching, template types, timing profiles, emitted signals
+- **Docs**: `src/Mostlylucid.BotDetection/docs/holodeck.md` — three-layer architecture (`HoneypotPathTagger`, `HolodeckCoordinator`, `SimulationPackResponder`), FOSS vs LLM tiers, beacon/canary lifecycle, `IHolodeckResponder` interface, engagement slot management, testing headers
+- **Docs**: `src/Mostlylucid.BotDetection/docs/custom-pack-authoring.md` — complete YAML schema reference, all template placeholders (`{{nonce}}`, `{{token}}`, `{{api_key}}`), LLM response hints, three registration approaches, minimal worked example (PHP admin panel pack)
+
+#### Adblocker Detection
+
+- **`AdBlockerDetectionTagHelper`** — client-side TagHelper that injects a probe element to detect adblockers without fingerprint; result written to `no-fingerprint` channel for `ClientSideContributor` to consume
+
+#### Node SDK
+
+- Simplified Express sample server and Playwright integration tests; removed redundant test scaffolding
+
+### Documentation
+
+- **README**: fixed all dead doc links (missing `src/` prefix on every path); expanded documentation section from 9 links to all 87 docs organized into six categories (Getting Started, Detection and Policies, Detectors, Features, Dashboard and API, Infrastructure and Ops, Architecture Reference)
+- **Reaction Packs design spec and implementation plan** added to `docs/superpowers/`
+- **Endpoint config view design spec and implementation plan** added to `docs/superpowers/`
+
+---
+
 ## [6.1.2] - 2026-05-03
 
 ### Added
