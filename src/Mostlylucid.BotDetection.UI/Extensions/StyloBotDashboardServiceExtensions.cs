@@ -194,6 +194,9 @@ public static class StyloBotDashboardServiceExtensions
         // BDF export service for generating BDF v2 documents from detection data
         services.AddSingleton<BdfExportService>();
 
+        // Reaction pack dashboard service - aggregates active pack states and recent transitions
+        services.AddSingleton<ReactionPackDashboardService>();
+
         // Warm visitor cache from DB on startup so "Top Bots" isn't empty after restarts
         services.AddHostedService<VisitorCacheWarmupService>();
 

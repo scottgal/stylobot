@@ -96,6 +96,7 @@ public class StyloBotDashboardMiddleware
         "api/sessions",
         "api/sessions/recent",
         "api/threats",
+        "api/reaction-packs",
         "api/ua/search",
         "api/license",
         "api/config/manifests",
@@ -267,6 +268,10 @@ public class StyloBotDashboardMiddleware
 
             case "api/threats":
                 await ServeThreatsApiAsync(context);
+                break;
+
+            case "api/reaction-packs":
+                await ServeReactionPacksApiAsync(context);
                 break;
 
             case "api/ua/search":
@@ -4828,5 +4833,14 @@ public class StyloBotDashboardMiddleware
             AvailableFilters = filters,
             AvailableTabs = tabs
         };
+    }
+
+    private async Task ServeReactionPacksApiAsync(HttpContext context)
+    {
+        var svc = context.RequestServices.GetRequiredService<ReactionPackDashboardService>();
+        var data = await svc.GetDashboardModelAsync(context.RequestAborted);
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsync(
+            JsonSerializer.Serialize(data, CamelCaseJson), context.RequestAborted);
     }
 }

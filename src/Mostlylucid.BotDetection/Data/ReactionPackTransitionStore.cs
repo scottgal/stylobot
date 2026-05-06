@@ -110,6 +110,33 @@ public sealed class ReactionPackTransitionStore
         finally { if (owned) await conn.DisposeAsync(); }
     }
 
+    public async Task<IReadOnlyList<ReactionPackTransition>> GetAllRecentTransitionsAsync(
+        int limit = 50, CancellationToken ct = default)
+    {
+        var (conn, owned) = await GetConnectionAsync(ct);
+        try
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                SELECT pack_name, from_level, to_level, triggered_by, signal_value, occurred_at
+                FROM reaction_pack_transitions
+                ORDER BY occurred_at DESC, id DESC
+                LIMIT @limit
+                """;
+            cmd.Parameters.AddWithValue("@limit", limit);
+
+            var results = new List<ReactionPackTransition>();
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+                results.Add(new ReactionPackTransition(
+                    reader.GetString(0), reader.GetInt32(1), reader.GetInt32(2),
+                    reader.GetString(3), reader.GetDouble(4),
+                    DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(5))));
+            return results;
+        }
+        finally { if (owned) await conn.DisposeAsync(); }
+    }
+
     private async ValueTask<(SqliteConnection conn, bool owned)> GetConnectionAsync(CancellationToken ct)
     {
         if (_existingConnection != null)
