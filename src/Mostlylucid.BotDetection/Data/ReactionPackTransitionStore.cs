@@ -23,6 +23,7 @@ public sealed class ReactionPackTransitionStore
         var basePath = Path.GetDirectoryName(
             options.Value.DatabasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
             ?? AppContext.BaseDirectory;
+        Directory.CreateDirectory(basePath);
         _connectionString = $"Data Source={Path.Combine(basePath, "sessions.db")};Cache=Shared";
     }
 
@@ -78,15 +79,7 @@ public sealed class ReactionPackTransitionStore
                 """;
             cmd.Parameters.AddWithValue("@pack", packName);
             cmd.Parameters.AddWithValue("@limit", limit);
-
-            var results = new List<ReactionPackTransition>();
-            await using var reader = await cmd.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
-                results.Add(new ReactionPackTransition(
-                    reader.GetString(0), reader.GetInt32(1), reader.GetInt32(2),
-                    reader.GetString(3), reader.GetDouble(4),
-                    DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(5))));
-            return results;
+            return await ReadTransitionsAsync(cmd, ct);
         }
         finally { if (owned) await conn.DisposeAsync(); }
     }
@@ -124,17 +117,22 @@ public sealed class ReactionPackTransitionStore
                 LIMIT @limit
                 """;
             cmd.Parameters.AddWithValue("@limit", limit);
-
-            var results = new List<ReactionPackTransition>();
-            await using var reader = await cmd.ExecuteReaderAsync(ct);
-            while (await reader.ReadAsync(ct))
-                results.Add(new ReactionPackTransition(
-                    reader.GetString(0), reader.GetInt32(1), reader.GetInt32(2),
-                    reader.GetString(3), reader.GetDouble(4),
-                    DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(5))));
-            return results;
+            return await ReadTransitionsAsync(cmd, ct);
         }
         finally { if (owned) await conn.DisposeAsync(); }
+    }
+
+    private static async Task<IReadOnlyList<ReactionPackTransition>> ReadTransitionsAsync(
+        SqliteCommand cmd, CancellationToken ct)
+    {
+        var results = new List<ReactionPackTransition>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            results.Add(new ReactionPackTransition(
+                reader.GetString(0), reader.GetInt32(1), reader.GetInt32(2),
+                reader.GetString(3), reader.GetDouble(4),
+                DateTimeOffset.FromUnixTimeSeconds(reader.GetInt64(5))));
+        return results;
     }
 
     private async ValueTask<(SqliteConnection conn, bool owned)> GetConnectionAsync(CancellationToken ct)

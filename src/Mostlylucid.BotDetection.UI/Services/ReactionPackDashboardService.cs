@@ -25,11 +25,12 @@ public sealed record ReactionPackDashboardModel(
     IReadOnlyList<ReactionPackTransitionEntry> RecentTransitions);
 
 public sealed class ReactionPackDashboardService(
-    ReactionPackContext packContext,
+    IReactionPackContext packContext,
     ReactionPackTransitionStore transitionStore,
     IEnumerable<ReactionPackDefinition> packDefinitions)
 {
-    private readonly IReadOnlyList<ReactionPackDefinition> _packDefinitions = packDefinitions.ToList();
+    private readonly Dictionary<string, ReactionPackDefinition> _defsByName =
+        packDefinitions.ToDictionary(d => d.Name, d => d, StringComparer.OrdinalIgnoreCase);
 
     public async Task<ReactionPackDashboardModel> GetDashboardModelAsync(CancellationToken ct = default)
     {
@@ -39,15 +40,14 @@ public sealed class ReactionPackDashboardService(
         var activePacks = activeStates
             .Select(s =>
             {
-                var def = _packDefinitions.FirstOrDefault(d =>
-                    string.Equals(d.Name, s.PackName, StringComparison.OrdinalIgnoreCase));
+                _defsByName.TryGetValue(s.PackName, out var def);
                 var step = def?.Steps.FirstOrDefault(st => st.Level == s.Level);
                 return new ReactionPackStatusEntry(s.PackName, s.Level, step?.Name, s.PolicyName, s.Scope);
             })
             .OrderByDescending(p => p.CurrentLevel)
             .ToList();
 
-        var inactivePacks = _packDefinitions
+        var inactivePacks = _defsByName.Values
             .Where(d => d.Enabled && !activeNames.Contains(d.Name))
             .Select(d => new ReactionPackStatusEntry(
                 d.Name, 0, null, null,

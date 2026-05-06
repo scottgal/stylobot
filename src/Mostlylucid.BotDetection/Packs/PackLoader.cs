@@ -56,7 +56,7 @@ public sealed class PackLoader(
             }
 
             var requiredTier = manifest.RequiresTier;
-            if (requiredTier.Equals("commercial", StringComparison.OrdinalIgnoreCase) && !capabilities.CanWrite)
+            if (requiredTier.Equals(PackCapabilities.Commercial.Tier, StringComparison.OrdinalIgnoreCase) && !capabilities.CanWrite)
             {
                 logger.LogInformation(
                     "Pack {Name} requires commercial tier, skipping on {Tier}",

@@ -52,7 +52,7 @@ public sealed class DegradationAtom : IStylobotPostResponseHook, IDisposable
         var keys = new List<string> { GlobalErrorRate5Xx, GlobalRate429, GlobalLatencyP95 };
         keys.AddRange(_emaValues.Keys.Where(k => k != GlobalErrorRate5Xx && k != GlobalRate429));
         keys.AddRange(_latencyEma.Keys.Where(k => k != GlobalLatencyP95));
-        return keys.Distinct().ToList();
+        return keys;
     }
 
     public ValueTask OnResponseCompletedAsync(ResponseContext context, CancellationToken ct)
