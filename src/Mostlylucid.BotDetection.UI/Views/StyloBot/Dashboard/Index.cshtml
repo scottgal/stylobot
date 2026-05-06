@@ -182,6 +182,7 @@
             <a href="@TabUrl("sessions")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("sessions")">Sessions</a>
             <a href="@TabUrl("clusters")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("clusters")">Clusters</a>
             <a href="@TabUrl("threats")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("threats")">Threats</a>
+            <a href="@TabUrl("reaction-packs")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("reaction-packs")">Reaction Packs</a>
             <a href="@TabUrl("useragents")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("useragents")">User Agents</a>
             @if (Model.IsCommercial)
             {
@@ -353,6 +354,10 @@
         else if (tab == "threats")
         {
             <sb-threats-list />
+        }
+        else if (tab == "reaction-packs" && Model.ReactionPacks is not null)
+        {
+            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_ReactionPacksTab.cshtml", Model.ReactionPacks)
         }
         else if (tab == "useragents")
         {

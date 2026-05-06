@@ -381,6 +381,9 @@ public sealed class DashboardShellModel
 
     /// <summary>Compliance tab model. Only set when active tab is "compliance".</summary>
     public ComplianceTabModel? Compliance { get; init; }
+
+    /// <summary>Reaction packs tab model. Only set when active tab is "reaction-packs".</summary>
+    public Mostlylucid.BotDetection.UI.Services.ReactionPackDashboardModel? ReactionPacks { get; init; }
 }
 
 /// <summary>

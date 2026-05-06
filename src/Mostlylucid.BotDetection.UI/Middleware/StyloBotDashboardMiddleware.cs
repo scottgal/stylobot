@@ -858,6 +858,9 @@ public class StyloBotDashboardMiddleware
             StatusStrip = BuildStatusStripModel(context),
             Compliance = tab.Equals("compliance", StringComparison.OrdinalIgnoreCase)
                 ? BuildComplianceTabModel(context)
+                : null,
+            ReactionPacks = tab.Equals("reaction-packs", StringComparison.OrdinalIgnoreCase)
+                ? await BuildReactionPacksDashboardModelAsync(context)
                 : null
         };
 
@@ -2543,6 +2546,13 @@ public class StyloBotDashboardMiddleware
             "/Views/StyloBot/Dashboard/_HelpPanel.cshtml", entry, context);
         context.Response.ContentType = "text/html; charset=utf-8";
         await context.Response.WriteAsync(html);
+    }
+
+    private async Task<ReactionPackDashboardModel?> BuildReactionPacksDashboardModelAsync(HttpContext context)
+    {
+        var svc = context.RequestServices.GetService<ReactionPackDashboardService>();
+        if (svc == null) return new ReactionPackDashboardModel([], [], []);
+        return await svc.GetDashboardModelAsync(context.RequestAborted);
     }
 
     private ComplianceTabModel? BuildComplianceTabModel(HttpContext context)

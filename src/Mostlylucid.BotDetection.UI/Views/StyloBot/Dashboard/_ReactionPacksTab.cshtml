@@ -1,0 +1,105 @@
+@model Mostlylucid.BotDetection.UI.Services.ReactionPackDashboardModel
+
+<div class="space-y-4">
+
+    @* Active packs *@
+    <div class="card bg-base-100 shadow-sm">
+        <div class="card-body p-4">
+            <h3 class="text-sm font-semibold mb-3">Active Protection</h3>
+            @if (!Model.ActivePacks.Any())
+            {
+                <p class="text-xs text-base-content/50">No packs currently active. All signals within normal thresholds.</p>
+            }
+            else
+            {
+                <div class="space-y-2">
+                    @foreach (var pack in Model.ActivePacks)
+                    {
+                        var levelColor = pack.CurrentLevel >= 3 ? "badge-error"
+                            : pack.CurrentLevel == 2 ? "badge-warning"
+                            : "badge-info";
+                        <div class="flex items-center justify-between py-2 border-b border-base-200 last:border-0">
+                            <div>
+                                <span class="text-sm font-medium">@pack.PackName</span>
+                                <span class="text-xs text-base-content/50 ml-2">@pack.Scope</span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="badge badge-sm @levelColor">Level @pack.CurrentLevel: @(pack.CurrentLevelName ?? "active")</span>
+                                @if (!string.IsNullOrEmpty(pack.CurrentPolicy))
+                                {
+                                    <span class="badge badge-sm badge-ghost text-xs font-mono">@pack.CurrentPolicy</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    @* Inactive packs *@
+    @if (Model.InactivePacks.Any())
+    {
+        <div class="card bg-base-100 shadow-sm">
+            <div class="card-body p-4">
+                <h3 class="text-sm font-semibold mb-3">Configured Packs (Inactive)</h3>
+                <div class="space-y-1">
+                    @foreach (var pack in Model.InactivePacks)
+                    {
+                        <div class="flex items-center justify-between py-1.5 text-xs text-base-content/60">
+                            <span>@pack.PackName</span>
+                            <span class="badge badge-xs badge-ghost">@pack.Scope</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+
+    @* Transition timeline *@
+    <div class="card bg-base-100 shadow-sm">
+        <div class="card-body p-4">
+            <h3 class="text-sm font-semibold mb-3">Transition History</h3>
+            @if (!Model.RecentTransitions.Any())
+            {
+                <p class="text-xs text-base-content/50">No transitions recorded yet.</p>
+            }
+            else
+            {
+                <table class="table table-xs w-full">
+                    <thead>
+                        <tr>
+                            <th class="text-left">Pack</th>
+                            <th class="text-left">Transition</th>
+                            <th class="text-left">Signal</th>
+                            <th class="text-right">When</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var t in Model.RecentTransitions)
+                        {
+                            var dirClass = t.ToLevel > t.FromLevel ? "text-warning" : "text-success";
+                            var dirIcon = t.ToLevel > t.FromLevel ? "bx-up-arrow-alt" : "bx-down-arrow-alt";
+                            <tr>
+                                <td class="font-mono text-xs">@t.PackName</td>
+                                <td>
+                                    <span class="@dirClass flex items-center gap-1">
+                                        <i class="bx @dirIcon"></i>
+                                        @t.FromLevel → @t.ToLevel
+                                    </span>
+                                </td>
+                                <td class="text-xs text-base-content/60">
+                                    @(t.TriggeredBy ?? "-") (@t.SignalValue.ToString("P1"))
+                                </td>
+                                <td class="text-right text-xs text-base-content/50">
+                                    @t.OccurredAt.ToLocalTime().ToString("HH:mm:ss")
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+
+</div>
