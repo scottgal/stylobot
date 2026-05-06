@@ -194,20 +194,34 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
     private static async Task MigrateAddColumnAsync(
         SqliteConnection conn, string table, string column, string type, CancellationToken ct)
     {
-        // Check if column already exists using PRAGMA table_info
-        await using var checkCmd = conn.CreateCommand();
-        checkCmd.CommandText = $"PRAGMA table_info({table})";
-        await using var reader = await checkCmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
+        // Must close the PRAGMA reader before running ALTER on the same connection.
+        var exists = false;
+        await using (var checkCmd = conn.CreateCommand())
         {
-            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
-                return; // Column already exists
+            checkCmd.CommandText = $"PRAGMA table_info({table})";
+            await using var reader = await checkCmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                {
+                    exists = true;
+                    break;
+                }
+            }
         }
 
-        // Add the column
+        if (exists) return;
+
         await using var alterCmd = conn.CreateCommand();
         alterCmd.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {type}";
-        await alterCmd.ExecuteNonQueryAsync(ct);
+        try
+        {
+            await alterCmd.ExecuteNonQueryAsync(ct);
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.Message.Contains("duplicate column name"))
+        {
+            // Column was added concurrently between PRAGMA check and ALTER — already exists, safe to ignore.
+        }
     }
 
     // === Write path ===

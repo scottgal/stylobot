@@ -173,7 +173,7 @@ public class DataHubGeoLocationService(
             logger.LogInformation("Downloading GeoIP database from DataHub...");
 
             using var client = httpClientFactory.CreateClient("DataHub");
-            var response = await client.GetAsync(CsvUrl, cancellationToken);
+            var response = await client.GetAsync(CsvUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {

@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Identity;
@@ -964,6 +965,7 @@ public class NewDetectorTests
     {
         // Use the real SimulationPackLoader which loads from embedded resources
         var registry = new SimulationPackLoader(
+            Options.Create(new BotDetectionOptions()),
             NullLogger<SimulationPackLoader>.Instance);
 
         var contributor = new CveProbeContributor(
@@ -987,6 +989,7 @@ public class NewDetectorTests
     public async Task CveProbe_NormalPath_NeutralSignal()
     {
         var registry = new SimulationPackLoader(
+            Options.Create(new BotDetectionOptions()),
             NullLogger<SimulationPackLoader>.Instance);
 
         var contributor = new CveProbeContributor(
