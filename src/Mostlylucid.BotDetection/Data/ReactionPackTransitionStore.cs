@@ -40,7 +40,7 @@ public sealed class ReactionPackTransitionStore
         await _writeLock.WaitAsync(ct);
         try
         {
-            var (conn, owned) = GetConnection();
+            var (conn, owned) = await GetConnectionAsync(ct);
             try
             {
                 await using var cmd = conn.CreateCommand();
@@ -65,7 +65,7 @@ public sealed class ReactionPackTransitionStore
     public async Task<IReadOnlyList<ReactionPackTransition>> GetRecentTransitionsAsync(
         string packName, int limit = 50, CancellationToken ct = default)
     {
-        var (conn, owned) = GetConnection();
+        var (conn, owned) = await GetConnectionAsync(ct);
         try
         {
             await using var cmd = conn.CreateCommand();
@@ -93,7 +93,7 @@ public sealed class ReactionPackTransitionStore
 
     public async Task<int> GetLatestActiveLevelAsync(string packName, CancellationToken ct = default)
     {
-        var (conn, owned) = GetConnection();
+        var (conn, owned) = await GetConnectionAsync(ct);
         try
         {
             await using var cmd = conn.CreateCommand();
@@ -110,12 +110,12 @@ public sealed class ReactionPackTransitionStore
         finally { if (owned) await conn.DisposeAsync(); }
     }
 
-    private (SqliteConnection conn, bool owned) GetConnection()
+    private async ValueTask<(SqliteConnection conn, bool owned)> GetConnectionAsync(CancellationToken ct)
     {
         if (_existingConnection != null)
             return (_existingConnection, false);
         var conn = new SqliteConnection(_connectionString);
-        conn.Open();
+        await conn.OpenAsync(ct);
         return (conn, true);
     }
 }
