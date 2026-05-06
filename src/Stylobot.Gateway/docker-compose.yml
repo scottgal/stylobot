@@ -100,6 +100,63 @@ services:
     profiles:
       - sqlserver
 
+  # Example 5: HTTPS with cert-from-file (PFX)
+  # Useful when you already have a certificate from certbot, ZeroSSL, etc.
+  # Map port 443 → container 8443 (container runs non-root, can't bind < 1024 directly).
+  gateway-tls-pfx:
+    build: .
+    ports:
+      - "8080:8080"
+      - "443:8443"
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./certs:/app/certs:ro    # mount cert directory
+    environment:
+      - DEFAULT_UPSTREAM=http://backend:3000
+      - GATEWAY_HTTPS_PORT=8443
+      - GATEWAY_HTTPS_CERT_PATH=/app/certs/cert.pfx
+      - GATEWAY_HTTPS_CERT_PASSWORD=${TLS_CERT_PASSWORD}
+    profiles:
+      - tls-pfx
+
+  # Example 6: HTTPS with PEM pair (e.g. certbot output)
+  gateway-tls-pem:
+    build: .
+    ports:
+      - "8080:8080"
+      - "443:8443"
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - /etc/letsencrypt/live/mysite.com:/app/certs:ro   # certbot output
+    environment:
+      - DEFAULT_UPSTREAM=http://backend:3000
+      - GATEWAY_HTTPS_PORT=8443
+      - GATEWAY_HTTPS_CERT_PATH=/app/certs/fullchain.pem
+      - GATEWAY_HTTPS_CERT_KEY_PATH=/app/certs/privkey.pem
+    profiles:
+      - tls-pem
+
+  # Example 7: HTTPS with automatic Let's Encrypt (ACME)
+  # The gateway obtains and renews certificates automatically.
+  # Port 8443 must be reachable from the internet as port 443 for ACME TLS-ALPN-01 challenge.
+  gateway-tls-acme:
+    build: .
+    ports:
+      - "8080:8080"
+      - "443:8443"
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data        # certs stored in /app/data/certs by default
+    environment:
+      - DEFAULT_UPSTREAM=http://backend:3000
+      - GATEWAY_HTTPS_PORT=8443
+      - GATEWAY_HTTPS_DOMAIN=mysite.com
+      - GATEWAY_HTTPS_ACME_EMAIL=admin@mysite.com
+    profiles:
+      - tls-acme
+
 volumes:
   postgres_data:
   sqlserver_data:

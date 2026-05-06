@@ -50,14 +50,17 @@ RUN mkdir -p /app/config /app/data /app/logs /app/plugins && \
 # Switch to non-root user
 USER gateway
 
-# Expose port
+# Expose ports (HTTP + optional HTTPS)
 EXPOSE 8080
+EXPOSE 8443
 
 # Liveness check using lightweight /admin/alive (no DB hit, fast response)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD wget -q -O /dev/null http://localhost:8080/admin/alive || exit 1
 
 # Environment defaults
+# TLS (optional) — set GATEWAY_HTTPS_CERT_PATH+PASSWORD (PFX) or GATEWAY_HTTPS_DOMAIN+ACME_EMAIL (ACME).
+# ASPNETCORE_URLS intentionally omits https — Kestrel's ListenAnyIP() handles HTTPS binding.
 ENV ASPNETCORE_URLS=http://+:8080 \
     GATEWAY_HTTP_PORT=8080 \
     GATEWAY_CONFIG_PATH=/app/config \

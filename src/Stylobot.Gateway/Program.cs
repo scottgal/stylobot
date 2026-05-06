@@ -115,8 +115,17 @@ try
                 options.KnownProxies.Add(ip);
     });
 
-    // Add gateway configuration
+    // Add gateway configuration (binds env vars including TLS options)
     builder.Services.AddGatewayConfiguration(builder.Configuration);
+
+    // Add TLS termination if configured (cert-from-file or ACME auto-cert)
+    // Read TLS options directly from env here so we can log early; DI binding runs later.
+    var earlyTls = ReadTlsOptionsFromEnv();
+    builder.Services.AddGatewayTls(earlyTls);
+    if (earlyTls.Enabled)
+        Log.Information("TLS mode: {Mode}, port {Port}",
+            earlyTls.IsAcme ? $"ACME ({earlyTls.Domain})" : $"cert-from-file ({earlyTls.CertPath})",
+            earlyTls.Port);
 
     // Add database if configured
     builder.Services.AddGatewayDatabase(builder.Configuration);
@@ -189,6 +198,11 @@ try
     // Forward headers FIRST so bot detection sees real client IPs, not Docker bridge IPs
     app.UseForwardedHeaders();
 
+    // TLS metadata (protocol + cipher suite) → HttpContext.Items for JA3/JA4 fingerprinting.
+    // Only active when the gateway terminates TLS itself (cert-from-file or ACME modes).
+    if (earlyTls.Enabled)
+        app.UseTlsMetadataCapture();
+
     // WebSockets must be enabled before routing so YARP can proxy SignalR WebSocket connections
     app.UseWebSockets();
 
@@ -259,6 +273,21 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+/// <summary>
+/// Read TLS options from environment variables before DI is configured.
+/// Mirrors the binding in ServiceCollectionExtensions.AddGatewayConfiguration.
+/// </summary>
+static TlsOptions ReadTlsOptionsFromEnv() => new()
+{
+    Port = int.TryParse(Environment.GetEnvironmentVariable("GATEWAY_HTTPS_PORT"), out var p) ? p : 8443,
+    CertPath = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_CERT_PATH"),
+    CertKeyPath = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_CERT_KEY_PATH"),
+    CertPassword = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_CERT_PASSWORD"),
+    Domain = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_DOMAIN"),
+    AcmeEmail = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_ACME_EMAIL"),
+    AcmeCertStorePath = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_ACME_CERT_STORE") ?? "/app/data/certs",
+};
 
 /// <summary>
 /// Configure demo mode: switches to 'demo' policy if demo mode is enabled.

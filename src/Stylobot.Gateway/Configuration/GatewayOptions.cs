@@ -43,6 +43,11 @@ public class GatewayOptions
     /// Demo mode configuration.
     /// </summary>
     public DemoModeOptions DemoMode { get; set; } = new();
+
+    /// <summary>
+    /// TLS/HTTPS configuration. Disabled by default (expects termination upstream).
+    /// </summary>
+    public TlsOptions Tls { get; set; } = new();
 }
 
 /// <summary>
@@ -81,6 +86,41 @@ public enum DatabaseProvider
     None,
     Postgres,
     SqlServer
+}
+
+/// <summary>
+/// TLS/HTTPS termination options.
+///
+/// Three modes (mutually exclusive, in priority order):
+///   1. ACME auto-cert  - set Domain (+ AcmeEmail); certificates managed automatically via Let's Encrypt.
+///   2. Cert-from-file  - set CertPath; load a PFX or PEM cert at startup.
+///   3. Disabled        - default; expect TLS termination upstream (Caddy, nginx, Cloudflare).
+///
+/// In modes 1 and 2 the gateway terminates TLS itself, enabling JA3/JA4 fingerprinting.
+/// </summary>
+public class TlsOptions
+{
+    public bool Enabled => !string.IsNullOrWhiteSpace(CertPath) || IsAcme;
+    public bool IsAcme => !string.IsNullOrWhiteSpace(Domain);
+
+    /// <summary>HTTPS listener port. Default 8443 (non-root-safe in Docker).</summary>
+    public int Port { get; set; } = 8443;
+
+    // --- Cert-from-file (PFX or PEM pair) ---
+    /// <summary>Path to PFX file or PEM certificate. Required for cert-from-file mode.</summary>
+    public string? CertPath { get; set; }
+    /// <summary>Path to PEM private key. Only needed for PEM pairs (not PFX).</summary>
+    public string? CertKeyPath { get; set; }
+    /// <summary>Password for PFX certificate. Leave blank for PEM pairs.</summary>
+    public string? CertPassword { get; set; }
+
+    // --- ACME auto-cert (LettuceEncrypt / Let's Encrypt) ---
+    /// <summary>Public domain name. Setting this enables ACME auto-cert mode.</summary>
+    public string? Domain { get; set; }
+    /// <summary>Contact email for ACME registration. Recommended for expiry notifications.</summary>
+    public string? AcmeEmail { get; set; }
+    /// <summary>Directory to persist ACME account keys and certificates.</summary>
+    public string AcmeCertStorePath { get; set; } = "/app/data/certs";
 }
 
 /// <summary>
