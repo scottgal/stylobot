@@ -887,6 +887,15 @@ public static class ServiceCollectionExtensions
                 .ToList();
         });
 
+        // Pack system registries
+        services.AddSingleton<Packs.PackRegistry<Services.IStylobotPreActionHook>>();
+        services.AddSingleton<IEnumerable<Services.IStylobotPreActionHook>>(
+            sp => sp.GetRequiredService<Packs.PackRegistry<Services.IStylobotPreActionHook>>());
+
+        services.AddSingleton<Packs.PackRegistry<Services.IStylobotPostResponseHook>>();
+        services.AddSingleton<IEnumerable<Services.IStylobotPostResponseHook>>(
+            sp => sp.GetRequiredService<Packs.PackRegistry<Services.IStylobotPostResponseHook>>());
+
         // Reaction pack runtime services
         services.AddSingleton<Services.DegradationAtom>();
         services.AddSingleton<Services.ReactionPackContext>();
@@ -894,6 +903,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<Services.ReactionRuleEvaluator>();
         services.AddSingleton<Data.ReactionPackTransitionStore>();
         services.AddHostedService<Services.ReactionPackEngine>();
+        services.AddHostedService<Packs.BuiltinPackPopulator>();
     }
 
     /// <summary>

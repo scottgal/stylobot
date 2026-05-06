@@ -2,11 +2,16 @@ using System.Collections.Concurrent;
 
 namespace Mostlylucid.BotDetection.Services;
 
-public sealed class ReactionPackContext : IReactionPackContext
+public sealed class ReactionPackContext : IReactionPackContext, IStylobotPreActionHook
 {
     private sealed record ActivePackState(string PackName, int Level, string PolicyName, string Scope, int Priority);
 
     private readonly ConcurrentDictionary<string, ActivePackState> _active = new(StringComparer.Ordinal);
+
+    public int Priority => 100;
+
+    public ValueTask<string?> GetOverridePolicyAsync(string endpoint, string currentPolicy, CancellationToken ct)
+        => ValueTask.FromResult(GetOverridePolicy(endpoint, currentPolicy));
 
     public string? GetOverridePolicy(string endpoint, string? currentPolicy)
     {

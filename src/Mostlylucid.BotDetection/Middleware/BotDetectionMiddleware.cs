@@ -115,7 +115,9 @@ public class BotDetectionMiddleware(
         IActionPolicyRegistry actionPolicyRegistry,
         ResponseCoordinator responseCoordinator,
         BotDetection.Telemetry.BotDetectionInstrumentation? telemetryInstrumentation = null,
-        AuditProcessorDispatcher? auditProcessorDispatcher = null)
+        AuditProcessorDispatcher? auditProcessorDispatcher = null,
+        IEnumerable<Services.IStylobotPreActionHook>? preActionHooks = null,
+        IEnumerable<Services.IStylobotPostResponseHook>? postResponseHooks = null)
     {
         _loadSensor?.RecordRequest();
 
@@ -352,6 +354,7 @@ public class BotDetectionMiddleware(
         var capturedAuditCtx = auditProcessorDispatcher?.HasProcessors == true
             ? auditProcessorDispatcher.BuildContext(context, aggregatedResult)
             : null;
+        var capturedPostResponseHooks = postResponseHooks;
 
         context.Response.OnCompleted(() =>
         {
@@ -401,6 +404,13 @@ public class BotDetectionMiddleware(
                     _reactiveTracker.RecordErrorServed(capturedSig, statusCode, capturedReq.Path, retryAfterForTracker);
             }
 
+            if (capturedPostResponseHooks != null)
+            {
+                var rc = new Services.ResponseContext(statusCode, (long)processingTimeMs, capturedReq.Path, null);
+                foreach (var hook in capturedPostResponseHooks)
+                    _ = hook.OnResponseCompletedAsync(rc, CancellationToken.None);
+            }
+
             return Task.CompletedTask;
         });
 
@@ -433,6 +443,22 @@ public class BotDetectionMiddleware(
             }
             await InvokeNextWithResponseMutationAsync(context);
             return;
+        }
+
+        // Pre-action hooks: reaction packs and future pack extensions override the action policy
+        if (preActionHooks != null && !string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName))
+        {
+            var endpointPath = context.Request.Path.Value ?? "";
+            var currentPolicy = aggregatedResult.TriggeredActionPolicyName;
+            foreach (var hook in preActionHooks.OrderByDescending(h => h.Priority))
+            {
+                var overridePolicy = await hook.GetOverridePolicyAsync(endpointPath, currentPolicy, context.RequestAborted);
+                if (overridePolicy != null)
+                {
+                    aggregatedResult = aggregatedResult with { TriggeredActionPolicyName = overridePolicy };
+                    break;
+                }
+            }
         }
 
         // Check for triggered action policy first (takes precedence over built-in actions)

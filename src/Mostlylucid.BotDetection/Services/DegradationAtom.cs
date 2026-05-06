@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 
 namespace Mostlylucid.BotDetection.Services;
 
-public sealed class DegradationAtom : IDisposable
+public sealed class DegradationAtom : IStylobotPostResponseHook, IDisposable
 {
     private const string GlobalErrorRate5Xx = "response.error_rate_5xx";
     private const string GlobalRate429 = "response.rate_429";
@@ -53,6 +53,12 @@ public sealed class DegradationAtom : IDisposable
         keys.AddRange(_emaValues.Keys.Where(k => k != GlobalErrorRate5Xx && k != GlobalRate429));
         keys.AddRange(_latencyEma.Keys.Where(k => k != GlobalLatencyP95));
         return keys.Distinct().ToList();
+    }
+
+    public ValueTask OnResponseCompletedAsync(ResponseContext context, CancellationToken ct)
+    {
+        RecordResponse(context.StatusCode, context.LatencyMs, context.Path);
+        return ValueTask.CompletedTask;
     }
 
     public void Dispose() => _decayTimer.Dispose();
