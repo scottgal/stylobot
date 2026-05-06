@@ -91,6 +91,11 @@ public class SessionVectorContributor : ConfiguredContributorBase
     // Void detection thresholds
     private float VoidDetectionMinSimilarity => (float)GetParam("void_detection_min_similarity", 0.40);
     private int VoidDetectionTopK => GetParam("void_detection_top_k", 5);
+    private int VoidMinIndexSize => GetParam("void_min_index_size", 50);
+    private double VoidBotConfidence => GetParam("void_bot_confidence", 0.30);
+    private float VoidNearVoidThreshold => (float)GetParam("void_near_void_threshold", 0.50);
+    private double VoidNearVoidMaxConfidence => GetParam("void_near_void_max_confidence", 0.15);
+    private float VoidMahalanobisThreshold => (float)GetParam("void_mahalanobis_threshold", 3.0);
 
     public override async Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
@@ -474,6 +479,35 @@ public class SessionVectorContributor : ConfiguredContributorBase
                 // Flag for LLM escalation at session end: novel behavior needs deeper analysis.
                 if (signature != null)
                     _escalationService?.FlagForEscalation(signature);
+            }
+
+            // Graduated novelty contribution — only fires when the index is mature enough
+            // that void means something (not just an empty index on a fresh install).
+            var indexSize = _vectorSearch.Count;
+            if (indexSize >= VoidMinIndexSize)
+            {
+                if (isVoid)
+                {
+                    // Double-void: outside cosine neighbors AND outside all Mahalanobis variance
+                    // envelopes. Genuinely novel behavior with no anchor in known-human space.
+                    var isDoubleVoid = mahalanobisNearest >= VoidMahalanobisThreshold;
+                    if (isDoubleVoid)
+                        contributions.Add(BotContribution(VoidBotConfidence,
+                            "Session has no behavioral neighbors in any known shape-space (double-void)",
+                            BotType.Scraper));
+                    // Single-void (cosine void but Mahalanobis matches a known variance envelope)
+                    // means the session IS a known-campaign variant — other detectors handle that.
+                }
+                else if (topSimilarity < VoidNearVoidThreshold)
+                {
+                    // Near-void: found neighbors but they're all weak. Scale contribution by
+                    // how far below the threshold we are (0 at threshold, max at similarity=0).
+                    var scale = (VoidNearVoidThreshold - topSimilarity) / VoidNearVoidThreshold;
+                    var confidence = VoidNearVoidMaxConfidence * scale;
+                    contributions.Add(BotContribution(confidence,
+                        $"Session behavioral shape is weakly matched (topSimilarity={topSimilarity:F2})",
+                        BotType.Scraper));
+                }
             }
         }
         catch (Exception ex)

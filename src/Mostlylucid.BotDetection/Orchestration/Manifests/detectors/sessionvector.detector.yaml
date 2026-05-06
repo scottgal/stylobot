@@ -234,6 +234,16 @@ defaults:
     # Void detection: min similarity to consider a session "in empty space"
     void_detection_min_similarity: 0.40
     void_detection_top_k: 5
+    # Minimum HNSW index size before void contributes to bot probability (prevents fresh-install false positives)
+    void_min_index_size: 50
+    # Confidence for double-void (no cosine neighbors AND outside all Mahalanobis variance envelopes)
+    void_bot_confidence: 0.30
+    # topSimilarity below this threshold triggers a soft near-void contribution
+    void_near_void_threshold: 0.50
+    # Maximum confidence for near-void (scaled by how far below threshold)
+    void_near_void_max_confidence: 0.15
+    # Mahalanobis distance above which a session is considered outside all known variance envelopes
+    void_mahalanobis_threshold: 3.0
 
 tags:
   - behavioral
