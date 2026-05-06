@@ -1,6 +1,8 @@
 using System.IO.Enumeration;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Models;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
@@ -44,6 +46,7 @@ public interface ISimulationPackRegistry
 public sealed class SimulationPackLoader : ISimulationPackRegistry
 {
     private readonly ILogger<SimulationPackLoader> _logger;
+    private readonly HashSet<string> _enabledPackIds;
     private readonly Dictionary<string, SimulationPack> _packs = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _loadLock = new();
     private bool _loaded;
@@ -51,9 +54,13 @@ public sealed class SimulationPackLoader : ISimulationPackRegistry
     // Flattened lookup structures for fast matching
     private List<(string Pattern, SimulationPack Pack, PackCveModule? Cve, double Confidence, double Weight)> _allPaths = [];
 
-    public SimulationPackLoader(ILogger<SimulationPackLoader> logger)
+    public SimulationPackLoader(IOptions<BotDetectionOptions> options, ILogger<SimulationPackLoader> logger)
     {
         _logger = logger;
+        var ids = options.Value.EnabledSimulationPacks;
+        _enabledPackIds = ids.Count > 0
+            ? new HashSet<string>(ids, StringComparer.OrdinalIgnoreCase)
+            : [];
         EnsureLoaded();
     }
 
@@ -168,6 +175,12 @@ public sealed class SimulationPackLoader : ISimulationPackRegistry
                 if (pack is null || string.IsNullOrWhiteSpace(pack.Id))
                 {
                     _logger.LogWarning("Invalid simulation pack in resource: {Name}", resourceName);
+                    continue;
+                }
+
+                if (_enabledPackIds.Count > 0 && !_enabledPackIds.Contains(pack.Id))
+                {
+                    _logger.LogDebug("Skipping simulation pack {Id}: not in EnabledSimulationPacks", pack.Id);
                     continue;
                 }
 

@@ -615,6 +615,15 @@ public class BotDetectionOptions
     /// </summary>
     public ProjectHoneypotOptions ProjectHoneypot { get; set; } = new();
 
+    /// <summary>
+    ///     Simulation pack IDs to load. Empty list (default) loads all embedded packs.
+    ///     To enable only specific packs, list their IDs here.
+    ///     Pack IDs match the <c>id</c> field in the pack YAML definition (e.g., "wordpress-5.9").
+    ///     Can also be set via environment variable: BotDetection__EnabledSimulationPacks__0=wordpress-5.9
+    ///     CLI: --BotDetection:EnabledSimulationPacks:0=wordpress-5.9
+    /// </summary>
+    public List<string> EnabledSimulationPacks { get; set; } = [];
+
     // ==========================================
     // Global Enable/Disable
     // ==========================================
