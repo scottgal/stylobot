@@ -1,0 +1,41 @@
+name: latency-protection
+description: Activates when upstream p95 latency is elevated
+enabled: true
+scope: global
+priority: 0
+
+signals:
+  - response.latency_p95
+
+steps:
+  - level: 1
+    name: watch
+    activate:
+      condition: any
+      rules:
+        - signal: response.latency_p95
+          above: 500
+          for_seconds: 60
+    policy: throttle-gentle
+    deactivate:
+      condition: all
+      rules:
+        - signal: response.latency_p95
+          below: 300
+          for_seconds: 120
+
+  - level: 2
+    name: protect
+    activate:
+      condition: any
+      rules:
+        - signal: response.latency_p95
+          above: 2000
+          for_seconds: 30
+    policy: throttle-moderate
+    deactivate:
+      condition: all
+      rules:
+        - signal: response.latency_p95
+          below: 800
+          for_seconds: 180

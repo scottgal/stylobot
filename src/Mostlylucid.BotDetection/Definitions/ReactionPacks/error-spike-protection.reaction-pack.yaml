@@ -1,0 +1,66 @@
+name: error-spike-protection
+description: Activates when upstream 5xx error rate or 429 rate spikes globally
+enabled: true
+scope: global
+priority: 0
+
+signals:
+  - $upstream-health
+
+steps:
+  - level: 1
+    name: watch
+    activate:
+      condition: any
+      rules:
+        - signal: response.error_rate_5xx
+          above: 0.05
+          for_seconds: 60
+        - signal: response.rate_429
+          above: 0.03
+          for_seconds: 30
+    policy: throttle-gentle
+    deactivate:
+      condition: all
+      rules:
+        - signal: response.error_rate_5xx
+          below: 0.02
+          for_seconds: 120
+        - signal: response.rate_429
+          below: 0.01
+          for_seconds: 120
+
+  - level: 2
+    name: protect
+    activate:
+      condition: any
+      rules:
+        - signal: response.error_rate_5xx
+          above: 0.15
+          for_seconds: 30
+        - signal: response.rate_429
+          above: 0.10
+          for_seconds: 20
+    policy: throttle-aggressive
+    deactivate:
+      condition: all
+      rules:
+        - signal: response.error_rate_5xx
+          below: 0.05
+          for_seconds: 180
+
+  - level: 3
+    name: critical
+    activate:
+      condition: any
+      rules:
+        - signal: response.error_rate_5xx
+          above: 0.30
+          for_seconds: 15
+    policy: block-soft
+    deactivate:
+      condition: all
+      rules:
+        - signal: response.error_rate_5xx
+          below: 0.10
+          for_seconds: 300

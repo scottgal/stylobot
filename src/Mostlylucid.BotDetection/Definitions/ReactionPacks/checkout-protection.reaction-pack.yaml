@@ -1,0 +1,47 @@
+name: checkout-protection
+description: Activates when the /api/checkout endpoint shows elevated error or 429 rate
+enabled: true
+scope: endpoint:/api/checkout
+priority: 10
+
+signals:
+  - $checkout-health
+
+steps:
+  - level: 1
+    name: protect
+    activate:
+      condition: any
+      rules:
+        - signal: response.rate_429:/api/checkout
+          above: 0.10
+          for_seconds: 30
+        - signal: response.error_rate_5xx:/api/checkout
+          above: 0.10
+          for_seconds: 30
+    policy: challenge-pow
+    deactivate:
+      condition: all
+      rules:
+        - signal: response.rate_429:/api/checkout
+          below: 0.03
+          for_seconds: 180
+        - signal: response.error_rate_5xx:/api/checkout
+          below: 0.03
+          for_seconds: 180
+
+  - level: 2
+    name: critical
+    activate:
+      condition: any
+      rules:
+        - signal: response.error_rate_5xx:/api/checkout
+          above: 0.30
+          for_seconds: 15
+    policy: block-soft
+    deactivate:
+      condition: all
+      rules:
+        - signal: response.error_rate_5xx:/api/checkout
+          below: 0.10
+          for_seconds: 300
