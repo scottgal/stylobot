@@ -57,4 +57,17 @@ public class SignalGroupRegistryTests
         var found = registry.TryGetGroup("missing", out _);
         Assert.False(found);
     }
+
+    [Fact]
+    public void LoadFromEmbeddedResources_FindsBuiltInGroups()
+    {
+        var assembly = typeof(SignalGroupRegistry).Assembly;
+        var resourceNames = assembly.GetManifestResourceNames()
+            .Where(n => n.Contains("SignalGroups") && n.EndsWith(".yaml"))
+            .ToList();
+
+        Assert.NotEmpty(resourceNames);
+        Assert.Contains(resourceNames, r => r.Contains("upstream-health"));
+        Assert.Contains(resourceNames, r => r.Contains("checkout-health"));
+    }
 }

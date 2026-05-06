@@ -1,0 +1,6 @@
+name: checkout-health
+description: Checkout endpoint health signals (endpoint-scoped)
+signals:
+  - response.error_rate_5xx:/api/checkout
+  - response.rate_429:/api/checkout
+  - response.latency_p95:/api/checkout

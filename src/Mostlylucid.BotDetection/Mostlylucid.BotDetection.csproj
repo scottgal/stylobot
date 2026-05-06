@@ -118,6 +118,12 @@
         <EmbeddedResource Include="Compliance\CompliancePacks\*.yaml" />
     </ItemGroup>
 
+    <!-- Embed signal group and reaction pack YAML definitions -->
+    <ItemGroup>
+        <EmbeddedResource Include="Definitions\SignalGroups\*.yaml" />
+        <EmbeddedResource Include="Definitions\ReactionPacks\*.yaml" />
+    </ItemGroup>
+
     <!-- Include icon and README in NuGet package -->
     <ItemGroup>
         <None Include=".\icon.png" Pack="true" PackagePath="">
