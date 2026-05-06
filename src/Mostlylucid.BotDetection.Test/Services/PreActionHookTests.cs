@@ -34,3 +34,25 @@ public class PreActionHookTests
             => ValueTask.FromResult<string?>(policy);
     }
 }
+
+public class PostResponseHookTests
+{
+    [Fact]
+    public async Task Hook_ReceivesContext_AndCompletes()
+    {
+        var hook = new RecordingPostResponseHook();
+        var ctx = new ResponseContext(200, 42L, "/api/test", "throttle");
+        await hook.OnResponseCompletedAsync(ctx, CancellationToken.None);
+        Assert.Equal(ctx, hook.Received);
+    }
+
+    private sealed class RecordingPostResponseHook : IStylobotPostResponseHook
+    {
+        public ResponseContext? Received { get; private set; }
+        public ValueTask OnResponseCompletedAsync(ResponseContext context, CancellationToken ct)
+        {
+            Received = context;
+            return ValueTask.CompletedTask;
+        }
+    }
+}
