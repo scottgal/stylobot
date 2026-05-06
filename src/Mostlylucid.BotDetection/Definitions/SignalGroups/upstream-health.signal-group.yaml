@@ -3,4 +3,4 @@ description: Core upstream response health signals
 signals:
   - response.error_rate_5xx
   - response.rate_429
-  - response.latency_p95
+  - response.latency_ema

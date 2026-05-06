@@ -1,11 +1,8 @@
 name: latency-protection
-description: Activates when upstream p95 latency is elevated
+description: Activates when upstream EMA latency is elevated
 enabled: true
 scope: global
 priority: 0
-
-signals:
-  - response.latency_p95
 
 steps:
   - level: 1
@@ -13,14 +10,14 @@ steps:
     activate:
       condition: any
       rules:
-        - signal: response.latency_p95
+        - signal: response.latency_ema
           above: 500
           for_seconds: 60
     policy: throttle-gentle
     deactivate:
       condition: all
       rules:
-        - signal: response.latency_p95
+        - signal: response.latency_ema
           below: 300
           for_seconds: 120
 
@@ -29,13 +26,13 @@ steps:
     activate:
       condition: any
       rules:
-        - signal: response.latency_p95
+        - signal: response.latency_ema
           above: 2000
           for_seconds: 30
     policy: throttle-moderate
     deactivate:
       condition: all
       rules:
-        - signal: response.latency_p95
+        - signal: response.latency_ema
           below: 800
           for_seconds: 180

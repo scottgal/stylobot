@@ -4,9 +4,6 @@ enabled: true
 scope: endpoint:/api/checkout
 priority: 10
 
-signals:
-  - $checkout-health
-
 steps:
   - level: 1
     name: protect

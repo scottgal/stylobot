@@ -1472,8 +1472,8 @@ public static class SignalKeys
     /// <summary>Double: EMA-based 429 rate (0.0-1.0) across all upstream responses</summary>
     public const string ResponseRate429 = "response.rate_429";
 
-    /// <summary>Double: EMA-based p95 latency (milliseconds) across all upstream responses</summary>
-    public const string ResponseLatencyP95 = "response.latency_p95";
+    /// <summary>Double: EMA latency (milliseconds) across all upstream responses</summary>
+    public const string ResponseLatencyEma = "response.latency_ema";
 }
 
 /// <summary>Values written to <see cref="SignalKeys.TransportProtocolClass"/> by TransportProtocolContributor.</summary>

@@ -406,7 +406,7 @@ public class BotDetectionMiddleware(
 
             if (capturedPostResponseHooks != null)
             {
-                var actionPolicyName = finalAction?.ToString() ?? finalEvidence.TriggeredActionPolicyName;
+                var actionPolicyName = finalEvidence.TriggeredActionPolicyName ?? finalAction?.ToString()?.ToLowerInvariant();
                 var rc = new Services.ResponseContext(statusCode, (long)processingTimeMs, capturedReq.Path, actionPolicyName);
                 foreach (var hook in capturedPostResponseHooks)
                     _ = hook.OnResponseCompletedAsync(rc, CancellationToken.None);
@@ -451,7 +451,7 @@ public class BotDetectionMiddleware(
         {
             var endpointPath = context.Request.Path.Value ?? "";
             var currentPolicy = aggregatedResult.TriggeredActionPolicyName ?? "";
-            foreach (var hook in preActionHooks.OrderByDescending(h => h.Priority))
+            foreach (var hook in preActionHooks)
             {
                 var overridePolicy = await hook.GetOverridePolicyAsync(endpointPath, currentPolicy, context.RequestAborted);
                 if (overridePolicy != null)

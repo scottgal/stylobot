@@ -21,8 +21,8 @@ public class ReactionRuleEvaluatorTests
             Rules = [new ReactionRule { Signal = "response.error_rate_5xx", Above = 0.05, ForSeconds = 60.0 }]
         };
 
-        var result = evaluator.Evaluate(conditionSet, Signals(("response.error_rate_5xx", 0.10)), tracker, "test:activate");
-        Assert.False(result);
+        var (satisfied, _, _) = evaluator.Evaluate(conditionSet, Signals(("response.error_rate_5xx", 0.10)), tracker, "test:activate");
+        Assert.False(satisfied);
     }
 
     [Fact]
@@ -38,8 +38,8 @@ public class ReactionRuleEvaluatorTests
         tracker.ForceFirstTrue("test:activate:0", DateTime.UtcNow.AddSeconds(-70));
 
         // Signal is below threshold so condition is false; hysteresis irrelevant
-        var result = evaluator.Evaluate(conditionSet, Signals(("response.error_rate_5xx", 0.01)), tracker, "test:activate");
-        Assert.False(result);
+        var (satisfied, _, _) = evaluator.Evaluate(conditionSet, Signals(("response.error_rate_5xx", 0.01)), tracker, "test:activate");
+        Assert.False(satisfied);
     }
 
     [Fact]
@@ -54,8 +54,8 @@ public class ReactionRuleEvaluatorTests
         };
         tracker.ForceFirstTrue("test:activate:0", DateTime.UtcNow.AddSeconds(-70));
 
-        var result = evaluator.Evaluate(conditionSet, Signals(("response.error_rate_5xx", 0.10)), tracker, "test:activate");
-        Assert.True(result);
+        var (satisfied, _, _) = evaluator.Evaluate(conditionSet, Signals(("response.error_rate_5xx", 0.10)), tracker, "test:activate");
+        Assert.True(satisfied);
     }
 
     [Fact]
@@ -74,11 +74,11 @@ public class ReactionRuleEvaluatorTests
         };
         tracker.ForceFirstTrue("test:deactivate:0", DateTime.UtcNow.AddSeconds(-35));
         // rate_429 is still above threshold so second rule not satisfied
-        var result = evaluator.Evaluate(
+        var (r1, _, _) = evaluator.Evaluate(
             conditionSet,
             Signals(("response.error_rate_5xx", 0.01), ("response.rate_429", 0.05)),
             tracker, "test:deactivate");
-        Assert.False(result);
+        Assert.False(r1);
     }
 
     [Fact]
@@ -97,10 +97,10 @@ public class ReactionRuleEvaluatorTests
         };
         tracker.ForceFirstTrue("test:deactivate:0", DateTime.UtcNow.AddSeconds(-35));
         tracker.ForceFirstTrue("test:deactivate:1", DateTime.UtcNow.AddSeconds(-35));
-        var result = evaluator.Evaluate(
+        var (r2, _, _) = evaluator.Evaluate(
             conditionSet,
             Signals(("response.error_rate_5xx", 0.01), ("response.rate_429", 0.005)),
             tracker, "test:deactivate");
-        Assert.True(result);
+        Assert.True(r2);
     }
 }

@@ -4,9 +4,6 @@ enabled: true
 scope: global
 priority: 0
 
-signals:
-  - $upstream-health
-
 steps:
   - level: 1
     name: watch

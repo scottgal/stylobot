@@ -86,7 +86,13 @@
                                     </span>
                                 </td>
                                 <td class="text-xs text-base-content/60">
-                                    @(t.TriggeredBy ?? "-") (@t.SignalValue.ToString("P1"))
+                                    @{
+                                        var isLatency = (t.TriggeredBy ?? "").Contains("latency", StringComparison.OrdinalIgnoreCase);
+                                        var formattedValue = isLatency
+                                            ? $"{t.SignalValue:N0} ms"
+                                            : t.SignalValue.ToString("P1");
+                                    }
+                                    @(t.TriggeredBy ?? "-") (@formattedValue)
                                 </td>
                                 <td class="text-right text-xs text-base-content/50">
                                     @t.OccurredAt.ToLocalTime().ToString("HH:mm:ss")

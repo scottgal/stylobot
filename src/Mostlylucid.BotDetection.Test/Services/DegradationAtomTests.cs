@@ -65,7 +65,7 @@ public class DegradationAtomTests : IDisposable
     {
         _atom.RecordResponse(200, 1500, "/api/test");
 
-        var latency = _atom.GetSignalValue("response.latency_p95");
+        var latency = _atom.GetSignalValue("response.latency_ema");
         Assert.True(latency > 0, $"Expected latency > 0, got {latency}");
     }
 
@@ -75,6 +75,6 @@ public class DegradationAtomTests : IDisposable
         var keys = _atom.GetAvailableSignalKeys();
         Assert.Contains("response.error_rate_5xx", keys);
         Assert.Contains("response.rate_429", keys);
-        Assert.Contains("response.latency_p95", keys);
+        Assert.Contains("response.latency_ema", keys);
     }
 }

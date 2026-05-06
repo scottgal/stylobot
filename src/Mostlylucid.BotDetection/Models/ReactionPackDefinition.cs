@@ -19,9 +19,6 @@ public sealed class ReactionPackDefinition
     [YamlMember(Alias = "priority")]
     public int Priority { get; set; }
 
-    [YamlMember(Alias = "signals")]
-    public List<string> Signals { get; set; } = [];
-
     [YamlMember(Alias = "steps")]
     public List<ReactionPackStep> Steps { get; set; } = [];
 

@@ -6,7 +6,7 @@ public sealed class DegradationAtom : IStylobotPostResponseHook, IDisposable
 {
     private const string GlobalErrorRate5Xx = "response.error_rate_5xx";
     private const string GlobalRate429 = "response.rate_429";
-    private const string GlobalLatencyP95 = "response.latency_p95";
+    private const string GlobalLatencyP95 = "response.latency_ema";
 
     private readonly double _alpha;
     private readonly double _decayFactor;

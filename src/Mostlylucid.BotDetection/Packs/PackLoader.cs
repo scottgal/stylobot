@@ -66,7 +66,13 @@ public sealed class PackLoader(
             }
 
             if (!string.IsNullOrWhiteSpace(manifest.EntryType) && !string.IsNullOrWhiteSpace(manifest.Assembly))
-                LoadAssemblyPack(zip, manifest);
+            {
+                if (!LoadAssemblyPack(zip, manifest))
+                {
+                    _skipped.Add(manifest);
+                    return;
+                }
+            }
 
             _loaded.Add(manifest);
             logger.LogInformation("Loaded pack {Name} v{Version}", manifest.Name, manifest.Version);
@@ -78,14 +84,14 @@ public sealed class PackLoader(
         }
     }
 
-    private void LoadAssemblyPack(ZipArchive zip, PackManifest manifest)
+    private bool LoadAssemblyPack(ZipArchive zip, PackManifest manifest)
     {
         var dllEntry = zip.GetEntry(manifest.Assembly!);
         if (dllEntry == null)
         {
             logger.LogWarning("Pack {Name} declares assembly {Assembly} but it is not in the zip",
                 manifest.Name, manifest.Assembly);
-            return;
+            return false;
         }
 
         var tempDll = Path.Combine(Path.GetTempPath(), $"{manifest.Name}_{Guid.NewGuid():N}.dll");
@@ -101,7 +107,7 @@ public sealed class PackLoader(
             {
                 logger.LogWarning("Pack {Name} entry type {Type} not found or does not implement IStylobotPack",
                     manifest.Name, manifest.EntryType);
-                return;
+                return false;
             }
 
             var instance = Activator.CreateInstance(entryType);
@@ -109,10 +115,11 @@ public sealed class PackLoader(
             {
                 logger.LogWarning("Pack {Name} entry type {Type} could not be instantiated",
                     manifest.Name, manifest.EntryType);
-                return;
+                return false;
             }
             pack.ConfigureServices(services, capabilities);
             logger.LogInformation("Pack {Name} configured services", manifest.Name);
+            return true;
         }
         finally
         {

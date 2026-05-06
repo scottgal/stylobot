@@ -13,7 +13,7 @@ public sealed class SignalGroupRegistry : ISignalGroupRegistry
             .Where(d => !string.IsNullOrWhiteSpace(d.Name))
             .ToFrozenDictionary(
                 d => d.Name,
-                d => (IReadOnlyList<string>)d.Signals.AsReadOnly(),
+                d => (IReadOnlyList<string>)[..d.Signals],
                 StringComparer.OrdinalIgnoreCase);
     }
 
