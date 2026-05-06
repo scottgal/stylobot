@@ -41,6 +41,8 @@ public class ReactionPackLoadingTests
         Assert.Equal("latency-protection", pack.Name);
         Assert.True(pack.IsGlobal);
         Assert.Equal(2, pack.Steps.Count);
+        Assert.Equal("throttle-gentle", pack.Steps[0].Policy);
+        Assert.Equal("throttle-moderate", pack.Steps[1].Policy);
     }
 
     [Fact]
@@ -52,5 +54,6 @@ public class ReactionPackLoadingTests
         Assert.Equal("/api/checkout", pack.ScopedEndpoint);
         Assert.Equal(10, pack.Priority);
         Assert.Equal("challenge-pow", pack.Steps[0].Policy);
+        Assert.Equal("block-soft", pack.Steps[1].Policy);
     }
 }
