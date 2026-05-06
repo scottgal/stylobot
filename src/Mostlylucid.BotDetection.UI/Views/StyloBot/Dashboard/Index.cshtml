@@ -676,6 +676,23 @@
             try { document.execCommand('copy'); } catch(e) {}
             window.getSelection().removeAllRanges();
         }
+
+        document.addEventListener('click', function(e) {
+            var btn = e.target.closest('[data-action]');
+            if (!btn) return;
+            var action = btn.dataset.action;
+            if (action === 'toggle-pin-form') {
+                e.stopPropagation();
+                var form = document.getElementById('pin-endpoint-form');
+                if (form) form.classList.toggle('hidden');
+            } else if (action === 'hide-pin-form') {
+                e.stopPropagation();
+                var form = document.getElementById('pin-endpoint-form');
+                if (form) form.classList.add('hidden');
+            } else if (action === 'open-policy-modal') {
+                sbOpenPolicyModal(e, btn.dataset.method, btn.dataset.path, btn.dataset.policy);
+            }
+        });
     })();
     </script>
 </body>

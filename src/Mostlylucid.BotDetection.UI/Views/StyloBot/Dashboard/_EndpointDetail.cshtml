@@ -65,9 +65,15 @@
                 var overallData = @Html.Raw(ProfileJson(Model.OverallProfile));
 
                 var series = [];
-                if (botData)     series.push({ name: 'Bot',   data: botData });
-                if (humanData)   series.push({ name: 'Human', data: humanData });
-                if (overallData) series.push({ name: 'All',   data: overallData });
+                function breakUniform(arr) {
+                    if (!arr) return arr;
+                    var allSame = arr.every(function(v) { return v === arr[0]; });
+                    if (allSame) { var out = arr.slice(); out[0] = Math.min(100, out[0] + 0.1); return out; }
+                    return arr;
+                }
+                if (botData)     series.push({ name: 'Bot',   data: breakUniform(botData) });
+                if (humanData)   series.push({ name: 'Human', data: breakUniform(humanData) });
+                if (overallData) series.push({ name: 'All',   data: breakUniform(overallData) });
 
                 var isDark = document.documentElement.getAttribute('data-theme') !== 'sb-light';
                 var labelColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)';

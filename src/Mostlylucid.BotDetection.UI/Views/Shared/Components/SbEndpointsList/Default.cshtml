@@ -24,7 +24,7 @@
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "endpoints")
         </div>
         <button class="btn btn-xs btn-ghost gap-1 text-base-content/60"
-                onclick="document.getElementById('pin-endpoint-form').classList.toggle('hidden')">
+                data-action="toggle-pin-form">
             <i class="bx bx-pin text-sm"></i>Pin Endpoint
         </button>
     </div>
@@ -57,7 +57,7 @@
             </div>
             <div class="flex gap-2 justify-end">
                 <button type="button" class="btn btn-xs btn-ghost"
-                        onclick="document.getElementById('pin-endpoint-form').classList.add('hidden')">
+                        data-action="hide-pin-form">
                     Cancel
                 </button>
                 <button type="submit" class="btn btn-xs btn-primary">
@@ -122,7 +122,10 @@
                                 <button type="button"
                                         title="Apply policy to this endpoint"
                                         class="btn btn-ghost btn-xs p-0.5 min-h-0 h-auto"
-                                        onclick="sbOpenPolicyModal(event, '@Html.Raw(endpoint.Method.Replace("'", "\\'"))', '@Html.Raw(Uri.EscapeDataString(endpoint.Path))', '@Html.Raw((endpoint.ActivePolicyName ?? string.Empty).Replace("'", "\\'"))')">
+                                        data-action="open-policy-modal"
+                                        data-method="@Html.Raw(endpoint.Method.Replace("\"", "&quot;"))"
+                                        data-path="@Html.Raw(Uri.EscapeDataString(endpoint.Path))"
+                                        data-policy="@Html.Raw((endpoint.ActivePolicyName ?? string.Empty).Replace("\"", "&quot;"))">
                                     <i class="bx bx-shield-alt text-[11px] text-base-content/30 hover:text-base-content/70"></i>
                                 </button>
                             </div>
