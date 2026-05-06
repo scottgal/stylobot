@@ -64,7 +64,6 @@ public sealed class ReactionPackEngine : BackgroundService
         var current = _currentLevel[pack.Name];
         var scope = pack.IsGlobal ? "global" : (pack.ScopedEndpoint ?? "global");
 
-        // Try escalate: check if next level activates
         var nextLevel = current + 1;
         var nextStep = pack.Steps.FirstOrDefault(s => s.Level == nextLevel);
         if (nextStep?.Activate != null)
@@ -83,7 +82,6 @@ public sealed class ReactionPackEngine : BackgroundService
         if (current <= 0)
             return;
 
-        // Try de-escalate: check current step deactivate conditions
         var currentStep = pack.Steps.FirstOrDefault(s => s.Level == current);
         if (currentStep?.Deactivate == null)
             return;
@@ -92,12 +90,12 @@ public sealed class ReactionPackEngine : BackgroundService
         if (!_evaluator.Evaluate(currentStep.Deactivate, signals, currentTrackers.Deactivate, $"{pack.Name}:L{current}:deactivate"))
             return;
 
-        // Find highest lower level whose deactivate conditions are NOT yet met
         var newLevel = 0;
         for (var l = current - 1; l >= 1; l--)
         {
             var lowerStep = pack.Steps.FirstOrDefault(s => s.Level == l);
-            if (lowerStep?.Deactivate == null) { newLevel = l; break; }
+            if (lowerStep == null) continue;
+            if (lowerStep.Deactivate == null) { newLevel = l; break; }
             var lowerTrackers = _trackers[pack.Name][l];
             if (!_evaluator.Evaluate(lowerStep.Deactivate, signals, lowerTrackers.Deactivate, $"{pack.Name}:L{l}:deactivate"))
             {

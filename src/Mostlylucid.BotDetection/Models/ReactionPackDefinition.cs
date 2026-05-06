@@ -27,5 +27,6 @@ public sealed class ReactionPackDefinition
 
     public bool IsGlobal => string.Equals(Scope, "global", StringComparison.OrdinalIgnoreCase);
 
-    public string? ScopedEndpoint => IsGlobal ? null : (Scope.Length > 9 ? Scope[9..] : null);
+    public string? ScopedEndpoint => IsGlobal ? null
+        : (Scope.StartsWith("endpoint:", StringComparison.OrdinalIgnoreCase) ? Scope[9..] : null);
 }
