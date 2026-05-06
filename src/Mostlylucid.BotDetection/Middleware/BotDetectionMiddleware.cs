@@ -446,10 +446,10 @@ public class BotDetectionMiddleware(
         }
 
         // Pre-action hooks: reaction packs and future pack extensions override the action policy
-        if (preActionHooks != null && !string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName))
+        if (preActionHooks != null)
         {
             var endpointPath = context.Request.Path.Value ?? "";
-            var currentPolicy = aggregatedResult.TriggeredActionPolicyName;
+            var currentPolicy = aggregatedResult.TriggeredActionPolicyName ?? "";
             foreach (var hook in preActionHooks.OrderByDescending(h => h.Priority))
             {
                 var overridePolicy = await hook.GetOverridePolicyAsync(endpointPath, currentPolicy, context.RequestAborted);
