@@ -4973,7 +4973,23 @@ public class StyloBotDashboardMiddleware
         }
 
         var methodNorm = string.IsNullOrWhiteSpace(method) ? "ANY" : method.ToUpperInvariant();
+        if (!AllowedPinMethods.Contains(methodNorm))
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Invalid method\"}");
+            return;
+        }
+
         var pin = await pinStore.AddAsync(methodNorm, path, isHoneypot, string.IsNullOrWhiteSpace(note) ? null : note);
+        if (pin == null)
+        {
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Failed to persist pin\"}");
+            return;
+        }
+
         context.Response.StatusCode = 201;
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, pin, CamelCaseJson);
@@ -4993,6 +5009,9 @@ public class StyloBotDashboardMiddleware
     }
 
     private sealed record PinRequest(string Path, string? Method, bool IsHoneypot, string? Note);
+
+    private static readonly HashSet<string> AllowedPinMethods =
+        new(StringComparer.OrdinalIgnoreCase) { "ANY", "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS" };
 
     private InvestigationViewModel BuildInvestigationViewModel(
         InvestigationFilter filter, InvestigationResult result, HttpContext? httpContext = null)

@@ -97,7 +97,17 @@
                         hx-target="#endpoint-detail-panel"
                         hx-swap="innerHTML transition:true">
                         <td class="py-1 text-[10px] font-bold">@endpoint.Method</td>
-                        <td class="py-1 text-xs font-medium max-w-[280px] truncate">@endpoint.Path</td>
+                        <td class="py-1 text-xs font-medium max-w-[280px] truncate">
+                            @if (endpoint.IsPinned)
+                            {
+                                <i class="bx bx-pin text-base-content/30 mr-0.5" title="Pinned"></i>
+                            }
+                            @if (endpoint.IsHoneypot)
+                            {
+                                <i class="bx bx-bug text-warning mr-0.5" title="Honeypot"></i>
+                            }
+                            @endpoint.Path
+                        </td>
                         <td class="py-1 text-right text-xs font-mono">@endpoint.TotalCount</td>
                         <td class="py-1 text-right text-xs font-bold @botClass">@((endpoint.BotRate * 100).ToString("F0"))%</td>
                         <td class="py-1 text-right text-xs font-mono hidden sm:table-cell">@endpoint.UniqueSignatures</td>
