@@ -418,6 +418,10 @@ public class StyloBotDashboardMiddleware
                 await ServeSignatureSessionsPartialAsync(context);
                 break;
 
+            case "partials/session-fingerprints":
+                await ServeSessionFingerprintsPartialAsync(context);
+                break;
+
             case "partials/approval-form":
                 await ServeApprovalFormPartialAsync(context);
                 break;
@@ -3207,15 +3211,29 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        var sessions = await sessionStore.GetSessionsAsync(Uri.UnescapeDataString(sig), 1);
-        if (sessions.Count == 0)
+        var decodedSig = Uri.UnescapeDataString(sig);
+        BotDetection.Data.PersistedSession? s = null;
+
+        if (long.TryParse(idStr, out var sessionId) && sessionId > 0)
+        {
+            // Find the specific session by ID within recent sessions for this signature
+            var candidates = await sessionStore.GetSessionsAsync(decodedSig, 50);
+            s = candidates.FirstOrDefault(x => x.Id == sessionId);
+        }
+
+        if (s == null)
+        {
+            // Fall back to most recent session
+            var fallback = await sessionStore.GetSessionsAsync(decodedSig, 1);
+            s = fallback.Count > 0 ? fallback[0] : null;
+        }
+
+        if (s == null)
         {
             context.Response.ContentType = "text/html";
             await context.Response.WriteAsync("<div class='text-xs text-base-content/40 py-4 text-center'>Session not found</div>");
             return;
         }
-
-        var s = sessions[0];
         var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj) && nonceObj is string nonce && nonce.Length > 0
             ? nonce
             : Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
@@ -3436,6 +3454,67 @@ public class StyloBotDashboardMiddleware
         html.Append($"<div class=\"text-[10px] text-base-content/30 mt-2\">{sessions.Count} session(s) recorded</div>");
 
         await context.Response.WriteAsync(html.ToString());
+    }
+
+    private async Task ServeSessionFingerprintsPartialAsync(HttpContext context)
+    {
+        var signature = Uri.UnescapeDataString(context.Request.Query["signature"].FirstOrDefault() ?? "");
+        _ = long.TryParse(context.Request.Query["currentId"].FirstOrDefault(), out var currentId);
+        _ = bool.TryParse(context.Request.Query["compact"].FirstOrDefault(), out var compact);
+
+        context.Response.ContentType = "text/html";
+
+        if (string.IsNullOrEmpty(signature))
+        {
+            await context.Response.WriteAsync("<div class='text-xs text-base-content/40 py-4 text-center'>No signature specified</div>");
+            return;
+        }
+
+        var sessionStore = context.RequestServices.GetService<BotDetection.Data.ISessionStore>();
+        if (sessionStore == null)
+        {
+            await context.Response.WriteAsync("<div class='text-xs text-base-content/40 py-4 text-center'>Session store unavailable</div>");
+            return;
+        }
+
+        var limit = compact ? 10 : 20;
+        var raw = await sessionStore.GetSessionsAsync(signature, limit);
+
+        var entries = raw.Select(s =>
+        {
+            var vector = BotDetection.Data.SqliteSessionStore.DeserializeVector(s.Vector);
+            var stateFreqs = new float[10];
+            if (vector != null && vector.Length >= 110)
+                Array.Copy(vector, 100, stateFreqs, 0, 10);
+            return new Models.SessionFingerprintEntry
+            {
+                Id           = s.Id,
+                StartedAt    = s.StartedAt,
+                IsBot        = s.IsBot,
+                RiskBand     = s.RiskBand,
+                Probability  = s.AvgBotProbability,
+                RequestCount = s.RequestCount,
+                StateFreqs   = stateFreqs
+            };
+        }).ToList();
+
+        var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj) && nonceObj is string nonce && nonce.Length > 0
+            ? nonce
+            : Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+
+        var model = new Models.SessionFingerprintsModel
+        {
+            Signature        = signature,
+            CurrentSessionId = currentId == 0 ? null : currentId,
+            Sessions         = entries,
+            BasePath         = _options.BasePath.TrimEnd('/'),
+            CspNonce         = cspNonce,
+            CompactMode      = compact
+        };
+
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/StyloBot/Dashboard/_SessionFingerprints.cshtml", model, context);
+        await context.Response.WriteAsync(html);
     }
 
     private async Task ServeApprovalFormPartialAsync(HttpContext context)
