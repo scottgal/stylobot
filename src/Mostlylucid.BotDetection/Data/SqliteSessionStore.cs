@@ -177,6 +177,18 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             CREATE INDEX IF NOT EXISTS idx_requests_sig_time  ON requests(signature, timestamp ASC);
             CREATE INDEX IF NOT EXISTS idx_requests_unatomized ON requests(signature, timestamp ASC) WHERE session_id IS NULL;
             CREATE INDEX IF NOT EXISTS idx_requests_ts_desc   ON requests(timestamp DESC);
+
+            CREATE TABLE IF NOT EXISTS reaction_pack_transitions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pack_name TEXT NOT NULL,
+                from_level INTEGER NOT NULL,
+                to_level INTEGER NOT NULL,
+                triggered_by TEXT NOT NULL,
+                signal_value REAL NOT NULL,
+                occurred_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_rpt_pack_name ON reaction_pack_transitions(pack_name);
+            CREATE INDEX IF NOT EXISTS idx_rpt_occurred_at ON reaction_pack_transitions(occurred_at);
         """;
         await cmd.ExecuteNonQueryAsync(ct);
 
