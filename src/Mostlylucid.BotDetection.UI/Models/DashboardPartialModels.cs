@@ -186,6 +186,11 @@ public sealed class EndpointDetailModel
     public EndpointBehavioralProfile? HumanProfile { get; init; }
     public EndpointBehavioralProfile? OverallProfile { get; init; }
     public string CspNonce { get; init; } = "";
+    public string? PolicyName { get; init; }
+    public IReadOnlyList<EndpointPackCoverage> PackCoverage { get; init; } = [];
+    public bool IsPinned { get; init; }
+    public bool IsHoneypot { get; init; }
+    public long? PinId { get; init; }
 }
 
 /// <summary>

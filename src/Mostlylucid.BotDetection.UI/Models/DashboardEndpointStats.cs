@@ -23,6 +23,10 @@ public sealed record DashboardEndpointStats
     ///     Populated from IPolicyRegistry.GetPolicyForPath() when available.
     /// </summary>
     public string? ActivePolicyName { get; init; }
+
+    public bool IsPinned { get; init; }
+    public bool IsHoneypot { get; init; }
+    public long? PinId { get; init; }
 }
 
 /// <summary>
@@ -63,3 +67,9 @@ public sealed record DashboardEndpointDetail
     public EndpointBehavioralProfile? HumanProfile { get; init; }
     public EndpointBehavioralProfile? OverallProfile { get; init; }
 }
+
+public sealed record EndpointPackCoverage(
+    string PackName,
+    string Scope,
+    int CurrentLevel,
+    string? CurrentPolicy);
