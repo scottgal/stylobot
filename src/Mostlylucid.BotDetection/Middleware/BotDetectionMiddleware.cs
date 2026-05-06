@@ -406,7 +406,8 @@ public class BotDetectionMiddleware(
 
             if (capturedPostResponseHooks != null)
             {
-                var rc = new Services.ResponseContext(statusCode, (long)processingTimeMs, capturedReq.Path, null);
+                var actionPolicyName = finalAction?.ToString() ?? finalEvidence.TriggeredActionPolicyName;
+                var rc = new Services.ResponseContext(statusCode, (long)processingTimeMs, capturedReq.Path, actionPolicyName);
                 foreach (var hook in capturedPostResponseHooks)
                     _ = hook.OnResponseCompletedAsync(rc, CancellationToken.None);
             }
