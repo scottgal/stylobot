@@ -295,15 +295,103 @@ scripts/                                Load tests, Docker compose, build toolin
 
 ## Documentation
 
-- [Quick start](Mostlylucid.BotDetection/docs/quickstart.md)
-- [Configuration reference](Mostlylucid.BotDetection/docs/configuration.md)
-- [Integration levels](Mostlylucid.BotDetection/docs/integration-levels.md)
-- [Action policies](Mostlylucid.BotDetection/docs/action-policies.md)
-- [Content sequence detection](Mostlylucid.BotDetection/docs/content-sequence-detection.md)
-- [Centroid freshness](Mostlylucid.BotDetection/docs/centroid-freshness.md)
-- [Click fraud detection](Mostlylucid.BotDetection/docs/click-fraud-detection.md)
-- [Sidecar deployment](Mostlylucid.BotDetection/docs/sidecar-deployment.md) - gRPC/REST detection API for non-.NET backends
-- [Local GPU tunnel](Mostlylucid.BotDetection/docs/local-llm-tunnel.md)
+### Getting Started
+
+- [Quick start](src/Mostlylucid.BotDetection/docs/quickstart.md)
+- [Integration levels](src/Mostlylucid.BotDetection/docs/integration-levels.md)
+- [Tutorial](src/Mostlylucid.BotDetection/docs/tutorial.md)
+- [Configuration reference](src/Mostlylucid.BotDetection/docs/configuration.md)
+- [Configuration reference (full)](src/Mostlylucid.BotDetection/docs/configuration-reference.md)
+- [Deployment guide](src/Mostlylucid.BotDetection/docs/deployment-guide.md)
+- [Sidecar deployment](src/Mostlylucid.BotDetection/docs/sidecar-deployment.md) - gRPC/REST detection API for non-.NET backends
+- [YARP integration](src/Mostlylucid.BotDetection/docs/yarp-integration.md)
+- [YARP gateway](src/Mostlylucid.BotDetection/docs/yarp-gateway.md)
+- [Proxy topologies](src/Mostlylucid.BotDetection/docs/proxy-topologies.md)
+
+### Detection and Policies
+
+- [Action policies](src/Mostlylucid.BotDetection/docs/action-policies.md)
+- [Blocking and filters](src/Mostlylucid.BotDetection/docs/blocking-and-filters.md)
+- [Signals and custom filters](src/Mostlylucid.BotDetection/docs/signals-and-custom-filters.md)
+- [Detection strategies](src/Mostlylucid.BotDetection/docs/detection-strategies.md)
+- [Policies](src/Mostlylucid.BotDetection/docs/policies.md)
+- [Extensibility](src/Mostlylucid.BotDetection/docs/extensibility.md)
+
+### Detectors
+
+- [User agent detection](src/Mostlylucid.BotDetection/docs/user-agent-detection.md)
+- [Header detection](src/Mostlylucid.BotDetection/docs/header-detection.md)
+- [IP detection](src/Mostlylucid.BotDetection/docs/ip-detection.md)
+- [AI detection](src/Mostlylucid.BotDetection/docs/ai-detection.md)
+- [AI scraper detection](src/Mostlylucid.BotDetection/docs/ai-scraper-detection.md)
+- [Behavioral analysis](src/Mostlylucid.BotDetection/docs/behavioral-analysis.md)
+- [Advanced behavioral detection](src/Mostlylucid.BotDetection/docs/advanced-behavioral-detection.md)
+- [Behavioral waveform](src/Mostlylucid.BotDetection/docs/behavioral-waveform.md)
+- [Content sequence detection](src/Mostlylucid.BotDetection/docs/content-sequence-detection.md)
+- [Centroid freshness](src/Mostlylucid.BotDetection/docs/centroid-freshness.md)
+- [Cache behavior detection](src/Mostlylucid.BotDetection/docs/cache-behavior-detection.md)
+- [Client-side fingerprinting](src/Mostlylucid.BotDetection/docs/client-side-fingerprinting.md)
+- [TLS/TCP/HTTP/2/HTTP/3 fingerprinting](src/Mostlylucid.BotDetection/docs/AdvancedFingerprintingDetectors.md)
+- [HTTP/3 fingerprinting](src/Mostlylucid.BotDetection/docs/http3-fingerprinting.md)
+- [TCP/IP fingerprint](src/Mostlylucid.BotDetection/docs/tcp-ip-fingerprint.md)
+- [Transport protocol detection](src/Mostlylucid.BotDetection/docs/transport-protocol-detection.md)
+- [Stream/transport detection](src/Mostlylucid.BotDetection/docs/stream-transport-detection.md)
+- [Inconsistency detection](src/Mostlylucid.BotDetection/docs/inconsistency-detection.md)
+- [Cluster detection](src/Mostlylucid.BotDetection/docs/cluster-detection.md)
+- [Response behavior](src/Mostlylucid.BotDetection/docs/response-behavior.md)
+- [Fast-path reputation](src/Mostlylucid.BotDetection/docs/fast-path-reputation.md)
+- [Reputation bias](src/Mostlylucid.BotDetection/docs/reputation-bias.md)
+- [Learning and reputation](src/Mostlylucid.BotDetection/docs/learning-and-reputation.md)
+- [Timescale reputation](src/Mostlylucid.BotDetection/docs/timescale-reputation.md)
+- [Geo change detection](src/Mostlylucid.BotDetection/docs/geo-change-detection.md)
+- [Haxxor detection](src/Mostlylucid.BotDetection/docs/haxxor-detection.md)
+- [Security tools detection](src/Mostlylucid.BotDetection/docs/security-tools-detection.md)
+- [Version age detection](src/Mostlylucid.BotDetection/docs/version-age-detection.md)
+- [Verified bot detection](src/Mostlylucid.BotDetection/docs/verified-bot-detection.md)
+- [Adblocker detection](src/Mostlylucid.BotDetection/docs/adblocker-detection.md)
+- [Click fraud detection](src/Mostlylucid.BotDetection/docs/click-fraud-detection.md)
+- [Account takeover detection](src/Mostlylucid.BotDetection/docs/account-takeover-detection.md)
+- [Project Honeypot](src/Mostlylucid.BotDetection/docs/project-honeypot.md)
+
+### Features
+
+- [Simulation packs](src/Mostlylucid.BotDetection/docs/simulation-packs.md)
+- [Holodeck (honeypot response system)](src/Mostlylucid.BotDetection/docs/holodeck.md)
+- [Custom pack authoring](src/Mostlylucid.BotDetection/docs/custom-pack-authoring.md)
+- [Endpoint pinning](src/Mostlylucid.BotDetection/docs/endpoint-pinning.md)
+- [Fingerprint approval](src/Mostlylucid.BotDetection/docs/fingerprint-approval.md)
+- [Proof-of-work challenge](src/Mostlylucid.BotDetection/docs/proof-of-work-challenge.md)
+- [Session analytics](src/Mostlylucid.BotDetection/docs/session-analytics.md)
+- [Response PII masking](src/Mostlylucid.BotDetection/docs/response-pii-masking.md)
+- [SignalR beacon architecture](src/Mostlylucid.BotDetection/docs/signalr-beacon-architecture.md)
+- [Authenticated users](src/Mostlylucid.BotDetection/docs/authenticated-users-spec.md)
+- [WAF comparison](src/Mostlylucid.BotDetection/docs/waf-comparison.md)
+
+### Dashboard and API
+
+- [API reference](src/Mostlylucid.BotDetection/docs/api-reference.md)
+- [API keys](src/Mostlylucid.BotDetection/docs/api-keys.md)
+- [Dashboard threat scoring](src/Mostlylucid.BotDetection/docs/dashboard-threat-scoring.md)
+- [In-dashboard config editor](src/Mostlylucid.BotDetection/docs/in-dashboard-config-editor.md)
+- [Training data API](src/Mostlylucid.BotDetection/docs/training-data-api.md)
+- [UI components](src/Mostlylucid.BotDetection/docs/ui-components.md)
+- [BDF replay system](src/Mostlylucid.BotDetection/docs/bdf-system-guide.md)
+
+### Infrastructure and Ops
+
+- [Local GPU tunnel](src/Mostlylucid.BotDetection/docs/local-llm-tunnel.md)
+- [Telemetry and metrics](src/Mostlylucid.BotDetection/docs/telemetry-and-metrics.md)
+- [External calls](src/Mostlylucid.BotDetection/docs/external-calls.md)
+- [Data sources](src/Mostlylucid.BotDetection/docs/data-sources.md)
+- [Licensing](src/Mostlylucid.BotDetection/docs/licensing.md)
+
+### Architecture Reference
+
+- [Signature coordinator](src/Mostlylucid.BotDetection/docs/signature-coordinator-architecture.md)
+- [YAML configuration architecture](src/Mostlylucid.BotDetection/docs/YAML_CONFIGURATION_ARCHITECTURE.md)
+- [Fast-path signature matching](src/Mostlylucid.BotDetection/docs/FAST_PATH_SIGNATURE_MATCHING.md)
+- [Multi-factor signatures](src/Mostlylucid.BotDetection/docs/MULTI_FACTOR_SIGNATURES.md)
+
 - [CHANGELOG](CHANGELOG.md)
 
 ## Requirements
