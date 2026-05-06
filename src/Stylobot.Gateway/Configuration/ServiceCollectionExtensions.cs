@@ -51,18 +51,7 @@ public static class ServiceCollectionExtensions
             opts.MigrateOnStartup = GetEnvBool("DB_MIGRATE_ON_STARTUP", true);
         });
 
-        // Bind TLS options from environment variables
-        services.Configure<GatewayOptions>(opts =>
-        {
-            opts.Tls.Port = GetEnvInt("GATEWAY_HTTPS_PORT", 8443);
-            opts.Tls.CertPath = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_CERT_PATH");
-            opts.Tls.CertKeyPath = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_CERT_KEY_PATH");
-            opts.Tls.CertPassword = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_CERT_PASSWORD");
-            opts.Tls.Domain = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_DOMAIN");
-            opts.Tls.AcmeEmail = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_ACME_EMAIL");
-            opts.Tls.AcmeCertStorePath =
-                Environment.GetEnvironmentVariable("GATEWAY_HTTPS_ACME_CERT_STORE") ?? "/app/data/certs";
-        });
+        services.Configure<GatewayOptions>(opts => { opts.Tls = ReadTlsOptionsFromEnv(); });
 
         // Also bind from configuration section (file-based)
         services.Configure<GatewayOptions>(configuration.GetSection(GatewayOptions.SectionName));
@@ -266,25 +255,12 @@ public static class ServiceCollectionExtensions
         }
     }
 
-    /// <summary>
-    /// Register TLS termination services based on <see cref="TlsOptions"/>.
-    ///
-    /// Cert-from-file: loads the certificate at options-resolve time (after DI build),
-    /// then binds a Kestrel HTTPS listener with TLS handshake capture for JA3/JA4.
-    ///
-    /// ACME: registers LettuceEncrypt for automatic Let's Encrypt certificate management,
-    /// then binds the same Kestrel HTTPS listener using LettuceEncrypt's cert selector.
-    ///
-    /// No-op when <see cref="TlsOptions.Enabled"/> is false.
-    /// </summary>
     public static IServiceCollection AddGatewayTls(this IServiceCollection services, TlsOptions tls)
     {
         if (!tls.Enabled) return services;
 
         if (tls.IsAcme)
         {
-            Directory.CreateDirectory(tls.AcmeCertStorePath);
-
             services.AddLettuceEncrypt(opts =>
             {
                 opts.AcceptTermsOfService = true;
@@ -294,32 +270,25 @@ public static class ServiceCollectionExtensions
             })
             .PersistDataToDirectory(new DirectoryInfo(tls.AcmeCertStorePath), pfxPassword: null);
 
-            // Bind Kestrel HTTPS listener after DI is built so LettuceEncrypt's cert store is available.
             services.AddOptions<KestrelServerOptions>()
                 .Configure<ILoggerFactory, IServiceProvider>((kestrelOpts, loggers, sp) =>
                 {
-                    var logger = loggers.CreateLogger("GatewayTls");
                     kestrelOpts.ListenAnyIP(tls.Port, listenOpts =>
                     {
-                        listenOpts.UseHttps(https =>
-                        {
-                            // LettuceEncrypt manages the ServerCertificateSelector automatically.
-                            https.UseLettuceEncrypt(sp);
-                        });
+                        listenOpts.UseHttps(https => https.UseLettuceEncrypt(sp));
                     });
-                    logger.LogInformation(
+                    loggers.CreateLogger("GatewayTls").LogInformation(
                         "HTTPS (ACME) enabled on port {Port} for domain {Domain}", tls.Port, tls.Domain);
                 });
         }
         else
         {
-            // Cert-from-file: resolve at options time (after DI build) so logger is available.
             services.AddOptions<KestrelServerOptions>()
                 .Configure<ILoggerFactory>((kestrelOpts, loggers) =>
                 {
                     var logger = loggers.CreateLogger("GatewayTls");
 
-                    X509Certificate2? cert;
+                    X509Certificate2 cert;
                     try
                     {
                         cert = !string.IsNullOrWhiteSpace(tls.CertKeyPath)
@@ -332,20 +301,29 @@ public static class ServiceCollectionExtensions
                         return;
                     }
 
-                    var loadedCert = cert;
                     kestrelOpts.ListenAnyIP(tls.Port, listenOpts =>
                     {
-                        listenOpts.UseHttpsWithTlsCapture(loadedCert, logger);
+                        listenOpts.UseHttpsWithTlsCapture(cert, logger);
                     });
 
                     logger.LogInformation(
-                        "HTTPS (cert-from-file) enabled on port {Port}, cert: {Subject}",
-                        tls.Port, cert.Subject);
+                        "HTTPS (cert-from-file) enabled on port {Port}, cert: {Subject}", tls.Port, cert.Subject);
                 });
         }
 
         return services;
     }
+
+    public static TlsOptions ReadTlsOptionsFromEnv() => new()
+    {
+        Port = GetEnvInt("GATEWAY_HTTPS_PORT", 8443),
+        CertPath = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_CERT_PATH"),
+        CertKeyPath = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_CERT_KEY_PATH"),
+        CertPassword = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_CERT_PASSWORD"),
+        Domain = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_DOMAIN"),
+        AcmeEmail = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_ACME_EMAIL"),
+        AcmeCertStorePath = Environment.GetEnvironmentVariable("GATEWAY_HTTPS_ACME_CERT_STORE") ?? "/app/data/certs",
+    };
 
     private static int GetEnvInt(string name, int defaultValue)
     {
