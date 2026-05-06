@@ -147,6 +147,22 @@ public class StyloBotDashboardMiddleware
         _logger = logger;
     }
 
+    private string GetOrCreateCspNonce(HttpContext context)
+    {
+        if (context.Items.TryGetValue("CspNonce", out var obj) && obj is string s && s.Length > 0)
+            return s;
+        var nonce = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+        context.Items["CspNonce"] = nonce;
+        return nonce;
+    }
+
+    private void WarnAuthOnce(LogLevel level, string message)
+    {
+        if (_authWarningLogged) return;
+        _authWarningLogged = true;
+        _logger.Log(level, "{Message}", message);
+    }
+
     public async Task InvokeAsync(HttpContext context)
     {
         var path = context.Request.Path.Value ?? string.Empty;
@@ -516,45 +532,29 @@ public class StyloBotDashboardMiddleware
         // No auth configured - check if unauthenticated access is explicitly allowed
         if (_options.AllowUnauthenticatedAccess)
         {
-            if (!_authWarningLogged)
-            {
-                _authWarningLogged = true;
-                if (!_env.IsDevelopment())
-                    _logger.LogWarning(
-                        "Dashboard running with AllowUnauthenticatedAccess=true in a non-Development environment. " +
-                        "Configure AuthorizationFilter or RequireAuthorizationPolicy for production.");
-                else
-                    _logger.LogInformation(
-                        "Dashboard accessible without authentication (Development environment). " +
-                        "Set AllowUnauthenticatedAccess=false and configure auth before deploying to production.");
-            }
+            WarnAuthOnce(
+                _env.IsDevelopment() ? LogLevel.Information : LogLevel.Warning,
+                _env.IsDevelopment()
+                    ? "Dashboard accessible without authentication (Development environment). Set AllowUnauthenticatedAccess=false and configure auth before deploying to production."
+                    : "Dashboard running with AllowUnauthenticatedAccess=true in a non-Development environment. Configure AuthorizationFilter or RequireAuthorizationPolicy for production.");
             return true;
         }
 
-        // Development: auto-allow with a clear informational message so first-time users can reach the dashboard.
+        // Development: auto-allow so first-time users can reach the dashboard without config.
         if (_env.IsDevelopment())
         {
-            if (!_authWarningLogged)
-            {
-                _authWarningLogged = true;
-                _logger.LogInformation(
-                    "Dashboard accessible without authentication (Development environment, no auth configured). " +
-                    "Set AllowUnauthenticatedAccess=false and configure AuthorizationFilter or RequireAuthorizationPolicy before deploying to production.");
-            }
+            WarnAuthOnce(LogLevel.Information,
+                "Dashboard accessible without authentication (Development environment, no auth configured). " +
+                "Set AllowUnauthenticatedAccess=false and configure AuthorizationFilter or RequireAuthorizationPolicy before deploying to production.");
             return true;
         }
 
-        // Production default deny: no auth configured and AllowUnauthenticatedAccess is false
-        if (!_authWarningLogged)
-        {
-            _authWarningLogged = true;
-            _logger.LogError(
-                "Dashboard access DENIED: no authorization configured. " +
-                "Configure via AddStyloBotDashboard(options => options.AuthorizationFilter = ...) or " +
-                "options.RequireAuthorizationPolicy = \"PolicyName\". " +
-                "For local development, set the ASPNETCORE_ENVIRONMENT=Development environment variable.");
-        }
-
+        // Production default deny
+        WarnAuthOnce(LogLevel.Error,
+            "Dashboard access DENIED: no authorization configured. " +
+            "Configure via AddStyloBotDashboard(options => options.AuthorizationFilter = ...) or " +
+            "options.RequireAuthorizationPolicy = \"PolicyName\". " +
+            "For local development, set the ASPNETCORE_ENVIRONMENT=Development environment variable.");
         return false;
     }
 
@@ -778,10 +778,7 @@ public class StyloBotDashboardMiddleware
         context.Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
         // Replace restrictive CSP with dashboard-appropriate one
         context.Response.Headers.Remove("Content-Security-Policy");
-        var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj) && nonceObj is string s && s.Length > 0
-            ? s
-            : Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
-        context.Items["CspNonce"] = cspNonce;
+        var cspNonce = GetOrCreateCspNonce(context);
         var dashboardCsp = string.Join("; ",
             "default-src 'self'",
             "base-uri 'self'",
@@ -2731,10 +2728,7 @@ public class StyloBotDashboardMiddleware
         // Re-emit a CSP nonce that the inline Monaco bootstrap script can use. The shell
         // already set one, but partials served standalone (HTMX) may not have inherited it.
         if (!context.Items.ContainsKey("CspNonce"))
-        {
-            context.Items["CspNonce"] = Convert.ToBase64String(
-                System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
-        }
+            GetOrCreateCspNonce(context);
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -3237,18 +3231,15 @@ public class StyloBotDashboardMiddleware
         }
 
         var decodedSig = Uri.UnescapeDataString(sig);
-        BotDetection.Data.PersistedSession? s = null;
+        BotDetection.Data.PersistedSession? s;
 
         if (long.TryParse(idStr, out var sessionId) && sessionId > 0)
         {
-            // Find the specific session by ID within recent sessions for this signature
             var candidates = await sessionStore.GetSessionsAsync(decodedSig, 500);
-            s = candidates.FirstOrDefault(x => x.Id == sessionId);
+            s = candidates.FirstOrDefault(x => x.Id == sessionId) ?? (candidates.Count > 0 ? candidates[0] : null);
         }
-
-        if (s == null)
+        else
         {
-            // Fall back to most recent session
             var fallback = await sessionStore.GetSessionsAsync(decodedSig, 1);
             s = fallback.Count > 0 ? fallback[0] : null;
         }
@@ -3259,9 +3250,7 @@ public class StyloBotDashboardMiddleware
             await context.Response.WriteAsync("<div class='text-xs text-base-content/40 py-4 text-center'>Session not found</div>");
             return;
         }
-        var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj) && nonceObj is string nonce && nonce.Length > 0
-            ? nonce
-            : Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+        var cspNonce = GetOrCreateCspNonce(context);
 
         var model = new SessionDetailModel
         {
@@ -3484,7 +3473,7 @@ public class StyloBotDashboardMiddleware
     private async Task ServeSessionFingerprintsPartialAsync(HttpContext context)
     {
         var signature = Uri.UnescapeDataString(context.Request.Query["signature"].FirstOrDefault() ?? "");
-        _ = long.TryParse(context.Request.Query["currentId"].FirstOrDefault(), out var currentId);
+        long? currentId = long.TryParse(context.Request.Query["currentId"].FirstOrDefault(), out var parsedId) ? parsedId : null;
         _ = bool.TryParse(context.Request.Query["compact"].FirstOrDefault(), out var compact);
 
         context.Response.ContentType = "text/html";
@@ -3523,14 +3512,12 @@ public class StyloBotDashboardMiddleware
             };
         }).ToList();
 
-        var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj) && nonceObj is string nonce && nonce.Length > 0
-            ? nonce
-            : Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
+        var cspNonce = GetOrCreateCspNonce(context);
 
         var model = new Models.SessionFingerprintsModel
         {
             Signature        = signature,
-            CurrentSessionId = currentId == 0 ? null : currentId,
+            CurrentSessionId = currentId,
             Sessions         = entries,
             BasePath         = _options.BasePath.TrimEnd('/'),
             CspNonce         = cspNonce,
@@ -3822,10 +3809,7 @@ public class StyloBotDashboardMiddleware
         var basePath = _options.BasePath.TrimEnd('/');
         var navBasePath = string.IsNullOrEmpty(_options.NavBasePath) ? _options.BasePath : _options.NavBasePath;
         navBasePath = navBasePath.TrimEnd('/');
-        var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj) && nonceObj is string s && s.Length > 0
-            ? s
-            : Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
-        context.Items["CspNonce"] = cspNonce;
+        var cspNonce = GetOrCreateCspNonce(context);
 
         // Set same CSP as dashboard page
         context.Response.Headers.Remove("X-Frame-Options");
@@ -4144,10 +4128,7 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        var cspNonce = context.Items.TryGetValue("CspNonce", out var nonceObj) && nonceObj is string s && s.Length > 0
-            ? s
-            : Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
-        context.Items["CspNonce"] = cspNonce;
+        var cspNonce = GetOrCreateCspNonce(context);
 
         var model = new UserAgentDetailModel
         {

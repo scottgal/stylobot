@@ -486,17 +486,14 @@ public class SessionVectorContributor : ConfiguredContributorBase
             var indexSize = _vectorSearch.Count;
             if (indexSize >= VoidMinIndexSize)
             {
-                if (isVoid)
+                if (isVoid && mahalanobisNearest >= VoidMahalanobisThreshold)
                 {
-                    // Double-void: outside cosine neighbors AND outside all Mahalanobis variance
-                    // envelopes. Genuinely novel behavior with no anchor in known-human space.
-                    var isDoubleVoid = mahalanobisNearest >= VoidMahalanobisThreshold;
-                    if (isDoubleVoid)
-                        contributions.Add(BotContribution(VoidBotConfidence,
-                            "Session has no behavioral neighbors in any known shape-space (double-void)",
-                            BotType.Scraper));
-                    // Single-void (cosine void but Mahalanobis matches a known variance envelope)
-                    // means the session IS a known-campaign variant — other detectors handle that.
+                    // Double-void: outside cosine neighbors AND outside all Mahalanobis variance envelopes.
+                    // Single-void (cosine void but within a known variance envelope) is a known-campaign
+                    // variant with high intra-cluster scatter — cluster detectors handle it.
+                    contributions.Add(BotContribution(VoidBotConfidence,
+                        "Session has no behavioral neighbors in any known shape-space (double-void)",
+                        BotType.Scraper));
                 }
                 else if (topSimilarity < VoidNearVoidThreshold)
                 {
