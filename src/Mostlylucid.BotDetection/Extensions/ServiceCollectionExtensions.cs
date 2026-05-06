@@ -496,7 +496,7 @@ public static class ServiceCollectionExtensions
             }
             // Auto-generate key for development/testing (logs warning)
             var logger = sp.GetService<ILogger<PiiHasher>>();
-            logger?.LogWarning("PiiHasher using auto-generated key. Configure BotDetection:SignatureHashKey for production.");
+            logger?.LogInformation("PiiHasher using a session-scoped random key. Signatures will not persist across restarts. Set BotDetection:SignatureHashKey in production for stable cross-session identity.");
             return new PiiHasher(PiiHasher.GenerateKey());
         });
 

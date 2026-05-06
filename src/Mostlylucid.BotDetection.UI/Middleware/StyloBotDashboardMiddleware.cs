@@ -3,8 +3,10 @@ using System.Reflection;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -121,6 +123,8 @@ public class StyloBotDashboardMiddleware
         _options.EnableConfigEditing &&
         !string.Equals(context.Request.Query["mode"].FirstOrDefault(), "foss", StringComparison.OrdinalIgnoreCase);
 
+    private readonly IWebHostEnvironment _env;
+
     public StyloBotDashboardMiddleware(
         RequestDelegate next,
         StyloBotDashboardOptions options,
@@ -129,6 +133,7 @@ public class StyloBotDashboardMiddleware
         SignatureAggregateCache signatureCache,
         RazorViewRenderer razorViewRenderer,
         IMemoryCache widgetCache,
+        IWebHostEnvironment env,
         ILogger<StyloBotDashboardMiddleware> logger)
     {
         _next = next;
@@ -138,6 +143,7 @@ public class StyloBotDashboardMiddleware
         _signatureCache = signatureCache;
         _razorViewRenderer = razorViewRenderer;
         _widgetCache = widgetCache;
+        _env = env;
         _logger = logger;
     }
 
@@ -513,21 +519,40 @@ public class StyloBotDashboardMiddleware
             if (!_authWarningLogged)
             {
                 _authWarningLogged = true;
-                _logger.LogWarning(
-                    "Dashboard running with AllowUnauthenticatedAccess=true. " +
-                    "In production, configure AuthorizationFilter or RequireAuthorizationPolicy instead.");
+                if (!_env.IsDevelopment())
+                    _logger.LogWarning(
+                        "Dashboard running with AllowUnauthenticatedAccess=true in a non-Development environment. " +
+                        "Configure AuthorizationFilter or RequireAuthorizationPolicy for production.");
+                else
+                    _logger.LogInformation(
+                        "Dashboard accessible without authentication (Development environment). " +
+                        "Set AllowUnauthenticatedAccess=false and configure auth before deploying to production.");
             }
             return true;
         }
 
-        // Default deny: no auth configured and AllowUnauthenticatedAccess is false
+        // Development: auto-allow with a clear informational message so first-time users can reach the dashboard.
+        if (_env.IsDevelopment())
+        {
+            if (!_authWarningLogged)
+            {
+                _authWarningLogged = true;
+                _logger.LogInformation(
+                    "Dashboard accessible without authentication (Development environment, no auth configured). " +
+                    "Set AllowUnauthenticatedAccess=false and configure AuthorizationFilter or RequireAuthorizationPolicy before deploying to production.");
+            }
+            return true;
+        }
+
+        // Production default deny: no auth configured and AllowUnauthenticatedAccess is false
         if (!_authWarningLogged)
         {
             _authWarningLogged = true;
             _logger.LogError(
-                "Dashboard access DENIED: no authorization configured and AllowUnauthenticatedAccess is false. " +
-                "Configure authentication via AddStyloBotDashboard(options => options.AuthorizationFilter = ...), " +
-                "options.RequireAuthorizationPolicy = \"PolicyName\", or set AllowUnauthenticatedAccess = true for dev/demo.");
+                "Dashboard access DENIED: no authorization configured. " +
+                "Configure via AddStyloBotDashboard(options => options.AuthorizationFilter = ...) or " +
+                "options.RequireAuthorizationPolicy = \"PolicyName\". " +
+                "For local development, set the ASPNETCORE_ENVIRONMENT=Development environment variable.");
         }
 
         return false;
