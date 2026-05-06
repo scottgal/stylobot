@@ -110,15 +110,77 @@
         }
 
         <div class="mt-4 pt-3 border-t border-base-300/40">
-            <div class="flex items-center justify-between text-xs">
-                <span class="font-semibold text-base-content/70">Bot Policy</span>
-                <button type="button"
-                        class="btn btn-xs btn-ghost gap-1 text-base-content/60 hover:text-base-content"
-                        onclick="sbOpenPolicyModal(event, '@Html.Raw(Model.Method.Replace("'", "\\'"))', '@Html.Raw(Uri.EscapeDataString(Model.Path))', '')">
-                    <i class="bx bx-shield-alt text-sm"></i>Apply Policy
-                </button>
+            <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-2">Protection</div>
+
+            <div class="flex items-center gap-2 mb-3">
+                <span class="text-xs text-base-content/60">Policy</span>
+                @if (!string.IsNullOrEmpty(Model.PolicyName))
+                {
+                    <span class="badge badge-sm badge-ghost font-mono text-xs">@Model.PolicyName</span>
+                }
+                else
+                {
+                    <span class="text-xs text-base-content/30">default</span>
+                }
             </div>
-            <div class="text-[10px] text-base-content/40 mt-1">Configure how bots are handled on this endpoint</div>
+
+            @if (Model.PackCoverage.Count > 0)
+            {
+                <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">Reaction Packs</div>
+                <div class="space-y-1">
+                    @foreach (var pack in Model.PackCoverage)
+                    {
+                        var levelBadge = pack.CurrentLevel == 0 ? "badge-ghost"
+                            : pack.CurrentLevel >= 3 ? "badge-error"
+                            : pack.CurrentLevel == 2 ? "badge-warning"
+                            : "badge-info";
+                        <div class="flex items-center justify-between py-1 text-xs">
+                            <span class="font-mono text-base-content/70 truncate max-w-[140px]" title="@pack.PackName">@pack.PackName</span>
+                            <div class="flex items-center gap-1 shrink-0">
+                                <span class="badge badge-xs badge-ghost">@pack.Scope</span>
+                                <span class="badge badge-xs @levelBadge">
+                                    @if (pack.CurrentLevel == 0)
+                                    {
+                                        <text>inactive</text>
+                                    }
+                                    else
+                                    {
+                                        <text>L@(pack.CurrentLevel)</text>
+                                        if (!string.IsNullOrEmpty(pack.CurrentPolicy))
+                                        {
+                                            <text>: @pack.CurrentPolicy</text>
+                                        }
+                                    }
+                                </span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+
+            @if (Model.IsPinned)
+            {
+                <div class="mt-3 flex items-center justify-between">
+                    <div class="flex items-center gap-1 text-xs text-base-content/50">
+                        <i class="bx bx-pin"></i>
+                        <span>Pinned</span>
+                        @if (Model.IsHoneypot)
+                        {
+                            <span class="badge badge-xs badge-warning ml-1">honeypot</span>
+                        }
+                    </div>
+                    @if (Model.PinId.HasValue)
+                    {
+                        <button class="btn btn-xs btn-ghost text-error/60 hover:text-error"
+                                hx-delete="@(Model.BasePath)/api/endpoint-pins/@Model.PinId"
+                                hx-confirm="Remove pin for @Model.Path?"
+                                hx-target="closest [data-endpoint-detail]"
+                                hx-swap="outerHTML">
+                            <i class="bx bx-unlink text-sm"></i>Unpin
+                        </button>
+                    }
+                </div>
+            }
         </div>
     }
 </div>

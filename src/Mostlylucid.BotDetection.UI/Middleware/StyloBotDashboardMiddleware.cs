@@ -99,7 +99,8 @@ public class StyloBotDashboardMiddleware
         "api/ua/search",
         "api/license",
         "api/config/manifests",
-        "api/config/schema"
+        "api/config/schema",
+        "api/endpoint-pins",
     };
 
     private const string CountryDetailPrefix = "api/countries/";
@@ -444,6 +445,22 @@ public class StyloBotDashboardMiddleware
             case var p when p.StartsWith("signature/", StringComparison.OrdinalIgnoreCase):
                 // Use original relativePath (not lowercased) to preserve signature case
                 await ServeSignatureDetailAsync(context, relativePath.Substring("signature/".Length));
+                break;
+
+            case "api/endpoint-pins":
+                if (context.Request.Method == "GET")
+                    await ServeEndpointPinsApiAsync(context);
+                else if (context.Request.Method == "POST")
+                    await HandlePinEndpointAsync(context);
+                else
+                    context.Response.StatusCode = 405;
+                break;
+
+            case var p when p.StartsWith("api/endpoint-pins/", StringComparison.OrdinalIgnoreCase):
+                if (context.Request.Method == "DELETE")
+                    await HandleUnpinEndpointAsync(context, relLower["api/endpoint-pins/".Length..]);
+                else
+                    context.Response.StatusCode = 405;
                 break;
 
             default:
@@ -4064,6 +4081,17 @@ public class StyloBotDashboardMiddleware
 
         var detail = await _eventStore.GetEndpointDetailAsync(method, path);
         var epNonce = context.Items.TryGetValue("CspNonce", out var epN) && epN is string epNs ? epNs : "";
+
+        var policyRegistry = context.RequestServices.GetService(typeof(BotDetection.Policies.IPolicyRegistry))
+            as BotDetection.Policies.IPolicyRegistry;
+        var pinStore = context.RequestServices.GetService(typeof(IPinnedEndpointStore)) as IPinnedEndpointStore;
+        IReadOnlyList<PinnedEndpoint> allPins = pinStore != null ? await pinStore.GetAllAsync() : [];
+        var pin = allPins.FirstOrDefault(p =>
+            string.Equals(p.Method, method, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(p.Path, path, StringComparison.Ordinal));
+        var policyName = policyRegistry?.GetPolicyForPath(path).Name;
+        var packCoverage = BuildEndpointDetailCoverage(context, path);
+
         var model = detail == null
             ? new EndpointDetailModel
             {
@@ -4071,7 +4099,12 @@ public class StyloBotDashboardMiddleware
                 Path = path,
                 BasePath = _options.BasePath.TrimEnd('/'),
                 Found = false,
-                CspNonce = epNonce
+                CspNonce = epNonce,
+                PolicyName = policyName,
+                PackCoverage = packCoverage,
+                IsPinned = pin != null,
+                IsHoneypot = pin?.IsHoneypot ?? false,
+                PinId = pin?.Id
             }
             : new EndpointDetailModel
             {
@@ -4094,7 +4127,12 @@ public class StyloBotDashboardMiddleware
                 BotProfile = detail.BotProfile,
                 HumanProfile = detail.HumanProfile,
                 OverallProfile = detail.OverallProfile,
-                CspNonce = epNonce
+                CspNonce = epNonce,
+                PolicyName = policyName,
+                PackCoverage = packCoverage,
+                IsPinned = pin != null,
+                IsHoneypot = pin?.IsHoneypot ?? false,
+                PinId = pin?.Id
             };
 
         context.Response.ContentType = "text/html";
@@ -4193,22 +4231,93 @@ public class StyloBotDashboardMiddleware
         var cached = _aggregateCache.Current.Endpoints;
         var endpoints = cached.Count > 0 ? cached : await _eventStore.GetEndpointStatsAsync(100);
 
-        // Enrich with resolved policy names if IPolicyRegistry is available
+        IReadOnlyList<PinnedEndpoint> pinned = [];
+        if (httpContext != null)
+        {
+            var pinStore = httpContext.RequestServices.GetService(typeof(IPinnedEndpointStore)) as IPinnedEndpointStore;
+            if (pinStore != null)
+                pinned = await pinStore.GetAllAsync();
+        }
+
+        var pinnedLookup = pinned.ToDictionary(p => (p.Method.ToUpperInvariant(), p.Path), p => p);
+
+        var trafficKeys = endpoints.Select(e => (e.Method.ToUpperInvariant(), e.Path)).ToHashSet();
+        var pinnedOnly = pinned
+            .Where(p => !trafficKeys.Contains((p.Method.ToUpperInvariant(), p.Path)))
+            .Select(p => new DashboardEndpointStats
+            {
+                Method = p.Method,
+                Path = p.Path,
+                IsPinned = true,
+                IsHoneypot = p.IsHoneypot,
+                PinId = p.Id,
+                LastSeen = p.CreatedAt.UtcDateTime
+            })
+            .ToList();
+
+        endpoints = [.. pinnedOnly, .. endpoints];
+
         if (httpContext != null)
         {
             var policyRegistry = httpContext.RequestServices
                 .GetService(typeof(BotDetection.Policies.IPolicyRegistry))
                 as BotDetection.Policies.IPolicyRegistry;
-            if (policyRegistry != null)
+
+            endpoints = endpoints.Select(e =>
             {
-                endpoints = endpoints.Select(e => e with
+                var key = (e.Method.ToUpperInvariant(), e.Path);
+                var pin = pinnedLookup.GetValueOrDefault(key);
+                return e with
                 {
-                    ActivePolicyName = e.ActivePolicyName ?? policyRegistry.GetPolicyForPath(e.Path).Name
-                }).ToList();
-            }
+                    IsPinned = pin != null,
+                    IsHoneypot = pin?.IsHoneypot ?? false,
+                    PinId = pin?.Id,
+                    ActivePolicyName = e.ActivePolicyName
+                        ?? policyRegistry?.GetPolicyForPath(e.Path).Name
+                };
+            }).ToList();
         }
 
         return endpoints;
+    }
+
+    private IReadOnlyList<EndpointPackCoverage> BuildEndpointDetailCoverage(HttpContext context, string path)
+    {
+        // IReactionPackContext is an optional commercial/future capability.
+        // If not registered, return empty list rather than throwing.
+        var packContextType = Type.GetType(
+            "Mostlylucid.BotDetection.Services.IReactionPackContext, Mostlylucid.BotDetection");
+        if (packContextType == null) return [];
+
+        var packContext = context.RequestServices.GetService(packContextType);
+        if (packContext == null) return [];
+
+        var coverage = new List<EndpointPackCoverage>();
+
+        // Use reflection to call GetActiveStates() generically so this compiles
+        // without a hard reference to the optional interface.
+        var getActiveStates = packContextType.GetMethod("GetActiveStates");
+        if (getActiveStates == null) return [];
+
+        var activeStates = getActiveStates.Invoke(packContext, null);
+        if (activeStates is not System.Collections.IEnumerable states) return [];
+
+        var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var state in states)
+        {
+            var stateType = state.GetType();
+            var packName = stateType.GetProperty("PackName")?.GetValue(state) as string ?? "";
+            var scope = stateType.GetProperty("Scope")?.GetValue(state) as string ?? "global";
+            var level = stateType.GetProperty("Level")?.GetValue(state) as int? ?? 0;
+            var policyName = stateType.GetProperty("PolicyName")?.GetValue(state) as string;
+            if (scope == "global" || scope == path)
+            {
+                coverage.Add(new EndpointPackCoverage(packName, scope, level, policyName));
+                seenNames.Add(packName);
+            }
+        }
+
+        return coverage;
     }
 
     private EndpointsListModel BuildEndpointsModel(string sortField, string sortDir, int page, int pageSize, List<DashboardEndpointStats> all)
@@ -4798,6 +4907,111 @@ public class StyloBotDashboardMiddleware
             Offset = int.TryParse(query["offset"].FirstOrDefault(), out var o) ? o : 0
         };
     }
+
+    private async Task ServeEndpointPinsApiAsync(HttpContext context)
+    {
+        var pinStore = context.RequestServices.GetService(typeof(IPinnedEndpointStore)) as IPinnedEndpointStore;
+        if (pinStore == null)
+        {
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("[]");
+            return;
+        }
+        var pins = await pinStore.GetAllAsync();
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, pins, CamelCaseJson);
+    }
+
+    private async Task HandlePinEndpointAsync(HttpContext context)
+    {
+        var pinStore = context.RequestServices.GetService(typeof(IPinnedEndpointStore)) as IPinnedEndpointStore;
+        if (pinStore == null) { context.Response.StatusCode = 503; return; }
+
+        string? path, note;
+        string method;
+        bool isHoneypot;
+
+        var ct = context.Request.ContentType ?? "";
+        if (ct.Contains("application/json", StringComparison.OrdinalIgnoreCase))
+        {
+            PinRequest? req;
+            try
+            {
+                req = await JsonSerializer.DeserializeAsync<PinRequest>(
+                    context.Request.Body,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            catch
+            {
+                context.Response.StatusCode = 400;
+                return;
+            }
+            path = req?.Path; method = req?.Method ?? "ANY"; note = req?.Note; isHoneypot = req?.IsHoneypot ?? false;
+        }
+        else
+        {
+            path = context.Request.Form["path"].FirstOrDefault();
+            method = context.Request.Form["method"].FirstOrDefault() ?? "ANY";
+            note = context.Request.Form["note"].FirstOrDefault();
+            isHoneypot = context.Request.Form["isHoneypot"].FirstOrDefault() == "true";
+        }
+
+        if (string.IsNullOrWhiteSpace(path) || !path!.StartsWith('/'))
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Path is required and must start with /\"}");
+            return;
+        }
+
+        if (path.Length > 500)
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Path too long\"}");
+            return;
+        }
+
+        var methodNorm = string.IsNullOrWhiteSpace(method) ? "ANY" : method.ToUpperInvariant();
+        if (!AllowedPinMethods.Contains(methodNorm))
+        {
+            context.Response.StatusCode = 400;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Invalid method\"}");
+            return;
+        }
+
+        var pin = await pinStore.AddAsync(methodNorm, path, isHoneypot, string.IsNullOrWhiteSpace(note) ? null : note);
+        if (pin == null)
+        {
+            context.Response.StatusCode = 500;
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync("{\"error\":\"Failed to persist pin\"}");
+            return;
+        }
+
+        context.Response.StatusCode = 201;
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, pin, CamelCaseJson);
+    }
+
+    private async Task HandleUnpinEndpointAsync(HttpContext context, string idSegment)
+    {
+        if (!long.TryParse(idSegment, out var id))
+        {
+            context.Response.StatusCode = 400;
+            return;
+        }
+        var pinStore = context.RequestServices.GetService(typeof(IPinnedEndpointStore)) as IPinnedEndpointStore;
+        if (pinStore == null) { context.Response.StatusCode = 503; return; }
+        var removed = await pinStore.RemoveAsync(id);
+        context.Response.StatusCode = removed ? 204 : 404;
+    }
+
+    private sealed record PinRequest(string Path, string? Method, bool IsHoneypot, string? Note);
+
+    private static readonly HashSet<string> AllowedPinMethods =
+        new(StringComparer.OrdinalIgnoreCase) { "ANY", "GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS" };
 
     private InvestigationViewModel BuildInvestigationViewModel(
         InvestigationFilter filter, InvestigationResult result, HttpContext? httpContext = null)

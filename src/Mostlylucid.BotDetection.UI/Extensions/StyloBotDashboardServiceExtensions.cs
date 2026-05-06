@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
@@ -193,6 +194,9 @@ public static class StyloBotDashboardServiceExtensions
 
         // BDF export service for generating BDF v2 documents from detection data
         services.AddSingleton<BdfExportService>();
+
+        // Pinned endpoint store - persists operator-added paths to SQLite
+        services.TryAddSingleton<IPinnedEndpointStore, SqlitePinnedEndpointStore>();
 
         // Warm visitor cache from DB on startup so "Top Bots" isn't empty after restarts
         services.AddHostedService<VisitorCacheWarmupService>();
