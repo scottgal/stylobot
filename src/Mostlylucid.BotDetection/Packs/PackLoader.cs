@@ -104,7 +104,13 @@ public sealed class PackLoader(
                 return;
             }
 
-            var pack = (IStylobotPack)Activator.CreateInstance(entryType)!;
+            var instance = Activator.CreateInstance(entryType);
+            if (instance is not IStylobotPack pack)
+            {
+                logger.LogWarning("Pack {Name} entry type {Type} could not be instantiated",
+                    manifest.Name, manifest.EntryType);
+                return;
+            }
             pack.ConfigureServices(services, capabilities);
             logger.LogInformation("Pack {Name} configured services", manifest.Name);
         }
