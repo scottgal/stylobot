@@ -67,6 +67,7 @@
         id = s.Id
     }).ToList();
     var overlayJson = JsonSerializer.Serialize(overlayData);
+    var defaultPreset = overlaySessions.Count >= 5 ? 5 : overlaySessions.Count >= 3 ? 3 : overlaySessions.Count;
 }
 
 @if (sessions.Count == 0)
@@ -113,17 +114,30 @@ else
                             var probPct = (entry.Probability * 100).ToString("F0");
                             var thumbTitle = $"{(entry.IsBot ? "Bot" : "Human")} · {probPct}% · {entry.RequestCount} req";
                         }
-                        <button class="rounded-lg @borderClass hover:border-primary/60 transition-colors bg-base-200 p-0.5"
-                                hx-get="@bp/partials/session-detail?id=@entry.Id&sig=@Uri.EscapeDataString(Model.Signature)"
-                                hx-target="#sfp-session-detail-@containerId"
-                                hx-swap="innerHTML"
-                                title="@thumbTitle">
-                            <svg width="@thumbSize" height="@thumbSize" viewBox="0 0 @thumbSize @thumbSize" xmlns="http://www.w3.org/2000/svg">
-                                <polygon points="@ring100" fill="none" stroke="currentColor" stroke-width="0.5" class="text-base-content/10"/>
-                                <polygon points="@ring50" fill="none" stroke="currentColor" stroke-width="0.5" class="text-base-content/10"/>
-                                <polygon points="@polygon" fill="@fillColor" fill-opacity="0.3" stroke="@fillColor" stroke-width="1.5"/>
-                            </svg>
-                        </button>
+                        @if (!Model.CompactMode)
+                        {
+                            <button class="rounded-lg @borderClass hover:border-primary/60 transition-colors bg-base-200 p-0.5"
+                                    hx-get="@bp/partials/session-detail?id=@entry.Id&sig=@Uri.EscapeDataString(Model.Signature)"
+                                    hx-target="#sfp-session-detail-@containerId"
+                                    hx-swap="innerHTML"
+                                    title="@thumbTitle">
+                                <svg width="@thumbSize" height="@thumbSize" viewBox="0 0 @thumbSize @thumbSize" xmlns="http://www.w3.org/2000/svg">
+                                    <polygon points="@ring100" fill="none" stroke="currentColor" stroke-width="0.5" class="text-base-content/10"/>
+                                    <polygon points="@ring50" fill="none" stroke="currentColor" stroke-width="0.5" class="text-base-content/10"/>
+                                    <polygon points="@polygon" fill="@fillColor" fill-opacity="0.3" stroke="@fillColor" stroke-width="1.5"/>
+                                </svg>
+                            </button>
+                        }
+                        else
+                        {
+                            <div class="rounded-lg @borderClass bg-base-200 p-0.5" title="@thumbTitle">
+                                <svg width="@thumbSize" height="@thumbSize" viewBox="0 0 @thumbSize @thumbSize" xmlns="http://www.w3.org/2000/svg">
+                                    <polygon points="@ring100" fill="none" stroke="currentColor" stroke-width="0.5" class="text-base-content/10"/>
+                                    <polygon points="@ring50" fill="none" stroke="currentColor" stroke-width="0.5" class="text-base-content/10"/>
+                                    <polygon points="@polygon" fill="@fillColor" fill-opacity="0.3" stroke="@fillColor" stroke-width="1.5"/>
+                                </svg>
+                            </div>
+                        }
                         <span class="text-[9px] text-base-content/40">@TimeAgo(entry.StartedAt)</span>
                     </div>
                 }
@@ -140,12 +154,12 @@ else
                     @foreach (var n in new[] { 3, 5, 10 })
                     {
                         var available = Math.Min(n, overlaySessions.Count);
-                        <button class="sfp-overlay-preset btn btn-xs btn-ghost text-[10px] @(n == 5 ? "btn-active" : "")"
+                        <button class="sfp-overlay-preset btn btn-xs btn-ghost text-[10px] @(n == defaultPreset ? "btn-active" : "")"
                                 data-count="@available"
                                 data-chart="@containerId-chart">@available</button>
                     }
                 </div>
-                <div id="@containerId-chart" style="height:240px;" data-overlay-count="5"></div>
+                <div id="@containerId-chart" style="height:240px;" data-overlay-count="@defaultPreset"></div>
             </div>
         }
 
