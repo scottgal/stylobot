@@ -496,6 +496,36 @@ public sealed class SessionDetailModel
     /// <summary>Templatized paths visited</summary>
     public List<string>? Paths { get; init; }
 }
+
+/// <summary>
+///     Per-session data for the behavioral fingerprint filmstrip/overlay.
+///     StateFreqs is Vector[100..109] — the Markov stationary distribution
+///     (time spent in each of 10 states, values 0..1 summing to ~1.0).
+/// </summary>
+public sealed class SessionFingerprintEntry
+{
+    public long Id { get; init; }
+    public DateTime StartedAt { get; init; }
+    public bool IsBot { get; init; }
+    public string RiskBand { get; init; } = "";
+    public double Probability { get; init; }
+    public int RequestCount { get; init; }
+    /// <summary>10 values from Vector[100..109]. May be all-zero if vector blob is absent.</summary>
+    public float[] StateFreqs { get; init; } = new float[10];
+}
+
+public sealed class SessionFingerprintsModel
+{
+    public required string Signature { get; init; }
+    /// <summary>Id of the session currently being viewed. Null when invoked from signature page.</summary>
+    public long? CurrentSessionId { get; init; }
+    public List<SessionFingerprintEntry> Sessions { get; init; } = [];
+    public required string BasePath { get; init; }
+    public string CspNonce { get; init; } = "";
+    /// <summary>True when embedded in session detail panel (filmstrip only, 56px thumbnails, max 10 sessions).</summary>
+    public bool CompactMode { get; init; }
+}
+
 /// <summary>
 ///     View model for the fingerprint approval form.
 /// </summary>
