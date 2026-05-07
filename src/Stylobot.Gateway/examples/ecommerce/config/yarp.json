@@ -1,0 +1,43 @@
+{
+  "ReverseProxy": {
+    "Routes": {
+      "bot-traffic": {
+        "ClusterId": "bot-sink",
+        "Match": {
+          "Path": "{**catch-all}",
+          "Headers": [
+            {
+              "Name": "X-Bot-Detection-RiskBand",
+              "Values": ["High"],
+              "Mode": "ExactHeader"
+            }
+          ]
+        },
+        "Order": 1
+      },
+      "human-traffic": {
+        "ClusterId": "app",
+        "Match": {
+          "Path": "{**catch-all}"
+        },
+        "Order": 2
+      }
+    },
+    "Clusters": {
+      "app": {
+        "Destinations": {
+          "app": {
+            "Address": "http://app:80"
+          }
+        }
+      },
+      "bot-sink": {
+        "Destinations": {
+          "bot-sink": {
+            "Address": "http://bot-sink:80"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,34 @@
+# StyloBot Gateway — E-commerce / Scraper Defense
+# Routes detected scrapers to a bot-sink cluster instead of your real backend.
+# Price scrapers and inventory bots get a 429 response instead of real data.
+#
+# Usage:
+#   cp .env.example .env
+#   docker compose up -d
+
+services:
+  gateway:
+    image: scottgal/stylobot-gateway:latest
+    ports:
+      - "80:8080"
+    environment:
+      - ADMIN_SECRET=${ADMIN_SECRET:?Set ADMIN_SECRET in .env}
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  # Your real e-commerce backend (Magento, WooCommerce, Shopify headless, etc.)
+  # Replace this with your actual app image and config.
+  app:
+    image: nginx:alpine
+    volumes:
+      - ./app-stub.conf:/etc/nginx/conf.d/default.conf:ro
+
+  # Bot sink: returns 429 Too Many Requests.
+  # Replace with a honeypot service to feed bots fake data instead.
+  bot-sink:
+    image: nginx:alpine
+    volumes:
+      - ./bot-sink.conf:/etc/nginx/conf.d/default.conf:ro
