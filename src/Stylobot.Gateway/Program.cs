@@ -29,7 +29,13 @@ Log.Logger = new LoggerConfiguration()
 
 try
 {
-    Log.Information("Starting Stylobot.Gateway v0.1");
+    var earlyConfig = new ConfigurationBuilder()
+        .AddJsonFile(Path.Combine(GatewayPaths.Config, "appsettings.json"), optional: true)
+        .AddEnvironmentVariables()
+        .Build();
+    var earlyTlsForBanner = Stylobot.Gateway.Configuration.ServiceCollectionExtensions.ReadTlsOptionsFromEnv();
+    StartupBanner.Print(earlyConfig, earlyTlsForBanner);
+    Log.Information("Starting Stylobot.Gateway");
 
     var builder = WebApplication.CreateBuilder(args);
 
