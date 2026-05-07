@@ -4,6 +4,43 @@ framework: wordpress
 version: "5.9"
 description: Simulates an unpatched WordPress 5.9 installation to detect WP-targeting bots
 
+# Local testing with real bot traffic:
+#
+#   1. Run WordPress and MySQL in Docker:
+#        docker network create wp-net
+#        docker run -d --name wp-db --network wp-net \
+#          -e MYSQL_DATABASE=wordpress -e MYSQL_USER=wp \
+#          -e MYSQL_PASSWORD=secret -e MYSQL_RANDOM_ROOT_PASSWORD=1 mysql:8.0
+#        docker run -d --name wordpress --network wp-net -p 8081:80 \
+#          -e WORDPRESS_DB_HOST=wp-db -e WORDPRESS_DB_USER=wp \
+#          -e WORDPRESS_DB_PASSWORD=secret -e WORDPRESS_DB_NAME=wordpress \
+#          -e WORDPRESS_CONFIG_EXTRA="define('WP_HOME','http://localhost:8081'); define('WP_SITEURL','http://localhost:8081');" \
+#          wordpress:latest
+#
+#   2. Complete WordPress install (run once, wait ~5s for DB to init first):
+#        curl -s -X POST "http://localhost:8081/wp-admin/install.php?step=2" \
+#          --data-urlencode "weblog_title=Tech Solutions Blog" \
+#          --data-urlencode "user_name=admin" \
+#          --data-urlencode "admin_password=Adm!nS3cur3" \
+#          --data-urlencode "admin_password2=Adm!nS3cur3" \
+#          --data-urlencode "pw_weak=on" \
+#          --data-urlencode "admin_email=admin@techsolutions.local" \
+#          --data-urlencode "blog_public=1" \
+#          --data-urlencode "language="
+#
+#   3. Run StyloBot Gateway pointing at WordPress:
+#        ADMIN_SECRET=dev DEFAULT_UPSTREAM=http://localhost:8081 \
+#          dotnet run --project src/Stylobot.Gateway --no-launch-profile \
+#          -- --urls http://localhost:8080
+#
+#   4. Expose publicly via Cloudflare quick tunnel:
+#        cloudflared tunnel --no-autoupdate --url http://localhost:8080
+#
+#   Or use the convenience script: ./start-wp-honeypot.sh
+#
+# IMPORTANT: WordPress must use its internal port (8081) as WP_HOME/WP_SITEURL.
+# If WordPress uses the public/gateway URL it will redirect-loop through YARP.
+
 timing_profile:
   min_response_ms: 150
   max_response_ms: 800

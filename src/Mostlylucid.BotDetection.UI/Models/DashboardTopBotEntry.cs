@@ -8,6 +8,7 @@ public sealed record DashboardTopBotEntry
     public required string PrimarySignature { get; init; }
     public int HitCount { get; init; }
     public string? BotName { get; init; }
+    public string? CustomBotName { get; init; }
     public string? BotType { get; init; }
     public string? RiskBand { get; init; }
     public double BotProbability { get; init; }

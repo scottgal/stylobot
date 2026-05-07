@@ -130,6 +130,16 @@ public sealed class StyloBotDashboardOptions
     public string DataApiActionPolicyName { get; set; } = "throttle-stealth";
 
     /// <summary>
+    ///     Custom display names for signatures, keyed by PrimarySignature hash.
+    ///     FOSS: configure in appsettings.json under <c>StyloBot:Dashboard:SignatureLabels</c>.
+    ///     Commercial: edit live in the dashboard UI.
+    ///     Custom names persist regardless of detection state (survive IsBot flips).
+    ///     The synthesized detection name is still tracked separately and shown alongside.
+    ///     Example: <c>{ "abc123...": "My Monitoring Bot" }</c>
+    /// </summary>
+    public Dictionary<string, string> SignatureLabels { get; set; } = new();
+
+    /// <summary>
     ///     When true, the Tuner action surface is shown in the detection detail view.
     ///     Requires a paid StyloBot license with the <c>stylobot.tuner</c> feature flag.
     ///     Set by the commercial gateway plugin via <c>AddStyloBotCommercialPlugin()</c>.

@@ -2079,7 +2079,7 @@ public class StyloBotDashboardMiddleware
             if (country != null && (country.Length != 2 || !country.All(char.IsLetter)))
                 country = null;
 
-            topBots = _signatureCache.GetTopBots(page, pageSize, sortBy, country);
+            topBots = _signatureCache.GetTopBots(page, pageSize, sortBy, filterCountry: country);
         }
 
         context.Response.ContentType = "application/json";

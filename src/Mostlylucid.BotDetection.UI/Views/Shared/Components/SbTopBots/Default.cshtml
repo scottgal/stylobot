@@ -73,9 +73,10 @@
                                 "Medium" or "Elevated" => "text-warning",
                                 _ => "text-success"
                             };
-                            var displayName = bot.BotName ?? (string.IsNullOrEmpty(bot.BotType)
-                                ? DescriptiveBotName(bot)
-                                : bot.BotType);
+                            var isCustomNamed = bot.CustomBotName != null;
+                            var displayName = bot.CustomBotName
+                                ?? bot.BotName
+                                ?? (string.IsNullOrEmpty(bot.BotType) ? DescriptiveBotName(bot) : bot.BotType);
                             var displayIntent = bot.BotType ?? DeterministicIntent(bot.BotProbability);
                             var displayThreat = ResolvedThreat(bot.ThreatBand, bot.BotProbability);
                             var threatClass = displayThreat switch {
@@ -84,7 +85,7 @@
                                 "Medium" => "text-warning",
                                 _ => "text-base-content/40"
                             };
-                            var isLlmNamed = bot.BotName != null;
+                            var isLlmNamed = bot.BotName != null || isCustomNamed;
                             var probPct = (bot.BotProbability * 100).ToString("F0");
                             <tr class="hover:bg-base-300/50 cursor-pointer transition-colors">
                                 <td class="py-1 w-6">
@@ -99,9 +100,9 @@
                                     }
                                     </a>
                                 </td>
-                                <td class="py-1 font-medium text-xs truncate max-w-[140px]" title="@(bot.BotName ?? bot.PrimarySignature)">
+                                <td class="py-1 font-medium text-xs truncate max-w-[140px]" title="@(bot.CustomBotName ?? bot.BotName ?? bot.PrimarySignature)">
                                     <a href="@bp/signature/@Uri.EscapeDataString(bot.PrimarySignature)"
-                                       class="hover:underline @(isLlmNamed ? "" : "text-base-content/60 italic")">@displayName</a>
+                                       class="hover:underline @(isLlmNamed ? "" : "text-base-content/60 italic")">@displayName</a>@if (isCustomNamed) {<span class="ml-1 text-[9px] text-primary opacity-60" title="Custom label">&#9632;</span>}
                                 </td>
                                 <td class="py-1">
                                     <span class="text-[10px] text-base-content/60">@displayIntent</span>

@@ -137,17 +137,25 @@ public partial class TransportProtocolContributor : ConfiguredContributorBase
                 };
 
             // Classify regular API/XHR calls that aren't already tagged.
-            // Sec-Fetch-Dest: empty = fetch() / XMLHttpRequest from browser JavaScript.
-            // Path prefix /api/ covers programmatic REST calls without Fetch Metadata.
-            // Both tell the heuristic model to apply API-appropriate scoring (no Accept-Language
-            // penalty, no cookie requirement, relaxed header expectations).
+            // /api/* prefix is reliable regardless of Fetch Metadata.
+            // Sec-Fetch-Dest: empty alone is NOT sufficient — HTMX page navigation also
+            // uses fetch() and sends Sec-Fetch-Dest: empty. Cross-origin (cors mode) is
+            // unambiguous; same-origin could be HTMX page nav or an API call.
             if (protocolClass == "unknown" && !isSignalR)
             {
-                var secFetchDest = request.Headers["Sec-Fetch-Dest"].FirstOrDefault() ?? "";
                 var requestPath = request.Path.Value ?? "";
-                if (secFetchDest.Equals("empty", StringComparison.OrdinalIgnoreCase)
-                    || requestPath.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+                if (requestPath.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+                {
                     protocolClass = "api";
+                }
+                else
+                {
+                    var secFetchDest = request.Headers["Sec-Fetch-Dest"].FirstOrDefault() ?? "";
+                    var secFetchMode = request.Headers["Sec-Fetch-Mode"].FirstOrDefault() ?? "";
+                    if (secFetchDest.Equals("empty", StringComparison.OrdinalIgnoreCase)
+                        && secFetchMode.Equals("cors", StringComparison.OrdinalIgnoreCase))
+                        protocolClass = "api";
+                }
             }
 
             var isStreaming = transportClass != "http" || isSignalR;

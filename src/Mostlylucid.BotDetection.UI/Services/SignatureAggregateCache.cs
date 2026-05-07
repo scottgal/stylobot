@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -20,9 +21,15 @@ public sealed class SignatureAggregateCache
 {
     private readonly ConcurrentDictionary<string, SignatureAggregate> _entries = new();
     private readonly object _sortLock = new();
+    private readonly StyloBotDashboardOptions _options;
     private IReadOnlyList<DashboardTopBotEntry>? _sortedCache;
     private volatile bool _sortDirty = true;
     private long _updateCounter;
+
+    public SignatureAggregateCache(StyloBotDashboardOptions options)
+    {
+        _options = options;
+    }
 
     /// <summary>Maximum entries before LFU eviction kicks in.</summary>
     public int MaxEntries { get; init; } = 200;
@@ -32,6 +39,9 @@ public sealed class SignatureAggregateCache
 
     /// <summary>Age access counts every N updates to prevent LFU starvation.</summary>
     private const int AccessCountAgingInterval = 500;
+
+    /// <summary>HitCount threshold below which an entry is a candidate for LFU eviction.</summary>
+    private const int EvictionHotThreshold = 10;
 
     /// <summary>Current number of tracked signatures.</summary>
     public int Count => _entries.Count;
@@ -242,8 +252,17 @@ public sealed class SignatureAggregateCache
         lock (existing.SyncRoot)
         {
             existing.HitCount++;
-            existing.BotName = detection.BotName ?? existing.BotName;
-            existing.BotType = detection.BotType ?? existing.BotType;
+            existing.IsBot = detection.IsBot;
+            if (detection.IsBot)
+            {
+                existing.BotName = detection.BotName ?? existing.BotName;
+                existing.BotType = detection.BotType ?? existing.BotType;
+            }
+            else
+            {
+                existing.BotName = null;
+                existing.BotType = null;
+            }
             existing.RiskBand = detection.RiskBand;
             existing.BotProbability = detection.BotProbability;
             existing.Confidence = detection.Confidence;
@@ -254,7 +273,6 @@ public sealed class SignatureAggregateCache
             existing.LastSeen = detection.Timestamp;
             existing.Narrative = detection.Narrative ?? existing.Narrative;
             existing.Description = detection.Description ?? existing.Description;
-            existing.IsBot = detection.IsBot;
             existing.ThreatScore = detection.ThreatScore ?? existing.ThreatScore;
             existing.ThreatBand = detection.ThreatBand ?? existing.ThreatBand;
             existing.RiskJustification = detection.RiskJustification ?? existing.RiskJustification;
@@ -290,8 +308,9 @@ public sealed class SignatureAggregateCache
         }
     }
 
-    private static DashboardTopBotEntry ToEntry(string signature, SignatureAggregate agg)
+    private DashboardTopBotEntry ToEntry(string signature, SignatureAggregate agg)
     {
+        _options.SignatureLabels.TryGetValue(signature, out var customName);
         lock (agg.SyncRoot)
         {
             return new DashboardTopBotEntry
@@ -299,6 +318,7 @@ public sealed class SignatureAggregateCache
                 PrimarySignature = signature,
                 HitCount = agg.HitCount,
                 BotName = agg.BotName,
+                CustomBotName = customName,
                 BotType = agg.BotType,
                 RiskBand = agg.RiskBand,
                 BotProbability = agg.BotProbability,
@@ -323,10 +343,9 @@ public sealed class SignatureAggregateCache
     /// </summary>
     private void EvictLfuBatch(int count)
     {
-        var hotThreshold = 10;
         var candidateSet = new HashSet<string>(
             _entries
-                .Where(kvp => kvp.Value.HitCount <= hotThreshold)
+                .Where(kvp => kvp.Value.HitCount <= EvictionHotThreshold)
                 .OrderBy(kvp => Interlocked.Read(ref kvp.Value.AccessCount))
                 .Take(count)
                 .Select(kvp => kvp.Key),
