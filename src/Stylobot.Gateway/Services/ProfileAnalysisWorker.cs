@@ -77,9 +77,13 @@ public class ProfileAnalysisWorker(
             _ => "VeryHigh",
         };
 
+        var signatureHash = evidence?.Signals.TryGetValue("signature.primary", out var sigVal) == true && sigVal is string sigStr && !string.IsNullOrEmpty(sigStr)
+            ? sigStr
+            : ComputeVisitorHash(snapshot.ClientIp, snapshot.UserAgent);
+
         await store.InsertAsync(new ProfileCalibrationEntry
         {
-            SignatureHash = snapshot.RequestId,
+            SignatureHash = signatureHash,
             BotProbability = probability,
             RiskBand = riskBand,
             BotType = isBot ? botType : null,
@@ -100,6 +104,13 @@ public class ProfileAnalysisWorker(
         }
 
         return await orchestrator.DetectAsync(ctx, PolicyName, ct);
+    }
+
+    private static string ComputeVisitorHash(string ip, string ua)
+    {
+        var input = $"{ip}:{ua}";
+        var bytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
     private static string NormalizePath(string path)
