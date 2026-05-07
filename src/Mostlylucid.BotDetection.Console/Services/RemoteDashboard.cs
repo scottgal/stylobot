@@ -144,9 +144,9 @@ public sealed class RemoteDashboardService : IAsyncDisposable
     {
         try
         {
-            using var statsDoc   = await FetchJsonAsync("/api/summary", ct);
-            using var botsDoc    = await FetchJsonAsync("/api/topbots?pageSize=8", ct);
-            using var detectDoc  = await FetchJsonAsync("/api/detections?limit=50", ct);
+            using var statsDoc   = await FetchJsonAsync("/_stylobot/api/summary", ct);
+            using var botsDoc    = await FetchJsonAsync("/_stylobot/api/topbots?pageSize=8", ct);
+            using var detectDoc  = await FetchJsonAsync("/_stylobot/api/detections?limit=50", ct);
 
             _channel.Writer.TryWrite(new RemoteDashboardSnapshot(
                 ParseStats(statsDoc),
