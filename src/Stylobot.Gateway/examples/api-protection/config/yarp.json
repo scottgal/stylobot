@@ -1,0 +1,21 @@
+{
+  "ReverseProxy": {
+    "Routes": {
+      "api": {
+        "ClusterId": "api",
+        "Match": {
+          "Path": "{**catch-all}"
+        }
+      }
+    },
+    "Clusters": {
+      "api": {
+        "Destinations": {
+          "api": {
+            "Address": "http://api:80"
+          }
+        }
+      }
+    }
+  }
+}
