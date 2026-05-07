@@ -323,15 +323,16 @@ static void ConfigureProfileMode(IConfiguration configuration, IServiceCollectio
     if (!profileModeEnabled) return;
 
     var demoModeEnv = Environment.GetEnvironmentVariable("GATEWAY_DEMO_MODE");
-    var demoEnabled = bool.TryParse(demoModeEnv, out var de) && de;
+    var demoEnabled = (bool.TryParse(demoModeEnv, out var de) && de)
+        || configuration.GetValue<bool>("Gateway:DemoMode:Enabled");
     if (demoEnabled)
         Log.Warning("Both GATEWAY_PROFILE_MODE and GATEWAY_DEMO_MODE are set -- profile mode takes precedence");
 
+    Log.Information("Profile mode active -- fingerprint-only inline detection, background calibration enabled");
     services.PostConfigure<BotDetectionOptions>(opts =>
     {
         opts.PathPolicies.Clear();
         opts.PathPolicies["/*"] = "profile";
-        Log.Information("Profile mode active -- fingerprint-only inline detection, background calibration enabled");
     });
 }
 
