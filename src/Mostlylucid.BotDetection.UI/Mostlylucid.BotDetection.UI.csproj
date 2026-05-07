@@ -47,8 +47,9 @@
 
     <!-- Static web assets (CSS, JS) for package consumption -->
     <ItemGroup>
-        <!-- Include wwwroot files as static web assets for Razor Class Library -->
-        <Content Update="wwwroot\**\*">
+        <!-- Include wwwroot files as static web assets for Razor Class Library.
+             EnableDefaultContentItems=false means Update has nothing to match; must use Include. -->
+        <Content Include="wwwroot\**\*">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
             <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
         </Content>

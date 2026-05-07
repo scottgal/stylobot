@@ -20,7 +20,7 @@
             {
                 var riskColor = d.RiskBand switch { "high" => "var(--sb-signal-danger)", "medium" => "var(--sb-signal-warn)", _ => "var(--sb-signal-pos)" };
                 <tr style="border-bottom:1px solid var(--sb-card-divider); cursor:pointer;"
-                    onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'table-row' : 'none'">
+                    data-action="toggle-detail-row">
                     <td style="padding:0.5rem; white-space:nowrap;">@d.Timestamp.ToString("MMM dd HH:mm:ss")</td>
                     <td style="padding:0.5rem; font-family:monospace; font-size:0.8rem;">@d.Method @d.Path</td>
                     <td style="padding:0.5rem;"><span style="color:@riskColor; font-weight:600;">@d.RiskBand</span></td>

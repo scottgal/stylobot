@@ -110,8 +110,7 @@
                 }
             </div>
             <div class="flex items-center gap-2">
-                <select id="sb-theme-picker" class="select select-ghost select-xs text-xs opacity-60 hover:opacity-100 transition-opacity"
-                        onchange="document.documentElement.setAttribute('data-theme',this.value);try{localStorage.setItem('sb-theme',this.value);}catch(e){}">
+                <select id="sb-theme-picker" class="select select-ghost select-xs text-xs opacity-60 hover:opacity-100 transition-opacity">
                     <option value="dark">Dark</option>
                     <option value="light">Light</option>
                     <option value="dim">Dim</option>
@@ -138,7 +137,14 @@
                     (function(){
                         var t=localStorage.getItem('sb-theme')||'dark';
                         var sel=document.getElementById('sb-theme-picker');
-                        if(sel){var opt=sel.querySelector('option[value="'+t+'"]');if(opt)opt.selected=true;}
+                        if(sel){
+                            var opt=sel.querySelector('option[value="'+t+'"]');
+                            if(opt)opt.selected=true;
+                            sel.addEventListener('change',function(){
+                                document.documentElement.setAttribute('data-theme',this.value);
+                                try{localStorage.setItem('sb-theme',this.value);}catch(e){}
+                            });
+                        }
                     })();
                 </script>
             </div>
@@ -393,7 +399,7 @@
             <div class="flex flex-wrap gap-3 mb-4">
                 <div class="flex-1 min-w-[200px]">
                     <label class="text-[10px] font-semibold text-base-content/60 uppercase tracking-wider mb-1 block">Policy</label>
-                    <select id="pm-policy" class="select select-sm select-bordered w-full" onchange="sbUpdatePolicySnippet()">
+                    <select id="pm-policy" class="select select-sm select-bordered w-full">
                         <option value="block">block - HTTP 403 Forbidden</option>
                         <option value="throttle-stealth">throttle-stealth - Silent delay</option>
                         <option value="challenge">challenge - CAPTCHA / proof-of-work</option>
@@ -403,7 +409,7 @@
                 </div>
                 <div>
                     <label class="text-[10px] font-semibold text-base-content/60 uppercase tracking-wider mb-1 block">Block Threshold</label>
-                    <select id="pm-threshold" class="select select-sm select-bordered" onchange="sbUpdatePolicySnippet()">
+                    <select id="pm-threshold" class="select select-sm select-bordered">
                         <option value="0.5">50% - Aggressive</option>
                         <option value="0.7" selected>70% - Standard</option>
                         <option value="0.85">85% - Conservative</option>
@@ -413,8 +419,8 @@
             </div>
 
             <div class="flex gap-0 mb-3 text-xs bg-base-300 rounded-lg p-0.5 w-fit" id="pm-tabs">
-                <button type="button" class="px-3 py-1 rounded-md text-xs font-medium transition-all bg-base-100 shadow-sm" onclick="sbShowSnippetTab('attribute')">C# Attribute</button>
-                <button type="button" class="px-3 py-1 rounded-md text-xs font-medium transition-all text-base-content/50 hover:text-base-content/70" onclick="sbShowSnippetTab('appsettings')">appsettings.json</button>
+                <button type="button" data-snippet-tab="attribute" class="px-3 py-1 rounded-md text-xs font-medium transition-all bg-base-100 shadow-sm">C# Attribute</button>
+                <button type="button" data-snippet-tab="appsettings" class="px-3 py-1 rounded-md text-xs font-medium transition-all text-base-content/50 hover:text-base-content/70">appsettings.json</button>
             </div>
 
             <div id="pm-snippet-attribute">
@@ -428,7 +434,7 @@
                 <span class="text-[10px] text-base-content/40">
                     <i class="bx bx-info-circle mr-0.5"></i>FOSS: restart required after config changes
                 </span>
-                <button type="button" class="btn btn-sm btn-ghost gap-1.5" onclick="sbCopyPolicySnippet(this)">
+                <button type="button" data-action="copy-policy-snippet" class="btn btn-sm btn-ghost gap-1.5">
                     <i class="bx bx-copy text-sm"></i>Copy
                 </button>
             </div>
@@ -691,6 +697,28 @@
                 if (form) form.classList.add('hidden');
             } else if (action === 'open-policy-modal') {
                 sbOpenPolicyModal(e, btn.dataset.method, btn.dataset.path, btn.dataset.policy);
+            } else if (action === 'copy-policy-snippet') {
+                sbCopyPolicySnippet(btn);
+            } else if (action === 'close-help-panel') {
+                var panel = document.getElementById('help-panel');
+                if (panel) panel.remove();
+            } else if (action === 'navigate') {
+                window.location = btn.dataset.href;
+            } else if (action === 'toggle-detail-row') {
+                var next = btn.nextElementSibling;
+                if (next) next.style.display = next.style.display === 'none' ? 'table-row' : 'none';
+            }
+        });
+
+        document.addEventListener('click', function(e) {
+            var btn = e.target.closest('[data-snippet-tab]');
+            if (!btn) return;
+            sbShowSnippetTab(btn.dataset.snippetTab);
+        });
+
+        document.addEventListener('change', function(e) {
+            if (e.target.id === 'pm-policy' || e.target.id === 'pm-threshold') {
+                sbUpdatePolicySnippet();
             }
         });
     })();

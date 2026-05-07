@@ -96,7 +96,7 @@
     <header class="brand-header px-4 py-3">
         <div class="max-w-7xl mx-auto flex items-center justify-between">
             <div class="flex items-center gap-3">
-                <a href="@navBp" onclick="if(document.referrer && document.referrer !== window.location.href) { history.back(); return false; }" class="text-lg font-black tracking-tight" style="font-family: 'Raleway', sans-serif;">
+                <a href="@navBp" data-action="smart-back" class="text-lg font-black tracking-tight" style="font-family: 'Raleway', sans-serif;">
                     <span style="color: var(--sb-brand-muted);">stylo</span><span style="color: var(--sb-brand-strong);">bot</span>
                 </a>
                 <span class="text-xs font-medium px-2 py-0.5 rounded-full"
@@ -104,8 +104,7 @@
                     Signature Detail
                 </span>
             </div>
-            <select class="select select-ghost select-xs text-xs opacity-60 hover:opacity-100 transition-opacity"
-                    onchange="document.documentElement.setAttribute('data-theme',this.value);try{localStorage.setItem('sb-theme',this.value);}catch(e){}">
+            <select id="sb-theme-picker" class="select select-ghost select-xs text-xs opacity-60 hover:opacity-100 transition-opacity">
                 <option value="dark" selected>Dark</option>
                 <option value="light">Light</option>
                 <option value="dim">Dim</option>
@@ -119,7 +118,18 @@
                 <option value="coffee">Coffee</option>
             </select>
             <script nonce="@Model.CspNonce">
-                (function(){var t=localStorage.getItem('sb-theme')||'dark';var s=document.currentScript.previousElementSibling;if(s){var o=s.querySelector('option[value="'+t+'"]');if(o)o.selected=true;}})();
+                (function(){
+                    var t=localStorage.getItem('sb-theme')||'dark';
+                    var sel=document.getElementById('sb-theme-picker');
+                    if(sel){
+                        var o=sel.querySelector('option[value="'+t+'"]');
+                        if(o)o.selected=true;
+                        sel.addEventListener('change',function(){
+                            document.documentElement.setAttribute('data-theme',this.value);
+                            try{localStorage.setItem('sb-theme',this.value);}catch(e){}
+                        });
+                    }
+                })();
             </script>
         </div>
     </header>
@@ -132,7 +142,7 @@
         <h2 class="text-lg font-bold text-base-content/70 mb-2">Signature Not Found</h2>
         <p class="text-sm text-base-content/50 mb-4">The signature <code class="text-xs bg-base-300 px-1 py-0.5 rounded">@Model.SignatureId</code> was not found in the cache.</p>
         <p class="text-xs text-base-content/40">It may have been evicted or the system may have restarted.</p>
-        <a href="@navBp" onclick="if(document.referrer && document.referrer !== window.location.href) { history.back(); return false; }" class="btn btn-sm btn-ghost mt-4">&larr; Back to Dashboard</a>
+        <a href="@navBp" data-action="smart-back" class="btn btn-sm btn-ghost mt-4">&larr; Back to Dashboard</a>
     </div>
 }
 else
@@ -833,6 +843,16 @@ else
             console.debug('SignalR connection failed for signature detail:', err);
         });
     })();
+    </script>
+    <script nonce="@Model.CspNonce">
+    document.addEventListener('click', function(e) {
+        var a = e.target.closest('[data-action="smart-back"]');
+        if (!a) return;
+        if (document.referrer && document.referrer !== window.location.href) {
+            e.preventDefault();
+            history.back();
+        }
+    });
     </script>
 </body>
 </html>

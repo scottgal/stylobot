@@ -53,8 +53,7 @@
     </div>
 
     <div class="flex gap-2">
-        <button id="approval-submit" class="btn btn-xs btn-primary"
-                onclick="submitApproval('@Html.Raw(bp)')">Approve</button>
+        <button id="approval-submit" data-basepath="@Html.Raw(bp)" class="btn btn-xs btn-primary">Approve</button>
         <span id="approval-status" class="text-[10px] text-base-content/40 self-center"></span>
     </div>
 </div>
@@ -105,4 +104,8 @@ function submitApproval(basePath) {
         statusEl.className = 'text-[10px] text-error self-center';
     });
 }
+
+document.getElementById('approval-submit').addEventListener('click', function() {
+    submitApproval(this.dataset.basepath);
+});
 </script>
