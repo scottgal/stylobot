@@ -32,7 +32,7 @@ StyloBot Gateway adds bot intelligence on top of YARP's routing. Every request i
 | `X-Bot-Detected` | `true` / `false` | Yes |
 | `X-Bot-Confidence` | `0.00`-`1.00` | Yes |
 | `X-Bot-Detection-Probability` | `0.0000`-`1.0000` | Yes |
-| `X-Bot-Detection-RiskBand` | `Low`, `Elevated`, `Medium`, `High` | Yes |
+| `X-Bot-Detection-RiskBand` | `Low`, `Medium`, `High`, `VeryHigh` | Yes |
 | `X-Bot-Type` | `MaliciousBot`, `Scraper`, `SearchEngine`, etc. | When bot detected |
 | `X-Bot-Name` | `GPTBot`, `AhrefsBot`, etc. | When named bot detected |
 | `X-Is-Malicious-Bot` | `true` / `false` | When bot detected |
