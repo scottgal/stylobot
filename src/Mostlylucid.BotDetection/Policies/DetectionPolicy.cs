@@ -429,18 +429,17 @@ public sealed record DetectionPolicy
     {
         Name = "profile",
         Description = "Fingerprint-only detection for calibration — never blocks inline",
-        FastPathDetectors = ImmutableList.Create("Signature"),
-        SlowPathDetectors = ImmutableList<string>.Empty,
-        AiPathDetectors = ImmutableList<string>.Empty,
-        ResponsePathDetectors = ImmutableList<string>.Empty,
+        FastPathDetectors = ["Signature"],
+        SlowPathDetectors = [],
+        AiPathDetectors = [],
+        ResponsePathDetectors = [],
         UseFastPath = true,
         ForceSlowPath = false,
         EscalateToAi = false,
         EarlyExitThreshold = 1.0,
         ImmediateBlockThreshold = 1.1,
         BypassTriggerConditions = false,
-        ExcludedDetectors = ImmutableHashSet<string>.Empty
-            .WithComparer(StringComparer.OrdinalIgnoreCase),
+        ExcludedDetectors = ImmutableHashSet.Create<string>(StringComparer.OrdinalIgnoreCase),
     };
 
     /// <summary>

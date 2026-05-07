@@ -18,6 +18,7 @@ public class ProfileModeTests
     {
         var policy = DetectionPolicy.Profile;
         Assert.Contains("Signature", policy.FastPathDetectors);
+        Assert.Single(policy.FastPathDetectors);
         Assert.Empty(policy.SlowPathDetectors);
         Assert.Empty(policy.AiPathDetectors);
         Assert.False(policy.EscalateToAi);
