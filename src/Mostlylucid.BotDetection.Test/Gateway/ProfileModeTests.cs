@@ -81,7 +81,7 @@ public class ProfileAnalysisChannelTests
     }
 
     [Fact]
-    public void Channel_DropOldest_WhenFull()
+    public async Task Channel_DropOldest_WhenFull()
     {
         var channel = new ProfileAnalysisChannel(new ProfileModeOptions { ChannelCapacity = 2 });
         channel.TryEnqueue(MakeSnapshot("req-1"));
@@ -91,6 +91,17 @@ public class ProfileAnalysisChannelTests
         Assert.Equal(2, channel.QueueDepth);
         Assert.Equal(3, channel.TotalEnqueued);
         Assert.Equal(1, channel.TotalDropped);
+
+        // Verify req-1 was dropped (oldest), req-2 and req-3 remain
+        channel.Complete();
+        var items = new List<ProfileRequestSnapshot>();
+        await foreach (var item in channel.ReadAllAsync(CancellationToken.None))
+            items.Add(item);
+
+        Assert.Equal(2, items.Count);
+        Assert.DoesNotContain(items, i => i.RequestId == "req-1");
+        Assert.Contains(items, i => i.RequestId == "req-2");
+        Assert.Contains(items, i => i.RequestId == "req-3");
     }
 
     [Fact]
@@ -107,6 +118,7 @@ public class ProfileAnalysisChannelTests
         Assert.Equal("GET", snapshot.Method);
         Assert.Equal("/api/products", snapshot.Path);
         Assert.Equal("1.2.3.4", snapshot.ClientIp);
+        Assert.Equal("TestBrowser/1.0", snapshot.UserAgent);
         Assert.NotNull(snapshot.RequestId);
     }
 

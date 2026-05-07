@@ -8,6 +8,7 @@ public sealed class ProfileAnalysisChannel
     private readonly Channel<ProfileRequestSnapshot> _channel;
     private readonly int _capacity;
     private long _totalEnqueued;
+    // Best-effort lower bound: non-atomic check+write means drops may be undercounted under concurrent writers
     private long _totalDropped;
 
     public ProfileAnalysisChannel(ProfileModeOptions options)
@@ -36,10 +37,7 @@ public sealed class ProfileAnalysisChannel
         Interlocked.Increment(ref _totalEnqueued);
 
         if (wasFull)
-        {
             Interlocked.Increment(ref _totalDropped);
-            return false;
-        }
 
         return true;
     }
