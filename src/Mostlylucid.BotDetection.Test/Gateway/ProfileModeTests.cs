@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Policies;
 using Stylobot.Gateway.Configuration;
+using Stylobot.Gateway.Data;
 using Stylobot.Gateway.Services;
 using Xunit;
 
@@ -132,4 +133,82 @@ public class ProfileAnalysisChannelTests
         Headers = new Dictionary<string, string[]>(),
         CapturedAt = DateTime.UtcNow,
     };
+}
+
+public class ProfileCalibrationStoreTests : IDisposable
+{
+    private readonly string _dbPath;
+    private readonly ProfileCalibrationStore _store;
+
+    public ProfileCalibrationStoreTests()
+    {
+        _dbPath = Path.Combine(Path.GetTempPath(), $"profile_test_{Guid.NewGuid():N}.db");
+        _store = new ProfileCalibrationStore(_dbPath);
+        _store.InitializeAsync(CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    public void Dispose()
+    {
+        if (File.Exists(_dbPath)) File.Delete(_dbPath);
+    }
+
+    [Fact]
+    public async Task Insert_ThenDistribution_CountsCorrectly()
+    {
+        await _store.InsertAsync(new ProfileCalibrationEntry
+        {
+            SignatureHash = "abc",
+            BotProbability = 0.2,
+            RiskBand = "Low",
+            BotType = null,
+            BotName = null,
+            TopDetector = null,
+            PathPattern = "/home",
+        }, CancellationToken.None);
+
+        var dist = await _store.GetScoreDistributionAsync(CancellationToken.None);
+        Assert.True(dist.TotalAnalyzed >= 1);
+        Assert.True(dist.Buckets.ContainsKey("0.2") || dist.Buckets.Any(b => b.Value > 0));
+    }
+
+    [Fact]
+    public async Task ThresholdSimulation_IncludesCommonThresholds()
+    {
+        for (int i = 0; i < 5; i++)
+            await _store.InsertAsync(new ProfileCalibrationEntry
+            {
+                SignatureHash = $"sig{i}", BotProbability = 0.8 + i * 0.01,
+                RiskBand = "High", BotType = "Scraper", BotName = null,
+                TopDetector = "UserAgent", PathPattern = "/catalog",
+            }, CancellationToken.None);
+
+        var sim = await _store.GetThresholdSimulationAsync(CancellationToken.None);
+        Assert.NotEmpty(sim);
+        Assert.All(sim, row =>
+        {
+            Assert.True(row.Threshold is >= 0.0 and <= 1.0);
+            Assert.True(row.WouldBlock >= 0);
+        });
+    }
+
+    [Fact]
+    public async Task Reset_ClearsAllEntries()
+    {
+        await _store.InsertAsync(new ProfileCalibrationEntry
+        {
+            SignatureHash = "x", BotProbability = 0.5, RiskBand = "Medium",
+            BotType = null, BotName = null, TopDetector = null, PathPattern = "/",
+        }, CancellationToken.None);
+
+        await _store.ResetAsync(CancellationToken.None);
+        var dist = await _store.GetScoreDistributionAsync(CancellationToken.None);
+        Assert.Equal(0, dist.TotalAnalyzed);
+    }
+
+    [Fact]
+    public async Task RecommendedThreshold_NullWhenNoData()
+    {
+        var rec = await _store.GetRecommendedThresholdAsync(CancellationToken.None);
+        Assert.Null(rec);
+    }
 }
