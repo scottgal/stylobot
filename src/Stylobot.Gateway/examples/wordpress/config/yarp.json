@@ -1,0 +1,21 @@
+{
+  "ReverseProxy": {
+    "Routes": {
+      "wordpress": {
+        "ClusterId": "wordpress",
+        "Match": {
+          "Path": "{**catch-all}"
+        }
+      }
+    },
+    "Clusters": {
+      "wordpress": {
+        "Destinations": {
+          "wordpress": {
+            "Address": "http://wordpress:80"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+# StyloBot Gateway — WordPress Protection Example
+# Blocks xmlrpc.php abuse, brute-force on wp-login.php, and scanner probes.
+#
+# Usage:
+#   cp .env.example .env   # edit ADMIN_SECRET and WP_DB_PASSWORD
+#   docker compose up -d
+#
+# Your WordPress container must be on the same Docker network.
+
+services:
+  gateway:
+    image: scottgal/stylobot-gateway:latest
+    ports:
+      - "80:8080"
+    environment:
+      - ADMIN_SECRET=${ADMIN_SECRET:?Set ADMIN_SECRET in .env}
+      - KNOWN_PROXIES=${KNOWN_PROXIES:-}
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  wordpress:
+    image: wordpress:latest
+    environment:
+      - WORDPRESS_DB_HOST=db
+      - WORDPRESS_DB_USER=wp
+      - WORDPRESS_DB_PASSWORD=${WP_DB_PASSWORD:?Set WP_DB_PASSWORD in .env}
+      - WORDPRESS_DB_NAME=wordpress
+    depends_on:
+      - db
+
+  db:
+    image: mysql:8.0
+    environment:
+      - MYSQL_DATABASE=wordpress
+      - MYSQL_USER=wp
+      - MYSQL_PASSWORD=${WP_DB_PASSWORD:?Set WP_DB_PASSWORD in .env}
+      - MYSQL_RANDOM_ROOT_PASSWORD=1
+    volumes:
+      - db_data:/var/lib/mysql
+
+volumes:
+  db_data:
