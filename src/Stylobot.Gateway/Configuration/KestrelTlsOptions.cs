@@ -25,7 +25,7 @@ public static class ConnectionContextTlsExtensions
         if (tls == null) return;
 
         httpContext.Items["TLS.Protocol"] = MapProtocol(tls.Protocol);
-        httpContext.Items["TLS.CipherSuite"] = tls.CipherAlgorithm.ToString();
+        httpContext.Items["TLS.CipherSuite"] = tls.NegotiatedCipherSuite.ToString();
     }
 
     #pragma warning disable SYSLIB0039
