@@ -13,6 +13,7 @@ using Mostlylucid.GeoDetection.Extensions;
 using Mostlylucid.GeoDetection.Models;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using Microsoft.Extensions.Options;
 using Stylobot.Gateway.Configuration;
 using Stylobot.Gateway.Data;
 using Stylobot.Gateway.Endpoints;
@@ -195,6 +196,12 @@ try
     // Add metrics and health
     builder.Services.AddGatewayServices();
 
+    // Add profile mode services (channel, calibration store, background worker)
+    builder.Services.AddProfileMode(builder.Configuration);
+
+    // Configure profile mode policy override if enabled
+    ConfigureProfileMode(builder.Configuration, builder.Services);
+
     // Add health checks
     builder.Services.AddGatewayHealthChecks(builder.Configuration);
 
@@ -202,6 +209,9 @@ try
 
     // Apply database migrations if enabled
     await app.ApplyMigrationsAsync();
+
+    // Initialize profile calibration store (no-op when profile mode disabled)
+    await app.InitializeProfileStoreAsync();
 
     // Forward headers FIRST so bot detection sees real client IPs, not Docker bridge IPs
     app.UseForwardedHeaders();
@@ -219,6 +229,11 @@ try
 
     // Admin secret middleware (if configured)
     app.UseAdminSecretMiddleware();
+
+    // Profile capture middleware: records request snapshots for background calibration analysis.
+    // Runs after admin secret middleware so admin requests are also captured for baseline stats.
+    // Runs before geo routing and bot detection so it sees every inbound request.
+    app.UseMiddleware<Stylobot.Gateway.Middleware.ProfileCaptureMiddleware>();
 
     // Geo routing - enriches requests with country code from IP (cached per IP)
     // Must run BEFORE bot detection so country data is available for detection + dashboard
@@ -238,6 +253,17 @@ try
 
     // Admin API endpoints
     app.MapAdminEndpoints();
+
+    // Profile mode calibration endpoints (only mapped when profile mode enabled)
+    var profileEnabled = app.Services.GetRequiredService<IOptions<ProfileModeOptions>>().Value.Enabled;
+    if (profileEnabled)
+    {
+        var gatewayOpts = app.Services.GetRequiredService<IOptions<GatewayOptions>>().Value;
+        var adminPath = gatewayOpts.AdminBasePath
+            ?? Environment.GetEnvironmentVariable("ADMIN_BASE_PATH")
+            ?? "/admin";
+        app.MapCalibrationEndpoints(adminPath);
+    }
 
     // Prometheus metrics endpoint for scraping
     app.MapPrometheusScrapingEndpoint();
@@ -280,6 +306,33 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
+}
+
+/// <summary>
+/// Configure profile mode: switches all paths to 'profile' policy for fingerprint-only inline
+/// detection while background calibration collects threshold data.
+/// </summary>
+static void ConfigureProfileMode(IConfiguration configuration, IServiceCollection services)
+{
+    var profileModeEnv = Environment.GetEnvironmentVariable("GATEWAY_PROFILE_MODE");
+    var profileModeEnabled = bool.TryParse(profileModeEnv, out var profEnabled) && profEnabled;
+
+    if (!profileModeEnabled)
+        profileModeEnabled = configuration.GetValue<bool>("Gateway:ProfileMode:Enabled");
+
+    if (!profileModeEnabled) return;
+
+    var demoModeEnv = Environment.GetEnvironmentVariable("GATEWAY_DEMO_MODE");
+    var demoEnabled = bool.TryParse(demoModeEnv, out var de) && de;
+    if (demoEnabled)
+        Log.Warning("Both GATEWAY_PROFILE_MODE and GATEWAY_DEMO_MODE are set -- profile mode takes precedence");
+
+    services.PostConfigure<BotDetectionOptions>(opts =>
+    {
+        opts.PathPolicies.Clear();
+        opts.PathPolicies["/*"] = "profile";
+        Log.Information("Profile mode active -- fingerprint-only inline detection, background calibration enabled");
+    });
 }
 
 /// <summary>

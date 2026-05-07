@@ -3,6 +3,7 @@ using LettuceEncrypt;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Serilog;
 using Stylobot.Gateway.Data;
 using Stylobot.Gateway.Services;
@@ -184,6 +185,51 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Add profile mode services: capture channel, calibration store, and background analysis worker.
+    /// Services are always registered; the worker self-disables when Enabled=false.
+    /// </summary>
+    public static IServiceCollection AddProfileMode(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        // Bind env vars first, then config file (config file wins if both set)
+        services.Configure<ProfileModeOptions>(opts =>
+        {
+            var envEnabled = Environment.GetEnvironmentVariable("GATEWAY_PROFILE_MODE");
+            if (bool.TryParse(envEnabled, out var enabled))
+                opts.Enabled = enabled;
+
+            var capacity = Environment.GetEnvironmentVariable("GATEWAY_PROFILE_CHANNEL_CAPACITY");
+            if (int.TryParse(capacity, out var cap))
+                opts.ChannelCapacity = cap;
+
+            var concurrency = Environment.GetEnvironmentVariable("GATEWAY_PROFILE_CONCURRENCY");
+            if (int.TryParse(concurrency, out var con))
+                opts.Concurrency = con;
+        });
+        services.Configure<ProfileModeOptions>(configuration.GetSection(ProfileModeOptions.SectionName));
+
+        // Always register - active only when Enabled=true
+        services.AddSingleton(sp =>
+        {
+            var opts = sp.GetRequiredService<IOptions<ProfileModeOptions>>().Value;
+            return new ProfileAnalysisChannel(opts);
+        });
+
+        services.AddSingleton(sp =>
+        {
+            var opts = sp.GetRequiredService<IOptions<ProfileModeOptions>>().Value;
+            var dbPath = opts.DatabasePath
+                ?? Path.Combine(GatewayPaths.Data, "profile_calibration.db");
+            return new ProfileCalibrationStore(dbPath);
+        });
+
+        services.AddHostedService<ProfileAnalysisWorker>();
+
+        return services;
+    }
+
+    /// <summary>
     /// Add health checks.
     /// </summary>
     public static IServiceCollection AddGatewayHealthChecks(
@@ -253,6 +299,20 @@ public static class ServiceCollectionExtensions
             Log.Warning(ex, "Database migration failed - gateway will continue without database. " +
                             "Check DB_CONNECTION_STRING and ensure the database is reachable");
         }
+    }
+
+    /// <summary>
+    /// Initialize the profile calibration SQLite store if profile mode is enabled.
+    /// No-op when Enabled=false.
+    /// </summary>
+    public static async Task InitializeProfileStoreAsync(this WebApplication app)
+    {
+        var opts = app.Services.GetRequiredService<IOptions<ProfileModeOptions>>().Value;
+        if (!opts.Enabled) return;
+
+        var store = app.Services.GetRequiredService<ProfileCalibrationStore>();
+        await store.InitializeAsync(app.Lifetime.ApplicationStopping);
+        Log.Information("Profile mode active -- calibration store ready");
     }
 
     public static IServiceCollection AddGatewayTls(this IServiceCollection services, TlsOptions tls)

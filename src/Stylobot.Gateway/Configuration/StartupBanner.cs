@@ -30,6 +30,14 @@ public static class StartupBanner
             ? $"{adminPath}  [no secret - disabled]"
             : $"{adminPath}  [protected]";
 
+        var profileModeEnv = Environment.GetEnvironmentVariable("GATEWAY_PROFILE_MODE");
+        var profileMode = bool.TryParse(profileModeEnv, out var pm) && pm
+            || config.GetValue<bool>("Gateway:ProfileMode:Enabled");
+
+        var policyLine = profileMode
+            ? "collecting (background analysis active)"
+            : $"{policy}  |  threshold  {botThreshold:F2}";
+
         const int width = 58;
         var border = new string('═', width - 2);
 
@@ -39,7 +47,7 @@ public static class StartupBanner
         Console.WriteLine(Pad($"  HTTP   :{httpPort}", width));
         Console.WriteLine(Pad($"  HTTPS  {httpsLine}", width));
         Console.WriteLine(Pad($"  Route  {routeLine}", width));
-        Console.WriteLine(Pad($"  Policy  {policy}  |  threshold  {botThreshold:F2}", width));
+        Console.WriteLine(Pad($"  Policy  {policyLine}", width));
         Console.WriteLine(Pad($"  Admin  {adminLine}", width));
         Console.WriteLine($"╚{border}╝");
 
