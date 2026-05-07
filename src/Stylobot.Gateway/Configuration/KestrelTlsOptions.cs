@@ -24,8 +24,8 @@ public static class ConnectionContextTlsExtensions
         var tls = httpContext.Features.Get<ITlsHandshakeFeature>();
         if (tls == null) return;
 
-        httpContext.Items["TLS.Protocol"] = MapProtocol(tls.Protocol);
-        httpContext.Items["TLS.CipherSuite"] = tls.NegotiatedCipherSuite.ToString();
+        httpContext.Items[GatewayHttpContextKeys.TlsProtocol] = MapProtocol(tls.Protocol);
+        httpContext.Items[GatewayHttpContextKeys.TlsCipherSuite] = tls.NegotiatedCipherSuite.ToString();
     }
 
     #pragma warning disable SYSLIB0039

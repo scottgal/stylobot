@@ -1,3 +1,5 @@
+using Stylobot.Gateway.Configuration;
+
 namespace Stylobot.Gateway.Services;
 
 public record ProfileRequestSnapshot
@@ -26,8 +28,8 @@ public record ProfileRequestSnapshot
             Method = ctx.Request.Method,
             Path = ctx.Request.Path.Value ?? "/",
             Headers = headers,
-            TlsProtocol = ctx.Items.TryGetValue("TLS.Protocol", out var p) ? p?.ToString() : null,
-            TlsCipherSuite = ctx.Items.TryGetValue("TLS.CipherSuite", out var c) ? c?.ToString() : null,
+            TlsProtocol = ctx.Items.TryGetValue(GatewayHttpContextKeys.TlsProtocol, out var p) ? p?.ToString() : null,
+            TlsCipherSuite = ctx.Items.TryGetValue(GatewayHttpContextKeys.TlsCipherSuite, out var c) ? c?.ToString() : null,
             CapturedAt = DateTime.UtcNow,
         };
     }

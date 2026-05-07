@@ -41,7 +41,7 @@ public static class CalibrationEndpoint
     {
         var dist = await store.GetScoreDistributionAsync(ct);
         var sim = await store.GetThresholdSimulationAsync(ct);
-        var rec = await store.GetRecommendedThresholdAsync(ct);
+        var rec = ProfileCalibrationStore.GetRecommendedThresholdAsync(dist);
 
         return Results.Ok(new CalibrationResponse
         {

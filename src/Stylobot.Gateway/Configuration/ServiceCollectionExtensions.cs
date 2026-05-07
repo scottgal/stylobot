@@ -195,17 +195,9 @@ public static class ServiceCollectionExtensions
         // Bind env vars first, then config file (config file wins if both set)
         services.Configure<ProfileModeOptions>(opts =>
         {
-            var envEnabled = Environment.GetEnvironmentVariable("GATEWAY_PROFILE_MODE");
-            if (bool.TryParse(envEnabled, out var enabled))
-                opts.Enabled = enabled;
-
-            var capacity = Environment.GetEnvironmentVariable("GATEWAY_PROFILE_CHANNEL_CAPACITY");
-            if (int.TryParse(capacity, out var cap))
-                opts.ChannelCapacity = cap;
-
-            var concurrency = Environment.GetEnvironmentVariable("GATEWAY_PROFILE_CONCURRENCY");
-            if (int.TryParse(concurrency, out var con))
-                opts.Concurrency = con;
+            opts.Enabled = GetEnvBool("GATEWAY_PROFILE_MODE", opts.Enabled);
+            opts.ChannelCapacity = GetEnvInt("GATEWAY_PROFILE_CHANNEL_CAPACITY", opts.ChannelCapacity);
+            opts.Concurrency = GetEnvInt("GATEWAY_PROFILE_CONCURRENCY", opts.Concurrency);
         });
         services.Configure<ProfileModeOptions>(configuration.GetSection(ProfileModeOptions.SectionName));
 

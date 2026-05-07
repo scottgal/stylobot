@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http.Features;
+using Stylobot.Gateway.Configuration;
 using Yarp.ReverseProxy.Transforms;
 using Yarp.ReverseProxy.Transforms.Builder;
 
@@ -40,14 +41,14 @@ public class TlsFingerprintingTransform : RequestTransform
 
             // Extract TLS protocol and cipher from middleware-captured metadata
             // This data is captured by TlsMetadataMiddleware using SslStream
-            if (httpContext.Items.TryGetValue("TLS.Protocol", out var tlsProtocol) && tlsProtocol != null)
+            if (httpContext.Items.TryGetValue(GatewayHttpContextKeys.TlsProtocol, out var tlsProtocol) && tlsProtocol != null)
             {
                 context.ProxyRequest.Headers.TryAddWithoutValidation(
                     "X-TLS-Protocol",
                     tlsProtocol.ToString()!);
             }
 
-            if (httpContext.Items.TryGetValue("TLS.CipherSuite", out var tlsCipher) && tlsCipher != null)
+            if (httpContext.Items.TryGetValue(GatewayHttpContextKeys.TlsCipherSuite, out var tlsCipher) && tlsCipher != null)
             {
                 context.ProxyRequest.Headers.TryAddWithoutValidation(
                     "X-TLS-Cipher",

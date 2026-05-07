@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Markov;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Stylobot.Gateway.Configuration;
@@ -58,8 +59,8 @@ public class ProfileAnalysisWorker(
         foreach (var (key, values) in snapshot.Headers)
             ctx.Request.Headers[key] = values;
 
-        if (snapshot.TlsProtocol != null) ctx.Items["TLS.Protocol"] = snapshot.TlsProtocol;
-        if (snapshot.TlsCipherSuite != null) ctx.Items["TLS.CipherSuite"] = snapshot.TlsCipherSuite;
+        if (snapshot.TlsProtocol != null) ctx.Items[GatewayHttpContextKeys.TlsProtocol] = snapshot.TlsProtocol;
+        if (snapshot.TlsCipherSuite != null) ctx.Items[GatewayHttpContextKeys.TlsCipherSuite] = snapshot.TlsCipherSuite;
 
         var evidence = await RunDetectionAsync(ctx, scope.ServiceProvider, ct);
 
@@ -77,7 +78,7 @@ public class ProfileAnalysisWorker(
             _ => "VeryHigh",
         };
 
-        var signatureHash = evidence?.Signals.TryGetValue("signature.primary", out var sigVal) == true && sigVal is string sigStr && !string.IsNullOrEmpty(sigStr)
+        var signatureHash = evidence?.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sigVal) == true && sigVal is string sigStr && !string.IsNullOrEmpty(sigStr)
             ? sigStr
             : ComputeVisitorHash(snapshot.ClientIp, snapshot.UserAgent);
 
@@ -89,7 +90,7 @@ public class ProfileAnalysisWorker(
             BotType = isBot ? botType : null,
             BotName = botName,
             TopDetector = null,
-            PathPattern = NormalizePath(snapshot.Path),
+            PathPattern = PathNormalizer.Normalize(snapshot.Path),
         }, ct);
     }
 
@@ -113,14 +114,4 @@ public class ProfileAnalysisWorker(
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
-    private static string NormalizePath(string path)
-    {
-        var normalized = System.Text.RegularExpressions.Regex.Replace(
-            path,
-            @"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}",
-            "{id}");
-        normalized = System.Text.RegularExpressions.Regex.Replace(
-            normalized, @"/\d+(/|$)", "/{id}$1");
-        return normalized;
-    }
 }

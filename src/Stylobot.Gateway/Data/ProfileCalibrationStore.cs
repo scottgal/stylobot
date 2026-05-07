@@ -41,6 +41,11 @@ public class ProfileCalibrationStore(string dbPath)
 
         await using var conn = CreateConnection();
         await conn.OpenAsync(ct);
+
+        await using var walCmd = conn.CreateCommand();
+        walCmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
+        await walCmd.ExecuteNonQueryAsync(ct);
+
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS profile_calibration (
@@ -175,6 +180,11 @@ public class ProfileCalibrationStore(string dbPath)
     public async Task<(double Threshold, string Reason)?> GetRecommendedThresholdAsync(CancellationToken ct)
     {
         var dist = await GetScoreDistributionAsync(ct);
+        return GetRecommendedThresholdAsync(dist);
+    }
+
+    public static (double Threshold, string Reason)? GetRecommendedThresholdAsync(ScoreDistributionResult dist)
+    {
         if (dist.TotalAnalyzed < 100) return null;
 
         var candidates = new[] { 0.4, 0.5, 0.6, 0.7, 0.8 };

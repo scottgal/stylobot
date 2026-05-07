@@ -259,9 +259,7 @@ try
     if (profileEnabled)
     {
         var gatewayOpts = app.Services.GetRequiredService<IOptions<GatewayOptions>>().Value;
-        var adminPath = gatewayOpts.AdminBasePath
-            ?? Environment.GetEnvironmentVariable("ADMIN_BASE_PATH")
-            ?? "/admin";
+        var adminPath = gatewayOpts.AdminBasePath;
         app.MapCalibrationEndpoints(adminPath);
     }
 
