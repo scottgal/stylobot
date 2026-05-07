@@ -19,6 +19,59 @@ That's it. Every request is now analyzed for bots. Check the logs:
 
 ---
 
+## Why Not Just Caddy?
+
+Caddy and nginx are excellent reverse proxies. They can terminate TLS, rate-limit by IP, block paths, and balance load. What they cannot do is tell you whether a request is a bot.
+
+StyloBot Gateway adds bot intelligence on top of YARP's routing. Every request is scored across up to 49 detectors (wave-gated, typically 5-15 run per request), classified by bot type, and the result is injected as headers into the upstream request before YARP forwards it. Your backend receives the full picture with zero latency overhead.
+
+### Signal Headers Injected Upstream
+
+| Header | Values | Always Sent |
+|--------|--------|-------------|
+| `X-Bot-Detected` | `true` / `false` | Yes |
+| `X-Bot-Confidence` | `0.00`-`1.00` | Yes |
+| `X-Bot-Detection-Probability` | `0.0000`-`1.0000` | Yes |
+| `X-Bot-Detection-RiskBand` | `Low`, `Elevated`, `Medium`, `High` | Yes |
+| `X-Bot-Type` | `MaliciousBot`, `Scraper`, `SearchEngine`, etc. | When bot detected |
+| `X-Bot-Name` | `GPTBot`, `AhrefsBot`, etc. | When named bot detected |
+| `X-Is-Malicious-Bot` | `true` / `false` | When bot detected |
+| `X-Is-Search-Engine` | `true` / `false` | When bot detected |
+
+Because these are YARP routes, you can use the risk band to make routing decisions. Route high-risk traffic to a bot-sink cluster while humans reach the real backend:
+
+```json
+{
+  "ReverseProxy": {
+    "Routes": {
+      "bots": {
+        "ClusterId": "bot-sink",
+        "Match": { "Path": "/{**catch-all}", "Headers": [{ "Name": "X-Bot-Detection-RiskBand", "Values": ["High"], "Mode": "ExactHeader" }] }
+      },
+      "default": { "ClusterId": "web", "Match": { "Path": "/{**catch-all}" } }
+    }
+  }
+}
+```
+
+See the cookbook for complete working examples.
+
+---
+
+## Cookbook
+
+Ready-to-run examples for common deployment scenarios. Each includes a `docker-compose.yml` and full configuration.
+
+| Scenario | Use Case | Directory |
+|----------|----------|-----------|
+| WordPress Protection | xmlrpc.php DDoS, wp-login brute force, comment spam | `examples/wordpress/` |
+| E-commerce Defense | Price scraper blocking, bot-sink routing for catalog | `examples/ecommerce/` |
+| API Service Protection | Credential stuffing, API key probing | `examples/api-protection/` |
+| Shadow Mode | Monitor-only before enabling blocking | `examples/shadow-mode/` |
+| Multi-Site / SaaS | Multiple virtual hosts with different policies | `examples/multi-site/` |
+
+---
+
 ## Deployment Tiers
 
 Choose the level that fits your needs. Each tier builds on the previous one.
