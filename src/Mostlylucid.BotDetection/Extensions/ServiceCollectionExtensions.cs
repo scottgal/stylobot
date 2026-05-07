@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
+using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Behavioral;
 using Mostlylucid.BotDetection.ClientSide;
 using Mostlylucid.BotDetection.Dashboard;
@@ -410,6 +411,13 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IBrowserFingerprintAnalyzer, BrowserFingerprintAnalyzer>();
         services.TryAddSingleton<IBrowserFingerprintStore, BrowserFingerprintStore>();
         services.TryAddSingleton<FingerprintPopulationTracker>();
+        services.TryAddSingleton<DeploymentNormTracker>(sp =>
+        {
+            var opts = sp.GetService<IOptions<BotDetectionOptions>>()?.Value;
+            return new DeploymentNormTracker(
+                windowSize: opts?.PopulationWindowSize ?? 500,
+                warmupRequests: opts?.PopulationWarmupRequests ?? 50);
+        });
 
         // Register signal bus infrastructure (intra-request, event-driven detection)
         services.TryAddTransient<IBotSignalBusFactory, BotSignalBusFactory>();

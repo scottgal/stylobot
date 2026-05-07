@@ -124,6 +124,10 @@ defaults:
 
   # Detector-specific parameters
   parameters:
+    # Population calibration: suppress penalties when the deployment norm is sparse.
+    # Same keys as clientside.detector.yaml and http2.detector.yaml — override per-detector.
+    population_min_samples: 20
+    population_rate_threshold: 0.7
     # Headers that should be present in browser requests
     expected_browser_headers:
       - "Accept"

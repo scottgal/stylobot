@@ -240,6 +240,23 @@ public class BotDetectionOptions
     public BehavioralOptions Behavioral { get; set; } = new();
 
     /// <summary>
+    ///     Number of requests to observe before population-calibrated detectors begin applying
+    ///     penalties. During this warm-up window the deployment norm (e.g. HTTP/2 prevalence,
+    ///     Accept header rate) has not yet been established, so detectors emit neutral
+    ///     contributions rather than bot signals.
+    ///     Default: 50. Override via appsettings.json → BotDetection:PopulationWarmupRequests.
+    /// </summary>
+    public int PopulationWarmupRequests { get; set; } = 50;
+
+    /// <summary>
+    ///     Sliding window size for per-feature population tracking. Each feature+bucket pair
+    ///     retains this many observations (halved when full to weight recent traffic).
+    ///     Larger values stabilise the rate estimate; smaller values adapt faster.
+    ///     Default: 500. Override via appsettings.json → BotDetection:PopulationWindowSize.
+    /// </summary>
+    public int PopulationWindowSize { get; set; } = 500;
+
+    /// <summary>
     ///     Anomaly saver configuration - writes bot detection events to rolling JSON files.
     ///     Disabled by default for privacy/storage reasons.
     /// </summary>

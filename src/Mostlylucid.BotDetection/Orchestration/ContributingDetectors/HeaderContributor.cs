@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -16,13 +17,20 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 public class HeaderContributor : ConfiguredContributorBase
 {
     private readonly ILogger<HeaderContributor> _logger;
+    private readonly DeploymentNormTracker _norms;
+    private readonly int _populationMinSamples;
+    private readonly double _populationRateThreshold;
 
     public HeaderContributor(
         ILogger<HeaderContributor> logger,
-        IDetectorConfigProvider configProvider)
+        IDetectorConfigProvider configProvider,
+        DeploymentNormTracker norms)
         : base(configProvider)
     {
         _logger = logger;
+        _norms = norms;
+        _populationMinSamples = GetParam("population_min_samples", 20);
+        _populationRateThreshold = GetParam("population_rate_threshold", 0.7);
     }
 
     public override string Name => "Header";
@@ -96,33 +104,64 @@ public class HeaderContributor : ConfiguredContributorBase
         state.WriteSignal("header.has_accept_encoding", hasAcceptEncoding);
         state.WriteSignal("header.count", headers.Count);
 
-        // Missing Accept header - confidence from YAML
-        // Skip for WebSocket upgrades which legitimately use Upgrade: websocket instead of Accept
-        // Skip when Fetch Metadata is present: any Sec-Fetch-Site value (same-origin, cross-site,
-        // same-site, none) means a real browser sent this - bots rarely send Sec-Fetch-* headers.
-        // Also skip for API key holders (trusted programmatic clients).
-        if (!hasAccept && !isWebSocketUpgrade && !hasFetchMetadata && !hasApiKey)
-            contributions.Add(BotContribution(
-                    "Header",
-                    "Missing Accept header",
-                    confidenceOverride: ConfidenceBotDetected, // from YAML: defaults.confidence.bot_detected
-                    botType: BotType.Unknown.ToString()));
-
-        // Missing Accept-Language with browser UA
-        // Skip for WebSocket upgrades which don't carry Accept-Language
-        // Skip for same-origin fetch: browser fetch() doesn't always include Accept-Language
-        // (depends on the fetch() call - programmatic requests from JS often omit it)
         var userAgent = state.UserAgent ?? "";
         var looksLikeBrowser = userAgent.Contains("Mozilla/") &&
                                (userAgent.Contains("Chrome") || userAgent.Contains("Firefox") ||
                                 userAgent.Contains("Safari") || userAgent.Contains("Edge"));
 
+        var uaBucket = state.GetSignal<string>(SignalKeys.UserAgentFamily) ?? (looksLikeBrowser ? "browser" : "non-browser");
+
+        // Missing Accept header - calibrated against deployment norm
+        // Skip for WebSocket upgrades, Fetch Metadata requests, and API key holders.
+        if (!hasAccept && !isWebSocketUpgrade && !hasFetchMetadata && !hasApiKey)
+        {
+            var eval = _norms.Evaluate(
+                DeploymentNormTracker.Features.AcceptHeader, uaBucket, present: false,
+                _populationMinSamples, _populationRateThreshold,
+                out var acceptRate, out var acceptSamples);
+
+            state.WriteSignal("header.population_accept_rate", acceptRate);
+            contributions.Add(eval switch
+            {
+                NormEvaluation.WarmingUp =>
+                    NeutralContribution("Header", $"Missing Accept header; deployment still calibrating ({_norms.TotalRequests} requests seen)"),
+                NormEvaluation.BelowNorm =>
+                    NeutralContribution("Header", $"Missing Accept header; deployment norm is low Accept rate ({acceptRate:P0} over {acceptSamples} samples)"),
+                _ => BotContribution("Header", "Missing Accept header",
+                    confidenceOverride: acceptSamples < _populationMinSamples ? ConfidenceBotDetected * 0.5 : ConfidenceBotDetected * acceptRate,
+                    botType: BotType.Unknown.ToString())
+            });
+        }
+        else if (hasAccept && !isWebSocketUpgrade && !hasFetchMetadata && !hasApiKey)
+        {
+            _norms.Record(DeploymentNormTracker.Features.AcceptHeader, uaBucket, present: true);
+        }
+
+        // Missing Accept-Language with browser UA - calibrated against deployment norm.
+        // JS fetch() often omits Accept-Language even from real browsers.
         if (looksLikeBrowser && !hasAcceptLanguage && !isWebSocketUpgrade && !hasFetchMetadata && !hasApiKey)
-            contributions.Add(BotContribution(
-                "Header",
-                "Browser User-Agent without Accept-Language",
-                confidenceOverride: ConfidenceStrongSignal, // from YAML: defaults.confidence.strong_signal
-                botType: BotType.Scraper.ToString()));
+        {
+            var eval = _norms.Evaluate(
+                DeploymentNormTracker.Features.AcceptLanguage, uaBucket, present: false,
+                _populationMinSamples, _populationRateThreshold,
+                out var langRate, out var langSamples);
+
+            state.WriteSignal("header.population_accept_language_rate", langRate);
+            contributions.Add(eval switch
+            {
+                NormEvaluation.WarmingUp =>
+                    NeutralContribution("Header", $"Browser UA without Accept-Language; deployment still calibrating ({_norms.TotalRequests} requests seen)"),
+                NormEvaluation.BelowNorm =>
+                    NeutralContribution("Header", $"Browser UA without Accept-Language; deployment norm is low language rate ({langRate:P0} over {langSamples} samples)"),
+                _ => BotContribution("Header", "Browser User-Agent without Accept-Language",
+                    confidenceOverride: langSamples < _populationMinSamples ? ConfidenceStrongSignal * 0.5 : ConfidenceStrongSignal * langRate,
+                    botType: BotType.Scraper.ToString())
+            });
+        }
+        else if (looksLikeBrowser && hasAcceptLanguage && !isWebSocketUpgrade && !hasFetchMetadata && !hasApiKey)
+        {
+            _norms.Record(DeploymentNormTracker.Features.AcceptLanguage, uaBucket, present: true);
+        }
 
         // Check for proxy headers (X-Forwarded-For, Via)
         var hasXForwardedFor = headers.ContainsKey("X-Forwarded-For");

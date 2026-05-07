@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -97,29 +98,42 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
     ];
 
     private readonly ILogger<Http2FingerprintContributor> _logger;
+    private readonly DeploymentNormTracker _norms;
+    private readonly int _populationMinSamples;
+    private readonly double _populationRateThreshold;
+    private readonly double _http1PenaltyConfidence;
+    private readonly double _botFingerprintConfidence;
+    private readonly double _browserFingerprintConfidence;
+    private readonly double _nonStandardPseudoheaderConfidence;
+    private readonly double _noPriorityConfidence;
+    private readonly double _noWindowUpdatesConfidence;
+    private readonly double _pushDisabledConfidence;
+    private readonly double _invalidPrefaceConfidence;
 
     public Http2FingerprintContributor(
         ILogger<Http2FingerprintContributor> logger,
-        IDetectorConfigProvider configProvider)
+        IDetectorConfigProvider configProvider,
+        DeploymentNormTracker norms)
         : base(configProvider)
     {
         _logger = logger;
+        _norms = norms;
+        _populationMinSamples = GetParam("population_min_samples", 20);
+        _populationRateThreshold = GetParam("population_rate_threshold", 0.7);
+        _http1PenaltyConfidence = GetParam("http1_penalty_confidence", 0.1);
+        _botFingerprintConfidence = GetParam("bot_fingerprint_confidence", 0.7);
+        _browserFingerprintConfidence = GetParam("browser_fingerprint_confidence", -0.2);
+        _nonStandardPseudoheaderConfidence = GetParam("non_standard_pseudoheader_confidence", 0.3);
+        _noPriorityConfidence = GetParam("no_priority_confidence", 0.1);
+        _noWindowUpdatesConfidence = GetParam("no_window_updates_confidence", 0.15);
+        _pushDisabledConfidence = GetParam("push_disabled_confidence", 0.12);
+        _invalidPrefaceConfidence = GetParam("invalid_preface_confidence", 0.8);
     }
 
     public override string Name => "Http2Fingerprint";
     public override int Priority => Manifest?.Priority ?? 13;
 
     public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
-
-    // Config-driven parameters from YAML
-    private double Http1PenaltyConfidence => GetParam("http1_penalty_confidence", 0.1);
-    private double BotFingerprintConfidence => GetParam("bot_fingerprint_confidence", 0.7);
-    private double BrowserFingerprintConfidence => GetParam("browser_fingerprint_confidence", -0.2);
-    private double NonStandardPseudoheaderConfidence => GetParam("non_standard_pseudoheader_confidence", 0.3);
-    private double NoPriorityConfidence => GetParam("no_priority_confidence", 0.1);
-    private double NoWindowUpdatesConfidence => GetParam("no_window_updates_confidence", 0.15);
-    private double PushDisabledConfidence => GetParam("push_disabled_confidence", 0.12);
-    private double InvalidPrefaceConfidence => GetParam("invalid_preface_confidence", 0.8);
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
@@ -162,18 +176,37 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                     return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
                 }
 
-                // HTTP/1.x usage could be legitimate or suspicious depending on context
-                // Modern browsers support HTTP/2, but some automation tools don't
-                // However, if we're behind a proxy and the original protocol was HTTP/1.x,
-                // the penalty still applies (client genuinely connected with HTTP/1.x)
                 if (protocol.StartsWith("HTTP/1"))
-                    contributions.Add(BotContribution(
-                        "HTTP/2",
-                        $"Using {protocol} instead of HTTP/2 (common for bots)",
-                        confidenceOverride: Http1PenaltyConfidence,
-                        weightMultiplier: 0.5));
+                {
+                    var uaFamily = state.GetSignal<string>(SignalKeys.UserAgentFamily) ?? "unknown";
+                    var eval = _norms.Evaluate(
+                        DeploymentNormTracker.Features.Http2, uaFamily, present: false,
+                        _populationMinSamples, _populationRateThreshold,
+                        out var http2Rate, out var samples);
+
+                    state.WriteSignal("h2.population_http2_rate", http2Rate);
+                    state.WriteSignal("h2.population_samples", samples);
+
+                    contributions.Add(eval switch
+                    {
+                        NormEvaluation.WarmingUp =>
+                            NeutralContribution("HTTP/2", $"Using {protocol}; deployment still calibrating ({_norms.TotalRequests} requests seen)"),
+                        NormEvaluation.BelowNorm =>
+                            NeutralContribution("HTTP/2", $"Using {protocol}; environment norm is HTTP/1.1 ({http2Rate:P0} HTTP/2 over {samples} samples)"),
+                        _ => BotContribution(
+                            "HTTP/2",
+                            $"Using {protocol} instead of HTTP/2 (HTTP/2 rate: {http2Rate:P0} over {samples} samples)",
+                            confidenceOverride: samples < _populationMinSamples ? _http1PenaltyConfidence * 0.5 : _http1PenaltyConfidence * http2Rate,
+                            weightMultiplier: 0.5)
+                    });
+                }
 
                 return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
+            }
+
+            {
+                var uaFamily = state.GetSignal<string>(SignalKeys.UserAgentFamily) ?? "unknown";
+                _norms.Record(DeploymentNormTracker.Features.Http2, uaFamily, present: true);
             }
 
             // HTTP/2 SETTINGS fingerprinting (requires reverse proxy to capture and forward)
@@ -192,17 +225,16 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                         contributions.Add(BotContribution(
                             "HTTP/2",
                             $"HTTP/2 fingerprint matches known automation client: {matchedClient}",
-                            confidenceOverride: BotFingerprintConfidence,
+                            confidenceOverride: _botFingerprintConfidence,
                             weightMultiplier: 1.6,
                             botType: BotType.Scraper.ToString()));
                     else
-                        // Known browser
                         contributions.Add(HumanContribution(
                             "HTTP/2",
                             $"HTTP/2 fingerprint matches browser: {matchedClient}")
                             with
                             {
-                                ConfidenceDelta = BrowserFingerprintConfidence,
+                                ConfidenceDelta = _browserFingerprintConfidence,
                                 Weight = WeightHumanSignal * 1.4
                             });
                 }
@@ -227,7 +259,7 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                     contributions.Add(BotContribution(
                         "HTTP/2",
                         $"Non-standard HTTP/2 pseudoheader order: {pseudoHeaderOrder}",
-                        confidenceOverride: NonStandardPseudoheaderConfidence,
+                        confidenceOverride: _nonStandardPseudoheaderConfidence,
                         weightMultiplier: 1.2));
             }
 
@@ -244,7 +276,7 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                 contributions.Add(BotContribution(
                     "HTTP/2",
                     "No HTTP/2 stream priority (browsers typically use this)",
-                    confidenceOverride: NoPriorityConfidence,
+                    confidenceOverride: _noPriorityConfidence,
                     weightMultiplier: 0.6));
             }
 
@@ -264,7 +296,7 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                         contributions.Add(BotContribution(
                             "HTTP/2",
                             "No HTTP/2 WINDOW_UPDATE frames (unusual for browsers)",
-                            confidenceOverride: NoWindowUpdatesConfidence,
+                            confidenceOverride: _noWindowUpdatesConfidence,
                             weightMultiplier: 0.8));
                 }
             }
@@ -280,7 +312,7 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                     contributions.Add(BotContribution(
                         "HTTP/2",
                         "HTTP/2 Server Push disabled (common for bots)",
-                        confidenceOverride: PushDisabledConfidence,
+                        confidenceOverride: _pushDisabledConfidence,
                         weightMultiplier: 0.7));
             }
 
@@ -295,7 +327,7 @@ public class Http2FingerprintContributor : ConfiguredContributorBase
                     contributions.Add(BotContribution(
                         "HTTP/2",
                         "Invalid HTTP/2 connection preface",
-                        confidenceOverride: InvalidPrefaceConfidence,
+                        confidenceOverride: _invalidPrefaceConfidence,
                         weightMultiplier: 1.8,
                         botType: BotType.Scraper.ToString()));
             }

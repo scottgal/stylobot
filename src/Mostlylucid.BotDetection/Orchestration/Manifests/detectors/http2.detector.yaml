@@ -129,8 +129,11 @@ defaults:
 
   # HTTP/2-specific parameters
   parameters:
-    # Not HTTP/2 penalty (most browsers use HTTP/2)
+    # HTTP/1.1 penalty — calibrated against observed deployment norm
     http1_penalty_confidence: 0.1
+    # Population calibration: suppress HTTP/1.1 penalty when local norm is HTTP/1.1
+    population_min_samples: 20
+    population_rate_threshold: 0.7
     # Fingerprint detection confidence values
     bot_fingerprint_confidence: 0.7
     browser_fingerprint_confidence: -0.2
