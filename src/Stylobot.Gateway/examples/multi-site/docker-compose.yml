@@ -1,0 +1,36 @@
+# StyloBot Gateway — Multi-Site / SaaS
+# One gateway, multiple virtual hosts, different protection per host.
+#
+# admin.example.com → strict (internal admin tool)
+# api.example.com   → api-protection (REST API consumers)
+# www.example.com   → default (public marketing + app)
+#
+# Usage:
+#   cp .env.example .env   # set DOMAIN, ACME_EMAIL, ADMIN_SECRET
+#   docker compose up -d
+
+services:
+  gateway:
+    image: scottgal/stylobot-gateway:latest
+    ports:
+      - "80:8080"
+      - "443:8443"
+    environment:
+      - ADMIN_SECRET=${ADMIN_SECRET:?Set ADMIN_SECRET in .env}
+      - GATEWAY_HTTPS_DOMAIN=${DOMAIN:?Set DOMAIN=example.com in .env}
+      - GATEWAY_HTTPS_ACME_EMAIL=${ACME_EMAIL:?Set ACME_EMAIL in .env}
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+
+  # Replace these stubs with your actual services
+  admin-app:
+    image: nginx:alpine
+
+  api-app:
+    image: nginx:alpine
+
+  www-app:
+    image: nginx:alpine

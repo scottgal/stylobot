@@ -1,0 +1,46 @@
+{
+  "ReverseProxy": {
+    "Routes": {
+      "admin": {
+        "ClusterId": "admin-app",
+        "Match": {
+          "Hosts": ["admin.{**}"],
+          "Path": "{**catch-all}"
+        },
+        "Order": 1
+      },
+      "api": {
+        "ClusterId": "api-app",
+        "Match": {
+          "Hosts": ["api.{**}"],
+          "Path": "{**catch-all}"
+        },
+        "Order": 2
+      },
+      "www": {
+        "ClusterId": "www-app",
+        "Match": {
+          "Path": "{**catch-all}"
+        },
+        "Order": 3
+      }
+    },
+    "Clusters": {
+      "admin-app": {
+        "Destinations": {
+          "admin": { "Address": "http://admin-app:80" }
+        }
+      },
+      "api-app": {
+        "Destinations": {
+          "api": { "Address": "http://api-app:80" }
+        }
+      },
+      "www-app": {
+        "Destinations": {
+          "www": { "Address": "http://www-app:80" }
+        }
+      }
+    }
+  }
+}
