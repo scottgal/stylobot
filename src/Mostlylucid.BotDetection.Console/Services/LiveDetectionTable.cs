@@ -40,38 +40,39 @@ public sealed class DetectionTapMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         try { await _next(context); }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("response has already started", StringComparison.OrdinalIgnoreCase)) { }
+        catch (InvalidOperationException ex) when (
+            ex.Message.Contains("response has already started", StringComparison.OrdinalIgnoreCase)) { }
 
-        if (context.Items.TryGetValue("BotDetection.AggregatedEvidence", out var evidenceObj)
-            && evidenceObj is AggregatedEvidence evidence)
+        if (context.Items.TryGetValue("BotDetection.AggregatedEvidence", out var obj)
+            && obj is AggregatedEvidence ev)
         {
-            var isBot = evidence.BotProbability >= 0.5;
-            var topDetector = evidence.Contributions?.LastOrDefault()?.DetectorName ?? "-";
-            var country = evidence.Signals?.TryGetValue("geo.country_code", out var cc) == true
+            var isBot = ev.BotProbability >= 0.5;
+            var detector = ev.Contributions?.LastOrDefault()?.DetectorName ?? "-";
+            var country = ev.Signals?.TryGetValue("geo.country_code", out var cc) == true
                 ? cc?.ToString() : null;
 
             _sink.Write(new DetectionEntry(
                 DateTime.Now,
                 context.Request.Path.Value ?? "/",
-                evidence.BotProbability,
+                ev.BotProbability,
                 isBot ? "BOT" : "HUMAN",
-                topDetector,
-                evidence.PrimaryBotName,
-                evidence.TriggeredActionPolicyName,
+                detector,
+                ev.PrimaryBotName,
+                ev.TriggeredActionPolicyName,
                 country,
-                evidence.TotalProcessingTimeMs,
-                evidence.ContributingDetectors?.Count ?? 0));
+                ev.TotalProcessingTimeMs,
+                ev.ContributingDetectors?.Count ?? 0));
         }
     }
 }
 
 /// <summary>
-///     Full-screen terminal dashboard — raw ANSI, no reflection, AOT-safe.
-///     Renders at 2 Hz; each frame does SetCursorPosition(0,0) and overwrites in-place.
+///     Full-screen TUI dashboard.
+///     Uses the VT100 alternate screen buffer so the frame is written in-place
+///     without scrolling, and the original terminal content is restored on exit.
 /// </summary>
 public sealed class LiveDetectionTableService : BackgroundService
 {
-    // ── Config ────────────────────────────────────────────────────────────────
     private readonly DetectionEventSink _sink;
     private readonly string _mode;
     private readonly string _upstream;
@@ -80,9 +81,7 @@ public sealed class LiveDetectionTableService : BackgroundService
     private readonly bool _useTls;
     private readonly bool _tunnelEnabled;
     private readonly Func<string?>? _tunnelUrlGetter;
-    private readonly int _maxFeedRows;
 
-    // ── Counters ──────────────────────────────────────────────────────────────
     private int _totalRequests;
     private int _totalBots;
     private int _totalHumans;
@@ -91,11 +90,8 @@ public sealed class LiveDetectionTableService : BackgroundService
     private double _maxDetectionTimeMs;
     private readonly DateTime _startTime = DateTime.Now;
 
-    // ── Throughput ────────────────────────────────────────────────────────────
-    private readonly ConcurrentQueue<DateTime> _recentRequests = new();   // 10s window
-    private readonly ConcurrentQueue<DateTime> _sparkHistory = new();     // 60s window
-
-    // ── Aggregates ────────────────────────────────────────────────────────────
+    private readonly ConcurrentQueue<DateTime> _recentRequests = new();
+    private readonly ConcurrentQueue<DateTime> _sparkHistory = new();
     private readonly ConcurrentDictionary<string, int> _endpointHits = new();
     private readonly ConcurrentDictionary<string, int> _botSignatures = new();
 
@@ -103,7 +99,7 @@ public sealed class LiveDetectionTableService : BackgroundService
         DetectionEventSink sink,
         string mode, string upstream, string port, string policy,
         bool useTls, bool tunnelEnabled,
-        Func<string?>? tunnelUrlGetter = null, int maxFeedRows = 20)
+        Func<string?>? tunnelUrlGetter = null, int maxFeedRows = 0)
     {
         _sink = sink;
         _mode = mode;
@@ -113,7 +109,6 @@ public sealed class LiveDetectionTableService : BackgroundService
         _useTls = useTls;
         _tunnelEnabled = tunnelEnabled;
         _tunnelUrlGetter = tunnelUrlGetter;
-        _maxFeedRows = maxFeedRows;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -123,8 +118,11 @@ public sealed class LiveDetectionTableService : BackgroundService
         var entries = new LinkedList<DetectionEntry>();
         var scheme = _useTls ? "https" : "http";
 
-        System.Console.CursorVisible = false;
-        System.Console.Clear();
+        // Enter the VT100 alternate screen buffer.
+        // This gives us a clean slate that is discarded on exit,
+        // restoring whatever was in the terminal beforehand.
+        // \x1b[?7l  disables line-wrap so oversized content clips instead of wrapping.
+        System.Console.Write("\x1b[?1049h\x1b[?7l\x1b[?25l");
 
         try
         {
@@ -134,7 +132,14 @@ public sealed class LiveDetectionTableService : BackgroundService
                     Ingest(entry, entries);
 
                 TrimWindows();
-                RenderFrame(entries, scheme);
+
+                var w = System.Console.WindowWidth;
+                var h = System.Console.WindowHeight;
+                if (w >= 40 && h >= 8)
+                {
+                    var frame = BuildFrame(entries, scheme, w, h);
+                    System.Console.Write(frame);
+                }
 
                 try
                 {
@@ -147,10 +152,12 @@ public sealed class LiveDetectionTableService : BackgroundService
         }
         finally
         {
-            System.Console.CursorVisible = true;
-            System.Console.ResetColor();
+            // Exit alt screen, re-enable wrap and cursor — restores original terminal.
+            System.Console.Write("\x1b[?1049l\x1b[?7h\x1b[?25h");
         }
     }
+
+    // ── Stats ingestion ───────────────────────────────────────────────────────
 
     private void Ingest(DetectionEntry entry, LinkedList<DetectionEntry> entries)
     {
@@ -167,10 +174,7 @@ public sealed class LiveDetectionTableService : BackgroundService
             var sig = entry.BotName ?? entry.TopDetector;
             _botSignatures.AddOrUpdate(sig, 1, (_, c) => c + 1);
         }
-        else
-        {
-            _totalHumans++;
-        }
+        else _totalHumans++;
 
         var path = entry.Path.Split('?')[0];
         _endpointHits.AddOrUpdate(path, 1, (_, c) => c + 1);
@@ -179,434 +183,356 @@ public sealed class LiveDetectionTableService : BackgroundService
 
         if (_endpointHits.Count > 500) Trim(_endpointHits, 100);
         if (_botSignatures.Count > 200) Trim(_botSignatures, 50);
-        while (entries.Count > _maxFeedRows) entries.RemoveLast();
+        while (entries.Count > 200) entries.RemoveLast();
     }
 
     private void TrimWindows()
     {
         var now = DateTime.Now;
-        var c10 = now.AddSeconds(-10);
-        var c60 = now.AddSeconds(-60);
-        while (_recentRequests.TryPeek(out var t) && t < c10) _recentRequests.TryDequeue(out _);
-        while (_sparkHistory.TryPeek(out var t) && t < c60) _sparkHistory.TryDequeue(out _);
+        while (_recentRequests.TryPeek(out var t) && (now - t).TotalSeconds > 10)
+            _recentRequests.TryDequeue(out _);
+        while (_sparkHistory.TryPeek(out var t) && (now - t).TotalSeconds > 60)
+            _sparkHistory.TryDequeue(out _);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Renderer
-    // ─────────────────────────────────────────────────────────────────────────
+    // ── Frame builder ─────────────────────────────────────────────────────────
 
-    private void RenderFrame(LinkedList<DetectionEntry> entries, string scheme)
+    private string BuildFrame(LinkedList<DetectionEntry> entries, string scheme, int w, int h)
     {
-        var w = System.Console.WindowWidth;
-        var h = System.Console.WindowHeight;
-        if (w < 60 || h < 10) return;  // too small to render
-
-        var sb = new StringBuilder(w * h * 4);
-
-        // Position at top-left without clearing (avoids flicker)
-        sb.Append(Ansi.Home);
+        var sb = new StringBuilder(w * h * 6);
+        // Home cursor — in the alt screen this is always top-left of the visible window.
+        sb.Append("\x1b[H");
 
         var uptime = DateTime.Now - _startTime;
         var reqPerSec = _recentRequests.Count / 10.0;
         var avgMs = _totalRequests > 0 ? _totalDetectionTimeMs / _totalRequests : 0;
         var tunnelUrl = _tunnelEnabled ? _tunnelUrlGetter?.Invoke() : null;
 
-        // ── Row 0: Title bar ──────────────────────────────────────────────────
-        var modeLabel = ModeLabel(_mode);
-        var titleBar = $" stylobot  {modeLabel}  \u2192 {Truncate(_upstream, 30)}  \u23f1 {FormatUptime(uptime)}  {_totalRequests} req  {reqPerSec:F1}/s ";
-        sb.Append(Ansi.BgBlue + Ansi.BrightWhite + Ansi.Bold);
-        sb.Append(PadRight(titleBar, w));
-        sb.Append(Ansi.Reset);
-        sb.Append('\n');
+        var lines = 0;
 
-        // ── Row 1: Stats bar ──────────────────────────────────────────────────
-        var spark = BuildSparkline(Math.Min(30, w / 3));
-        var statsBar = BuildStatsBar(avgMs, spark, w);
-        sb.Append(statsBar);
-        sb.Append('\n');
+        // ── Line 0: Title bar ─────────────────────────────────────────────────
+        var title = $"  stylobot  {ModeLabel(_mode)}  \u2192 {_upstream}  \u23f1 {FormatUptime(uptime)}  {_totalRequests} req  {reqPerSec:F1}/s  ";
+        var titleVis = VLen(title);
+        sb.Append(C.BgBlue + C.White + C.Bold);
+        sb.Append(title);
+        if (titleVis < w) sb.Append(new string(' ', w - titleVis));
+        sb.Append(C.R + "\n");
+        lines++;
 
-        // ── Body: feed (left) + sidebar (right) ──────────────────────────────
-        // Sidebar is 28 chars wide on wide terminals; stacked on narrow
+        // ── Line 1: Stats bar ─────────────────────────────────────────────────
+        var spark = BuildSparkline(Math.Min(40, w / 3));
+        var threatCol = _totalThreats > 0 ? C.Red : C.Dim;
+
+        var statsContent = C.Green + $"  \u2713 {_totalHumans} ok" + C.R
+            + C.Red + $"  \u2717 {_totalBots} bots" + C.R
+            + threatCol + $"  \u26a0 {_totalThreats} threats" + C.R
+            + C.Dim + $"  avg {avgMs:F1}ms  max {_maxDetectionTimeMs:F1}ms  " + C.R
+            + C.Blue + spark + C.R;
+        var statsVis = VLen(statsContent);
+        sb.Append(statsContent);
+        if (statsVis < w) sb.Append(new string(' ', w - statsVis));
+        sb.Append("\x1b[K\n");
+        lines++;
+
+        // ── Line 2: Column headers ────────────────────────────────────────────
         var wide = w >= 100;
-        var sidebarW = wide ? 29 : 0;
-        var feedW = wide ? w - sidebarW - 1 : w;
+        var sideW = wide ? 30 : 0;
+        var feedW = wide ? w - sideW - 1 : w;
 
-        // Feed rows
-        var headerRow = wide ? 3 : 3;  // rows consumed so far
-        var footerRows = 2;
-        var availableBodyRows = h - headerRow - footerRows;
-        var feedBodyRows = availableBodyRows;
-
-        var sideLines = wide ? BuildSidebar(sidebarW, feedBodyRows, scheme, tunnelUrl) : Array.Empty<string>();
-        var feedLines = BuildFeedPanel(entries, feedW, feedBodyRows);
-
-        for (var r = 0; r < feedBodyRows; r++)
+        var feedHdr = " " + C.Dim + VPad("Time", 8) + "  " + VPad("Path", feedW - 30) + "  " + VPadL("Bot%", 5) + "  " + VPad("Action", 7) + "  " + VPadL("ms", 5) + " " + C.R;
+        sb.Append(feedHdr);
+        if (wide)
         {
-            var feedLine = r < feedLines.Length ? feedLines[r] : PadRight("", feedW);
+            sb.Append(C.Dim + "\u2502" + C.R);
+            sb.Append(C.Dim + VPad(" Top Bots", sideW - 1) + C.R);
+        }
+        sb.Append("\x1b[K\n");
+        lines++;
+
+        // ── Line 3: Divider ───────────────────────────────────────────────────
+        sb.Append(C.Dim + new string('\u2500', feedW) + C.R);
+        if (wide) sb.Append(C.Dim + "\u253c" + new string('\u2500', sideW - 1) + C.R);
+        sb.Append("\x1b[K\n");
+        lines++;
+
+        // ── Body rows ─────────────────────────────────────────────────────────
+        var bodyRows = h - lines - 2; // reserve 2 footer rows
+        var feedEntries = entries.Take(bodyRows).ToArray();
+        var sideLines = wide ? BuildSideLines(sideW - 1, bodyRows, scheme, tunnelUrl) : null;
+
+        for (var r = 0; r < bodyRows; r++)
+        {
+            // Feed column
+            var feedLine = r < feedEntries.Length
+                ? FormatFeedRow(feedEntries[r], feedW)
+                : VPad("", feedW);
+            if (r == 0 && feedEntries.Length == 0)
+                feedLine = " " + C.Dim + "Waiting for requests..." + C.R + new string(' ', feedW - 25);
+
             sb.Append(feedLine);
+
+            // Sidebar column
             if (wide)
             {
-                sb.Append(r == 0 ? Ansi.Dim + "\u2502" + Ansi.Reset : Ansi.Dim + "\u2502" + Ansi.Reset);
-                var sideLine = r < sideLines.Length ? sideLines[r] : PadRight("", sidebarW - 1);
-                sb.Append(sideLine);
+                sb.Append(C.Dim + "\u2502" + C.R);
+                var side = sideLines != null && r < sideLines.Length ? sideLines[r] : new string(' ', sideW - 1);
+                sb.Append(side);
             }
-            sb.Append(ClearToEndOfLine());
-            sb.Append('\n');
+
+            sb.Append("\x1b[K\n");
+            lines++;
         }
 
-        // ── Footer ────────────────────────────────────────────────────────────
-        var footerContent = BuildFooter(w);
-        sb.Append(footerContent);
-        sb.Append(ClearToEndOfLine());
-        sb.Append('\n');
+        // ── Footer divider ────────────────────────────────────────────────────
+        sb.Append(C.Dim + new string('\u2500', w) + C.R + "\x1b[K\n");
+        lines++;
 
-        // Blank the last line (keep cursor off content)
-        sb.Append(ClearToEndOfLine());
+        // ── Footer text ───────────────────────────────────────────────────────
+        string footer;
+        if (_totalThreats >= 3 && _policy.Equals("logonly", StringComparison.OrdinalIgnoreCase))
+            footer = C.Yellow + $"  \u26a0  {_totalThreats} threats in observe-only mode \u2014 add --policy block to enable blocking" + C.R;
+        else
+            footer = C.Dim + "  Ctrl+C to stop  |  --verbose for full logs" + C.R;
 
-        // Write whole frame atomically
-        System.Console.SetCursorPosition(0, 0);
-        System.Console.Write(sb.ToString());
+        if (tunnelUrl != null)
+            footer += C.Dim + "  |  tunnel: " + C.R + C.Green + tunnelUrl + C.R;
+
+        sb.Append(footer);
+        sb.Append("\x1b[K");
+        // No trailing \n on the last line — prevents the terminal from scrolling.
+
+        return sb.ToString();
     }
 
-    // ── Feed panel ────────────────────────────────────────────────────────────
+    // ── Feed row ──────────────────────────────────────────────────────────────
 
-    private string[] BuildFeedPanel(LinkedList<DetectionEntry> entries, int width, int totalRows)
+    private static string FormatFeedRow(DetectionEntry e, int width)
     {
-        var lines = new string[totalRows];
-        var border = Ansi.Dim + "\u250c" + new string('\u2500', width - 2) + "\u2510" + Ansi.Reset;
-        var bottomBorder = Ansi.Dim + "\u2514" + new string('\u2500', width - 2) + "\u2518" + Ansi.Reset;
-        var title = " Recent Requests ";
-        var titleLine = Ansi.Dim + "\u250c\u2500" + Ansi.Reset + Ansi.Bold + title + Ansi.Reset
-                      + Ansi.Dim + new string('\u2500', Math.Max(0, width - 2 - title.Length)) + "\u2510" + Ansi.Reset;
+        var pathW = width - 8 - 5 - 7 - 5 - 6; // time + prob + action + ms + spaces
+        if (pathW < 10) pathW = 10;
 
-        lines[0] = VisualPad(titleLine, width);
-
-        // Column widths
-        var timeW = 8;
-        var msW = 5;
-        var probW = 5;
-        var actionW = 8;
-        var pathW = width - timeW - msW - probW - actionW - 7; // 7 = separators + padding
-
-        // Header
-        if (totalRows > 2)
-        {
-            lines[1] = Ansi.Dim
-                + "\u2502 " + Ansi.Reset + PadRight("Time", timeW) + Ansi.Dim + "  "
-                + PadRight("Path", pathW) + "  "
-                + PadLeft("Bot%", probW) + "  "
-                + PadRight("Action", actionW) + "  "
-                + PadLeft("ms", msW) + " "
-                + "\u2502" + Ansi.Reset;
-        }
-
-        var idx = 2;
-        var entryList = entries.Take(totalRows - 3).ToArray();
-        foreach (var e in entryList)
-        {
-            if (idx >= totalRows - 1) break;
-            lines[idx++] = FormatFeedRow(e, width, timeW, pathW, probW, actionW, msW);
-        }
-
-        // Fill empty rows
-        while (idx < totalRows - 1)
-        {
-            if (idx == 2 && entries.Count == 0)
-            {
-                lines[idx++] = Ansi.Dim + "\u2502" + Ansi.Reset
-                    + PadRight("  Waiting for requests...", width - 2)
-                    + Ansi.Dim + "\u2502" + Ansi.Reset;
-            }
-            else
-            {
-                lines[idx++] = Ansi.Dim + "\u2502" + Ansi.Reset
-                    + PadRight("", width - 2)
-                    + Ansi.Dim + "\u2502" + Ansi.Reset;
-            }
-        }
-
-        lines[totalRows - 1] = VisualPad(bottomBorder, width);
-        return lines;
-    }
-
-    private static string FormatFeedRow(DetectionEntry e, int width, int timeW, int pathW, int probW, int actionW, int msW)
-    {
-        var path = Truncate(e.Path.Split('?')[0], pathW);
+        var path = VTrunc(e.Path.Split('?')[0], pathW);
         var prob = e.BotProbability;
         var probStr = $"{prob * 100:F0}%";
-        var timeColor = e.DetectionTimeMs > 200 ? Ansi.Red : e.DetectionTimeMs > 50 ? Ansi.Yellow : Ansi.Dim;
 
-        string probColor;
-        if (prob >= 0.9)       probColor = Ansi.Bold + Ansi.Red;
-        else if (prob >= 0.7)  probColor = Ansi.Red;
-        else if (prob >= 0.4)  probColor = Ansi.Yellow;
-        else                   probColor = Ansi.Green;
+        string probCol;
+        if (prob >= 0.9)       probCol = C.Bold + C.Red;
+        else if (prob >= 0.7)  probCol = C.Red;
+        else if (prob >= 0.4)  probCol = C.Yellow;
+        else                   probCol = C.Green;
 
+        var msCol = e.DetectionTimeMs > 200 ? C.Red : e.DetectionTimeMs > 50 ? C.Yellow : C.Dim;
         var action = FormatAction(e);
 
-        return Ansi.Dim + "\u2502 " + Ansi.Reset
-            + Ansi.Dim + PadRight(e.Timestamp.ToString("HH:mm:ss"), timeW) + Ansi.Reset
-            + "  " + PadRight(path, pathW)
-            + "  " + probColor + PadLeft(probStr, probW) + Ansi.Reset
-            + "  " + action + PadRight("", Math.Max(0, actionW - VisualLength(action))) + Ansi.Reset
-            + "  " + timeColor + PadLeft($"{e.DetectionTimeMs:F0}", msW) + Ansi.Reset
-            + " " + Ansi.Dim + "\u2502" + Ansi.Reset;
+        return " " + C.Dim + e.Timestamp.ToString("HH:mm:ss") + C.R
+            + "  " + VPad(path, pathW)
+            + "  " + probCol + VPadL(probStr, 5) + C.R
+            + "  " + action + VPad("", Math.Max(0, 7 - VLen(action)))
+            + "  " + msCol + VPadL($"{e.DetectionTimeMs:F0}", 5) + C.R
+            + " ";
     }
 
     // ── Sidebar ───────────────────────────────────────────────────────────────
 
-    private string[] BuildSidebar(int width, int totalRows, string scheme, string? tunnelUrl)
+    private string[] BuildSideLines(int width, int totalRows, string scheme, string? tunnelUrl)
     {
         var lines = new List<string>(totalRows);
-        var inner = width - 2;
 
-        void AddSection(string title, IEnumerable<string> rows, int maxRows)
+        void Section(string title)
         {
-            lines.Add(SectionHeader(title, inner));
-            var count = 0;
-            foreach (var r in rows)
-            {
-                if (count++ >= maxRows) break;
-                lines.Add(" " + Truncate(r, inner - 1));
-            }
+            var pad = Math.Max(0, width - title.Length - 1);
+            lines.Add(" " + C.Bold + title + C.R + C.Dim + new string('\u2500', pad) + C.R);
+        }
+
+        void Row(string content)
+        {
+            var vis = VLen(content);
+            var pad = Math.Max(0, width - vis);
+            lines.Add(content + new string(' ', pad));
+        }
+
+        void Divider()
+        {
+            lines.Add(C.Dim + new string('\u2500', width) + C.R);
         }
 
         // Top bots
-        AddSection(" Top Bots ", TopBotRows(), 5);
+        Section("Top Bots");
+        var bots = _botSignatures.OrderByDescending(kv => kv.Value).Take(5).ToList();
+        if (bots.Count == 0)
+            Row(C.Dim + "  none yet" + C.R);
+        else
+            foreach (var (sig, count) in bots)
+                Row(C.Red + " \u25a0 " + C.R + VTrunc(sig, width - 8) + C.Dim + " " + count.ToString().PadLeft(4) + C.R);
 
-        // Separator
-        lines.Add(Ansi.Dim + "\u251c" + new string('\u2500', inner) + "\u2524" + Ansi.Reset);
+        Divider();
 
         // Top endpoints
-        AddSection(" Endpoints ", TopEndpointRows(), 5);
+        Section("Endpoints");
+        var eps = _endpointHits.OrderByDescending(kv => kv.Value).Take(5).ToList();
+        if (eps.Count == 0)
+            Row(C.Dim + "  none yet" + C.R);
+        else
+            foreach (var (ep, count) in eps)
+                Row(C.Dim + " \u2192 " + C.R + VTrunc(ep, width - 8) + C.Dim + " " + count.ToString().PadLeft(4) + C.R);
 
-        // Separator
-        lines.Add(Ansi.Dim + "\u251c" + new string('\u2500', inner) + "\u2524" + Ansi.Reset);
+        Divider();
 
         // Config
-        AddSection(" Config ", ConfigRows(scheme, tunnelUrl), 4);
-
-        // Fill remaining with empty lines
-        while (lines.Count < totalRows)
-            lines.Add(PadRight("", inner));
-
-        return lines.Take(totalRows).Select(l => VisualPad(l, width)).ToArray();
-    }
-
-    private IEnumerable<string> TopBotRows()
-    {
-        var bots = _botSignatures.OrderByDescending(kv => kv.Value).Take(6).ToList();
-        if (bots.Count == 0)
-        {
-            yield return Ansi.Dim + "  none yet" + Ansi.Reset;
-            yield break;
-        }
-        foreach (var (sig, count) in bots)
-        {
-            var name = Truncate(sig, 18);
-            var countStr = count.ToString();
-            yield return Ansi.Red + " \u25a0 " + Ansi.Reset + PadRight(name, 18) + " " + Ansi.Bold + PadLeft(countStr, 4) + Ansi.Reset;
-        }
-    }
-
-    private IEnumerable<string> TopEndpointRows()
-    {
-        var eps = _endpointHits.OrderByDescending(kv => kv.Value).Take(6).ToList();
-        if (eps.Count == 0)
-        {
-            yield return Ansi.Dim + "  none yet" + Ansi.Reset;
-            yield break;
-        }
-        foreach (var (ep, count) in eps)
-        {
-            var path = Truncate(ep, 18);
-            var countStr = count.ToString();
-            yield return Ansi.Dim + " \u2192 " + Ansi.Reset + PadRight(path, 18) + " " + Ansi.Bold + PadLeft(countStr, 4) + Ansi.Reset;
-        }
-    }
-
-    private IEnumerable<string> ConfigRows(string scheme, string? tunnelUrl)
-    {
-        yield return Ansi.Dim + "  Listen  " + Ansi.Reset + $"{scheme}://:{_port}";
-        yield return Ansi.Dim + "  Policy  " + Ansi.Reset + PolicyLabel(_policy);
+        Section("Config");
+        Row(C.Dim + " listen  " + C.R + $"{scheme}://:{_port}");
+        Row(C.Dim + " policy  " + C.R + PolicyLabel(_policy));
         if (_tunnelEnabled)
-        {
-            yield return Ansi.Dim + "  Tunnel  " + Ansi.Reset
+            Row(C.Dim + " tunnel  " + C.R
                 + (tunnelUrl != null
-                    ? Ansi.Green + Truncate(tunnelUrl.Replace("https://", ""), 20) + Ansi.Reset
-                    : Ansi.Yellow + "connecting\u2026" + Ansi.Reset);
-        }
-    }
+                    ? C.Green + VTrunc(tunnelUrl.Replace("https://", ""), width - 10) + C.R
+                    : C.Yellow + "connecting\u2026" + C.R));
 
-    // ── Stats bar ─────────────────────────────────────────────────────────────
+        // Fill to totalRows
+        while (lines.Count < totalRows)
+            lines.Add(new string(' ', width));
 
-    private string BuildStatsBar(double avgMs, string spark, int width)
-    {
-        var threatColor = _totalThreats > 0 ? Ansi.Red : Ansi.Dim;
-
-        var parts = new[]
-        {
-            Ansi.Green  + $" \u2713 {_totalHumans} ok" + Ansi.Reset,
-            Ansi.Red    + $" \u2717 {_totalBots} bots" + Ansi.Reset,
-            threatColor + $" \u26a0 {_totalThreats} threats" + Ansi.Reset,
-            Ansi.Dim    + $"  avg {avgMs:F1}ms  max {_maxDetectionTimeMs:F1}ms  " + Ansi.Reset,
-            Ansi.Blue   + spark + Ansi.Reset
-        };
-
-        var sb = new StringBuilder();
-        foreach (var p in parts) sb.Append(p);
-
-        // Pad to width (hard: our string contains escape codes)
-        return PadAnsiRight(sb.ToString(), width);
+        return lines.Take(totalRows).ToArray();
     }
 
     // ── Sparkline ─────────────────────────────────────────────────────────────
 
     private string BuildSparkline(int buckets)
     {
-        const double windowSeconds = 60.0;
-        var bucketSecs = windowSeconds / buckets;
         var now = DateTime.Now;
+        var bucketSecs = 60.0 / buckets;
         var counts = new int[buckets];
-
         foreach (var t in _sparkHistory)
         {
             var age = (now - t).TotalSeconds;
-            if (age < 0 || age >= windowSeconds) continue;
+            if (age < 0 || age >= 60) continue;
             var idx = buckets - 1 - (int)(age / bucketSecs);
-            if (idx >= 0 && idx < buckets) counts[idx]++;
+            if ((uint)idx < (uint)buckets) counts[idx]++;
         }
-
         var max = 1;
         foreach (var c in counts) if (c > max) max = c;
-
-        var bars = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588";
-        var sb = new StringBuilder(buckets + 2);
-        sb.Append('\u258f');  // left thin bar as axis
+        const string bars = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588";
+        var sb = new StringBuilder(buckets + 1);
+        sb.Append('\u258f');
         foreach (var c in counts)
-        {
-            var idx = (int)((double)c / max * (bars.Length - 1));
-            sb.Append(bars[idx]);
-        }
+            sb.Append(bars[(int)((double)c / max * (bars.Length - 1))]);
         return sb.ToString();
     }
 
-    // ── Footer ────────────────────────────────────────────────────────────────
-
-    private string BuildFooter(int width)
-    {
-        var hint = _totalThreats >= 3 && _policy.Equals("logonly", StringComparison.OrdinalIgnoreCase)
-            ? Ansi.Yellow + $"  \u26a0  {_totalThreats} threats — run with --policy block to enable blocking" + Ansi.Reset
-            : Ansi.Dim + "  Ctrl+C to stop  \u2502  --verbose for full logs" + Ansi.Reset;
-        return hint;
-    }
-
-    // ── ANSI helpers ──────────────────────────────────────────────────────────
-
-    private static class Ansi
-    {
-        public const string Reset   = "\x1b[0m";
-        public const string Bold    = "\x1b[1m";
-        public const string Dim     = "\x1b[2m";
-        public const string Red     = "\x1b[31m";
-        public const string Green   = "\x1b[32m";
-        public const string Yellow  = "\x1b[33m";
-        public const string Blue    = "\x1b[34m";
-        public const string BgBlue  = "\x1b[44m";
-        public const string BrightWhite = "\x1b[97m";
-        public const string Home    = "\x1b[H";
-    }
-
-    private static string ClearToEndOfLine() => "\x1b[K";
-
-    private static string SectionHeader(string title, int innerW)
-    {
-        var padding = Math.Max(0, innerW - title.Length);
-        return Ansi.Dim + "\u2502" + Ansi.Reset + Ansi.Bold + title + Ansi.Reset
-             + Ansi.Dim + new string('\u2500', padding) + "\u2502" + Ansi.Reset;
-    }
+    // ── Formatting helpers ────────────────────────────────────────────────────
 
     private static string FormatAction(DetectionEntry e)
     {
-        if (e.Verdict == "HUMAN") return Ansi.Green + "Allow" + Ansi.Reset;
+        if (e.Verdict == "HUMAN") return C.Green + "Allow" + C.R;
         return (e.ActionPolicy ?? "").ToLowerInvariant() switch
         {
-            "block" or "block-hard" or "block-soft" => Ansi.Bold + Ansi.Red + "BLOCK" + Ansi.Reset,
-            "challenge" or "challenge-pow" or "challenge-js" => Ansi.Yellow + "Chall" + Ansi.Reset,
-            "throttle" or "throttle-stealth" or "throttle-aggressive" => Ansi.Yellow + "Throt" + Ansi.Reset,
-            "logonly" or "shadow" or "debug" => Ansi.Dim + "Watch" + Ansi.Reset,
-            _ => e.BotProbability >= 0.5 ? Ansi.Dim + "Watch" + Ansi.Reset : Ansi.Green + "Allow" + Ansi.Reset
+            "block" or "block-hard" or "block-soft" => C.Bold + C.Red + "BLOCK" + C.R,
+            "challenge" or "challenge-pow" or "challenge-js" => C.Yellow + "Chall" + C.R,
+            "throttle" or "throttle-stealth" => C.Yellow + "Throt" + C.R,
+            "logonly" or "shadow" or "debug" => C.Dim + "Watch" + C.R,
+            _ => e.BotProbability >= 0.5 ? C.Dim + "Watch" + C.R : C.Green + "Allow" + C.R
         };
     }
 
     private static string ModeLabel(string mode) => mode.ToLowerInvariant() switch
     {
         "demo"       => "OBSERVE",
-        "production" => Ansi.Green + "ACTIVE" + Ansi.BrightWhite,
-        "learning"   => Ansi.Yellow + "LEARNING" + Ansi.BrightWhite,
+        "production" => C.Green + "ACTIVE" + C.White,
+        "learning"   => C.Yellow + "LEARNING" + C.White,
         _            => mode.ToUpperInvariant()
     };
 
     private static string PolicyLabel(string policy) => policy.ToLowerInvariant() switch
     {
-        "block"    => Ansi.Red + "Block" + Ansi.Reset,
-        "throttle" or "throttle-stealth" => Ansi.Yellow + "Throttle" + Ansi.Reset,
-        "challenge" => Ansi.Yellow + "Challenge" + Ansi.Reset,
-        "logonly"  => Ansi.Dim + "Observe only" + Ansi.Reset,
-        _          => policy
+        "block"     => C.Red + "Block" + C.R,
+        "throttle" or "throttle-stealth" => C.Yellow + "Throttle" + C.R,
+        "challenge" => C.Yellow + "Challenge" + C.R,
+        "logonly"   => C.Dim + "Observe only" + C.R,
+        _           => policy
     };
 
     private static string FormatUptime(TimeSpan ts)
     {
-        if (ts.TotalHours >= 1) return $"{ts.Hours}h{ts.Minutes:D2}m";
+        if (ts.TotalHours >= 1) return $"{(int)ts.TotalHours}h{ts.Minutes:D2}m";
         if (ts.TotalMinutes >= 1) return $"{ts.Minutes}m{ts.Seconds:D2}s";
         return $"{ts.Seconds}s";
     }
 
-    // ── String padding helpers (ANSI-aware visual length) ─────────────────────
+    // ── ANSI color constants ──────────────────────────────────────────────────
 
-    private static string Truncate(string s, int maxLen) =>
-        s.Length <= maxLen ? s : s[..(maxLen - 1)] + "\u2026";
-
-    private static string PadRight(string s, int width) =>
-        s.Length >= width ? s : s + new string(' ', width - s.Length);
-
-    private static string PadLeft(string s, int width) =>
-        s.Length >= width ? s : new string(' ', width - s.Length) + s;
-
-    // Visual pad: appends spaces to reach `width` visible chars (ignores escape codes)
-    private static string VisualPad(string s, int width)
+    private static class C
     {
-        var vis = VisualLength(s);
-        return vis >= width ? s : s + new string(' ', width - vis);
+        public const string R      = "\x1b[0m";
+        public const string Bold   = "\x1b[1m";
+        public const string Dim    = "\x1b[2m";
+        public const string Red    = "\x1b[31m";
+        public const string Green  = "\x1b[32m";
+        public const string Yellow = "\x1b[33m";
+        public const string Blue   = "\x1b[34m";
+        public const string White  = "\x1b[97m";
+        public const string BgBlue = "\x1b[44m";
     }
 
-    // Pad an ANSI-colored string to visual width, then add reset
-    private static string PadAnsiRight(string s, int width)
-    {
-        var vis = VisualLength(s);
-        var pad = Math.Max(0, width - vis);
-        return s + new string(' ', pad) + Ansi.Reset;
-    }
+    // ── Visual-width string helpers ───────────────────────────────────────────
 
-    private static int VisualLength(string s)
+    // Count printable characters, skipping CSI escape sequences (\x1b[...m and \x1b[...H etc.)
+    private static int VLen(string s)
     {
         var len = 0;
-        var inEsc = false;
-        foreach (var c in s)
+        var i = 0;
+        while (i < s.Length)
         {
-            if (c == '\x1b') { inEsc = true; continue; }
-            if (inEsc) { if (c == 'm') inEsc = false; continue; }
-            len++;
+            if (s[i] == '\x1b' && i + 1 < s.Length && s[i + 1] == '[')
+            {
+                i += 2;
+                while (i < s.Length && s[i] != 'm' && s[i] != 'H' && s[i] != 'J' && s[i] != 'K' && s[i] != 'l' && s[i] != 'h')
+                    i++;
+                i++;
+            }
+            else
+            {
+                len++;
+                i++;
+            }
         }
         return len;
     }
 
+    private static string VTrunc(string s, int maxVis)
+    {
+        if (s.Length <= maxVis) return s; // fast path: no escape codes, length == vis length
+        var vis = 0;
+        var i = 0;
+        while (i < s.Length && vis < maxVis - 1)
+        {
+            if (s[i] == '\x1b' && i + 1 < s.Length && s[i + 1] == '[')
+            {
+                var j = i + 2;
+                while (j < s.Length && s[j] != 'm' && s[j] != 'H' && s[j] != 'J') j++;
+                i = j + 1;
+            }
+            else { vis++; i++; }
+        }
+        return s[..i] + "\u2026";
+    }
+
+    private static string VPad(string s, int width)
+    {
+        var vis = VLen(s);
+        return vis >= width ? s : s + new string(' ', width - vis);
+    }
+
+    private static string VPadL(string s, int width)
+    {
+        var vis = VLen(s);
+        return vis >= width ? s : new string(' ', width - vis) + s;
+    }
+
     private static void Trim(ConcurrentDictionary<string, int> dict, int keepTop)
     {
-        var toKeep = dict.OrderByDescending(kv => kv.Value).Take(keepTop).Select(kv => kv.Key).ToHashSet();
+        var keep = dict.OrderByDescending(kv => kv.Value).Take(keepTop).Select(kv => kv.Key).ToHashSet();
         foreach (var key in dict.Keys)
-            if (!toKeep.Contains(key))
+            if (!keep.Contains(key))
                 dict.TryRemove(key, out _);
     }
 }
