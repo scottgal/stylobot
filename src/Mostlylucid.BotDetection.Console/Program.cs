@@ -55,6 +55,8 @@ switch (firstArg)
         return 0;
     case "llmtunnel":
         return await LlmTunnelCommand.RunAsync(cmdArgs);
+    case "dashboard":
+        return await RunDashboardAsync(cmdArgs);
 }
 
 // llmtunnel also accepts as a flag form: --llm-tunnel or -llmtunnel
@@ -83,6 +85,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("    stylobot logs                               Show recent log output");
     Console.WriteLine("    stylobot man                                Full reference manual");
     Console.WriteLine("    stylobot llmtunnel [token] [opts]           Start local LLM agent + Cloudflare tunnel");
+    Console.WriteLine("    stylobot dashboard <url> [--api-key <k>]   Remote dashboard for another stylobot instance");
     Console.WriteLine("    stylobot genkey                             Generate a random 32-byte base64 key");
     Console.WriteLine("    stylobot clear [--sessions]                 Clear learned patterns (and optionally sessions)");
     Console.WriteLine();
@@ -961,6 +964,38 @@ finally
 }
 
 return 0;
+
+static async Task<int> RunDashboardAsync(string[] args)
+{
+    // stylobot dashboard <url> [--api-key <key>]
+    var apiKey = GetArg(args, "--api-key") ?? GetArg(args, "--apikey");
+    string? url = null;
+
+    for (var i = 2; i < args.Length; i++)
+    {
+        if (!args[i].StartsWith('-'))
+        {
+            url = args[i];
+            break;
+        }
+    }
+
+    if (url == null)
+    {
+        Console.Error.WriteLine("  Usage: stylobot dashboard <url> [--api-key <key>]");
+        Console.Error.WriteLine("  Example: stylobot dashboard https://mysite.com --api-key mykey");
+        return 1;
+    }
+
+    if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed) ||
+        (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+    {
+        Console.Error.WriteLine($"  Invalid URL: {url}");
+        return 1;
+    }
+
+    return await Mostlylucid.BotDetection.Console.Services.RemoteDashboardTui.RunAsync(url, apiKey);
+}
 
 static async Task<int> ClearLearnedPatternsAsync(string[] args)
 {
