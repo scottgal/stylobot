@@ -36,6 +36,10 @@ public class ProfileAnalysisWorker(
                 finally { sem.Release(); }
             }, stoppingToken);
         }
+
+        // Drain: wait for all in-flight tasks to finish before the semaphore is disposed.
+        for (int i = 0; i < options.Value.Concurrency; i++)
+            await sem.WaitAsync(CancellationToken.None);
     }
 
     private async Task ProcessSnapshotAsync(ProfileRequestSnapshot snapshot, CancellationToken ct)
