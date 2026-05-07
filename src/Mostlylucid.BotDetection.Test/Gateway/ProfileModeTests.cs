@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Policies;
 using Stylobot.Gateway.Configuration;
 using Stylobot.Gateway.Data;
+using Stylobot.Gateway.Endpoints;
 using Stylobot.Gateway.Middleware;
 using Stylobot.Gateway.Services;
 using Xunit;
@@ -247,5 +248,26 @@ public class ProfileCalibrationStoreTests : IDisposable
     {
         var rec = await _store.GetRecommendedThresholdAsync(CancellationToken.None);
         Assert.Null(rec);
+    }
+}
+
+public class CalibrationEndpointTests
+{
+    [Fact]
+    public async Task GetCalibration_ReturnsExpectedShape_WhenNoData()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"calib_ep_{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new ProfileCalibrationStore(dbPath);
+            await store.InitializeAsync(CancellationToken.None);
+            var channel = new ProfileAnalysisChannel(new ProfileModeOptions { ChannelCapacity = 10 });
+
+            var result = await CalibrationEndpoint.GetCalibrationAsync(store, channel, CancellationToken.None);
+            var ok = Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.Ok<CalibrationResponse>>(result);
+            Assert.Equal(0, ok.Value!.TotalAnalyzed);
+            Assert.Null(ok.Value.RecommendedThreshold);
+        }
+        finally { if (File.Exists(dbPath)) File.Delete(dbPath); }
     }
 }
