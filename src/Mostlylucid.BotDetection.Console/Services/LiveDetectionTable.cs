@@ -256,7 +256,8 @@ public sealed class LiveDetectionTableService : BackgroundService
         lines++;
 
         // ── Body rows ─────────────────────────────────────────────────────────
-        var bodyRows = h - lines - 2; // reserve 2 footer rows
+        var footerRows = _tunnelEnabled ? 3 : 2; // extra row for tunnel URL line
+        var bodyRows = h - lines - footerRows;
         var feedEntries = entries.Take(bodyRows).ToArray();
         var sideLines = wide ? BuildSideLines(sideW - 1, bodyRows, scheme, tunnelUrl) : null;
 
@@ -290,15 +291,22 @@ public sealed class LiveDetectionTableService : BackgroundService
         // ── Footer text ───────────────────────────────────────────────────────
         string footer;
         if (_totalThreats >= 3 && _policy.Equals("logonly", StringComparison.OrdinalIgnoreCase))
-            footer = C.Yellow + $"  \u26a0  {_totalThreats} threats in observe-only mode \u2014 add --policy block to enable blocking" + C.R;
+            footer = C.Yellow + $"  \u26a0  {_totalThreats} threats in observe-only mode  add --policy block to enable blocking" + C.R;
         else
             footer = C.Dim + "  Ctrl+C to stop  |  --verbose for full logs" + C.R;
 
-        if (tunnelUrl != null)
-            footer += C.Dim + "  |  tunnel: " + C.R + C.Green + tunnelUrl + C.R;
-
         sb.Append(footer);
         sb.Append("\x1b[K");
+
+        if (_tunnelEnabled)
+        {
+            sb.Append("\n");
+            if (tunnelUrl != null)
+                sb.Append(C.Bold + C.Green + "  tunnel: " + C.R + C.Green + tunnelUrl + C.R);
+            else
+                sb.Append(C.Yellow + "  tunnel: connecting\u2026" + C.R);
+            sb.Append("\x1b[K");
+        }
         // No trailing \n on the last line — prevents the terminal from scrolling.
 
         return sb.ToString();

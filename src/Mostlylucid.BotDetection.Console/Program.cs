@@ -555,6 +555,8 @@ try
     });
 
     // Configure Kestrel for TLS if certificate provided (must be before Build)
+    // When tunnel is active without TLS, enable h2c so cloudflared --http2-origin can use HTTP/2
+    // to localhost — preventing the Http2FingerprintContributor from penalising proxied browser requests.
     if (useTls)
     {
         builder.WebHost.ConfigureKestrel(kestrel =>
@@ -579,6 +581,16 @@ try
                             System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromPemFile(certPath, keyPath);
                     });
                 }
+            });
+        });
+    }
+    else if (tunnelEnabled)
+    {
+        builder.WebHost.ConfigureKestrel(kestrel =>
+        {
+            kestrel.ListenAnyIP(portNumber, listenOptions =>
+            {
+                listenOptions.Protocols = Microsoft.AspNetCore.Server.Kestrel.Core.HttpProtocols.Http1AndHttp2;
             });
         });
     }

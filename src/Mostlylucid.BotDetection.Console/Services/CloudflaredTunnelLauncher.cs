@@ -92,7 +92,7 @@ public static class CloudflaredTunnelLauncher
             psi = new ProcessStartInfo
             {
                 FileName = "cloudflared",
-                Arguments = $"tunnel --url {scheme}://localhost:{port}",
+                Arguments = $"tunnel --url {scheme}://localhost:{port} --protocol http2 --http2-origin",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
