@@ -1151,8 +1151,10 @@ static void ShowManPage()
     [dim]StyloBot Community Edition                Free forever                    v5.6[/]
     """;
 
-    Spectre.Console.AnsiConsole.Write(new Spectre.Console.Markup(man));
-    Console.WriteLine();
+    // Render [bold]...[/] and [dim]...[/] tags with ANSI codes (no Spectre dependency)
+    var rendered = System.Text.RegularExpressions.Regex.Replace(man, @"\[bold\](.*?)\[/\]", "\x1b[1m$1\x1b[0m");
+    rendered = System.Text.RegularExpressions.Regex.Replace(rendered, @"\[dim\](.*?)\[/\]", "\x1b[2m$1\x1b[0m");
+    Console.WriteLine(rendered);
 }
 
 // Calculate client-side bot score based on browser fingerprinting checks
