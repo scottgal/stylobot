@@ -36,6 +36,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
+        <ProjectReference Include="..\Stylobot.Gateway\Stylobot.Gateway.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.ApiHolodeck\Mostlylucid.BotDetection.ApiHolodeck.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.Holodeck\Mostlylucid.BotDetection.Llm.Holodeck.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.Tunnel\Mostlylucid.BotDetection.Llm.Tunnel.csproj" />

@@ -420,6 +420,30 @@ public sealed record DetectionPolicy
     };
 
     /// <summary>
+    ///     Creates a profile policy for fingerprint-only calibration.
+    ///     Runs only the Signature detector (~300ns overhead) and never blocks inline.
+    ///     All results are forwarded to a background analysis worker.
+    ///     Use this to calibrate a blocking threshold using live traffic before enabling enforcement.
+    /// </summary>
+    public static DetectionPolicy Profile => new()
+    {
+        Name = "profile",
+        Description = "Fingerprint-only detection for calibration — never blocks inline",
+        FastPathDetectors = ImmutableList.Create("Signature"),
+        SlowPathDetectors = ImmutableList<string>.Empty,
+        AiPathDetectors = ImmutableList<string>.Empty,
+        ResponsePathDetectors = ImmutableList<string>.Empty,
+        UseFastPath = true,
+        ForceSlowPath = false,
+        EscalateToAi = false,
+        EarlyExitThreshold = 1.0,
+        ImmediateBlockThreshold = 1.1,
+        BypassTriggerConditions = false,
+        ExcludedDetectors = ImmutableHashSet<string>.Empty
+            .WithComparer(StringComparer.OrdinalIgnoreCase),
+    };
+
+    /// <summary>
     ///     Creates an API policy optimized for API endpoints.
     ///     Focuses on behavioral and header analysis, minimal latency.
     /// </summary>

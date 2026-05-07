@@ -75,6 +75,7 @@ public class PolicyRegistry : IPolicyRegistry
         RegisterPolicy(DetectionPolicy.Learning);
         RegisterPolicy(DetectionPolicy.YarpLearning);
         RegisterPolicy(DetectionPolicy.Monitor);
+        RegisterPolicy(DetectionPolicy.Profile);
         RegisterPolicy(DetectionPolicy.Api);
         RegisterPolicy(DetectionPolicy.FastWithOnnx);
         RegisterPolicy(DetectionPolicy.FastWithAi);
