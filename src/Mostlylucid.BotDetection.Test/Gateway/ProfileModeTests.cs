@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Policies;
 using Stylobot.Gateway.Configuration;
 using Stylobot.Gateway.Data;
+using Stylobot.Gateway.Middleware;
 using Stylobot.Gateway.Services;
 using Xunit;
 
@@ -133,6 +135,41 @@ public class ProfileAnalysisChannelTests
         Headers = new Dictionary<string, string[]>(),
         CapturedAt = DateTime.UtcNow,
     };
+}
+
+public class ProfileCaptureMiddlewareTests
+{
+    [Fact]
+    public async Task Middleware_Enqueues_WhenProfileModeEnabled()
+    {
+        var opts = Options.Create(new ProfileModeOptions { Enabled = true, ChannelCapacity = 10 });
+        var channel = new ProfileAnalysisChannel(opts.Value);
+        var middleware = new ProfileCaptureMiddleware(
+            _ => Task.CompletedTask, opts, channel);
+
+        var ctx = new DefaultHttpContext();
+        ctx.Request.Method = "GET";
+        ctx.Request.Path = "/test";
+        ctx.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("10.0.0.1");
+
+        await middleware.InvokeAsync(ctx);
+
+        Assert.Equal(1, channel.QueueDepth);
+    }
+
+    [Fact]
+    public async Task Middleware_DoesNotEnqueue_WhenProfileModeDisabled()
+    {
+        var opts = Options.Create(new ProfileModeOptions { Enabled = false, ChannelCapacity = 10 });
+        var channel = new ProfileAnalysisChannel(opts.Value);
+        var middleware = new ProfileCaptureMiddleware(
+            _ => Task.CompletedTask, opts, channel);
+
+        var ctx = new DefaultHttpContext();
+        await middleware.InvokeAsync(ctx);
+
+        Assert.Equal(0, channel.QueueDepth);
+    }
 }
 
 public class ProfileCalibrationStoreTests : IDisposable
