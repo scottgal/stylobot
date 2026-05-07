@@ -168,7 +168,7 @@ public class ProfileCalibrationStoreTests : IDisposable
 
         var dist = await _store.GetScoreDistributionAsync(CancellationToken.None);
         Assert.True(dist.TotalAnalyzed >= 1);
-        Assert.True(dist.Buckets.ContainsKey("0.2") || dist.Buckets.Any(b => b.Value > 0));
+        Assert.True(dist.Buckets.ContainsKey("0.2"));
     }
 
     [Fact]

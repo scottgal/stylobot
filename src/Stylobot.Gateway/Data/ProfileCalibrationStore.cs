@@ -143,9 +143,9 @@ public class ProfileCalibrationStore(string dbPath)
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 SELECT COUNT(*) AS blocked,
-                       COALESCE(GROUP_CONCAT(DISTINCT bot_type), '') AS types
+                       COALESCE(GROUP_CONCAT(DISTINCT CASE WHEN bot_type IS NOT NULL THEN bot_type END), '') AS types
                 FROM profile_calibration
-                WHERE bot_probability >= $threshold AND bot_type IS NOT NULL
+                WHERE bot_probability >= $threshold
                 """;
             cmd.Parameters.AddWithValue("$threshold", threshold);
 
@@ -177,7 +177,7 @@ public class ProfileCalibrationStore(string dbPath)
         var dist = await GetScoreDistributionAsync(ct);
         if (dist.TotalAnalyzed < 100) return null;
 
-        var candidates = new[] { 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9 };
+        var candidates = new[] { 0.4, 0.5, 0.6, 0.7, 0.8 };
         var counts = candidates
             .Select(b => (bucket: b, count: dist.Buckets.GetValueOrDefault($"{b:F1}", 0)))
             .ToList();
