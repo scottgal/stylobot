@@ -1,0 +1,22 @@
+services:
+  stylobot:
+    image: stylobot/gateway:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - DEFAULT_UPSTREAM=http://myapp:3000
+      - GATEWAY_PROFILE_MODE=true
+      - GATEWAY_PROFILE_CHANNEL_CAPACITY=10000
+      - GATEWAY_PROFILE_CONCURRENCY=2
+      - ADMIN_SECRET=${ADMIN_SECRET}
+      - TRUST_ALL_FORWARDED_PROXIES=true
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    depends_on:
+      - myapp
+
+  myapp:
+    image: nginx:alpine
+    expose:
+      - "3000"

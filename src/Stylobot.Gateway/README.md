@@ -69,6 +69,7 @@ Ready-to-run examples for common deployment scenarios. Each includes a `docker-c
 | API Service Protection | Credential stuffing, API key probing | `examples/api-protection/` |
 | Shadow Mode | Monitor-only before enabling blocking | `examples/shadow-mode/` |
 | Multi-Site / SaaS | Multiple virtual hosts with different policies | `examples/multi-site/` |
+| Profile Mode | Collect calibration data before enabling blocking | `examples/profile-mode/` |
 
 ---
 
