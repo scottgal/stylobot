@@ -1,0 +1,22 @@
+# StyloBot Gateway — Shadow Mode (Transparent Monitoring)
+# Detects bots but never blocks. Observe traffic for 7 days, then enable blocking.
+#
+# Usage:
+#   cp .env.example .env   # set APP_UPSTREAM
+#   docker compose up -d
+#   # After review: set BLOCK_BOTS=true in .env and restart
+
+services:
+  gateway:
+    image: scottgal/stylobot-gateway:latest
+    ports:
+      - "80:8080"
+    environment:
+      - DEFAULT_UPSTREAM=${APP_UPSTREAM:?Set APP_UPSTREAM=http://yourapp:3000 in .env}
+      - ADMIN_ALLOW_INSECURE=true
+      - BOTDETECTION__BLOCKDETECTEDBOTS=${BLOCK_BOTS:-false}
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
