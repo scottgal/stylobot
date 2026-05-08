@@ -17,6 +17,7 @@ using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Similarity;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.MonitoringPacks;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Analysis;
@@ -896,7 +897,10 @@ public class StyloBotDashboardMiddleware
             StatusStrip = BuildStatusStripModel(context),
             Compliance = tab.Equals("compliance", StringComparison.OrdinalIgnoreCase)
                 ? BuildComplianceTabModel(context)
-                : null
+                : null,
+            MonitoringPackEnabled = context.RequestServices
+                .GetServices<IMonitoringPack>()
+                .Any()
         };
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
