@@ -38,7 +38,8 @@ public class Http2FingerprintContributorTests
 
     private Http2FingerprintContributor CreateContributor()
     {
-        return new Http2FingerprintContributor(_loggerMock.Object, _configProviderMock.Object);
+        return new Http2FingerprintContributor(_loggerMock.Object, _configProviderMock.Object,
+            new Mostlylucid.BotDetection.Analysis.DeploymentNormTracker());
     }
 
     private BlackboardState CreateState(string protocol, Dictionary<string, string>? headers = null)
