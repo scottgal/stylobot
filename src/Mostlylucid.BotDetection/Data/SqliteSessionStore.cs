@@ -184,6 +184,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         // ALTER TABLE ADD COLUMN is idempotent in the sense that we catch duplicate-column errors.
         await MigrateAddColumnAsync(conn, "sessions", "frequency_fingerprint", "BLOB", ct);
         await MigrateAddColumnAsync(conn, "sessions", "drift_vector", "BLOB", ct);
+        await MigrateAddColumnAsync(conn, "sessions", "user_agent_raw", "TEXT", ct);
         await MigrateAddColumnAsync(conn, "signatures", "frequency_centroid", "BLOB", ct);
 
         _logger.LogInformation("SQLite session store initialized at {ConnectionString}", _connectionString);

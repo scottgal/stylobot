@@ -55,18 +55,25 @@ public class DashboardSummaryBroadcaster : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
             try
             {
-                // Seed SignatureAggregateCache from DB on first iteration
+                // Seed SignatureAggregateCache from DB on first iteration.
+                // Retry if sessions table isn't created yet (fresh install race condition).
                 if (!_seeded)
                 {
-                    _seeded = true;
                     try
                     {
                         var seedBots = await _eventStore.GetTopBotsAsync(100);
                         _signatureCache.SeedFromTopBots(seedBots);
+                        _seeded = true;
                         _logger.LogInformation("Seeded SignatureAggregateCache with {Count} entries from DB", seedBots.Count);
+                    }
+                    catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.Message.Contains("no such table"))
+                    {
+                        // Sessions table not yet created (fresh install) — retry next cycle
+                        _logger.LogDebug("Sessions table not ready yet, will retry seed next cycle");
                     }
                     catch (Exception ex)
                     {
+                        _seeded = true; // don't spam on non-transient errors
                         _logger.LogWarning(ex, "Failed to seed SignatureAggregateCache from DB");
                     }
                 }

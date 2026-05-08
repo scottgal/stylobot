@@ -160,6 +160,13 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
 
     public Task AddAsync(float[] vector, string signatureId, bool wasBot, double confidence, string? embeddingContext = null)
     {
+        if (vector.Length != FeatureVectorizer.VectorDimension)
+        {
+            _logger.LogDebug("Skipping signature vector with wrong dimension {Actual} (expected {Expected})",
+                vector.Length, FeatureVectorizer.VectorDimension);
+            return Task.CompletedTask;
+        }
+
         if (!IsValidVector(vector))
         {
             _logger.LogDebug("Skipping zero-norm signature vector for {Signature}", signatureId);
@@ -357,46 +364,29 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
                 return;
             }
 
-            // Detect dimension growth: zero-pad old vectors to current size
-            var savedDim = manifest?.Dimension ?? (loadedVectors.Count > 0 ? loadedVectors[0].Length : 0);
+            // Filter out any vectors that don't match the current expected dimension.
+            // This handles schema changes (e.g., signature search was formerly fed 129-dim session
+            // vectors and is now fed 64-dim FeatureVectorizer vectors) so stale files don't cause
+            // "Vectors have non-matching dimensions" exceptions in the HNSW graph builder.
+            var expectedDim = FeatureVectorizer.VectorDimension;
             var needsGraphRebuild = false;
-            if (savedDim > 0 && loadedVectors.Count > 0)
-            {
-                var currentDim = loadedVectors[0].Length; // actual saved dim
-                // We compare against what the live vectorizer would produce
-                // If saved dim < current session vector dimensions, zero-pad
-                if (savedDim < currentDim)
-                {
-                    // This shouldn't happen (manifest would have the save-time dim already)
-                    // but guard anyway
-                }
-                else if (savedDim > currentDim)
-                {
-                    // Saved vectors have more dimensions than current build: discard
-                    _logger.LogWarning(
-                        "HNSW saved dimension ({Saved}) exceeds current dimension ({Current}), discarding index",
-                        savedDim, currentDim);
-                    DiscardIndex(metaPath, graphPath, vectorPath, manifestPath);
-                    return;
-                }
-            }
 
-            // Zero-pad if manifest records a smaller saved dim than current live dim
-            // (manifest.Dimension is what was saved; if the live code now produces wider vectors,
-            //  we pad so the existing data is still usable and the graph gets rebuilt)
-            if (manifest is not null && loadedVectors.Count > 0)
+            if (loadedVectors.Count > 0)
             {
-                var liveDim = Analysis.SessionVectorizer.Dimensions;
-                if (manifest.Dimension < liveDim)
+                var before = loadedVectors.Count;
+                var filtered = loadedVectors
+                    .Zip(loadedMetadata, (v, m) => (v, m))
+                    .Where(pair => pair.v.Length == expectedDim)
+                    .ToList();
+
+                if (filtered.Count != before)
                 {
-                    _logger.LogInformation(
-                        "HNSW dimension grew from {Old} to {New}, zero-padding {Count} vectors",
-                        manifest.Dimension, liveDim, loadedVectors.Count);
-                    loadedVectors = loadedVectors
-                        .Select(v => ZeroPad(v, liveDim))
-                        .ToList();
+                    _logger.LogWarning(
+                        "HNSW: discarded {Stale} vectors with wrong dimension (expected {Dim}) — schema change detected",
+                        before - filtered.Count, expectedDim);
+                    loadedVectors = filtered.Select(p => p.v).ToList();
+                    loadedMetadata = filtered.Select(p => p.m).ToList();
                     needsGraphRebuild = true;
-                    // Delete stale serialized graph so LoadAsync rebuilds it
                     try { File.Delete(graphPath); } catch { /* best-effort */ }
                 }
             }

@@ -81,8 +81,15 @@ public class FastPathReputationContributor : ConfiguredContributorBase
             }
         }
 
-        // Check raw IP if UA didn't match
-        if (matchedPattern == null && !string.IsNullOrWhiteSpace(state.ClientIp))
+        // Check raw IP if UA didn't match.
+        // Skip reputation lookup for loopback/private IPs — their accumulated reputation
+        // reflects testing traffic, not real bot behavior. They get a safe neutral bias.
+        var isLocalIp = state.ClientIp is "::1" or "127.0.0.1" or "localhost"
+            || (state.ClientIp?.StartsWith("192.168.") == true)
+            || (state.ClientIp?.StartsWith("10.") == true)
+            || (state.ClientIp?.StartsWith("172.") == true && IsRfc1918_172(state.ClientIp));
+
+        if (matchedPattern == null && !string.IsNullOrWhiteSpace(state.ClientIp) && !isLocalIp)
         {
             var ipPatternId = CreateIpPatternId(state.ClientIp);
             var ipReputation = _reputationCache.Get(ipPatternId);
@@ -251,4 +258,11 @@ public class FastPathReputationContributor : ConfiguredContributorBase
 
     private static string CreateIpPatternId(string ip)
         => PatternNormalization.CreateIpPatternId(ip);
+
+    private static bool IsRfc1918_172(string ip)
+    {
+        // 172.16.0.0/12 — second octet 16-31
+        var parts = ip.Split('.');
+        return parts.Length >= 2 && int.TryParse(parts[1], out var second) && second is >= 16 and <= 31;
+    }
 }
