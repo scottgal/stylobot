@@ -104,7 +104,17 @@ No pack names or IDs appear as string literals in the view.
 
 ## Config / Registration
 
-`MonitoringPackOptions.Enabled` remains the config gate. When `Enabled = false`, no `IMonitoringPack` is registered in DI, the list is empty, and no pack tabs appear. No view or middleware code needs to know about the flag directly.
+`MonitoringPackOptions.Enabled` defaults to `true` - the System tab is on by default for all users. Set `Enabled: false` in appsettings to opt out:
+
+```json
+"StyloBot": {
+  "Dashboard": {
+    "MonitoringPack": { "Enabled": false }
+  }
+}
+```
+
+When `Enabled = false`, no `IMonitoringPack` is registered in DI, `_packTabs` is empty, and no pack tabs appear. No view or middleware code checks the flag directly.
 
 Future packs (WordPress simulation pack, commercial network pack) implement `TabName` and are registered in DI; their tab appears automatically.
 
