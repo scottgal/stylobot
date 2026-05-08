@@ -302,7 +302,15 @@ public sealed class LiveDetectionTableService : BackgroundService
         {
             sb.Append("\n");
             if (tunnelUrl != null)
-                sb.Append(C.Bold + C.Green + "  tunnel: " + C.R + C.Green + tunnelUrl + C.R);
+            {
+                // Re-enable wrap so the full URL is never clipped; OSC 8 makes it clickable.
+                sb.Append("\x1b[?7h");
+                sb.Append(C.Bold + C.Green + "  tunnel: " + C.R);
+                sb.Append($"\x1b]8;;{tunnelUrl}\x1b\\");   // OSC 8 open
+                sb.Append(C.Green + C.Bold + tunnelUrl + C.R);
+                sb.Append("\x1b]8;;\x1b\\");               // OSC 8 close
+                sb.Append("\x1b[?7l");                      // restore no-wrap for rest of frame
+            }
             else
                 sb.Append(C.Yellow + "  tunnel: connecting\u2026" + C.R);
             sb.Append("\x1b[K");
