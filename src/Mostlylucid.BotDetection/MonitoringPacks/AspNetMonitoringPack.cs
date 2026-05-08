@@ -14,6 +14,7 @@ public sealed class AspNetMonitoringPack : IMonitoringPack
     public string Id => "aspnet-monitoring";
     public string Name => "ASP.NET + StyloBot Metrics";
     public string Description => "StyloBot operational meters and optional ASP.NET host metrics";
+    public string TabName => "System";
     public TimeSpan CollectionInterval => TimeSpan.FromSeconds(60);
 
     public IReadOnlyList<MeterCollectionGroup> MeterGroups => BuildGroups();

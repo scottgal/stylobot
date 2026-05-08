@@ -5,6 +5,7 @@ public interface IMonitoringPack
     string Id { get; }
     string Name { get; }
     string Description { get; }
+    string TabName { get; }
     TimeSpan CollectionInterval { get; }
     IReadOnlyList<MeterCollectionGroup> MeterGroups { get; }
 }

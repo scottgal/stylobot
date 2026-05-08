@@ -107,6 +107,7 @@ public class MeterListenerServiceTests : IAsyncDisposable
         public string Id => "test";
         public string Name => "Test Pack";
         public string Description => "Test";
+        public string TabName => "Test";
         public TimeSpan CollectionInterval => TimeSpan.FromSeconds(60);
         public IReadOnlyList<MeterCollectionGroup> MeterGroups => groups;
     }

@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.MonitoringPacks;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
 using Xunit;
@@ -7,51 +8,61 @@ namespace Mostlylucid.BotDetection.Test.MonitoringPacks;
 public class PackUxTests
 {
     [Fact]
-    public void MonitoringPackOptions_Enabled_DefaultsToFalse()
+    public void AspNetMonitoringPack_TabName_IsSystem()
     {
-        var opts = new MonitoringPackOptions();
-        Assert.False(opts.Enabled);
+        var pack = new AspNetMonitoringPack();
+        Assert.Equal("System", pack.TabName);
     }
 
     [Fact]
-    public void MonitoringPackOptions_CanSetEnabled()
+    public void MonitoringPackOptions_Enabled_DefaultsToTrue()
     {
-        var opts = new MonitoringPackOptions { Enabled = true };
+        var opts = new MonitoringPackOptions();
         Assert.True(opts.Enabled);
     }
 
     [Fact]
-    public void DashboardShellModel_MonitoringPackEnabled_CanBeFalse()
+    public void DashboardShellModel_MonitoringPacks_DefaultsToEmpty()
     {
-        var model = BuildMinimalShellModel(monitoringPackEnabled: false);
-        Assert.False(model.MonitoringPackEnabled);
+        var model = BuildShellModel([]);
+        Assert.Empty(model.MonitoringPacks);
+        Assert.False(model.HasPackTabs);
     }
 
     [Fact]
-    public void DashboardShellModel_MonitoringPackEnabled_CanBeTrue()
+    public void DashboardShellModel_HasPackTabs_TrueWhenListNotEmpty()
     {
-        var model = BuildMinimalShellModel(monitoringPackEnabled: true);
-        Assert.True(model.MonitoringPackEnabled);
+        var model = BuildShellModel([new PackTabInfo("aspnet-monitoring", "System")]);
+        Assert.True(model.HasPackTabs);
     }
 
-    private static DashboardShellModel BuildMinimalShellModel(bool monitoringPackEnabled) =>
+    [Fact]
+    public void DashboardShellModel_IsPackTab_ReturnsTrueForRegisteredId()
+    {
+        var model = BuildShellModel([new PackTabInfo("aspnet-monitoring", "System")]);
+        Assert.True(model.IsPackTab("aspnet-monitoring"));
+        Assert.False(model.IsPackTab("metrics"));
+        Assert.False(model.IsPackTab("overview"));
+    }
+
+    private static DashboardShellModel BuildShellModel(IReadOnlyList<PackTabInfo> packs) =>
         new()
         {
-            CspNonce = "test",
-            BasePath = "/stylobot",
-            HubPath = "/stylobot/hub",
-            ActiveTab = "overview",
-            Summary = null!,
-            Visitors = null!,
+            CspNonce      = "test",
+            BasePath      = "/stylobot",
+            HubPath       = "/stylobot/hub",
+            ActiveTab     = "overview",
+            Summary       = null!,
+            Visitors      = null!,
             YourDetection = null!,
-            Countries = null!,
-            Endpoints = null!,
-            Clusters = null!,
-            UserAgents = null!,
-            TopBots = null!,
-            Sessions = null!,
-            Threats = null!,
-            License = null!,
-            MonitoringPackEnabled = monitoringPackEnabled
+            Countries     = null!,
+            Endpoints     = null!,
+            Clusters      = null!,
+            UserAgents    = null!,
+            TopBots       = null!,
+            Sessions      = null!,
+            Threats       = null!,
+            License       = null!,
+            MonitoringPacks = packs,
         };
 }
