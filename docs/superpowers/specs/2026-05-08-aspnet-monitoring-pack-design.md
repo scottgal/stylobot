@@ -273,6 +273,82 @@ SignalR invalidation key: `"metrics"` — same HTMX coordinator that handles all
 
 ---
 
+## Phase 2: Endpoint Perf Correlation + User Identity Enrichment
+
+Phase 1 collects metrics as an independent time-series. Phase 2 joins that data with
+detections and optionally enriches the blackboard with authenticated user identity signals.
+Phase 2 is planned but not part of the initial implementation.
+
+### Endpoint Performance Correlation
+
+The Endpoint Detail page (already in backlog) will show a bot/human performance split:
+ASP.NET's `http.server.request.duration` is tagged with `http.route` when using minimal
+APIs or MVC. `metric_snapshots` rows for those route tags can be joined with `detections`
+rows for the same path to produce a side-by-side "bot latency vs human latency" chart.
+
+No new infrastructure required for Phase 2 endpoint correlation — it is a query change in
+`SqliteDashboardEventStore.GetEndpointDetailAsync` that left-joins `metric_snapshots` on
+`instrument = 'http.server.request.duration'` and `tags LIKE '%route%'`. The Endpoint
+Detail Razor partial gains two new chart series.
+
+### User Identity Enrichment
+
+When an endpoint is behind ASP.NET authentication, `HttpContext.User` has claims available
+at detection time. StyloBot can use this as a behavioral anchor without storing PII.
+
+**What gets captured (opt-in, off by default):**
+
+- `user.is_authenticated` — boolean signal, no identity stored
+- `user.subject_hash` — HMAC-SHA256 of the sub/nameidentifier claim using the same key
+  as `PrimarySignature`, making it linkable across sessions without being reversible
+- `user.role_flags` — bitmask of role membership for known high-value roles (admin, editor,
+  api-user), configured via `BotDetectionOptions.MonitoringPack.TrackedRoles`
+
+**What this enables:**
+
+- Entity resolution: if a user's behavioral vector diverges sharply mid-session, that is a
+  credential-stuffing or session-hijack signal. The `subject_hash` links sessions to detect
+  when a legitimate account suddenly starts behaving like a bot.
+- Rate-limit bypass detection: same `subject_hash` appearing across multiple `PrimarySignature`
+  values in a short window indicates credential sharing or token theft.
+- Dashboard: Visitors tab gains an "Authenticated" badge and a "user.subject_hash" row in
+  the signals panel. No raw username is ever displayed.
+
+**Implementation:**
+
+New `UserIdentityContributor` detector (Priority 8, Wave 0):
+
+```csharp
+// Reads HttpContext.User, writes signals only if opt-in enabled
+state.WriteSignals([
+    new(SignalKeys.UserIsAuthenticated, true),
+    new(SignalKeys.UserSubjectHash, ComputeSubjectHash(sub, hmacKey)),
+    new(SignalKeys.UserRoleFlags, ComputeRoleFlags(user, options.TrackedRoles))
+]);
+```
+
+No bot/human contribution — this is a signal-only contributor. Downstream detectors
+(`BehavioralContributor`, `SessionVectorContributor`) consume these signals to anchor
+session chains and detect cross-session velocity for authenticated identities.
+
+**Zero-PII guarantee maintained:** `user.subject_hash` uses the same HMAC key as
+`PrimarySignature`, so it is non-reversible without the key. Raw claims never touch
+the blackboard, never persist to SQLite.
+
+**Config:**
+```json
+{
+  "BotDetection": {
+    "MonitoringPack": {
+      "EnableUserIdentityEnrichment": true,
+      "TrackedRoles": ["admin", "editor"]
+    }
+  }
+}
+```
+
+---
+
 ## Implementation Sequence
 
 1. `IMonitoringPack`, `MeterCollectionGroup`, `InstrumentCollectionSpec`, `CollectedValueType` (interfaces only)
