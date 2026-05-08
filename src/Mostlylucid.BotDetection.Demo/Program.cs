@@ -63,7 +63,7 @@ builder.Services.AddGeoDetectionContributor(options =>
 });
 
 // Add StyloBot Dashboard UI with real-time SignalR monitoring
-builder.Services.AddStyloBotDashboard(options =>
+builder.Services.AddStyloBotDashboard(builder.Configuration, options =>
 {
     options.Enabled = true;
     options.BasePath = "/stylobot";

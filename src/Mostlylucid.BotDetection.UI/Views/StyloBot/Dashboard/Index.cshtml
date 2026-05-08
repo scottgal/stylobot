@@ -154,26 +154,68 @@
     <!-- Main content -->
     <main class="max-w-7xl mx-auto px-2 py-4">
 
-        <!-- Summary stats - always visible -->
-        <sb-summary-stats />
+        <!-- Summary stats + right panel: side by side at half-width -->
+        @{
+            var yd = Model.YourDetection;
+            var ydRiskClass = yd.RiskBand is "VeryHigh" or "High" ? "text-error"
+                : yd.RiskBand is "Medium" or "Elevated" ? "text-warning" : "text-success";
+            var ydProbPct = (yd.BotProbability * 100).ToString("F1");
+        }
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
+            <sb-summary-stats />
 
-        <!-- License + Your Detection -->
+            @if (Model.License.Status != LicenseStatusKind.Unconfigured)
+            {
+                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_LicenseCard.cshtml", Model.License)
+            }
+            else
+            {
+                <!-- FOSS: compact your-detection alongside summary stats -->
+                <div id="your-detection"
+                     data-sb-widget="your-detection"
+                     data-sb-depends="summary,@(yd.Signature ?? "")"
+                     class="rounded-lg p-3"
+                     style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+                    <div class="flex items-center gap-1 mb-2">
+                        <span class="text-[10px] font-semibold text-base-content/50 uppercase tracking-wider">Your Detection</span>
+                        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "your-detection")
+                        @if (yd.HasData)
+                        {
+                            @if (yd.IsBot) { <span class="badge badge-xs badge-error">Bot</span> }
+                            else { <span class="badge badge-xs badge-success">Human</span> }
+                        }
+                        @if (yd.HasData && !string.IsNullOrEmpty(yd.Signature))
+                        {
+                            <a href="@yd.BasePath/signature/@Uri.EscapeDataString(yd.Signature)" class="ml-auto text-[10px] underline text-base-content/40 hover:text-base-content/60">Details &rsaquo;</a>
+                        }
+                    </div>
+                    @if (!yd.HasData)
+                    {
+                        <div class="text-[11px] text-base-content/40 py-1">Waiting for detection data&hellip;</div>
+                    }
+                    else
+                    {
+                        <div class="flex items-center gap-3">
+                            <span class="text-lg font-black @ydRiskClass">@ydProbPct%</span>
+                            <span class="text-[10px] text-base-content/50">@yd.RiskBand risk</span>
+                            <span class="text-[9px] text-base-content/30 ml-auto">@yd.DetectorCount det &middot; @yd.ProcessingTimeMs.ToString("F1")ms</span>
+                        </div>
+                        @if (yd.TopReasons.Count > 0)
+                        {
+                            <div class="mt-1.5 flex flex-col gap-0.5">
+                                @foreach (var reason in yd.TopReasons.Take(2))
+                                {
+                                    <span class="text-[10px] text-base-content/50 truncate" title="@reason">&bull; @reason</span>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+            }
+        </div>
         @if (Model.License.Status != LicenseStatusKind.Unconfigured)
         {
-            <!-- Licensed: two-column layout with license details -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 my-4">
-                <div>
-                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_LicenseCard.cshtml", Model.License)
-                </div>
-                <div>
-                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_YourDetection.cshtml", Model.YourDetection)
-                </div>
-            </div>
-        }
-        else
-        {
-            <!-- OSS: full-width Your Detection (license reminder is in header) -->
-            <div class="my-4">
+            <div class="mb-3">
                 @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_YourDetection.cshtml", Model.YourDetection)
             </div>
         }

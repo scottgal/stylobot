@@ -136,7 +136,6 @@ public class StyloBotDashboardMiddleware
         RazorViewRenderer razorViewRenderer,
         IMemoryCache widgetCache,
         IWebHostEnvironment env,
-        IEnumerable<IMonitoringPack> monitoringPacks,
         ILogger<StyloBotDashboardMiddleware> logger)
     {
         _next = next;
@@ -147,7 +146,7 @@ public class StyloBotDashboardMiddleware
         _razorViewRenderer = razorViewRenderer;
         _widgetCache = widgetCache;
         _env = env;
-        _monitoringPackEnabled = monitoringPacks.Any();
+        _monitoringPackEnabled = options.MonitoringPack.Enabled;
         _logger = logger;
     }
 
@@ -801,6 +800,7 @@ public class StyloBotDashboardMiddleware
 
         var basePath = _options.BasePath.TrimEnd('/');
         var tab = context.Request.Query["tab"].FirstOrDefault() ?? "overview";
+        if (tab == "metrics" && !_monitoringPackEnabled) tab = "overview";
 
         // Build all partial models server-side - fully rendered, no JSON serialization needed
         var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();

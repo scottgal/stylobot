@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.MonitoringPacks;
 using Mostlylucid.BotDetection.UI.Configuration;
 
@@ -7,7 +6,7 @@ namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 
 public class SbMetricsTabViewComponent(
     IMetricSnapshotStore snapshotStore,
-    IOptions<StyloBotDashboardOptions> options)
+    StyloBotDashboardOptions options)
     : ViewComponent
 {
     public async Task<IViewComponentResult> InvokeAsync(string packId = "aspnet-monitoring")
@@ -17,8 +16,8 @@ public class SbMetricsTabViewComponent(
         {
             PackId = packId,
             LatestSnapshots = latest,
-            IncludeHostMeters = options.Value.MonitoringPack.IncludeAspNetHostMeters,
-            BasePath = options.Value.BasePath.TrimEnd('/')
+            IncludeHostMeters = options.MonitoringPack.IncludeAspNetHostMeters,
+            BasePath = options.BasePath.TrimEnd('/')
         });
     }
 }

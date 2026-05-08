@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -145,6 +146,23 @@ public static class StyloBotDashboardServiceExtensions
     /// <param name="services">The service collection</param>
     /// <param name="configure">Configuration options</param>
     /// <returns>The service collection for chaining</returns>
+    /// <summary>
+    ///     Adds Stylobot Dashboard services, binding options from <c>StyloBot:Dashboard</c>
+    ///     in <paramref name="configuration"/> before applying the optional <paramref name="configure"/> lambda.
+    ///     FOSS users can set <c>MonitoringPack:Enabled</c> in appsettings.json without a code change.
+    /// </summary>
+    public static IServiceCollection AddStyloBotDashboard(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        Action<StyloBotDashboardOptions>? configure = null)
+    {
+        return services.AddStyloBotDashboard(options =>
+        {
+            configuration.GetSection("StyloBot:Dashboard").Bind(options);
+            configure?.Invoke(options);
+        });
+    }
+
     public static IServiceCollection AddStyloBotDashboard(
         this IServiceCollection services,
         Action<StyloBotDashboardOptions>? configure = null)

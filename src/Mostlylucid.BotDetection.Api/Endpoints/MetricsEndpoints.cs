@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Models;
@@ -27,12 +28,15 @@ public static class MetricsEndpoints
     }
 
     private static async Task<IResult> HandleTimeseries(
-        IMetricSnapshotStore store,
+        [FromServices] IMetricSnapshotStore? store,
         string packId = "aspnet-monitoring",
         string instrument = "botdetection.requests.total",
         string range = "1h",
         CancellationToken ct = default)
     {
+        if (store is null)
+            return Results.Problem("Monitoring pack not enabled.", statusCode: 503);
+
         var end = DateTime.UtcNow;
         var start = range switch
         {
@@ -53,10 +57,13 @@ public static class MetricsEndpoints
     }
 
     private static async Task<IResult> HandleLatest(
-        IMetricSnapshotStore store,
+        [FromServices] IMetricSnapshotStore? store,
         string packId = "aspnet-monitoring",
         CancellationToken ct = default)
     {
+        if (store is null)
+            return Results.Problem("Monitoring pack not enabled.", statusCode: 503);
+
         var data = await store.GetLatestSnapshotsAsync(packId, ct);
         return Results.Ok(new SingleResponse<IReadOnlyList<MetricSnapshot>>
         {
