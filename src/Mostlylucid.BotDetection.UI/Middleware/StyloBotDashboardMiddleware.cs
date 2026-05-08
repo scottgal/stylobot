@@ -125,7 +125,7 @@ public class StyloBotDashboardMiddleware
         !string.Equals(context.Request.Query["mode"].FirstOrDefault(), "foss", StringComparison.OrdinalIgnoreCase);
 
     private readonly IWebHostEnvironment _env;
-    private readonly bool _monitoringPackEnabled;
+    private readonly IReadOnlyList<PackTabInfo> _packTabs;
 
     public StyloBotDashboardMiddleware(
         RequestDelegate next,
@@ -136,6 +136,7 @@ public class StyloBotDashboardMiddleware
         RazorViewRenderer razorViewRenderer,
         IMemoryCache widgetCache,
         IWebHostEnvironment env,
+        IEnumerable<IMonitoringPack> monitoringPacks,
         ILogger<StyloBotDashboardMiddleware> logger)
     {
         _next = next;
@@ -146,7 +147,9 @@ public class StyloBotDashboardMiddleware
         _razorViewRenderer = razorViewRenderer;
         _widgetCache = widgetCache;
         _env = env;
-        _monitoringPackEnabled = options.MonitoringPack.Enabled;
+        _packTabs = monitoringPacks
+            .Select(p => new PackTabInfo(p.Id, p.TabName))
+            .ToList();
         _logger = logger;
     }
 
@@ -800,7 +803,7 @@ public class StyloBotDashboardMiddleware
 
         var basePath = _options.BasePath.TrimEnd('/');
         var tab = context.Request.Query["tab"].FirstOrDefault() ?? "overview";
-        if (tab == "metrics" && !_monitoringPackEnabled) tab = "overview";
+        if (tab == "metrics") tab = "overview";
 
         // Build all partial models server-side - fully rendered, no JSON serialization needed
         var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
@@ -901,7 +904,7 @@ public class StyloBotDashboardMiddleware
             Compliance = tab.Equals("compliance", StringComparison.OrdinalIgnoreCase)
                 ? BuildComplianceTabModel(context)
                 : null,
-            MonitoringPackEnabled = _monitoringPackEnabled
+            MonitoringPacks = _packTabs
         };
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
