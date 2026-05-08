@@ -125,6 +125,7 @@ public class StyloBotDashboardMiddleware
         !string.Equals(context.Request.Query["mode"].FirstOrDefault(), "foss", StringComparison.OrdinalIgnoreCase);
 
     private readonly IWebHostEnvironment _env;
+    private readonly bool _monitoringPackEnabled;
 
     public StyloBotDashboardMiddleware(
         RequestDelegate next,
@@ -135,6 +136,7 @@ public class StyloBotDashboardMiddleware
         RazorViewRenderer razorViewRenderer,
         IMemoryCache widgetCache,
         IWebHostEnvironment env,
+        IEnumerable<IMonitoringPack> monitoringPacks,
         ILogger<StyloBotDashboardMiddleware> logger)
     {
         _next = next;
@@ -145,6 +147,7 @@ public class StyloBotDashboardMiddleware
         _razorViewRenderer = razorViewRenderer;
         _widgetCache = widgetCache;
         _env = env;
+        _monitoringPackEnabled = monitoringPacks.Any();
         _logger = logger;
     }
 
@@ -898,9 +901,7 @@ public class StyloBotDashboardMiddleware
             Compliance = tab.Equals("compliance", StringComparison.OrdinalIgnoreCase)
                 ? BuildComplianceTabModel(context)
                 : null,
-            MonitoringPackEnabled = context.RequestServices
-                .GetServices<IMonitoringPack>()
-                .Any()
+            MonitoringPackEnabled = _monitoringPackEnabled
         };
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(

@@ -387,7 +387,7 @@ public sealed class DashboardShellModel
     /// <summary>Compliance tab model. Only set when active tab is "compliance".</summary>
     public ComplianceTabModel? Compliance { get; init; }
 
-    /// <summary>True when at least one IMonitoringPack is registered in DI (i.e., MonitoringPack.Enabled = true in config).</summary>
+    /// <summary>True when at least one IMonitoringPack is registered in DI.</summary>
     public bool MonitoringPackEnabled { get; init; }
 }
 
