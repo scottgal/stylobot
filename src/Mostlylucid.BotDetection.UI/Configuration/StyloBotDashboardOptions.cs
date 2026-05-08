@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Mostlylucid.BotDetection.MonitoringPacks;
 
 namespace Mostlylucid.BotDetection.UI.Configuration;
 
@@ -168,4 +169,21 @@ public sealed class StyloBotDashboardOptions
     ///     Default: false.
     /// </summary>
     public bool RequireAuthentication { get; set; }
+
+    public MonitoringPackOptions MonitoringPack { get; set; } = new();
+}
+
+public sealed class MonitoringPackOptions
+{
+    public MonitoringMode Mode { get; set; } = MonitoringMode.Local;
+    public bool IncludeAspNetHostMeters { get; set; }
+    public string? GatewayMetricsUrl { get; set; }
+    public TimeSpan RemotePollInterval { get; set; } = TimeSpan.FromSeconds(60);
+}
+
+public enum MonitoringMode
+{
+    Local,
+    GatewayServer,
+    RemoteClient
 }

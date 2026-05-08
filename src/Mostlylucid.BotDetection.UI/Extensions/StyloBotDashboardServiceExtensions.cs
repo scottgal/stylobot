@@ -4,11 +4,13 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.MonitoringPacks;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
@@ -200,6 +202,27 @@ public static class StyloBotDashboardServiceExtensions
 
         // Warm visitor cache from DB on startup so "Top Bots" isn't empty after restarts
         services.AddHostedService<VisitorCacheWarmupService>();
+
+        // MonitoringPack
+        services.TryAddSingleton<IMetricSnapshotStore>(sp =>
+        {
+            var botOpts = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+            var connStr = DashboardDbPath.GetConnectionString(botOpts);
+            var logger = sp.GetRequiredService<ILogger<SqliteMetricSnapshotStore>>();
+            return new SqliteMetricSnapshotStore(connStr, logger);
+        });
+
+        if (options.MonitoringPack.Mode == MonitoringMode.Local)
+        {
+            services.AddSingleton<IMonitoringPack>(
+                new AspNetMonitoringPack(options.MonitoringPack.IncludeAspNetHostMeters));
+            services.AddHostedService<MeterListenerService>(sp =>
+                new MeterListenerService(
+                    sp.GetServices<IMonitoringPack>(),
+                    sp.GetRequiredService<IMetricSnapshotStore>(),
+                    sp.GetRequiredService<ILogger<MeterListenerService>>()));
+        }
+        // RemoteClient and GatewayServer modes will be registered in Tasks 11-12
 
         // LLM result callback for background classification coordinator
         services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();
