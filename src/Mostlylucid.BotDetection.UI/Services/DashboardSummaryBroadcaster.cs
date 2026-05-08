@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.MonitoringPacks;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Models;
@@ -21,6 +23,7 @@ public class DashboardSummaryBroadcaster : BackgroundService
     private readonly IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> _hubContext;
     private readonly ILogger<DashboardSummaryBroadcaster> _logger;
     private readonly StyloBotDashboardOptions _options;
+    private readonly IServiceProvider _serviceProvider;
     private bool _seeded;
 
     public DashboardSummaryBroadcaster(
@@ -29,6 +32,7 @@ public class DashboardSummaryBroadcaster : BackgroundService
         DashboardAggregateCache cache,
         SignatureAggregateCache signatureCache,
         StyloBotDashboardOptions options,
+        IServiceProvider serviceProvider,
         ILogger<DashboardSummaryBroadcaster> logger)
     {
         _hubContext = hubContext;
@@ -36,6 +40,7 @@ public class DashboardSummaryBroadcaster : BackgroundService
         _cache = cache;
         _signatureCache = signatureCache;
         _options = options;
+        _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
@@ -102,6 +107,7 @@ public class DashboardSummaryBroadcaster : BackgroundService
                 await _hubContext.Clients.All.BroadcastInvalidation("endpoints");
                 await _hubContext.Clients.All.BroadcastInvalidation("signature");
                 await _hubContext.Clients.All.BroadcastInvalidation("useragents");
+                await _hubContext.Clients.All.BroadcastInvalidation("metrics");
 
                 // Prune detections older than 7 days on each tick so storage stays bounded
                 // without requiring a process restart.
@@ -115,6 +121,22 @@ public class DashboardSummaryBroadcaster : BackgroundService
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to prune old detections");
+                }
+
+                try
+                {
+                    var snapshotStore = _serviceProvider.GetService<IMetricSnapshotStore>();
+                    if (snapshotStore != null)
+                    {
+                        var pruned = await snapshotStore.PruneOldSnapshotsAsync(
+                            DateTime.UtcNow.AddDays(-7), stoppingToken);
+                        if (pruned > 0)
+                            _logger.LogDebug("Pruned {Count} old metric snapshots", pruned);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to prune old metric snapshots");
                 }
 
                 await Task.Delay(
