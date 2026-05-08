@@ -1967,9 +1967,7 @@ public class StyloBotDashboardMiddleware
         ["Heuristic"] = 3,           // behavioral
         ["HeuristicLate"] = 3,       // behavioral
         ["BehavioralWaveform"] = 3,  // behavioral
-        ["AdvancedBehavioral"] = 4,  // advanced_behavioral
         ["SessionVector"] = 4,       // advanced_behavioral
-        ["Periodicity"] = 4,         // advanced_behavioral
         ["CacheBehavior"] = 5,       // cache_behavior
         ["ResourceWaterfall"] = 5,   // cache_behavior
         ["CookieBehavior"] = 5,      // cache_behavior

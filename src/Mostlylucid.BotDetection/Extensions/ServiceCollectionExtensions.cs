@@ -553,8 +553,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IContributingDetector, HeaderCorrelationContributor>();
         // Resource waterfall detection - document-to-asset ratio analysis (priority 22)
         services.AddSingleton<IContributingDetector, ResourceWaterfallContributor>();
-        // Advanced behavioral pattern detection - runs after basic behavioral
-        services.AddSingleton<IContributingDetector, AdvancedBehavioralContributor>();
+        // Behavioral (basic + advanced statistical) pattern detection - merged single contributor
         // Advanced fingerprinting detectors (Wave 0 - network/protocol layer)
         services.AddSingleton<IContributingDetector, TlsFingerprintContributor>();
         services.AddSingleton<IContributingDetector, TcpIpFingerprintContributor>();
@@ -599,8 +598,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Analysis.SessionStore>();
         services.TryAddSingleton<SessionEscalationService>();
         services.AddSingleton<IContributingDetector, SessionVectorContributor>();
-        // Periodicity detection - temporal pattern analysis for identity resolution
-        services.AddSingleton<IContributingDetector, PeriodicityContributor>();
+        // Periodicity detection retired - frequency fingerprinting covered by SessionVectorContributor
         // Reactive pattern detection - post-error client behavior (backoff, compliance, coordinated retry)
         services.TryAddSingleton<ReactiveSignalTracker>();
         services.AddSingleton<IContributingDetector, ReactivePatternContributor>();

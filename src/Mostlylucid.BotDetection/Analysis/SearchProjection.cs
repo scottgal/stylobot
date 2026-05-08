@@ -123,7 +123,7 @@ public static class SearchProjection
         // Axis 3: behavioral
         ["Behavioral"] = 3, ["Heuristic"] = 3, ["HeuristicLate"] = 3, ["BehavioralWaveform"] = 3,
         // Axis 4: advanced_behavioral
-        ["AdvancedBehavioral"] = 4, ["SessionVector"] = 4, ["Periodicity"] = 4,
+        ["SessionVector"] = 4,
         // Axis 5: cache_behavior
         ["CacheBehavior"] = 5, ["ResourceWaterfall"] = 5, ["CookieBehavior"] = 5,
         // Axis 6: security_tool

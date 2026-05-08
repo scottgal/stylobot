@@ -49,7 +49,6 @@ public class IndividualDetectorBenchmarks
 
     // New identity + security detectors
     private SignatureContributor _signatureDetector = null!;
-    private PeriodicityContributor _periodicityDetector = null!;
     private CveProbeContributor _cveProbeDetector = null!;
     private PiiQueryStringContributor _piiDetector = null!;
     private BlackboardState _cveProbeState = null!;
@@ -88,12 +87,11 @@ public class IndividualDetectorBenchmarks
         _haxxorDetector = allDetectors.OfType<HaxxorContributor>().First();
         _atoDetector = allDetectors.OfType<AccountTakeoverContributor>().First();
         _signatureDetector = allDetectors.OfType<SignatureContributor>().FirstOrDefault()!;
-        _periodicityDetector = allDetectors.OfType<PeriodicityContributor>().FirstOrDefault()!;
         _cveProbeDetector = allDetectors.OfType<CveProbeContributor>().FirstOrDefault()!;
         _piiDetector = allDetectors.OfType<PiiQueryStringContributor>().FirstOrDefault()!;
 
         Console.WriteLine($"Resolved {allDetectors.Count} detectors: {string.Join(", ", allDetectors.Select(d => d.Name))}");
-        Console.WriteLine($"Signature={_signatureDetector != null}, Periodicity={_periodicityDetector != null}, CveProbe={_cveProbeDetector != null}, PII={_piiDetector != null}");
+        Console.WriteLine($"Signature={_signatureDetector != null}, CveProbe={_cveProbeDetector != null}, PII={_piiDetector != null}");
 
         // Setup test states
         _humanState = CreateHumanState();
@@ -170,9 +168,6 @@ public class IndividualDetectorBenchmarks
 
     [Benchmark(Description = "Signature: compute PrimarySignature + header hashes")]
     public Task Signature_Compute() => _signatureDetector.ContributeAsync(_humanState);
-
-    [Benchmark(Description = "Periodicity: timing analysis")]
-    public Task Periodicity_Analyze() => _periodicityDetector.ContributeAsync(_humanState);
 
     [Benchmark(Description = "CveProbe: WordPress path")]
     public Task CveProbe_WordPress() => _cveProbeDetector.ContributeAsync(_cveProbeState);

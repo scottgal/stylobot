@@ -158,6 +158,39 @@ defaults:
       - "/admin"
       - "/phpmyadmin"
     bot_path_confidence: 0.6
+    # Advanced statistical pattern detection (merged from AdvancedBehavioralContributor)
+    # Path entropy thresholds
+    path_entropy_high: 3.5            # Above = random scanning (bot)
+    path_entropy_low: 0.5             # Below = too repetitive (bot)
+    # Path entropy confidence deltas
+    path_entropy_high_confidence: 0.35
+    path_entropy_low_confidence: 0.25
+    # Path entropy weights
+    path_entropy_high_weight: 1.3
+    path_entropy_low_weight: 1.2
+    # Timing entropy threshold
+    timing_entropy_low: 0.3           # Below = too regular (bot)
+    timing_entropy_confidence: 0.3
+    timing_entropy_weight: 1.3
+    # Timing anomaly
+    timing_anomaly_confidence: 0.25
+    timing_anomaly_weight: 1.1
+    # Regular pattern (CV)
+    regular_pattern_confidence: 0.35
+    regular_pattern_weight: 1.4
+    # Navigation pattern
+    navigation_pattern_weight: 1.2
+    # Burst detection
+    burst_window_seconds: 30
+    burst_confidence: 0.4
+    burst_weight: 1.5
+    # Natural patterns (human indicator)
+    natural_patterns_confidence: -0.2
+    natural_patterns_weight: 1.0
+    # Natural pattern thresholds
+    natural_entropy_min: 0.5
+    natural_entropy_max: 3.0
+    natural_cv_min: 0.3
 
 tags:
   - behavioral
