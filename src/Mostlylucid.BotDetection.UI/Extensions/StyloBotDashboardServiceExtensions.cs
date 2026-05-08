@@ -222,7 +222,17 @@ public static class StyloBotDashboardServiceExtensions
                     sp.GetRequiredService<IMetricSnapshotStore>(),
                     sp.GetRequiredService<ILogger<MeterListenerService>>()));
         }
-        // RemoteClient and GatewayServer modes will be registered in Tasks 11-12
+        else if (options.MonitoringPack.Mode == MonitoringMode.GatewayServer)
+        {
+            services.AddSingleton<IMonitoringPack>(
+                new AspNetMonitoringPack(options.MonitoringPack.IncludeAspNetHostMeters));
+            services.AddSingleton<GatewayMeterAccumulator>(sp =>
+                new GatewayMeterAccumulator(
+                    sp.GetServices<IMonitoringPack>(),
+                    sp.GetRequiredService<ILogger<GatewayMeterAccumulator>>()));
+            services.AddHostedService(sp => sp.GetRequiredService<GatewayMeterAccumulator>());
+        }
+        // RemoteClient mode will be registered in Task 12
 
         // LLM result callback for background classification coordinator
         services.TryAddSingleton<ILlmResultCallback, LlmResultSignalRCallback>();
