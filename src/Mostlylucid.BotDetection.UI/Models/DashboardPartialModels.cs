@@ -338,6 +338,9 @@ public sealed record UserAgentDetailModel
     public string BasePath { get; init; } = "/_stylobot";
 }
 
+/// <summary>Identifies a monitoring pack tab in the dashboard nav.</summary>
+public sealed record PackTabInfo(string Id, string TabName);
+
 /// <summary>
 ///     Shell view model for the full dashboard page.
 ///     Composes all partial models for initial server-side render.
@@ -387,8 +390,11 @@ public sealed class DashboardShellModel
     /// <summary>Compliance tab model. Only set when active tab is "compliance".</summary>
     public ComplianceTabModel? Compliance { get; init; }
 
-    /// <summary>True when at least one IMonitoringPack is registered in DI.</summary>
-    public bool MonitoringPackEnabled { get; init; }
+    /// <summary>Monitoring packs registered in DI. Empty when monitoring is disabled.</summary>
+    public IReadOnlyList<PackTabInfo> MonitoringPacks { get; init; } = Array.Empty<PackTabInfo>();
+
+    public bool HasPackTabs => MonitoringPacks.Count > 0;
+    public bool IsPackTab(string tab) => MonitoringPacks.Any(p => p.Id == tab);
 }
 
 /// <summary>
