@@ -69,22 +69,22 @@
     </script>
     <style nonce="@Model.CspNonce">
         :root, [data-theme] {
-            --sb-surface:      oklch(var(--b2));
-            --sb-card-bg:      oklch(var(--b1));
-            --sb-card-border:  oklch(var(--bc) / 0.15);
-            --sb-card-divider: oklch(var(--bc) / 0.08);
-            --sb-card-subtle:  oklch(var(--b3));
-            --sb-brand-muted:  oklch(var(--bc) / 0.55);
-            --sb-brand-strong: oklch(var(--bc));
-            --sb-accent:       oklch(var(--a));
-            --sb-signal-pos:   oklch(var(--su));
-            --sb-signal-warn:  oklch(var(--wa));
-            --sb-signal-danger:oklch(var(--er));
+            --sb-surface:      var(--color-base-200);
+            --sb-card-bg:      var(--color-base-100);
+            --sb-card-border:  color-mix(in oklch, var(--color-base-content) 15%, transparent);
+            --sb-card-divider: color-mix(in oklch, var(--color-base-content) 8%, transparent);
+            --sb-card-subtle:  var(--color-base-300);
+            --sb-brand-muted:  color-mix(in oklch, var(--color-base-content) 55%, transparent);
+            --sb-brand-strong: var(--color-base-content);
+            --sb-accent:       var(--color-accent);
+            --sb-signal-pos:   var(--color-success);
+            --sb-signal-warn:  var(--color-warning);
+            --sb-signal-danger:var(--color-error);
         }
         body { font-family: 'Inter', sans-serif; background: var(--sb-surface); }
         .brand-header {
-            background: oklch(var(--b2));
-            border-bottom: 1px solid oklch(var(--bc) / 0.1);
+            background: var(--color-base-200);
+            border-bottom: 1px solid color-mix(in oklch, var(--color-base-content) 10%, transparent);
         }
         .impact-bar { height: 6px; border-radius: 3px; background: var(--sb-card-divider); }
         .impact-bar-fill { height: 100%; border-radius: 3px; }
