@@ -725,7 +725,7 @@ public class BlackboardOrchestrator
                         if (_markovTracker != null)
                         {
                             var isBot = result.BotProbability > 0.5;
-                            var isReturning = signals.TryGetValue("ts.is_new", out var tsNew) && tsNew is false;
+                            var isReturning = false;
                             var clusterId = _clusterService?.FindCluster(signature)?.ClusterId;
                             _markovTracker.RecordTransition(
                                 signature, path, DateTime.UtcNow,
@@ -1180,33 +1180,16 @@ public class BlackboardOrchestrator
             var coordOptions = _fullOptions.LlmCoordinator;
             var prob = result.BotProbability;
 
-            // Check if this is a new or known signature
-            // TimescaleDB sets ts.is_new/ts.is_conclusive; SQLite uses reputation cache
-            var isNew = signals.TryGetValue("ts.is_new", out var newVal) && newVal is true;
-            var isConclusive = signals.TryGetValue("ts.is_conclusive", out var concVal) && concVal is true;
-
-            // Fallback for SQLite (no TimescaleDB): if neither signal is set,
-            // treat all detections above threshold as worth classifying
-            var hasReputationSignals = signals.ContainsKey("ts.is_new") || signals.ContainsKey("ts.is_conclusive");
-            if (!hasReputationSignals && prob >= coordOptions.MinProbabilityToEnqueue)
-                isNew = true; // No external reputation data → treat as new
-
             // Determine enqueue reason and sampling decision
             string? enqueueReason = null;
             var isDriftSample = false;
             var isConfirmationSample = false;
             var confidence = result.Confidence;
 
-            if (isNew)
+            if (prob >= coordOptions.MinProbabilityToEnqueue)
             {
-                // New unknown signature - always enqueue for learning
+                // Above threshold with no prior conclusive reputation — enqueue for learning
                 enqueueReason = "new_signature";
-            }
-            else if (isConclusive && confidence >= 0.7)
-            {
-                // Already well-classified by TimescaleDB AND confident - skip
-                _logger.LogDebug("Skipping LLM enqueue: TimescaleDB reputation is conclusive and confidence is high ({Confidence:F2})", confidence);
-                return;
             }
             else if (confidence < 0.6 && prob >= 0.3)
             {
@@ -1294,7 +1277,7 @@ public class BlackboardOrchestrator
                 Confidence = result.Confidence,
                 RiskBand = result.RiskBand.ToString(),
                 Action = result.PolicyAction?.ToString() ?? result.TriggeredActionPolicyName ?? "Allow",
-                IsNewSignature = isNew,
+                IsNewSignature = enqueueReason == "new_signature",
                 SignatureVectors = signatureVectors,
                 IsDriftSample = isDriftSample,
                 IsConfirmationSample = isConfirmationSample,

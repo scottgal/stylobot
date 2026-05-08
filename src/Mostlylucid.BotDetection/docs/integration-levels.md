@@ -219,7 +219,6 @@ if (!string.IsNullOrEmpty(pgConn))
 {
     builder.Services.AddStyloBotPostgreSQL(pgConn, options =>
     {
-        options.EnableTimescaleDB = true;
         options.AutoInitializeSchema = true;
         options.RetentionDays = 90;
     });
@@ -439,9 +438,9 @@ services:
       - BotDetection__Qdrant__EnableEmbeddings=true
       - BotDetection__EnableLlmDetection=true
       - BotDetection__AiDetection__Ollama__Endpoint=http://ollama:11434
-      - StyloBotDashboard__PostgreSQL__ConnectionString=Host=timescaledb;...
+      - StyloBotDashboard__PostgreSQL__ConnectionString=Host=postgres;Database=stylobot;Username=stylobot;Password=${DB_PASSWORD}
     depends_on:
-      - timescaledb
+      - postgres
       - qdrant
       - ollama
 
@@ -449,7 +448,7 @@ services:
     image: your-app:latest
     environment:
       - BOTDETECTION_TRUST_UPSTREAM=true
-      - StyloBotDashboard__PostgreSQL__ConnectionString=Host=timescaledb;...
+      - StyloBotDashboard__PostgreSQL__ConnectionString=Host=postgres;Database=stylobot;Username=stylobot;Password=${DB_PASSWORD}
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -457,8 +456,17 @@ services:
   ollama:
     image: ollama/ollama:latest
 
-  timescaledb:
-    image: timescale/timescaledb:latest-pg16
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: stylobot
+      POSTGRES_USER: stylobot
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:
 ```
 
 ---

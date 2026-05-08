@@ -165,7 +165,7 @@ Sessions are the primary behavioral unit. Per-request Markov chain transitions a
 - ~100x compression vs per-request storage (200 sessions/day vs 10,000 requests/day)
 
 **Commercial (PostgreSQL + pgvector):**
-- `Mostlylucid.BotDetection.UI.PostgreSQL` - PostgreSQL/TimescaleDB persistence (enterprise feature)
+- `Mostlylucid.BotDetection.UI.PostgreSQL` - PostgreSQL persistence (enterprise feature)
 - Native HNSW indexing for sub-millisecond vector similarity queries at scale
 
 ### Key Files
@@ -392,7 +392,7 @@ Internet → Cloudflare Tunnel → Caddy (TLS) → YARP Gateway (bot detection) 
 - **Gateway** (`Stylobot.Gateway`) - YARP reverse proxy with all 49 detectors, no dashboard
 - **Website** (`mostlylucid.stylobot.website`) - ASP.NET Core MVC + dashboard UI + SignalR hub
 - **Caddy** routes `/_stylobot*` directly to website (bypasses gateway for SignalR WebSocket)
-- **TimescaleDB** - Dashboard event persistence (commercial); SQLite for core product
+- **PostgreSQL** - Dashboard event persistence (commercial); SQLite for core product (FOSS)
 - **Ollama** - Local LLM for AI bot classification escalation
 
 Config: `mostlylucid.stylobot.website/docker-compose.local.yml`

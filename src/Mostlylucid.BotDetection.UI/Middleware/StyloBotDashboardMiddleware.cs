@@ -1986,7 +1986,6 @@ public class StyloBotDashboardMiddleware
         ["VersionAge"] = 8,          // version_age
         ["Inconsistency"] = 9,       // inconsistency
         ["TransportProtocol"] = 9,   // inconsistency
-        ["TimescaleReputation"] = 10,// reputation_match
         ["ReputationBias"] = 10,     // reputation_match
         ["Similarity"] = 10,         // reputation_match
         ["VerifiedBot"] = 10,        // reputation_match

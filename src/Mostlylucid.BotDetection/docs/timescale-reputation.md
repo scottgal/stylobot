@@ -1,4 +1,4 @@
-# Timescale Reputation Detection
+# Reputation History Detection
 
 Wave: 0 (Fast Path)
 Priority: 15
@@ -6,7 +6,7 @@ Configuration: `timescale.detector.yaml`
 
 ## Purpose
 
-Queries 90-day historical reputation data from TimescaleDB for IP+UA signatures. Analyzes historical bot ratios, request velocity, and activity patterns to provide reputation-based classification. Falls back gracefully when TimescaleDB is not configured.
+Queries 90-day historical reputation data for IP+UA signatures. Analyzes historical bot ratios, request velocity, and activity patterns to provide reputation-based classification. Uses SQLite for FOSS deployments and PostgreSQL for commercial deployments. The detector name (`timescale`) reflects its origin; it no longer depends on TimescaleDB.
 
 ## Signals Emitted
 
@@ -43,7 +43,7 @@ Via YAML manifest `timescale.detector.yaml` with appsettings.json overrides:
 
 ## Detection Logic
 
-1. Looks up IP+UA signature in TimescaleDB continuous aggregates (90-day window)
+1. Looks up IP+UA signature in the reputation store (90-day window)
 2. If no history: marks as new signature, neutral contribution
 3. If high bot ratio (>= 0.8) with sufficient hits: strong bot signal
 4. If low bot ratio (<= 0.2) with sufficient hits: human signal
@@ -52,10 +52,10 @@ Via YAML manifest `timescale.detector.yaml` with appsettings.json overrides:
 
 ## Performance
 
-Typical execution: <1ms (TimescaleDB query via continuous aggregate).
-Falls back to no-op when TimescaleDB not configured.
+Typical execution: <1ms (indexed lookup via SQLite or PostgreSQL).
+Falls back to no-op when the reputation store has no data for a signature.
 
-## Dependencies
+## Storage
 
-- Requires `Mostlylucid.BotDetection.UI.PostgreSQL` package for TimescaleDB storage
-- Works with plain PostgreSQL (continuous aggregates degraded to regular queries)
+- **FOSS:** Reputation history persists to SQLite (`botdetection.db`) via the core `IReputationStore` interface.
+- **Commercial:** PostgreSQL persistence via `Mostlylucid.BotDetection.UI.PostgreSQL` (`AddStyloBotPostgreSQL`). Same query logic, plain PostgreSQL - no TimescaleDB extension required.

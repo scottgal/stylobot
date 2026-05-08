@@ -136,7 +136,7 @@ public static class SearchProjection
         // Axis 9: inconsistency
         ["Inconsistency"] = 9, ["TransportProtocol"] = 9,
         // Axis 10: reputation_match
-        ["TimescaleReputation"] = 10, ["ReputationBias"] = 10, ["Similarity"] = 10, ["VerifiedBot"] = 10,
+        ["ReputationBias"] = 10, ["Similarity"] = 10, ["VerifiedBot"] = 10,
         // Axis 11: ai_classification
         ["Llm"] = 11, ["AI"] = 11, ["AiScraper"] = 11,
         // Axis 12: cluster_signal

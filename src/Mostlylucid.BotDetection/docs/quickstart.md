@@ -1,6 +1,6 @@
 # Enterprise Bot Detection with Minimal Code
 
-StyloBot gives you 45-detector bot detection with anonymous entity resolution in two lines of code. No external services, no database setup, no API keys. It runs entirely self-contained with SQLite storage, in-process similarity search, and progressive identity resolution that learns who keeps coming back - even when they rotate their fingerprint.
+StyloBot gives you 49-detector bot detection with anonymous entity resolution in two lines of code. No external services, no database setup, no API keys. It runs entirely self-contained with SQLite storage, in-process similarity search, and progressive identity resolution that learns who keeps coming back - even when they rotate their fingerprint.
 
 ```
 NuGet: dotnet add package Mostlylucid.BotDetection
@@ -558,15 +558,16 @@ DataHubCsv downloads a ~27MB IP database on first start and auto-updates weekly.
 
 Now `BlockCountries`, `BlockVpn`, `BlockDatacenter`, `BlockTor`, and all `geo.*` signals work. See [signals-and-custom-filters.md](signals-and-custom-filters.md).
 
-### Tier 3: PostgreSQL + TimescaleDB (Production)
+### Tier 3: PostgreSQL (Production) — Commercial
+
+> Requires `Mostlylucid.BotDetection.UI.PostgreSQL` from the `stylobot-commercial` repo. `AddStyloBotPostgreSQL` is not available in the FOSS package.
 
 ```
 Your App
-    └── PostgreSQL + TimescaleDB
-    └── Time-series analytics (dashboard queries <1ms)
-    └── Compression (90-95% storage reduction after 7 days)
-    └── Continuous aggregates for real-time dashboards
-    └── Multi-server shared learning
+    └── PostgreSQL (replaces SQLite)
+    └── Multi-server shared learning and detection history
+    └── pgvector for similarity search (optional)
+    └── Concurrent access from multiple gateway/app nodes
 ```
 
 ```csharp
@@ -574,41 +575,48 @@ builder.Services.AddBotDetection();
 builder.Services.AddStyloBotDashboard();        // real-time UI (see Dashboard & Monitoring above)
 builder.Services.AddStyloBotPostgreSQL(connectionString, options =>
 {
-    options.EnableTimescaleDB = true;
     options.RetentionDays = 90;
-    options.CompressionAfter = TimeSpan.FromDays(7);
+    options.EnableAutomaticCleanup = true;
 });
 ```
 
 ```yaml
 # docker-compose.yml
 services:
-  timescaledb:
-    image: timescale/timescaledb:latest-pg16
+  postgres:
+    image: postgres:16
     environment:
       POSTGRES_DB: stylobot
       POSTGRES_USER: stylobot
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - timescale-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stylobot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   app:
     build: .
     environment:
-      ConnectionStrings__BotDetection: "Host=timescaledb;Database=stylobot;Username=stylobot;Password=${DB_PASSWORD}"
+      ConnectionStrings__BotDetection: "Host=postgres;Database=stylobot;Username=stylobot;Password=${DB_PASSWORD}"
     depends_on:
-      timescaledb:
+      postgres:
         condition: service_healthy
+
+volumes:
+  postgres-data:
 ```
 
-**Good for:** >100K requests/day, multiple servers, need analytics.
+**Good for:** >100K requests/day, multiple servers, need shared learning state.
 
-### Tier 4: Full Stack - YARP Gateway + Qdrant + LLM
+### Tier 4: Full Stack - YARP Gateway + Qdrant + LLM — Commercial
 
 ```
 Internet → Caddy (TLS) → Stylobot Gateway (YARP) → Your App
                               │
-                              ├── TimescaleDB (analytics, learning)
+                              ├── PostgreSQL (shared learning, analytics)
                               ├── Qdrant (vector similarity search)
                               └── LLamaSharp CPU LLM (bot classification)
 ```
@@ -622,9 +630,8 @@ services:
     image: scottgal/stylobot-gateway:latest
     environment:
       DEFAULT_UPSTREAM: "http://app:8080"
-      # TimescaleDB
-      StyloBotDashboard__PostgreSQL__ConnectionString: "Host=timescaledb;..."
-      StyloBotDashboard__PostgreSQL__EnableTimescaleDB: true
+      # PostgreSQL (commercial persistence)
+      StyloBotDashboard__PostgreSQL__ConnectionString: "Host=postgres;Database=stylobot;Username=stylobot;Password=${DB_PASSWORD}"
       # Qdrant vector search
       BotDetection__Qdrant__Enabled: true
       BotDetection__Qdrant__Endpoint: http://qdrant:6334
@@ -642,11 +649,20 @@ services:
   qdrant:
     image: qdrant/qdrant:latest
 
-  timescaledb:
-    image: timescale/timescaledb:latest-pg16
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: stylobot
+      POSTGRES_USER: stylobot
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
 
   caddy:
     image: caddy:latest
+
+volumes:
+  postgres-data:
 ```
 
 **Headers forwarded to your app:**
@@ -700,7 +716,7 @@ app.get('/api/data', (req, res) => {
 
 | Component | Purpose | Required? |
 |-----------|---------|-----------|
-| **TimescaleDB** | Time-series analytics, compressed storage, continuous aggregates | Recommended |
+| **PostgreSQL** | Shared learning state, detection history, multi-server access (commercial) | Recommended |
 | **Qdrant** | Vector similarity - find bots even when they rotate UAs | Optional |
 | **LLamaSharp** | CPU-only LLM for bot cluster naming and classification | Optional |
 | **Caddy/Nginx** | TLS termination, static files | Your choice |
@@ -712,7 +728,7 @@ app.get('/api/data', (req, res) => {
 Starting a new project?
 ├── Single ASP.NET app → Tier 1 (two lines of code)
 │   └── Need geo blocking? → Add Tier 2 (one more line)
-│       └── Need analytics? → Add Tier 3 (PostgreSQL)
+│       └── Need analytics? → Add Tier 3 (PostgreSQL, commercial)
 └── Multiple apps or non-.NET? → Tier 4 (Gateway)
 ```
 

@@ -6,7 +6,7 @@ Three deployment tiers from zero-setup to production scale. Pick the one that ma
 |------|---------|---------------|--------------|-------|
 | **Minimal** | In-memory | None | <10K | 3 lines of code |
 | **Standard** | SQLite | None | 10K-100K | Default config |
-| **Production** | PostgreSQL + TimescaleDB | pgvector | 100K-10M+ | Docker Compose |
+| **Production** | PostgreSQL | pgvector | 100K-10M+ | Docker Compose |
 
 ---
 
@@ -313,9 +313,9 @@ ENTRYPOINT ["dotnet", "YourApp.dll"]
 
 ---
 
-## Tier 3: Production (PostgreSQL + TimescaleDB + pgvector) — Commercial
+## Tier 3: Production (PostgreSQL + pgvector) — Commercial
 
-For high-traffic production deployments. Replaces SQLite with PostgreSQL for concurrent multi-server access, adds TimescaleDB for time-series analytics, and optionally pgvector for ML-based signature similarity search.
+For high-traffic production deployments. Replaces SQLite with PostgreSQL for concurrent multi-server access, with optional pgvector for ML-based signature similarity search.
 
 > **Note:** Tier 3 requires `Mostlylucid.BotDetection.UI.PostgreSQL` from the `stylobot-commercial` repo. The `AddStyloBotPostgreSQL` extension method is not available in the FOSS package.
 
@@ -339,12 +339,6 @@ builder.Services.AddStyloBotPostgreSQL(
         options.EnableAutomaticCleanup = true;
         options.CleanupIntervalHours = 24;
         options.UseGinIndexOptimizations = true;
-
-        // Enable TimescaleDB for high-volume analytics
-        options.EnableTimescaleDB = true;
-        options.TimescaleChunkInterval = TimeSpan.FromDays(1);
-        options.CompressionAfter = TimeSpan.FromDays(7);
-        options.AggregateRefreshInterval = TimeSpan.FromSeconds(30);
 
         // Enable pgvector for ML similarity search (optional)
         options.EnablePgVector = true;
@@ -431,8 +425,8 @@ app.Run();
 
 ```yaml
 services:
-  timescaledb:
-    image: timescale/timescaledb:latest-pg16
+  postgres:
+    image: postgres:16
     environment:
       POSTGRES_USER: stylobot
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -440,7 +434,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - timescale-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U stylobot"]
       interval: 10s
@@ -450,7 +444,7 @@ services:
   app:
     build: .
     environment:
-      ConnectionStrings__BotDetection: "Host=timescaledb;Port=5432;Database=stylobot;Username=stylobot;Password=${DB_PASSWORD}"
+      ConnectionStrings__BotDetection: "Host=postgres;Port=5432;Database=stylobot;Username=stylobot;Password=${DB_PASSWORD}"
       BotDetection__SignatureHashKey: ${SIGNATURE_HASH_KEY}
       BotDetection__ResponsePiiMasking__Enabled: "true"
       BotDetection__ResponsePiiMasking__AutoApplyForHighConfidenceMalicious: "true"
@@ -459,11 +453,11 @@ services:
     ports:
       - "5080:5080"
     depends_on:
-      timescaledb:
+      postgres:
         condition: service_healthy
 
 volumes:
-  timescale-data:
+  postgres-data:
 ```
 
 ### PostgreSQL schema (auto-created)
@@ -485,24 +479,6 @@ The `AddStyloBotPostgreSQL` registration auto-initializes the schema on startup 
 - `btree_gin` - B-tree support within GIN indexes
 - `uuid-ossp` - UUID generation
 
-### TimescaleDB features
-
-When `EnableTimescaleDB = true`, the schema adds:
-
-- **Hypertables**: `dashboard_detections` and `signature_audit_log` become time-partitioned
-- **Compression**: Data older than `CompressionAfter` (default 7 days) is automatically compressed (90-95% storage reduction)
-- **Continuous aggregates**: Pre-computed summaries at 1-minute, 1-hour, and 1-day intervals for dashboard queries
-- **Retention policies**: Auto-delete data older than `RetentionDays`
-- **Helper functions**: `get_dashboard_summary_fast()` and `get_time_series_fast()` for <1ms dashboard queries
-
-**Performance impact:**
-
-| Query | Without TimescaleDB | With TimescaleDB |
-|-------|--------------------|-----------------:|
-| Dashboard summary | ~50ms | <1ms |
-| Time series (1h window) | ~200ms | <5ms |
-| Storage per 100M events | ~50GB | ~5GB |
-
 ### pgvector features
 
 When `EnablePgVector = true`, the schema adds vector columns and HNSW indexes to `bot_signatures`:
@@ -519,7 +495,7 @@ This enables ML-based detection:
 **Embedding model**: The system uses ONNX-based `all-MiniLM-L6-v2` (~22M params, ~80MB) for local embedding generation. No external API calls needed.
 
 **Required PostgreSQL extension:**
-- `vector` - pgvector extension (included in TimescaleDB Docker image)
+- `vector` - pgvector extension (install via `CREATE EXTENSION IF NOT EXISTS vector;` or use a pgvector-enabled image)
 
 ### Configuration reference: PostgreSQLStorageOptions
 
@@ -533,10 +509,6 @@ This enables ML-based detection:
 | `CleanupIntervalHours` | int | 24 | Cleanup frequency |
 | `CommandTimeoutSeconds` | int | 30 | DB operation timeout |
 | `UseGinIndexOptimizations` | bool | true | Trigram search (requires pg_trgm) |
-| `EnableTimescaleDB` | bool | false | Hypertables + compression + aggregates |
-| `TimescaleChunkInterval` | TimeSpan | 1 day | Hypertable partition size |
-| `CompressionAfter` | TimeSpan | 7 days | Compress data older than this |
-| `AggregateRefreshInterval` | TimeSpan | 30 sec | Continuous aggregate refresh rate |
 | `EnablePgVector` | bool | false | Vector similarity search |
 | `VectorDimension` | int | 384 | Embedding dimensions (match your model) |
 | `VectorIndexM` | int | 16 | HNSW links (higher = more accurate, more RAM) |
@@ -553,7 +525,6 @@ Do you need persistent learning across restarts?
 └── Yes
     ├── Single server, <100K req/day? → Tier 2 (Standard/SQLite)
     └── Multi-server or >100K req/day? → Tier 3 (Production/PostgreSQL)
-        ├── Need dashboard analytics? → Enable TimescaleDB
         └── Need ML similarity search? → Enable pgvector
 ```
 

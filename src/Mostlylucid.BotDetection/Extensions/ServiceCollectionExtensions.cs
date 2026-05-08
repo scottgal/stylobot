@@ -526,10 +526,6 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<VerifiedBotRegistry>();
         services.AddHostedService(sp => sp.GetRequiredService<VerifiedBotRegistry>());
         services.AddSingleton<IContributingDetector, VerifiedBotContributor>();
-        // TimescaleDB historical reputation - runs early (priority 15)
-        // Gracefully no-ops if ITimescaleReputationProvider is not registered
-        services.AddSingleton<IContributingDetector, TimescaleReputationContributor>();
-        //
         // Wave 0 detectors (no dependencies - run first)
         // Unified signature - computes PrimarySignature + header hashes for all downstream detectors (priority 1)
         services.AddSingleton<IContributingDetector, SignatureContributor>();

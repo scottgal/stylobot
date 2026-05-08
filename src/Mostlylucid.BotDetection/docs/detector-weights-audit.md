@@ -23,7 +23,7 @@ weighting refinement pass - **no changes proposed yet**, this is just the map.
 | llm | 40 | 2.0 / 2.5 / 2.0 | 0.5 / 0.8 / 0.2 | high 0.85, low 0.15 |
 | securitytool | 8 | 1.0 / 2.0 / 0.0 | 0.0 / 0.95 / 0.0 | strong_signal 0.99, high 0.9 |
 | stream-abuse | 35 | 1.0 / 1.6 / 1.0 | 0.0 / 0.5 / −0.1 | handshake_storm 0.65, endpoint_mixing 0.6 |
-| timescale | 15 | 0.5 / 1.0 / 0.8 | 0.0 / 0.7 / −0.3 | high_bot_ratio 0.8, low_bot_ratio 0.2 |
+| timescale | 15 | 0.5 / 1.0 / 0.8 | 0.0 / 0.7 / −0.3 | high_bot_ratio 0.8, low_bot_ratio 0.2 (90-day reputation history; SQLite for FOSS, PostgreSQL for commercial) |
 | tls | 11 | 1.0 / 1.8 / 1.5 | 0.0 / 0.4 / −0.30 | known_bot_fp 0.85, known_browser_fp −0.15 |
 | useragent | 10 | 1.0 / 1.5 / 1.3 | 0.0 / 0.3 / −0.25 | strong_signal 0.85, missing_ua 0.8 |
 | versionage | 25 | 1.0 / 1.2 / 1.0 | 0.0 / 0.25 / −0.15 | outdated 0.2, very_outdated 0.4 |
@@ -73,7 +73,7 @@ weighting refinement pass - **no changes proposed yet**, this is just the map.
 2. **Client fingerprinting trio.** `tls` (JA3/JA4), `http2` (SETTINGS), `http3` (QUIC transport params) all emit "this fingerprint doesn't match a real browser" at 0.35–0.85. A headless Chromium hits all three. May want a one-of-three cap via cross-detector aggregation.
 3. **Behavioral quartet.** `behavioral` (rate/pattern), `stream-abuse` (streaming protocols), `sessionvector` (Markov chain), `responsebehavior` (historical) all look at request sequences from different angles. Each firing at 0.3–0.5 can sum to >1.0 on any active bot session. This is *probably* correct aggregation - different signals, same story - but worth verifying with labeled data.
 4. **UA analysis pair.** `useragent` (pattern match) and `verifiedbot` (UA spoofing) both key off the UA string. They typically don't fire together (verifiedbot only acts on known-bot UAs), but worth a sanity check.
-5. **Reputation trio.** `fastpath` (instant cache), `reputation` (learned bias), `timescale` (90-day history) all pull from reputation state. Different time horizons, same underlying pattern - the fan-out was intentional to let fresh signals override stale ones, but the weight sum (1.5 + 1.5 + 1.0 = 4.0) is the largest cumulative bot signal in the pipeline.
+5. **Reputation trio.** `fastpath` (instant cache), `reputation` (learned bias), `timescale` (90-day reputation history, stored in SQLite for FOSS or PostgreSQL for commercial) all pull from reputation state. Different time horizons, same underlying pattern - the fan-out was intentional to let fresh signals override stale ones, but the weight sum (1.5 + 1.5 + 1.0 = 4.0) is the largest cumulative bot signal in the pipeline.
 
 ## Priority distribution
 
