@@ -1,0 +1,32 @@
+<Project>
+
+  <!-- Shared metadata for all NuGet packages in this solution -->
+  <PropertyGroup>
+    <Authors>Scott Galloway</Authors>
+    <Company>Mostlylucid</Company>
+    <PackageLicenseExpression>Unlicense</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/scottgal/stylobot</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/scottgal/stylobot</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageIcon>icon.png</PackageIcon>
+    <Copyright>Copyright (c) Scott Galloway</Copyright>
+  </PropertyGroup>
+
+  <!-- Common build settings -->
+  <PropertyGroup>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!-- Shared icon for all packages (only included when packing) -->
+  <ItemGroup Condition="'$(IsPackable)' == 'true' OR '$(PackAsTool)' == 'true'">
+    <None Include="$(MSBuildThisFileDirectory)icon.png" Pack="true" PackagePath="" Link="icon.png" Visible="false" />
+  </ItemGroup>
+
+  <!-- Ensure test projects are never packable -->
+  <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+</Project>
