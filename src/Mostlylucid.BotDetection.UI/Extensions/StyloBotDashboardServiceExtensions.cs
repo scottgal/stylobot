@@ -204,45 +204,48 @@ public static class StyloBotDashboardServiceExtensions
         services.AddHostedService<VisitorCacheWarmupService>();
 
         // MonitoringPack
-        services.TryAddSingleton<IMetricSnapshotStore>(sp =>
+        if (options.MonitoringPack.Enabled)
         {
-            var botOpts = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
-            var connStr = DashboardDbPath.GetConnectionString(botOpts);
-            var logger = sp.GetRequiredService<ILogger<SqliteMetricSnapshotStore>>();
-            return new SqliteMetricSnapshotStore(connStr, logger);
-        });
+            services.TryAddSingleton<IMetricSnapshotStore>(sp =>
+            {
+                var botOpts = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+                var connStr = DashboardDbPath.GetConnectionString(botOpts);
+                var logger = sp.GetRequiredService<ILogger<SqliteMetricSnapshotStore>>();
+                return new SqliteMetricSnapshotStore(connStr, logger);
+            });
 
-        if (options.MonitoringPack.Mode == MonitoringMode.Local)
-        {
-            services.AddSingleton<IMonitoringPack>(
-                new AspNetMonitoringPack(options.MonitoringPack.IncludeAspNetHostMeters));
-            services.AddHostedService<MeterListenerService>(sp =>
-                new MeterListenerService(
-                    sp.GetServices<IMonitoringPack>(),
-                    sp.GetRequiredService<IMetricSnapshotStore>(),
-                    sp.GetRequiredService<ILogger<MeterListenerService>>()));
-        }
-        else if (options.MonitoringPack.Mode == MonitoringMode.GatewayServer)
-        {
-            services.AddSingleton<IMonitoringPack>(
-                new AspNetMonitoringPack(options.MonitoringPack.IncludeAspNetHostMeters));
-            services.AddSingleton<GatewayMeterAccumulator>(sp =>
-                new GatewayMeterAccumulator(
-                    sp.GetServices<IMonitoringPack>(),
-                    sp.GetRequiredService<ILogger<GatewayMeterAccumulator>>()));
-            services.AddHostedService(sp => sp.GetRequiredService<GatewayMeterAccumulator>());
-        }
-        else if (options.MonitoringPack.Mode == MonitoringMode.RemoteClient
-                 && options.MonitoringPack.GatewayMetricsUrl != null)
-        {
-            services.AddHttpClient("sb-metrics");
-            services.AddHostedService<RemoteMetricCollector>(sp =>
-                new RemoteMetricCollector(
-                    sp.GetRequiredService<IHttpClientFactory>(),
-                    options.MonitoringPack.GatewayMetricsUrl,
-                    options.MonitoringPack.RemotePollInterval,
-                    sp.GetRequiredService<IMetricSnapshotStore>(),
-                    sp.GetRequiredService<ILogger<RemoteMetricCollector>>()));
+            if (options.MonitoringPack.Mode == MonitoringMode.Local)
+            {
+                services.AddSingleton<IMonitoringPack>(
+                    new AspNetMonitoringPack(options.MonitoringPack.IncludeAspNetHostMeters));
+                services.AddHostedService<MeterListenerService>(sp =>
+                    new MeterListenerService(
+                        sp.GetServices<IMonitoringPack>(),
+                        sp.GetRequiredService<IMetricSnapshotStore>(),
+                        sp.GetRequiredService<ILogger<MeterListenerService>>()));
+            }
+            else if (options.MonitoringPack.Mode == MonitoringMode.GatewayServer)
+            {
+                services.AddSingleton<IMonitoringPack>(
+                    new AspNetMonitoringPack(options.MonitoringPack.IncludeAspNetHostMeters));
+                services.AddSingleton<GatewayMeterAccumulator>(sp =>
+                    new GatewayMeterAccumulator(
+                        sp.GetServices<IMonitoringPack>(),
+                        sp.GetRequiredService<ILogger<GatewayMeterAccumulator>>()));
+                services.AddHostedService(sp => sp.GetRequiredService<GatewayMeterAccumulator>());
+            }
+            else if (options.MonitoringPack.Mode == MonitoringMode.RemoteClient
+                     && options.MonitoringPack.GatewayMetricsUrl != null)
+            {
+                services.AddHttpClient("sb-metrics");
+                services.AddHostedService<RemoteMetricCollector>(sp =>
+                    new RemoteMetricCollector(
+                        sp.GetRequiredService<IHttpClientFactory>(),
+                        options.MonitoringPack.GatewayMetricsUrl,
+                        options.MonitoringPack.RemotePollInterval,
+                        sp.GetRequiredService<IMetricSnapshotStore>(),
+                        sp.GetRequiredService<ILogger<RemoteMetricCollector>>()));
+            }
         }
 
         // LLM result callback for background classification coordinator

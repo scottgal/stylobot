@@ -175,6 +175,11 @@ public sealed class StyloBotDashboardOptions
 
 public sealed class MonitoringPackOptions
 {
+    /// <summary>
+    ///     When true, registers the monitoring pack and shows the Metrics tab in the dashboard.
+    ///     Set to true in appsettings.json to opt-in. Default: false.
+    /// </summary>
+    public bool Enabled { get; set; }
     public MonitoringMode Mode { get; set; } = MonitoringMode.Local;
     public bool IncludeAspNetHostMeters { get; set; }
     public string? GatewayMetricsUrl { get; set; }
