@@ -1,0 +1,123 @@
+@using Mostlylucid.BotDetection.UI.ViewComponents.Dashboard
+@model MetricsTabModel
+@{
+    var bp = Model.BasePath;
+    var packId = Model.PackId;
+    double reqRate   = Model.GetLatest("botdetection.requests.total", "rate");
+    double botRate   = Model.GetLatest("botdetection.bots.detected", "rate");
+    double humanRate = Model.GetLatest("botdetection.humans.detected", "rate");
+    double latP50    = Model.GetLatest("botdetection.detection.duration", "p50");
+    double latP95    = Model.GetLatest("botdetection.detection.duration", "p95");
+    double avgConf   = Model.GetLatest("botdetection.confidence.average", "gauge");
+    double cacheHits = Model.GetLatest("botdetection.weightstore.cache.hits", "rate");
+    double cacheMiss = Model.GetLatest("botdetection.weightstore.cache.misses", "rate");
+    double hitRate   = (cacheHits + cacheMiss) > 0 ? Math.Round(cacheHits / (cacheHits + cacheMiss) * 100, 1) : 0;
+}
+<div id="metrics-tab"
+     data-sb-widget="metrics"
+     data-sb-depends="metrics">
+
+    <div class="text-[10px] font-semibold text-base-content/50 uppercase tracking-wider mb-3">StyloBot Performance</div>
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-[10px] text-base-content/50">Requests/min</div>
+            <div class="text-xl font-bold">@reqRate.ToString("F1")</div>
+            <div class="text-[10px] text-success">@botRate.ToString("F1") bot / @humanRate.ToString("F1") human</div>
+        </div>
+        <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-[10px] text-base-content/50">Detection Latency</div>
+            <div class="text-xl font-bold">@latP50.ToString("F1")<span class="text-xs font-normal text-base-content/50">ms P50</span></div>
+            <div class="text-[10px] text-base-content/50">P95: @latP95.ToString("F1")ms</div>
+        </div>
+        <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-[10px] text-base-content/50">Avg Confidence</div>
+            <div class="text-xl font-bold">@((avgConf * 100).ToString("F1"))<span class="text-xs font-normal text-base-content/50">%</span></div>
+        </div>
+        <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-[10px] text-base-content/50">Cache Hit Rate</div>
+            <div class="text-xl font-bold">@hitRate<span class="text-xs font-normal text-base-content/50">%</span></div>
+        </div>
+    </div>
+
+    <div class="rounded-xl border p-3 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="text-[10px] font-semibold text-base-content/50 mb-2">REQUEST RATE (LAST 1H)</div>
+        <div id="metrics-req-chart" style="min-height:120px;"></div>
+        <script>
+            (function() {
+                fetch('@bp/api/v1/metrics/timeseries?packId=@packId&instrument=botdetection.requests.total&range=1h')
+                    .then(r => r.json()).then(d => {
+                        var data = (d.data || []).map(s => ({ x: new Date(s.bucketTime).getTime(), y: s.value }));
+                        new ApexCharts(document.getElementById('metrics-req-chart'), {
+                            chart: { type: 'area', height: 120, toolbar: { show: false } },
+                            series: [{ name: 'Requests/min', data }],
+                            xaxis: { type: 'datetime', labels: { style: { fontSize: '9px' } } },
+                            yaxis: { labels: { style: { fontSize: '9px' } } },
+                            stroke: { curve: 'smooth', width: 2 },
+                            fill: { type: 'gradient', gradient: { opacityFrom: 0.4, opacityTo: 0.05 } },
+                            colors: ['#6366f1'],
+                            grid: { borderColor: 'rgba(255,255,255,0.06)' },
+                            tooltip: { x: { format: 'HH:mm' } }
+                        }).render();
+                    });
+            })();
+        </script>
+    </div>
+
+    <div class="rounded-xl border p-3 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="text-[10px] font-semibold text-base-content/50 mb-2">DETECTION LATENCY P50/P95 (LAST 1H)</div>
+        <div id="metrics-lat-chart" style="min-height:120px;"></div>
+        <script>
+            (function() {
+                fetch('@bp/api/v1/metrics/timeseries?packId=@packId&instrument=botdetection.detection.duration&range=1h')
+                    .then(r=>r.json())
+                    .then(res => {
+                        var p50 = (res.data||[]).filter(s=>s.valueType==='p50').map(s=>({x:new Date(s.bucketTime).getTime(),y:s.value}));
+                        var p95 = (res.data||[]).filter(s=>s.valueType==='p95').map(s=>({x:new Date(s.bucketTime).getTime(),y:s.value}));
+                        new ApexCharts(document.getElementById('metrics-lat-chart'), {
+                            chart: { type: 'line', height: 120, toolbar: { show: false } },
+                            series: [{ name: 'P50', data: p50 }, { name: 'P95', data: p95 }],
+                            xaxis: { type: 'datetime', labels: { style: { fontSize: '9px' } } },
+                            yaxis: { labels: { style: { fontSize: '9px' }, formatter: v => v.toFixed(2)+'ms' } },
+                            stroke: { curve: 'smooth', width: 2 },
+                            colors: ['#22c55e', '#f59e0b'],
+                            grid: { borderColor: 'rgba(255,255,255,0.06)' },
+                            legend: { fontSize: '9px' },
+                            tooltip: { x: { format: 'HH:mm' }, y: { formatter: v => v.toFixed(2)+'ms' } }
+                        }).render();
+                    });
+            })();
+        </script>
+    </div>
+
+    @{
+        double httpP50     = Model.GetLatest("http.server.request.duration", "p50");
+        double httpP95     = Model.GetLatest("http.server.request.duration", "p95");
+        double activeReq   = Model.GetLatest("http.server.active_requests", "gauge");
+        double threadCount = Model.GetLatest("dotnet.thread_pool.thread.count", "gauge");
+        double gcRate      = Model.GetLatest("dotnet.gc.heap.total_allocated", "rate");
+    }
+    @if (Model.IncludeHostMeters)
+    {
+        <div class="text-[10px] font-semibold text-base-content/50 uppercase tracking-wider mb-3 mt-4">Host Health</div>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+                <div class="text-[10px] text-base-content/50">HTTP P50</div>
+                <div class="text-xl font-bold">@httpP50.ToString("F1")<span class="text-xs font-normal text-base-content/50">ms</span></div>
+                <div class="text-[10px] text-base-content/50">P95: @httpP95.ToString("F1")ms</div>
+            </div>
+            <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+                <div class="text-[10px] text-base-content/50">Active Requests</div>
+                <div class="text-xl font-bold">@activeReq.ToString("F0")</div>
+            </div>
+            <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+                <div class="text-[10px] text-base-content/50">Thread Pool</div>
+                <div class="text-xl font-bold">@threadCount.ToString("F0")</div>
+            </div>
+            <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+                <div class="text-[10px] text-base-content/50">GC Alloc/min</div>
+                <div class="text-xl font-bold">@(gcRate > 1_000_000 ? $"{gcRate/1_000_000:F1}MB" : $"{gcRate/1_000:F0}KB")</div>
+            </div>
+        </div>
+    }
+</div>
