@@ -1,4 +1,3 @@
-using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
 using Xunit;
 
@@ -25,6 +24,8 @@ public class SelfMaintenanceOptionsTests
         Assert.True(lo.SessionCacheSize < def.SessionCacheSize);
         Assert.True(lo.IntentCacheSize < def.IntentCacheSize);
         Assert.True(lo.MarkovCohortSize < def.MarkovCohortSize);
+        Assert.True(lo.CacheSlidingExpiration < def.CacheSlidingExpiration);
+        Assert.True(lo.CentroidRetentionDays < def.CentroidRetentionDays);
     }
 
     [Fact]

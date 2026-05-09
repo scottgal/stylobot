@@ -4005,5 +4005,6 @@ public sealed class SelfMaintenanceOptions
         IntentCacheSize        = 300,
         MarkovCohortSize       = 2_000,
         CacheSlidingExpiration = TimeSpan.FromHours(1),
+        CentroidRetentionDays  = 7,
     };
 }
