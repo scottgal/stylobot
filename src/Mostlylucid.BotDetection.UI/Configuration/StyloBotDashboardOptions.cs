@@ -176,8 +176,8 @@ public sealed class StyloBotDashboardOptions
 public sealed class MonitoringPackOptions
 {
     /// <summary>
-    ///     When true, registers the monitoring pack and shows the Metrics tab in the dashboard.
-    ///     Set to true in appsettings.json to opt-in. Default: false.
+    ///     When false, disables the monitoring pack and hides all pack tabs from the dashboard.
+    ///     Default: true. Set to false in appsettings.json to opt out.
     /// </summary>
     public bool Enabled { get; set; } = true;
     public MonitoringMode Mode { get; set; } = MonitoringMode.Local;

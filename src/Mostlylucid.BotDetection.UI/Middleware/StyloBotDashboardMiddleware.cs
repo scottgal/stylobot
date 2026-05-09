@@ -803,7 +803,8 @@ public class StyloBotDashboardMiddleware
 
         var basePath = _options.BasePath.TrimEnd('/');
         var tab = context.Request.Query["tab"].FirstOrDefault() ?? "overview";
-        if (tab == "metrics") tab = "overview";
+        // "metrics" was the hardcoded tab name before pack-driven tabs; redirect old bookmarks.
+        if (tab == "metrics") tab = _packTabs.Count > 0 ? _packTabs[0].Id : "overview";
 
         // Build all partial models server-side - fully rendered, no JSON serialization needed
         var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
