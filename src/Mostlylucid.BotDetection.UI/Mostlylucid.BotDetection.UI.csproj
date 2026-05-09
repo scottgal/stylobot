@@ -14,7 +14,7 @@
         <PackageId>Mostlylucid.BotDetection.UI</PackageId>
         <MinVerTagPrefix>botdetection-v</MinVerTagPrefix>
         <Authors>Mostlylucid</Authors>
-        <Description>Real-time bot detection dashboard with SignalR and DaisyUI. Includes sb-badge, sb-confidence, sb-gate, sb-honeypot, sb-human, sb-risk, sb-signal, and sb-summary Tag Helpers plus View Components for embedding detection results in ASP.NET Core views.</Description>
+        <Description>DEPRECATION NOTICE: This package will be renamed to 'stylobot.ui' on June 1 2025. See https://github.com/scottgal/stylobot/blob/main/docs/migration-v7.md -- Real-time bot detection dashboard with SignalR and DaisyUI. Includes sb-badge, sb-confidence, sb-gate, sb-honeypot, sb-human, sb-risk, sb-signal, and sb-summary Tag Helpers plus View Components for embedding detection results in ASP.NET Core views.</Description>
         <PackageTags>bot-detection;ui;dashboard;signalr;daisyui;taghelper;viewcomponent;aspnetcore;security</PackageTags>
         <PackageIcon>icon.png</PackageIcon>
     </PropertyGroup>

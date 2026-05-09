@@ -14,6 +14,8 @@
         <PackageTags>bot-detection;middleware;aspnetcore;security;crawler;web</PackageTags>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <Description>
+            DEPRECATION NOTICE: This package will be renamed to 'stylobot' on June 1 2025. Version 7.0 will publish under the new name with a Stylobot.* namespace. See https://github.com/scottgal/stylobot/blob/main/docs/migration-v7.md
+
             Bot detection middleware for ASP.NET Core applications with behavioral analysis, header inspection, IP-based detection, and optional LLM-based classification.
         </Description>
         <PackageReleaseNotes>$([System.IO.File]::ReadAllText("$(MSBuildProjectDirectory)/ReleaseNotes.txt"))</PackageReleaseNotes>

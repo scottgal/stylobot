@@ -9,7 +9,7 @@
         <PackageId>Mostlylucid.BotDetection.Api</PackageId>
         <MinVerTagPrefix>botdetection-v</MinVerTagPrefix>
         <Authors>Mostlylucid</Authors>
-        <Description>StyloBot Public REST API for bot detection and dashboard data</Description>
+        <Description>DEPRECATION NOTICE: This package will be renamed to 'stylobot.api' on June 1 2025. See https://github.com/scottgal/stylobot/blob/main/docs/migration-v7.md -- StyloBot Public REST API for bot detection and dashboard data</Description>
     </PropertyGroup>
 
     <ItemGroup>

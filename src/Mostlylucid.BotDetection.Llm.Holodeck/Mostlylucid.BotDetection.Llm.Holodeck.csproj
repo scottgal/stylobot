@@ -8,7 +8,7 @@
         <PackageId>Mostlylucid.BotDetection.Llm.Holodeck</PackageId>
         <MinVerTagPrefix>botdetection-v</MinVerTagPrefix>
         <Authors>Mostlylucid</Authors>
-        <Description>LLM-powered dynamic response generation for StyloBot holodeck honeypots</Description>
+        <Description>DEPRECATION NOTICE: This package will be renamed to 'stylobot.llm.holodeck' on June 1 2025. See https://github.com/scottgal/stylobot/blob/main/docs/migration-v7.md -- LLM-powered dynamic response generation for StyloBot holodeck honeypots</Description>
     </PropertyGroup>
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj"/>

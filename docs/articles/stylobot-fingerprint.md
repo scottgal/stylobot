@@ -1,12 +1,12 @@
 # StyloBot - what if client behaviour was a vector?
 
 # Introduction
-I started building StyloBot following solving a problem for a customer; how do you ensure only legitimate clients can access endpoints and use APIs WITHOUT the britlness of current methods.
+I started building StyloBot to solve a customer problem: how do you ensure only legitimate clients can access endpoints and use APIs without the brittleness of current methods?
 
 # Quick Start
-StyloBot is ENTIRELY FREE TO RUN...in future I'll sell realtime management and reporting (to try and you know...eat). 
+StyloBot is free to run. Future realtime management and reporting may be commercial, but the core detection engine is intended to stay lightweight and easy to operate.
 
-All the source is here https://github.com/scottgal/stylobot
+All the source is here: https://github.com/scottgal/stylobot
 
 To install it:
 **macOS (Homebrew)**
@@ -55,7 +55,7 @@ Dashboard at `/_stylobot`. Detection at `~150µs` per request from first request
 
 ---
 
-Then just run it `stylobot 5080 http://localhost:3000` and voila your upstream site is *listening* (use --mode block to actuall block too).
+Then run it with `stylobot 5080 http://localhost:3000` and your upstream site is listening (use `--mode block` to actually block traffic too).
 
 
 [TOC]
@@ -127,7 +127,7 @@ So early in the article? Yup...really the current market shows the issues stylob
 * **Cost:** high (per transaction / % of revenue / SaaS pricing)
 * **Complexity:** high (integration + tuning + ops)
 
-> Deep insight, but slow and expensive — used sparingly
+> Deep insight, but slow and expensive used sparingly
 
 ---
 
@@ -149,7 +149,7 @@ So early in the article? Yup...really the current market shows the issues stylob
 * **Cost:** very high (data ingestion is the killer)
 * **Complexity:** very high (queries, alerts, maintenance)
 
-> Visibility layer — expensive but necessary
+> Visibility layer expensive but necessary
 
 ---
 
@@ -164,14 +164,14 @@ So early in the article? Yup...really the current market shows the issues stylob
 
 ---
 
-SO, simple, right. This is a market which does cover MOST of the bases you need. However, it's expensive, can be slow, prone to false positives  (read actual users having bad experiences). 
+So yes, the market covers most of the bases you need. However, it is expensive, can be slow, and can create false positives that affect real users.
 
 # THE BIG PROBLEM
-Notice anything about all the market players in the previous example; lots of needing US / IP to remain identifiable, or need manua; config per endpoint to avoid blocking 'legitimate' traffic. They're also SLOW...if every requerst goes through this pipeline that's likely a significant chunk of your time spent processing requests & responding. 
+Notice anything about all the market players in the previous example? Many need users or IPs to remain identifiable, or require manual configuration per endpoint to avoid blocking legitimate traffic. They are also slow. If every request goes through this pipeline, it consumes a significant chunk of your time processing and responding.
 
 ## The Competition
 
-So these traditional plyers work...up to a point. At some point no matter how much you really spend; you won't block them AND you'll be spending more than you save. 
+So these traditional players work up to a point. At some point, no matter how much you spend, you will not block them, and you will be spending more than you save.
 
 Just like our defensive systems on the market above offer different types of protection (at different cost, complexity), 'bots' have their own hierarchy.
 
@@ -188,9 +188,9 @@ Just like our defensive systems on the market above offer different types of pro
 * **Bot management:** trivial
 * **Rate limiting:** works well
 
-**Failure point:** none — everything catches these
+**Failure point:** none everything catches these
 
-Really these are the scripts which have been around since the start of the web (perl FTW!) they're the 'go to site, scrape content' tyes. EASY to identify (single endpoint, same ip generally, same UA...). 
+These are the scripts that have been around since the start of the web. They are the "go to site, scrape content" type. Easy to identify: single endpoint, same IP generally, same user agent.
 
 ---
 
@@ -205,7 +205,7 @@ Really these are the scripts which have been around since the start of the web (
 
 **Failure point:** systems relying on obvious mistakes
 
-Starting to get harder. Now you need to identify known patterns, process traffic later etc...
+It gets harder here. Now you need to identify known patterns and process traffic later.
 
 ---
 
@@ -220,7 +220,7 @@ Starting to get harder. Now you need to identify known patterns, process traffic
 
 **Failure point:** anything based on request correctness or signatures
 
-Easy ONLY because they're being used legitimately most of the time (e.g. scraping, SEO, etc.) however this is false positive city...telling legit from illegitimate traffic is HARD.
+This is hard because they are often used legitimately for scraping, SEO, or testing. Telling legitimate from illegitimate traffic is genuinely difficult.
 
 ---
 
@@ -258,46 +258,46 @@ This is where false positives start rising if you push harder all of your normal
 * anything assuming known patterns
 * anything assuming “bot-like” behaviour
 
-These bots behave “correctly” and evolve - LLMs can adapt to standard attempts to block them (CATCHA solvers, randomizers). 
+These bots behave correctly and evolve. LLMs can adapt to standard attempts to block them, including CAPTCHA solvers and randomizers.
 
-THIS is where StyloBot is aimed...right NOW these bots are expensive to operate at scale. THAT IS CHANGING. 
+This is where StyloBot is aimed. Right now these bots are expensive to operate at scale, but that is changing.
 
 ---
 
-As we move down the list  we start to move through time...we moved from simple identity (block IP) through starting to need to understand huge quantities of traffic and log files. 
+As we move down the list, the problem shifts from simple identity controls such as blocking an IP address to understanding large quantities of traffic and log data.
 
-To defend from INTELLIGENT scrapers like we see at level 5 you need INTELLIGENT detection AND protection.
+To defend against intelligent scrapers at this level, you need intelligent detection and protection.
 
 
 ## Potential Solution
-In previous articles I've written about my 'Behavioural Inference' systems. In essence these are a CHEAT that became a feature. 
+In previous articles I have written about my "Behavioural Inference" systems. In essence, they are a cheat that became a feature.
 
-The problem - single 'sensors' are easy to bypass now. 
+The problem is that single sensors are easy to bypass now.
 
-In all the examples above the only constant is how they attempt to decieve. Changing factors about their identity (headers ,IP, UA etc), changing timings / endpoints etc. So any ONE sensor can be bypassed, combining them gives more sensitivity (read catches more bots). 
-HOWEVER in these static systems false positives start to grow as you increase sensors; if a single one is enough to trigger a false positive then you have a problem. 
+In all the examples above, the only constant is how they attempt to deceive: changing identity factors such as headers, IP, and user agent, or changing timings and endpoints. Any one sensor can be bypassed; combining them gives more sensitivity and catches more bots.
+However, in static systems false positives start to grow as you increase sensors. If a single one is enough to trigger a false positive, you have a problem.
 
-What behavioural iunference does is *profile* -> *characterize*-> *remember* whether it's in lucirRAG / StyloBot etc..that's all it does really. 
+What behavioural inference does is profile, characterise, and remember. That is all it does.
 
-In StyloBot it's remembering these behavioural vectors, THAT is what a client *behaviour* becomes (note behaviour NOT identity...). 
+In StyloBot, those behavioural vectors are what client behaviour becomes. The system is remembering behaviour, not identity.
 
-To IT you are a projection over a 130+vector dimensional space.
+To the system, you are a projection over a 130-plus-dimensional vector space.
 
 ![img.png](img.png)
 
 # StyloBot 
 
-In short, StyloBot is a behavioural inference engine applied to web traffic. 
-It uses a large vector space to characterise and identify the class and type of web requests in order to identify automations vs humans. 
+In short, StyloBot is a behavioural inference engine applied to web traffic.
+It uses a large vector space to characterise and identify the class and type of web requests in order to distinguish automation from human traffic.
 
 ## How it differs from the market.
-As we saw in the market leaders list earlier they all have some commonalities, either they rely on simple static rules (potentially with updated lists constantly like OWASP) or they analyze TONS of real traffic and are heavy beasts. 
+As we saw in the market leaders list earlier, they all have some commonalities. Either they rely on simple static rules, with constantly updated lists, or they analyse large volumes of real traffic and are heavy systems.
 
-StyloBot aims to have a distribution model like Fail2Ban (run an exe) along with the power of the large enterprise models. 
+StyloBot aims to have a distribution model like Fail2Ban, with the power of large enterprise models.
 
-It ALSO downloads lists of user agents, cves, exploits, and other indicators of compromise to enhance its detection capabilities. HOWEVER these are just a factor in a decision.
+It also downloads lists of user agents, CVEs, exploits, and other indicators of compromise to enhance its detection capabilities. However, these are only one factor in a decision.
 
-In all StyloBot runs 50 (ish) 'contributors' they are little bits of code 
+StyloBot runs roughly 50 contributors, each a small piece of code.
 
 ```csharp 
 using Microsoft.AspNetCore.Http;
@@ -402,18 +402,18 @@ public class DetectorResult
 }
 ```
 
-Each detector indicates what it is, if it depends on others (signals) and what results it gives. 
+Each detector indicates what it is, whether it depends on other signals, and what results it gives.
 
-> NOTE: This is a core concept for how I built it. StyloBot is a LARGE system with MINIMAL concepts. So adding detectors is SIMPLE. 
+> NOTE: This is a core concept for how I built it. StyloBot is a large system with minimal concepts, so adding detectors remains simple.
 
 
-Using my [mostlylucid.ephemeral framework ](https://github.com/scottgal/mostlylucid.atoms) it emits what I call 'signals' these are tiny strings like 'ua.score=0.75' which act BOTH as metadata for the request AND logging / diagnostic data. This enables me to tune the system very finely as the Code LLM / the system itself can use these signals to identify efficiencies (auto-tuning). 
+Using my [mostlylucid.ephemeral framework ](https://github.com/scottgal/mostlylucid.atoms) it emits what I call "signals": tiny strings like `ua.score=0.75` that act as both request metadata and logging or diagnostic data. This enables fine-grained tuning because the code or the system itself can use these signals to identify efficiencies.
 
-Another trick Ephemeral adds is LFU / sliding window processing. It's self-limiting so using Least-Frequently-Used it lets us drop human requests while retaining a window if a *future* request passes a bot threshold; then we can look back and reprocess the older ones for clues. 
+Another trick Ephemeral adds is LFU and sliding-window processing. It is self-limiting, so Least-Frequently-Used eviction lets us drop human requests while retaining a window if a future request later crosses a bot threshold; then we can look back and reprocess the older ones for clues.
 
-*It doesn't always run all 50 detectors* - this is the point. The 50 is the CAPABILITY it only needs what it needs to do its job. That's typically 5-7 SUPER fast (sub millisecond) set of inital detectors and fingerprinters. 
+It does not always run all 50 detectors. That is the point. Fifty is the capability ceiling, not the usual runtime cost. Typically it only needs 5 to 7 very fast initial detectors and fingerprinting stages.
 
-From that fingerprint it can decide what sort of thing you are...AND what the like next requests will be (content->resource pathing). Then use THAT to decide what the next request it expects and excalate if required.
+From that fingerprint it can decide what sort of traffic you are and what the next requests are likely to be. It can then decide what it expects next and escalate if required.
 
 | Layer | Detectors | What it catches |
 |-------|-----------|-----------------|

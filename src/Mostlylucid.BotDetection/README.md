@@ -1,5 +1,7 @@
 # StyloBot: Mostlylucid.BotDetection
 
+> **Package rename notice:** On June 1, 2025, this package (`mostlylucid.botdetection`) will be renamed to `stylobot`. The new package ships with the same API under a new namespace (`Stylobot.*`). Version 7.0 will be published under the new name; this package will be deprecated on NuGet at that point. See the [migration guide](https://github.com/scottgal/stylobot/blob/main/docs/migration-v7.md) for full details.
+
 **DESTROY ALL ROBOTS!** (politely, with HTTP 403s)
 
 Built on **StyloFlow**, the ephemeral workflow engine.
