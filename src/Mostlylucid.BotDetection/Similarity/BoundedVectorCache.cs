@@ -44,6 +44,8 @@ internal sealed class BoundedVectorCache<TValue>
             _cache.TryUpdate(key, entry with { Frequency = entry.Frequency + 1 }, entry);
     }
 
+    public void Clear() => _cache.Clear();
+
     public IEnumerable<KeyValuePair<string, TValue>> GetAll() =>
         _cache.Select(kvp => new KeyValuePair<string, TValue>(kvp.Key, kvp.Value.Value));
 

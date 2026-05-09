@@ -219,13 +219,14 @@ public sealed class SlimSessionVectorSearch : ISessionVectorSearch
     }
 
     /// <inheritdoc/>
-    public async Task ReplaceAllAsync(IReadOnlyList<(float[] Vector, SessionVectorMetadata Meta)> items)
+    public Task ReplaceAllAsync(IReadOnlyList<(float[] Vector, SessionVectorMetadata Meta)> items)
     {
+        _cache.Clear();
         foreach (var (vec, meta) in items)
             _cache.Set(meta.Signature, new CacheEntry(vec, meta.IsBot, meta.BotProbability, meta), isBot: meta.IsBot);
 
         _logger.LogInformation("SlimSessionVectorSearch cache replaced with {Count} compacted vectors", items.Count);
-        await Task.CompletedTask;
+        return Task.CompletedTask;
     }
 
     /// <summary>Returns the number of vectors in the cache.</summary>

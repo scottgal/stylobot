@@ -84,8 +84,8 @@ public class SlimSessionVectorSearchTests
 
         await sut.AddAsync(vector, "session-c", isBot: true, botProbability: 0.87);
 
-        // Give the background Task time to complete
-        await Task.Delay(200);
+        var signaled = await capturingStore.WaitForUpsertAsync(TimeSpan.FromSeconds(5));
+        Assert.True(signaled, "Background SQLite upsert did not fire within 5 seconds");
 
         Assert.Equal(1, capturingStore.UpsertCount);
         Assert.Equal("session-c", capturingStore.LastSignatureId);
@@ -163,10 +163,9 @@ public class SlimSessionVectorSearchTests
 
         await sut.ReplaceAllAsync([(newVec, newMeta)]);
 
-        // After replace the cache should contain new-sig (old-sig may still be present since
-        // ReplaceAllAsync calls Set which adds without clearing; verify new-sig is present)
         var snapshot = sut.GetAllVectorsSnapshot();
-        Assert.Contains(snapshot, x => x.Metadata.Signature == "new-sig");
+        var single = Assert.Single(snapshot);
+        Assert.Equal("new-sig", single.Metadata.Signature);
     }
 
     // ------------------------------------------------------------------
@@ -187,6 +186,9 @@ public class SlimSessionVectorSearchTests
 
     private sealed class CapturingSessionStore : ISessionCentroidStore
     {
+        private readonly SemaphoreSlim _signal = new(0, 1);
+        public Task<bool> WaitForUpsertAsync(TimeSpan timeout) => _signal.WaitAsync(timeout);
+
         public int UpsertCount { get; private set; }
         public string? LastSignatureId { get; private set; }
         public bool LastIsBot { get; private set; }
@@ -196,6 +198,7 @@ public class SlimSessionVectorSearchTests
             UpsertCount++;
             LastSignatureId = row.SignatureId;
             LastIsBot = row.IsBot;
+            _signal.Release();
             return Task.CompletedTask;
         }
 
