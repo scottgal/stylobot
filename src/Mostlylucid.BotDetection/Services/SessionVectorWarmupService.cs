@@ -1,85 +1,172 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Mostlylucid.BotDetection.Data;
+using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Data.Contracts;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Similarity;
 
 namespace Mostlylucid.BotDetection.Services;
 
 /// <summary>
-///     Seeds the session HNSW index from SQLite on first startup.
-///     Runs once if the index is empty (no serialized graph files found on disk).
-///     Subsequent startups skip warmup — the HNSW graph is loaded from file in under a second.
+///     Seeds the Slim* hot caches from SQLite centroid tables on startup.
+///     Reads the most-recently-updated rows from each centroid table and calls the
+///     corresponding search's AddAsync / ReplaceAllAsync so inference is warm from
+///     the first request. If a table is empty (fresh install), the cache stays empty
+///     and will build incrementally from live traffic.
 /// </summary>
 public sealed class SessionVectorWarmupService : BackgroundService
 {
-    private readonly ISessionStore _store;
-    private readonly ISessionVectorSearch _vectorSearch;
+    private readonly ISignatureCentroidStore _signatureStore;
+    private readonly ISessionCentroidStore _sessionStore;
+    private readonly IIntentCentroidStore _intentStore;
+    private readonly ISignatureSimilaritySearch _signatureSearch;
+    private readonly ISessionVectorSearch _sessionSearch;
+    private readonly IIntentSimilaritySearch _intentSearch;
+    private readonly SelfMaintenanceOptions _opts;
     private readonly ILogger<SessionVectorWarmupService> _logger;
 
-    private const int WarmupBatchSize = 5000;
-
     public SessionVectorWarmupService(
-        ISessionStore store,
-        ISessionVectorSearch vectorSearch,
+        ISignatureCentroidStore signatureStore,
+        ISessionCentroidStore sessionStore,
+        IIntentCentroidStore intentStore,
+        ISignatureSimilaritySearch signatureSearch,
+        ISessionVectorSearch sessionSearch,
+        IIntentSimilaritySearch intentSearch,
+        IOptions<BotDetectionOptions> options,
         ILogger<SessionVectorWarmupService> logger)
     {
-        _store = store;
-        _vectorSearch = vectorSearch;
-        _logger = logger;
+        _signatureStore  = signatureStore;
+        _sessionStore    = sessionStore;
+        _intentStore     = intentStore;
+        _signatureSearch = signatureSearch;
+        _sessionSearch   = sessionSearch;
+        _intentSearch    = intentSearch;
+        _opts            = options.Value.SelfMaintenance;
+        _logger          = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Wait for HNSW LoadAsync (fires on startup as a background task) to complete
-        try { await Task.Delay(TimeSpan.FromSeconds(12), stoppingToken); }
+        // Small delay to let DI-registered hosted services (e.g. schema migration) settle.
+        try { await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken); }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
 
-        if (_vectorSearch.Count > 0)
-        {
-            _logger.LogDebug(
-                "Session HNSW index already has {Count} vectors — skipping warmup",
-                _vectorSearch.Count);
-            return;
-        }
-
         _logger.LogInformation(
-            "Session HNSW index is empty — seeding from SQLite (up to {Batch} recent sessions)",
-            WarmupBatchSize);
+            "Warming Slim* hot caches from SQLite centroids " +
+            "(signature={SigSize}, session={SessSize}, intent={IntentSize})",
+            _opts.SignatureCacheSize, _opts.SessionCacheSize, _opts.IntentCacheSize);
 
+        await WarmSignaturesAsync(stoppingToken);
+        await WarmSessionsAsync(stoppingToken);
+        await WarmIntentsAsync(stoppingToken);
+    }
+
+    // -----------------------------------------------------------------------
+    // Per-table warmup helpers
+    // -----------------------------------------------------------------------
+
+    private async Task WarmSignaturesAsync(CancellationToken ct)
+    {
         try
         {
-            var sessions = await _store.GetRecentSessionsAsync(WarmupBatchSize, null, stoppingToken);
-            var added = 0;
-            foreach (var session in sessions)
+            var rows = await _signatureStore.GetRecentSignaturesAsync(_opts.SignatureCacheSize, ct);
+            if (rows.Count == 0)
             {
-                if (stoppingToken.IsCancellationRequested) break;
-                if (session.Vector is not { Length: > 0 }) continue;
-
-                var vector = SqliteSessionStore.DeserializeVector(session.Vector);
-                if (vector == null) continue;
-
-                var freqFp = SqliteSessionStore.DeserializeVector(session.FrequencyFingerprintBlob);
-                var driftVec = SqliteSessionStore.DeserializeVector(session.DriftVectorBlob);
-
-                await _vectorSearch.AddAsync(vector, session.Signature, session.IsBot, session.AvgBotProbability,
-                    frequencyFingerprint: freqFp, driftVector: driftVec);
-                added++;
+                _logger.LogDebug("Signature centroid table is empty; skipping signature warmup");
+                return;
             }
 
-            if (added > 0)
+            foreach (var row in rows)
             {
-                await _vectorSearch.SaveAsync();
-                _logger.LogInformation("Session HNSW warmup complete: {Count} sessions indexed", added);
+                if (ct.IsCancellationRequested) break;
+                await _signatureSearch.AddAsync(row.Vector, row.SignatureId, row.WasBot, row.Confidence);
             }
-            else
-            {
-                _logger.LogDebug("No sessions with vectors found in SQLite; HNSW index stays empty until traffic arrives");
-            }
+
+            _logger.LogInformation("Warmed {Count} signature vectors from SQLite", rows.Count);
         }
-        catch (OperationCanceledException) { /* shutdown during warmup — fine */ }
+        catch (OperationCanceledException) { /* shutdown during warmup */ }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Session HNSW warmup failed; index will build incrementally from live traffic");
+            _logger.LogWarning(ex, "Signature cache warmup failed; cache will build from live traffic");
         }
+    }
+
+    private async Task WarmSessionsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var rows = await _sessionStore.GetRecentSessionsAsync(_opts.SessionCacheSize, ct);
+            if (rows.Count == 0)
+            {
+                _logger.LogDebug("Session centroid table is empty; skipping session warmup");
+                return;
+            }
+
+            // ISessionVectorSearch.ReplaceAllAsync exists on the interface; use it for bulk load
+            // to avoid per-row background SQLite write-back (would re-upsert rows we just read).
+            var items = rows
+                .Select(row => (row.Vector, new SessionVectorMetadata
+                {
+                    Signature         = row.SignatureId,
+                    IsBot             = row.IsBot,
+                    BotProbability    = row.BotProbability,
+                    Timestamp         = DateTimeOffset.UtcNow,
+                    VelocityVector    = row.VelocityVector,
+                    VelocityMagnitude = row.VelocityVector != null
+                                        ? L2Magnitude(row.VelocityVector)
+                                        : 0f,
+                    VarianceVector      = row.VarianceVector,
+                    FrequencyFingerprint = row.FreqFingerprint,
+                    CompressionLevel  = row.CompressionLevel,
+                    Priority          = row.Priority,
+                    ClusterId         = row.ClusterId
+                }))
+                .ToList();
+
+            await _sessionSearch.ReplaceAllAsync(items);
+            _logger.LogInformation("Warmed {Count} session vectors from SQLite", items.Count);
+        }
+        catch (OperationCanceledException) { /* shutdown during warmup */ }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Session cache warmup failed; cache will build from live traffic");
+        }
+    }
+
+    private async Task WarmIntentsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var rows = await _intentStore.GetRecentIntentsAsync(_opts.IntentCacheSize, ct);
+            if (rows.Count == 0)
+            {
+                _logger.LogDebug("Intent centroid table is empty; skipping intent warmup");
+                return;
+            }
+
+            foreach (var row in rows)
+            {
+                if (ct.IsCancellationRequested) break;
+                await _intentSearch.AddAsync(row.Vector, row.SignatureId, row.ThreatScore, row.IntentCategory);
+            }
+
+            _logger.LogInformation("Warmed {Count} intent vectors from SQLite", rows.Count);
+        }
+        catch (OperationCanceledException) { /* shutdown during warmup */ }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Intent cache warmup failed; cache will build from live traffic");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    private static float L2Magnitude(float[] v)
+    {
+        var sum = 0f;
+        foreach (var x in v) sum += x * x;
+        return MathF.Sqrt(sum);
     }
 }
