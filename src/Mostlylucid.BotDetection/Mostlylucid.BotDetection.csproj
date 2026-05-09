@@ -58,6 +58,7 @@
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Taxonomy" Version="2.5.0" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.KeyedSequential" Version="2.5.0" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.SlidingCache" Version="2.5.0" />
+        <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Batching" Version="2.5.0" />
         <PackageReference Include="HNSW" Version="26.4.177" />
         <PackageReference Include="Qdrant.Client" Version="1.17.0" />
         <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.25.1" />

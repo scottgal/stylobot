@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Detectors;
 using Mostlylucid.BotDetection.Events;
 using Mostlylucid.BotDetection.Models;
@@ -41,7 +42,7 @@ public readonly record struct QuorumVerdict(
 ///     - EarlyExitResultCoordinator for short-circuit on verdict
 ///     - DetectionLedger for contribution accumulation
 /// </summary>
-public class EphemeralDetectionOrchestrator : IAsyncDisposable
+public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisposable
 {
     // Decaying reputation window for circuit breaker (failures decay over time)
     private readonly DecayingReputationWindow<string> _circuitBreakerScores;
@@ -55,6 +56,7 @@ public class EphemeralDetectionOrchestrator : IAsyncDisposable
     private readonly BotDetectionOptions _fullOptions;
     private readonly IPolicyEvaluator? _policyEvaluator;
     private readonly IPolicyRegistry? _policyRegistry;
+    private readonly RequestPersistenceService? _requestPersistence;
 
     public EphemeralDetectionOrchestrator(
         ILogger<EphemeralDetectionOrchestrator> logger,
@@ -62,7 +64,8 @@ public class EphemeralDetectionOrchestrator : IAsyncDisposable
         IEnumerable<IContributingDetector> detectors,
         ILearningEventBus? learningBus = null,
         IPolicyRegistry? policyRegistry = null,
-        IPolicyEvaluator? policyEvaluator = null)
+        IPolicyEvaluator? policyEvaluator = null,
+        RequestPersistenceService? requestPersistence = null)
     {
         _logger = logger;
         _fullOptions = options.Value;
@@ -71,6 +74,7 @@ public class EphemeralDetectionOrchestrator : IAsyncDisposable
         _learningBus = learningBus;
         _policyRegistry = policyRegistry;
         _policyEvaluator = policyEvaluator;
+        _requestPersistence = requestPersistence;
 
         // Global signal sink for observability (configurable)
         _globalSignals = new SignalSink(
@@ -407,6 +411,7 @@ public class EphemeralDetectionOrchestrator : IAsyncDisposable
             requestId);
 
         PublishLearningEvent(result, httpContext, requestId, stopwatch.Elapsed);
+        TryPersistRequest(httpContext, result);
 
         _logger.LogDebug(
             "Ephemeral detection complete for {RequestId}: {RiskBand} (prob={Probability:F2}) in {Elapsed}ms, {Waves} waves, quorum: {Completed}/{Total}",
@@ -752,6 +757,29 @@ public class EphemeralDetectionOrchestrator : IAsyncDisposable
             Elapsed = elapsed,
             SignalWriter = signals
         };
+    }
+
+    private void TryPersistRequest(HttpContext httpContext, AggregatedEvidence result)
+    {
+        if (_requestPersistence == null) return;
+        if (!result.Signals.TryGetValue(Models.SignalKeys.PrimarySignature, out var sigObj)) return;
+        var signature = sigObj?.ToString();
+        if (string.IsNullOrEmpty(signature)) return;
+
+        var markovState = result.Signals.TryGetValue("session.current_state", out var stateObj)
+            ? stateObj?.ToString() ?? "Unknown"
+            : "Unknown";
+
+        _ = _requestPersistence.EnqueueAsync(
+            signature,
+            httpContext.Request.Path.ToString(),
+            markovState,
+            httpContext.Response.StatusCode,
+            result.BotProbability,
+            result.Confidence,
+            result.RiskBand.ToString(),
+            result.TotalProcessingTimeMs,
+            DateTime.UtcNow);
     }
 
     #region Learning Events

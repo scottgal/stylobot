@@ -110,7 +110,7 @@ public class BotDetectionMiddleware(
     /// </summary>
     public async Task InvokeAsync(
         HttpContext context,
-        BlackboardOrchestrator orchestrator,
+        IDetectionOrchestrator orchestrator,
         IPolicyRegistry policyRegistry,
         IActionPolicyRegistry actionPolicyRegistry,
         ResponseCoordinator responseCoordinator,
@@ -1282,7 +1282,7 @@ public class BotDetectionMiddleware(
     private async Task HandleTestModeWithRealDetection(
         HttpContext context,
         string testMode,
-        BlackboardOrchestrator orchestrator,
+        IDetectionOrchestrator orchestrator,
         IPolicyRegistry policyRegistry,
         IActionPolicyRegistry actionPolicyRegistry,
         ResponseCoordinator responseCoordinator,
@@ -1325,7 +1325,7 @@ public class BotDetectionMiddleware(
     private async Task HandleCustomUaDetection(
         HttpContext context,
         string customUa,
-        BlackboardOrchestrator orchestrator,
+        IDetectionOrchestrator orchestrator,
         IPolicyRegistry policyRegistry,
         IActionPolicyRegistry actionPolicyRegistry,
         ResponseCoordinator responseCoordinator,
@@ -1353,7 +1353,7 @@ public class BotDetectionMiddleware(
     private async Task RunDetectionWithOverriddenUaAsync(
         HttpContext context,
         string overrideUserAgent,
-        BlackboardOrchestrator orchestrator,
+        IDetectionOrchestrator orchestrator,
         IPolicyRegistry policyRegistry,
         IActionPolicyRegistry actionPolicyRegistry,
         ResponseCoordinator responseCoordinator,

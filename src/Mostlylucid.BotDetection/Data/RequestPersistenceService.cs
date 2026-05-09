@@ -1,63 +1,55 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
-using Mostlylucid.Ephemeral;
+using Mostlylucid.Ephemeral.Atoms.Batching;
 
 namespace Mostlylucid.BotDetection.Data;
 
 /// <summary>
 ///     Singleton service that owns the write path for per-request SQLite persistence.
-///     Uses a single-writer EphemeralWorkCoordinator to avoid SQLite file-level lock contention.
-///     Applies LFU-sampling under load to protect throughput while ensuring bot requests
-///     (probability > 0.7) are ALWAYS written regardless of queue depth.
+///     Uses <see cref="BatchingAtom{T}" /> to coalesce up to 50 requests per flush
+///     (or every 5 ms), reducing SQLite write frequency by ~50x under load.
+///     Applies priority sampling: bot requests (probability > 0.7) are ALWAYS written;
+///     low-risk requests are sampled down when the in-flight batch count is high.
 /// </summary>
 public sealed class RequestPersistenceService : IAsyncDisposable
 {
+    private readonly ISessionStore _store;
+    private readonly ILogger<RequestPersistenceService> _logger;
+
     // Per-signature write-count state for LFU sampling decisions
     private readonly ConcurrentDictionary<string, SignatureWriteState> _writeState = new();
 
-    // Single-writer coordinator: MaxConcurrency=1 prevents SQLite lock contention
-    private readonly EphemeralWorkCoordinator<RequestBatch> _coordinator;
+    // Accumulates individual requests; flushes when full (50) or every 5 ms
+    private readonly BatchingAtom<PersistedRequest> _batcher;
 
-    private readonly ILogger<RequestPersistenceService> _logger;
+    // Tracks in-flight batch count for backpressure sampling
+    private int _pendingBatches;
 
     public RequestPersistenceService(
         ISessionStore store,
         ILogger<RequestPersistenceService> logger)
     {
+        _store = store;
         _logger = logger;
 
-        _coordinator = new EphemeralWorkCoordinator<RequestBatch>(
-            async (batch, ct) =>
-            {
-                try
-                {
-                    await store.AddRequestBatchAsync(batch.Requests, ct).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (!ct.IsCancellationRequested)
-                {
-                    logger.LogWarning(ex, "RequestPersistenceService: batch write failed ({Count} requests)",
-                        batch.Requests.Count);
-                }
-            },
-            new EphemeralOptions
-            {
-                MaxConcurrency = 1,          // Single writer — no SQLite file-lock races
-                MaxTrackedOperations = 500
-            });
+        _batcher = new BatchingAtom<PersistedRequest>(
+            onBatch: FlushBatchAsync,
+            maxBatchSize: 50,
+            flushInterval: TimeSpan.FromMilliseconds(5));
     }
 
-    /// <summary>Number of batches currently queued but not yet written.</summary>
-    public int PendingWrites => _coordinator.PendingCount;
+    /// <summary>Number of batches currently in-flight (writing to SQLite).</summary>
+    public int PendingWrites => _pendingBatches;
 
     /// <summary>
-    ///     Enqueue a single request for persistence. Returns immediately; write is async.
+    ///     Enqueue a single request for persistence. Returns immediately.
     ///     Sampling policy:
     ///     - botProbability > 0.7 : always write
-    ///     - queue depth &lt; 50  : always write
-    ///     - queue depth 50-199  : write 1-in-3 low-risk requests
-    ///     - queue depth 200+    : write 1-in-10 low-risk requests
+    ///     - in-flight batches &lt; 5  : always write
+    ///     - in-flight batches 5-19  : write 1-in-3 low-risk requests
+    ///     - in-flight batches 20+   : write 1-in-10 low-risk requests
     /// </summary>
-    public async Task EnqueueAsync(
+    public Task EnqueueAsync(
         string signature,
         string path,
         string markovState,
@@ -69,52 +61,47 @@ public sealed class RequestPersistenceService : IAsyncDisposable
         DateTime timestamp)
     {
         if (!ShouldWrite(signature, botProbability))
-            return;
+            return Task.CompletedTask;
 
-        var request = new PersistedRequest
+        _batcher.Enqueue(new PersistedRequest
         {
-            Signature   = signature,
-            Path        = path,
-            MarkovState = markovState,
-            StatusCode  = statusCode,
+            Signature      = signature,
+            Path           = path,
+            MarkovState    = markovState,
+            StatusCode     = statusCode,
             BotProbability = botProbability,
-            Confidence  = confidence,
-            RiskBand    = riskBand,
-            ProcessingMs = processingMs,
-            Timestamp   = timestamp
-        };
+            Confidence     = confidence,
+            RiskBand       = riskBand,
+            ProcessingMs   = processingMs,
+            Timestamp      = timestamp
+        });
 
-        var batch = new RequestBatch([request]);
-
-        try
-        {
-            await _coordinator.EnqueueAsync(batch).ConfigureAwait(false);
-        }
-        catch (InvalidOperationException)
-        {
-            // Coordinator was completed during dispose — drop silently
-        }
+        return Task.CompletedTask;
     }
 
     public async ValueTask DisposeAsync()
     {
-        // Signal no more items, then drain what is queued
-        _coordinator.Complete();
+        await _batcher.DisposeAsync().ConfigureAwait(false);
+    }
 
+    // --- batch writer ---
+
+    private async Task FlushBatchAsync(IReadOnlyList<PersistedRequest> batch, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _pendingBatches);
         try
         {
-            await _coordinator.DrainAsync(CancellationToken.None).ConfigureAwait(false);
+            await _store.AddRequestBatchAsync(batch, ct).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            // Expected if the app shuts down before the queue drains
+            _logger.LogWarning(ex, "RequestPersistenceService: batch write failed ({Count} requests)",
+                batch.Count);
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogWarning(ex, "RequestPersistenceService: drain on dispose encountered an error");
+            Interlocked.Decrement(ref _pendingBatches);
         }
-
-        await _coordinator.DisposeAsync().ConfigureAwait(false);
     }
 
     // --- sampling ---
@@ -125,17 +112,14 @@ public sealed class RequestPersistenceService : IAsyncDisposable
         if (botProbability > 0.7)
             return true;
 
-        var pending = _coordinator.PendingCount;
+        var pending = _pendingBatches;
 
-        // Normal load: write everything
-        if (pending < 50)
+        if (pending < 5)
             return true;
 
-        // Moderate load: 1-in-3
-        if (pending < 200)
+        if (pending < 20)
             return SampleRequest(signature, modulo: 3);
 
-        // Heavy load: 1-in-10
         return SampleRequest(signature, modulo: 10);
     }
 
@@ -157,6 +141,4 @@ public sealed class RequestPersistenceService : IAsyncDisposable
     {
         public int WriteCount;
     }
-
-    private readonly record struct RequestBatch(IReadOnlyList<PersistedRequest> Requests);
 }

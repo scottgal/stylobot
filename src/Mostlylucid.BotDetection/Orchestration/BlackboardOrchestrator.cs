@@ -231,7 +231,7 @@ public class OrchestratorOptions
 ///     - Early exit on verified bots
 ///     - Real-time signal aggregation
 /// </summary>
-public class BlackboardOrchestrator
+public class BlackboardOrchestrator : IDetectionOrchestrator
 {
     // Object pool for reusing state collections
     private static readonly ObjectPool<PooledDetectionState> StatePool = DetectionStatePoolFactory.Create();
@@ -822,9 +822,17 @@ public class BlackboardOrchestrator
         ConcurrentDictionary<string, bool> failedDetectors,
         CancellationToken cancellationToken)
     {
+        // Skip queued detectors once any detector has already triggered an early exit.
+        // Detectors already running are not interrupted, but queued ones are no-ops.
+        if (aggregator.EarlyExit) return;
+
         await semaphore.WaitAsync(cancellationToken);
         try
         {
+            // Re-check after acquiring the semaphore slot (another detector may have
+            // set EarlyExit while we were waiting).
+            if (aggregator.EarlyExit) return;
+
             await ExecuteDetectorAsync(
                 detector, state, aggregator, signals,
                 completedDetectors, failedDetectors, cancellationToken);

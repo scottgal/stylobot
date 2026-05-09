@@ -518,9 +518,10 @@ public static class ServiceCollectionExtensions
         // Register multi-factor signature service for visitor identity correlation
         services.TryAddSingleton<MultiFactorSignatureService>();
 
-        // Register both orchestrators - ephemeral for new architecture, blackboard for compatibility
+        // EphemeralDetectionOrchestrator is the active orchestrator; BlackboardOrchestrator kept for direct injection in tests
         services.TryAddSingleton<BlackboardOrchestrator>();
         services.TryAddSingleton<EphemeralDetectionOrchestrator>();
+        services.TryAddSingleton<IDetectionOrchestrator>(sp => sp.GetRequiredService<EphemeralDetectionOrchestrator>());
 
         // Register contributing detectors (new architecture)
         // These emit evidence, not verdicts - the orchestrator aggregates
