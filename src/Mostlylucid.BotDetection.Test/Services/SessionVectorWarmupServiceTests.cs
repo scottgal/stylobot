@@ -190,20 +190,8 @@ public class SessionVectorWarmupServiceTests
             new FakeIntentStore(intentRows),
             sigSearch, sessSearch, intentSearch);
 
-        // Act — call ExecuteAsync directly via StartAsync / cancellation
-        using var cts = new CancellationTokenSource();
-        // We override the delay by cancelling after the service has run the warmup.
-        // The service delays 3 s; drive it with a very short delay by calling the method directly.
-        var method = typeof(SessionVectorWarmupService)
-            .GetMethod("ExecuteAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-
-        // Replace delay by calling ExecuteAsync with an already-cancelled-then-recreated token.
-        // Simpler: just invoke the private method with a live token; override Task.Delay by patching
-        // is complex, so instead let's test the individual warm helpers via a minimal subclass approach.
-        // Since the 3-second delay happens first, call it with cancellation after a short timeout.
-        // We tolerate that: skip the delay by calling warmup helpers directly via reflection.
-
-        // --- Simpler approach: call the three private helpers directly ---
+        // Act — call the three private warm helpers directly to avoid the startup delay
+        // --- call the three private helpers directly ---
         var warmSig    = typeof(SessionVectorWarmupService).GetMethod("WarmSignaturesAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
         var warmSess   = typeof(SessionVectorWarmupService).GetMethod("WarmSessionsAsync",   System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
         var warmIntent = typeof(SessionVectorWarmupService).GetMethod("WarmIntentsAsync",     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
