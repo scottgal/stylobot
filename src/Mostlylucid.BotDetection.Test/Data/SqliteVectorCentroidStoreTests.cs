@@ -1,15 +1,24 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Data.Contracts;
 using Xunit;
 
 namespace Mostlylucid.BotDetection.Test.Data;
 
+/// <summary>
+/// Tests for the three split centroid stores: SqliteSignatureCentroidStore,
+/// SqliteSessionCentroidStore, and SqliteIntentCentroidStore.
+/// Uses a shared-memory SQLite DB with a kept-open _schemaConn (IAsyncLifetime)
+/// to prevent the in-memory DB from being destroyed between operations.
+/// </summary>
 public class SqliteVectorCentroidStoreTests : IAsyncLifetime, IDisposable
 {
     private readonly string _dbName;
     private readonly string _connectionString;
-    private SqliteVectorCentroidStore _store = null!;
+    private SqliteSignatureCentroidStore _signatureStore = null!;
+    private SqliteSessionCentroidStore _sessionStore = null!;
+    private SqliteIntentCentroidStore _intentStore = null!;
     // Keep the schema connection open for the lifetime of the test so the
     // shared-memory SQLite database is not destroyed between calls.
     private SqliteConnection _schemaConn = null!;
@@ -29,6 +38,7 @@ public class SqliteVectorCentroidStoreTests : IAsyncLifetime, IDisposable
             CREATE TABLE IF NOT EXISTS signature_centroids (
                 signature_id TEXT PRIMARY KEY, vector BLOB NOT NULL,
                 was_bot INTEGER NOT NULL DEFAULT 0, confidence REAL NOT NULL DEFAULT 0.5,
+                access_count INTEGER NOT NULL DEFAULT 0,
                 updated_at INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS session_centroids (
                 signature_id TEXT PRIMARY KEY, vector BLOB NOT NULL,
@@ -42,7 +52,10 @@ public class SqliteVectorCentroidStoreTests : IAsyncLifetime, IDisposable
                 updated_at INTEGER NOT NULL);
             """;
         await cmd.ExecuteNonQueryAsync();
-        _store = new SqliteVectorCentroidStore(_connectionString, NullLogger<SqliteVectorCentroidStore>.Instance);
+
+        _signatureStore = new SqliteSignatureCentroidStore(_connectionString, NullLogger<SqliteSignatureCentroidStore>.Instance);
+        _sessionStore   = new SqliteSessionCentroidStore(_connectionString, NullLogger<SqliteSessionCentroidStore>.Instance);
+        _intentStore    = new SqliteIntentCentroidStore(_connectionString, NullLogger<SqliteIntentCentroidStore>.Instance);
     }
 
     public async Task DisposeAsync()
@@ -52,13 +65,35 @@ public class SqliteVectorCentroidStoreTests : IAsyncLifetime, IDisposable
 
     public void Dispose() { /* in-memory DB cleaned up automatically */ }
 
+    // ── Interface compliance ─────────────────────────────────────────────────
+
+    [Fact]
+    public void SignatureStore_ImplementsInterface()
+    {
+        Assert.IsAssignableFrom<ISignatureCentroidStore>(_signatureStore);
+    }
+
+    [Fact]
+    public void SessionStore_ImplementsInterface()
+    {
+        Assert.IsAssignableFrom<ISessionCentroidStore>(_sessionStore);
+    }
+
+    [Fact]
+    public void IntentStore_ImplementsInterface()
+    {
+        Assert.IsAssignableFrom<IIntentCentroidStore>(_intentStore);
+    }
+
+    // ── Signature centroid store ─────────────────────────────────────────────
+
     [Fact]
     public async Task UpsertSignature_ThenGetRecent_ReturnsEntry()
     {
         var vector = new float[] { 1f, 2f, 3f };
-        await _store.UpsertSignatureAsync("sig1", vector, wasBot: true, confidence: 0.9);
+        await _signatureStore.UpsertSignatureAsync("sig1", vector, wasBot: true, confidence: 0.9);
 
-        var rows = await _store.GetRecentSignaturesAsync(10);
+        var rows = await _signatureStore.GetRecentSignaturesAsync(10);
         Assert.Single(rows);
         Assert.Equal("sig1", rows[0].SignatureId);
         Assert.True(rows[0].WasBot);
@@ -69,29 +104,56 @@ public class SqliteVectorCentroidStoreTests : IAsyncLifetime, IDisposable
     [Fact]
     public async Task UpsertSignature_Overwrites_ExistingEntry()
     {
-        await _store.UpsertSignatureAsync("sig2", new float[] { 1f }, wasBot: false, confidence: 0.5);
-        await _store.UpsertSignatureAsync("sig2", new float[] { 2f, 3f }, wasBot: true, confidence: 0.95);
+        await _signatureStore.UpsertSignatureAsync("sig2", new float[] { 1f }, wasBot: false, confidence: 0.5);
+        await _signatureStore.UpsertSignatureAsync("sig2", new float[] { 2f, 3f }, wasBot: true, confidence: 0.95);
 
-        var rows = await _store.GetRecentSignaturesAsync(10);
+        var rows = await _signatureStore.GetRecentSignaturesAsync(10);
         var entry = rows.Single(r => r.SignatureId == "sig2");
         Assert.True(entry.WasBot);
         Assert.Equal(2, entry.Vector.Length);
     }
 
     [Fact]
+    public async Task UpsertSignature_IncrementsAccessCount()
+    {
+        await _signatureStore.UpsertSignatureAsync("sig_ac", new float[] { 1f }, wasBot: false, confidence: 0.5);
+        await _signatureStore.UpsertSignatureAsync("sig_ac", new float[] { 1f }, wasBot: false, confidence: 0.5);
+        await _signatureStore.UpsertSignatureAsync("sig_ac", new float[] { 1f }, wasBot: false, confidence: 0.5);
+
+        var rows = await _signatureStore.GetRecentSignaturesAsync(10);
+        var entry = rows.Single(r => r.SignatureId == "sig_ac");
+        Assert.Equal(3, entry.AccessCount);
+    }
+
+    [Fact]
     public async Task PruneSignatures_DeletesOldRows()
     {
-        await _store.UpsertSignatureAsync("old", new float[] { 1f }, wasBot: false, confidence: 0.3);
-        await _store.PruneSignaturesOlderThanAsync(DateTimeOffset.UtcNow.AddSeconds(1));
+        await _signatureStore.UpsertSignatureAsync("old_sig", new float[] { 1f }, wasBot: false, confidence: 0.3);
+        var cutoff = DateTimeOffset.UtcNow.AddSeconds(1).ToUnixTimeSeconds();
+        await _signatureStore.PruneSignaturesOlderThanAsync(cutoff);
 
-        var rows = await _store.GetRecentSignaturesAsync(10);
-        Assert.Empty(rows);
+        var rows = await _signatureStore.GetRecentSignaturesAsync(10);
+        Assert.DoesNotContain(rows, r => r.SignatureId == "old_sig");
     }
+
+    [Fact]
+    public async Task FloatRoundtrip_PreservesValues()
+    {
+        var original = new float[] { 1.23f, -4.56f, 0f, float.MaxValue };
+        await _signatureStore.UpsertSignatureAsync("roundtrip", original, false, 0.5);
+        var rows = await _signatureStore.GetRecentSignaturesAsync(1);
+        var recovered = rows.Single(r => r.SignatureId == "roundtrip").Vector;
+        Assert.Equal(original.Length, recovered.Length);
+        for (var i = 0; i < original.Length; i++)
+            Assert.Equal(original[i], recovered[i]);
+    }
+
+    // ── Session centroid store ───────────────────────────────────────────────
 
     [Fact]
     public async Task UpsertSession_ThenGetRecent_ReturnsEntry()
     {
-        var meta = new SessionCentroidRow
+        var row = new SessionCentroidRow
         {
             SignatureId = "sessSig1",
             Vector = new float[] { 1f, 2f },
@@ -101,35 +163,85 @@ public class SqliteVectorCentroidStoreTests : IAsyncLifetime, IDisposable
             Priority = 0.9,
             ClusterId = "cluster1"
         };
-        await _store.UpsertSessionAsync(meta);
+        await _sessionStore.UpsertSessionAsync(row);
 
-        var rows = await _store.GetRecentSessionsAsync(10);
+        var rows = await _sessionStore.GetRecentSessionsAsync(10);
         Assert.Single(rows);
         Assert.Equal("sessSig1", rows[0].SignatureId);
         Assert.Equal(1, rows[0].CompressionLevel);
         Assert.Equal("cluster1", rows[0].ClusterId);
+        Assert.True(rows[0].IsBot);
+        Assert.Equal(0.8, rows[0].BotProbability, precision: 3);
     }
+
+    [Fact]
+    public async Task UpsertSession_WithNullableVectors_RoundTrips()
+    {
+        var row = new SessionCentroidRow
+        {
+            SignatureId     = "sess_nullable",
+            Vector          = new float[] { 1f },
+            VelocityVector  = new float[] { 0.1f, 0.2f },
+            VarianceVector  = null,
+            FreqFingerprint = new float[] { 0.5f },
+        };
+        await _sessionStore.UpsertSessionAsync(row);
+
+        var rows = await _sessionStore.GetRecentSessionsAsync(10);
+        var entry = rows.Single(r => r.SignatureId == "sess_nullable");
+        Assert.NotNull(entry.VelocityVector);
+        Assert.Equal(2, entry.VelocityVector!.Length);
+        Assert.Null(entry.VarianceVector);
+        Assert.NotNull(entry.FreqFingerprint);
+    }
+
+    [Fact]
+    public async Task PruneSessions_DeletesOldRows()
+    {
+        var row = new SessionCentroidRow { SignatureId = "old_sess", Vector = new float[] { 1f } };
+        await _sessionStore.UpsertSessionAsync(row);
+        var cutoff = DateTimeOffset.UtcNow.AddSeconds(1).ToUnixTimeSeconds();
+        await _sessionStore.PruneSessionsOlderThanAsync(cutoff);
+
+        var rows = await _sessionStore.GetRecentSessionsAsync(10);
+        Assert.DoesNotContain(rows, r => r.SignatureId == "old_sess");
+    }
+
+    // ── Intent centroid store ────────────────────────────────────────────────
 
     [Fact]
     public async Task UpsertIntent_ThenGetRecent_ReturnsEntry()
     {
-        await _store.UpsertIntentAsync("intentSig1", new float[] { 0.5f, 0.5f }, 0.75, "scanning");
+        await _intentStore.UpsertIntentAsync("intentSig1", new float[] { 0.5f, 0.5f }, 0.75, "scanning");
 
-        var rows = await _store.GetRecentIntentsAsync(10);
+        var rows = await _intentStore.GetRecentIntentsAsync(10);
         Assert.Single(rows);
         Assert.Equal("intentSig1", rows[0].SignatureId);
         Assert.Equal("scanning", rows[0].IntentCategory);
+        Assert.Equal(0.75, rows[0].ThreatScore, precision: 3);
     }
 
     [Fact]
-    public async Task FloatRoundtrip_PreservesValues()
+    public async Task UpsertIntent_Overwrites_ExistingEntry()
     {
-        var original = new float[] { 1.23f, -4.56f, 0f, float.MaxValue };
-        await _store.UpsertSignatureAsync("roundtrip", original, false, 0.5);
-        var rows = await _store.GetRecentSignaturesAsync(1);
-        var recovered = rows[0].Vector;
-        Assert.Equal(original.Length, recovered.Length);
-        for (var i = 0; i < original.Length; i++)
-            Assert.Equal(original[i], recovered[i]);
+        await _intentStore.UpsertIntentAsync("intentSig2", new float[] { 0.1f }, 0.2, "crawling");
+        await _intentStore.UpsertIntentAsync("intentSig2", new float[] { 0.9f, 0.8f }, 0.95, "scraping");
+
+        var rows = await _intentStore.GetRecentIntentsAsync(10);
+        var entry = rows.Single(r => r.SignatureId == "intentSig2");
+        Assert.Equal("scraping", entry.IntentCategory);
+        Assert.Equal(0.95, entry.ThreatScore, precision: 3);
+        Assert.Equal(2, entry.Vector.Length);
+    }
+
+    [Fact]
+    public async Task PruneIntents_DeletesOldRows()
+    {
+        await _intentStore.UpsertIntentAsync("old_intent", new float[] { 0.1f }, 0.5, "unknown");
+        var cutoff = DateTimeOffset.UtcNow.AddSeconds(1).ToUnixTimeSeconds();
+        await _intentStore.PruneIntentsOlderThanAsync(cutoff);
+
+        var rows = await _intentStore.GetRecentIntentsAsync(10);
+        Assert.DoesNotContain(rows, r => r.SignatureId == "old_intent");
     }
 }
