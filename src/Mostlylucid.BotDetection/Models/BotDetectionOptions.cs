@@ -3997,6 +3997,17 @@ public sealed class SelfMaintenanceOptions
     /// <summary>Sliding expiration for hot cache entries without access. Default: 2 hours.</summary>
     public TimeSpan CacheSlidingExpiration { get; set; } = TimeSpan.FromHours(2);
 
+    /// <summary>
+    ///     When true, all learning events are dispatched to a bounded background channel.
+    ///     The detection fast path returns immediately after enqueuing (~20ns).
+    ///     A background consumer invokes learning handlers. Events are dropped (oldest first)
+    ///     when the queue is full — learning is best-effort, detection is always priority.
+    /// </summary>
+    public bool HighPerformanceMode { get; set; } = false;
+
+    /// <summary>Bounded channel capacity for HP mode. Oldest events dropped when full.</summary>
+    public int LearningQueueDepth { get; set; } = 1_000;
+
     /// <summary>Pi4 / low-memory preset. All caches reduced ~5x vs defaults.</summary>
     public static SelfMaintenanceOptions LowMemory => new()
     {
@@ -4006,5 +4017,7 @@ public sealed class SelfMaintenanceOptions
         MarkovCohortSize       = 2_000,
         CacheSlidingExpiration = TimeSpan.FromHours(1),
         CentroidRetentionDays  = 7,
+        HighPerformanceMode    = true,
+        LearningQueueDepth     = 500,
     };
 }

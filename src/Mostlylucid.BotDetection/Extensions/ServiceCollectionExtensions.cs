@@ -430,8 +430,14 @@ public static class ServiceCollectionExtensions
         // Register signal-driven detection service
         services.TryAddSingleton<SignalDrivenDetectionService>();
 
-        // Register inter-request learning infrastructure
-        services.TryAddSingleton<ILearningEventBus, LearningEventBus>();
+        // Register inter-request learning infrastructure.
+        // LearningEventBus is the real implementation (10k-entry channel, DropOldest).
+        // BoundedChannelLearningBus wraps it with a smaller front-end channel (~20ns TryWrite)
+        // when HighPerformanceMode is enabled; otherwise it passes through with zero overhead.
+        services.TryAddSingleton<LearningEventBus>();
+        services.TryAddSingleton<BoundedChannelLearningBus>();
+        services.TryAddSingleton<ILearningEventBus>(sp => sp.GetRequiredService<BoundedChannelLearningBus>());
+        services.AddHostedService(sp => sp.GetRequiredService<BoundedChannelLearningBus>());
 
         // Register learning event handlers
         services.AddSingleton<ILearningEventHandler, InferenceHandler>();
