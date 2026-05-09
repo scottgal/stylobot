@@ -209,9 +209,35 @@ jobs:
         retention-days: 7
         if-no-files-found: ignore
 
+  verify-binary:
+    name: Verify AOT binary
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+    - name: Download linux-x64 artifact
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      with:
+        name: stylobot-linux-x64
+        path: artifacts/linux-x64
+
+    - name: Extract binary
+      run: |
+        mkdir -p verify-bin
+        tar -xzf artifacts/linux-x64/stylobot-linux-x64.tar.gz -C verify-bin
+        chmod +x verify-bin/stylobot
+        ls -lh verify-bin/
+
+    - name: Run AOT verification
+      run: |
+        chmod +x src/Mostlylucid.BotDetection.Console/verify-aot.sh
+        src/Mostlylucid.BotDetection.Console/verify-aot.sh verify-bin/stylobot
+
   create-release:
     name: Create GitHub Release
-    needs: build-binaries
+    needs: [build-binaries, verify-binary]
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.get_version.outputs.VERSION }}
@@ -377,7 +403,7 @@ jobs:
   # -----------------------------------------------
   publish-linux-deb:
     name: Publish Linux .deb to Cloudsmith
-    needs: build-binaries
+    needs: [build-binaries, verify-binary]
     runs-on: ubuntu-latest
     environment: production
 
