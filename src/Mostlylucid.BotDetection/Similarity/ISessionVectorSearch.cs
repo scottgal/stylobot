@@ -3,7 +3,7 @@ namespace Mostlylucid.BotDetection.Similarity;
 /// <summary>
 ///     ANN index for session behavioral vectors (129-dim Markov chain + fingerprint).
 ///     Used by entity resolution for merge-candidate detection and dashboard similarity queries.
-///     FOSS: file-backed HNSW (HnswSessionVectorSearch).
+///     FOSS: bounded in-memory cache backed by SQLite (SlimSessionVectorSearch).
 ///     Commercial: can be replaced with Qdrant or pgvector.
 /// </summary>
 public interface ISessionVectorSearch
@@ -45,7 +45,7 @@ public interface ISessionVectorSearch
     ///     These represent dormant campaigns that have been compressed by VectorCompactionService.
     ///     Unlike FindSimilarAsync (which returns any L0/L1/L2 entry), this method returns only
     ///     CompressionLevel >= 1 entries — the crystallized campaign centroids.
-    ///     FOSS: served from the in-memory HNSW graph.
+    ///     FOSS: served from the bounded in-memory cache (SlimSessionVectorSearch).
     ///     Commercial: served from PostgreSQL pgvector ghost_shapes table for cross-gateway sharing.
     /// </summary>
     Task<IReadOnlyList<GhostCentroidMatch>> FindGhostCentroidsAsync(
@@ -62,9 +62,8 @@ public interface ISessionVectorSearch
     IReadOnlyList<(float[] Vector, SessionVectorMetadata Metadata)> GetAllVectorsSnapshot();
 
     /// <summary>
-    ///     Atomically replaces the entire index with a compacted set of (vector, metadata) pairs.
-    ///     Used after compaction to rebuild the HNSW graph from the compressed representation.
-    ///     Saves the new index to disk immediately.
+    ///     Atomically replaces the entire cache with a compacted set of (vector, metadata) pairs.
+    ///     Used after compaction to rebuild the in-memory cache from the compressed representation.
     /// </summary>
     Task ReplaceAllAsync(IReadOnlyList<(float[] Vector, SessionVectorMetadata Meta)> items);
 }

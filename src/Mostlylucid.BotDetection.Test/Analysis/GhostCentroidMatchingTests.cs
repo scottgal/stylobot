@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Analysis;
+using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Similarity;
 
@@ -8,28 +10,22 @@ namespace Mostlylucid.BotDetection.Test.Analysis;
 
 /// <summary>
 /// Tests for FindGhostCentroidsAsync — the FOSS ghost campaign matching path.
-/// Ghost shapes are L1/L2 HNSW centroid entries created by VectorCompactionService.
+/// Ghost shapes are L1/L2 centroid entries created by VectorCompactionService.
 /// </summary>
 public class GhostCentroidMatchingTests : IAsyncLifetime
 {
-    private HnswSessionVectorSearch _index = null!;
+    private SlimSessionVectorSearch _index = null!;
     private static readonly int Dims = SessionVectorizer.Dimensions;
 
     public async Task InitializeAsync()
     {
-        var opts = Options.Create(new BotDetectionOptions
-        {
-            DatabasePath = Path.Combine(Path.GetTempPath(), $"ghost-test-{Guid.NewGuid():N}")
-        });
-        _index = new HnswSessionVectorSearch(NullLogger<HnswSessionVectorSearch>.Instance, opts);
+        var opts = Options.Create(new BotDetectionOptions());
+        var centroidStore = new NullSessionCentroidStore();
+        _index = new SlimSessionVectorSearch(centroidStore, opts, NullLogger<SlimSessionVectorSearch>.Instance);
         await _index.LoadAsync();
     }
 
-    public Task DisposeAsync()
-    {
-        _index.Dispose();
-        return Task.CompletedTask;
-    }
+    public Task DisposeAsync() => Task.CompletedTask;
 
     // ============================================================
     // Empty index
@@ -256,4 +252,13 @@ public class GhostCentroidMatchingTests : IAsyncLifetime
             Timestamp = DateTimeOffset.UtcNow,
             CompressionLevel = compressionLevel
         };
+}
+
+/// <summary>No-op centroid store for unit tests; background SQLite writes are discarded.</summary>
+file sealed class NullSessionCentroidStore : ISessionCentroidStore
+{
+    public Task UpsertSessionAsync(SessionCentroidRow row, CancellationToken ct = default) => Task.CompletedTask;
+    public Task<IReadOnlyList<SessionCentroidRow>> GetRecentSessionsAsync(int limit, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<SessionCentroidRow>>(Array.Empty<SessionCentroidRow>());
+    public Task PruneSessionsOlderThanAsync(long cutoffEpochSeconds, CancellationToken ct = default) => Task.CompletedTask;
 }
