@@ -6,16 +6,16 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (e.g., 5.6.9)'
+        description: 'Version to publish (e.g., 6.3.0)'
         required: false
 
 jobs:
   publish:
-    # Only run on console-v* releases, skip prereleases (betas don't go to Chocolatey)
+    # Only run on allbot-v* releases, skip prereleases (betas don't go to Chocolatey)
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'release' &&
-       startsWith(github.event.release.tag_name, 'console-v') &&
+       startsWith(github.event.release.tag_name, 'allbot-v') &&
        github.event.release.prerelease == false)
     runs-on: windows-latest
     steps:
@@ -33,11 +33,11 @@ jobs:
         if [ -n "$INPUT_VERSION" ]; then
           VERSION="$INPUT_VERSION"
         elif [ -n "$RELEASE_TAG" ]; then
-          VERSION="${RELEASE_TAG#console-v}"
+          VERSION="${RELEASE_TAG#allbot-v}"
         else
           TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 --json tagName,isPrerelease \
-            | jq -r '[.[] | select(.tagName | startswith("console-v")) | select(.isPrerelease == false)][0].tagName')
-          VERSION="${TAG#console-v}"
+            | jq -r '[.[] | select(.tagName | startswith("allbot-v")) | select(.isPrerelease == false)][0].tagName')
+          VERSION="${TAG#allbot-v}"
         fi
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
         echo "Publishing Chocolatey package v$VERSION"
@@ -48,7 +48,7 @@ jobs:
         VERSION: ${{ steps.version.outputs.version }}
       shell: bash
       run: |
-        gh release download "console-v${VERSION}" \
+        gh release download "allbot-v${VERSION}" \
           --repo "$GITHUB_REPOSITORY" \
           --pattern "SHA256SUMS.txt"
 
