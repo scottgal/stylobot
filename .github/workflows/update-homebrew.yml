@@ -6,16 +6,16 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to update to (e.g., 5.6.8)'
+        description: 'Version to update to (e.g., 6.3.0)'
         required: false
 
 jobs:
   update-formula:
-    # Run on allbot-v* or console-v* releases, skip prereleases (betas don't go to Homebrew)
+    # Run on allbot-v* releases only; skip prereleases (betas don't go to Homebrew)
     if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'release' &&
-       (startsWith(github.event.release.tag_name, 'allbot-v') || startsWith(github.event.release.tag_name, 'console-v')) &&
+       startsWith(github.event.release.tag_name, 'allbot-v') &&
        github.event.release.prerelease == false)
     runs-on: ubuntu-latest
     steps:
@@ -26,33 +26,17 @@ jobs:
         INPUT_VERSION: ${{ inputs.version }}
         RELEASE_TAG: ${{ github.event.release.tag_name }}
       run: |
-        # SHA256SUMS.txt is always on the console-v* release; resolve to that tag.
         if [ -n "$INPUT_VERSION" ]; then
           VERSION="$INPUT_VERSION"
-          TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 --json tagName,isPrerelease \
-            | jq -r --arg v "$VERSION" \
-              '[.[] | select(.tagName | startswith("console-v")) | select(.tagName | endswith($v))][0].tagName // empty')
-          if [ -z "$TAG" ]; then
-            echo "Could not find console-v release for version $VERSION"; exit 1
-          fi
+          TAG="allbot-v${VERSION}"
         elif [ -n "$RELEASE_TAG" ]; then
           TAG="$RELEASE_TAG"
           VERSION="${TAG#allbot-v}"
-          VERSION="${VERSION#console-v}"
-          # If triggered by allbot-v* release, resolve to matching console-v* tag
-          if [[ "$RELEASE_TAG" == allbot-v* ]]; then
-            TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 --json tagName,isPrerelease \
-              | jq -r --arg v "$VERSION" \
-                '[.[] | select(.tagName | startswith("console-v")) | select(.tagName | endswith($v))][0].tagName // empty')
-            if [ -z "$TAG" ]; then
-              echo "No console-v release for allbot-v$VERSION yet — console binaries not published"; exit 1
-            fi
-          fi
         else
-          # Find latest stable console release
+          # Find latest stable allbot release
           TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 --json tagName,isPrerelease \
-            | jq -r '[.[] | select(.tagName | startswith("console-v")) | select(.isPrerelease == false)][0].tagName')
-          VERSION="${TAG#console-v}"
+            | jq -r '[.[] | select(.tagName | startswith("allbot-v")) | select(.isPrerelease == false)][0].tagName')
+          VERSION="${TAG#allbot-v}"
         fi
         echo "tag=$TAG" >> "$GITHUB_OUTPUT"
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -63,7 +47,7 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         TAG: ${{ steps.release.outputs.tag }}
       run: |
-        # Publish Console Gateway Binaries may still be uploading; poll up to 10 minutes
+        # Poll up to 10 minutes for SHA256SUMS.txt (publish-stylobot.yml may still be running)
         for i in $(seq 1 20); do
           if gh release download "$TAG" \
             --repo "$GITHUB_REPOSITORY" \
@@ -102,6 +86,8 @@ jobs:
         SHA_LINUX_X64: ${{ steps.hashes.outputs.linux_x64 }}
       run: |
         cd homebrew-tap
+        # Update download URLs from console-v to allbot-v (one-time migration; idempotent after)
+        sed -i "s|releases/download/console-v|releases/download/allbot-v|g" Formula/stylobot.rb
         sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/stylobot.rb
         sed -i "/stylobot-osx-arm64/,/sha256/{s/sha256 \".*\"/sha256 \"${SHA_OSX_ARM64}\"/}" Formula/stylobot.rb
         sed -i "/stylobot-osx-x64/,/sha256/{s/sha256 \".*\"/sha256 \"${SHA_OSX_X64}\"/}" Formula/stylobot.rb

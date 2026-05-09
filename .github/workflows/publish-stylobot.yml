@@ -1,10 +1,9 @@
-name: Publish Console Gateway Binaries
+name: Publish Stylobot Binaries
 
 on:
   push:
     tags:
-      - 'console-v*'
-      - 'allbot-v*.*.*'
+      - 'allbot-v*'
   workflow_dispatch:
     inputs:
       version:
@@ -25,37 +24,26 @@ jobs:
     strategy:
       matrix:
         include:
-          # Linux x64
           - os: ubuntu-latest
             runtime: linux-x64
             artifact-name: stylobot-linux-x64
             file-ext: ''
-
-          # Linux ARM64 (Raspberry Pi 4/5)
           - os: ubuntu-latest
             runtime: linux-arm64
             artifact-name: stylobot-linux-arm64
             file-ext: ''
-
-          # Windows x64
           - os: windows-latest
             runtime: win-x64
             artifact-name: stylobot-win-x64
             file-ext: '.exe'
-
-          # Windows ARM64 (Surface Pro X, Windows on ARM)
           - os: windows-latest
             runtime: win-arm64
             artifact-name: stylobot-win-arm64
             file-ext: '.exe'
-
-          # macOS x64 (Intel)
           - os: macos-latest
             runtime: osx-x64
             artifact-name: stylobot-osx-x64
             file-ext: ''
-
-          # macOS ARM64 (Apple Silicon M1/M2)
           - os: macos-latest
             runtime: osx-arm64
             artifact-name: stylobot-osx-arm64
@@ -81,29 +69,29 @@ jobs:
     - name: Validate version input
       if: github.event_name == 'workflow_dispatch'
       shell: bash
+      env:
+        INPUT_VERSION: ${{ github.event.inputs.version }}
       run: |
-        VERSION="${{ github.event.inputs.version }}"
-        if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-          echo "::error::Invalid version format: '$VERSION'. Expected semver (e.g., 1.0.0 or 1.0.0-alpha1)"
+        if ! [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+          echo "::error::Invalid version format: '$INPUT_VERSION'. Expected semver (e.g., 1.0.0 or 1.0.0-alpha1)"
           exit 1
         fi
 
     - name: Extract version
       id: get_version
       shell: bash
+      env:
+        GIT_REF: ${{ github.ref }}
+        INPUT_VERSION: ${{ github.event.inputs.version }}
+        EVENT_NAME: ${{ github.event_name }}
       run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          VERSION="${{ github.event.inputs.version }}"
+        if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          VERSION="$INPUT_VERSION"
         else
-          TAG=${GITHUB_REF#refs/tags/}
-          if [[ "$TAG" == console-v* ]]; then
-            VERSION=${TAG#console-v}
-          else
-            VERSION=${TAG#allbot-v}
-          fi
+          TAG="${GIT_REF#refs/tags/}"
+          VERSION="${TAG#allbot-v}"
         fi
 
-        # Check if prerelease
         if [[ "$VERSION" == *"-"* ]]; then
           IS_PRERELEASE="true"
         else
@@ -119,8 +107,9 @@ jobs:
 
     - name: Publish ${{ matrix.runtime }} binary
       shell: bash
+      env:
+        VERSION: ${{ steps.get_version.outputs.VERSION }}
       run: |
-        # Set objcopy for ARM64 cross-compilation
         if [ "${{ matrix.runtime }}" = "linux-arm64" ]; then
           OBJCOPY_PARAM="-p:ObjCopyName=aarch64-linux-gnu-objcopy"
         else
@@ -137,17 +126,13 @@ jobs:
           -p:TrimMode=full \
           -p:PublishSingleFile=true \
           -p:StripSymbols=true \
-          -p:Version=${{ steps.get_version.outputs.VERSION }} \
+          -p:Version="$VERSION" \
           $OBJCOPY_PARAM
 
     # -----------------------------------------------
     # Azure Trusted Signing - Windows .exe only
     # Auth: GitHub OIDC federation via azure/login (no client secret needed).
-    # azure/login exchanges the GitHub OIDC token and sets AZURE_FEDERATED_TOKEN_FILE,
-    # which EnvironmentCredential in the signing CLI requires alongside TENANT/CLIENT IDs.
-    # Required secrets:  AZURE_TENANT_ID, AZURE_CLIENT_ID  (environment: production)
-    # Certificates are ephemeral (3-day TTL, auto-renewed by the service).
-    # Verification: Get-AuthenticodeSignature .\stylobot.exe  (PowerShell)
+    # Required secrets: AZURE_TENANT_ID, AZURE_CLIENT_ID (environment: production)
     # -----------------------------------------------
     - name: Login to Azure (OIDC for signing)
       if: runner.os == 'Windows'
@@ -178,28 +163,20 @@ jobs:
         mkdir -p ./dist
         cd ./publish/${{ matrix.runtime }}
 
-        # Copy binary
         cp stylobot${{ matrix.file-ext }} ../../dist/
-
-        # Copy all DLL files (including SQLite native libraries)
         cp *.dll ../../dist/ 2>/dev/null || true
         cp *.so ../../dist/ 2>/dev/null || true
         cp *.dylib ../../dist/ 2>/dev/null || true
-
-        # Copy config files
         cp ../../src/Mostlylucid.BotDetection.Console/appsettings.json ../../dist/ || true
-        cp ../../src/Mostlylucid.BotDetection.Console/appsettings.production.json ../../dist/ || true
+        cp ../../src/Mostlylucid.BotDetection.Console/appsettings.production.json ../../dist/ 2>/dev/null || true
 
-        # Copy wwwroot folder (client-side detection test page)
         if [ -d "../../src/Mostlylucid.BotDetection.Console/wwwroot" ]; then
           mkdir -p ../../dist/wwwroot
           cp -r ../../src/Mostlylucid.BotDetection.Console/wwwroot/* ../../dist/wwwroot/ || true
         fi
 
-        # Copy README.md if it exists
         cp ../../src/Mostlylucid.BotDetection.Console/README.md ../../dist/ || true
 
-        # Create README
         cat > ../../dist/README.txt << 'READMEEOF'
         StyloBot - Self-hosted bot defense
         ==================================
@@ -216,7 +193,6 @@ jobs:
 
         cd ../../dist
 
-        # Create archive
         if [ "${{ runner.os }}" = "Windows" ]; then
           7z a -tzip ../${{ matrix.artifact-name }}.zip *
         else
@@ -246,16 +222,16 @@ jobs:
 
     - name: Extract version
       id: get_version
+      env:
+        GIT_REF: ${{ github.ref }}
+        INPUT_VERSION: ${{ github.event.inputs.version }}
+        EVENT_NAME: ${{ github.event_name }}
       run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          VERSION="${{ github.event.inputs.version }}"
+        if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          VERSION="$INPUT_VERSION"
         else
-          TAG=${GITHUB_REF#refs/tags/}
-          if [[ "$TAG" == console-v* ]]; then
-            VERSION=${TAG#console-v}
-          else
-            VERSION=${TAG#allbot-v}
-          fi
+          TAG="${GIT_REF#refs/tags/}"
+          VERSION="${TAG#allbot-v}"
         fi
 
         if [[ "$VERSION" == *"-"* ]]; then
@@ -264,17 +240,26 @@ jobs:
           IS_PRERELEASE="false"
         fi
 
+        # Compute release title:
+        #   v6.x.y  -> "Console Gateway v6.x.y (StyloBot v1.0-preview{x})"
+        #   v7.x.y+ -> "Stylobot v7.x.y"
+        MAJOR="${VERSION%%.*}"
+        MINOR="${VERSION#*.}"; MINOR="${MINOR%%.*}"
+        if [ "$MAJOR" -ge 7 ]; then
+          RELEASE_TITLE="Stylobot v${VERSION}"
+        else
+          RELEASE_TITLE="Console Gateway v${VERSION} (StyloBot v1.0-preview${MINOR})"
+        fi
+
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
         echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_OUTPUT
-        echo "TAG_NAME=console-v${VERSION}" >> $GITHUB_OUTPUT
+        echo "TAG_NAME=allbot-v${VERSION}" >> $GITHUB_OUTPUT
+        echo "RELEASE_TITLE=${RELEASE_TITLE}" >> $GITHUB_OUTPUT
 
     - name: Download all artifacts
       uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
       with:
         path: artifacts
-
-    - name: Display structure of downloaded files
-      run: ls -R artifacts
 
     - name: Prepare release assets
       run: |
@@ -284,9 +269,12 @@ jobs:
 
     - name: Generate release notes
       id: release_notes
+      env:
+        VERSION: ${{ steps.get_version.outputs.VERSION }}
+        RELEASE_TITLE: ${{ steps.get_version.outputs.RELEASE_TITLE }}
       run: |
-        cat > release_notes.md << 'EOF'
-        ## Stylobot v${{ steps.get_version.outputs.VERSION }}
+        cat > release_notes.md << RELEOF
+        ## ${RELEASE_TITLE}
 
         Single-binary YARP reverse proxy with the full Stylobot bot detection pipeline built in.
         Native AOT-compiled: no runtime required, instant startup, minimal memory footprint.
@@ -295,18 +283,16 @@ jobs:
 
         | Platform | File |
         |---|---|
-        | Linux x64 | `stylobot-linux-x64.tar.gz` |
-        | Linux ARM64 (Pi 4/5) | `stylobot-linux-arm64.tar.gz` |
-        | Windows x64 | `stylobot-win-x64.zip` |
-        | Windows ARM64 | `stylobot-win-arm64.zip` |
-        | macOS Intel | `stylobot-osx-x64.tar.gz` |
-        | macOS Apple Silicon | `stylobot-osx-arm64.tar.gz` |
+        | Linux x64 | \`stylobot-linux-x64.tar.gz\` |
+        | Linux ARM64 (Pi 4/5) | \`stylobot-linux-arm64.tar.gz\` |
+        | Windows x64 | \`stylobot-win-x64.zip\` |
+        | Windows ARM64 | \`stylobot-win-arm64.zip\` |
+        | macOS Intel | \`stylobot-osx-x64.tar.gz\` |
+        | macOS Apple Silicon | \`stylobot-osx-arm64.tar.gz\` |
 
         ### Quick start
 
-        Extract the archive and run:
-
-        ```bash
+        \`\`\`bash
         # Linux/macOS
         chmod +x stylobot
         stylobot 5080 https://www.example.com                    # demo mode: verbose logging, no blocking
@@ -315,18 +301,18 @@ jobs:
 
         # Windows
         stylobot.exe 5080 https://www.example.com --mode production
-        ```
+        \`\`\`
 
         ### Flags
 
-        ```bash
+        \`\`\`bash
         stylobot <port> <upstream>                     # demo mode (default)
         stylobot <port> <upstream> --mode production   # production (blocking)
         stylobot <port> <upstream> --tunnel            # Cloudflare public URL
         stylobot <port> <upstream> --policy block      # block policy
         stylobot <port> <upstream> --policy throttle   # stealth throttle
         stylobot man                                   # full reference
-        ```
+        \`\`\`
 
         ### Features
 
@@ -338,27 +324,21 @@ jobs:
         - Gateway headers: X-StyloBot-IsBot, X-StyloBot-Probability, X-StyloBot-RiskBand, etc.
         - Privacy-safe: HMAC-SHA256 signatures, zero PII stored
 
-        ### Demo
-
-        1. Start backend: `cd demo && dotnet run`
-        2. Start gateway: `stylobot 5100 http://localhost:5080 --mode demo`
-        3. Open: `http://localhost:5100/YarpProxyDemo`
-
         ### Windows code signing
 
         Windows binaries are Authenticode-signed via Azure Trusted Signing.
 
         Verify in PowerShell:
-        ```powershell
+        \`\`\`powershell
         Get-AuthenticodeSignature .\stylobot.exe | Select-Object Status, SignerCertificate
-        ```
+        \`\`\`
 
         The certificate chain roots to Microsoft's Azure Trusted Signing CA. Status should be Valid.
 
         ### SHA256 checksums
 
         See SHA256SUMS.txt attached below.
-        EOF
+        RELEOF
 
         echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
         cat release_notes.md >> $GITHUB_OUTPUT
@@ -373,7 +353,7 @@ jobs:
     - name: Create GitHub Release
       uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
       with:
-        name: Stylobot v${{ steps.get_version.outputs.VERSION }}
+        name: ${{ steps.get_version.outputs.RELEASE_TITLE }}
         tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
         body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
         draft: false
@@ -385,57 +365,41 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Release created
+      env:
+        VERSION: ${{ steps.get_version.outputs.VERSION }}
+        IS_PRERELEASE: ${{ steps.get_version.outputs.IS_PRERELEASE }}
       run: |
-        echo "✅ Release created successfully!"
-        echo "Version: ${{ steps.get_version.outputs.VERSION }}"
-        echo "Prerelease: ${{ steps.get_version.outputs.IS_PRERELEASE }}"
-        echo "Assets:"
+        echo "Release created: Stylobot v${VERSION} (prerelease: ${IS_PRERELEASE})"
         ls -lh release-assets/
 
   # -----------------------------------------------
   # Cloudsmith apt repository publishing
-  # Builds .deb packages from linux-x64 and linux-arm64 publish outputs.
-  # Auth: Cloudsmith OIDC (no long-lived API key stored anywhere).
-  #
-  # One-time Cloudsmith setup (do this once in the Cloudsmith dashboard):
-  #   1. Create a repository: <namespace>/stylobot  (public)
-  #   2. Create a service account (Settings → Service Accounts)
-  #   3. On the service account, add an OIDC policy:
-  #        Provider URL: https://token.actions.githubusercontent.com
-  #        Audience:     https://github.com/scottgal
-  #        Subject:      repo:scottgal/stylobot:environment:production
-  #   4. Grant the service account "Write" on the stylobot repo
-  #
-  # Required GitHub variables (Settings → Variables → Repository):
-  #   CLOUDSMITH_NAMESPACE  - your Cloudsmith org/user slug (e.g. scottgal)  [repository secret]
-  #   CLOUDSMITH_SERVICE_SLUG - service account slug from step 2 above       [repository secret]
   # -----------------------------------------------
   publish-linux-deb:
     name: Publish Linux .deb to Cloudsmith
     needs: build-binaries
     runs-on: ubuntu-latest
-    # TEST: guard removed for sqlite .so fix verification; restore after confirmed
-    environment: production   # locks OIDC sub to repo:scottgal/stylobot:environment:production
+    environment: production
 
     permissions:
       contents: read
-      id-token: write   # Required for Cloudsmith OIDC token exchange
+      id-token: write
 
     steps:
     - name: Extract version
       id: get_version
+      env:
+        GIT_REF: ${{ github.ref }}
+        INPUT_VERSION: ${{ github.event.inputs.version }}
+        EVENT_NAME: ${{ github.event_name }}
       run: |
-        TAG=${GITHUB_REF#refs/tags/}
-        if [[ "$TAG" == console-v* ]]; then
-          VERSION=${TAG#console-v}
-        elif [[ "$TAG" == allbot-v* ]]; then
-          VERSION=${TAG#allbot-v}
+        if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          VERSION="$INPUT_VERSION"
         else
-          VERSION="${{ github.event.inputs.version }}"
+          TAG="${GIT_REF#refs/tags/}"
+          VERSION="${TAG#allbot-v}"
         fi
         echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-        # Debian package versions cannot contain hyphens (reserved for epoch-upstream-revision)
-        # Convert any pre-release suffix (e.g. 1.2.3-beta1) to tilde form (1.2.3~beta1)
         DEB_VERSION="${VERSION//-/\~}"
         echo "DEB_VERSION=$DEB_VERSION" >> $GITHUB_OUTPUT
 
@@ -452,15 +416,15 @@ jobs:
         path: artifacts/linux-arm64
 
     - name: Build .deb packages
+      env:
+        DEB_VERSION: ${{ steps.get_version.outputs.DEB_VERSION }}
       run: |
-        DEB_VERSION="${{ steps.get_version.outputs.DEB_VERSION }}"
         mkdir -p debs
 
         build_deb() {
-          local ARCH="$1"           # amd64 | arm64
-          local ARTIFACT_DIR="$2"   # path to extracted artifact directory
+          local ARCH="$1"
+          local ARTIFACT_DIR="$2"
 
-          # Extract the .tar.gz
           mkdir -p "extract/$ARCH"
           tar -xzf "$ARTIFACT_DIR"/stylobot-linux-*.tar.gz -C "extract/$ARCH"
 
@@ -470,38 +434,28 @@ jobs:
                    "$PKG_DIR/usr/local/bin" \
                    "$PKG_DIR/etc/ld.so.conf.d"
 
-          # Binary goes into /usr/local/lib/stylobot/ so it runs with its
-          # appsettings.json as a sibling (ContentRootPath = binary dir)
           cp "extract/$ARCH/stylobot" "$PKG_DIR/usr/local/lib/stylobot/stylobot"
           chmod 755 "$PKG_DIR/usr/local/lib/stylobot/stylobot"
 
-          # Native P/Invoke libraries (libe_sqlite3.so, libonnxruntime*.so)
-          # AOT cannot bundle these into the single binary
           find "extract/$ARCH" -maxdepth 1 -name "*.so" \
             -exec cp {} "$PKG_DIR/usr/local/lib/stylobot/" \;
 
-          # Config files
           cp "extract/$ARCH/appsettings.json" "$PKG_DIR/usr/local/lib/stylobot/" || true
           cp "extract/$ARCH/appsettings.production.json" "$PKG_DIR/usr/local/lib/stylobot/" 2>/dev/null || true
 
-          # Symlink onto PATH
           ln -sf /usr/local/lib/stylobot/stylobot "$PKG_DIR/usr/local/bin/stylobot"
 
-          # Register lib dir with ldconfig
           echo "/usr/local/lib/stylobot" > "$PKG_DIR/etc/ld.so.conf.d/stylobot.conf"
 
-          # postinst / postrm: refresh ldconfig cache
           printf '#!/bin/sh\nset -e\nldconfig\n' > "$PKG_DIR/DEBIAN/postinst"
           chmod 755 "$PKG_DIR/DEBIAN/postinst"
           printf '#!/bin/sh\nset -e\nldconfig\n' > "$PKG_DIR/DEBIAN/postrm"
           chmod 755 "$PKG_DIR/DEBIAN/postrm"
 
-          # Write control file without heredoc (heredoc terminators at col 0 break YAML parsing)
           printf 'Package: stylobot\nVersion: %s\nArchitecture: %s\nMaintainer: Scott Galloway <scott@mostlylucid.net>\nDescription: StyloBot - self-hosted bot detection gateway\n YARP reverse proxy with bot detection middleware. Blocks scrapers,\n AI crawlers, and malicious bots with <1ms overhead. Native AOT binary.\nHomepage: https://github.com/scottgal/stylobot\nSection: net\nPriority: optional\n' \
             "${DEB_VERSION}" "${ARCH}" > "$PKG_DIR/DEBIAN/control"
 
           dpkg-deb --build --root-owner-group "$PKG_DIR" "debs/stylobot_${DEB_VERSION}_${ARCH}.deb"
-          echo "Built: debs/stylobot_${DEB_VERSION}_${ARCH}.deb"
         }
 
         build_deb "amd64" "artifacts/linux-x64"
@@ -515,9 +469,9 @@ jobs:
         oidc-service-slug: ${{ secrets.CLOUDSMITH_SERVICE_SLUG }}
 
     - name: Push .deb packages to Cloudsmith
+      env:
+        NS: ${{ secrets.CLOUDSMITH_NAMESPACE }}
       run: |
-        DEB_VERSION="${{ steps.get_version.outputs.DEB_VERSION }}"
-        NS="${{ secrets.CLOUDSMITH_NAMESPACE }}"
         for deb in debs/*.deb; do
           echo "Pushing $deb..."
           cloudsmith push deb \
@@ -527,17 +481,17 @@ jobs:
         done
 
     - name: Published
+      env:
+        DEB_VERSION: ${{ steps.get_version.outputs.DEB_VERSION }}
+        NS: ${{ secrets.CLOUDSMITH_NAMESPACE }}
       run: |
-        DEB_VERSION="${{ steps.get_version.outputs.DEB_VERSION }}"
-        NS="${{ secrets.CLOUDSMITH_NAMESPACE }}"
-        echo "✅ Published stylobot ${DEB_VERSION} to Cloudsmith apt repo"
-        echo ""
+        echo "Published stylobot ${DEB_VERSION} to Cloudsmith apt repo"
         echo "Install with:"
         echo "  curl -1sLf 'https://dl.cloudsmith.io/public/${NS}/stylobot/setup.deb.sh' | sudo bash"
         echo "  sudo apt update && sudo apt install stylobot"
 
   # -----------------------------------------------
-  # Homebrew tap update — runs after release is published
+  # Homebrew tap update
   # -----------------------------------------------
   update-homebrew:
     name: Update Homebrew Formula

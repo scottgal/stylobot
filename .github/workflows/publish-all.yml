@@ -431,7 +431,7 @@ jobs:
         DIGEST: ${{ steps.demo-build.outputs.digest }}
       run: cosign sign --yes scottgal/stylobot-demo@${DIGEST}
 
-  # Console binaries + release handled by publish-console-gateway.yml (also triggers on allbot-v*)
+  # Console binaries + release handled by publish-stylobot.yml (also triggers on allbot-v*)
 
   # Summary
   summary:
@@ -457,6 +457,6 @@ jobs:
         echo "| BotDetection.Llm NuGet | ${{ needs.publish-botdetection-llm.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "| BotDetection.ApiHolodeck NuGet | ${{ needs.publish-botdetection-holodeck.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "| BotDetection.Llm.Holodeck NuGet | ${{ needs.publish-botdetection-llm-holodeck.result }} |" >> $GITHUB_STEP_SUMMARY
-        echo "| Console + Release | (via publish-console-gateway.yml) |" >> $GITHUB_STEP_SUMMARY
+        echo "| Console + Release | (via publish-stylobot.yml) |" >> $GITHUB_STEP_SUMMARY
         echo "| Chocolatey | (via publish-chocolatey.yml on release) |" >> $GITHUB_STEP_SUMMARY
         echo "| Homebrew Tap | (via update-homebrew.yml on release) |" >> $GITHUB_STEP_SUMMARY
