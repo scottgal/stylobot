@@ -23,10 +23,10 @@ public class BoundedVectorCacheTests
         cache.Set("high-freq", "data-high", isBot: false);
         cache.Set("bot-entry", "data-bot", isBot: true);
 
-        // Bump frequency on high-freq and bot-entry
-        cache.TryGet("high-freq", out _);
-        cache.TryGet("high-freq", out _);
-        cache.TryGet("bot-entry", out _);
+        // Bump frequency on high-freq and bot-entry via Touch (TryGet is a pure read)
+        cache.Touch("high-freq");
+        cache.Touch("high-freq");
+        cache.Touch("bot-entry");
 
         // Cache is at capacity (3); adding a 4th entry triggers eviction.
         cache.Set("new-entry", "data-new", isBot: false);
@@ -237,5 +237,6 @@ internal sealed class BoundedVectorCacheTestAccessor<TValue>
 
     public bool TryGet(string key, out TValue? value) => _inner.TryGet(key, out value);
     public void Set(string key, TValue value, bool isBot = false) => _inner.Set(key, value, isBot);
+    public void Touch(string key) => _inner.Touch(key);
     public int Count => _inner.Count;
 }

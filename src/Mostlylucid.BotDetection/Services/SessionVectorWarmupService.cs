@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Similarity;
@@ -56,9 +57,10 @@ public sealed class SessionVectorWarmupService : BackgroundService
             "(signature={SigSize}, session={SessSize}, intent={IntentSize})",
             _opts.SignatureCacheSize, _opts.SessionCacheSize, _opts.IntentCacheSize);
 
-        await WarmSignaturesAsync(stoppingToken);
-        await WarmSessionsAsync(stoppingToken);
-        await WarmIntentsAsync(stoppingToken);
+        await Task.WhenAll(
+            WarmSignaturesAsync(stoppingToken),
+            WarmSessionsAsync(stoppingToken),
+            WarmIntentsAsync(stoppingToken));
     }
 
     // -----------------------------------------------------------------------
@@ -113,7 +115,7 @@ public sealed class SessionVectorWarmupService : BackgroundService
                     Timestamp         = DateTimeOffset.UtcNow,
                     VelocityVector    = row.VelocityVector,
                     VelocityMagnitude = row.VelocityVector != null
-                                        ? L2Magnitude(row.VelocityVector)
+                                        ? SessionVectorizer.VelocityMagnitude(row.VelocityVector)
                                         : 0f,
                     VarianceVector      = row.VarianceVector,
                     FrequencyFingerprint = row.FreqFingerprint,
@@ -159,14 +161,4 @@ public sealed class SessionVectorWarmupService : BackgroundService
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
-
-    private static float L2Magnitude(float[] v)
-    {
-        var sum = 0f;
-        foreach (var x in v) sum += x * x;
-        return MathF.Sqrt(sum);
-    }
 }

@@ -145,9 +145,10 @@ public sealed class VectorCompactionService : BackgroundService
 
         try
         {
-            await _signatureCentroidStore.PruneSignaturesOlderThanAsync(cutoff, ct);
-            await _sessionCentroidStore.PruneSessionsOlderThanAsync(cutoff, ct);
-            await _intentCentroidStore.PruneIntentsOlderThanAsync(cutoff, ct);
+            await Task.WhenAll(
+                _signatureCentroidStore.PruneSignaturesOlderThanAsync(cutoff, ct),
+                _sessionCentroidStore.PruneSessionsOlderThanAsync(cutoff, ct),
+                _intentCentroidStore.PruneIntentsOlderThanAsync(cutoff, ct));
 
             _logger.LogDebug(
                 "Phase 4: pruned centroid rows older than {CutoffEpoch} (retention={Days}d)",

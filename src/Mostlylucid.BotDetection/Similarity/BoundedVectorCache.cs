@@ -16,12 +16,11 @@ internal sealed class BoundedVectorCache<TValue>
 
     public BoundedVectorCache(int maxSize) => _maxSize = maxSize;
 
+    /// <summary>Pure read — does not bump frequency. Use <see cref="Touch"/> after a lookup that should count as an access.</summary>
     public bool TryGet(string key, out TValue? value)
     {
         if (_cache.TryGetValue(key, out var entry))
         {
-            // Increment frequency counter (best-effort; ABA race is harmless here)
-            _cache.TryUpdate(key, entry with { Frequency = entry.Frequency + 1 }, entry);
             value = entry.Value;
             return true;
         }
@@ -38,6 +37,7 @@ internal sealed class BoundedVectorCache<TValue>
         _cache[key] = new Entry(value, isBot, 1);
     }
 
+    /// <summary>Bumps the LFU frequency counter for an entry that was accessed via <see cref="GetAll"/>.</summary>
     public void Touch(string key)
     {
         if (_cache.TryGetValue(key, out var entry))
@@ -46,21 +46,28 @@ internal sealed class BoundedVectorCache<TValue>
 
     public void Clear() => _cache.Clear();
 
-    public IEnumerable<KeyValuePair<string, TValue>> GetAll() =>
-        _cache.Select(kvp => new KeyValuePair<string, TValue>(kvp.Key, kvp.Value.Value));
+    public IEnumerable<KeyValuePair<string, TValue>> GetAll()
+    {
+        foreach (var kvp in _cache)
+            yield return new KeyValuePair<string, TValue>(kvp.Key, kvp.Value.Value);
+    }
 
     public int Count => _cache.Count;
 
     /// <summary>
-    ///     Removes the entry with the lowest retention score.
-    ///     Bots get a 2x weight; humans get 1x.
+    ///     Linear scan to find and remove the entry with the lowest retention score.
+    ///     Bots get a 2x weight; humans get 1x. O(n) with zero allocations.
     /// </summary>
     private void Evict()
     {
-        var toEvict = _cache
-            .OrderBy(kvp => kvp.Value.Frequency * (kvp.Value.IsBot ? 2.0 : 1.0))
-            .FirstOrDefault();
-        if (toEvict.Key != null)
-            _cache.TryRemove(toEvict.Key, out _);
+        string? worstKey = null;
+        double worstScore = double.MaxValue;
+        foreach (var kvp in _cache)
+        {
+            var score = kvp.Value.Frequency * (kvp.Value.IsBot ? 2.0 : 1.0);
+            if (score < worstScore) { worstScore = score; worstKey = kvp.Key; }
+        }
+        if (worstKey != null)
+            _cache.TryRemove(worstKey, out _);
     }
 }

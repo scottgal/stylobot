@@ -315,14 +315,19 @@ public sealed class MarkovTracker
 
     private void EvictColdestCohort()
     {
-        // Evict the cohort with the fewest total transitions (least useful baseline data)
-        var coldest = _cohortBaselines
-            .OrderBy(kvp => kvp.Value.TotalTransitions)
-            .FirstOrDefault();
-
-        if (coldest.Key != null && _cohortBaselines.TryRemove(coldest.Key, out _))
+        string? coldestKey = null;
+        long coldestTransitions = long.MaxValue;
+        foreach (var kvp in _cohortBaselines)
+        {
+            if (kvp.Value.TotalTransitions < coldestTransitions)
+            {
+                coldestTransitions = kvp.Value.TotalTransitions;
+                coldestKey = kvp.Key;
+            }
+        }
+        if (coldestKey != null && _cohortBaselines.TryRemove(coldestKey, out _))
             _logger.LogDebug("Evicted coldest cohort baseline '{Key}' ({Transitions} transitions); cohort cap {Cap}",
-                coldest.Key, coldest.Value.TotalTransitions, _selfMaintenance.MarkovCohortSize);
+                coldestKey, coldestTransitions, _selfMaintenance.MarkovCohortSize);
     }
 
     private void EvictStaleSignatures()
