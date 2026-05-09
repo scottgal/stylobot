@@ -2,6 +2,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Similarity;
 
@@ -35,17 +36,28 @@ public sealed class VectorCompactionService : BackgroundService
     private readonly ISessionStore _store;
     private readonly ISessionVectorSearch? _vectorSearch;
     private readonly RetentionOptions _retention;
+    private readonly SelfMaintenanceOptions _selfMaintenance;
+    private readonly ISignatureCentroidStore _signatureCentroidStore;
+    private readonly ISessionCentroidStore _sessionCentroidStore;
+    private readonly IIntentCentroidStore _intentCentroidStore;
     private readonly ILogger<VectorCompactionService> _logger;
 
     public VectorCompactionService(
         ISessionStore store,
         IOptions<BotDetectionOptions> options,
         ILogger<VectorCompactionService> logger,
+        ISignatureCentroidStore signatureCentroidStore,
+        ISessionCentroidStore sessionCentroidStore,
+        IIntentCentroidStore intentCentroidStore,
         ISessionVectorSearch? vectorSearch = null)
     {
         _store = store;
         _vectorSearch = vectorSearch;
         _retention = options.Value.Retention;
+        _selfMaintenance = options.Value.SelfMaintenance;
+        _signatureCentroidStore = signatureCentroidStore;
+        _sessionCentroidStore = sessionCentroidStore;
+        _intentCentroidStore = intentCentroidStore;
         _logger = logger;
     }
 
@@ -99,6 +111,9 @@ public sealed class VectorCompactionService : BackgroundService
         if (_vectorSearch != null)
             await RunPhase3HnswCompactionAsync(ct);
 
+        // Phase 4: Prune stale centroid rows from all three centroid tables
+        await RunCentroidPruningAsync(ct);
+
         _logger.LogInformation("Vector compaction complete in {Elapsed:g}", sw.Elapsed);
     }
 
@@ -115,6 +130,32 @@ public sealed class VectorCompactionService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Phase 1 (bucket pruning) failed");
+        }
+    }
+
+    // ===========================
+    // Phase 4: Centroid pruning
+    // ===========================
+
+    internal async Task RunCentroidPruningAsync(CancellationToken ct)
+    {
+        var cutoff = DateTimeOffset.UtcNow
+            .AddDays(-_selfMaintenance.CentroidRetentionDays)
+            .ToUnixTimeSeconds();
+
+        try
+        {
+            await _signatureCentroidStore.PruneSignaturesOlderThanAsync(cutoff, ct);
+            await _sessionCentroidStore.PruneSessionsOlderThanAsync(cutoff, ct);
+            await _intentCentroidStore.PruneIntentsOlderThanAsync(cutoff, ct);
+
+            _logger.LogDebug(
+                "Phase 4: pruned centroid rows older than {CutoffEpoch} (retention={Days}d)",
+                cutoff, _selfMaintenance.CentroidRetentionDays);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Phase 4 (centroid pruning) failed");
         }
     }
 
