@@ -144,6 +144,7 @@ jobs:
 
     - name: Sign Windows binary (Azure Artifact Signing)
       if: runner.os == 'Windows'
+      continue-on-error: true  # signing failure should not block the release
       uses: azure/artifact-signing-action@48da903ca5e2d362da62c631a42d77c02ec7eadb # v1.2.0
       with:
         azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
