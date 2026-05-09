@@ -57,6 +57,8 @@ switch (firstArg)
         return await LlmTunnelCommand.RunAsync(cmdArgs);
     case "dashboard":
         return await RunDashboardAsync(cmdArgs);
+    case "setup":
+        return await SetupCommand.RunAsync(cmdArgs);
 }
 
 // llmtunnel also accepts as a flag form: --llm-tunnel or -llmtunnel
@@ -88,6 +90,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("    stylobot dashboard <url> [--api-key <k>]   Remote dashboard for another stylobot instance");
     Console.WriteLine("    stylobot genkey                             Generate a random 32-byte base64 key");
     Console.WriteLine("    stylobot clear [--sessions]                 Clear learned patterns (and optionally sessions)");
+    Console.WriteLine("    stylobot setup [--check-only] [--force]     Check and download missing resources");
     Console.WriteLine();
     Console.WriteLine("  LLM Tunnel Options:");
     Console.WriteLine("    --ollama <url>              Local Ollama URL (default: http://127.0.0.1:11434)");
