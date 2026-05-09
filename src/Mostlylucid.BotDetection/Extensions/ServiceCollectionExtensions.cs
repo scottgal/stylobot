@@ -649,16 +649,14 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<SequenceContextStore>();
         services.AddSingleton(sp =>
         {
-            var connStr = sp.GetRequiredService<Data.ISessionStore>().PersistenceConnectionString;
-            if (connStr == null) return null!; // commercial replaces this registration
+            var connStr = CentroidConnStr(sp);
             var logger = sp.GetRequiredService<ILogger<CentroidSequenceStore>>();
             return new CentroidSequenceStore(connStr, logger);
         });
         services.TryAddSingleton<EndpointDivergenceTracker>();
         services.AddSingleton(sp =>
         {
-            var connStr = sp.GetRequiredService<Data.ISessionStore>().PersistenceConnectionString;
-            if (connStr == null) return null!; // commercial replaces this registration
+            var connStr = CentroidConnStr(sp);
             var centroidStore = sp.GetRequiredService<CentroidSequenceStore>();
             var logger = sp.GetRequiredService<ILogger<AssetHashStore>>();
             return new AssetHashStore(connStr, centroidStore, logger);
@@ -734,27 +732,29 @@ public static class ServiceCollectionExtensions
         });
 
         // SQLite centroid stores - share the same DB file as the session store.
-        // Factory lambda defers resolution of ISessionStore so the stores resolve in the right order.
+        // Compute the path directly from BotDetectionOptions (same logic as SqliteSessionStore)
+        // to avoid a circular dependency: ISessionStore → ISessionVectorSearch → ISessionCentroidStore → ISessionStore.
+        static string CentroidConnStr(IServiceProvider sp)
+        {
+            var dbPath = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value.DatabasePath
+                ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
+            var basePath = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
+            return $"Data Source={Path.Combine(basePath, "sessions.db")};Cache=Shared";
+        }
         services.TryAddSingleton<ISignatureCentroidStore>(sp =>
         {
-            var connStr = sp.GetRequiredService<Data.ISessionStore>().PersistenceConnectionString
-                ?? throw new InvalidOperationException("ISessionStore.PersistenceConnectionString is null; cannot create ISignatureCentroidStore.");
             var logger = sp.GetRequiredService<ILogger<Data.SqliteSignatureCentroidStore>>();
-            return new Data.SqliteSignatureCentroidStore(connStr, logger);
+            return new Data.SqliteSignatureCentroidStore(CentroidConnStr(sp), logger);
         });
         services.TryAddSingleton<ISessionCentroidStore>(sp =>
         {
-            var connStr = sp.GetRequiredService<Data.ISessionStore>().PersistenceConnectionString
-                ?? throw new InvalidOperationException("ISessionStore.PersistenceConnectionString is null; cannot create ISessionCentroidStore.");
             var logger = sp.GetRequiredService<ILogger<Data.SqliteSessionCentroidStore>>();
-            return new Data.SqliteSessionCentroidStore(connStr, logger);
+            return new Data.SqliteSessionCentroidStore(CentroidConnStr(sp), logger);
         });
         services.TryAddSingleton<IIntentCentroidStore>(sp =>
         {
-            var connStr = sp.GetRequiredService<Data.ISessionStore>().PersistenceConnectionString
-                ?? throw new InvalidOperationException("ISessionStore.PersistenceConnectionString is null; cannot create IIntentCentroidStore.");
             var logger = sp.GetRequiredService<ILogger<Data.SqliteIntentCentroidStore>>();
-            return new Data.SqliteIntentCentroidStore(connStr, logger);
+            return new Data.SqliteIntentCentroidStore(CentroidConnStr(sp), logger);
         });
 
         // Slim* bounded in-memory similarity search backed by SQLite centroids.
