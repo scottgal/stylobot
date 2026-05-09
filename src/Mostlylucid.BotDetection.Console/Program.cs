@@ -912,11 +912,14 @@ try
     }
 
     // Start live detection table (replaces verbose log output)
+    // Link to ApplicationStopping so the table clears immediately on Ctrl-C,
+    // before app.RunAsync() finishes draining registered hosted services.
     CancellationTokenSource? liveTableCts = null;
     Task? liveTableTask = null;
     if (!verbose)
     {
-        liveTableCts = new CancellationTokenSource();
+        var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+        liveTableCts = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping);
         var liveTable = new LiveDetectionTableService(
             detectionSink, mode, upstream, port, actionPolicy,
             useTls, tunnelEnabled, () => tunnelUrl);
