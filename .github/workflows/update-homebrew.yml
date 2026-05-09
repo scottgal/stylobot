@@ -26,25 +26,33 @@ jobs:
         INPUT_VERSION: ${{ inputs.version }}
         RELEASE_TAG: ${{ github.event.release.tag_name }}
       run: |
+        # SHA256SUMS.txt is always on the console-v* release; resolve to that tag.
         if [ -n "$INPUT_VERSION" ]; then
           VERSION="$INPUT_VERSION"
-          # Find the actual release tag (may be console-v* or allbot-v*)
           TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 --json tagName,isPrerelease \
             | jq -r --arg v "$VERSION" \
-              '[.[] | select(.tagName | (startswith("allbot-v") or startswith("console-v"))) | select(.tagName | endswith($v))][0].tagName // empty')
+              '[.[] | select(.tagName | startswith("console-v")) | select(.tagName | endswith($v))][0].tagName // empty')
           if [ -z "$TAG" ]; then
-            echo "Could not find release for version $VERSION"; exit 1
+            echo "Could not find console-v release for version $VERSION"; exit 1
           fi
         elif [ -n "$RELEASE_TAG" ]; then
           TAG="$RELEASE_TAG"
           VERSION="${TAG#allbot-v}"
           VERSION="${VERSION#console-v}"
+          # If triggered by allbot-v* release, resolve to matching console-v* tag
+          if [[ "$RELEASE_TAG" == allbot-v* ]]; then
+            TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 --json tagName,isPrerelease \
+              | jq -r --arg v "$VERSION" \
+                '[.[] | select(.tagName | startswith("console-v")) | select(.tagName | endswith($v))][0].tagName // empty')
+            if [ -z "$TAG" ]; then
+              echo "No console-v release for allbot-v$VERSION yet — console binaries not published"; exit 1
+            fi
+          fi
         else
-          # Find latest stable release
+          # Find latest stable console release
           TAG=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 20 --json tagName,isPrerelease \
-            | jq -r '[.[] | select(.tagName | (startswith("allbot-v") or startswith("console-v"))) | select(.isPrerelease == false)][0].tagName')
-          VERSION="${TAG#allbot-v}"
-          VERSION="${VERSION#console-v}"
+            | jq -r '[.[] | select(.tagName | startswith("console-v")) | select(.isPrerelease == false)][0].tagName')
+          VERSION="${TAG#console-v}"
         fi
         echo "tag=$TAG" >> "$GITHUB_OUTPUT"
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
