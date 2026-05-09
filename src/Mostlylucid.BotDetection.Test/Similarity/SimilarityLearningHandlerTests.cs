@@ -8,6 +8,28 @@ namespace Mostlylucid.BotDetection.Test.Similarity;
 public class SimilarityLearningHandlerTests
 {
     [Fact]
+    public void HandledEventTypes_DoesNotContainFullDetection()
+    {
+        var handler = new SimilarityLearningHandler(
+            new FeatureVectorizer(),
+            new CapturingSimilaritySearch(),
+            NullLogger<SimilarityLearningHandler>.Instance);
+
+        Assert.DoesNotContain(LearningEventType.FullDetection, handler.HandledEventTypes);
+    }
+
+    [Fact]
+    public void HandledEventTypes_ContainsHighConfidenceDetection()
+    {
+        var handler = new SimilarityLearningHandler(
+            new FeatureVectorizer(),
+            new CapturingSimilaritySearch(),
+            NullLogger<SimilarityLearningHandler>.Instance);
+
+        Assert.Contains(LearningEventType.HighConfidenceDetection, handler.HandledEventTypes);
+    }
+
+    [Fact]
     public async Task HandleAsync_UsesPrimarySignature_WhenPresent()
     {
         var search = new CapturingSimilaritySearch();

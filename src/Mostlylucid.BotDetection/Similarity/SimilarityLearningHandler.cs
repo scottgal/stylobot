@@ -28,8 +28,7 @@ public sealed class SimilarityLearningHandler : ILearningEventHandler
 
     public IReadOnlySet<LearningEventType> HandledEventTypes => new HashSet<LearningEventType>
     {
-        LearningEventType.HighConfidenceDetection,
-        LearningEventType.FullDetection
+        LearningEventType.HighConfidenceDetection
     };
 
     public async Task HandleAsync(LearningEvent evt, CancellationToken ct = default)
