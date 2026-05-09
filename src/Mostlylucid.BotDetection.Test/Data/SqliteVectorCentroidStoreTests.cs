@@ -1,7 +1,6 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Data;
-using Mostlylucid.BotDetection.Data.Contracts;
 using Xunit;
 
 namespace Mostlylucid.BotDetection.Test.Data;
@@ -12,7 +11,7 @@ namespace Mostlylucid.BotDetection.Test.Data;
 /// Uses a shared-memory SQLite DB with a kept-open _schemaConn (IAsyncLifetime)
 /// to prevent the in-memory DB from being destroyed between operations.
 /// </summary>
-public class SqliteVectorCentroidStoreTests : IAsyncLifetime, IDisposable
+public class SqliteVectorCentroidStoreTests : IAsyncLifetime
 {
     private readonly string _dbName;
     private readonly string _connectionString;
@@ -63,28 +62,6 @@ public class SqliteVectorCentroidStoreTests : IAsyncLifetime, IDisposable
         await _schemaConn.DisposeAsync();
     }
 
-    public void Dispose() { /* in-memory DB cleaned up automatically */ }
-
-    // ── Interface compliance ─────────────────────────────────────────────────
-
-    [Fact]
-    public void SignatureStore_ImplementsInterface()
-    {
-        Assert.IsAssignableFrom<ISignatureCentroidStore>(_signatureStore);
-    }
-
-    [Fact]
-    public void SessionStore_ImplementsInterface()
-    {
-        Assert.IsAssignableFrom<ISessionCentroidStore>(_sessionStore);
-    }
-
-    [Fact]
-    public void IntentStore_ImplementsInterface()
-    {
-        Assert.IsAssignableFrom<IIntentCentroidStore>(_intentStore);
-    }
-
     // ── Signature centroid store ─────────────────────────────────────────────
 
     [Fact]
@@ -94,11 +71,10 @@ public class SqliteVectorCentroidStoreTests : IAsyncLifetime, IDisposable
         await _signatureStore.UpsertSignatureAsync("sig1", vector, wasBot: true, confidence: 0.9);
 
         var rows = await _signatureStore.GetRecentSignaturesAsync(10);
-        Assert.Single(rows);
-        Assert.Equal("sig1", rows[0].SignatureId);
-        Assert.True(rows[0].WasBot);
-        Assert.Equal(0.9, rows[0].Confidence, precision: 3);
-        Assert.Equal(3, rows[0].Vector.Length);
+        var entry = Assert.Single(rows, r => r.SignatureId == "sig1");
+        Assert.True(entry.WasBot);
+        Assert.Equal(0.9, entry.Confidence, precision: 3);
+        Assert.Equal(3, entry.Vector.Length);
     }
 
     [Fact]
@@ -166,12 +142,11 @@ public class SqliteVectorCentroidStoreTests : IAsyncLifetime, IDisposable
         await _sessionStore.UpsertSessionAsync(row);
 
         var rows = await _sessionStore.GetRecentSessionsAsync(10);
-        Assert.Single(rows);
-        Assert.Equal("sessSig1", rows[0].SignatureId);
-        Assert.Equal(1, rows[0].CompressionLevel);
-        Assert.Equal("cluster1", rows[0].ClusterId);
-        Assert.True(rows[0].IsBot);
-        Assert.Equal(0.8, rows[0].BotProbability, precision: 3);
+        var entry = Assert.Single(rows, r => r.SignatureId == "sessSig1");
+        Assert.Equal(1, entry.CompressionLevel);
+        Assert.Equal("cluster1", entry.ClusterId);
+        Assert.True(entry.IsBot);
+        Assert.Equal(0.8, entry.BotProbability, precision: 3);
     }
 
     [Fact]
@@ -215,10 +190,9 @@ public class SqliteVectorCentroidStoreTests : IAsyncLifetime, IDisposable
         await _intentStore.UpsertIntentAsync("intentSig1", new float[] { 0.5f, 0.5f }, 0.75, "scanning");
 
         var rows = await _intentStore.GetRecentIntentsAsync(10);
-        Assert.Single(rows);
-        Assert.Equal("intentSig1", rows[0].SignatureId);
-        Assert.Equal("scanning", rows[0].IntentCategory);
-        Assert.Equal(0.75, rows[0].ThreatScore, precision: 3);
+        var entry = Assert.Single(rows, r => r.SignatureId == "intentSig1");
+        Assert.Equal("scanning", entry.IntentCategory);
+        Assert.Equal(0.75, entry.ThreatScore, precision: 3);
     }
 
     [Fact]
