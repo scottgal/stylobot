@@ -177,6 +177,42 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             CREATE INDEX IF NOT EXISTS idx_requests_sig_time  ON requests(signature, timestamp ASC);
             CREATE INDEX IF NOT EXISTS idx_requests_unatomized ON requests(signature, timestamp ASC) WHERE session_id IS NULL;
             CREATE INDEX IF NOT EXISTS idx_requests_ts_desc   ON requests(timestamp DESC);
+
+            -- Centroid tables: bounded per-signature persistence for HNSW replacement (Task 2)
+
+            CREATE TABLE IF NOT EXISTS signature_centroids (
+                signature_id TEXT PRIMARY KEY,
+                vector       BLOB    NOT NULL,
+                was_bot      INTEGER NOT NULL DEFAULT 0,
+                confidence   REAL    NOT NULL DEFAULT 0.5,
+                updated_at   INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sigc_updated ON signature_centroids(updated_at);
+
+            CREATE TABLE IF NOT EXISTS session_centroids (
+                signature_id      TEXT PRIMARY KEY,
+                vector            BLOB    NOT NULL,
+                velocity_vector   BLOB,
+                variance_vector   BLOB,
+                freq_fingerprint  BLOB,
+                cluster_id        TEXT,
+                compression_level INTEGER NOT NULL DEFAULT 0,
+                is_bot            INTEGER NOT NULL DEFAULT 0,
+                bot_probability   REAL    NOT NULL DEFAULT 0.0,
+                priority          REAL    NOT NULL DEFAULT 0.5,
+                updated_at        INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sesc_updated ON session_centroids(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_sesc_cluster  ON session_centroids(cluster_id);
+
+            CREATE TABLE IF NOT EXISTS intent_centroids (
+                signature_id    TEXT PRIMARY KEY,
+                vector          BLOB    NOT NULL,
+                threat_score    REAL    NOT NULL DEFAULT 0.0,
+                intent_category TEXT    NOT NULL DEFAULT 'unknown',
+                updated_at      INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_intc_updated ON intent_centroids(updated_at);
         """;
         await cmd.ExecuteNonQueryAsync(ct);
 
