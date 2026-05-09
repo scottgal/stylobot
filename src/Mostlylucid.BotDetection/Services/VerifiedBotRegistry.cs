@@ -388,18 +388,11 @@ public sealed class VerifiedBotRegistry : IHostedService, IDisposable
         }
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-        // Best-effort initial load - don't block app startup if IP range endpoints are down
-        try
-        {
-            await RefreshAllRangesAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to load IP ranges on startup - will retry in {Hours}h",
-                _refreshInterval.TotalHours);
-        }
+        // Fire-and-forget initial load so we don't block Kestrel startup.
+        // IP ranges start empty and fill within seconds; detection works fine without them.
+        _ = SafeRefreshAsync();
 
         // Schedule periodic refresh
         _refreshTimer = new Timer(
@@ -407,6 +400,8 @@ public sealed class VerifiedBotRegistry : IHostedService, IDisposable
             this,
             _refreshInterval,
             _refreshInterval);
+
+        return Task.CompletedTask;
     }
 
     private async Task SafeRefreshAsync()

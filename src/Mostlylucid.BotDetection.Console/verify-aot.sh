@@ -6,14 +6,8 @@ set -euo pipefail
 BINARY="${1:-stylobot}"
 PASS=0; FAIL=0
 
-pass() { echo "  PASS  $1"; ((PASS++)); }
-fail() { echo "  FAIL  $1"; ((FAIL++)); }
-
-require() {
-    if ! command -v "$1" &>/dev/null; then
-        echo "  SKIP  requires $1 (not installed)"
-    fi
-}
+pass() { echo "  PASS  $1"; PASS=$((PASS + 1)); }
+fail() { echo "  FAIL  $1"; FAIL=$((FAIL + 1)); }
 
 echo ""
 echo "  stylobot AOT verification"
@@ -55,7 +49,6 @@ fi
 if "$BINARY" status 2>&1 | grep -qiE "not running|no daemon|stopped|pid"; then
     pass "status reports daemon not running"
 else
-    # exit code 1 is also acceptable when daemon is not running
     pass "status exited (daemon not running)"
 fi
 
@@ -71,10 +64,10 @@ PORT=19187
 TMPDIR_VAR=$(mktemp -d)
 UPSTREAM="http://127.0.0.1:19186"
 
-# Start a trivial upstream using nc or Python
+# Start a trivial upstream using Python
 if command -v python3 &>/dev/null; then
     python3 -c "
-import http.server, threading
+import http.server
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -91,22 +84,32 @@ else
     echo "  WARN  no python3; upstream will return 502 (that is ok for shutdown test)"
 fi
 
-# Start stylobot in background
-"$BINARY" "$PORT" "$UPSTREAM" --verbose \
+# Start stylobot from TMPDIR_VAR so the DB lands there (CWD is first writable candidate).
+# Use env -C to set the working directory without a subshell, keeping SB_PID as the binary PID.
+env -C "$TMPDIR_VAR" "$BINARY" "$PORT" "$UPSTREAM" --verbose \
     2>"$TMPDIR_VAR/stderr.log" >"$TMPDIR_VAR/stdout.log" &
 SB_PID=$!
-sleep 2   # wait for startup
 
-# Check /health
-if curl -sf "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -q "healthy"; then
+# Poll /health up to 30s (60 x 0.5s) - VerifiedBotRegistry fetches IP ranges on startup
+HEALTHY=0
+for i in $(seq 1 60); do
+    if curl -sf "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -q "healthy"; then
+        HEALTHY=1
+        break
+    fi
+    sleep 0.5
+done
+
+if [[ $HEALTHY -eq 1 ]]; then
     pass "/health returns healthy"
 else
-    fail "/health did not return healthy"
-    echo "       stderr: $(tail -5 "$TMPDIR_VAR/stderr.log")"
+    fail "/health did not return healthy after 30s"
+    echo "       stderr: $(tail -5 "$TMPDIR_VAR/stderr.log" 2>/dev/null || echo '(empty)')"
+    echo "       stdout: $(tail -5 "$TMPDIR_VAR/stdout.log" 2>/dev/null || echo '(empty)')"
 fi
 
-# Check proxy round-trip
-if [[ -n "$UPSTREAM_PID" ]]; then
+# Check proxy round-trip (only if upstream is running and server is healthy)
+if [[ -n "$UPSTREAM_PID" && $HEALTHY -eq 1 ]]; then
     STATUS=$(curl -o /dev/null -s -w "%{http_code}" "http://127.0.0.1:$PORT/" 2>/dev/null || echo "000")
     if [[ "$STATUS" == "200" ]]; then
         pass "proxy round-trip returns 200"
@@ -115,7 +118,7 @@ if [[ -n "$UPSTREAM_PID" ]]; then
     fi
 fi
 
-# Check SIGTERM shuts down cleanly (no zombie, no hanging)
+# Check SIGTERM shuts down cleanly
 kill -TERM "$SB_PID" 2>/dev/null || true
 for i in $(seq 1 20); do
     if ! kill -0 "$SB_PID" 2>/dev/null; then break; fi
@@ -129,16 +132,20 @@ else
 fi
 
 [[ -n "$UPSTREAM_PID" ]] && kill "$UPSTREAM_PID" 2>/dev/null || true
-rm -rf "$TMPDIR_VAR"
 
 # ── 8. Database created at expected path ─────────────────────────────────────
-DB_PATH="$HOME/.config/stylobot/botdetection.db"
-FALLBACK_DB="$(dirname "$BINARY")/botdetection.db"
-if [[ -f "$DB_PATH" ]] || [[ -f "$FALLBACK_DB" ]]; then
+# ResolveDataDirectory() tries CWD first, then ~/.local/share/stylobot, then AppContext.BaseDirectory
+DB_TMPDIR="$TMPDIR_VAR/botdetection.db"
+DB_LOCAL="$HOME/.local/share/stylobot/botdetection.db"
+DB_CONFIG="$HOME/.config/stylobot/botdetection.db"
+DB_BINARY_DIR="$(dirname "$(command -v "$BINARY" 2>/dev/null || echo "$BINARY")")/botdetection.db"
+if [[ -f "$DB_TMPDIR" ]] || [[ -f "$DB_LOCAL" ]] || [[ -f "$DB_CONFIG" ]] || [[ -f "$DB_BINARY_DIR" ]]; then
     pass "database file exists"
 else
-    fail "database file not found at $DB_PATH or $FALLBACK_DB"
+    fail "database file not found (checked tmpdir, ~/.local/share/stylobot, ~/.config/stylobot, binary dir)"
 fi
+
+rm -rf "$TMPDIR_VAR"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo "  ────────────────────────────────────────"

@@ -5,6 +5,18 @@
 ***COMING SOON***
 Current versions are in development. With version 7 (due early June 2026) this will stabilize (read fewer releases). 
 
+## RELEASE ARTICLES
+This is the series of articles on my blog about StyloBot 
+
+[StyloBot Release Series: Behaviour, Not Identity](https://www.mostlylucid.net/blog/stylobot-fingerprint)
+
+[StyloBot Release Series: Behaviour-Aware ASP.NET UI](https://www.mostlylucid.net/blog/behaviour-aware-ux)
+
+[StyloBot Release Series: Finding and Fixing Unbounded Growth in Long-Running .NET Services](https://www.mostlylucid.net/blog/stylobot-release-reliability)
+
+
+
+
 **Bot detection that knows your site.** Cloud scoring services evaluate your traffic against generic baselines trained on other people's users. StyloBot learns what normal looks like on your specific application: the document-asset-API request sequence, the timing distribution of your real users, the session shape your checkout flow produces. Bots that adapt to evade a cloud service still diverge from those patterns.
 
 Runs in your own infrastructure: in-process ASP.NET Core middleware, standalone YARP gateway proxy, or sidecar detection API. 49 detectors, <150µs per request, no PII leaves your server.
