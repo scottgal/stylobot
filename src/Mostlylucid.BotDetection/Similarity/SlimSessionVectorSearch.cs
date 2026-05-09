@@ -250,7 +250,8 @@ public sealed class SlimSessionVectorSearch : ISessionVectorSearch
     /// </summary>
     private static float CosineSimilarity(float[] a, float[] b)
     {
-        var len = Math.Min(a.Length, b.Length);
+        if (a.Length != b.Length) return 0f;
+        var len = a.Length;
         var vA = a.AsSpan(0, len);
         var vB = b.AsSpan(0, len);
         float dot = 0f, magA = 0f, magB = 0f;
