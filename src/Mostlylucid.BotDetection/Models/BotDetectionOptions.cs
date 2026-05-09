@@ -426,6 +426,12 @@ public class BotDetectionOptions
     /// </summary>
     public SignatureConvergenceOptions SignatureConvergence { get; set; } = new();
 
+    /// <summary>
+    ///     Configurable bounds for all in-memory accumulators.
+    ///     Prevents unbounded growth. Use SelfMaintenanceOptions.LowMemory preset for Pi4/embedded.
+    /// </summary>
+    public SelfMaintenanceOptions SelfMaintenance { get; set; } = new();
+
     // ==========================================
     // Pattern Learning Settings (Legacy - use Reputation instead)
     // ==========================================
@@ -3964,4 +3970,40 @@ public class QdrantOptions
 
     /// <summary>Embedding vector dimension (384 for all-MiniLM-L6-v2)</summary>
     public int EmbeddingDimension { get; set; } = 384;
+}
+
+/// <summary>
+///     Configurable bounds for all in-memory accumulators.
+///     Prevents unbounded growth on low-resource hardware (Pi4, embedded, containers with strict limits).
+///     Use <see cref="LowMemory"/> preset for constrained environments.
+/// </summary>
+public sealed class SelfMaintenanceOptions
+{
+    /// <summary>Max entries in the signature similarity hot cache. Default: 5000.</summary>
+    public int SignatureCacheSize { get; set; } = 5_000;
+
+    /// <summary>Max entries in the session vector hot cache. Default: 2000.</summary>
+    public int SessionCacheSize { get; set; } = 2_000;
+
+    /// <summary>Max entries in the intent classification hot cache. Default: 1000.</summary>
+    public int IntentCacheSize { get; set; } = 1_000;
+
+    /// <summary>Days to retain compressed centroids in SQLite. Default: 30.</summary>
+    public int CentroidRetentionDays { get; set; } = 30;
+
+    /// <summary>Max cohort baselines in MarkovTracker. Default: 10000.</summary>
+    public int MarkovCohortSize { get; set; } = 10_000;
+
+    /// <summary>Sliding expiration for hot cache entries without access. Default: 2 hours.</summary>
+    public TimeSpan CacheSlidingExpiration { get; set; } = TimeSpan.FromHours(2);
+
+    /// <summary>Pi4 / low-memory preset. All caches reduced ~5x vs defaults.</summary>
+    public static SelfMaintenanceOptions LowMemory => new()
+    {
+        SignatureCacheSize     = 1_000,
+        SessionCacheSize       = 500,
+        IntentCacheSize        = 300,
+        MarkovCohortSize       = 2_000,
+        CacheSlidingExpiration = TimeSpan.FromHours(1),
+    };
 }

@@ -39,6 +39,7 @@ public sealed class HnswSessionVectorSearch : ISessionVectorSearch, IDisposable
     private readonly object _writeLock = new();
     private readonly Timer _autoSaveTimer;
     private readonly Task _loadTask;
+    private readonly int _maxVectors;
 
     private readonly List<float[]> _pendingVectors = [];
     private readonly List<SessionVectorMetadata> _pendingMetadata = [];
@@ -56,6 +57,7 @@ public sealed class HnswSessionVectorSearch : ISessionVectorSearch, IDisposable
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
+        _maxVectors = options.Value.SelfMaintenance.SessionCacheSize;
         _databasePath = options.Value.DatabasePath
                         ?? Path.Combine(AppContext.BaseDirectory, "botdetection-data");
 
@@ -475,6 +477,15 @@ public sealed class HnswSessionVectorSearch : ISessionVectorSearch, IDisposable
         return normSq > 0f && !float.IsNaN(normSq) && !float.IsInfinity(normSq);
     }
 
+    private void TrimToMaxLocked()
+    {
+        var excess = _graphVectors.Count - _maxVectors;
+        if (excess <= 0) return;
+        _graphVectors.RemoveRange(0, excess);
+        _metadata.RemoveRange(0, excess);
+        _logger.LogDebug("HNSW session index trimmed by {Excess} (cap={Max})", excess, _maxVectors);
+    }
+
     private void RebuildGraphLocked()
     {
         if (_pendingVectors.Count == 0) return;
@@ -483,6 +494,7 @@ public sealed class HnswSessionVectorSearch : ISessionVectorSearch, IDisposable
         _metadata.AddRange(_pendingMetadata);
         _pendingVectors.Clear();
         _pendingMetadata.Clear();
+        TrimToMaxLocked();
 
         if (_graphVectors.Count >= MinVectorsForGraph)
             BuildGraphFromVectorsLocked();

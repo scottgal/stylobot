@@ -31,6 +31,7 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
     private readonly object _writeLock = new();
     private readonly Timer _autoSaveTimer;
     private readonly Task _loadTask;
+    private readonly int _maxVectors;
 
     // 0 = idle, 1 = rebuild in progress; prevents concurrent rebuilds
     private int _rebuildInProgress;
@@ -50,6 +51,7 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
+        _maxVectors = options.Value.SelfMaintenance.SignatureCacheSize;
         var dbPath = options.Value.DatabasePath
                      ?? Path.Combine(BotDetectionOptions.ResolveDataDirectory(), "botdetection.db");
         var basePath = Path.GetDirectoryName(dbPath) ?? BotDetectionOptions.ResolveDataDirectory();
@@ -217,6 +219,7 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
                 _metadata.AddRange(_pendingMetadata);
                 _pendingVectors.Clear();
                 _pendingMetadata.Clear();
+                TrimToMaxLocked();
 
                 // Snapshot for building — lock released immediately after
                 allVectors = [.. _graphVectors];
@@ -487,10 +490,24 @@ public sealed class HnswFileSimilaritySearch : ISignatureSimilaritySearch, IDisp
         _metadata.AddRange(_pendingMetadata);
         _pendingVectors.Clear();
         _pendingMetadata.Clear();
+        TrimToMaxLocked();
 
         if (_graphVectors.Count < MinVectorsForGraph) return;
 
         BuildGraphFromVectorsLocked();
+    }
+
+    /// <summary>
+    ///     Evicts the oldest entries when over the cap. Must be called under _writeLock.
+    ///     Vectors are ordered insertion-time oldest-first, so we remove from the front.
+    /// </summary>
+    private void TrimToMaxLocked()
+    {
+        var excess = _graphVectors.Count - _maxVectors;
+        if (excess <= 0) return;
+        _graphVectors.RemoveRange(0, excess);
+        _metadata.RemoveRange(0, excess);
+        _logger.LogDebug("HNSW signature index trimmed by {Excess} (cap={Max})", excess, _maxVectors);
     }
 
     /// <summary>
