@@ -55,10 +55,19 @@ jobs:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         TAG: ${{ steps.release.outputs.tag }}
       run: |
-        gh release download "$TAG" \
-          --repo "$GITHUB_REPOSITORY" \
-          --pattern "SHA256SUMS.txt" \
-          --output SHA256SUMS.txt
+        # Publish Console Gateway Binaries may still be uploading; poll up to 10 minutes
+        for i in $(seq 1 20); do
+          if gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "SHA256SUMS.txt" \
+            --output SHA256SUMS.txt 2>/dev/null; then
+            echo "Downloaded SHA256SUMS.txt (attempt $i)"
+            break
+          fi
+          echo "Attempt $i: SHA256SUMS.txt not yet available, waiting 30s..."
+          sleep 30
+        done
+        [ -f SHA256SUMS.txt ] || { echo "SHA256SUMS.txt never appeared"; exit 1; }
         cat SHA256SUMS.txt
 
     - name: Extract hashes
