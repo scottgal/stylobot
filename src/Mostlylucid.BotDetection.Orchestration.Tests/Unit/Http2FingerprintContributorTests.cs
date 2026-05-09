@@ -36,10 +36,17 @@ public class Http2FingerprintContributorTests
             .Returns((string _, string _, bool def) => def);
     }
 
-    private Http2FingerprintContributor CreateContributor()
+    private Http2FingerprintContributor CreateContributor(bool warmNorms = false)
     {
-        return new Http2FingerprintContributor(_loggerMock.Object, _configProviderMock.Object,
-            new Mostlylucid.BotDetection.Analysis.DeploymentNormTracker());
+        var norms = new Mostlylucid.BotDetection.Analysis.DeploymentNormTracker();
+        if (warmNorms)
+        {
+            // Seed 60 HTTP/2 observations for "unknown" UA family so the tracker is past
+            // warm-up (50 requests) and HTTP/2 is established as the norm (rate > threshold).
+            for (var i = 0; i < 60; i++)
+                norms.Record(Mostlylucid.BotDetection.Analysis.DeploymentNormTracker.Features.Http2, "unknown", present: true);
+        }
+        return new Http2FingerprintContributor(_loggerMock.Object, _configProviderMock.Object, norms);
     }
 
     private BlackboardState CreateState(string protocol, Dictionary<string, string>? headers = null)
@@ -106,7 +113,7 @@ public class Http2FingerprintContributorTests
     [Fact]
     public async Task ContributeAsync_Http1Protocol_AppliesPenalty()
     {
-        var contributor = CreateContributor();
+        var contributor = CreateContributor(warmNorms: true);
         var state = CreateState("HTTP/1.1");
 
         var contributions = await contributor.ContributeAsync(state);
@@ -158,7 +165,7 @@ public class Http2FingerprintContributorTests
     public async Task ContributeAsync_BehindProxy_Http1ViaHeader_StillAppliesPenalty()
     {
         // Client genuinely connected with HTTP/1.1 through proxy
-        var contributor = CreateContributor();
+        var contributor = CreateContributor(warmNorms: true);
         var state = CreateState("HTTP/1.1", new Dictionary<string, string>
         {
             ["X-HTTP-Protocol"] = "HTTP/1.1"
