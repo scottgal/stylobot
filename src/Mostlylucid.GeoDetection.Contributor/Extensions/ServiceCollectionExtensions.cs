@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Setup;
+using Mostlylucid.GeoDetection.Contributor.Setup;
 
 namespace Mostlylucid.GeoDetection.Contributor.Extensions;
 
@@ -39,6 +41,8 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IContributingDetector, GeoClientContributor>());
 
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISetupResource, GeoIpSetupResource>());
+
         return services;
     }
 
@@ -65,6 +69,8 @@ public static class ServiceCollectionExtensions
 
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IContributingDetector, GeoContributor>());
+
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISetupResource, GeoIpSetupResource>());
 
         return services;
     }

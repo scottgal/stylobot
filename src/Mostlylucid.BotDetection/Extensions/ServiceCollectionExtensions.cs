@@ -30,6 +30,7 @@ using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Similarity;
 using Mostlylucid.BotDetection.Compliance;
 using Mostlylucid.BotDetection.Proxy;
+using Mostlylucid.BotDetection.Setup;
 using Mostlylucid.BotDetection.SimulationPacks;
 
 namespace Mostlylucid.BotDetection.Extensions;
@@ -240,6 +241,27 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    ///     Registers setup services for <c>stylobot setup</c> command.
+    ///     Called automatically by AddBotDetection(). Can also be called in isolation
+    ///     by the Console setup command for a minimal host without the full detector stack.
+    /// </summary>
+    public static IServiceCollection AddBotDetectionSetupServices(this IServiceCollection services)
+    {
+        services.TryAddSingleton<IBotListFetcher, BotListFetcher>();
+        services.TryAddSingleton<IBotListDatabase>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+            var fetcher = sp.GetRequiredService<IBotListFetcher>();
+            var logger = sp.GetRequiredService<ILogger<BotListDatabase>>();
+            return new BotListDatabase(fetcher, logger, options.DatabasePath);
+        });
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISetupResource, BotListSetupResource>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISetupResource, OnnxSetupResource>());
+        services.TryAddSingleton<SetupService>();
+        return services;
+    }
+
+    /// <summary>
     ///     Registers core bot detection services.
     ///     Called by all Add*BotDetection methods.
     /// </summary>
@@ -281,15 +303,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Telemetry.BotDetectionSignalMeter>();
         services.TryAddSingleton<Telemetry.BotDetectionInstrumentation>();
 
-        // Register bot list fetcher and database
-        services.TryAddSingleton<IBotListFetcher, BotListFetcher>();
-        services.TryAddSingleton<IBotListDatabase>(sp =>
-        {
-            var options = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
-            var fetcher = sp.GetRequiredService<IBotListFetcher>();
-            var logger = sp.GetRequiredService<ILogger<BotListDatabase>>();
-            return new BotListDatabase(fetcher, logger, options.DatabasePath);
-        });
+        // Register setup services (bot list, ONNX model, setup resources, SetupService)
+        services.AddBotDetectionSetupServices();
 
         // Register ASN lookup service (Team Cymru DNS-based IP→ASN mapping)
         services.TryAddSingleton<IAsnLookupService, AsnLookupService>();
