@@ -286,90 +286,78 @@ jobs:
       id: release_notes
       run: |
         cat > release_notes.md << 'EOF'
-        ## Bot Detection Console Gateway v${{ steps.get_version.outputs.VERSION }}
+        ## Stylobot v${{ steps.get_version.outputs.VERSION }}
 
-        Minimal, single-file YARP gateway with bot detection middleware. Native AOT-compiled for maximum performance and minimal footprint.
+        Single-binary YARP reverse proxy with the full Stylobot bot detection pipeline built in.
+        Native AOT-compiled: no runtime required, instant startup, minimal memory footprint.
 
         ### Downloads
 
-        Download the binary for your platform:
+        | Platform | File |
+        |---|---|
+        | Linux x64 | `stylobot-linux-x64.tar.gz` |
+        | Linux ARM64 (Pi 4/5) | `stylobot-linux-arm64.tar.gz` |
+        | Windows x64 | `stylobot-win-x64.zip` |
+        | Windows ARM64 | `stylobot-win-arm64.zip` |
+        | macOS Intel | `stylobot-osx-x64.tar.gz` |
+        | macOS Apple Silicon | `stylobot-osx-arm64.tar.gz` |
 
-        - **Linux x64**: `stylobot-linux-x64.tar.gz` (~12MB)
-        - **Linux ARM64**: `stylobot-linux-arm64.tar.gz` (~11MB) - For Raspberry Pi 4/5
-        - **Windows x64**: `stylobot-win-x64.zip` (~10MB)
-        - **Windows ARM64**: `stylobot-win-arm64.zip` (~10MB) - For Surface Pro X, Windows on ARM
-        - **macOS Intel**: `stylobot-osx-x64.tar.gz` (~13MB)
-        - **macOS Apple Silicon**: `stylobot-osx-arm64.tar.gz` (~11MB)
-
-        ### Quick Start
+        ### Quick start
 
         Extract the archive and run:
 
         ```bash
         # Linux/macOS
         chmod +x stylobot
-        stylobot 5080 https://www.example.com                       # demo mode (verbose, no blocking)
-        stylobot 5080 https://www.example.com --mode production      # production (blocking enabled)
-        stylobot 5080 https://www.example.com --tunnel               # instant Cloudflare public URL
+        stylobot 5080 https://www.example.com                    # demo mode: verbose logging, no blocking
+        stylobot 5080 https://www.example.com --mode production  # production: blocking enabled
+        stylobot 5080 https://www.example.com --tunnel           # open a Cloudflare public URL
 
         # Windows
         stylobot.exe 5080 https://www.example.com --mode production
         ```
 
-        ### Features
-
-        - ✅ **Native AOT** - Zero dependencies, instant startup, minimal memory footprint
-        - ✅ **Cross-platform** - Linux (x64, ARM64), Windows, macOS
-        - ✅ **YARP reverse proxy** - Forward to any upstream backend
-        - ✅ **Bot detection** - Full detection pipeline with HMAC-SHA256 signature storage
-        - ✅ **Client-side validation** - Browser fingerprinting via JavaScript callback
-        - ✅ **Header forwarding** - Results sent via `X-Bot-Detection-*` headers
-        - ✅ **Signature tracking** - Stores high-confidence detections as privacy-safe signatures
-        - ✅ **Mismatch detection** - Logs conflicts between server/client verdicts
-        - ✅ **Learning events** - Publishes client-side results for model improvement
-        - ✅ **Demo mode** - Colorful console logging
-        - ✅ **Production mode** - Structured JSON logging
-        - ✅ **Raspberry Pi support** - Runs on Pi 4/5 (ARM64)
-
-        ### Configuration
+        ### Flags
 
         ```bash
-        stylobot <port> <upstream>                     # Demo mode (default)
-        stylobot <port> <upstream> --mode production   # Production (blocking)
+        stylobot <port> <upstream>                     # demo mode (default)
+        stylobot <port> <upstream> --mode production   # production (blocking)
         stylobot <port> <upstream> --tunnel            # Cloudflare public URL
-        stylobot <port> <upstream> --policy block      # Explicit block policy
-        stylobot <port> <upstream> --policy throttle   # Stealth throttling
-        stylobot man                                   # Full reference
+        stylobot <port> <upstream> --policy block      # block policy
+        stylobot <port> <upstream> --policy throttle   # stealth throttle
+        stylobot man                                   # full reference
         ```
 
-        ### Demo Loop
+        ### Features
 
-        See the complete YARP → Backend demo:
+        - Native AOT: zero dependencies, ~10MB binary, instant startup
+        - Cross-platform: Linux (x64, ARM64), Windows (x64, ARM64), macOS (x64, ARM64)
+        - Full Stylobot detection pipeline: 49 detectors, 4 waves, behavioral analysis, intent scoring
+        - YARP reverse proxy: forward to any upstream backend
+        - Client-side fingerprinting via JavaScript callback
+        - Gateway headers: X-StyloBot-IsBot, X-StyloBot-Probability, X-StyloBot-RiskBand, etc.
+        - Privacy-safe: HMAC-SHA256 signatures, zero PII stored
+
+        ### Demo
 
         1. Start backend: `cd demo && dotnet run`
         2. Start gateway: `stylobot 5100 http://localhost:5080 --mode demo`
         3. Open: `http://localhost:5100/YarpProxyDemo`
 
-        ### Documentation
-
-        - [Console Gateway README](https://github.com/scottgal/stylobot/blob/main/src/Mostlylucid.BotDetection.Console/README.md)
-        - [Vector Search Projection](https://github.com/scottgal/stylobot/blob/main/docs/vector-search-projection.md)
-        - [Documentation](https://github.com/scottgal/stylobot)
-
         ### Windows code signing
 
-        Windows binaries (`stylobot-win-x64.zip`, `stylobot-win-arm64.zip`) are Authenticode-signed via **Azure Trusted Signing**.
+        Windows binaries are Authenticode-signed via Azure Trusted Signing.
 
         Verify in PowerShell:
         ```powershell
         Get-AuthenticodeSignature .\stylobot.exe | Select-Object Status, SignerCertificate
         ```
 
-        The certificate chain roots to Microsoft's Azure Trusted Signing CA. Status should be `Valid`.
+        The certificate chain roots to Microsoft's Azure Trusted Signing CA. Status should be Valid.
 
         ### SHA256 checksums
 
-        See `SHA256SUMS.txt` attached below.
+        See SHA256SUMS.txt attached below.
         EOF
 
         echo "RELEASE_NOTES<<EOF" >> $GITHUB_OUTPUT
@@ -385,7 +373,7 @@ jobs:
     - name: Create GitHub Release
       uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
       with:
-        name: Console Gateway v${{ steps.get_version.outputs.VERSION }}
+        name: Stylobot v${{ steps.get_version.outputs.VERSION }}
         tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
         body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
         draft: false
