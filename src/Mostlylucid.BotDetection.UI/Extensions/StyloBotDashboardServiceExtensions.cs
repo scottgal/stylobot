@@ -334,6 +334,10 @@ public static class StyloBotDashboardServiceExtensions
 
         if (options?.Enabled == true)
         {
+            // Dashboard CSS/JS lives at /_content/Mostlylucid.BotDetection.UI/...
+            // Ensure static files middleware is active so these assets are served.
+            app.UseStaticFiles();
+
             // Broadcast middleware goes FIRST - it wraps detection.
             // When _next returns (whether detection blocked or allowed the request),
             // the broadcast middleware ALWAYS runs and records the result.

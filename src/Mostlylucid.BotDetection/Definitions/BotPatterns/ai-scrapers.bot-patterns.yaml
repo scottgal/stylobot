@@ -7,7 +7,7 @@ patterns:
     bot_type: AiBot
     vendor: OpenAI
     ai_category: Training
-    ip_ranges_url: "https://openai.com/gptbot-ranges.json"
+    ip_ranges_url: "https://openai.com/gptbot.json"
   - pattern: ClaudeBot
     bot_name: ClaudeBot
     bot_type: AiBot
@@ -172,7 +172,7 @@ patterns:
     bot_type: GoodBot
     vendor: OpenAI
     ai_category: Assistant
-    ip_ranges_url: "https://openai.com/gptbot-ranges.json"
+    ip_ranges_url: "https://openai.com/gptbot.json"
   - pattern: ChatGPT-Browser
     bot_name: ChatGPT-Browser
     bot_type: GoodBot

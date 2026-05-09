@@ -38,7 +38,7 @@ The StyloBot sidecar exposes both gRPC and REST detection endpoints. The Caddy m
 The sidecar is a self-contained ASP.NET Core process that listens on port 5090 by default. It serves both gRPC and REST on the same port.
 
 ```bash
-cd Mostlylucid.BotDetection.Sidecar
+cd src/Mostlylucid.BotDetection.Sidecar
 dotnet run
 ```
 
@@ -419,7 +419,7 @@ If you need encrypted gRPC between Caddy and a remote sidecar, TLS support can b
 | Headers not appearing on upstream request | Caddy binary was not built with xcaddy and this module | Rebuild with `xcaddy build --with github.com/scottgal/caddy-stylobot` |
 | All requests are blocked | `on_block` is set and the sidecar is returning `Block` for all traffic | Set `on_block 0` temporarily; check sidecar logs; raise `BotDetection:BotThreshold` (e.g. to `0.85`) |
 | High latency on every request | Sidecar is running on a different host | gRPC is fast on localhost; each network hop adds latency. Co-locate the sidecar. |
-| `connection refused` on startup | Sidecar is not running or is on a different port | Start the sidecar: `dotnet run --project Mostlylucid.BotDetection.Sidecar`. Check `STYLOBOT_PORT`. |
+| `connection refused` on startup | Sidecar is not running or is on a different port | Start the sidecar: `dotnet run --project src/Mostlylucid.BotDetection.Sidecar`. Check `STYLOBOT_PORT`. |
 | `context deadline exceeded` in logs | `timeout` is too short for the current sidecar load | Increase `timeout` to `200ms` for debugging, then tune down once you understand normal latency |
 | Sidecar health check fails in Docker Compose | Sidecar container still starting when Caddy starts | Add `depends_on` with `condition: service_healthy` as shown in Scenario 2 |
 

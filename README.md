@@ -90,7 +90,7 @@ app.UseStyloBot();   // broadcast, detection, dashboard: correct ordering guaran
 app.MapControllers();
 ```
 
-Dashboard at `/_stylobot`. Detection at `~150µs` per request from first request.
+Dashboard at `/stylobot`. Detection at `~150µs` per request from first request.
 
 ---
 
@@ -240,7 +240,7 @@ stylobot 5080 http://localhost:3000 --llm localtunnel --llm-key "sb_llmtunnel_v1
 
 ## Dashboard
 
-Real-time monitoring at `/_stylobot`. All data persists to SQLite.
+Real-time monitoring at `/stylobot`. All data persists to SQLite.
 
 - **Overview**: top threats, traffic chart, world threat map
 - **Visitors**: signature-level cards with probability badges (Bot/Suspicious/Uncertain/Human)

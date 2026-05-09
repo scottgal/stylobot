@@ -128,7 +128,7 @@ app.get('/dashboard', async (req, res) => {
   const summaryTemplate = readFileSync('./templates/summary.liquid', 'utf8')
   const topbotsTemplate = readFileSync('./templates/topbots.liquid', 'utf8')
 
-  // One POST to /_stylobot/partials/render, all widgets returned as HTML fragments.
+  // One POST to /stylobot/partials/render, all widgets returned as HTML fragments.
   const widgets = await coordinator.renderWidgets([
     { widgetId: 'summary', template: summaryTemplate },
     { widgetId: 'topbots', template: topbotsTemplate },
@@ -276,7 +276,7 @@ Fetches a Liquid-rendered widget from the StyloBot server and replaces itself wi
 <sb-widget data-sb-widget="topbots"></sb-widget>
 ```
 
-Requests from all `sb-widget` elements on the page are automatically batched into a single POST to `/_stylobot/partials/render`.
+Requests from all `sb-widget` elements on the page are automatically batched into a single POST to `/stylobot/partials/render`.
 
 Configure the StyloBot server endpoint before widgets connect:
 
@@ -293,8 +293,8 @@ Start the StyloBot .NET application first:
 
 ```bash
 cd /path/to/stylobot
-dotnet run --project Mostlylucid.BotDetection.Demo
-# Dashboard at: http://localhost:5080/_stylobot
+dotnet run --project src/Mostlylucid.BotDetection.Demo
+# Dashboard at: http://localhost:5080/stylobot
 ```
 
 Then start the sample Express app:
@@ -324,7 +324,7 @@ import { sbVerdictInjector } from '@stylobot/node'
 // Gateway mode: reads from request headers (zero latency)
 app.use(sbVerdictInjector({ mode: 'gateway' }))
 
-// Sidecar mode: fetches verdict from StyloBot /_stylobot/me endpoint
+// Sidecar mode: fetches verdict from StyloBot /stylobot/me endpoint
 app.use(sbVerdictInjector({
   mode: 'sidecar',
   endpoint: 'http://stylobot-host:5080',

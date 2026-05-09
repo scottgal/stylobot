@@ -20,7 +20,7 @@
                         hx-swap="outerHTML">
                     @foreach (var pack in Model.AvailablePacks)
                     {
-                        <option value="@pack.Id" @(pack.Id == Model.ActivePackId ? "selected" : "")>
+                        <option value="@pack.Id" selected="@(pack.Id == Model.ActivePackId)">
                             @pack.Name @(pack.Jurisdiction is not null ? $"({pack.Jurisdiction})" : "")
                         </option>
                     }
