@@ -33,7 +33,9 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
         <ProjectReference Include="..\Mostlylucid.GeoDetection\Mostlylucid.GeoDetection.csproj" />
+        <ProjectReference Include="..\Mostlylucid.GeoDetection.Contributor\Mostlylucid.GeoDetection.Contributor.csproj" />
     </ItemGroup>
 
 </Project>
