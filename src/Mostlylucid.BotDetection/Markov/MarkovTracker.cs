@@ -14,6 +14,7 @@ public sealed class MarkovTracker
 {
     private readonly ILogger<MarkovTracker> _logger;
     private readonly MarkovOptions _options;
+    private readonly SelfMaintenanceOptions _selfMaintenance;
 
     // Per-signature chains (keyed by hashed signature)
     private readonly ConcurrentDictionary<string, SignatureChainState> _signatureChains = new();
@@ -36,6 +37,7 @@ public sealed class MarkovTracker
     {
         _logger = logger;
         _options = options.Value.Markov;
+        _selfMaintenance = options.Value.SelfMaintenance;
         _globalBaseline = new DecayingTransitionMatrix(
             TimeSpan.FromHours(_options.GlobalHalfLifeHours),
             _options.MaxEdgesPerNode);
@@ -112,6 +114,11 @@ public sealed class MarkovTracker
         {
             // Only human traffic goes into baselines
             if (!update.IsHuman) continue;
+
+            // Evict coldest cohort when at capacity (before adding a new key)
+            if (!_cohortBaselines.ContainsKey(update.CohortKey) &&
+                _cohortBaselines.Count >= _selfMaintenance.MarkovCohortSize)
+                EvictColdestCohort();
 
             var baseline = _cohortBaselines.GetOrAdd(update.CohortKey,
                 _ => new DecayingTransitionMatrix(
@@ -304,6 +311,18 @@ public sealed class MarkovTracker
             counts[key] /= total;
 
         return counts;
+    }
+
+    private void EvictColdestCohort()
+    {
+        // Evict the cohort with the fewest total transitions (least useful baseline data)
+        var coldest = _cohortBaselines
+            .OrderBy(kvp => kvp.Value.TotalTransitions)
+            .FirstOrDefault();
+
+        if (coldest.Key != null && _cohortBaselines.TryRemove(coldest.Key, out _))
+            _logger.LogDebug("Evicted coldest cohort baseline '{Key}' ({Transitions} transitions); cohort cap {Cap}",
+                coldest.Key, coldest.Value.TotalTransitions, _selfMaintenance.MarkovCohortSize);
     }
 
     private void EvictStaleSignatures()
