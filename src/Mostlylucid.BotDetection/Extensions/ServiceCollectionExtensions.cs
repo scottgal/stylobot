@@ -10,6 +10,7 @@ using Mostlylucid.BotDetection.Behavioral;
 using Mostlylucid.BotDetection.ClientSide;
 using Mostlylucid.BotDetection.Dashboard;
 using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Data.Contracts;
 using Mostlylucid.BotDetection.Detectors;
 // LlmDetector removed - now in Mostlylucid.BotDetection.Llm.Ollama/LlamaSharp packages
 using Mostlylucid.BotDetection.Events;
@@ -708,16 +709,14 @@ public static class ServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<IntentClassificationCoordinator>());
 
         // ==========================================
-        // Similarity Search (HNSW or Qdrant)
+        // Similarity Search (Slim* bounded in-memory, SQLite-backed centroids)
         // ==========================================
 
         // Feature vectorizer converts dynamic feature dictionaries to fixed-length vectors
         services.TryAddSingleton<FeatureVectorizer>();
 
-        // Intent vectorizer + HNSW index (threat scoring via session intent patterns)
+        // Intent vectorizer (threat scoring via session intent patterns)
         services.TryAddSingleton<IntentVectorizer>();
-        services.TryAddSingleton<HnswIntentSearch>();
-        services.TryAddSingleton<IIntentSimilaritySearch>(sp => sp.GetRequiredService<HnswIntentSearch>());
 
         // ONNX embedding provider (optional - for ML-powered similarity)
         services.TryAddSingleton<IEmbeddingProvider>(sp =>
@@ -727,35 +726,39 @@ public static class ServiceCollectionExtensions
             return new OnnxEmbeddingProvider(opts.Qdrant, opts.DatabasePath, logger);
         });
 
-        // Always register HNSW as concrete type for fallback
-        services.TryAddSingleton<HnswFileSimilaritySearch>();
-
-        // Qdrant or HNSW based on configuration
-        services.TryAddSingleton<ISignatureSimilaritySearch>(sp =>
+        // SQLite centroid stores - share the same DB file as the session store.
+        // Factory lambda defers resolution of ISessionStore so the stores resolve in the right order.
+        services.TryAddSingleton<ISignatureCentroidStore>(sp =>
         {
-            var opts = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
-            if (opts.Qdrant.Enabled)
-            {
-                var qdrantLogger = sp.GetRequiredService<ILogger<QdrantSimilaritySearch>>();
-                if (opts.Qdrant.EnableEmbeddings)
-                {
-                    var embedder = sp.GetRequiredService<IEmbeddingProvider>();
-                    var vectorizer = sp.GetRequiredService<FeatureVectorizer>();
-                    return new DualVectorSimilaritySearch(opts.Qdrant, vectorizer, embedder, opts.DatabasePath, qdrantLogger);
-                }
-                return new QdrantSimilaritySearch(opts.Qdrant, opts.DatabasePath, qdrantLogger);
-            }
-            // Fallback: file-backed HNSW (current behavior)
-            return sp.GetRequiredService<HnswFileSimilaritySearch>();
+            var connStr = sp.GetRequiredService<Data.ISessionStore>().PersistenceConnectionString
+                ?? throw new InvalidOperationException("ISessionStore.PersistenceConnectionString is null; cannot create ISignatureCentroidStore.");
+            var logger = sp.GetRequiredService<ILogger<Data.SqliteSignatureCentroidStore>>();
+            return new Data.SqliteSignatureCentroidStore(connStr, logger);
+        });
+        services.TryAddSingleton<ISessionCentroidStore>(sp =>
+        {
+            var connStr = sp.GetRequiredService<Data.ISessionStore>().PersistenceConnectionString
+                ?? throw new InvalidOperationException("ISessionStore.PersistenceConnectionString is null; cannot create ISessionCentroidStore.");
+            var logger = sp.GetRequiredService<ILogger<Data.SqliteSessionCentroidStore>>();
+            return new Data.SqliteSessionCentroidStore(connStr, logger);
+        });
+        services.TryAddSingleton<IIntentCentroidStore>(sp =>
+        {
+            var connStr = sp.GetRequiredService<Data.ISessionStore>().PersistenceConnectionString
+                ?? throw new InvalidOperationException("ISessionStore.PersistenceConnectionString is null; cannot create IIntentCentroidStore.");
+            var logger = sp.GetRequiredService<ILogger<Data.SqliteIntentCentroidStore>>();
+            return new Data.SqliteIntentCentroidStore(connStr, logger);
         });
 
-        // Session vector HNSW index (129-dim Markov/fingerprint vectors, file-backed)
-        // Commercial can replace ISessionVectorSearch with a Qdrant or pgvector implementation.
-        services.TryAddSingleton<HnswSessionVectorSearch>();
-        services.TryAddSingleton<ISessionVectorSearch>(sp => sp.GetRequiredService<HnswSessionVectorSearch>());
-        // Warmup: seeds the index from SQLite on first startup (skipped if graph file exists)
+        // Slim* bounded in-memory similarity search backed by SQLite centroids.
+        // Replaces unbounded HNSW graphs - no file I/O on the hot path, bounded LOH.
+        services.TryAddSingleton<ISignatureSimilaritySearch, SlimSignatureSimilaritySearch>();
+        services.TryAddSingleton<ISessionVectorSearch, SlimSessionVectorSearch>();
+        services.TryAddSingleton<IIntentSimilaritySearch, SlimIntentSearch>();
+
+        // Warmup: seeds the Slim* caches from SQLite centroids on first startup
         services.AddHostedService<Services.SessionVectorWarmupService>();
-        // Nightly compaction: SQLite session compaction + HNSW LOD compression
+        // Nightly compaction: SQLite session compaction + centroid pruning
         services.AddHostedService<Services.VectorCompactionService>();
 
         // Learning handler that feeds high-confidence detections into the similarity index
