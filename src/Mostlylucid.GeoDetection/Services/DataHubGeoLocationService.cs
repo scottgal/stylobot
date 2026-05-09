@@ -100,10 +100,13 @@ public class DataHubGeoLocationService(
         };
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-        // Load database on startup
-        await EnsureDatabaseLoadedAsync(cancellationToken);
+        // Fire-and-forget: database loads in the background.
+        // GetLocationAsync calls EnsureDatabaseLoadedAsync before serving any request,
+        // so all lookups block until the DB is ready -- but Kestrel startup is not blocked.
+        _ = EnsureDatabaseLoadedAsync(CancellationToken.None);
+        return Task.CompletedTask;
     }
 
     public Task StopAsync(CancellationToken cancellationToken)

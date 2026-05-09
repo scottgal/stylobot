@@ -131,6 +131,47 @@ public class DataHubGeoLocationServiceTests
         await service.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task StartAsync_ReturnsImmediately_WithoutWaitingForDownload()
+    {
+        // Arrange: HTTP client that never completes (simulates slow network)
+        var tcs = new TaskCompletionSource<HttpResponseMessage>();
+        var handlerMock = new Mock<HttpMessageHandler>();
+        handlerMock
+            .Protected()
+            .Setup<Task<HttpResponseMessage>>(
+                "SendAsync",
+                ItExpr.IsAny<HttpRequestMessage>(),
+                ItExpr.IsAny<CancellationToken>())
+            .Returns(tcs.Task); // never completes
+
+        var client = new HttpClient(handlerMock.Object);
+        _httpClientFactoryMock.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(client);
+
+        // Use a fresh temp dir so it tries to download
+        var tempDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        Directory.CreateDirectory(tempDir);
+        var opts = Options.Create(new GeoLite2Options
+        {
+            Provider = GeoProvider.DataHubCsv,
+            DatabasePath = Path.Combine(tempDir, "GeoLite2-City.csv"),
+            CacheDuration = TimeSpan.FromMinutes(5)
+        });
+        var svc = new DataHubGeoLocationService(_loggerMock.Object, opts, _httpClientFactoryMock.Object, _memoryCache);
+
+        // Act: measure how long StartAsync takes
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await svc.StartAsync(CancellationToken.None);
+        sw.Stop();
+
+        // Assert: returned in < 200ms even though download never completes
+        Assert.True(sw.ElapsedMilliseconds < 200,
+            $"StartAsync blocked for {sw.ElapsedMilliseconds}ms - should return immediately");
+
+        // Cleanup
+        Directory.Delete(tempDir, recursive: true);
+    }
+
     private DataHubGeoLocationService CreateService()
     {
         // Setup mock HTTP client that returns empty response
