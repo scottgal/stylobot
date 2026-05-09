@@ -58,7 +58,10 @@ public sealed class SlimSignatureSimilaritySearch : ISignatureSimilaritySearch
             var entry = kvp.Value;
             var sim = CosineSimilarity(vector, entry.Vector);
             if (sim >= minSimilarity)
+            {
+                _cache.Touch(kvp.Key);
                 results.Add(new SimilarSignature(kvp.Key, 1f - sim, entry.WasBot, entry.Confidence));
+            }
         }
 
         // Sort by distance (closest first) and trim to topK

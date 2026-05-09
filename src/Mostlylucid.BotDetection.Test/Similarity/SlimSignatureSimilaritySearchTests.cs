@@ -146,6 +146,28 @@ public class SlimSignatureSimilaritySearchTests
     }
 
     [Fact]
+    public async Task FindSimilarAsync_FrequentHit_BumpsLfuAndSurvivesEviction()
+    {
+        var sut = BuildSut(cacheSize: 2);
+        var hotVec  = new float[] { 1f, 0f };
+        var coldVec = new float[] { 0f, 1f };
+        var query   = new float[] { 1f, 0f };
+
+        await sut.AddAsync(hotVec,  "hot",  wasBot: true,  confidence: 0.9);
+        await sut.AddAsync(coldVec, "cold", wasBot: false, confidence: 0.5);
+
+        // Repeatedly match "hot" to boost its LFU frequency via Touch
+        for (var i = 0; i < 5; i++)
+            await sut.FindSimilarAsync(query, topK: 5, minSimilarity: 0.8f);
+
+        // Adding a third entry triggers eviction; "cold" (lower LFU score) should be evicted
+        await sut.AddAsync(new float[] { 0.5f, 0.5f }, "third", wasBot: false, confidence: 0.6);
+
+        var results = await sut.FindSimilarAsync(query, topK: 5, minSimilarity: 0.8f);
+        Assert.Contains(results, r => r.SignatureId == "hot");
+    }
+
+    [Fact]
     public async Task AddAsync_FiresBackgroundSqliteUpsert()
     {
         var capturingStore = new CapturingCentroidStore();

@@ -31,9 +31,17 @@ internal sealed class BoundedVectorCache<TValue>
 
     public void Set(string key, TValue value, bool isBot = false)
     {
+        // Count and insert are not atomic; under concurrent writers the cache may
+        // transiently hold one extra entry. Best-effort bounded semantics are acceptable here.
         if (_cache.Count >= _maxSize && !_cache.ContainsKey(key))
             Evict();
         _cache[key] = new Entry(value, isBot, 1);
+    }
+
+    public void Touch(string key)
+    {
+        if (_cache.TryGetValue(key, out var entry))
+            _cache.TryUpdate(key, entry with { Frequency = entry.Frequency + 1 }, entry);
     }
 
     public IEnumerable<KeyValuePair<string, TValue>> GetAll() =>
