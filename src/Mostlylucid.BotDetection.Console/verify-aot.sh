@@ -4,6 +4,10 @@
 set -euo pipefail
 
 BINARY="${1:-stylobot}"
+# Resolve to absolute path so env -C doesn't lose track of a relative binary path
+if [[ "$BINARY" != /* ]] && [[ -f "$BINARY" ]]; then
+    BINARY="$(cd "$(dirname "$BINARY")" && pwd)/$(basename "$BINARY")"
+fi
 PASS=0; FAIL=0
 
 pass() { echo "  PASS  $1"; PASS=$((PASS + 1)); }
