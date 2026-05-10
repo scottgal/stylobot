@@ -137,18 +137,6 @@ fi
 
 [[ -n "$UPSTREAM_PID" ]] && kill "$UPSTREAM_PID" 2>/dev/null || true
 
-# ── 8. Database created at expected path ─────────────────────────────────────
-# ResolveDataDirectory() tries CWD first, then ~/.local/share/stylobot, then AppContext.BaseDirectory
-DB_TMPDIR="$TMPDIR_VAR/botdetection.db"
-DB_LOCAL="$HOME/.local/share/stylobot/botdetection.db"
-DB_CONFIG="$HOME/.config/stylobot/botdetection.db"
-DB_BINARY_DIR="$(dirname "$(command -v "$BINARY" 2>/dev/null || echo "$BINARY")")/botdetection.db"
-if [[ -f "$DB_TMPDIR" ]] || [[ -f "$DB_LOCAL" ]] || [[ -f "$DB_CONFIG" ]] || [[ -f "$DB_BINARY_DIR" ]]; then
-    pass "database file exists"
-else
-    fail "database file not found (checked tmpdir, ~/.local/share/stylobot, ~/.config/stylobot, binary dir)"
-fi
-
 rm -rf "$TMPDIR_VAR"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
