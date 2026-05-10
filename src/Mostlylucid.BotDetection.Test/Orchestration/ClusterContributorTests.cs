@@ -465,13 +465,14 @@ public class ClusterContributorTests
 
         Assert.NotEmpty(result);
 
-        var lastSignals = result[^1].Signals;
-        Assert.True(lastSignals.ContainsKey(SignalKeys.ClusterId));
-        Assert.True(lastSignals.ContainsKey(SignalKeys.ClusterType));
-        Assert.True(lastSignals.ContainsKey(SignalKeys.ClusterMemberCount));
-        Assert.True(lastSignals.ContainsKey(SignalKeys.ClusterAvgBotProbability));
-        Assert.True(lastSignals.ContainsKey(SignalKeys.ClusterAvgSimilarity));
-        Assert.True(lastSignals.ContainsKey(SignalKeys.ClusterTemporalDensity));
+        // Cluster signals are emitted via state.WriteSignals() into the shared blackboard,
+        // not embedded in DetectionContribution.Signals.
+        Assert.True(state.Signals.ContainsKey(SignalKeys.ClusterId));
+        Assert.True(state.Signals.ContainsKey(SignalKeys.ClusterType));
+        Assert.True(state.Signals.ContainsKey(SignalKeys.ClusterMemberCount));
+        Assert.True(state.Signals.ContainsKey(SignalKeys.ClusterAvgBotProbability));
+        Assert.True(state.Signals.ContainsKey(SignalKeys.ClusterAvgSimilarity));
+        Assert.True(state.Signals.ContainsKey(SignalKeys.ClusterTemporalDensity));
 
         // Should have a bot contribution from the cluster match
         var botContribs = result.Where(r => r.ConfidenceDelta > 0).ToList();
