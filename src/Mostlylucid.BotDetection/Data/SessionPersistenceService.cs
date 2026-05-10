@@ -30,10 +30,14 @@ public sealed class SessionPersistenceService : BackgroundService
             new BoundedChannelOptions(500) { FullMode = BoundedChannelFullMode.DropOldest });
     }
 
+    public override async Task StartAsync(CancellationToken cancellationToken)
+    {
+        await _store.InitializeAsync(cancellationToken);
+        await base.StartAsync(cancellationToken);
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await _store.InitializeAsync(stoppingToken);
-
         // Subscribe to session finalization events
         _sessionStore.SessionFinalized += OnSessionFinalized;
 
