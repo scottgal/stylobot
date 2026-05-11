@@ -1,9 +1,10 @@
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
 import { StyloBotClient, parseStyloBotHeaders, type Verdict, type DetectResponse } from '@stylobot/core';
 import { extractDetectRequest } from './extract.js';
+import { createGrpcDetectionClient, grpcDetect, mapGrpcVerdict } from './grpc-client.js';
 
 export interface StyloBotMiddlewareOptions {
-  mode: 'headers' | 'api';
+  mode: 'headers' | 'api' | 'grpc';
   endpoint?: string;
   apiKey?: string;
   timeout?: number;
@@ -29,6 +30,35 @@ const EMPTY_VERDICT: Verdict = {
 };
 
 export function styloBotMiddleware(options: StyloBotMiddlewareOptions): RequestHandler {
+  if (options.mode === 'grpc') {
+    if (!options.endpoint) throw new Error('endpoint is required for grpc mode');
+
+    const grpcClient = createGrpcDetectionClient(options.endpoint);
+
+    return async (req: Request, _res: Response, next: NextFunction) => {
+      try {
+        const detectReq = extractDetectRequest(req);
+        const raw = await grpcDetect(grpcClient, detectReq);
+        const verdict = mapGrpcVerdict(raw);
+        req.stylobot = {
+          isBot: verdict.isBot,
+          verdict,
+          signals: {},
+          reasons: [],
+          meta: {
+            processingTimeMs: raw.processingTimeMs,
+            detectorsRun: raw.detectorsRun,
+            policyName: null,
+            aiRan: false,
+          },
+        };
+      } catch {
+        req.stylobot = { isBot: false, verdict: EMPTY_VERDICT, signals: {}, reasons: [], meta: null };
+      }
+      next();
+    };
+  }
+
   if (options.mode === 'api') {
     if (!options.endpoint) throw new Error('endpoint is required for api mode');
 
