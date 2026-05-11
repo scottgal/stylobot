@@ -23,11 +23,15 @@ export default function () {
     headers: requestHeaders(),
   });
 
-  const hasHeaders = check(res, {
+  const checksPass = check(res, {
     'status 200': (r) => r.status === 200,
     'response is JSON': (r) => r.headers['Content-Type'] && r.headers['Content-Type'].includes('application/json'),
   });
 
+  // The Node proxy injects X-StyloBot-* headers into the upstream request (not the response),
+  // so res.headers won't contain them. The echo server mirrors them into body.stylobot instead.
+  // assertStylobotHeaders() checks res.headers directly (correct for Caddy), so it cannot be
+  // used here. Body-based detection is the right approach for this integration pattern.
   // Parse the echo response body which contains forwarded stylobot headers
   let body = null;
   try {
