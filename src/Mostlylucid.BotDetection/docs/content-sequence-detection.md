@@ -2,11 +2,11 @@
 
 Wave: 0 (Fast Path)
 Priority: 4
-Trigger: No prerequisites — runs on every request
+Trigger: No prerequisites -runs on every request
 
 ## Purpose
 
-Tracks the request sequence produced by each fingerprint and scores divergence from the expected browser page-load pattern. Real browsers follow a predictable rhythm: a document navigation request is followed immediately by a burst of static asset loads (CSS, JS, images), then API calls settle in, and finally streaming connections (SignalR, WebSocket) open if the page requires them. Bots routinely break this rhythm — hitting APIs directly after a document, loading no assets at all, or firing requests at machine speed.
+Tracks the request sequence produced by each fingerprint and scores divergence from the expected browser page-load pattern. Real browsers follow a predictable rhythm: a document navigation request is followed immediately by a burst of static asset loads (CSS, JS, images), then API calls settle in, and finally streaming connections (SignalR, WebSocket) open if the page requires them. Bots routinely break this rhythm -hitting APIs directly after a document, loading no assets at all, or firing requests at machine speed.
 
 `ContentSequenceContributor` maintains this per-fingerprint sequence state, classifies each incoming request against the current phase window, and writes divergence signals that deferred detectors (SessionVector, BehavioralWaveform, ResourceWaterfall, Periodicity, CacheBehavior) consume to decide whether to run.
 
@@ -77,7 +77,7 @@ When the Critical phase window (0–500 ms) closes with no StaticAsset observed,
 
 ### No active sequence (API-only access)
 
-When a fingerprint has never issued a document request — an extremely common pattern for API-targeting bots — the contributor writes no sequence signals at all. Deferred detectors that use `SequenceGuardTrigger.Default` treat the absence of `sequence.position` as a trigger condition (see Deferred Detector Integration below), so these fingerprints are always analysed in full.
+When a fingerprint has never issued a document request -an extremely common pattern for API-targeting bots -the contributor writes no sequence signals at all. Deferred detectors that use `SequenceGuardTrigger.Default` treat the absence of `sequence.position` as a trigger condition (see Deferred Detector Integration below), so these fingerprints are always analysed in full.
 
 ## State Management
 
@@ -91,7 +91,7 @@ Per-fingerprint sequence state is held in a `ConcurrentDictionary` (`SequenceCon
 - The observed state set per phase (for set-based divergence)
 - The content path from the triggering document request
 
-A 30-minute inactivity gap (configurable via `session_gap_minutes`) causes the next document request to start a fresh chain rather than continuing the old one. A background sweep removes entries that have been inactive for 5 minutes, capped at `max_tracked_positions` (default 20) entries per fingerprint. State loss on process restart is acceptable — fingerprints simply start fresh from their next document navigation.
+A 30-minute inactivity gap (configurable via `session_gap_minutes`) causes the next document request to start a fresh chain rather than continuing the old one. A background sweep removes entries that have been inactive for 5 minutes, capped at `max_tracked_positions` (default 20) entries per fingerprint. State loss on process restart is acceptable -fingerprints simply start fresh from their next document navigation.
 
 ### CentroidSequenceStore
 
@@ -101,7 +101,7 @@ Expected chains are persisted to SQLite, keyed by cluster ID.
 
 **Tier 1 (global fallback)** represents the typical human page-load sequence and is used when no cluster chain exists for a path or the sample size is below `min_centroid_sample_size`.
 
-**Staleness:** `MarkEndpointStale(path)` suppresses divergence scoring for a path for 1 hour. This is called by the centroid freshness system when a content change is detected — a divergence spike following a site redesign reflects changed centroid expectations, not bot behaviour, so divergence scoring is suppressed until centroids are rebuilt.
+**Staleness:** `MarkEndpointStale(path)` suppresses divergence scoring for a path for 1 hour. This is called by the centroid freshness system when a content change is detected -a divergence spike following a site redesign reflects changed centroid expectations, not bot behaviour, so divergence scoring is suppressed until centroids are rebuilt.
 
 ## Signals Written
 
@@ -115,7 +115,7 @@ Expected chains are persisted to SQLite, keyed by cluster ID.
 | `sequence.centroid_type` | string | Sequence active | Human, Bot, or Unknown |
 | `sequence.content_path` | string | Document requests | Path of the triggering document (e.g. `/`, `/products`) |
 | `sequence.cache_warm` | bool | Continuation requests | true when Critical window closed with no StaticAsset observed |
-| `sequence.signalr_expected` | bool | When applicable | Next centroid step is SignalR — suppresses StreamAbuse false positives |
+| `sequence.signalr_expected` | bool | When applicable | Next centroid step is SignalR -suppresses StreamAbuse false positives |
 | `sequence.prefetch_detected` | bool | When applicable | Request is a browser prefetch; excluded from divergence |
 | `sequence.divergence_at_position` | int | On first divergence | Sequence position where divergence first occurred |
 | `sequence.centroid_stale` | bool | When stale | Centroid is marked stale; divergence scoring suppressed |
@@ -135,7 +135,7 @@ The guard triggers a deferred detector when **any** of the following conditions 
 
 | Condition | Rationale |
 |---|---|
-| `sequence.position` does not exist | No document request seen — API-only access pattern, always analyse |
+| `sequence.position` does not exist | No document request seen -API-only access pattern, always analyse |
 | `sequence.on_track = false` | Request is already off the expected path |
 | `sequence.diverged = true` | Divergence threshold crossed |
 | `sequence.position >= 3` | Enough continuation requests exist for reliable signals |
@@ -208,7 +208,7 @@ Parameters can be overridden at runtime without redeployment:
 }
 ```
 
-Lowering `divergence_threshold` increases sensitivity and will flag more borderline cases — useful on high-value endpoints with low tolerance for automated access. Raising it reduces false positives on sites with non-standard page-load patterns (e.g., single-page applications that issue many API calls immediately after navigation).
+Lowering `divergence_threshold` increases sensitivity and will flag more borderline cases -useful on high-value endpoints with low tolerance for automated access. Raising it reduces false positives on sites with non-standard page-load patterns (e.g., single-page applications that issue many API calls immediately after navigation).
 
 ## Reading Signals in Custom Detectors
 
@@ -237,7 +237,7 @@ if (onTrack && centroidType == "Human")
 }
 ```
 
-The `sequence.signalr_expected` signal follows a similar pattern — `StreamAbuseContributor` skips its analysis when this signal is true because opening a SignalR connection after a document load is a normal browser action, not stream abuse.
+The `sequence.signalr_expected` signal follows a similar pattern -`StreamAbuseContributor` skips its analysis when this signal is true because opening a SignalR connection after a document load is a normal browser action, not stream abuse.
 
 ## Interaction with Other Detectors
 

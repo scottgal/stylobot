@@ -160,7 +160,7 @@ public class SqlitePinnedEndpointStoreTests : IDisposable
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~SqlitePinnedEndpointStoreTests" --no-build 2>&1 | head -20
 ```
 
-Expected: FAIL — `SqlitePinnedEndpointStore` does not exist yet.
+Expected: FAIL -`SqlitePinnedEndpointStore` does not exist yet.
 
 - [ ] **Step 3: Implement SqlitePinnedEndpointStore**
 
@@ -334,7 +334,7 @@ git commit -m "feat(data): SqlitePinnedEndpointStore with schema init, add/remov
 
 ---
 
-### Task 3: Model additions — DashboardEndpointStats, EndpointDetailModel, EndpointPackCoverage
+### Task 3: Model additions -DashboardEndpointStats, EndpointDetailModel, EndpointPackCoverage
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Models/DashboardEndpointStats.cs`
@@ -433,7 +433,7 @@ git commit -m "feat(di): register IPinnedEndpointStore in AddStyloBotDashboard"
 
 ---
 
-### Task 5: Middleware — endpoint enrichment and new API routes
+### Task 5: Middleware -endpoint enrichment and new API routes
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Middleware/StyloBotDashboardMiddleware.cs`
@@ -442,7 +442,7 @@ This task has three parts: enrichment logic in `GetEndpointsDataAsync`, a new `B
 
 - [ ] **Step 1: Add `DataApiPaths` entries for pin routes**
 
-Find the `DataApiPaths` HashSet (around line 84). It does not need updating — the pin API routes go into the switch directly. However, add them to the `DataApiPaths` set so the bot policy covers them:
+Find the `DataApiPaths` HashSet (around line 84). It does not need updating -the pin API routes go into the switch directly. However, add them to the `DataApiPaths` set so the bot policy covers them:
 
 ```csharp
         "api/endpoint-pins",
@@ -575,7 +575,7 @@ Add this new private method after `GetEndpointsDataAsync`:
     }
 ```
 
-Note: `IReactionPackContext.GetActiveStates()` returns `IReadOnlyList<(string PackName, int Level, string PolicyName, string Scope)>`. The tuple field names are `PackName`, `Level`, `PolicyName`, `Scope` — check the actual interface definition if the names differ and adjust accordingly.
+Note: `IReactionPackContext.GetActiveStates()` returns `IReadOnlyList<(string PackName, int Level, string PolicyName, string Scope)>`. The tuple field names are `PackName`, `Level`, `PolicyName`, `Scope` -check the actual interface definition if the names differ and adjust accordingly.
 
 - [ ] **Step 5: Update ServeEndpointDetailPartialAsync to inject protection data**
 
@@ -729,14 +729,14 @@ git commit -m "feat(middleware): merge pinned endpoints, coverage enrichment, pi
 
 ---
 
-### Task 6: UI — endpoint list policy badge and pin icons
+### Task 6: UI -endpoint list policy badge and pin icons
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/_EndpointsCompact.cshtml`
 
 This is the compact list used in overview sidebar slots. The full endpoints tab uses a different partial (`_Endpoints.cshtml` or the list via `ServeEndpointsPartialAsync`). The compact view needs pin/honeypot icons in the path cell and a Policy column. First locate the full endpoint list partial to update it too.
 
-- [ ] **Step 1: Update _EndpointsCompact.cshtml — add Policy column and pin/honeypot icons**
+- [ ] **Step 1: Update _EndpointsCompact.cshtml -add Policy column and pin/honeypot icons**
 
 Replace the entire file content with:
 
@@ -826,7 +826,7 @@ git commit -m "feat(ui): add Policy badge column and pin/honeypot icons to endpo
 
 ---
 
-### Task 7: UI — endpoint detail Protection section
+### Task 7: UI -endpoint detail Protection section
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/_EndpointDetail.cshtml`
@@ -942,7 +942,7 @@ git commit -m "feat(ui): replace Bot Policy section with Protection section (pol
 
 ---
 
-### Task 8: UI — Pin Endpoint form in endpoints tab
+### Task 8: UI -Pin Endpoint form in endpoints tab
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/Index.cshtml`
@@ -1118,7 +1118,7 @@ Check `git status` for any unstaged changes and commit if needed.
 
 - **`ReactionPackDefinition` has no `Scope` field**: Check whether `ReactionPackDefinition` has a `Scope` property (it appeared in the pack YAML as `scope:`). If `Scope` is on the model, use `def.Scope`. If not, skip the inactive-pack coverage and only show active packs.
 
-- **HTMX form post and refresh**: After a successful pin, the HTMX form targets `#endpoint-list-container`. Ensure the endpoints partial's containing div in `Index.cshtml` has `id="endpoint-list-container"` — check for that ID and add it if missing.
+- **HTMX form post and refresh**: After a successful pin, the HTMX form targets `#endpoint-list-container`. Ensure the endpoints partial's containing div in `Index.cshtml` has `id="endpoint-list-container"` -check for that ID and add it if missing.
 
 - **`ServeEndpointDetailPartialAsync` uses `context.RequestServices`**: The existing method already resolves services from DI per-request. The new `pinStore` and `policyRegistry` resolve the same way. No constructor injection changes needed in the middleware.
 

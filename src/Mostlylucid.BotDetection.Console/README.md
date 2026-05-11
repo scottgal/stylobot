@@ -247,7 +247,7 @@ stylobot llmtunnel --max-concurrency 4 --max-context 16384
 ### Security Notes
 
 - Anonymous tunnel URLs are **not** credentials. The connection key printed on startup is.
-- Connection keys are sensitive — treat them like API keys.
+- Connection keys are sensitive -treat them like API keys.
 - Named Cloudflare tunnels provide stable hostnames; quick tunnels are ephemeral.
 - Re-import the connection key each time a quick tunnel restarts.
 - Registered nodes can be revoked via `DELETE /api/v1/llm-nodes/{nodeId}`.

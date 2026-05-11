@@ -18,25 +18,25 @@
 
 | Action | File |
 |--------|------|
-| Modify | Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj — add Fluid.Core PackageReference |
-| Create | Mostlylucid.BotDetection.UI/Services/LiquidWidgetRenderer.cs — Fluid parser + per-widget context builders |
-| Modify | Mostlylucid.BotDetection.UI/Middleware/SbWidgetBatchMiddleware.cs — add POST branch for Liquid rendering |
-| Modify | Mostlylucid.BotDetection.UI/Extensions/ServiceCollectionExtensions.cs — register LiquidWidgetRenderer singleton |
+| Modify | Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj -add Fluid.Core PackageReference |
+| Create | Mostlylucid.BotDetection.UI/Services/LiquidWidgetRenderer.cs -Fluid parser + per-widget context builders |
+| Modify | Mostlylucid.BotDetection.UI/Middleware/SbWidgetBatchMiddleware.cs -add POST branch for Liquid rendering |
+| Modify | Mostlylucid.BotDetection.UI/Extensions/ServiceCollectionExtensions.cs -register LiquidWidgetRenderer singleton |
 
 ### Node SDK @stylobot/core
 
 | Action | File |
 |--------|------|
-| Modify | sdk/node/packages/core/src/types.ts — add WidgetTemplate, WidgetRenderRequest, ClientMode |
-| Modify | sdk/node/packages/core/src/client.ts — add renderWidgets() and verdictGlobal() |
+| Modify | sdk/node/packages/core/src/types.ts -add WidgetTemplate, WidgetRenderRequest, ClientMode |
+| Modify | sdk/node/packages/core/src/client.ts -add renderWidgets() and verdictGlobal() |
 
 ### Node SDK @stylobot/node
 
 | Action | File |
 |--------|------|
-| Create | sdk/node/packages/node/src/coordinator.ts — SbSsrCoordinator class |
-| Create | sdk/node/packages/node/src/injector.ts — sbVerdictInjector Express middleware |
-| Modify | sdk/node/packages/node/src/index.ts — export coordinator and injector |
+| Create | sdk/node/packages/node/src/coordinator.ts -SbSsrCoordinator class |
+| Create | sdk/node/packages/node/src/injector.ts -sbVerdictInjector Express middleware |
+| Modify | sdk/node/packages/node/src/index.ts -export coordinator and injector |
 
 ### New package @stylobot/elements
 
@@ -44,11 +44,11 @@
 |--------|------|
 | Create | sdk/node/packages/elements/package.json |
 | Create | sdk/node/packages/elements/tsconfig.json |
-| Create | sdk/node/packages/elements/src/coordinator.ts — client-side batch coordinator singleton |
-| Create | sdk/node/packages/elements/src/sb-gate.ts — sb-gate custom element |
-| Create | sdk/node/packages/elements/src/sb-adapt.ts — sb-adapt and sb-case custom elements |
-| Create | sdk/node/packages/elements/src/sb-widget.ts — sb-widget custom element |
-| Create | sdk/node/packages/elements/src/index.ts — register all elements + export |
+| Create | sdk/node/packages/elements/src/coordinator.ts -client-side batch coordinator singleton |
+| Create | sdk/node/packages/elements/src/sb-gate.ts -sb-gate custom element |
+| Create | sdk/node/packages/elements/src/sb-adapt.ts -sb-adapt and sb-case custom elements |
+| Create | sdk/node/packages/elements/src/sb-widget.ts -sb-widget custom element |
+| Create | sdk/node/packages/elements/src/index.ts -register all elements + export |
 
 ### Sample app
 
@@ -65,8 +65,8 @@
 
 | Action | File |
 |--------|------|
-| Create | sdk/node/README.md — full tutorial/manual |
-| Create | sdk/node/docs/data-contexts.md — Liquid variable reference per widget |
+| Create | sdk/node/README.md -full tutorial/manual |
+| Create | sdk/node/docs/data-contexts.md -Liquid variable reference per widget |
 
 ---
 
@@ -784,7 +784,7 @@ git commit -m "feat(node): SbSsrCoordinator and sbVerdictInjector"
 {
   "name": "@stylobot/elements",
   "version": "0.1.0",
-  "description": "StyloBot web components — framework-agnostic client-side widgets",
+  "description": "StyloBot web components -framework-agnostic client-side widgets",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -1069,7 +1069,7 @@ git commit -m "feat(elements): @stylobot/elements package with sb-gate, sb-adapt
     {% for bot in bots %}
       <li>
         <strong>{{ bot.bot_name | default: "Unknown" }}</strong>
-        ({{ bot.bot_type }}) — {{ bot.hit_count }} hits
+        ({{ bot.bot_type }}) -{{ bot.hit_count }} hits
       </li>
     {% endfor %}
   </ul>
@@ -1123,7 +1123,7 @@ app.get('/', async (req, res) => {
 <body>
   ${res.locals.sbVerdictScript}
   <div class="verdict">
-    You are: <strong>${isBot ? 'a bot' : 'human'}</strong> — risk: ${verdict.riskBand}
+    You are: <strong>${isBot ? 'a bot' : 'human'}</strong> -risk: ${verdict.riskBand}
   </div>
   <h1>SSR Widgets (Liquid rendered server-side)</h1>
   ${widgets['summary'] ?? '<p>Summary unavailable</p>'}
@@ -1206,7 +1206,7 @@ app.listen(process.env.PORT ?? 3000, () => {
 
 ```bash
 git add sdk/node/samples/express/
-git commit -m "feat(samples): Express sample app — SSR and CSR mode demos"
+git commit -m "feat(samples): Express sample app -SSR and CSR mode demos"
 ```
 
 ---
@@ -1247,7 +1247,7 @@ npm install @stylobot/elements  (for web components)
 
 ## Gateway mode (zero latency)
 
-Your YARP gateway stamps every request with X-StyloBot-* headers. Your server reads them directly — no fetch, no extra latency.
+Your YARP gateway stamps every request with X-StyloBot-* headers. Your server reads them directly -no fetch, no extra latency.
 
 import { styloBotMiddleware, sbVerdictInjector } from '@stylobot/node'
 

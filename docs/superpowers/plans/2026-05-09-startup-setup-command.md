@@ -13,23 +13,23 @@
 ## File Map
 
 **Create:**
-- `src/Mostlylucid.BotDetection/Setup/ISetupResource.cs` — interface + `ResourceStatus` record + `ResourcePresence` enum
-- `src/Mostlylucid.BotDetection/Setup/SetupService.cs` — collects ISetupResource, check all + download missing
-- `src/Mostlylucid.BotDetection/Setup/BotListSetupResource.cs` — checks/downloads bot lists via IBotListDatabase
-- `src/Mostlylucid.BotDetection/Setup/OnnxSetupResource.cs` — checks/downloads ONNX model + vocab files
-- `src/Mostlylucid.GeoDetection.Contributor/Setup/GeoIpSetupResource.cs` — checks/downloads DataHub GeoIP CSV
-- `src/Mostlylucid.BotDetection.Console/SetupCommand.cs` — Console `setup` command implementation
-- `src/Mostlylucid.BotDetection.Test/Setup/SetupServiceTests.cs` — unit tests for SetupService
+- `src/Mostlylucid.BotDetection/Setup/ISetupResource.cs` -interface + `ResourceStatus` record + `ResourcePresence` enum
+- `src/Mostlylucid.BotDetection/Setup/SetupService.cs` -collects ISetupResource, check all + download missing
+- `src/Mostlylucid.BotDetection/Setup/BotListSetupResource.cs` -checks/downloads bot lists via IBotListDatabase
+- `src/Mostlylucid.BotDetection/Setup/OnnxSetupResource.cs` -checks/downloads ONNX model + vocab files
+- `src/Mostlylucid.GeoDetection.Contributor/Setup/GeoIpSetupResource.cs` -checks/downloads DataHub GeoIP CSV
+- `src/Mostlylucid.BotDetection.Console/SetupCommand.cs` -Console `setup` command implementation
+- `src/Mostlylucid.BotDetection.Test/Setup/SetupServiceTests.cs` -unit tests for SetupService
 - `src/Mostlylucid.BotDetection.Test/Setup/BotListSetupResourceTests.cs`
 - `src/Mostlylucid.BotDetection.Test/Setup/OnnxSetupResourceTests.cs`
 - `src/Mostlylucid.GeoDetection.Test/Setup/GeoIpSetupResourceTests.cs`
 
 **Modify:**
-- `src/Mostlylucid.GeoDetection/Services/DataHubGeoLocationService.cs:103-107` — make StartAsync fire-and-forget
-- `src/Mostlylucid.GeoDetection.Test/Services/DataHubGeoLocationServiceTests.cs` — add StartAsync test
-- `src/Mostlylucid.BotDetection/Extensions/ServiceCollectionExtensions.cs` — add `AddBotDetectionSetupServices()` and register setup resources in `AddBotDetection()`
-- `src/Mostlylucid.GeoDetection.Contributor/Extensions/ServiceCollectionExtensions.cs` — register `GeoIpSetupResource` when provider is DataHubCsv
-- `src/Mostlylucid.BotDetection.Console/Program.cs:38-60` — add `case "setup":` + update help text
+- `src/Mostlylucid.GeoDetection/Services/DataHubGeoLocationService.cs:103-107` -make StartAsync fire-and-forget
+- `src/Mostlylucid.GeoDetection.Test/Services/DataHubGeoLocationServiceTests.cs` -add StartAsync test
+- `src/Mostlylucid.BotDetection/Extensions/ServiceCollectionExtensions.cs` -add `AddBotDetectionSetupServices()` and register setup resources in `AddBotDetection()`
+- `src/Mostlylucid.GeoDetection.Contributor/Extensions/ServiceCollectionExtensions.cs` -register `GeoIpSetupResource` when provider is DataHubCsv
+- `src/Mostlylucid.BotDetection.Console/Program.cs:38-60` -add `case "setup":` + update help text
 
 ---
 
@@ -92,7 +92,7 @@ public async Task StartAsync_ReturnsImmediately_WithoutWaitingForDownload()
 dotnet test src/Mostlylucid.GeoDetection.Test --filter "StartAsync_ReturnsImmediately" -v n
 ```
 
-Expected: FAIL — test currently hangs (or times out) because `StartAsync` awaits `EnsureDatabaseLoadedAsync`.
+Expected: FAIL -test currently hangs (or times out) because `StartAsync` awaits `EnsureDatabaseLoadedAsync`.
 
 - [ ] **Step 3: Fix DataHubGeoLocationService.StartAsync**
 
@@ -103,7 +103,7 @@ public Task StartAsync(CancellationToken cancellationToken)
 {
     // Fire-and-forget: database loads in the background.
     // GetLocationAsync calls EnsureDatabaseLoadedAsync before serving any request,
-    // so all lookups block until the DB is ready — but Kestrel startup is not blocked.
+    // so all lookups block until the DB is ready -but Kestrel startup is not blocked.
     _ = EnsureDatabaseLoadedAsync(CancellationToken.None);
     return Task.CompletedTask;
 }
@@ -187,7 +187,7 @@ public class SetupResourceTests
 dotnet test src/Mostlylucid.BotDetection.Test --filter "SetupResourceTests" -v n
 ```
 
-Expected: FAIL — compile error: `ResourceStatus`, `ResourcePresence` not found.
+Expected: FAIL -compile error: `ResourceStatus`, `ResourcePresence` not found.
 
 - [ ] **Step 3: Create the interface file**
 
@@ -331,7 +331,7 @@ public class SetupServiceTests
 dotnet test src/Mostlylucid.BotDetection.Test --filter "SetupServiceTests" -v n
 ```
 
-Expected: FAIL — `SetupService` not found.
+Expected: FAIL -`SetupService` not found.
 
 - [ ] **Step 3: Implement SetupService**
 
@@ -467,7 +467,7 @@ public class BotListSetupResourceTests
 dotnet test src/Mostlylucid.BotDetection.Test --filter "BotListSetupResourceTests" -v n
 ```
 
-Expected: FAIL — `BotListSetupResource` not found.
+Expected: FAIL -`BotListSetupResource` not found.
 
 - [ ] **Step 3: Implement BotListSetupResource**
 
@@ -504,7 +504,7 @@ public class BotListSetupResource : ISetupResource
         var age = DateTime.UtcNow - lastUpdate.Value;
         if (age.TotalDays > 1)
             return new ResourceStatus(Name, Description, ResourcePresence.Stale, _dbPath,
-                $"Updated {(int)age.TotalDays}d ago — daily update recommended");
+                $"Updated {(int)age.TotalDays}d ago -daily update recommended");
 
         return new ResourceStatus(Name, Description, ResourcePresence.Fresh, _dbPath,
             $"Updated {lastUpdate.Value:yyyy-MM-dd HH:mm} UTC");
@@ -628,7 +628,7 @@ public class OnnxSetupResourceTests : IDisposable
 dotnet test src/Mostlylucid.BotDetection.Test --filter "OnnxSetupResourceTests" -v n
 ```
 
-Expected: FAIL — `OnnxSetupResource` not found.
+Expected: FAIL -`OnnxSetupResource` not found.
 
 - [ ] **Step 3: Implement OnnxSetupResource**
 
@@ -834,7 +834,7 @@ public class GeoIpSetupResourceTests : IDisposable
 dotnet test src/Mostlylucid.GeoDetection.Test --filter "GeoIpSetupResourceTests" -v n
 ```
 
-Expected: FAIL — `GeoIpSetupResource` not found.
+Expected: FAIL -`GeoIpSetupResource` not found.
 
 - [ ] **Step 4: Implement GeoIpSetupResource**
 
@@ -880,7 +880,7 @@ public class GeoIpSetupResource : ISetupResource
         var age = DateTime.UtcNow - File.GetLastWriteTimeUtc(_csvPath);
         if (age.TotalDays > 7)
             return Task.FromResult(new ResourceStatus(Name, Description, ResourcePresence.Stale, _csvPath,
-                $"Updated {(int)age.TotalDays} days ago — weekly update recommended"));
+                $"Updated {(int)age.TotalDays} days ago -weekly update recommended"));
 
         return Task.FromResult(new ResourceStatus(Name, Description, ResourcePresence.Fresh, _csvPath,
             $"Updated {(int)age.TotalHours}h ago"));
@@ -1081,7 +1081,7 @@ git commit -m "feat(setup): register setup services and resources in DI"
 - Create: `src/Mostlylucid.BotDetection.Console/SetupCommand.cs`
 - Modify: `src/Mostlylucid.BotDetection.Console/Program.cs`
 
-The `stylobot setup` command builds a minimal `ServiceProvider` (no Kestrel, no YARP, no 49 detectors) using `AddBotDetectionSetupServices()`, then runs `SetupService`. Since the Console project does not reference `Mostlylucid.GeoDetection.Contributor`, the `GeoIpSetupResource` is not registered — correct, because the Console does not use geo detection.
+The `stylobot setup` command builds a minimal `ServiceProvider` (no Kestrel, no YARP, no 49 detectors) using `AddBotDetectionSetupServices()`, then runs `SetupService`. Since the Console project does not reference `Mostlylucid.GeoDetection.Contributor`, the `GeoIpSetupResource` is not registered -correct, because the Console does not use geo detection.
 
 - [ ] **Step 1: Create SetupCommand.cs**
 
@@ -1132,7 +1132,7 @@ public static class SetupCommand
         var setup = sp.GetRequiredService<SetupService>();
 
         System.Console.WriteLine();
-        System.Console.WriteLine("  stylobot setup — checking resources");
+        System.Console.WriteLine("  stylobot setup -checking resources");
         System.Console.WriteLine();
 
         var statuses = await setup.CheckAllAsync();
@@ -1208,7 +1208,7 @@ dotnet build src/Mostlylucid.BotDetection.Console -v q
 
 Expected: Succeeded, 0 errors.
 
-- [ ] **Step 4: Smoke test — check-only mode**
+- [ ] **Step 4: Smoke test -check-only mode**
 
 ```bash
 dotnet run --project src/Mostlylucid.BotDetection.Console -- setup --check-only
@@ -1217,7 +1217,7 @@ dotnet run --project src/Mostlylucid.BotDetection.Console -- setup --check-only
 Expected output (exact values vary):
 
 ```
-  stylobot setup — checking resources
+  stylobot setup -checking resources
 
     [miss]   Bot Lists
              Never downloaded

@@ -29,11 +29,11 @@ flowchart LR
 
 **Flow:**
 
-1. Run `stylobot llmtunnel` on your local GPU machine — it probes Ollama, binds a loopback Kestrel agent (port 0), starts a Cloudflare tunnel, and prints a `sb_llmtunnel_v1_<key>` connection string.
+1. Run `stylobot llmtunnel` on your local GPU machine -it probes Ollama, binds a loopback Kestrel agent (port 0), starts a Cloudflare tunnel, and prints a `sb_llmtunnel_v1_<key>` connection string.
 2. Paste that key into the remote StyloBot config as `BotDetection:AiDetection:LocalTunnel:ConnectionKey`.
 3. The remote site decodes the key, registers the local GPU node, and routes all LLM classification requests through the tunnel to your Ollama.
 
-All traffic travels through Cloudflare's encrypted tunnel. The agent only listens on `127.0.0.1` — it is never exposed directly to the internet.
+All traffic travels through Cloudflare's encrypted tunnel. The agent only listens on `127.0.0.1` -it is never exposed directly to the internet.
 
 ---
 
@@ -56,7 +56,7 @@ All traffic travels through Cloudflare's encrypted tunnel. The agent only listen
 
 ## Quick Start
 
-### Terminal 1 — Local GPU machine
+### Terminal 1 -Local GPU machine
 
 ```bash
 stylobot llmtunnel
@@ -78,7 +78,7 @@ Node:   my-machine (llmn_a1b2c3d4e5f6g7h8)
 Models: gemma3:1b, llama3.2:1b, qwen3.5:4b
 
 ╔══════════════════════════════════════════════════════════════════╗
-║  ANONYMOUS TUNNEL — KEY IS EPHEMERAL                            ║
+║  ANONYMOUS TUNNEL -KEY IS EPHEMERAL                            ║
 ║  This key changes every time the process restarts with a new     ║
 ║  tunnel URL. You must re-import the key after each restart.      ║
 ║  Use a named Cloudflare tunnel token for a stable key.           ║
@@ -93,7 +93,7 @@ FOSS config key: BotDetection:AiDetection:LocalTunnel:ConnectionKey
 Press Ctrl+C to stop.
 ```
 
-### Terminal 2 — Remote site (or local test)
+### Terminal 2 -Remote site (or local test)
 
 ```bash
 stylobot 5080 https://mysite.example.com --llm localtunnel --llm-key "sb_llmtunnel_v1_..."
@@ -121,7 +121,7 @@ On startup you will see:
 
 ## Anonymous vs Named Tunnels
 
-### Anonymous Tunnels (Quick — no account needed)
+### Anonymous Tunnels (Quick -no account needed)
 
 `stylobot llmtunnel` with no arguments creates an anonymous Cloudflare quick tunnel. No account required.
 
@@ -144,7 +144,7 @@ Named tunnels have a fixed hostname and survive process restarts.
 stylobot llmtunnel <your-cloudflare-tunnel-token>
 ```
 
-The connection key is now stable as long as the tunnel token is valid. Import it once — it keeps working across restarts.
+The connection key is now stable as long as the tunnel token is valid. Import it once -it keeps working across restarts.
 
 **Best for:** Production or persistent home-lab setups.
 
@@ -163,7 +163,7 @@ stylobot llmtunnel [<cloudflare-named-tunnel-token>]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (first positional) | — | Cloudflare named tunnel token. Omit for anonymous quick tunnel. |
+| (first positional) | -| Cloudflare named tunnel token. Omit for anonymous quick tunnel. |
 | `--ollama` | `http://127.0.0.1:11434` | Ollama base URL |
 | `--models` | all available | Comma-separated allowlist of model names to expose |
 | `--max-concurrency` | `2` | Maximum simultaneous inference requests |
@@ -190,7 +190,7 @@ stylobot llmtunnel eyJhIjoiMWFiMmM... --max-concurrency 4 --models llama3.2:1b
 
 ## Configuration Reference
 
-### Remote site — `appsettings.json`
+### Remote site -`appsettings.json`
 
 ```json
 {
@@ -208,11 +208,11 @@ stylobot llmtunnel eyJhIjoiMWFiMmM... --max-concurrency 4 --models llama3.2:1b
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `ConnectionKey` | string | — | The `sb_llmtunnel_v1_...` key printed by `stylobot llmtunnel` |
+| `ConnectionKey` | string | -| The `sb_llmtunnel_v1_...` key printed by `stylobot llmtunnel` |
 | `DefaultModel` | string | first advertised model | Override the model used for inference |
 | `RequestTimeoutMs` | int | `15000` | Per-request timeout in milliseconds |
 
-### Remote site — code registration
+### Remote site -code registration
 
 ```csharp
 // Reads ConnectionKey from BotDetection:AiDetection:LocalTunnel:ConnectionKey
@@ -261,7 +261,7 @@ sequenceDiagram
 - **60-second nonce replay window:** Each request carries a unique random nonce. The agent rejects any nonce seen in the last 60 seconds.
 - **Response signing:** The agent signs its response. The client verifies before trusting the content.
 - **Loopback-only agent:** The Kestrel agent binds to `127.0.0.1` only. All external access goes through the Cloudflare tunnel.
-- **Secret never exposed:** `ControllerSharedSecret` carries `[JsonIgnore]` — it is never returned by any API endpoint.
+- **Secret never exposed:** `ControllerSharedSecret` carries `[JsonIgnore]` -it is never returned by any API endpoint.
 
 ### Future: AES-256-GCM payload encryption
 
@@ -321,7 +321,7 @@ The `stylobot llmtunnel` process exposes three endpoints on the loopback agent (
 
 ## NativeAOT Compatibility
 
-The `stylobot` console binary publishes as a NativeAOT single-file executable. All JSON serialization in `Mostlylucid.BotDetection.Llm.Tunnel` uses source-generated contexts (`TunnelJsonContext`) — no reflection-based `System.Text.Json` anywhere. The Ollama probe uses `JsonDocument` manual parsing rather than `GetFromJsonAsync<T>`.
+The `stylobot` console binary publishes as a NativeAOT single-file executable. All JSON serialization in `Mostlylucid.BotDetection.Llm.Tunnel` uses source-generated contexts (`TunnelJsonContext`) -no reflection-based `System.Text.Json` anywhere. The Ollama probe uses `JsonDocument` manual parsing rather than `GetFromJsonAsync<T>`.
 
 ---
 

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Show configured policy and reaction pack coverage per endpoint in the FOSS dashboard (read-only), and let operators pin any path — including honeypot paths — to the endpoint list before any traffic arrives.
+**Goal:** Show configured policy and reaction pack coverage per endpoint in the FOSS dashboard (read-only), and let operators pin any path -including honeypot paths -to the endpoint list before any traffic arrives.
 
-**Architecture:** Pinned endpoints stored in SQLite; merged with traffic-based endpoints at query time. Policy and reaction pack state are read from existing registries and injected into endpoint models. The "is honeypot" flag on a pinned endpoint is a read surface for simulation packs — activation logic lives in the pack, not the base product.
+**Architecture:** Pinned endpoints stored in SQLite; merged with traffic-based endpoints at query time. Policy and reaction pack state are read from existing registries and injected into endpoint models. The "is honeypot" flag on a pinned endpoint is a read surface for simulation packs -activation logic lives in the pack, not the base product.
 
 **Tech Stack:** ASP.NET Core, SQLite (Microsoft.Data.Sqlite), HTMX, DaisyUI/Tailwind, Razor partials, IReactionPackContext, IPolicyRegistry.
 
@@ -16,7 +16,7 @@
 
 - `SqlitePinnedEndpointStore`: persist pinned endpoints (method, path, is_honeypot flag, optional note)
 - `IPinnedEndpointStore`: interface for store; simulation packs can inject this to discover honeypot paths
-- Merge pinned + traffic endpoints in `GetEndpointsDataAsync` — pinned-but-unseen paths appear with zero counts
+- Merge pinned + traffic endpoints in `GetEndpointsDataAsync` -pinned-but-unseen paths appear with zero counts
 - Endpoint list: add a **Policy** badge column showing resolved action policy name
 - Endpoint detail panel: add a **Protection** section showing resolved policy + any active/configured reaction packs covering this endpoint
 - Pin endpoint UI: button on endpoints tab opens an HTMX inline form (method dropdown + path input + honeypot checkbox + optional note); saves via POST; unpin via DELETE
@@ -103,7 +103,7 @@ public sealed record EndpointPackCoverage(
 4. For each endpoint (traffic + pinned), set `IsPinned`/`IsHoneypot`/`PinId` from the pinned set
 5. Enrich `ActivePolicyName` via `IPolicyRegistry.GetPolicyForPath()` (already done; ensure it runs for pinned-only endpoints too)
 
-`BuildEndpointDetailCoverage(string path)` — new private method:
+`BuildEndpointDetailCoverage(string path)` -new private method:
 
 1. Call `IPolicyRegistry.GetPolicyForPath(path)` → `PolicyName`
 2. Call `IReactionPackContext.GetActiveStates()` → filter where `Scope == "global"` or `ScopedEndpoint` matches path
@@ -129,7 +129,7 @@ DELETE returns 204 on success, 404 if not found.
 
 ### Endpoint list (`_EndpointsCompact.cshtml`)
 
-New column after **Sigs**: **Policy** — shows `endpoint.ActivePolicyName` as a small mono badge, or `—` if default.
+New column after **Sigs**: **Policy** -shows `endpoint.ActivePolicyName` as a small mono badge, or `—` if default.
 
 Pin/honeypot indicators in the **Path** cell:
 - Pinned: `bx-pin` icon (muted)
@@ -153,7 +153,7 @@ Reaction Packs
 - Policy badge: mono text, grey background, shows resolved policy name
 - "From path rule" subtext shows the matched rule if available (or "default" if nothing matched)
 - Each pack row: name, scope badge (global/endpoint), level badge (0 = grey, 1+ = color-coded), active policy name if level > 0
-- No edit controls — FOSS is read-only
+- No edit controls -FOSS is read-only
 
 Pin controls at bottom of detail panel (if endpoint is pinned):
 - "Pinned" indicator with unpin button (DELETE via HTMX)

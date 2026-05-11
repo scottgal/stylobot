@@ -168,7 +168,7 @@ FROM caddy:builder AS builder
 RUN xcaddy build \
     --with github.com/scottgal/caddy-stylobot
 
-# Stage 2: final image — standard Caddy runtime with the custom binary
+# Stage 2: final image -standard Caddy runtime with the custom binary
 FROM caddy:latest
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 ```

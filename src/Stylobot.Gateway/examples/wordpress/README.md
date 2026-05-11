@@ -1,14 +1,14 @@
-# StyloBot Gateway — WordPress Protection
+# StyloBot Gateway -WordPress Protection
 
 Protects a WordPress site from the most common automated attacks:
 
-- **xmlrpc.php abuse** — used for DDoS amplification and mass brute-force. Nearly all
+- **xmlrpc.php abuse** -used for DDoS amplification and mass brute-force. Nearly all
   legitimate traffic stopped using REST API years ago. This example blocks at 30% bot
-  confidence — almost everything hitting xmlrpc.php is a bot.
-- **wp-login.php brute force** — credential stuffing at scale. Blocked at 40% confidence.
-- **wp-admin scanner probes** — tools like WPScan, Nuclei, and generic vuln scanners.
+  confidence -almost everything hitting xmlrpc.php is a bot.
+- **wp-login.php brute force** -credential stuffing at scale. Blocked at 40% confidence.
+- **wp-admin scanner probes** -tools like WPScan, Nuclei, and generic vuln scanners.
   Blocked at 40% confidence.
-- **General bot traffic** — scrapers, AI crawlers, headless browsers. Throttled by default
+- **General bot traffic** -scrapers, AI crawlers, headless browsers. Throttled by default
   on the main site (won't break legitimate Googlebot traffic).
 
 ## Quick Start

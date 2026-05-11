@@ -65,7 +65,7 @@ dotnet pack src/Mostlylucid.BotDetection -c Release
 | `Mostlylucid.BotDetection.Llm.LlamaSharp` | LlamaSharp in-process LLM provider |
 | `Mostlylucid.BotDetection.Llm.Cloud` | Anthropic, OpenAI, Gemini LLM providers |
 | `Mostlylucid.BotDetection.Llm.Holodeck` | LLM-powered dynamic honeypot response generation |
-| `Mostlylucid.BotDetection.Llm.Tunnel` | GPU tunnel relay — route cloud LLM inference to a local GPU via Cloudflare tunnel |
+| `Mostlylucid.BotDetection.Llm.Tunnel` | GPU tunnel relay -route cloud LLM inference to a local GPU via Cloudflare tunnel |
 | `Mostlylucid.BotDetection.Demo` | Interactive demo with all detectors |
 | `Mostlylucid.BotDetection.Console` | Standalone gateway/proxy console |
 | `Mostlylucid.BotDetection.Benchmarks` | YAML-driven BenchmarkDotNet harness |
@@ -91,7 +91,7 @@ Detection uses an ephemeral blackboard where detectors write signals:
 
 **Identity (Priority 1)**: Signature (PrimarySignature computation + header hashes for progressive identity)
 
-**Content Sequence (Priority 4, Wave 0)**: ContentSequence — tracks document→asset→API page-load order per fingerprint; writes `sequence.*` signals that gate 5 deferred detectors; detects machine-speed timing (<20ms), phase-window divergence, cache-warm, and expected SignalR; `CentroidSequenceStore` (SQLite) holds per-cluster expected chains; `EndpointDivergenceTracker` + `AssetHashMiddleware` suppress false positives during deploys
+**Content Sequence (Priority 4, Wave 0)**: ContentSequence -tracks document→asset→API page-load order per fingerprint; writes `sequence.*` signals that gate 5 deferred detectors; detects machine-speed timing (<20ms), phase-window divergence, cache-warm, and expected SignalR; `CentroidSequenceStore` (SQLite) holds per-cluster expected chains; `EndpointDivergenceTracker` + `AssetHashMiddleware` suppress false positives during deploys
 
 **Fast Path (<1ms)**: UserAgent, Header, Ip, SecurityTool, Behavioral, ClientSide, Inconsistency, VersionAge, Heuristic, FastPathReputation, CacheBehavior, CookieBehavior, ResourceWaterfall, ReputationBias, AiScraper, Haxxor, CveProbe, PiiQueryString
 

@@ -313,7 +313,7 @@ ENTRYPOINT ["dotnet", "YourApp.dll"]
 
 ---
 
-## Tier 3: Production (PostgreSQL + pgvector) — Commercial
+## Tier 3: Production (PostgreSQL + pgvector) -Commercial
 
 For high-traffic production deployments. Replaces SQLite with PostgreSQL for concurrent multi-server access, with optional pgvector for ML-based signature similarity search.
 

@@ -1,11 +1,11 @@
-# StyloBot Gateway — API Service Protection
+# StyloBot Gateway -API Service Protection
 
 Protects REST APIs from:
 
-- **Credential stuffing** on `/api/auth/**` and `/api/login` — automated login attempts
+- **Credential stuffing** on `/api/auth/**` and `/api/login` -automated login attempts
   using leaked username/password lists. Blocked at 50% confidence.
-- **API key probing** — bots trying to discover valid API keys through brute force.
-- **Scraping** — bots consuming your API endpoints at machine speed.
+- **API key probing** -bots trying to discover valid API keys through brute force.
+- **Scraping** -bots consuming your API endpoints at machine speed.
 
 ## API-Specific Detection
 

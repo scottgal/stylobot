@@ -66,10 +66,10 @@ public static class StartupBanner
         Console.WriteLine($"╚{border}╝");
 
         if (string.IsNullOrWhiteSpace(adminSecret))
-            Console.WriteLine("[WARN] ADMIN_SECRET not set — admin API is disabled until configured");
+            Console.WriteLine("[WARN] ADMIN_SECRET not set -admin API is disabled until configured");
 
         if (routeLine == "NOT CONFIGURED")
-            Console.WriteLine("[WARN] No proxy routes — gateway returns 503 for all requests; set DEFAULT_UPSTREAM or mount a yarp.json");
+            Console.WriteLine("[WARN] No proxy routes -gateway returns 503 for all requests; set DEFAULT_UPSTREAM or mount a yarp.json");
     }
 
     private static string Pad(string content, int width)
@@ -144,7 +144,7 @@ git commit -m "feat(gateway): startup banner with config summary and validation 
 - [ ] **Step 1: Create `examples/wordpress/docker-compose.yml`**
 
 ```yaml
-# StyloBot Gateway — WordPress Protection Example
+# StyloBot Gateway -WordPress Protection Example
 # Blocks xmlrpc.php abuse, brute-force on wp-login.php, and scanner probes.
 #
 # Usage:
@@ -236,7 +236,7 @@ volumes:
         "ImmediateBlockThreshold": 0.95
       },
       "strict": {
-        "Description": "Strict policy for wp-login.php and wp-admin — block at 0.4 confidence",
+        "Description": "Strict policy for wp-login.php and wp-admin -block at 0.4 confidence",
         "FastPath": ["FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Behavioral", "Inconsistency", "VersionAge", "ReputationBias", "Heuristic"],
         "UseFastPath": true,
         "EscalateToAi": false,
@@ -244,7 +244,7 @@ volumes:
         "ImmediateBlockThreshold": 0.4
       },
       "xmlrpc-lockdown": {
-        "Description": "xmlrpc.php — block almost everything; only allow verified search engines",
+        "Description": "xmlrpc.php -block almost everything; only allow verified search engines",
         "FastPath": ["FastPathReputation", "UserAgent", "Ip", "SecurityTool"],
         "UseFastPath": true,
         "EscalateToAi": false,
@@ -266,17 +266,17 @@ volumes:
 - [ ] **Step 4: Create `examples/wordpress/README.md`**
 
 ```markdown
-# StyloBot Gateway — WordPress Protection
+# StyloBot Gateway -WordPress Protection
 
 Protects a WordPress site from the most common automated attacks:
 
-- **xmlrpc.php abuse** — used for DDoS amplification and mass brute-force. Nearly all
+- **xmlrpc.php abuse** -used for DDoS amplification and mass brute-force. Nearly all
   legitimate traffic stopped using REST API years ago. This example blocks at 30% bot
-  confidence — almost everything hitting xmlrpc.php is a bot.
-- **wp-login.php brute force** — credential stuffing at scale. Blocked at 40% confidence.
-- **wp-admin scanner probes** — tools like WPScan, Nuclei, and generic vuln scanners.
+  confidence -almost everything hitting xmlrpc.php is a bot.
+- **wp-login.php brute force** -credential stuffing at scale. Blocked at 40% confidence.
+- **wp-admin scanner probes** -tools like WPScan, Nuclei, and generic vuln scanners.
   Blocked at 40% confidence.
-- **General bot traffic** — scrapers, AI crawlers, headless browsers. Throttled by default
+- **General bot traffic** -scrapers, AI crawlers, headless browsers. Throttled by default
   on the main site (won't break legitimate Googlebot traffic).
 
 ## Quick Start
@@ -340,7 +340,7 @@ git commit -m "feat(gateway): wordpress protection example with per-path policie
 - [ ] **Step 1: Create `examples/ecommerce/docker-compose.yml`**
 
 ```yaml
-# StyloBot Gateway — E-commerce / Scraper Defense
+# StyloBot Gateway -E-commerce / Scraper Defense
 # Routes detected scrapers to a bot-sink cluster instead of your real backend.
 # Price scrapers and inventory bots get stale or synthetic data.
 #
@@ -440,7 +440,7 @@ services:
         "ImmediateBlockThreshold": 0.95
       },
       "scraper-defense": {
-        "Description": "Catalog and product pages — elevated behavioral and velocity detection",
+        "Description": "Catalog and product pages -elevated behavioral and velocity detection",
         "FastPath": ["FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Behavioral", "AdvancedBehavioral", "CacheBehavior", "Inconsistency", "VersionAge", "ReputationBias", "Heuristic"],
         "UseFastPath": true,
         "EscalateToAi": false,
@@ -448,7 +448,7 @@ services:
         "ImmediateBlockThreshold": 0.85
       },
       "strict": {
-        "Description": "Checkout and account pages — strict behavioral detection",
+        "Description": "Checkout and account pages -strict behavioral detection",
         "FastPath": ["FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Behavioral", "AdvancedBehavioral", "Inconsistency", "VersionAge", "ReputationBias", "Heuristic"],
         "UseFastPath": true,
         "EscalateToAi": false,
@@ -473,16 +473,16 @@ services:
 - [ ] **Step 4: Create `examples/ecommerce/README.md`**
 
 ```markdown
-# StyloBot Gateway — E-commerce / Scraper Defense
+# StyloBot Gateway -E-commerce / Scraper Defense
 
 Protects e-commerce sites (Magento, WooCommerce, Shopify headless) from:
 
-- **Price scrapers** — bots that crawl `/catalog/**` and `/api/products/**` to harvest
+- **Price scrapers** -bots that crawl `/catalog/**` and `/api/products/**` to harvest
   pricing data. This example routes them to a bot-sink cluster instead of your real
   backend, so scrapers receive stale or fake data.
-- **Inventory bots** — high-frequency crawlers checking stock levels.
-- **Checkout abuse** — credential stuffing and payment probing on `/checkout/**`.
-- **Account takeover** — automated login attempts on `/customer/account/**`.
+- **Inventory bots** -high-frequency crawlers checking stock levels.
+- **Checkout abuse** -credential stuffing and payment probing on `/checkout/**`.
+- **Account takeover** -automated login attempts on `/customer/account/**`.
 
 ## How the Bot-Sink Routing Works
 
@@ -534,7 +534,7 @@ git commit -m "feat(gateway): ecommerce example with YARP signal-based bot-sink 
 - [ ] **Step 1: Create `examples/api-protection/docker-compose.yml`**
 
 ```yaml
-# StyloBot Gateway — API Service Protection
+# StyloBot Gateway -API Service Protection
 # Protects REST APIs from credential stuffing, scraping, and abuse.
 #
 # Usage:
@@ -595,7 +595,7 @@ services:
 
     "Policies": {
       "api": {
-        "Description": "API endpoints — skip behavioral analysis (no page-load sequences)",
+        "Description": "API endpoints -skip behavioral analysis (no page-load sequences)",
         "FastPath": ["FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Inconsistency", "ReputationBias", "Heuristic"],
         "UseFastPath": true,
         "EscalateToAi": false,
@@ -603,7 +603,7 @@ services:
         "ImmediateBlockThreshold": 0.95
       },
       "auth-strict": {
-        "Description": "Auth endpoints — block credential stuffing at 0.5 confidence",
+        "Description": "Auth endpoints -block credential stuffing at 0.5 confidence",
         "FastPath": ["FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Behavioral", "Inconsistency", "VersionAge", "ReputationBias", "Heuristic"],
         "UseFastPath": true,
         "EscalateToAi": false,
@@ -626,14 +626,14 @@ services:
 - [ ] **Step 4: Create `examples/api-protection/README.md`**
 
 ```markdown
-# StyloBot Gateway — API Service Protection
+# StyloBot Gateway -API Service Protection
 
 Protects REST APIs from:
 
-- **Credential stuffing** on `/api/auth/**` and `/api/login` — automated login attempts
+- **Credential stuffing** on `/api/auth/**` and `/api/login` -automated login attempts
   using leaked username/password lists. Blocked at 50% confidence.
-- **API key probing** — bots trying to discover valid API keys through brute force.
-- **Scraping** — bots consuming your API endpoints at machine speed.
+- **API key probing** -bots trying to discover valid API keys through brute force.
+- **Scraping** -bots consuming your API endpoints at machine speed.
 
 ## API-Specific Detection
 
@@ -695,7 +695,7 @@ git commit -m "feat(gateway): api protection example with auth-strict policy"
 - [ ] **Step 1: Create `examples/shadow-mode/docker-compose.yml`**
 
 ```yaml
-# StyloBot Gateway — Shadow Mode (Transparent Monitoring)
+# StyloBot Gateway -Shadow Mode (Transparent Monitoring)
 # Detects bots but never blocks. Observe traffic for 7 days, then enable blocking.
 #
 # Usage:
@@ -732,7 +732,7 @@ services:
 
     "Policies": {
       "logonly": {
-        "Description": "Log everything, block nothing — shadow mode for traffic analysis",
+        "Description": "Log everything, block nothing -shadow mode for traffic analysis",
         "FastPath": ["FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Behavioral", "Inconsistency", "VersionAge", "ReputationBias", "Heuristic"],
         "UseFastPath": true,
         "EscalateToAi": false,
@@ -751,7 +751,7 @@ services:
 - [ ] **Step 3: Create `examples/shadow-mode/README.md`**
 
 ```markdown
-# StyloBot Gateway — Shadow Mode
+# StyloBot Gateway -Shadow Mode
 
 Use this when you want to understand your traffic before committing to blocking.
 All requests pass through. Bots are detected and logged, but never blocked or throttled.
@@ -789,19 +789,19 @@ curl -X POST http://localhost:8080/admin/config \
 
 ## Reading the Data
 
-The admin API (no secret required in this example — add `ADMIN_SECRET` in production)
+The admin API (no secret required in this example -add `ADMIN_SECRET` in production)
 returns JSON summaries:
 
-- `GET /admin/summary` — overall bot vs. human ratio, top bot types
-- `GET /admin/topbots` — most active bot signatures with risk scores
-- `GET /admin/countries` — traffic by country
-- `GET /admin/endpoints` — which paths bots target most
+- `GET /admin/summary` -overall bot vs. human ratio, top bot types
+- `GET /admin/topbots` -most active bot signatures with risk scores
+- `GET /admin/countries` -traffic by country
+- `GET /admin/endpoints` -which paths bots target most
 
 ## What to Look For
 
 - **High `X-Bot-Detection-RiskBand: High` count on `/wp-login.php`?** Brute force in progress.
 - **Lots of `X-Bot-Type: Scraper` on your product catalog?** Price scraping in progress.
-- **`X-Is-Search-Engine: true` traffic?** That is Googlebot — do NOT block it.
+- **`X-Is-Search-Engine: true` traffic?** That is Googlebot -do NOT block it.
 
 Use the per-endpoint data to tune your PathPolicies before enabling blocking.
 ```
@@ -826,7 +826,7 @@ git commit -m "feat(gateway): shadow mode example for traffic monitoring before 
 - [ ] **Step 1: Create `examples/multi-site/docker-compose.yml`**
 
 ```yaml
-# StyloBot Gateway — Multi-Site / SaaS
+# StyloBot Gateway -Multi-Site / SaaS
 # One gateway, multiple virtual hosts, different protection per host.
 #
 # admin.example.com → strict (internal admin tool)
@@ -932,7 +932,7 @@ services:
         "ImmediateBlockThreshold": 0.95
       },
       "admin-strict": {
-        "Description": "Internal admin tools — strict policy, block at 0.4",
+        "Description": "Internal admin tools -strict policy, block at 0.4",
         "FastPath": ["FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Behavioral", "Inconsistency", "VersionAge", "ReputationBias", "Heuristic"],
         "UseFastPath": true,
         "EscalateToAi": false,
@@ -940,7 +940,7 @@ services:
         "ImmediateBlockThreshold": 0.4
       },
       "api": {
-        "Description": "API endpoints — skip page-load behavioral detectors",
+        "Description": "API endpoints -skip page-load behavioral detectors",
         "FastPath": ["FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Inconsistency", "ReputationBias", "Heuristic"],
         "UseFastPath": true,
         "EscalateToAi": false,
@@ -959,15 +959,15 @@ services:
 - [ ] **Step 4: Create `examples/multi-site/README.md`**
 
 ```markdown
-# StyloBot Gateway — Multi-Site / SaaS
+# StyloBot Gateway -Multi-Site / SaaS
 
 One gateway fronts three virtual hosts with different protection levels:
 
 | Host | Policy | Why |
 |------|--------|-----|
-| `admin.example.com` | `admin-strict` (block at 0.4) | Internal tool — no bots should ever reach it |
+| `admin.example.com` | `admin-strict` (block at 0.4) | Internal tool -no bots should ever reach it |
 | `api.example.com` | `api` (skip page-load detectors) | REST clients don't have browser behavior |
-| `www.example.com` | `default` (standard) | Public site — balanced detection |
+| `www.example.com` | `default` (standard) | Public site -balanced detection |
 
 ## Automatic HTTPS
 
@@ -1025,7 +1025,7 @@ Replace the content from line 1 through the end of the `## Quick Start` section 
 # StyloBot Gateway
 
 A Docker-first YARP reverse proxy with built-in bot detection. Drop it in front of any
-HTTP backend to start detecting and blocking bots — no code changes required.
+HTTP backend to start detecting and blocking bots -no code changes required.
 
 Unlike Caddy or nginx, StyloBot knows what your traffic **is**. Every proxied request
 carries detection signals your backend and routing rules can act on.
@@ -1050,14 +1050,14 @@ Every request is now analyzed. Check the logs:
 ║  Policy  throttle-stealth  |  threshold  0.70            ║
 ║  Admin  /admin  [no secret - disabled]                   ║
 ╚══════════════════════════════════════════════════════════╝
-[WARN] ADMIN_SECRET not set — admin API is disabled until configured
+[WARN] ADMIN_SECRET not set -admin API is disabled until configured
 ```
 
 ---
 
 ## Why Not Just Caddy?
 
-Caddy terminates TLS and routes traffic. StyloBot does that — and also classifies every
+Caddy terminates TLS and routes traffic. StyloBot does that -and also classifies every
 request as bot or human using up to 49 detectors running in <1ms.
 
 The result: YARP routing rules can make decisions based on **what traffic is**, not just
@@ -1073,7 +1073,7 @@ Every request your backend receives includes these headers:
 | `X-Bot-Type` | `Scraper` | Bot category |
 | `X-Bot-Name` | `AhrefsBot` | Named bot if identified |
 | `X-Is-Malicious-Bot` | `true` | Convenience flag |
-| `X-Is-Search-Engine` | `false` | Convenience flag — never block these |
+| `X-Is-Search-Engine` | `false` | Convenience flag -never block these |
 
 Route bots to a different backend based on `X-Bot-Detection-RiskBand`:
 

@@ -1,13 +1,13 @@
-# StyloBot Gateway — E-commerce / Scraper Defense
+# StyloBot Gateway -E-commerce / Scraper Defense
 
 Protects e-commerce sites (Magento, WooCommerce, Shopify headless) from:
 
-- **Price scrapers** — bots that crawl `/catalog/**` and `/api/products/**` to harvest
+- **Price scrapers** -bots that crawl `/catalog/**` and `/api/products/**` to harvest
   pricing data. This example routes them to a bot-sink cluster instead of your real
   backend, so scrapers receive a 429 instead of real prices.
-- **Inventory bots** — high-frequency crawlers checking stock levels.
-- **Checkout abuse** — credential stuffing and payment probing on `/checkout/**`.
-- **Account takeover** — automated login attempts on `/customer/account/**`.
+- **Inventory bots** -high-frequency crawlers checking stock levels.
+- **Checkout abuse** -credential stuffing and payment probing on `/checkout/**`.
+- **Account takeover** -automated login attempts on `/customer/account/**`.
 
 ## How the Bot-Sink Routing Works
 

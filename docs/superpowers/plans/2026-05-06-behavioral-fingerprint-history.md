@@ -22,7 +22,7 @@ Open `src/Mostlylucid.BotDetection.UI/Models/DashboardPartialModels.cs`. After t
 ```csharp
 /// <summary>
 ///     Per-session data for the behavioral fingerprint filmstrip/overlay.
-///     StateFreqs is Vector[100..109] — the Markov stationary distribution
+///     StateFreqs is Vector[100..109] -the Markov stationary distribution
 ///     (time spent in each of 10 states, values 0..1 summing to ~1.0).
 /// </summary>
 public sealed class SessionFingerprintEntry

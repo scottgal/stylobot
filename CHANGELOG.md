@@ -11,26 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Endpoint Pinning and Honeypot Path Management
 
-- **`IPinnedEndpointStore`** — interface for operator-pinned endpoints; `PinnedEndpoint` sealed record (`Id`, `Method`, `Path`, `IsHoneypot`, `Note`, `CreatedAt`)
-- **`SqlitePinnedEndpointStore`** — SQLite-backed implementation writing to `sessions.db` (`pinned_endpoints` table); unique index on `(method, path)` with `ON CONFLICT DO NOTHING` + re-SELECT upsert; semaphore write lock; registered automatically by `AddStyloBotDashboard()`
-- **Dashboard pin API** — three routes handled by `StyloBotDashboardMiddleware`: `GET /_stylobot/api/endpoint-pins`, `POST /_stylobot/api/endpoint-pins` (JSON or form body), `DELETE /_stylobot/api/endpoint-pins/{id}`; method validated against allowlist (`ANY`, `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`)
-- **Endpoint detail protection section** — replaces the old Bot Policy section; shows active policy badge, reaction pack coverage rows (pack name, scope, level, policy), and pin/unpin controls with HTMX inline form
-- **Pin Endpoint inline form** — in the Endpoints tab header; method dropdown, path input (required, must start with `/`), honeypot checkbox, optional note; submits via HTMX, replaces the endpoint list on success
-- **Pin and honeypot icons** — pin icon (`bx-pin`) and warning icon (`bx-bug`) shown in the path cell of both the sortable full endpoints list and the compact view; zero-traffic pinned paths are merged into the endpoint data at query time
-- **`DashboardEndpointStats`** — added `IsPinned`, `IsHoneypot`, `PinId` fields
-- **`EndpointDetailModel`** — added `PolicyName`, `PackCoverage` (`IReadOnlyList<EndpointPackCoverage>`), `IsPinned`, `IsHoneypot`, `PinId` fields
-- **`EndpointPackCoverage`** record — `(PackName, Scope, CurrentLevel, CurrentPolicy)` for reaction pack coverage display
-- **Docs**: `src/Mostlylucid.BotDetection/docs/endpoint-pinning.md` — feature overview, dashboard API routes, programmatic usage, curl examples, what pinning does and does not do
+- **`IPinnedEndpointStore`** -interface for operator-pinned endpoints; `PinnedEndpoint` sealed record (`Id`, `Method`, `Path`, `IsHoneypot`, `Note`, `CreatedAt`)
+- **`SqlitePinnedEndpointStore`** -SQLite-backed implementation writing to `sessions.db` (`pinned_endpoints` table); unique index on `(method, path)` with `ON CONFLICT DO NOTHING` + re-SELECT upsert; semaphore write lock; registered automatically by `AddStyloBotDashboard()`
+- **Dashboard pin API** -three routes handled by `StyloBotDashboardMiddleware`: `GET /_stylobot/api/endpoint-pins`, `POST /_stylobot/api/endpoint-pins` (JSON or form body), `DELETE /_stylobot/api/endpoint-pins/{id}`; method validated against allowlist (`ANY`, `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`, `OPTIONS`)
+- **Endpoint detail protection section** -replaces the old Bot Policy section; shows active policy badge, reaction pack coverage rows (pack name, scope, level, policy), and pin/unpin controls with HTMX inline form
+- **Pin Endpoint inline form** -in the Endpoints tab header; method dropdown, path input (required, must start with `/`), honeypot checkbox, optional note; submits via HTMX, replaces the endpoint list on success
+- **Pin and honeypot icons** -pin icon (`bx-pin`) and warning icon (`bx-bug`) shown in the path cell of both the sortable full endpoints list and the compact view; zero-traffic pinned paths are merged into the endpoint data at query time
+- **`DashboardEndpointStats`** -added `IsPinned`, `IsHoneypot`, `PinId` fields
+- **`EndpointDetailModel`** -added `PolicyName`, `PackCoverage` (`IReadOnlyList<EndpointPackCoverage>`), `IsPinned`, `IsHoneypot`, `PinId` fields
+- **`EndpointPackCoverage`** record -`(PackName, Scope, CurrentLevel, CurrentPolicy)` for reaction pack coverage display
+- **Docs**: `src/Mostlylucid.BotDetection/docs/endpoint-pinning.md` -feature overview, dashboard API routes, programmatic usage, curl examples, what pinning does and does not do
 
 #### Simulation Packs, Holodeck, and Custom Pack Authoring Documentation
 
-- **Docs**: `src/Mostlylucid.BotDetection/docs/simulation-packs.md` — pack architecture (all record types), WordPress pack detail (11 paths, 8 CVE modules), path matching, template types, timing profiles, emitted signals
-- **Docs**: `src/Mostlylucid.BotDetection/docs/holodeck.md` — three-layer architecture (`HoneypotPathTagger`, `HolodeckCoordinator`, `SimulationPackResponder`), FOSS vs LLM tiers, beacon/canary lifecycle, `IHolodeckResponder` interface, engagement slot management, testing headers
-- **Docs**: `src/Mostlylucid.BotDetection/docs/custom-pack-authoring.md` — complete YAML schema reference, all template placeholders (`{{nonce}}`, `{{token}}`, `{{api_key}}`), LLM response hints, three registration approaches, minimal worked example (PHP admin panel pack)
+- **Docs**: `src/Mostlylucid.BotDetection/docs/simulation-packs.md` -pack architecture (all record types), WordPress pack detail (11 paths, 8 CVE modules), path matching, template types, timing profiles, emitted signals
+- **Docs**: `src/Mostlylucid.BotDetection/docs/holodeck.md` -three-layer architecture (`HoneypotPathTagger`, `HolodeckCoordinator`, `SimulationPackResponder`), FOSS vs LLM tiers, beacon/canary lifecycle, `IHolodeckResponder` interface, engagement slot management, testing headers
+- **Docs**: `src/Mostlylucid.BotDetection/docs/custom-pack-authoring.md` -complete YAML schema reference, all template placeholders (`{{nonce}}`, `{{token}}`, `{{api_key}}`), LLM response hints, three registration approaches, minimal worked example (PHP admin panel pack)
 
 #### Adblocker Detection
 
-- **`AdBlockerDetectionTagHelper`** — client-side TagHelper that injects a probe element to detect adblockers without fingerprint; result written to `no-fingerprint` channel for `ClientSideContributor` to consume
+- **`AdBlockerDetectionTagHelper`** -client-side TagHelper that injects a probe element to detect adblockers without fingerprint; result written to `no-fingerprint` channel for `ClientSideContributor` to consume
 
 #### Node SDK
 
@@ -48,35 +48,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`SignatureCoordinatorWarmupService`** — replays recently persisted requests into the in-memory `SignatureCoordinator` on startup, preventing clustering from starting from zero after a restart; runs as `BackgroundService` (post-startup, does not block host readiness)
-- **`ISessionStore.GetRecentRequestsAsync`** — fetches the N most-recent persisted requests within a time window, newest-first internally then returned oldest-first for chronological replay
-- **`LearningEventBus.Subscribe`** — independent subscriber streams for fan-out event delivery; each subscriber receives a copy of every published event without consuming from the primary reader. `AnomalySaverService` migrated to subscriber pattern
-- **`SignatureCoordinator.RecordRequestAsync`** `timestampUtc` optional parameter — allows replaying historical requests with their original timestamps
-- **`LeidenClustering`** — CPM penalty now scales by `averageEdgeWeight * 0.5` instead of raw `totalWeight`, fixing unmergeable graphs when edge weights are normalized similarities in [0, 1]
-- **`BotClusterService`** — pre-filters signatures by `MinBotProbabilityForClustering` before applying worst-offender cap, focusing CPU on genuinely suspect signatures
-- Startup error handling in `CentroidSequenceRebuildHostedService` and `AssetHashInitHostedService` — initialization failures degrade gracefully instead of crashing the host
+- **`SignatureCoordinatorWarmupService`** -replays recently persisted requests into the in-memory `SignatureCoordinator` on startup, preventing clustering from starting from zero after a restart; runs as `BackgroundService` (post-startup, does not block host readiness)
+- **`ISessionStore.GetRecentRequestsAsync`** -fetches the N most-recent persisted requests within a time window, newest-first internally then returned oldest-first for chronological replay
+- **`LearningEventBus.Subscribe`** -independent subscriber streams for fan-out event delivery; each subscriber receives a copy of every published event without consuming from the primary reader. `AnomalySaverService` migrated to subscriber pattern
+- **`SignatureCoordinator.RecordRequestAsync`** `timestampUtc` optional parameter -allows replaying historical requests with their original timestamps
+- **`LeidenClustering`** -CPM penalty now scales by `averageEdgeWeight * 0.5` instead of raw `totalWeight`, fixing unmergeable graphs when edge weights are normalized similarities in [0, 1]
+- **`BotClusterService`** -pre-filters signatures by `MinBotProbabilityForClustering` before applying worst-offender cap, focusing CPU on genuinely suspect signatures
+- Startup error handling in `CentroidSequenceRebuildHostedService` and `AssetHashInitHostedService` -initialization failures degrade gracefully instead of crashing the host
 
 ### Changed
 
-- **`BlackboardOrchestrator`** — `primarySignature` is now included in learning event metadata, enabling `SimilarityLearningHandler` and `IntentLearningHandler` to use stable visitor signatures instead of per-request IDs
-- **`SimilarityLearningHandler`** — prefers `primarySignature` from event metadata over `RequestId` to prevent index filling with one-off IDs
-- **`IntentLearningHandler`** — same stable-signature preference for attack event attribution
-- **`EphemeralDetectionOrchestrator`** — feature extraction now runs for uncertain events (confidence < 0.6, probability 0.3-0.8) in addition to high-confidence detections
-- **`HeuristicFeatureExtractor`** — single-pass rewrite of `ExtractDetectorResults` and `ExtractStatistics`: eliminates 6x `ToList()` allocations, two `GroupBy+ToDictionary` allocations, and inline LINQ in the hot path
-- **`BlackboardOrchestrator`** — `KnownAiDetectors` promoted to static field (eliminates per-request `HashSet` allocation)
+- **`BlackboardOrchestrator`** -`primarySignature` is now included in learning event metadata, enabling `SimilarityLearningHandler` and `IntentLearningHandler` to use stable visitor signatures instead of per-request IDs
+- **`SimilarityLearningHandler`** -prefers `primarySignature` from event metadata over `RequestId` to prevent index filling with one-off IDs
+- **`IntentLearningHandler`** -same stable-signature preference for attack event attribution
+- **`EphemeralDetectionOrchestrator`** -feature extraction now runs for uncertain events (confidence < 0.6, probability 0.3-0.8) in addition to high-confidence detections
+- **`HeuristicFeatureExtractor`** -single-pass rewrite of `ExtractDetectorResults` and `ExtractStatistics`: eliminates 6x `ToList()` allocations, two `GroupBy+ToDictionary` allocations, and inline LINQ in the hot path
+- **`BlackboardOrchestrator`** -`KnownAiDetectors` promoted to static field (eliminates per-request `HashSet` allocation)
 
 ### Fixed
 
-- **`SignatureCoordinator.GetAllBehaviors`** — cache miss on a signature no longer evicts its `_ipIndex` entry; only `PruneShadowIndexesIfNeeded` owns `_ipIndex` cleanup, preventing a race where a newly-registered signature was removed before its async atom was cached
-- **CI** — removed `retentionScorer` named argument in `SlidingCacheAtom` constructor calls; parameter exists in local project reference but not in published NuGet 2.4.0, causing `CS1739` build failures on CI
-- **CI** — removed `/tmp/local-nuget` source from `NuGet.Config` that caused `NU1301` on GitHub Actions hosts
+- **`SignatureCoordinator.GetAllBehaviors`** -cache miss on a signature no longer evicts its `_ipIndex` entry; only `PruneShadowIndexesIfNeeded` owns `_ipIndex` cleanup, preventing a race where a newly-registered signature was removed before its async atom was cached
+- **CI** -removed `retentionScorer` named argument in `SlidingCacheAtom` constructor calls; parameter exists in local project reference but not in published NuGet 2.4.0, causing `CS1739` build failures on CI
+- **CI** -removed `/tmp/local-nuget` source from `NuGet.Config` that caused `NU1301` on GitHub Actions hosts
 
 ### Tests Added
 
-- `SignatureConvergenceServiceTests` — removed spurious `Task.Delay(50)` calls; tests now rely on synchronous `_ipIndex` population
-- `LeidenClusteringTests` — verifies two disconnected clusters stay separated at default resolution
-- `LearningEventBusTests` — verifies subscriber receives copy without consuming primary reader
-- `SimilarityLearningHandlerTests` — verifies `primarySignature` metadata is used as the stable vector ID
+- `SignatureConvergenceServiceTests` -removed spurious `Task.Delay(50)` calls; tests now rely on synchronous `_ipIndex` population
+- `LeidenClusteringTests` -verifies two disconnected clusters stay separated at default resolution
+- `LearningEventBusTests` -verifies subscriber receives copy without consuming primary reader
+- `SimilarityLearningHandlerTests` -verifies `primarySignature` metadata is used as the stable vector ID
 
 ---
 
@@ -85,7 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Click Fraud Detection (IAB SIVT)
-- **`ClickFraudContributor`** (Priority 38) — scores paid-ad traffic for IAB Sophisticated Invalid Traffic (SIVT) patterns using 7 detection signals
+- **`ClickFraudContributor`** (Priority 38) -scores paid-ad traffic for IAB Sophisticated Invalid Traffic (SIVT) patterns using 7 detection signals
   - Datacenter IP on paid landing (gclid/fbclid/msclkid/ttclid + UTM): +0.50
   - VPN/anonymizer on paid landing: +0.25
   - Open proxy on paid landing: +0.20
@@ -96,33 +96,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All weights configurable via `clickfraud.detector.yaml` / appsettings.json `BotDetection:Detectors:ClickFraudContributor`
   - Writes `clickfraud.*` signals: `clickfraud.score`, `clickfraud.pattern`, `clickfraud.confidence`, `clickfraud.is_paid_traffic`, `clickfraud.checked`
   - Triggers on `utm.present` OR (`session.request_count` AND `ip.is_datacenter`)
-- **`PiiQueryStringContributor`** (Priority 19) — extracts UTM parameters and click IDs from query strings, emits hashed signals pre-sanitization
+- **`PiiQueryStringContributor`** (Priority 19) -extracts UTM parameters and click IDs from query strings, emits hashed signals pre-sanitization
   - Detects: `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `gclid`, `fbclid`, `msclkid`, `ttclid`
-  - All values HMAC-SHA256 hashed via `PiiHasher` — raw ad parameters never on the blackboard
+  - All values HMAC-SHA256 hashed via `PiiHasher` -raw ad parameters never on the blackboard
   - Referrer mismatch detection: click ID present but referrer absent or mismatched platform domain
   - Writes `utm.*` signals: `utm.present`, `utm.source_hash`, `utm.medium_hash`, `utm.campaign_hash`, `utm.click_id_hash`, `utm.has_gclid`, `utm.has_fbclid`, `utm.has_msclkid`, `utm.has_ttclid`, `utm.referrer_mismatch`, `utm.referrer_present`, `utm.source_platform`
-- **`BotType.ClickFraud`** — new bot type classification for IAB SIVT
-- **`QueryStringSanitizer.DetectAdTrafficParams`** — static method for UTM/click-ID extraction with HMAC-SHA256 hashing and referrer mismatch analysis; malformed percent-encoding is skipped rather than thrown
-- **`AdTrafficDetectionResult`** record — carries all hashed ad signal values with `SourcePlatform` inference (google, meta, microsoft, tiktok, paid_other, organic)
+- **`BotType.ClickFraud`** -new bot type classification for IAB SIVT
+- **`QueryStringSanitizer.DetectAdTrafficParams`** -static method for UTM/click-ID extraction with HMAC-SHA256 hashing and referrer mismatch analysis; malformed percent-encoding is skipped rather than thrown
+- **`AdTrafficDetectionResult`** record -carries all hashed ad signal values with `SourcePlatform` inference (google, meta, microsoft, tiktok, paid_other, organic)
 - Click-fraud signals wired into `IntentContributor`, `HeuristicFeatureExtractor` (5 new ML features), and `ReputationBiasContributor` (paid-traffic bias multiplier)
-- **Docs**: `Mostlylucid.BotDetection/docs/click-fraud-detection.md` — IAB IVT taxonomy, signal flow, detection pattern table, YAML configuration reference, custom filter examples
+- **Docs**: `Mostlylucid.BotDetection/docs/click-fraud-detection.md` -IAB IVT taxonomy, signal flow, detection pattern table, YAML configuration reference, custom filter examples
 
 #### License Expiry Freeze
 - **`ILicenseState`** interface + **`FossLicenseState`** (always-active FOSS implementation) + **`LicenseState`** (commercial JWT-based)
-- **`LicenseStateRefreshService`** — 60-second background refresh for commercial license tokens
-- **`SqliteLicenseGraceStore`** — persists `grace_started_at` to `botdetection.db`; grace period survives restarts
+- **`LicenseStateRefreshService`** -60-second background refresh for commercial license tokens
+- **`SqliteLicenseGraceStore`** -persists `grace_started_at` to `botdetection.db`; grace period survives restarts
 - **`LicenseTokenParser`** + **`LicenseStateSnapshot`** state machine: `Active` → `Grace` (30-day) → `Expired` transitions
-- **Freeze guards** in `ReputationMaintenance`, `LearningBackground`, `BotCluster`, `CentroidRebuild` — learning freezes on grace/expired; all services log freeze state at startup
+- **Freeze guards** in `ReputationMaintenance`, `LearningBackground`, `BotCluster`, `CentroidRebuild` -learning freezes on grace/expired; all services log freeze state at startup
 
 ### Changed
 
-- **`ReputationBiasContributor`** — bias-only mode always active; paid-traffic amplifier multiplies bias score when `utm.present` is set
-- **`PiiHasher.GetKey()`** — returns `(byte[])_key.Clone()` instead of direct array reference to prevent key mutation by callers
+- **`ReputationBiasContributor`** -bias-only mode always active; paid-traffic amplifier multiplies bias score when `utm.present` is set
+- **`PiiHasher.GetKey()`** -returns `(byte[])_key.Clone()` instead of direct array reference to prevent key mutation by callers
 
 ### Fixed
 
-- **`QueryStringSanitizer.DetectAdTrafficParams`** — `utmPresent` check now includes `utm_medium` (previously utm_medium-only traffic was silently treated as organic)
-- **`ClickFraudContributor`** — `isPaidTraffic` now `utmPresent || hasClickId` (previously required a click ID even when UTM-only present)
+- **`QueryStringSanitizer.DetectAdTrafficParams`** -`utmPresent` check now includes `utm_medium` (previously utm_medium-only traffic was silently treated as organic)
+- **`ClickFraudContributor`** -`isPaidTraffic` now `utmPresent || hasClickId` (previously required a click ID even when UTM-only present)
 - Removed dead code: `UtmKeys`, `ClickIdKeys` static HashSets and `clickIdKey` variable (declared but never used)
 
 ### Accessibility
@@ -133,7 +133,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Tailwind opacity floor overrides for `[data-theme="dark"]`: `/20`→45%, `/30`→52%, `/40`→60%, `/50`→68%
   - `bot-detection-details.css`: comprehensive `[data-theme="dark"]` block for `<bot-detection-details>` component
   - Detection ticker/bar: `#555` → `#8b9eb8`, `#888` → `#a0b2c8`
-- **`sb-components.css`** was not imported anywhere — added `@import "./sb-components.css"` to `tailwind-input.css`
+- **`sb-components.css`** was not imported anywhere -added `@import "./sb-components.css"` to `tailwind-input.css`
 
 ---
 
@@ -142,30 +142,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Content Sequence Detection
-- **`ContentSequenceContributor`** (Priority 4, Wave 0) — tracks each fingerprint's position in its page-load request sequence and writes `sequence.*` signals consumed by deferred detectors
+- **`ContentSequenceContributor`** (Priority 4, Wave 0) -tracks each fingerprint's position in its page-load request sequence and writes `sequence.*` signals consumed by deferred detectors
   - Document requests (Sec-Fetch-Mode: navigate, Accept: text/html, or `transport.protocol_class=document`) reset the sequence at position 0
   - Continuation requests advance position and perform set-based phase-window divergence scoring across four phases: critical (0-500ms), mid (500ms-2s), late (2s-30s), settled (30s+)
   - Prefetch requests (Purpose/Sec-Purpose: prefetch) are tracked but excluded from divergence scoring
   - Fingerprints with no prior document request write no signals; deferred detectors fall back via SignalNotExistsTrigger
   - All thresholds configurable via `contentsequence.detector.yaml` / appsettings.json
-- **`SequenceContextStore`** — per-fingerprint sequence state (ConcurrentDictionary, 30-min session gap, 5-min TTL sweep); loss on restart is acceptable
+- **`SequenceContextStore`** -per-fingerprint sequence state (ConcurrentDictionary, 30-min session gap, 5-min TTL sweep); loss on restart is acceptable
   - `SequenceContext` record: position, expected chain, observed state set (ImmutableHashSet), window timing, divergence count, cache-warm flag, content path
-- **`CentroidSequenceStore`** — SQLite-backed expected request chains per cluster (Tier 2) with global fallback chain (Tier 1); rebuilt after each clustering run
-  - `MarkEndpointStale` / `IsEndpointStale` / `ClearEndpointStale` — staleness window (1h) suppresses divergence scoring during content changes
-- **`EndpointDivergenceTracker`** — rolling 1-hour per-path divergence rate tracking; marks centroid stale when ≥40% of sessions in window diverge (minimum 10 sessions); thread-safe via `ConcurrentDictionary.AddOrUpdate`
-- **`AssetHashStore`** — ETag-first / Last-Modified+Content-Length fallback fingerprinting for static assets; SQLite-backed `asset_hashes` table; 24h in-memory change index with hourly eviction sweep
-- **`AssetHashMiddleware`** — response-side middleware registered before detection; reads ETag/Last-Modified after `_next` returns and calls `AssetHashStore.RecordHashAsync` for static extensions (css, js, woff, woff2, png, jpg, svg, ico, and 6 others)
-- **`CentroidSequenceRebuildHostedService`** — wires `BotClusterService.ClustersUpdated` → `CentroidSequenceStore.RebuildAsync`; initialises SQLite table on startup; errors from async rebuild are logged (not silently swallowed)
-- **`AssetHashInitHostedService`** — creates `asset_hashes` table and loads recent change timestamps on startup
-- **`SequenceGuardTrigger.Default`** — shared `AnyOfTrigger` extracted from 5 deferred detectors; run when: no sequence active, on_track=false, diverged=true, or position ≥ 3
+- **`CentroidSequenceStore`** -SQLite-backed expected request chains per cluster (Tier 2) with global fallback chain (Tier 1); rebuilt after each clustering run
+  - `MarkEndpointStale` / `IsEndpointStale` / `ClearEndpointStale` -staleness window (1h) suppresses divergence scoring during content changes
+- **`EndpointDivergenceTracker`** -rolling 1-hour per-path divergence rate tracking; marks centroid stale when ≥40% of sessions in window diverge (minimum 10 sessions); thread-safe via `ConcurrentDictionary.AddOrUpdate`
+- **`AssetHashStore`** -ETag-first / Last-Modified+Content-Length fallback fingerprinting for static assets; SQLite-backed `asset_hashes` table; 24h in-memory change index with hourly eviction sweep
+- **`AssetHashMiddleware`** -response-side middleware registered before detection; reads ETag/Last-Modified after `_next` returns and calls `AssetHashStore.RecordHashAsync` for static extensions (css, js, woff, woff2, png, jpg, svg, ico, and 6 others)
+- **`CentroidSequenceRebuildHostedService`** -wires `BotClusterService.ClustersUpdated` → `CentroidSequenceStore.RebuildAsync`; initialises SQLite table on startup; errors from async rebuild are logged (not silently swallowed)
+- **`AssetHashInitHostedService`** -creates `asset_hashes` table and loads recent change timestamps on startup
+- **`SequenceGuardTrigger.Default`** -shared `AnyOfTrigger` extracted from 5 deferred detectors; run when: no sequence active, on_track=false, diverged=true, or position ≥ 3
 - **3 new trigger types** in `IContributingDetector`:
-  - `SignalNotExistsTrigger` — inverse of SignalExistsTrigger
-  - `SignalValueTrigger<T>` — equality check on signal value
-  - `SignalPredicateTrigger<T>` — predicate check on signal value
+  - `SignalNotExistsTrigger` -inverse of SignalExistsTrigger
+  - `SignalValueTrigger<T>` -equality check on signal value
+  - `SignalPredicateTrigger<T>` -predicate check on signal value
 - **10 new signal keys** (`sequence.position`, `sequence.on_track`, `sequence.diverged`, `sequence.divergence_score`, `sequence.chain_id`, `sequence.centroid_type`, `sequence.content_path`, `sequence.signalr_expected`, `sequence.prefetch_detected`, `sequence.cache_warm`)
 - **2 new signal keys** for centroid freshness: `sequence.centroid_stale`, `asset.content_changed`
-- **4 BDF scenarios** — `sequence-human-browser`, `sequence-machine-speed-bot`, `sequence-api-only-bot`, `sequence-cache-warm`
-- **`scripts/soak/run-sequence-bdf.sh`** — replays content-sequence scenarios against the running test site and reports per-request bot probability
+- **4 BDF scenarios** -`sequence-human-browser`, `sequence-machine-speed-bot`, `sequence-api-only-bot`, `sequence-cache-warm`
+- **`scripts/soak/run-sequence-bdf.sh`** -replays content-sequence scenarios against the running test site and reports per-request bot probability
 
 #### Test Site Cleanup
 - Removed 8 outdated Razor pages and static HTML files (BotTest, ComponentDemo, TagHelperDemo pages; proxy.html, test-client-side.html)
@@ -173,15 +173,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **5 deferred detectors** (SessionVector, Periodicity, BehavioralWaveform, ResourceWaterfall, CacheBehavior) now use `SequenceGuardTrigger.Default` — skip early on-track sequences to avoid false positives before enough request data exists
+- **5 deferred detectors** (SessionVector, Periodicity, BehavioralWaveform, ResourceWaterfall, CacheBehavior) now use `SequenceGuardTrigger.Default` -skip early on-track sequences to avoid false positives before enough request data exists
 - **`StreamAbuseContributor`** skips when `sequence.signalr_expected` is present, preventing false-positive flagging of expected SignalR upgrades on human-centroid chains
-- **`ContentSequenceContributor.ComputeDivergenceScore`** — machine-speed threshold, score components, and request-count threshold moved from hardcoded values to YAML params (`machine_speed_threshold_ms`, `machine_speed_score`, `unexpected_state_score`, `high_request_count_score`, `high_request_count_threshold`)
+- **`ContentSequenceContributor.ComputeDivergenceScore`** -machine-speed threshold, score components, and request-count threshold moved from hardcoded values to YAML params (`machine_speed_threshold_ms`, `machine_speed_score`, `unexpected_state_score`, `high_request_count_score`, `high_request_count_threshold`)
 - **`SequenceContext.ObservedStateSet`** changed from `HashSet<RequestState>` (mutable) to `ImmutableHashSet<RequestState>`
 
 ### Fixed
 
-- **`SequenceContext.ContentPath`** — continuation requests now read the content path from `ctx.ContentPath` (populated during document request) instead of the per-request blackboard, which was always empty on non-document requests; divergence tracking and centroid staleness marking now function correctly
-- **`CentroidSequenceRebuildHostedService`** — rebuild exceptions are now caught and logged via `ILogger.LogError` instead of silently swallowed in fire-and-forget
+- **`SequenceContext.ContentPath`** -continuation requests now read the content path from `ctx.ContentPath` (populated during document request) instead of the per-request blackboard, which was always empty on non-document requests; divergence tracking and centroid staleness marking now function correctly
+- **`CentroidSequenceRebuildHostedService`** -rebuild exceptions are now caught and logged via `ILogger.LogError` instead of silently swallowed in fire-and-forget
 
 ---
 

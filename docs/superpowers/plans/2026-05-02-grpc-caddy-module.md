@@ -22,9 +22,9 @@
 ### .NET API
 | Action | File |
 |--------|------|
-| Modify | `Mostlylucid.BotDetection.Api/Mostlylucid.BotDetection.Api.csproj` — add Grpc.AspNetCore + proto item |
+| Modify | `Mostlylucid.BotDetection.Api/Mostlylucid.BotDetection.Api.csproj` -add Grpc.AspNetCore + proto item |
 | Create | `Mostlylucid.BotDetection.Api/Grpc/GrpcDetectService.cs` |
-| Modify | `Mostlylucid.BotDetection.Api/Program.cs` — register + map gRPC |
+| Modify | `Mostlylucid.BotDetection.Api/Program.cs` -register + map gRPC |
 
 ### Go Caddy module
 | Action | File |
@@ -32,8 +32,8 @@
 | Create | `sdk/caddy/go.mod` |
 | Create | `sdk/caddy/proto/detect.pb.go` (generated) |
 | Create | `sdk/caddy/proto/detect_grpc.pb.go` (generated) |
-| Create | `sdk/caddy/headers.go` — IP extraction, header flattening |
-| Create | `sdk/caddy/stylobot.go` — module, provision, ServeHTTP, Caddyfile |
+| Create | `sdk/caddy/headers.go` -IP extraction, header flattening |
+| Create | `sdk/caddy/stylobot.go` -module, provision, ServeHTTP, Caddyfile |
 | Create | `sdk/caddy/stylobot_test.go` |
 | Create | `sdk/caddy/README.md` |
 
@@ -165,7 +165,7 @@ grep -rn "class DetectResponse\|FromEvidence\|VerdictDto\|MetaDto" \
 
 The gRPC service mirrors `DetectEndpoints.HandleDetect` exactly, using the same `BlackboardOrchestrator` call pattern. The key difference: instead of reading from `HttpContext`, we receive data from the gRPC request and map it to an `ApiModels.DetectRequest`, then call whatever the REST endpoint calls.
 
-Because `BlackboardOrchestrator.DetectAsync` takes `HttpContext`, the gRPC service must use the same intermediate path that the REST endpoint uses. Read `DetectEndpoints.HandleDetect` carefully — if it constructs a synthetic context or uses a different overload, follow that pattern.
+Because `BlackboardOrchestrator.DetectAsync` takes `HttpContext`, the gRPC service must use the same intermediate path that the REST endpoint uses. Read `DetectEndpoints.HandleDetect` carefully -if it constructs a synthetic context or uses a different overload, follow that pattern.
 
 ```csharp
 using Grpc.Core;
@@ -222,7 +222,7 @@ public sealed class GrpcDetectService(
     private static DetectResponse MapToProto(ApiModels.DetectResponse r)
     {
         // Adjust property names below to match actual ApiModels.DetectResponse shape.
-        // Run the grep above if unsure — look at VerdictDto, MetaDto fields.
+        // Run the grep above if unsure -look at VerdictDto, MetaDto fields.
         return new DetectResponse
         {
             IsBot             = r.Verdict?.IsBot ?? false,
@@ -240,7 +240,7 @@ public sealed class GrpcDetectService(
 }
 ```
 
-IMPORTANT: The `DetectRequest` constructor call, the `orchestrator.DetectAsync` signature, and the `MapToProto` property names MUST match the actual types found via grep. Adjust as needed — the greps above give you the ground truth.
+IMPORTANT: The `DetectRequest` constructor call, the `orchestrator.DetectAsync` signature, and the `MapToProto` property names MUST match the actual types found via grep. Adjust as needed -the greps above give you the ground truth.
 
 - [ ] Build:
 
@@ -433,7 +433,7 @@ func TestExtractHeadersLowercase(t *testing.T) {
 cd sdk/caddy && go test ./... 2>&1 | head -10
 ```
 
-Expected: compile error — `ExtractIP`, `ExtractHeaders` undefined.
+Expected: compile error -`ExtractIP`, `ExtractHeaders` undefined.
 
 - [ ] Create `sdk/caddy/headers.go`:
 
@@ -569,7 +569,7 @@ func TestInjectsHeaders(t *testing.T) {
 }
 
 func TestFailsOpen(t *testing.T) {
-	// No server at this address — should fail open.
+	// No server at this address -should fail open.
 	conn, _ := grpc.NewClient("127.0.0.1:1", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	t.Cleanup(func() { conn.Close() })
 	m := &stylobot.StyloBot{OnBlock: 403}
@@ -840,7 +840,7 @@ git commit -m "feat(caddy): StyloBot Caddy gRPC middleware with tests"
 ```markdown
 # caddy-stylobot
 
-Caddy v2 middleware module for StyloBot bot detection via gRPC. Uses a persistent HTTP/2 connection to the StyloBot sidecar — typical overhead on localhost is under 0.5ms.
+Caddy v2 middleware module for StyloBot bot detection via gRPC. Uses a persistent HTTP/2 connection to the StyloBot sidecar -typical overhead on localhost is under 0.5ms.
 
 ## Requirements
 
@@ -885,16 +885,16 @@ Caddy v2 middleware module for StyloBot bot detection via gRPC. Uses a persisten
 
 All headers are injected onto the request forwarded to the upstream application:
 
-- `X-StyloBot-IsBot` — true/false
-- `X-StyloBot-Probability` — 0.0000–1.0000
-- `X-StyloBot-Confidence` — 0.0000–1.0000
-- `X-StyloBot-BotType` — e.g. "Scraper", "Scanner"
-- `X-StyloBot-BotName` — deterministic name e.g. "Shadowreaper-7"
-- `X-StyloBot-RiskBand` — VeryLow/Low/Elevated/Medium/High/VeryHigh/Verified
-- `X-StyloBot-Action` — Allow/Throttle/Challenge/Block
-- `X-StyloBot-ThreatScore` — 0.0000–1.0000
-- `X-StyloBot-ThreatBand` — None/Low/Elevated/High/Critical
-- `X-StyloBot-Policy` — active policy name
+- `X-StyloBot-IsBot` -true/false
+- `X-StyloBot-Probability` -0.0000–1.0000
+- `X-StyloBot-Confidence` -0.0000–1.0000
+- `X-StyloBot-BotType` -e.g. "Scraper", "Scanner"
+- `X-StyloBot-BotName` -deterministic name e.g. "Shadowreaper-7"
+- `X-StyloBot-RiskBand` -VeryLow/Low/Elevated/Medium/High/VeryHigh/Verified
+- `X-StyloBot-Action` -Allow/Throttle/Challenge/Block
+- `X-StyloBot-ThreatScore` -0.0000–1.0000
+- `X-StyloBot-ThreatBand` -None/Low/Elevated/High/Critical
+- `X-StyloBot-Policy` -active policy name
 
 ## Fail-open guarantee
 

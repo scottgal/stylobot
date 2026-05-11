@@ -17,7 +17,7 @@ dotnet run -c Release -- --filter '*Header*'
 # List all available scenarios
 dotnet run -c Release -- --list-scenarios
 
-# Regression check (CI mode — exits non-zero if thresholds exceeded)
+# Regression check (CI mode -exits non-zero if thresholds exceeded)
 dotnet run -c Release -- --regression
 ```
 
@@ -55,7 +55,7 @@ request:
 signals:                                    # Pre-populated blackboard signals
   request.ip.is_datacenter: false           # Simulates earlier detector output
 
-thresholds:                                 # Optional — for regression mode
+thresholds:                                 # Optional -for regression mode
   max_mean_ns: 10000
   max_allocated_bytes: 2048
   max_p95_ns: 20000
@@ -65,10 +65,10 @@ tags: [fast-path, header, human]            # For filtering
 
 ### Key fields
 
-- **`detector`** — matches `IContributingDetector.Name` exactly. Use `_pipeline` to benchmark the full `BlackboardOrchestrator.DetectAsync()`.
-- **`signals`** — pre-populate blackboard signals to simulate wave dependencies (e.g., a Wave 2 detector can assume Wave 0 signals are present).
-- **`thresholds`** — optional regression limits. When present, `--regression` mode compares actual results against these limits and fails if exceeded.
-- **`tags`** — for filtering scenarios by category.
+- **`detector`** -matches `IContributingDetector.Name` exactly. Use `_pipeline` to benchmark the full `BlackboardOrchestrator.DetectAsync()`.
+- **`signals`** -pre-populate blackboard signals to simulate wave dependencies (e.g., a Wave 2 detector can assume Wave 0 signals are present).
+- **`thresholds`** -optional regression limits. When present, `--regression` mode compares actual results against these limits and fails if exceeded.
+- **`tags`** -for filtering scenarios by category.
 
 ## Adding a New Scenario
 
@@ -77,7 +77,7 @@ tags: [fast-path, header, human]            # For filtering
 3. Define the `request` with appropriate headers and IP
 4. Optionally add `signals` to simulate prior detector output
 5. Optionally add `thresholds` for regression checking
-6. Run — it's automatically picked up
+6. Run -it's automatically picked up
 
 That's it. No C# changes needed.
 
@@ -103,7 +103,7 @@ Harness/
    dotnet run -c Release -- --filter '*DetectorBenchmarkRunner*'
    ```
 
-2. Read the results table — sort by `Allocated` column to find the biggest allocators.
+2. Read the results table -sort by `Allocated` column to find the biggest allocators.
 
 3. Profile a specific detector for detail:
    ```bash
@@ -125,9 +125,9 @@ dotnet run -c Release -- --regression
 This runs all benchmarks, then compares results against YAML `thresholds`. If any scenario exceeds its thresholds, the process exits with code 1 and prints the violations.
 
 Threshold fields:
-- `max_mean_ns` — mean execution time in nanoseconds
-- `max_allocated_bytes` — managed heap allocation per operation
-- `max_p95_ns` — 95th percentile execution time
+- `max_mean_ns` -mean execution time in nanoseconds
+- `max_allocated_bytes` -managed heap allocation per operation
+- `max_p95_ns` -95th percentile execution time
 
 ## Current Results
 
@@ -160,10 +160,10 @@ Measured on Apple M-series, .NET 10.0, Release mode:
 
 ### What to look for
 
-- **>2KB allocated** — candidate for tuning (pre-size collections, avoid ToLowerInvariant, use spans)
-- **>5µs mean** — check for unnecessary async, LINQ closures, or string allocations
-- **0 B allocated** — ideal for fast-path detectors (Haxxor clean path achieves this)
-- **High StdDev** — may indicate lock contention or cache misses
+- **>2KB allocated** -candidate for tuning (pre-size collections, avoid ToLowerInvariant, use spans)
+- **>5µs mean** -check for unnecessary async, LINQ closures, or string allocations
+- **0 B allocated** -ideal for fast-path detectors (Haxxor clean path achieves this)
+- **High StdDev** -may indicate lock contention or cache misses
 
 ## Legacy Benchmarks
 

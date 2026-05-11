@@ -1,10 +1,10 @@
 # StyloBot Release Notes
 
-## v6.0.1-beta.0 — 2026-04-23
+## v6.0.1-beta.0 -2026-04-23
 
 ### New: Content Sequence Detection
 
-StyloBot now tracks each visitor's request sequence — the natural order of events that follows a real browser loading a page — and uses divergence from that expected sequence as a strong bot signal.
+StyloBot now tracks each visitor's request sequence -the natural order of events that follows a real browser loading a page -and uses divergence from that expected sequence as a strong bot signal.
 
 When a browser loads a page it does a recognisable thing: the document comes first, then a burst of CSS, JS, and images within 500ms (the "critical window"), then API calls and optional SignalR connections. Bots almost never follow this pattern. They either skip directly to APIs, fire requests at machine speed (<20ms apart), or ignore assets entirely.
 
@@ -12,27 +12,27 @@ When a browser loads a page it does a recognisable thing: the document comes fir
 
 The new `ContentSequenceContributor` (Priority 4) runs on every request before the expensive detectors:
 
-1. Document requests (Sec-Fetch-Mode: navigate) reset the sequence at position 0 and load the best available expected chain — cluster-specific if enough session data exists, or the global human fallback.
+1. Document requests (Sec-Fetch-Mode: navigate) reset the sequence at position 0 and load the best available expected chain -cluster-specific if enough session data exists, or the global human fallback.
 2. Continuation requests classify the request type, advance position, and evaluate divergence across four time-based phase windows.
 3. Divergence signals gate the expensive deferred detectors (SessionVector, BehavioralWaveform, Periodicity, ResourceWaterfall, CacheBehavior): they skip early on-track sequences and run only when the sequence is diverged, active long enough (position ≥ 3), or absent entirely (API-only bots always get the full analysis).
 
 **Cache-warm detection:** Visitors whose browser cache is already primed skip the initial asset burst. The detector recognises this pattern (no static assets in the first 500ms) and suppresses the false-positive "no assets loaded" signal that would otherwise flag a repeat visitor.
 
-**SignalR guard:** When the next expected chain step is SignalR on a human-centroid chain, `sequence.signalr_expected` is set and `StreamAbuseContributor` skips — avoiding false positives on expected WebSocket upgrades.
+**SignalR guard:** When the next expected chain step is SignalR on a human-centroid chain, `sequence.signalr_expected` is set and `StreamAbuseContributor` skips -avoiding false positives on expected WebSocket upgrades.
 
 Full documentation: `docs/content-sequence-detection.md`
 
 ---
 
-### New: Centroid Freshness — False-Positive Suppression After Deploys
+### New: Centroid Freshness -False-Positive Suppression After Deploys
 
-Content sequence detection compares sessions against a stored centroid (the "normal" chain for an endpoint). When your site gets redeployed — restructured HTML, new JS framework, renamed assets — real browser sessions temporarily diverge from the old centroid and would be incorrectly flagged as bots.
+Content sequence detection compares sessions against a stored centroid (the "normal" chain for an endpoint). When your site gets redeployed -restructured HTML, new JS framework, renamed assets -real browser sessions temporarily diverge from the old centroid and would be incorrectly flagged as bots.
 
 Centroid Freshness detects this situation and suppresses divergence scoring for 1 hour while the centroid adapts.
 
 **Two detection mechanisms:**
 
-1. **Divergence rate spike:** `EndpointDivergenceTracker` keeps a rolling 1-hour per-path window. When ≥40% of sessions hitting an endpoint diverge (minimum 10 sessions), the endpoint's centroid is marked stale. A bot wave doesn't cause uniform divergence across all sessions — a content change does.
+1. **Divergence rate spike:** `EndpointDivergenceTracker` keeps a rolling 1-hour per-path window. When ≥40% of sessions hitting an endpoint diverge (minimum 10 sessions), the endpoint's centroid is marked stale. A bot wave doesn't cause uniform divergence across all sessions -a content change does.
 
 2. **Static asset fingerprint change:** `AssetHashMiddleware` reads the `ETag` or `Last-Modified` of every static asset response. When the fingerprint changes between requests, a deploy is detected and `sequence.centroid_stale` is written on the next document request.
 

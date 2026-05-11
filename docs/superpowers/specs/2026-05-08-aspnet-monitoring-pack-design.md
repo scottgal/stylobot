@@ -23,14 +23,14 @@ displayable in the dashboard.
 ## Architecture
 
 ```
-[Local mode — middleware/all-in-one deployment]
+[Local mode -middleware/all-in-one deployment]
 Single process: detection + dashboard
   MeterListenerService (BackgroundService)
     └─ attaches System.Diagnostics.Metrics.MeterListener to in-process meters
     └─ accumulates counter deltas, gauge values, histogram percentiles per bucket
     └─ writes to IMetricSnapshotStore every CollectionInterval (default 60s)
 
-[Remote mode — YARP gateway + separate dashboard]
+[Remote mode -YARP gateway + separate dashboard]
 Gateway process:
   GatewayMeterAccumulator (BackgroundService)
     └─ MeterListener accumulates values in-memory ring buffer
@@ -60,8 +60,8 @@ Mode is a deployment concern, not a pack concern. The pack only declares what to
 |------|---------|
 | `IMonitoringPack.cs` | Interface + `MeterCollectionGroup` + `InstrumentCollectionSpec` + `CollectedValueType` enum |
 | `AspNetMonitoringPack.cs` | Reference implementation, StyloBot meters + optional ASP.NET host meters |
-| `MeterListenerService.cs` | BackgroundService — local mode, attaches MeterListener, writes to IMetricSnapshotStore |
-| `GatewayMeterAccumulator.cs` | BackgroundService — remote mode, accumulates in-memory, served via HTTP |
+| `MeterListenerService.cs` | BackgroundService -local mode, attaches MeterListener, writes to IMetricSnapshotStore |
+| `GatewayMeterAccumulator.cs` | BackgroundService -remote mode, accumulates in-memory, served via HTTP |
 
 ### `Mostlylucid.BotDetection.UI/Services/`
 
@@ -69,13 +69,13 @@ Mode is a deployment concern, not a pack concern. The pack only declares what to
 |------|---------|
 | `IMetricSnapshotStore.cs` | Read/write interface for metric snapshots |
 | `SqliteMetricSnapshotStore.cs` | SQLite implementation, same connection string as SqliteDashboardEventStore |
-| `RemoteMetricCollector.cs` | BackgroundService — polls gateway metrics endpoint, writes to store |
+| `RemoteMetricCollector.cs` | BackgroundService -polls gateway metrics endpoint, writes to store |
 
 ### `Mostlylucid.BotDetection.Api/Controllers/`
 
 | File | Purpose |
 |------|---------|
-| `MetricsSnapshotController.cs` | GET `/_sb/metrics/snapshot` — internal endpoint for remote mode, not publicly routed |
+| `MetricsSnapshotController.cs` | GET `/_sb/metrics/snapshot` -internal endpoint for remote mode, not publicly routed |
 
 ### Dashboard (in `Mostlylucid.BotDetection.UI`)
 
@@ -211,7 +211,7 @@ Retention: pruned to 7 days in `DashboardSummaryBroadcaster.PruneOldDetectionsAs
 3. Deserializes `MetricSnapshotDto[]`, writes to local SQLite
 4. Same invalidation and rendering path as local mode
 
-The gateway endpoint is on a separate internal port or gated with `RequireHost` — never publicly routed.
+The gateway endpoint is on a separate internal port or gated with `RequireHost` -never publicly routed.
 
 ---
 
@@ -228,19 +228,19 @@ builder.Services.AddStyloBot(dashboard => {
     dashboard.MonitoringPack.IncludeAspNetHostMeters = true;
 });
 
-// Remote mode (gateway process — serves metrics, does not host dashboard)
+// Remote mode (gateway process -serves metrics, does not host dashboard)
 builder.Services.AddBotDetection(options => {
     options.MonitoringPack.Mode = MonitoringMode.GatewayServer;
 });
 
-// Remote mode (dashboard process — polls gateway)
+// Remote mode (dashboard process -polls gateway)
 builder.Services.AddStyloBot(dashboard => {
     dashboard.MonitoringPack.Mode = MonitoringMode.RemoteClient;
     dashboard.MonitoringPack.GatewayMetricsUrl = "http://gateway:8080/_sb/metrics/snapshot";
 });
 ```
 
-`services.TryAddSingleton<IMetricSnapshotStore, SqliteMetricSnapshotStore>()` — commercial
+`services.TryAddSingleton<IMetricSnapshotStore, SqliteMetricSnapshotStore>()` -commercial
 PostgreSQL override uses the same `TryAdd` pattern as `IDashboardEventStore`.
 
 Custom packs register the same way as simulation packs:
@@ -255,13 +255,13 @@ services.AddSingleton<IMonitoringPack, MyCustomPack>();
 New **Metrics** tab in `/_stylobot`, between Endpoints and User Agents in tab order.
 
 **StyloBot Performance** (always rendered when pack registered):
-- Request rate sparkline — last 1h, 1-min buckets
-- Bot ratio donut — bots vs humans, current hour
-- Detection latency line chart — P50 + P95 overlaid, last 1h
+- Request rate sparkline -last 1h, 1-min buckets
+- Bot ratio donut -bots vs humans, current hour
+- Detection latency line chart -P50 + P95 overlaid, last 1h
 - Cache hit rate percentage gauge
 
 **Host Health** (rendered only when `IncludeAspNetHostMeters = true`):
-- HTTP request duration — P50 + P95, last 1h
+- HTTP request duration -P50 + P95, last 1h
 - Active requests current gauge
 - GC heap allocation rate
 - Thread pool depth gauge
@@ -269,7 +269,7 @@ New **Metrics** tab in `/_stylobot`, between Endpoints and User Agents in tab or
 All charts use ApexCharts (already loaded in dashboard). Data source:
 `GET /api/metrics/timeseries?packId=aspnet-monitoring&range=1h`
 
-SignalR invalidation key: `"metrics"` — same HTMX coordinator that handles all other tabs.
+SignalR invalidation key: `"metrics"` -same HTMX coordinator that handles all other tabs.
 
 ---
 
@@ -286,7 +286,7 @@ ASP.NET's `http.server.request.duration` is tagged with `http.route` when using 
 APIs or MVC. `metric_snapshots` rows for those route tags can be joined with `detections`
 rows for the same path to produce a side-by-side "bot latency vs human latency" chart.
 
-No new infrastructure required for Phase 2 endpoint correlation — it is a query change in
+No new infrastructure required for Phase 2 endpoint correlation -it is a query change in
 `SqliteDashboardEventStore.GetEndpointDetailAsync` that left-joins `metric_snapshots` on
 `instrument = 'http.server.request.duration'` and `tags LIKE '%route%'`. The Endpoint
 Detail Razor partial gains two new chart series.
@@ -298,10 +298,10 @@ at detection time. StyloBot can use this as a behavioral anchor without storing 
 
 **What gets captured (opt-in, off by default):**
 
-- `user.is_authenticated` — boolean signal, no identity stored
-- `user.subject_hash` — HMAC-SHA256 of the sub/nameidentifier claim using the same key
+- `user.is_authenticated` -boolean signal, no identity stored
+- `user.subject_hash` -HMAC-SHA256 of the sub/nameidentifier claim using the same key
   as `PrimarySignature`, making it linkable across sessions without being reversible
-- `user.role_flags` — bitmask of role membership for known high-value roles (admin, editor,
+- `user.role_flags` -bitmask of role membership for known high-value roles (admin, editor,
   api-user), configured via `BotDetectionOptions.MonitoringPack.TrackedRoles`
 
 **What this enables:**
@@ -327,7 +327,7 @@ state.WriteSignals([
 ]);
 ```
 
-No bot/human contribution — this is a signal-only contributor. Downstream detectors
+No bot/human contribution -this is a signal-only contributor. Downstream detectors
 (`BehavioralContributor`, `SessionVectorContributor`) consume these signals to anchor
 session chains and detect cross-session velocity for authenticated identities.
 

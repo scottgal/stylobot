@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement the ASP.NET MonitoringPack (Phase 1) — a `MeterListener`-backed background service that collects StyloBot operational meters + optional ASP.NET host meters into a new `metric_snapshots` SQLite table, with a Metrics tab in the dashboard displaying time-series charts.
+**Goal:** Implement the ASP.NET MonitoringPack (Phase 1) -a `MeterListener`-backed background service that collects StyloBot operational meters + optional ASP.NET host meters into a new `metric_snapshots` SQLite table, with a Metrics tab in the dashboard displaying time-series charts.
 
 **Architecture:** `IMonitoringPack` declares which meters to collect. `MeterListenerService` attaches `System.Diagnostics.Metrics.MeterListener` in-process and flushes 1-minute snapshots to `IMetricSnapshotStore`. The dashboard queries the store via a new `/api/metrics/timeseries` endpoint and renders ApexCharts. Remote mode (gateway + separate dashboard) uses `GatewayMeterAccumulator` + `RemoteMetricCollector`.
 
@@ -19,7 +19,7 @@
 | `src/Mostlylucid.BotDetection.UI/Services/IMetricSnapshotStore.cs` | Create | Store interface |
 | `src/Mostlylucid.BotDetection.UI/Services/SqliteMetricSnapshotStore.cs` | Create | SQLite store implementation |
 | `src/Mostlylucid.BotDetection.UI/Services/SqliteDashboardEventStore.cs` | Modify | Add `metric_snapshots` table + index to schema init |
-| `src/Mostlylucid.BotDetection/MonitoringPacks/MeterListenerService.cs` | Create | BackgroundService — local mode accumulation |
+| `src/Mostlylucid.BotDetection/MonitoringPacks/MeterListenerService.cs` | Create | BackgroundService -local mode accumulation |
 | `src/Mostlylucid.BotDetection/MonitoringPacks/AspNetMonitoringPack.cs` | Create | Reference implementation |
 | `src/Mostlylucid.BotDetection.UI/Configuration/StyloBotDashboardOptions.cs` | Modify | Add `MonitoringPackOptions` nested class + property |
 | `src/Mostlylucid.BotDetection.UI/Extensions/StyloBotDashboardServiceExtensions.cs` | Modify | Register pack, service, store |
@@ -30,9 +30,9 @@
 | `src/Mostlylucid.BotDetection.UI/ViewComponents/Dashboard/SbMetricsTabViewComponent.cs` | Create | View component |
 | `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/SbMetricsTab/Default.cshtml` | Create | Razor partial with ApexCharts |
 | `src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/Index.cshtml` | Modify | Add Metrics tab link + conditional content |
-| `src/Mostlylucid.BotDetection/MonitoringPacks/GatewayMeterAccumulator.cs` | Create | Remote mode — in-process accumulator serving HTTP |
+| `src/Mostlylucid.BotDetection/MonitoringPacks/GatewayMeterAccumulator.cs` | Create | Remote mode -in-process accumulator serving HTTP |
 | `src/Mostlylucid.BotDetection.Api/Endpoints/MetricsSnapshotEndpoints.cs` | Create | Internal `GET /_sb/metrics/snapshot` for remote mode |
-| `src/Mostlylucid.BotDetection.UI/Services/RemoteMetricCollector.cs` | Create | Remote mode — polls gateway, writes to store |
+| `src/Mostlylucid.BotDetection.UI/Services/RemoteMetricCollector.cs` | Create | Remote mode -polls gateway, writes to store |
 
 ---
 
@@ -96,7 +96,7 @@ cd /Users/scottgalloway/RiderProjects/stylobot
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "MonitoringPackTests" -v minimal 2>&1 | tail -10
 ```
 
-Expected: compile error — types not found.
+Expected: compile error -types not found.
 
 - [ ] **Step 3: Create `IMonitoringPack.cs`**
 
@@ -335,7 +335,7 @@ public class SqliteMetricSnapshotStoreTests : IAsyncDisposable
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "SqliteMetricSnapshotStoreTests" -v minimal 2>&1 | tail -5
 ```
 
-Expected: compile error — `SqliteMetricSnapshotStore` not found.
+Expected: compile error -`SqliteMetricSnapshotStore` not found.
 
 - [ ] **Step 3: Create `SqliteMetricSnapshotStore.cs`**
 
@@ -671,7 +671,7 @@ public class MeterListenerServiceTests : IAsyncDisposable
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "MeterListenerServiceTests" -v minimal 2>&1 | tail -5
 ```
 
-Expected: compile error — `MeterListenerService` not found.
+Expected: compile error -`MeterListenerService` not found.
 
 - [ ] **Step 3: Create `MeterListenerService.cs`**
 
@@ -955,7 +955,7 @@ Expected: 3 tests pass.
 ```bash
 git add src/Mostlylucid.BotDetection/MonitoringPacks/MeterListenerService.cs \
         src/Mostlylucid.BotDetection.Test/MonitoringPacks/MeterListenerServiceTests.cs
-git commit -m "feat(monitoring): add MeterListenerService — local mode meter accumulation"
+git commit -m "feat(monitoring): add MeterListenerService -local mode meter accumulation"
 ```
 
 ---
@@ -1037,7 +1037,7 @@ public class AspNetMonitoringPackTests
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "AspNetMonitoringPackTests" -v minimal 2>&1 | tail -5
 ```
 
-Expected: compile error — `AspNetMonitoringPack` not found.
+Expected: compile error -`AspNetMonitoringPack` not found.
 
 - [ ] **Step 3: Create `AspNetMonitoringPack.cs`**
 
@@ -1212,7 +1212,7 @@ using Mostlylucid.BotDetection.MonitoringPacks;
 dotnet build src/Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj 2>&1 | grep -E "error|warning" | head -20
 ```
 
-Expected: build succeeds (zero errors; the `RemoteMetricCollector` forward reference causes an error until Task 12 — temporarily comment out the `RemoteClient` branch if needed).
+Expected: build succeeds (zero errors; the `RemoteMetricCollector` forward reference causes an error until Task 12 -temporarily comment out the `RemoteClient` branch if needed).
 
 - [ ] **Step 4: Commit**
 
@@ -1224,7 +1224,7 @@ git commit -m "feat(monitoring): wire MonitoringPackOptions + DI registration fo
 
 ---
 
-## Task 7: DashboardSummaryBroadcaster — Metrics Broadcast + Prune
+## Task 7: DashboardSummaryBroadcaster -Metrics Broadcast + Prune
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Services/DashboardSummaryBroadcaster.cs`
@@ -1306,7 +1306,7 @@ git commit -m "feat(monitoring): add metrics SignalR invalidation and 7-day prun
 
 ---
 
-## Task 8: API Endpoint — GET /api/v1/metrics/timeseries
+## Task 8: API Endpoint -GET /api/v1/metrics/timeseries
 
 **Files:**
 - Create: `src/Mostlylucid.BotDetection.Api/Endpoints/MetricsEndpoints.cs`
@@ -1711,12 +1711,12 @@ Expected: no regressions.
 
 ```bash
 git add -A
-git commit -m "feat(monitoring): Phase 1 complete — local MeterListener + dashboard Metrics tab"
+git commit -m "feat(monitoring): Phase 1 complete -local MeterListener + dashboard Metrics tab"
 ```
 
 ---
 
-## Task 11: Remote Mode — GatewayMeterAccumulator + Internal Endpoint
+## Task 11: Remote Mode -GatewayMeterAccumulator + Internal Endpoint
 
 **Files:**
 - Create: `src/Mostlylucid.BotDetection/MonitoringPacks/GatewayMeterAccumulator.cs`
@@ -1895,7 +1895,7 @@ public static class MetricsSnapshotEndpoints
             var snapshot = accumulator.GetCurrentSnapshot();
             return Results.Ok(snapshot);
         })
-        .ExcludeFromDescription(); // Not in Swagger — internal only
+        .ExcludeFromDescription(); // Not in Swagger -internal only
 
         return endpoints;
     }
@@ -1947,7 +1947,7 @@ git commit -m "feat(monitoring): add GatewayMeterAccumulator + internal /_sb/met
 
 ---
 
-## Task 12: Remote Mode — RemoteMetricCollector
+## Task 12: Remote Mode -RemoteMetricCollector
 
 **Files:**
 - Create: `src/Mostlylucid.BotDetection.UI/Services/RemoteMetricCollector.cs`
@@ -2094,9 +2094,9 @@ git commit -m "feat(monitoring): add RemoteMetricCollector for gateway-separated
 
 **Type consistency check:**
 
-- `MetricSnapshot.BucketTime` set via `TruncateToMinute()` extension — defined in Task 1, used in Tasks 3, 4, 12. Consistent.
-- `IMetricSnapshotStore.WriteSnapshotsAsync` takes `IEnumerable<MetricSnapshot>` — defined Task 2, implemented Task 3, called Task 4, Task 12. Consistent.
+- `MetricSnapshot.BucketTime` set via `TruncateToMinute()` extension -defined in Task 1, used in Tasks 3, 4, 12. Consistent.
+- `IMetricSnapshotStore.WriteSnapshotsAsync` takes `IEnumerable<MetricSnapshot>` -defined Task 2, implemented Task 3, called Task 4, Task 12. Consistent.
 - `MetricSnapshotDto` defined in Task 11 (`GatewayMeterAccumulator.cs`), consumed in Task 12 (`RemoteMetricCollector.cs`). Consistent.
-- `MeterListenerService.FlushSnapshotsAsync` returns `List<MetricSnapshot>` — defined and tested in Task 4. Consistent.
+- `MeterListenerService.FlushSnapshotsAsync` returns `List<MetricSnapshot>` -defined and tested in Task 4. Consistent.
 - `MonitoringMode` enum defined in Task 6 (`StyloBotDashboardOptions.cs`), consumed in Tasks 6, 11. Consistent.
 - `AspNetMonitoringPack(includeHostMeters: bool)` defined Task 5, instantiated in Tasks 6 and 11. Consistent.

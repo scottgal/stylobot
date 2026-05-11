@@ -40,7 +40,7 @@
 
 `HnswFileSimilaritySearch._graphVectors: List<float[]>` grows on every HTTP request with no eviction. `AutoSaveInterval = 5 minutes` serializes the full graph to a JSON string (104 MB at demo scale) which goes straight to the Large Object Heap. Three indices × every 5 minutes = 13 GB LOH. The fix: replace with a bounded in-memory structure that evicts cold entries and a SQLite table that stores only compressed centroids (L1/L2 from `VectorCompactionService`).
 
-The `SlidingCacheAtom` from Ephemeral was considered but does not expose bulk enumeration — `FindSimilarAsync` requires scanning all cached vectors to find the topK most similar. A thin `BoundedVectorCache<TValue>` (private inner class) with `ConcurrentDictionary` and priority eviction is the right primitive here.
+The `SlidingCacheAtom` from Ephemeral was considered but does not expose bulk enumeration -`FindSimilarAsync` requires scanning all cached vectors to find the topK most similar. A thin `BoundedVectorCache<TValue>` (private inner class) with `ConcurrentDictionary` and priority eviction is the right primitive here.
 
 ---
 
@@ -101,7 +101,7 @@ cd /Users/scottgalloway/RiderProjects/stylobot
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~SelfMaintenanceOptionsTests" -v m 2>&1 | tail -20
 ```
 
-Expected: FAIL — `SelfMaintenanceOptions` not found.
+Expected: FAIL -`SelfMaintenanceOptions` not found.
 
 - [ ] **Step 3: Find and replace HnswOptions with SelfMaintenanceOptions in BotDetectionOptions.cs**
 
@@ -172,7 +172,7 @@ For each hit, update the reference to use `.SelfMaintenance.*` or remove if it w
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~SelfMaintenanceOptionsTests" -v m 2>&1 | tail -10
 ```
 
-Expected: PASS — 3 tests passing.
+Expected: PASS -3 tests passing.
 
 - [ ] **Step 6: Verify build**
 
@@ -260,7 +260,7 @@ public class CentroidTableSchemaTests : IDisposable
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~CentroidTableSchemaTests" -v m 2>&1 | tail -15
 ```
 
-Expected: FAIL — tables do not exist yet.
+Expected: FAIL -tables do not exist yet.
 
 - [ ] **Step 3: Add table DDL to SqliteSessionStore.InitializeAsync**
 
@@ -302,7 +302,7 @@ Open `src/Mostlylucid.BotDetection/Data/SqliteSessionStore.cs`. Find the `CREATE
             CREATE INDEX IF NOT EXISTS idx_intc_updated ON intent_centroids(updated_at);
 ```
 
-The string is part of the existing `cmd.CommandText = """...""";` block — add these lines inside the same raw string literal.
+The string is part of the existing `cmd.CommandText = """...""";` block -add these lines inside the same raw string literal.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -310,7 +310,7 @@ The string is part of the existing `cmd.CommandText = """...""";` block — add 
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~CentroidTableSchemaTests" -v m 2>&1 | tail -10
 ```
 
-Expected: PASS — 3 tests passing.
+Expected: PASS -3 tests passing.
 
 - [ ] **Step 5: Commit**
 
@@ -458,7 +458,7 @@ public class SqliteVectorCentroidStoreTests : IAsyncLifetime, IDisposable
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~SqliteVectorCentroidStoreTests" -v m 2>&1 | tail -15
 ```
 
-Expected: FAIL — `SqliteVectorCentroidStore` not found.
+Expected: FAIL -`SqliteVectorCentroidStore` not found.
 
 - [ ] **Step 3: Create SqliteVectorCentroidStore.cs**
 
@@ -748,7 +748,7 @@ public sealed record IntentCentroidRow(
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~SqliteVectorCentroidStoreTests" -v m 2>&1 | tail -15
 ```
 
-Expected: PASS — 5 tests passing.
+Expected: PASS -5 tests passing.
 
 - [ ] **Step 5: Commit**
 
@@ -823,7 +823,7 @@ public class SlimSignatureSimilaritySearchTests
         var search = MakeSearch();
         await search.AddAsync(new float[] { 1f, 0f }, "sig1", wasBot: false, confidence: 0.5);
 
-        // Orthogonal vector — cosine similarity = 0
+        // Orthogonal vector -cosine similarity = 0
         var results = await search.FindSimilarAsync(new float[] { 0f, 1f }, topK: 5, minSimilarity: 0.5f);
         Assert.Empty(results);
     }
@@ -868,7 +868,7 @@ Note: If NSubstitute is not in the test project, use a real `SqliteVectorCentroi
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~SlimSignatureSimilaritySearchTests" -v m 2>&1 | tail -15
 ```
 
-Expected: FAIL — `SlimSignatureSimilaritySearch` not found.
+Expected: FAIL -`SlimSignatureSimilaritySearch` not found.
 
 - [ ] **Step 3: Create SlimSignatureSimilaritySearch.cs**
 
@@ -982,7 +982,7 @@ Also create the shared `BoundedVectorCache<TValue>` helper in the same file (or 
 
 /// <summary>
 ///     Bounded dictionary with access-frequency priority eviction.
-///     Not a drop-in LRU — entries with higher access counts survive longer (LFU bias).
+///     Not a drop-in LRU -entries with higher access counts survive longer (LFU bias).
 ///     Thread-safe for concurrent reads and writes.
 /// </summary>
 internal sealed class BoundedVectorCache<TValue> : IDisposable
@@ -1099,7 +1099,7 @@ internal sealed class BoundedVectorCache<TValue> : IDisposable
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~SlimSignatureSimilaritySearchTests" -v m 2>&1 | tail -15
 ```
 
-Expected: PASS — 6 tests passing.
+Expected: PASS -6 tests passing.
 
 - [ ] **Step 5: Commit**
 
@@ -1212,7 +1212,7 @@ public class SlimSessionVectorSearchTests
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~SlimSessionVectorSearchTests" -v m 2>&1 | tail -15
 ```
 
-Expected: FAIL — `SlimSessionVectorSearch` not found.
+Expected: FAIL -`SlimSessionVectorSearch` not found.
 
 - [ ] **Step 3: Create SlimSessionVectorSearch.cs**
 
@@ -1297,7 +1297,7 @@ public sealed class SlimSessionVectorSearch : ISessionVectorSearch, IAsyncDispos
     public async Task<IReadOnlyList<GhostCentroidMatch>> FindGhostCentroidsAsync(
         float[] vector, int topK = 5, float minSimilarity = 0.75f)
     {
-        // Ghost centroids are L1/L2 compressed entries — query SQLite directly
+        // Ghost centroids are L1/L2 compressed entries -query SQLite directly
         var rows = await _centroidStore.GetRecentSessionsAsync(5_000);
         var compressed = rows.Where(r => r.CompressionLevel >= 1).ToList();
 
@@ -1431,7 +1431,7 @@ public sealed class SlimSessionVectorSearch : ISessionVectorSearch, IAsyncDispos
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~SlimSessionVectorSearchTests" -v m 2>&1 | tail -15
 ```
 
-Expected: PASS — 5 tests passing.
+Expected: PASS -5 tests passing.
 
 - [ ] **Step 5: Commit**
 
@@ -1623,7 +1623,7 @@ git commit -m "feat(similarity): add SlimIntentSearch replacing HNSW intent inde
 
 ## Task 7: Update SimilarityLearningHandler
 
-`SimilarityLearningHandler` currently calls `_search.AddAsync()` which in `HnswFileSimilaritySearch` grows the unbounded list. With `SlimSignatureSimilaritySearch`, `AddAsync` already writes to both hot cache and SQLite. **No logic change needed** — the handler calls the same interface method. The only change is ensuring it only handles `HighConfidenceDetection` (not `FullDetection`) to reduce write frequency.
+`SimilarityLearningHandler` currently calls `_search.AddAsync()` which in `HnswFileSimilaritySearch` grows the unbounded list. With `SlimSignatureSimilaritySearch`, `AddAsync` already writes to both hot cache and SQLite. **No logic change needed** -the handler calls the same interface method. The only change is ensuring it only handles `HighConfidenceDetection` (not `FullDetection`) to reduce write frequency.
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection/Similarity/SimilarityLearningHandler.cs`
@@ -1632,7 +1632,7 @@ git commit -m "feat(similarity): add SlimIntentSearch replacing HNSW intent inde
 
 ```csharp
 // File: src/Mostlylucid.BotDetection.Test/Similarity/SimilarityLearningHandlerTests.cs
-// (File already exists — add to it)
+// (File already exists -add to it)
 
 // Verify FullDetection is no longer handled (was the main source of unbounded growth)
 [Fact]
@@ -1662,7 +1662,7 @@ public void HandledEventTypes_ContainsHighConfidenceDetection()
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~SimilarityLearningHandlerTests.HandledEventTypes_DoesNotContainFullDetection" -v m 2>&1 | tail -10
 ```
 
-Expected: FAIL — currently `HandledEventTypes` includes `FullDetection`.
+Expected: FAIL -currently `HandledEventTypes` includes `FullDetection`.
 
 - [ ] **Step 3: Remove FullDetection from HandledEventTypes in SimilarityLearningHandler.cs**
 
@@ -1702,7 +1702,7 @@ git add src/Mostlylucid.BotDetection/Similarity/SimilarityLearningHandler.cs \
         src/Mostlylucid.BotDetection.Test/Similarity/SimilarityLearningHandlerTests.cs
 git commit -m "fix(learning): remove FullDetection from SimilarityLearningHandler
 
-FullDetection fires on every HTTP request — this was the primary driver
+FullDetection fires on every HTTP request -this was the primary driver
 of unbounded HNSW growth. HighConfidenceDetection fires only on confident
 detections (~5% of traffic), which is sufficient for the learning loop."
 ```
@@ -1851,7 +1851,7 @@ git commit -m "feat(warmup): warm Slim* caches from SQLite centroid tables on st
 
 ## Task 9: Rewire VectorCompactionService Phase 3
 
-Phase 3 currently calls `GetAllVectorsSnapshot()` + `ReplaceAllAsync()` to rebuild the HNSW graph with L1/L2 centroids. With `SlimSessionVectorSearch`, these methods now operate on the SQLite `session_centroids` table. Phase 3 logic is unchanged — `ReplaceAllAsync` just writes to SQLite instead of a file.
+Phase 3 currently calls `GetAllVectorsSnapshot()` + `ReplaceAllAsync()` to rebuild the HNSW graph with L1/L2 centroids. With `SlimSessionVectorSearch`, these methods now operate on the SQLite `session_centroids` table. Phase 3 logic is unchanged -`ReplaceAllAsync` just writes to SQLite instead of a file.
 
 The main change: also add pruning for all three centroid tables (age-based retention).
 
@@ -2154,7 +2154,7 @@ public class MarkovTrackerCohortCapTests
 }
 ```
 
-Note: `AddCohortUpdate` is a test-only entry point — if `CohortUpdate` is not publicly constructible, use `RecordTransition` with distinct `clusterId` values to force cohort creation.
+Note: `AddCohortUpdate` is a test-only entry point -if `CohortUpdate` is not publicly constructible, use `RecordTransition` with distinct `clusterId` values to force cohort creation.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -2162,7 +2162,7 @@ Note: `AddCohortUpdate` is a test-only entry point — if `CohortUpdate` is not 
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~MarkovTrackerCohortCapTests" -v m 2>&1 | tail -15
 ```
 
-Expected: FAIL — cohort count exceeds cap.
+Expected: FAIL -cohort count exceeds cap.
 
 - [ ] **Step 3: Read MarkovOptions to find MaxTrackedSignatures pattern**
 
@@ -2210,7 +2210,7 @@ if (_cohortBaselines.Count > _maxCohortBaselines)
 }
 ```
 
-`DecayingTransitionMatrix.TotalTransitions` — verify this property exists. If not, use a proxy like `GetAllEdges().Count` or just track last-update time. Check with:
+`DecayingTransitionMatrix.TotalTransitions` -verify this property exists. If not, use a proxy like `GetAllEdges().Count` or just track last-update time. Check with:
 
 ```bash
 grep -n "TotalTransitions\|public.*int\|public.*long" /Users/scottgalloway/RiderProjects/stylobot/src/Mostlylucid.BotDetection/Markov/DecayingTransitionMatrix.cs | head -10
@@ -2257,7 +2257,7 @@ Run the demo, verify memory is stable, confirm all tests pass.
 dotnet test /Users/scottgalloway/RiderProjects/stylobot/mostlylucid.stylobot.sln 2>&1 | tail -30
 ```
 
-Expected: All tests pass (or same set as before this work — no regressions).
+Expected: All tests pass (or same set as before this work -no regressions).
 
 - [ ] **Step 2: Build release**
 
@@ -2284,7 +2284,7 @@ Expected: `dotnet.gc.last_collection.heap.size[loh]` well below 1 GB (target: <1
 - [ ] **Step 4: Verify hnsw-index directory is clean**
 
 ```bash
-ls /Users/scottgalloway/RiderProjects/stylobot/hnsw-index/ 2>/dev/null || echo "Directory removed or empty — good"
+ls /Users/scottgalloway/RiderProjects/stylobot/hnsw-index/ 2>/dev/null || echo "Directory removed or empty -good"
 ```
 
 Expected: empty or gone.
@@ -2319,6 +2319,6 @@ git commit -m "chore: final cleanup after HNSW replacement"
 | MarkovTracker._cohortBaselines cap | Task 12 |
 | Delete HNSW files | Task 11 |
 
-**Type consistency check:** `SessionVectorMetadata`, `SessionCentroidRow`, `SignatureCentroidRow`, `IntentCentroidRow`, `BoundedVectorCache<T>` — all defined before use. `SlimSignatureSimilaritySearch`, `SlimSessionVectorSearch`, `SlimIntentSearch` — consistent naming. `WarmFromRows` method on all three — consistent API for warmup service.
+**Type consistency check:** `SessionVectorMetadata`, `SessionCentroidRow`, `SignatureCentroidRow`, `IntentCentroidRow`, `BoundedVectorCache<T>` -all defined before use. `SlimSignatureSimilaritySearch`, `SlimSessionVectorSearch`, `SlimIntentSearch` -consistent naming. `WarmFromRows` method on all three -consistent API for warmup service.
 
-**No placeholders** — all code blocks are complete and buildable.
+**No placeholders** -all code blocks are complete and buildable.

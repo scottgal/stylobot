@@ -4,7 +4,7 @@
 
 **Goal:** Make the Metrics tab appear dynamically in the StyloBot dashboard only when a monitoring pack is registered, driven by an `Enabled` config flag so FOSS users can opt-in via appsettings.json.
 
-**Architecture:** Add a boolean `Enabled` property to `MonitoringPackOptions` (default `false`). Populate a `MonitoringPackEnabled` flag on `DashboardShellModel` by checking `IEnumerable<IMonitoringPack>` at render time. Gate the tab link and tab content in `Index.cshtml` behind that flag. The `SbMetricsTabViewComponent` stays simple — it renders hardcoded StyloBot metrics but correctly sources pack metadata from `IMonitoringPack` for its section title and description.
+**Architecture:** Add a boolean `Enabled` property to `MonitoringPackOptions` (default `false`). Populate a `MonitoringPackEnabled` flag on `DashboardShellModel` by checking `IEnumerable<IMonitoringPack>` at render time. Gate the tab link and tab content in `Index.cshtml` behind that flag. The `SbMetricsTabViewComponent` stays simple -it renders hardcoded StyloBot metrics but correctly sources pack metadata from `IMonitoringPack` for its section title and description.
 
 **Tech Stack:** ASP.NET Core (.NET 10), Razor views, `IOptions<StyloBotDashboardOptions>`, `IEnumerable<IMonitoringPack>` from DI, `DashboardShellModel`, xUnit tests.
 
@@ -341,7 +341,7 @@ public class PackUxTests
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~PackUxTests" --no-build 2>&1 | tail -10
 ```
 
-Expected: build error — `MonitoringPackOptions` has no `Enabled` property and `DashboardShellModel` has no `MonitoringPackEnabled` property. (These will pass after Tasks 1 and 2 are complete.)
+Expected: build error -`MonitoringPackOptions` has no `Enabled` property and `DashboardShellModel` has no `MonitoringPackEnabled` property. (These will pass after Tasks 1 and 2 are complete.)
 
 - [ ] **Step 3: Run tests after prior tasks are complete**
 
@@ -385,8 +385,8 @@ git commit -m "test(metrics): add pack UX conditional behavior tests"
 **Placeholder scan:** None found.
 
 **Type consistency:**
-- `MonitoringPackOptions.Enabled` — `bool`, used consistently in Tasks 1, 2, and 5
-- `DashboardShellModel.MonitoringPackEnabled` — `bool`, used consistently in Tasks 2, 3, and 5
-- `IMonitoringPack` — from `Mostlylucid.BotDetection.MonitoringPacks`, injected via `GetServices<IMonitoringPack>()` in Task 2 Step 2
+- `MonitoringPackOptions.Enabled` -`bool`, used consistently in Tasks 1, 2, and 5
+- `DashboardShellModel.MonitoringPackEnabled` -`bool`, used consistently in Tasks 2, 3, and 5
+- `IMonitoringPack` -from `Mostlylucid.BotDetection.MonitoringPacks`, injected via `GetServices<IMonitoringPack>()` in Task 2 Step 2
 
 All consistent.

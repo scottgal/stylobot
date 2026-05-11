@@ -102,7 +102,7 @@ docker compose up -d
 ```
 
 **What you get:**
-- Bot detection on every request (up to 49 detectors, wave-gated — typically 5-15 run per request)
+- Bot detection on every request (up to 49 detectors, wave-gated -typically 5-15 run per request)
 - Heuristic AI classification with weight learning (in-memory)
 - `X-Bot-*` response headers
 - Structured logging with risk scores

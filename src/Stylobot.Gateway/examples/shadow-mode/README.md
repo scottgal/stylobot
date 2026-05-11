@@ -1,4 +1,4 @@
-# StyloBot Gateway — Shadow Mode
+# StyloBot Gateway -Shadow Mode
 
 Use this when you want to understand your traffic before committing to blocking.
 All requests pass through. Bots are detected and logged, but never blocked or throttled.
@@ -30,7 +30,7 @@ docker compose up -d --force-recreate gateway
 
 - **High `X-Bot-Detection-RiskBand: High` count on `/wp-login.php`?** Brute force in progress.
 - **Lots of `X-Bot-Type: Scraper` on your product catalog?** Price scraping in progress.
-- **`X-Is-Search-Engine: true` traffic?** That is Googlebot — do NOT block it.
+- **`X-Is-Search-Engine: true` traffic?** That is Googlebot -do NOT block it.
 
 Use the per-endpoint data to tune PathPolicies before enabling blocking:
 

@@ -117,7 +117,7 @@ public class PackUxTests
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~PackUxTests" -v minimal
 ```
 
-Expected: Several failures — `TabName` doesn't exist on interface, `Enabled` defaults to `false`, `MonitoringPacks` / `HasPackTabs` / `IsPackTab` don't exist.
+Expected: Several failures -`TabName` doesn't exist on interface, `Enabled` defaults to `false`, `MonitoringPacks` / `HasPackTabs` / `IsPackTab` don't exist.
 
 - [ ] **Step 3: Add `TabName` to `IMonitoringPack`**
 
@@ -296,7 +296,7 @@ public bool Enabled { get; set; } = true;
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "FullyQualifiedName~PackUxTests" -v minimal
 ```
 
-Expected: `AspNetMonitoringPack_TabName_IsSystem` passes, `MonitoringPackOptions_Enabled_DefaultsToTrue` passes, shell model tests pass. The build may have other compile errors from callers of the old `MonitoringPackEnabled` — those are fixed in Tasks 3 and 4.
+Expected: `AspNetMonitoringPack_TabName_IsSystem` passes, `MonitoringPackOptions_Enabled_DefaultsToTrue` passes, shell model tests pass. The build may have other compile errors from callers of the old `MonitoringPackEnabled` -those are fixed in Tasks 3 and 4.
 
 - [ ] **Step 4: Commit**
 
@@ -407,7 +407,7 @@ MonitoringPacks = _packTabs
 dotnet build src/Mostlylucid.BotDetection.UI/ 2>&1 | grep -E "error CS" | head -20
 ```
 
-Expected: 0 errors. (The `Index.cshtml` still references `MonitoringPackEnabled` which causes a runtime Razor error, not a CS build error — fixed in Task 4.)
+Expected: 0 errors. (The `Index.cshtml` still references `MonitoringPackEnabled` which causes a runtime Razor error, not a CS build error -fixed in Task 4.)
 
 - [ ] **Step 6: Commit**
 
@@ -481,14 +481,14 @@ Expected: All tests pass. (One pre-existing timing-sensitive test `MachineSpeedR
 
 ```bash
 git add src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/Index.cshtml
-git commit -m "feat(dashboard): pack-driven tab nav and content — no hardcoded pack names in view"
+git commit -m "feat(dashboard): pack-driven tab nav and content -no hardcoded pack names in view"
 ```
 
 ---
 
 ## Task 5: Smoke-test in the running demo
 
-**Files:** None — runtime verification only.
+**Files:** None -runtime verification only.
 
 - [ ] **Step 1: Start the demo**
 
@@ -535,18 +535,18 @@ git commit -m "test(demo): verify pack-driven tab UX end-to-end"
 ## Self-Review
 
 **Spec coverage:**
-- `IMonitoringPack.TabName` — Task 1 ✓
-- `AspNetMonitoringPack.TabName = "System"` — Task 1 ✓
-- `PackTabInfo` record — Task 2 ✓
-- `MonitoringPacks` list + `HasPackTabs` + `IsPackTab` on shell model — Task 2 ✓
-- `Enabled` defaults to `true` — Task 2 ✓
-- Middleware injects `IEnumerable<IMonitoringPack>`, caches `_packTabs` — Task 3 ✓
-- Tab guard updated — Task 3 ✓
-- Shell model uses `MonitoringPacks = _packTabs` — Task 3 ✓
-- `Index.cshtml` loop for nav — Task 4 ✓
-- `Index.cshtml` generic content switch — Task 4 ✓
-- No pack name strings in view — Task 4 ✓
-- RemoteClient limitation (empty tab list) — documented in spec, no code needed ✓
+- `IMonitoringPack.TabName` -Task 1 ✓
+- `AspNetMonitoringPack.TabName = "System"` -Task 1 ✓
+- `PackTabInfo` record -Task 2 ✓
+- `MonitoringPacks` list + `HasPackTabs` + `IsPackTab` on shell model -Task 2 ✓
+- `Enabled` defaults to `true` -Task 2 ✓
+- Middleware injects `IEnumerable<IMonitoringPack>`, caches `_packTabs` -Task 3 ✓
+- Tab guard updated -Task 3 ✓
+- Shell model uses `MonitoringPacks = _packTabs` -Task 3 ✓
+- `Index.cshtml` loop for nav -Task 4 ✓
+- `Index.cshtml` generic content switch -Task 4 ✓
+- No pack name strings in view -Task 4 ✓
+- RemoteClient limitation (empty tab list) -documented in spec, no code needed ✓
 
 **Placeholder scan:** None found.
 

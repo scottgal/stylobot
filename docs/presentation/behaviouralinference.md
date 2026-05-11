@@ -10,7 +10,7 @@ The audience should slowly realise:
 
 > “Oh…these aren’t separate systems. They’re all behavioural inference systems.”
 
-And yes — starting with the proposition/premise is the right move.
+And yes -starting with the proposition/premise is the right move.
 
 I’d avoid making it sound like:
 

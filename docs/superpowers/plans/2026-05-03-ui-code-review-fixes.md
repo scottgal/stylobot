@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fix all issues identified in the `Mostlylucid.BotDetection.UI` code review — 5 critical, 9 important, 6 minor.
+**Goal:** Fix all issues identified in the `Mostlylucid.BotDetection.UI` code review -5 critical, 9 important, 6 minor.
 
-**Architecture:** All fixes are surgical — no interface changes, no new abstractions. Each fix targets a specific file and a specific defect identified in the review. Tasks are ordered so earlier tasks don't conflict with later ones.
+**Architecture:** All fixes are surgical -no interface changes, no new abstractions. Each fix targets a specific file and a specific defect identified in the review. Tasks are ordered so earlier tasks don't conflict with later ones.
 
 **Tech Stack:** C# 13 / .NET 10, SQLite (Microsoft.Data.Sqlite), MailKit (new dep), Fluid.Core, SignalR
 
@@ -27,7 +27,7 @@
 
 ---
 
-## Task 1: Fix `SqliteSignatureLabelStore` — add init lock and dispose it
+## Task 1: Fix `SqliteSignatureLabelStore` -add init lock and dispose it
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Services/SqliteSignatureLabelStore.cs`
@@ -126,7 +126,7 @@ git commit -m "fix(ui): add _initLock to SqliteSignatureLabelStore to prevent in
 
 ---
 
-## Task 2: Fix `SqliteDashboardEventStore` — dispose `_initLock`
+## Task 2: Fix `SqliteDashboardEventStore` -dispose `_initLock`
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Services/SqliteDashboardEventStore.cs` (line ~1081)
@@ -268,7 +268,7 @@ git commit -m "fix(ui): replace N+1 timeseries queries with single strftime GROU
 
 ---
 
-## Task 4: Fix `GetCountryDetailAsync` and `GetEndpointDetailAsync` — direct queries
+## Task 4: Fix `GetCountryDetailAsync` and `GetEndpointDetailAsync` -direct queries
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Services/SqliteDashboardEventStore.cs` (lines ~551-635)
@@ -389,12 +389,12 @@ git commit -m "fix(ui): replace GetCountryDetailAsync and GetEndpointDetailAsync
 
 ---
 
-## Task 5: Fix `GetSignaturesAsync` — parameterize is_bot; fix `GetDetectionsAsync` cmd disposal; add `top_reasons_json` migration
+## Task 5: Fix `GetSignaturesAsync` -parameterize is_bot; fix `GetDetectionsAsync` cmd disposal; add `top_reasons_json` migration
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Services/SqliteDashboardEventStore.cs`
 
-- [ ] **Step 1: Fix `GetSignaturesAsync` — use parameter for `is_bot`**
+- [ ] **Step 1: Fix `GetSignaturesAsync` -use parameter for `is_bot`**
 
 ```csharp
 // Replace:
@@ -419,7 +419,7 @@ cmd.Parameters.AddWithValue("@limit", limit);
 cmd.Parameters.AddWithValue("@offset", offset);
 ```
 
-- [ ] **Step 2: Fix `GetDetectionsAsync` — use `await using` on cmd**
+- [ ] **Step 2: Fix `GetDetectionsAsync` -use `await using` on cmd**
 
 The current code uses `var cmd = conn.CreateCommand()` (not disposed on exception). Change to:
 
@@ -562,7 +562,7 @@ git commit -m "fix(ui): add periodic prune via DashboardSummaryBroadcaster inste
 
 ---
 
-## Task 7: Fix `LiquidWidgetRenderer` — LRU eviction
+## Task 7: Fix `LiquidWidgetRenderer` -LRU eviction
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Services/LiquidWidgetRenderer.cs`
@@ -600,14 +600,14 @@ git commit -m "fix(ui): evict single LRU entry in LiquidWidgetRenderer instead o
 
 ---
 
-## Task 8: Fix `VisitorListCache` — batch eviction and compiled regexes
+## Task 8: Fix `VisitorListCache` -batch eviction and compiled regexes
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Services/VisitorListCache.cs`
 
-Two fixes: (1) `EvictOldest` calls on every request at O(n log n) — change to only evict when 10% over capacity; (2) `InferBotIdentity` uses non-compiled `Regex.IsMatch` in a hot path — replace with static compiled fields.
+Two fixes: (1) `EvictOldest` calls on every request at O(n log n) -change to only evict when 10% over capacity; (2) `InferBotIdentity` uses non-compiled `Regex.IsMatch` in a hot path -replace with static compiled fields.
 
-- [ ] **Step 1: Fix `EvictOldest` — batch eviction**
+- [ ] **Step 1: Fix `EvictOldest` -batch eviction**
 
 ```csharp
 // Replace:
@@ -891,14 +891,14 @@ git commit -m "fix(ui): replace deprecated SmtpClient with MailKit for async-cor
 
 ---
 
-## Task 10: Minor fixes — `SbSummaryStatsViewComponent`, `SbSessionsListViewComponent`, `DashboardModels.cs`
+## Task 10: Minor fixes -`SbSummaryStatsViewComponent`, `SbSessionsListViewComponent`, `DashboardModels.cs`
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/ViewComponents/Dashboard/SbSummaryStatsViewComponent.cs`
 - Modify: `src/Mostlylucid.BotDetection.UI/ViewComponents/Dashboard/SbSessionsListViewComponent.cs`
 - Modify: `src/Mostlylucid.BotDetection.UI/Models/DashboardModels.cs`
 
-- [ ] **Step 1: Fix `SbSummaryStatsViewComponent` — replace `int.MaxValue` with explicit intent**
+- [ ] **Step 1: Fix `SbSummaryStatsViewComponent` -replace `int.MaxValue` with explicit intent**
 
 The summary stats needs all visitors to compute totals. Replace `int.MaxValue` with a named approach that makes the coupling to the cache bound explicit:
 
@@ -913,7 +913,7 @@ const int maxCachedVisitors = 1_000; // must be >= VisitorListCache._maxVisitors
 var (allVisitors, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, maxCachedVisitors);
 ```
 
-- [ ] **Step 2: Fix `SbSessionsListViewComponent` — bound fetch to needed count**
+- [ ] **Step 2: Fix `SbSessionsListViewComponent` -bound fetch to needed count**
 
 ```csharp
 // Replace:
@@ -972,7 +972,7 @@ Expected: All tests pass.
 
 - [ ] **Step 3: Final commit if anything was missed**
 
-Review `git status` — if any modified files remain uncommitted, commit them:
+Review `git status` -if any modified files remain uncommitted, commit them:
 
 ```bash
 git status

@@ -1,4 +1,4 @@
-# External Network Calls — Compliance Documentation
+# External Network Calls -Compliance Documentation
 
 This document inventories every outbound network call that StyloBot makes, when it happens, what data is transmitted, and the PII implications.
 
@@ -68,7 +68,7 @@ This document inventories every outbound network call that StyloBot makes, when 
 | **PII risk** | None |
 | **Can be disabled** | Don't configure `UpdateSchedule`. No outbound call is made. |
 
-### 6. LLM Inference — Local (Ollama / LlamaSharp)
+### 6. LLM Inference -Local (Ollama / LlamaSharp)
 
 | Field | Value |
 |-------|-------|
@@ -80,7 +80,7 @@ This document inventories every outbound network call that StyloBot makes, when 
 | **PII risk** | **Pseudonymized only.** UA strings and paths are included but these are not PII under most frameworks. IPs are HMAC-hashed. |
 | **Can be disabled** | Set `BotDetection:AiDetection:Enabled = false`. All LLM features are opt-in. |
 
-### 7. LLM Inference — Cloud Providers
+### 7. LLM Inference -Cloud Providers
 
 | Field | Value |
 |-------|-------|
@@ -110,15 +110,15 @@ This document inventories every outbound network call that StyloBot makes, when 
 
 The following components are fully local with zero outbound network activity:
 
-- **Detection pipeline** — all 45+ detectors run locally against request data
-- **SQLite persistence** — sessions, signatures, reputation, beacons, weights — all local files
-- **Dashboard** — served from embedded resources, no CDN, no external analytics, no tracking scripts
-- **Session vector analysis** — Markov chains, HNSW similarity search — all in-process
-- **Entity resolution** — merge/split/convergence operations — local
-- **Beacon tracking** — canary generation, storage, contributor scanning — local SQLite
-- **Holodeck responses** — static templates are local; LLM generation uses local Ollama (see item 6)
-- **Compliance packs** — embedded YAML files, no external fetch
-- **Action policies** — block, throttle, challenge, holodeck — all local logic
+- **Detection pipeline** -all 45+ detectors run locally against request data
+- **SQLite persistence** -sessions, signatures, reputation, beacons, weights -all local files
+- **Dashboard** -served from embedded resources, no CDN, no external analytics, no tracking scripts
+- **Session vector analysis** -Markov chains, HNSW similarity search -all in-process
+- **Entity resolution** -merge/split/convergence operations -local
+- **Beacon tracking** -canary generation, storage, contributor scanning -local SQLite
+- **Holodeck responses** -static templates are local; LLM generation uses local Ollama (see item 6)
+- **Compliance packs** -embedded YAML files, no external fetch
+- **Action policies** -block, throttle, challenge, holodeck -all local logic
 
 ---
 

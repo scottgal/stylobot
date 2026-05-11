@@ -558,7 +558,7 @@ DataHubCsv downloads a ~27MB IP database on first start and auto-updates weekly.
 
 Now `BlockCountries`, `BlockVpn`, `BlockDatacenter`, `BlockTor`, and all `geo.*` signals work. See [signals-and-custom-filters.md](signals-and-custom-filters.md).
 
-### Tier 3: PostgreSQL (Production) — Commercial
+### Tier 3: PostgreSQL (Production) -Commercial
 
 > Requires `Mostlylucid.BotDetection.UI.PostgreSQL` from the `stylobot-commercial` repo. `AddStyloBotPostgreSQL` is not available in the FOSS package.
 
@@ -611,7 +611,7 @@ volumes:
 
 **Good for:** >100K requests/day, multiple servers, need shared learning state.
 
-### Tier 4: Full Stack - YARP Gateway + Qdrant + LLM — Commercial
+### Tier 4: Full Stack - YARP Gateway + Qdrant + LLM -Commercial
 
 ```
 Internet → Caddy (TLS) → Stylobot Gateway (YARP) → Your App

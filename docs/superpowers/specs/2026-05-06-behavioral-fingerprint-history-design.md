@@ -9,13 +9,13 @@ Show how a visitor's behavioral shape evolves across sessions in the dashboard. 
 Pure dashboard layer addition. No new database tables, no changes to the detection pipeline. Reads existing session vector data (`Vector[100..109]`) from the SQLite sessions table.
 
 **New files:**
-- `src/Mostlylucid.BotDetection.UI/Models/SessionFingerprintsModel.cs` — models
-- `src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/_SessionFingerprints.cshtml` — partial
+- `src/Mostlylucid.BotDetection.UI/Models/SessionFingerprintsModel.cs` -models
+- `src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/_SessionFingerprints.cshtml` -partial
 
 **Modified files:**
-- `StyloBotDashboardMiddleware.cs` — new endpoint handler + model builder
-- `_SignatureDetail.cshtml` — HTMX-load the full history component
-- `_SessionDetail.cshtml` — HTMX-load a compact context strip
+- `StyloBotDashboardMiddleware.cs` -new endpoint handler + model builder
+- `_SignatureDetail.cshtml` -HTMX-load the full history component
+- `_SessionDetail.cshtml` -HTMX-load a compact context strip
 
 ## Data Model
 

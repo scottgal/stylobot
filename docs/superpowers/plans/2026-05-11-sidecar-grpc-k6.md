@@ -566,7 +566,7 @@ public sealed class SidecarBotDetectionMiddleware
         }
         catch (RpcException)
         {
-            // fail open — do not block the request
+            // fail open -do not block the request
         }
         await _next(context);
     }
@@ -864,7 +864,7 @@ services:
 
   app:
     build:
-      context: ../../../..   # repo root — needed for sdk/ paths
+      context: ../../../..   # repo root -needed for sdk/ paths
       dockerfile: tests/integration/node-sidecar/app/Dockerfile
     ports:
       - "13001:3000"
@@ -882,13 +882,13 @@ services:
 - [ ] **Step 3: Start the sidecar and bring up compose**
 
 ```bash
-# Terminal 1 — sidecar on host
+# Terminal 1 -sidecar on host
 STYLOBOT_GRPC_ONLY=true dotnet run --project src/Mostlylucid.BotDetection.Sidecar
 
-# Terminal 2 — compose
+# Terminal 2 -compose
 docker compose -f tests/integration/node-sidecar/docker-compose.yml up --build
 
-# Terminal 3 — verify
+# Terminal 3 -verify
 curl -s http://localhost:13001/ -H "User-Agent: curl/8.0" | jq .
 # Expected: { "isBot": true, "probability": 0.xx, ... }
 
@@ -1380,9 +1380,9 @@ Override: `k6 run -e SIDECAR=other-host:5090 tests/k6/baseline-grpc.js`
 
 **Goal:** minimise the detection overhead added to each request.
 
-- `detection_latency_ms` (baseline) — pure sidecar processing cost. Target: p99 < 10ms.
-- `e2e_latency_ms` in node script minus baseline — HTTP round-trip + Express overhead.
-- `e2e_latency_ms` in caddy script minus baseline — Caddy gRPC overhead (should be ~0.5ms).
+- `detection_latency_ms` (baseline) -pure sidecar processing cost. Target: p99 < 10ms.
+- `e2e_latency_ms` in node script minus baseline -HTTP round-trip + Express overhead.
+- `e2e_latency_ms` in caddy script minus baseline -Caddy gRPC overhead (should be ~0.5ms).
 - SQLite write contention appears as a step-change in p99 as VUs increase past ~200.
 ```
 
@@ -1414,7 +1414,7 @@ git commit -m "test(k6): Caddy+Sidecar HTTP load test + tuning README"
 - [x] **Task 6** covers ASP.NET sidecar client project with HttpContext compatibility
 - [x] **Tasks 7-9** cover both docker-compose environments with an echo upstream
 - [x] **Tasks 10-13** cover k6 scripts: baseline gRPC, Node, Caddy, README
-- [x] No placeholder code — all steps contain real implementation
+- [x] No placeholder code -all steps contain real implementation
 - [x] Type consistency: `GrpcRawResponse` defined in Task 3 used in Task 4; `SidecarClientOptions` defined in Task 6 extension file
 - [x] The `AggregatedEvidence` constructor uses only the 3 `required` properties (`BotProbability`, `Confidence`, `RiskBand`) plus optional inits
 - [x] The `RiskBand` / `ThreatBand` / `RecommendedAction` enum prefixes in proto enums (`RISK_BAND_HIGH`) are stripped by the mapping dictionaries in `grpc-client.ts`

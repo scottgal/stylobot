@@ -21,7 +21,7 @@ Visit **http://localhost:5080/SignatureDemo** for advanced signature analysis:
 - **REST API** for signature retrieval (`/api/signature/...`)
 - **TagHelper visualization** with comprehensive detector breakdowns
 - **Live statistics** dashboard with bot/human counts
-- **49-detector pipeline** (wave-gated — typically 5-15 run per request based on confidence and trigger conditions)
+- **49-detector pipeline** (wave-gated -typically 5-15 run per request based on confidence and trigger conditions)
 - **Interactive UI** with collapsible detector contributions
 
 See the [Signature Demo Documentation](#signature-analysis-system) below for complete details.

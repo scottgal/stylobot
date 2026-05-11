@@ -27,8 +27,8 @@ Print a single bordered block immediately at boot (before async startup tasks ru
 Fields: HTTP port, HTTPS status (disabled / port + mode), upstream or "config file" or "NOT CONFIGURED", default action policy + bot threshold, admin path + auth status.
 
 **Validation warnings** printed below the banner (not inside it):
-- `[WARN] ADMIN_SECRET not set — admin API is disabled until configured`
-- `[WARN] No proxy routes — gateway returns 503 for all requests; set DEFAULT_UPSTREAM or mount a yarp.json`
+- `[WARN] ADMIN_SECRET not set -admin API is disabled until configured`
+- `[WARN] No proxy routes -gateway returns 503 for all requests; set DEFAULT_UPSTREAM or mount a yarp.json`
 
 The existing TRUST_ALL_FORWARDED_PROXIES warning already exists and remains unchanged.
 
@@ -111,7 +111,7 @@ examples/
 - Two clusters: `real-backend` and `bot-sink` (returns 429 with Retry-After header)
 - YARP routes bots (`X-Bot-Detection-RiskBand: High`) to `bot-sink` cluster
 
-**yarp.json:** Two routes — one for bot traffic (header match condition), one for human traffic. Header match: `X-Bot-Detection-RiskBand` = `High`.
+**yarp.json:** Two routes -one for bot traffic (header match condition), one for human traffic. Header match: `X-Bot-Detection-RiskBand` = `High`.
 
 ### Scenario 3: API Service Protection
 
@@ -119,7 +119,7 @@ examples/
 
 **Config approach:**
 - `/api/auth/**` → `strict` policy
-- `/api/**` → `api` policy (no behavioral analysis — APIs don't have page-load sequences)
+- `/api/**` → `api` policy (no behavioral analysis -APIs don't have page-load sequences)
 - Signals forwarded so backend can implement app-level rate limiting on top
 
 **yarp.json:** Single route, single cluster. PathPolicies handle the split.
@@ -134,7 +134,7 @@ examples/
 - Dashboard at `/_stylobot` shows what would have been blocked
 - After 7 days of data, flip `BlockDetectedBots: true`
 
-**docker-compose.yml:** No yarp.json needed — DEFAULT_UPSTREAM covers it.
+**docker-compose.yml:** No yarp.json needed -DEFAULT_UPSTREAM covers it.
 
 ### Scenario 5: Multi-Site / SaaS
 
@@ -156,8 +156,8 @@ Reorder README.md sections:
 
 1. What StyloBot Gateway does (one paragraph: "drop-in reverse proxy with bot intelligence")
 2. Quick Start (30 seconds, unchanged)
-3. **NEW: Why not just Caddy?** — the YARP signals differentiator section
-4. **NEW: Cookbook** — links to the 5 example directories with one-line descriptions
+3. **NEW: Why not just Caddy?** -the YARP signals differentiator section
+4. **NEW: Cookbook** -links to the 5 example directories with one-line descriptions
 5. Deployment Tiers (existing, unchanged)
 6. Bot Detection Headers Reference (existing)
 7. Configuration Reference (existing)

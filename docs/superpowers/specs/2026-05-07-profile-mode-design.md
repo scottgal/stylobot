@@ -4,7 +4,7 @@
 
 **Architecture:** Fingerprint-only inline path feeds a bounded background channel; a hosted worker runs the full detection pipeline on queued snapshots; results go to an isolated SQLite calibration store; an admin endpoint exposes a threshold simulator.
 
-**Primary audience:** Operators who want to understand their traffic before enabling blocking — "what threshold should I set?"
+**Primary audience:** Operators who want to understand their traffic before enabling blocking -"what threshold should I set?"
 
 ---
 
@@ -22,7 +22,7 @@ After fingerprinting, a serialized `ProfileRequestSnapshot` (headers, IP, UA, TL
 
 Per-request overhead: ~300-500ns fingerprinting plus a non-blocking channel write.
 
-The `profile` policy is defined in `BotDetectionOptions` as a named policy, not hardcoded — operators can apply it to specific paths via `PathPolicies` if they want finer control.
+The `profile` policy is defined in `BotDetectionOptions` as a named policy, not hardcoded -operators can apply it to specific paths via `PathPolicies` if they want finer control.
 
 ---
 
@@ -30,7 +30,7 @@ The `profile` policy is defined in `BotDetectionOptions` as a named policy, not 
 
 `ProfileAnalysisWorker` is a hosted service that drains the channel and runs the full detection pipeline on each snapshot. This uses the existing `BlackboardOrchestrator` with a reconstructed `DetectionContext` built from the snapshot.
 
-Results go to `ProfileCalibrationStore` (SQLite) — **not** the live reputation or session store. Profile data is isolated: it does not contaminate active detection if the operator later switches to a blocking mode.
+Results go to `ProfileCalibrationStore` (SQLite) -**not** the live reputation or session store. Profile data is isolated: it does not contaminate active detection if the operator later switches to a blocking mode.
 
 `ProfileAnalysisChannel` wraps a `System.Threading.Channels.Channel<ProfileRequestSnapshot>` with:
 - `BoundedChannelFullMode.DropOldest` backpressure
@@ -62,7 +62,7 @@ No raw IP addresses, user agents, or query strings are stored.
 
 ## Admin API Endpoint
 
-`GET /admin/calibration` — requires `ADMIN_SECRET` like all admin endpoints.
+`GET /admin/calibration` -requires `ADMIN_SECRET` like all admin endpoints.
 
 Response shape:
 
@@ -82,15 +82,15 @@ Response shape:
     { "threshold": 0.85, "wouldBlock": 203,  "percentOfTraffic": 1.4,  "topBotTypes": ["MaliciousBot"] }
   ],
   "recommendedThreshold": 0.70,
-  "recommendationReason": "Largest score gap between 0.65 and 0.75 — separates bot cluster from human cluster.",
+  "recommendationReason": "Largest score gap between 0.65 and 0.75 -separates bot cluster from human cluster.",
   "queueDepth": 0,
   "totalDropped": 0
 }
 ```
 
-`recommendedThreshold` is computed by finding the largest gap in the score distribution histogram (the natural valley between the human-score cluster and the bot-score cluster). If no clear gap exists, the recommendation is omitted and `recommendationReason` says "Insufficient data or no clear score separation — collect more traffic."
+`recommendedThreshold` is computed by finding the largest gap in the score distribution histogram (the natural valley between the human-score cluster and the bot-score cluster). If no clear gap exists, the recommendation is omitted and `recommendationReason` says "Insufficient data or no clear score separation -collect more traffic."
 
-`GET /admin/calibration/reset` (POST, admin-protected) — clears the calibration store to start a fresh collection period.
+`GET /admin/calibration/reset` (POST, admin-protected) -clears the calibration store to start a fresh collection period.
 
 ---
 
@@ -104,7 +104,7 @@ GATEWAY_PROFILE_CONCURRENCY=2            # optional, default 2
 
 `ConfigureProfileMode` in `Program.cs` (parallel to `ConfigureDemoMode`) sets all paths to the `profile` detection policy when `GATEWAY_PROFILE_MODE=true` or `Gateway:ProfileMode:Enabled=true`.
 
-Profile mode and demo mode are mutually exclusive — if both are set, profile mode takes precedence and a warning is logged.
+Profile mode and demo mode are mutually exclusive -if both are set, profile mode takes precedence and a warning is logged.
 
 The startup banner shows `Profile  collecting (background analysis active)` in the policy row when profile mode is enabled.
 
@@ -114,15 +114,15 @@ The startup banner shows `Profile  collecting (background analysis active)` in t
 
 | File | Action |
 |------|--------|
-| `src/Stylobot.Gateway/Configuration/ProfileModeOptions.cs` | Create — config binding for profile mode env vars |
-| `src/Stylobot.Gateway/Services/ProfileAnalysisChannel.cs` | Create — bounded channel wrapper with metrics |
-| `src/Stylobot.Gateway/Services/ProfileRequestSnapshot.cs` | Create — serializable request snapshot record |
-| `src/Stylobot.Gateway/Services/ProfileAnalysisWorker.cs` | Create — hosted service draining the channel |
-| `src/Stylobot.Gateway/Data/ProfileCalibrationStore.cs` | Create — SQLite store, queries, recommendation engine |
-| `src/Stylobot.Gateway/Endpoints/CalibrationEndpoint.cs` | Create — `GET /admin/calibration`, `POST /admin/calibration/reset` |
-| `src/Stylobot.Gateway/Configuration/ServiceCollectionExtensions.cs` | Modify — register new services when profile mode enabled |
-| `src/Stylobot.Gateway/Program.cs` | Modify — add `ConfigureProfileMode`, banner update |
-| `src/Mostlylucid.BotDetection/Models/BotDetectionOptions.cs` | Modify — add `profile` named policy entry |
+| `src/Stylobot.Gateway/Configuration/ProfileModeOptions.cs` | Create -config binding for profile mode env vars |
+| `src/Stylobot.Gateway/Services/ProfileAnalysisChannel.cs` | Create -bounded channel wrapper with metrics |
+| `src/Stylobot.Gateway/Services/ProfileRequestSnapshot.cs` | Create -serializable request snapshot record |
+| `src/Stylobot.Gateway/Services/ProfileAnalysisWorker.cs` | Create -hosted service draining the channel |
+| `src/Stylobot.Gateway/Data/ProfileCalibrationStore.cs` | Create -SQLite store, queries, recommendation engine |
+| `src/Stylobot.Gateway/Endpoints/CalibrationEndpoint.cs` | Create -`GET /admin/calibration`, `POST /admin/calibration/reset` |
+| `src/Stylobot.Gateway/Configuration/ServiceCollectionExtensions.cs` | Modify -register new services when profile mode enabled |
+| `src/Stylobot.Gateway/Program.cs` | Modify -add `ConfigureProfileMode`, banner update |
+| `src/Mostlylucid.BotDetection/Models/BotDetectionOptions.cs` | Modify -add `profile` named policy entry |
 
 ---
 

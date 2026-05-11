@@ -36,11 +36,11 @@
 **Named policy lookup:** Search `BotDetectionOptions.cs` for `DetectionPolicy.Demo` to find where built-in named policies are registered. Add the `"profile"` entry in the same location.
 
 **HttpContext item keys** set by `BotDetectionMiddleware` after detection (from the middleware summary doc):
-- `BotDetectionMiddleware.BotConfidenceKey` — double confidence (0.0–1.0)
-- `BotDetectionMiddleware.IsBotKey` — bool
-- `BotDetectionMiddleware.BotTypeKey` — BotType? enum
-- `BotDetectionMiddleware.BotNameKey` — string?
-- `BotDetectionMiddleware.PolicyNameKey` — string
+- `BotDetectionMiddleware.BotConfidenceKey` -double confidence (0.0–1.0)
+- `BotDetectionMiddleware.IsBotKey` -bool
+- `BotDetectionMiddleware.BotTypeKey` -BotType? enum
+- `BotDetectionMiddleware.BotNameKey` -string?
+- `BotDetectionMiddleware.PolicyNameKey` -string
 
 **Background detection pattern:** Read `src/Mostlylucid.BotDetection/Learning/LearningCoordinator.cs` to understand how the learning coordinator runs full detection in background on stored request data. The `ProfileAnalysisWorker` follows the same pattern with a `DefaultHttpContext` constructed from the snapshot.
 
@@ -116,13 +116,13 @@ public class ProfileModeTests
 }
 ```
 
-- [ ] **Step 3: Run tests — expect FAIL**
+- [ ] **Step 3: Run tests -expect FAIL**
 
 ```bash
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "ProfileModeTests" -v
 ```
 
-Expected: FAIL — `DetectionPolicy.Profile` does not exist yet.
+Expected: FAIL -`DetectionPolicy.Profile` does not exist yet.
 
 - [ ] **Step 4: Add `Profile` static property to `DetectionPolicy.cs`**
 
@@ -137,7 +137,7 @@ Open `src/Mostlylucid.BotDetection/Policies/DetectionPolicy.cs`. After the `Moni
 public static DetectionPolicy Profile => new()
 {
     Name = "profile",
-    Description = "Fingerprint-only detection for calibration — never blocks inline",
+    Description = "Fingerprint-only detection for calibration -never blocks inline",
     FastPathDetectors = ImmutableList.Create("Signature"),
     SlowPathDetectors = ImmutableList<string>.Empty,
     AiPathDetectors = ImmutableList<string>.Empty,
@@ -183,7 +183,7 @@ public class ProfileModeOptions
 }
 ```
 
-- [ ] **Step 6: Run tests — expect PASS**
+- [ ] **Step 6: Run tests -expect PASS**
 
 ```bash
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "ProfileModeTests" -v
@@ -290,13 +290,13 @@ public class ProfileAnalysisChannelTests
 }
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL**
+- [ ] **Step 2: Run tests -expect FAIL**
 
 ```bash
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "ProfileAnalysisChannelTests" -v
 ```
 
-Expected: FAIL — types do not exist yet.
+Expected: FAIL -types do not exist yet.
 
 - [ ] **Step 3: Create `ProfileRequestSnapshot.cs`**
 
@@ -389,7 +389,7 @@ public sealed class ProfileAnalysisChannel
 }
 ```
 
-- [ ] **Step 5: Run tests — expect PASS**
+- [ ] **Step 5: Run tests -expect PASS**
 
 ```bash
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "ProfileAnalysisChannelTests" -v
@@ -500,13 +500,13 @@ public class ProfileCalibrationStoreTests : IDisposable
 }
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL**
+- [ ] **Step 2: Run tests -expect FAIL**
 
 ```bash
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "ProfileCalibrationStoreTests" -v
 ```
 
-Expected: FAIL — type does not exist.
+Expected: FAIL -type does not exist.
 
 - [ ] **Step 3: Create `ProfileCalibrationStore.cs`**
 
@@ -702,7 +702,7 @@ public class ProfileCalibrationStore(string dbPath)
 
         var minBucket = counts.OrderBy(x => x.count).First();
         if (minBucket.count > dist.TotalAnalyzed * 0.05)
-            return null; // no clear valley — traffic not clearly bimodal
+            return null; // no clear valley -traffic not clearly bimodal
 
         var reason = $"Score valley at {minBucket.bucket:F1} separates human and bot clusters.";
         return (minBucket.bucket, reason);
@@ -720,7 +720,7 @@ public class ProfileCalibrationStore(string dbPath)
 }
 ```
 
-- [ ] **Step 4: Run tests — expect PASS**
+- [ ] **Step 4: Run tests -expect PASS**
 
 ```bash
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "ProfileCalibrationStoreTests" -v
@@ -790,7 +790,7 @@ public class ProfileCaptureMiddlewareTests
 }
 ```
 
-- [ ] **Step 2: Run tests — expect FAIL**
+- [ ] **Step 2: Run tests -expect FAIL**
 
 ```bash
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "ProfileCaptureMiddlewareTests" -v
@@ -826,7 +826,7 @@ public class ProfileCaptureMiddleware(
 }
 ```
 
-- [ ] **Step 4: Run capture middleware tests — expect PASS**
+- [ ] **Step 4: Run capture middleware tests -expect PASS**
 
 ```bash
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "ProfileCaptureMiddlewareTests" -v
@@ -1034,7 +1034,7 @@ public class CalibrationEndpointTests
 }
 ```
 
-- [ ] **Step 2: Run test — expect FAIL**
+- [ ] **Step 2: Run test -expect FAIL**
 
 ```bash
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "CalibrationEndpointTests" -v
@@ -1115,7 +1115,7 @@ public static class CalibrationEndpoint
 }
 ```
 
-- [ ] **Step 4: Run test — expect PASS**
+- [ ] **Step 4: Run test -expect PASS**
 
 ```bash
 dotnet test src/Mostlylucid.BotDetection.Test/ --filter "CalibrationEndpointTests" -v
@@ -1166,7 +1166,7 @@ public static IServiceCollection AddProfileMode(
     });
     services.Configure<ProfileModeOptions>(configuration.GetSection(ProfileModeOptions.SectionName));
 
-    // Always register — active only when Enabled=true
+    // Always register -active only when Enabled=true
     services.AddSingleton(sp =>
     {
         var opts = sp.GetRequiredService<IOptions<ProfileModeOptions>>().Value;
@@ -1199,7 +1199,7 @@ public static async Task InitializeProfileStoreAsync(this WebApplication app)
 
     var store = app.Services.GetRequiredService<ProfileCalibrationStore>();
     await store.InitializeAsync(app.Lifetime.ApplicationStopping);
-    Log.Information("Profile mode active — calibration store ready");
+    Log.Information("Profile mode active -calibration store ready");
 }
 ```
 
@@ -1222,7 +1222,7 @@ static void ConfigureProfileMode(IConfiguration configuration, IServiceCollectio
     var demoEnabled = bool.TryParse(demoModeEnv, out var de) && de;
     if (demoEnabled)
     {
-        Log.Warning("Both GATEWAY_PROFILE_MODE and GATEWAY_DEMO_MODE are set — profile mode takes precedence");
+        Log.Warning("Both GATEWAY_PROFILE_MODE and GATEWAY_DEMO_MODE are set -profile mode takes precedence");
         services.PostConfigure<BotDetectionOptions>(opts =>
         {
             opts.PathPolicies.Clear();
@@ -1235,7 +1235,7 @@ static void ConfigureProfileMode(IConfiguration configuration, IServiceCollectio
     {
         opts.PathPolicies.Clear();
         opts.PathPolicies["/*"] = "profile";
-        Log.Information("Profile mode active — fingerprint-only inline detection, background calibration enabled");
+        Log.Information("Profile mode active -fingerprint-only inline detection, background calibration enabled");
     });
 }
 ```

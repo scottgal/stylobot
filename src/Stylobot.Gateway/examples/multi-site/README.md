@@ -1,15 +1,15 @@
-# StyloBot Gateway — Multi-Site / SaaS
+# StyloBot Gateway -Multi-Site / SaaS
 
 One gateway fronts three virtual hosts with different protection levels:
 
 | Host | Policy | Why |
 |------|--------|-----|
-| `admin.example.com` | `admin-strict` (block at 0.4) | Internal tool — no bots should reach it |
+| `admin.example.com` | `admin-strict` (block at 0.4) | Internal tool -no bots should reach it |
 | `api.example.com` | `api` (skip page-load detectors) | REST clients don't have browser behavior |
-| `www.example.com` | `default` (standard) | Public site — balanced detection |
+| `www.example.com` | `default` (standard) | Public site -balanced detection |
 
 > **Note:** `PathPolicies` in `appsettings.json` applies globally across all hosts. Per-host
-> policy differentiation is handled by YARP routing — each host routes to a separate cluster,
+> policy differentiation is handled by YARP routing -each host routes to a separate cluster,
 > and you can configure per-cluster bot detection behavior at the application level using the
 > `X-Bot-*` headers the gateway injects.
 

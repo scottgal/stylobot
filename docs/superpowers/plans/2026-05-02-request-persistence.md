@@ -288,7 +288,7 @@ git commit -m "feat(persistence): requests table + PersistedRequest record"
 
 ---
 
-### Task 2: `RequestPersistenceService` — SlidingCacheAtom + EphemeralWorkCoordinator write path
+### Task 2: `RequestPersistenceService` -SlidingCacheAtom + EphemeralWorkCoordinator write path
 
 **Files:**
 - Create: `Mostlylucid.BotDetection/Data/RequestPersistenceService.cs`
@@ -296,7 +296,7 @@ git commit -m "feat(persistence): requests table + PersistedRequest record"
 This service is a singleton (not a `BackgroundService`). It owns the LFU write cache and the single SQLite write coordinator. It implements `IAsyncDisposable` so DI drains the coordinator on shutdown.
 
 Sampling policy:
-- Bot (prob > 0.7): **always write** — every bot request is signal
+- Bot (prob > 0.7): **always write** -every bot request is signal
 - Queue pressure tiers (based on `_coordinator.PendingCount`):
   - 0–49 pending (normal): write **every** request
   - 50–199 pending (moderate): write **1 in 3** low-risk requests (known humans)
@@ -338,7 +338,7 @@ public sealed class RequestPersistenceService : IAsyncDisposable
 
         _signals = new SignalSink(10_000, TimeSpan.FromMinutes(10));
 
-        // Single SQLite write thread — avoids file-level locks on writes.
+        // Single SQLite write thread -avoids file-level locks on writes.
         _coordinator = new EphemeralWorkCoordinator<RequestBatch>(
             async (batch, ct) => await _store.AddRequestBatchAsync(batch.Requests, ct),
             new EphemeralOptions
@@ -351,7 +351,7 @@ public sealed class RequestPersistenceService : IAsyncDisposable
 
         // Per-signature sliding window: 5-min TTL, 15-min hard limit, 50k capacity.
         // Evicted entries (signatures not seen for 5 min) reset their write count
-        // — a returning rare signature starts fresh and always gets written.
+        // -a returning rare signature starts fresh and always gets written.
         _writeCache = new SlidingCacheAtom<string, SignatureWriteState>(
             async (_, ct) => await Task.FromResult(new SignatureWriteState()),
             TimeSpan.FromMinutes(5),
@@ -392,7 +392,7 @@ public sealed class RequestPersistenceService : IAsyncDisposable
             ProcessingMs   = processingMs,
         };
 
-        // High-risk traffic: always persist — every request is signal.
+        // High-risk traffic: always persist -every request is signal.
         if (botProbability > 0.7)
         {
             _coordinator.TryEnqueue(new RequestBatch([request]));
@@ -407,7 +407,7 @@ public sealed class RequestPersistenceService : IAsyncDisposable
         }
         catch
         {
-            // Cache miss on a fully loaded cache — always write rather than drop.
+            // Cache miss on a fully loaded cache -always write rather than drop.
             _coordinator.TryEnqueue(new RequestBatch([request]));
             return;
         }
@@ -523,7 +523,7 @@ Expected: 2 tests pass. (Note: `BotRequest_AlwaysEnqueued` verifies at-least-50 
 ```bash
 git add Mostlylucid.BotDetection/Data/RequestPersistenceService.cs \
         Mostlylucid.BotDetection.Test/Data/RequestPersistenceTests.cs
-git commit -m "feat(persistence): RequestPersistenceService — sliding window LFU write cache"
+git commit -m "feat(persistence): RequestPersistenceService -sliding window LFU write cache"
 ```
 
 ---
@@ -630,7 +630,7 @@ if (_requestPersistence != null)
         try
         {
             // Find _store via service locator is not ideal; instead pass ISessionStore
-            // to the orchestrator separately just for buckets — handled in Task 5.
+            // to the orchestrator separately just for buckets -handled in Task 5.
         }
         catch { /* non-critical */ }
     });
@@ -666,7 +666,7 @@ git commit -m "feat(persistence): wire RequestPersistenceService into Blackboard
 
 ---
 
-### Task 4: `SessionAtomizerService` — derive sessions from raw requests
+### Task 4: `SessionAtomizerService` -derive sessions from raw requests
 
 **Files:**
 - Create: `Mostlylucid.BotDetection/Services/SessionAtomizerService.cs`
@@ -850,7 +850,7 @@ public sealed class SessionAtomizerService : BackgroundService
 Check the current `AddSessionAsync` return type in `ISessionStore`. If it returns `Task` (not `Task<long>`), update the interface and `SqliteSessionStore` implementation:
 
 ```csharp
-// ISessionStore — change from:
+// ISessionStore -change from:
 Task AddSessionAsync(PersistedSession session, CancellationToken ct = default);
 // to:
 Task<long> AddSessionAsync(PersistedSession session, CancellationToken ct = default);
@@ -954,7 +954,7 @@ Expected: All tests pass.
 ```bash
 git add Mostlylucid.BotDetection/Services/SessionAtomizerService.cs \
         Mostlylucid.BotDetection.Test/Data/RequestPersistenceTests.cs
-git commit -m "feat(persistence): SessionAtomizerService — derive sessions from request history"
+git commit -m "feat(persistence): SessionAtomizerService -derive sessions from request history"
 ```
 
 ---
@@ -976,7 +976,7 @@ services.AddSingleton<RequestPersistenceService>();
 services.AddHostedService<SessionAtomizerService>();
 ```
 
-The `RequestPersistenceService` does not need to be a `HostedService` because `IAsyncDisposable` is sufficient — ASP.NET Core calls `DisposeAsync` on all singletons during shutdown, which drains the coordinator.
+The `RequestPersistenceService` does not need to be a `HostedService` because `IAsyncDisposable` is sufficient -ASP.NET Core calls `DisposeAsync` on all singletons during shutdown, which drains the coordinator.
 
 - [ ] **Step 2: Add `ISessionStore` back to `BlackboardOrchestrator` for bucket wiring**
 
@@ -1018,7 +1018,7 @@ dotnet build mostlylucid.stylobot.sln -c Debug 2>&1 | grep -E "error CS|Build su
 
 Expected: Build succeeded.
 
-- [ ] **Step 4: Smoke test — run the demo app and send a request**
+- [ ] **Step 4: Smoke test -run the demo app and send a request**
 
 ```bash
 # Terminal 1
@@ -1055,8 +1055,8 @@ git commit -m "feat(persistence): register RequestPersistenceService + wire Incr
 The `UpdateSignatureDetectionAsync` method in `ISessionStore` and `SqliteSessionStore` can now be removed, since `RequestPersistenceService` + `UpsertSignatureAsync` (called by `SessionAtomizerService` via `AddSessionAsync`) replace its role. The `_signatureWriteDebounce` field in `BlackboardOrchestrator` was already removed in Task 3.
 
 **Files:**
-- Modify: `Mostlylucid.BotDetection/Data/SessionPersistence.cs` — remove `UpdateSignatureDetectionAsync`
-- Modify: `Mostlylucid.BotDetection/Data/SqliteSessionStore.cs` — remove implementation
+- Modify: `Mostlylucid.BotDetection/Data/SessionPersistence.cs` -remove `UpdateSignatureDetectionAsync`
+- Modify: `Mostlylucid.BotDetection/Data/SqliteSessionStore.cs` -remove implementation
 
 - [ ] **Step 1: Check for remaining callers**
 
@@ -1105,11 +1105,11 @@ git commit -m "chore(persistence): remove UpdateSignatureDetectionAsync (superse
 
 **3. Type consistency:**
 - `PersistedRequest` defined in Task 1, used in Tasks 2, 4 ✓
-- `AddRequestBatchAsync(IReadOnlyList<PersistedRequest>, CancellationToken)` — defined Task 1, used Task 2 ✓
-- `GetUnatomizedRequestsAsync(int, CancellationToken): Task<List<PersistedRequest>>` — defined Task 1, used Task 4 ✓
-- `LinkRequestsToSessionAsync(long, IReadOnlyList<long>, CancellationToken)` — defined Task 1, used Task 4 ✓
-- `AddSessionAsync` return type change (`Task` → `Task<long>`) — Task 4 notes to check and fix callers ✓
-- `RequestPersistenceService.EnqueueAsync` — defined Task 2, called Task 3 ✓
-- `SessionAtomizerService` uses `SessionVectorizer.Encode` and `SqliteSessionStore.SerializeVector` — both exist in codebase ✓
+- `AddRequestBatchAsync(IReadOnlyList<PersistedRequest>, CancellationToken)` -defined Task 1, used Task 2 ✓
+- `GetUnatomizedRequestsAsync(int, CancellationToken): Task<List<PersistedRequest>>` -defined Task 1, used Task 4 ✓
+- `LinkRequestsToSessionAsync(long, IReadOnlyList<long>, CancellationToken)` -defined Task 1, used Task 4 ✓
+- `AddSessionAsync` return type change (`Task` → `Task<long>`) -Task 4 notes to check and fix callers ✓
+- `RequestPersistenceService.EnqueueAsync` -defined Task 2, called Task 3 ✓
+- `SessionAtomizerService` uses `SessionVectorizer.Encode` and `SqliteSessionStore.SerializeVector` -both exist in codebase ✓
 
-**Known caveat:** Task 3, Step 5 instructs the implementer to verify `result.ProcessingTimeMs` property name. If it doesn't exist, use `0.0` and note the correct name from grep. This is not a placeholder — it's an explicit instruction with a fallback.
+**Known caveat:** Task 3, Step 5 instructs the implementer to verify `result.ProcessingTimeMs` property name. If it doesn't exist, use `0.0` and note the correct name from grep. This is not a placeholder -it's an explicit instruction with a fallback.
