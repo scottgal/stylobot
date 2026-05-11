@@ -1,3 +1,4 @@
+using Fluid;
 using Grpc.Core;
 using Mostlylucid.BotDetection.Api.Bridge;
 using Mostlylucid.BotDetection.Orchestration;
@@ -9,6 +10,7 @@ namespace Mostlylucid.BotDetection.Sidecar.Services;
 public sealed class DetectionGrpcService : Proto.DetectionService.DetectionServiceBase
 {
     private readonly BlackboardOrchestrator _orchestrator;
+    private static readonly FluidParser Parser = new();
 
     public DetectionGrpcService(BlackboardOrchestrator orchestrator) => _orchestrator = orchestrator;
 
@@ -29,6 +31,36 @@ public sealed class DetectionGrpcService : Proto.DetectionService.DetectionServi
             batch.Responses.Add(ToResponse(evidence));
         }
         return batch;
+    }
+
+    public override async Task<Proto.RenderWidgetResponse> RenderWidget(Proto.RenderWidgetRequest request, ServerCallContext context)
+    {
+        if (string.IsNullOrEmpty(request.Template))
+            return new Proto.RenderWidgetResponse { Success = false, Error = "template is required" };
+
+        if (!Parser.TryParse(request.Template, out var template, out var error))
+            return new Proto.RenderWidgetResponse { Success = false, Error = error };
+
+        var templateContext = new TemplateContext();
+
+        if (request.Verdict is { } v)
+        {
+            templateContext.SetValue("isBot", v.IsBot);
+            templateContext.SetValue("botProbability", (double)v.BotProbability);
+            templateContext.SetValue("confidence", (double)v.Confidence);
+            templateContext.SetValue("botType", v.BotType);
+            templateContext.SetValue("botName", v.BotName);
+            templateContext.SetValue("riskBand", v.RiskBand.ToString());
+            templateContext.SetValue("recommendedAction", v.RecommendedAction.ToString());
+            templateContext.SetValue("threatScore", (double)v.ThreatScore);
+            templateContext.SetValue("threatBand", v.ThreatBand.ToString());
+        }
+
+        foreach (var kv in request.Vars)
+            templateContext.SetValue(kv.Key, kv.Value);
+
+        var html = await template.RenderAsync(templateContext);
+        return new Proto.RenderWidgetResponse { Html = html, Success = true };
     }
 
     private static Microsoft.AspNetCore.Http.HttpContext BuildHttpContext(Proto.DetectRequest r) =>
