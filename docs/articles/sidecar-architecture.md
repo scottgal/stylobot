@@ -219,9 +219,11 @@ The Caddyfile configuration:
 }
 ```
 
-The plugin's job is to call the sidecar, stamp the verdict onto the forwarded request as headers, and get out of the way. Every `X-StyloBot-*` header the upstream application receives came from the sidecar. The upstream can read all of them -`IsBot`, `Probability`, `Confidence`, `BotType`, `BotName`, `RiskBand`, `Action`, `ThreatScore`, `ThreatBand` -and make its own decisions about what to do: throttle, redirect, personalise, add friction, or block entirely. That is exactly the distinction from the introduction: a gate blocks; a verdict pipeline lets the application decide.
+The plugin injects all nine `X-StyloBot-*` verdict headers onto every request before deciding whether to forward it. Requests where `isBot=true` and `recommendedAction=Block` are stopped at the gateway with a 403 and never reach the upstream. Every other request, including bots with a `Throttle` or `Challenge` recommendation, is forwarded with the full verdict headers intact.
 
-`on_block` exists for the rare case where you want the gateway itself to return a hard 403 before the request reaches the upstream at all -for example, when you are protecting a service you do not control and cannot modify. In most cases you do not need it.
+This is the intended split: the gateway handles hard `Block` cases; the upstream handles everything nuanced. A session with a `Medium` risk band and a `Challenge` recommendation arrives at your Node or Go application with `X-StyloBot-Action: Challenge` in the request headers, and your application decides what to show: a proof-of-work step, a friction page, or a flagged experience.
+
+`on_block` changes the HTTP status code used when the gateway blocks (default: 403). Set `on_block 503` to return a different code — for example, to suppress retry logic in scrapers that treat 403 as a retryable error.
 
 ## What the middleware does on every request
 
@@ -256,7 +258,7 @@ flowchart TD
 >
 > Deriving the child context from `r.Context()` (not `context.Background()`) is the key point: client disconnection cancels the gRPC call. The middleware logs and fails open.
 
-**Steps 3–4** -detect and inject. The nine verdict fields become nine `X-StyloBot-*` headers on the forwarded request. The upstream reads them via `styloBotMiddleware({ mode: 'headers' })` and gets the full `req.stylobot.verdict` object to act on.
+**Steps 3–4** — detect and inject. The nine verdict fields become nine `X-StyloBot-*` headers. Headers are set before the block check, so the upstream reads them via `styloBotMiddleware({ mode: 'headers' })` for all non-blocked requests. Requests with `recommendedAction=Block` are returned as 403 at the gateway; everything else forwards with the full verdict headers attached.
 
 The implementation:
 

@@ -482,14 +482,14 @@ const RISK_ORDER: Record<string, number> = {
 
 class SbGateExtension {
   tags = ['sbgate'];
-  parse(parser: any, nodes: any) {
+  parse(parser: any, nodes: any, lexer: any) {
     const tok = parser.nextToken();
     const args = parser.parseSignature(null, true);
     parser.advanceAfterBlockEnd(tok.value);
     const body = parser.parseUntilBlocks('else', 'endsbgate');
     let elseBody = null;
     if (parser.skipSymbol('else')) {
-      parser.skip(nunjucks.lexer.TOKEN_BLOCK_END);
+      parser.skip(lexer.TOKEN_BLOCK_END);
       elseBody = parser.parseUntilBlocks('endsbgate');
     }
     parser.advanceAfterBlockEnd();
