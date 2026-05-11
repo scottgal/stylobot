@@ -1,0 +1,13 @@
+{
+    admin off
+    auto_https off
+}
+
+:80 {
+    stylobot {
+        endpoint host.docker.internal:5090
+        timeout 50ms
+        on_block 403
+    }
+    reverse_proxy upstream:3000
+}

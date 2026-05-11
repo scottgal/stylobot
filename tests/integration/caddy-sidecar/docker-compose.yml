@@ -1,0 +1,27 @@
+services:
+  upstream:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ../upstream:/app
+    command: node index.js
+    environment:
+      PORT: "3000"
+    networks:
+      - test-net
+
+  caddy:
+    build:
+      context: ../..
+      dockerfile: tests/integration/caddy-sidecar/Dockerfile
+    ports:
+      - "14080:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - test-net
+    depends_on:
+      - upstream
+
+networks:
+  test-net:
