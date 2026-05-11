@@ -1,7 +1,7 @@
 import type { RequestHandler } from 'express';
 import { type Verdict, type DetectResponse } from '@stylobot/core';
 export interface StyloBotMiddlewareOptions {
-    mode: 'headers' | 'api';
+    mode: 'headers' | 'api' | 'grpc';
     endpoint?: string;
     apiKey?: string;
     timeout?: number;

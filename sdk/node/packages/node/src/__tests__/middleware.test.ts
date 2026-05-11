@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { IncomingMessage } from 'node:http';
 import { Socket } from 'node:net';
 import { styloBotMiddleware } from '../middleware.ts';
-import { mapGrpcVerdict } from '../grpc-client.ts';
+import { mapGrpcVerdict } from '@stylobot/core';
 
 function mockExpressReq(headers: Record<string, string> = {}): any {
   const socket = new Socket();
@@ -34,7 +34,7 @@ describe('styloBotMiddleware (header mode)', () => {
   it('returns empty verdict when no headers present', (_, done) => {
     const mw = styloBotMiddleware({ mode: 'headers' });
     mw(mockExpressReq({}), {} as any, () => {
-      assert.equal(mockExpressReq({}).stylobot, undefined); // fresh req has no stylobot yet
+      assert.equal(mockExpressReq({}).stylobot, undefined);
       done();
     });
   });
