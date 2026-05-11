@@ -15,6 +15,7 @@ Log.Logger = new LoggerConfiguration()
 try
 {
     var port = int.Parse(Environment.GetEnvironmentVariable("STYLOBOT_PORT") ?? "5090");
+    var grpcOnly = string.Equals(Environment.GetEnvironmentVariable("STYLOBOT_GRPC_ONLY"), "true", StringComparison.OrdinalIgnoreCase);
 
     var builder = WebApplication.CreateBuilder(args);
 
@@ -42,16 +43,18 @@ try
     builder.Services.AddBotDetection();
 
     // REST API (for callers that can't use gRPC: Node SDK, curl, etc.)
-    builder.Services.AddStyloBotApi(opts => opts.EnableOpenApi = false);
+    if (!grpcOnly)
+        builder.Services.AddStyloBotApi(opts => opts.EnableOpenApi = false);
 
     var app = builder.Build();
 
     app.MapGrpcService<DetectionGrpcService>();
-    app.MapStyloBotApi();
-    app.MapGet("/health", () => Results.Ok(new { status = "healthy", mode = "sidecar", port }))
+    if (!grpcOnly)
+        app.MapStyloBotApi();
+    app.MapGet("/health", () => Results.Ok(new { status = "healthy", mode = grpcOnly ? "sidecar-grpc" : "sidecar", port }))
        .AllowAnonymous();
 
-    Log.Information("StyloBot sidecar starting on port {Port} (gRPC + REST)", port);
+    Log.Information("StyloBot sidecar starting on port {Port} ({Mode})", port, grpcOnly ? "gRPC only" : "gRPC + REST");
     await app.RunAsync();
 }
 catch (Exception ex)
