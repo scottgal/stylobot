@@ -15,8 +15,8 @@ services:
     working_dir: /app
     volumes:
       - ./app:/app
-      - ../../sdk/node:/sdk/node
-    command: node index.js
+      - ../../../sdk/node:/sdk/node
+    command: sh -c "npm install && node index.js"
     ports:
       - "13001:3001"
     environment:

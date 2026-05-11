@@ -12,7 +12,7 @@ services:
 
   caddy:
     build:
-      context: ../..
+      context: ../../..
       dockerfile: tests/integration/caddy-sidecar/Dockerfile
     ports:
       - "14080:80"

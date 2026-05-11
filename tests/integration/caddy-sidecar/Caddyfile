@@ -1,6 +1,7 @@
 {
     admin off
     auto_https off
+    order stylobot before respond
 }
 
 :80 {
