@@ -25,6 +25,10 @@ export const options = {
 const SIDECAR_ENDPOINT = __ENV.SIDECAR_ENDPOINT || 'localhost:5090';
 
 export default function () {
+  // connect() is called per iteration as required by k6's gRPC API (k6 manages
+  // per-VU connection state). client.close() is intentionally omitted so k6
+  // reuses the connection across iterations rather than paying TCP/TLS handshake
+  // overhead on every request.
   client.connect(SIDECAR_ENDPOINT, { plaintext: true, timeout: '5s' });
 
   const response = client.invoke('stylobot.detection.v1.DetectionService/Detect', {
@@ -46,6 +50,5 @@ export default function () {
     detectionLatency.add(response.message.processingTimeMs);
   }
 
-  client.close();
   sleep(0.1);
 }
