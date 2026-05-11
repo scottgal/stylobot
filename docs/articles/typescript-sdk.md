@@ -93,7 +93,7 @@ graph LR
 
 **`headers` mode** -detection ran upstream at the gateway; the middleware reads injected headers with no network call. This is the production pattern when a Caddy or YARP gateway sits in front.
 
-**`grpc` mode** -the middleware calls the sidecar directly over HTTP/2. Lowest latency, no JSON overhead, requires `@grpc/grpc-js`.
+**`grpc` mode** -the middleware calls the sidecar directly over HTTP/2. Lowest latency, no JSON overhead, requires `@grpc/grpc-js`. The gRPC interface and sidecar deployment details are in the [Sidecar Architecture article](/blog/sidecar-architecture).
 
 **`api` mode** -calls `POST /api/v1/detect` over HTTP/1.1. Also returns `reasons` (per-detector contributions) and `signals` (the full blackboard state) that the other modes omit.
 

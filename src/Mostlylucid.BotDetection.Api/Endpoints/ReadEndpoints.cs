@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Models;
@@ -31,7 +32,7 @@ public static class ReadEndpoints
     }
 
     private static async Task<IResult> HandleDetections(
-        IDashboardEventStore store, int limit = 50, int offset = 0, bool? isBot = null, DateTime? since = null)
+        [FromServices] IDashboardEventStore store, int limit = 50, int offset = 0, bool? isBot = null, DateTime? since = null)
     {
         var filter = new DashboardFilter
         {
@@ -47,7 +48,7 @@ public static class ReadEndpoints
     }
 
     private static async Task<IResult> HandleSignatures(
-        IDashboardEventStore store, int limit = 100, int offset = 0, bool? isBot = null)
+        [FromServices] IDashboardEventStore store, int limit = 100, int offset = 0, bool? isBot = null)
     {
         var signatures = await store.GetSignaturesAsync(limit, offset, isBot);
         return Results.Ok(new PaginatedResponse<object>
@@ -58,14 +59,14 @@ public static class ReadEndpoints
         });
     }
 
-    private static async Task<IResult> HandleSummary(IDashboardEventStore store)
+    private static async Task<IResult> HandleSummary([FromServices] IDashboardEventStore store)
     {
         var summary = await store.GetSummaryAsync();
         return Results.Ok(new SingleResponse<object> { Data = summary, Meta = new ResponseMeta() });
     }
 
     private static async Task<IResult> HandleTimeseries(
-        IDashboardEventStore store, string interval = "5m", DateTime? since = null, DateTime? until = null)
+        [FromServices] IDashboardEventStore store, string interval = "5m", DateTime? since = null, DateTime? until = null)
     {
         var bucketSize = interval switch
         {
@@ -85,7 +86,7 @@ public static class ReadEndpoints
     }
 
     private static async Task<IResult> HandleCountries(
-        IDashboardEventStore store, int limit = 20, DateTime? since = null, DateTime? until = null)
+        [FromServices] IDashboardEventStore store, int limit = 20, DateTime? since = null, DateTime? until = null)
     {
         var countries = await store.GetCountryStatsAsync(limit, since, until);
         return Results.Ok(new PaginatedResponse<object>
@@ -97,7 +98,7 @@ public static class ReadEndpoints
     }
 
     private static async Task<IResult> HandleCountryDetail(
-        string code, IDashboardEventStore store, DateTime? since = null, DateTime? until = null)
+        string code, [FromServices] IDashboardEventStore store, DateTime? since = null, DateTime? until = null)
     {
         var detail = await store.GetCountryDetailAsync(code, since, until);
         if (detail is null) return Results.NotFound();
@@ -105,7 +106,7 @@ public static class ReadEndpoints
     }
 
     private static async Task<IResult> HandleEndpoints(
-        IDashboardEventStore store, int limit = 50, DateTime? since = null, DateTime? until = null)
+        [FromServices] IDashboardEventStore store, int limit = 50, DateTime? since = null, DateTime? until = null)
     {
         var eps = await store.GetEndpointStatsAsync(limit, since, until);
         return Results.Ok(new PaginatedResponse<object>
@@ -117,7 +118,7 @@ public static class ReadEndpoints
     }
 
     private static async Task<IResult> HandleEndpointDetail(
-        string method, string path, IDashboardEventStore store, DateTime? since = null, DateTime? until = null)
+        string method, string path, [FromServices] IDashboardEventStore store, DateTime? since = null, DateTime? until = null)
     {
         var detail = await store.GetEndpointDetailAsync(method, "/" + path, since, until);
         if (detail is null) return Results.NotFound();
@@ -125,7 +126,7 @@ public static class ReadEndpoints
     }
 
     private static async Task<IResult> HandleTopBots(
-        IDashboardEventStore store, int limit = 10, DateTime? since = null, DateTime? until = null)
+        [FromServices] IDashboardEventStore store, int limit = 10, DateTime? since = null, DateTime? until = null)
     {
         var bots = await store.GetTopBotsAsync(limit, since, until);
         return Results.Ok(new PaginatedResponse<object>
@@ -137,7 +138,7 @@ public static class ReadEndpoints
     }
 
     private static async Task<IResult> HandleThreats(
-        IDashboardEventStore store, int limit = 20, DateTime? since = null, DateTime? until = null)
+        [FromServices] IDashboardEventStore store, int limit = 20, DateTime? since = null, DateTime? until = null)
     {
         var threats = await store.GetThreatsAsync(limit, since, until);
         return Results.Ok(new PaginatedResponse<object>
