@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+option csharp_namespace = "Stylobot.Detection.V1";
+option go_package = "github.com/scottgal/stylobot-go/proto;proto";
+
+package stylobot.detection.v1;
+
+service DetectionService {
+  rpc Detect (DetectRequest) returns (DetectResponse);
+  rpc DetectBatch (DetectBatchRequest) returns (DetectBatchResponse);
+  rpc RenderWidget (RenderWidgetRequest) returns (RenderWidgetResponse);
+}
+
+message DetectRequest {
+  string method    = 1;
+  string path      = 2;
+  map<string, string> headers = 3;
+  string remote_ip = 4;
+  string protocol  = 5;
+  TlsInfo tls      = 6;
+}
+
+message TlsInfo {
+  string version = 1;
+  string cipher  = 2;
+  string ja3     = 3;
+  string ja4     = 4;
+}
+
+message DetectResponse {
+  bool              is_bot             = 1;
+  float             bot_probability    = 2;
+  float             confidence         = 3;
+  string            bot_type           = 4;
+  string            bot_name           = 5;
+  RiskBand          risk_band          = 6;
+  RecommendedAction recommended_action = 7;
+  float             threat_score       = 8;
+  ThreatBand        threat_band        = 9;
+  repeated Reason   reasons            = 10;
+  float             processing_time_ms = 11;
+  int32             detectors_run      = 12;
+}
+
+message Reason {
+  string detector = 1;
+  string detail   = 2;
+  float  impact   = 3;
+}
+
+message DetectBatchRequest {
+  repeated DetectRequest requests = 1;
+}
+
+message DetectBatchResponse {
+  repeated DetectResponse responses = 1;
+}
+
+message RenderWidgetRequest {
+  string template              = 1;
+  DetectResponse verdict       = 2;
+  map<string, string> vars     = 3;
+}
+
+message RenderWidgetResponse {
+  string html    = 1;
+  bool   success = 2;
+  string error   = 3;
+}
+
+enum RiskBand {
+  RISK_BAND_UNKNOWN   = 0;
+  RISK_BAND_VERY_LOW  = 1;
+  RISK_BAND_LOW       = 2;
+  RISK_BAND_ELEVATED  = 3;
+  RISK_BAND_MEDIUM    = 4;
+  RISK_BAND_HIGH      = 5;
+  RISK_BAND_VERY_HIGH = 6;
+  RISK_BAND_VERIFIED  = 7;
+}
+
+enum RecommendedAction {
+  RECOMMENDED_ACTION_ALLOW     = 0;
+  RECOMMENDED_ACTION_THROTTLE  = 1;
+  RECOMMENDED_ACTION_CHALLENGE = 2;
+  RECOMMENDED_ACTION_BLOCK     = 3;
+}
+
+enum ThreatBand {
+  THREAT_BAND_NONE     = 0;
+  THREAT_BAND_LOW      = 1;
+  THREAT_BAND_ELEVATED = 2;
+  THREAT_BAND_HIGH     = 3;
+  THREAT_BAND_CRITICAL = 4;
+}

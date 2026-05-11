@@ -5,15 +5,25 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": ["dist", "proto"],
   "scripts": {
     "build": "tsc",
     "test": "node --experimental-strip-types --test 'src/__tests__/*.test.ts'",
     "clean": "rm -rf dist"
   },
+  "peerDependencies": {
+    "@grpc/grpc-js": "^1.12.0",
+    "@grpc/proto-loader": "^0.7.0"
+  },
+  "peerDependenciesMeta": {
+    "@grpc/grpc-js": { "optional": true },
+    "@grpc/proto-loader": { "optional": true }
+  },
   "devDependencies": {
-    "typescript": "^5.8.0",
-    "@types/node": "^22.0.0"
+    "@grpc/grpc-js": "^1.12.0",
+    "@grpc/proto-loader": "^0.7.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0"
   },
   "license": "MIT"
 }
