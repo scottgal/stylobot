@@ -1,0 +1,35 @@
+services:
+  upstream:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ../upstream:/app
+    command: node index.js
+    environment:
+      PORT: "3000"
+    networks:
+      - test-net
+
+  app:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./app:/app
+      - ../../sdk/node:/sdk/node
+    command: node index.js
+    ports:
+      - "13001:3001"
+    environment:
+      PORT: "3001"
+      UPSTREAM_URL: "http://upstream:3000"
+      STYLOBOT_ENDPOINT: "http://host.docker.internal:5090"
+      STYLOBOT_MODE: "grpc"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - test-net
+    depends_on:
+      - upstream
+
+networks:
+  test-net:
