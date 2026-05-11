@@ -2,51 +2,31 @@ package stylobot_test
 
 import (
 	"context"
-	"net"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	stylobot "github.com/scottgal/caddy-stylobot"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	pb "github.com/scottgal/caddy-stylobot/proto"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	stylobot "github.com/scottgal/caddy-stylobot"
+	sb "github.com/scottgal/stylobot-go"
 )
 
-type mockDetectServer struct {
-	pb.UnimplementedDetectionServiceServer
-	resp *pb.DetectResponse
+type mockClient struct {
+	verdict *sb.Verdict
+	err     error
 }
 
-func (m *mockDetectServer) Detect(_ context.Context, _ *pb.DetectRequest) (*pb.DetectResponse, error) {
-	return m.resp, nil
+func (m *mockClient) Detect(_ context.Context, _ sb.DetectRequest) (*sb.Verdict, error) {
+	return m.verdict, m.err
 }
-
-func startMockGRPC(t *testing.T, resp *pb.DetectResponse) string {
-	t.Helper()
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := grpc.NewServer()
-	pb.RegisterDetectionServiceServer(s, &mockDetectServer{resp: resp})
-	go s.Serve(lis) //nolint:errcheck
-	t.Cleanup(s.Stop)
-	return lis.Addr().String()
+func (m *mockClient) DetectBatch(_ context.Context, _ []sb.DetectRequest) ([]*sb.Verdict, error) {
+	return []*sb.Verdict{m.verdict}, m.err
 }
-
-func newMiddleware(t *testing.T, addr string, onBlock int) *stylobot.StyloBot {
-	t.Helper()
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { conn.Close() }) //nolint:errcheck
-	m := &stylobot.StyloBot{OnBlock: onBlock}
-	m.SetConn(conn)
-	return m
+func (m *mockClient) RenderWidget(_ context.Context, _ sb.RenderRequest) (*sb.RenderResponse, error) {
+	return &sb.RenderResponse{HTML: "", Success: true}, nil
 }
+func (m *mockClient) Close() error { return nil }
 
 func TestExtractIPFromXFF(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -74,15 +54,15 @@ func TestExtractHeadersLowercase(t *testing.T) {
 }
 
 func TestInjectsHeaders(t *testing.T) {
-	addr := startMockGRPC(t, &pb.DetectResponse{
+	m := &stylobot.StyloBot{OnBlock: 403}
+	m.SetClient(&mockClient{verdict: &sb.Verdict{
 		IsBot:             false,
 		BotProbability:    0.12,
 		Confidence:        0.95,
-		RiskBand:          pb.RiskBand_RISK_BAND_LOW,
-		RecommendedAction: pb.RecommendedAction_RECOMMENDED_ACTION_ALLOW,
-		ThreatBand:        pb.ThreatBand_THREAT_BAND_NONE,
-	})
-	m := newMiddleware(t, addr, 403)
+		RiskBand:          "Low",
+		RecommendedAction: "Allow",
+		ThreatBand:        "None",
+	}})
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rr := httptest.NewRecorder()
@@ -110,10 +90,8 @@ func TestInjectsHeaders(t *testing.T) {
 }
 
 func TestFailsOpen(t *testing.T) {
-	conn, _ := grpc.NewClient("127.0.0.1:1", grpc.WithTransportCredentials(insecure.NewCredentials()))
-	t.Cleanup(func() { conn.Close() }) //nolint:errcheck
 	m := &stylobot.StyloBot{OnBlock: 403}
-	m.SetConn(conn)
+	m.SetClient(&mockClient{err: fmt.Errorf("connection refused")})
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()
@@ -129,13 +107,13 @@ func TestFailsOpen(t *testing.T) {
 }
 
 func TestBlocksBot(t *testing.T) {
-	addr := startMockGRPC(t, &pb.DetectResponse{
+	m := &stylobot.StyloBot{OnBlock: 403}
+	m.SetClient(&mockClient{verdict: &sb.Verdict{
 		IsBot:             true,
 		BotProbability:    0.98,
-		RecommendedAction: pb.RecommendedAction_RECOMMENDED_ACTION_BLOCK,
-		RiskBand:          pb.RiskBand_RISK_BAND_VERY_HIGH,
-	})
-	m := newMiddleware(t, addr, 403)
+		RecommendedAction: "Block",
+		RiskBand:          "VeryHigh",
+	}})
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rr := httptest.NewRecorder()

@@ -10,10 +10,8 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	pb "github.com/scottgal/caddy-stylobot/proto"
+	sb "github.com/scottgal/stylobot-go"
 	"go.uber.org/zap"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
 func init() {
@@ -33,10 +31,9 @@ type StyloBot struct {
 	// OnBlock is the HTTP status code returned when action=Block (default: 403). 0 = headers only.
 	OnBlock int `json:"on_block,omitempty"`
 
-	timeout time.Duration
-	conn    *grpc.ClientConn
-	client  pb.DetectionServiceClient
-	logger  *zap.Logger
+	timeout  time.Duration
+	sbClient sb.Client
+	logger   *zap.Logger
 }
 
 // CaddyModule returns the Caddy module metadata.
@@ -61,14 +58,15 @@ func (s *StyloBot) Provision(ctx caddy.Context) error {
 	if s.OnBlock == 0 {
 		s.OnBlock = 403
 	}
-	conn, err := grpc.NewClient(s.Endpoint,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		return fmt.Errorf("stylobot: grpc dial %q: %w", s.Endpoint, err)
+	opts := []sb.Option{sb.WithTimeout(s.timeout)}
+	if s.APIKey != "" {
+		opts = append(opts, sb.WithAPIKey(s.APIKey))
 	}
-	s.conn = conn
-	s.client = pb.NewDetectionServiceClient(conn)
+	client, err := sb.NewClient(s.Endpoint, opts...)
+	if err != nil {
+		return fmt.Errorf("stylobot: %w", err)
+	}
+	s.sbClient = client
 	return nil
 }
 
@@ -80,10 +78,9 @@ func (s *StyloBot) Validate() error {
 	return nil
 }
 
-// SetConn injects a pre-dialed connection. Used by tests only.
-func (s *StyloBot) SetConn(conn *grpc.ClientConn) {
-	s.conn = conn
-	s.client = pb.NewDetectionServiceClient(conn)
+// SetClient injects a pre-built client. Used by tests only.
+func (s *StyloBot) SetClient(c sb.Client) {
+	s.sbClient = c
 	s.timeout = 2 * time.Second
 	if s.logger == nil {
 		s.logger = zap.NewNop()
@@ -92,8 +89,8 @@ func (s *StyloBot) SetConn(conn *grpc.ClientConn) {
 
 // Cleanup closes the gRPC connection on module teardown.
 func (s *StyloBot) Cleanup() error {
-	if s.conn != nil {
-		return s.conn.Close()
+	if s.sbClient != nil {
+		return s.sbClient.Close()
 	}
 	return nil
 }
@@ -101,27 +98,21 @@ func (s *StyloBot) Cleanup() error {
 // ServeHTTP calls the StyloBot sidecar, injects detection headers, and optionally blocks bots.
 // Fails open: if the sidecar is unreachable or times out, the request forwards unchanged.
 func (s *StyloBot) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	ctx, cancel := context.WithTimeout(r.Context(), s.timeout)
-	defer cancel()
-
-	req := &pb.DetectRequest{
+	verdict, err := s.sbClient.Detect(context.Background(), sb.DetectRequest{
 		Method:   r.Method,
 		Path:     r.URL.RequestURI(),
-		RemoteIp: ExtractIP(r),
+		RemoteIP: ExtractIP(r),
 		Protocol: r.Proto,
 		Headers:  ExtractHeaders(r),
-	}
-
-	resp, err := s.client.Detect(ctx, req)
+	})
 	if err != nil {
 		s.logger.Warn("stylobot detect failed, failing open", zap.Error(err))
 		return next.ServeHTTP(w, r)
 	}
 
-	injectHeaders(r, resp)
+	injectHeaders(r, verdict)
 
-	if resp.IsBot && s.OnBlock > 0 &&
-		resp.RecommendedAction == pb.RecommendedAction_RECOMMENDED_ACTION_BLOCK {
+	if verdict.IsBot && s.OnBlock > 0 && verdict.RecommendedAction == "Block" {
 		http.Error(w, "Forbidden", s.OnBlock)
 		return nil
 	}
@@ -129,43 +120,17 @@ func (s *StyloBot) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyh
 	return next.ServeHTTP(w, r)
 }
 
-var riskBandNames = map[pb.RiskBand]string{
-	pb.RiskBand_RISK_BAND_UNKNOWN:   "Unknown",
-	pb.RiskBand_RISK_BAND_VERY_LOW:  "VeryLow",
-	pb.RiskBand_RISK_BAND_LOW:       "Low",
-	pb.RiskBand_RISK_BAND_ELEVATED:  "Elevated",
-	pb.RiskBand_RISK_BAND_MEDIUM:    "Medium",
-	pb.RiskBand_RISK_BAND_HIGH:      "High",
-	pb.RiskBand_RISK_BAND_VERY_HIGH: "VeryHigh",
-	pb.RiskBand_RISK_BAND_VERIFIED:  "Verified",
-}
-
-var actionNames = map[pb.RecommendedAction]string{
-	pb.RecommendedAction_RECOMMENDED_ACTION_ALLOW:     "Allow",
-	pb.RecommendedAction_RECOMMENDED_ACTION_THROTTLE:  "Throttle",
-	pb.RecommendedAction_RECOMMENDED_ACTION_CHALLENGE: "Challenge",
-	pb.RecommendedAction_RECOMMENDED_ACTION_BLOCK:     "Block",
-}
-
-var threatBandNames = map[pb.ThreatBand]string{
-	pb.ThreatBand_THREAT_BAND_NONE:     "None",
-	pb.ThreatBand_THREAT_BAND_LOW:      "Low",
-	pb.ThreatBand_THREAT_BAND_ELEVATED: "Elevated",
-	pb.ThreatBand_THREAT_BAND_HIGH:     "High",
-	pb.ThreatBand_THREAT_BAND_CRITICAL: "Critical",
-}
-
-func injectHeaders(r *http.Request, resp *pb.DetectResponse) {
+func injectHeaders(r *http.Request, v *sb.Verdict) {
 	h := r.Header
-	h.Set("X-StyloBot-IsBot", fmt.Sprintf("%v", resp.IsBot))
-	h.Set("X-StyloBot-Probability", fmt.Sprintf("%.4f", resp.BotProbability))
-	h.Set("X-StyloBot-Confidence", fmt.Sprintf("%.4f", resp.Confidence))
-	h.Set("X-StyloBot-BotType", resp.BotType)
-	h.Set("X-StyloBot-BotName", resp.BotName)
-	h.Set("X-StyloBot-RiskBand", riskBandNames[resp.RiskBand])
-	h.Set("X-StyloBot-Action", actionNames[resp.RecommendedAction])
-	h.Set("X-StyloBot-ThreatScore", fmt.Sprintf("%.4f", resp.ThreatScore))
-	h.Set("X-StyloBot-ThreatBand", threatBandNames[resp.ThreatBand])
+	h.Set("X-StyloBot-IsBot", fmt.Sprintf("%v", v.IsBot))
+	h.Set("X-StyloBot-Probability", fmt.Sprintf("%.4f", v.BotProbability))
+	h.Set("X-StyloBot-Confidence", fmt.Sprintf("%.4f", v.Confidence))
+	h.Set("X-StyloBot-BotType", v.BotType)
+	h.Set("X-StyloBot-BotName", v.BotName)
+	h.Set("X-StyloBot-RiskBand", v.RiskBand)
+	h.Set("X-StyloBot-Action", v.RecommendedAction)
+	h.Set("X-StyloBot-ThreatScore", fmt.Sprintf("%.4f", v.ThreatScore))
+	h.Set("X-StyloBot-ThreatBand", v.ThreatBand)
 }
 
 // UnmarshalCaddyfile reads the stylobot Caddyfile block.
