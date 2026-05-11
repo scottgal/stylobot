@@ -81,7 +81,9 @@ func (s *StyloBot) Validate() error {
 // SetClient injects a pre-built client. Used by tests only.
 func (s *StyloBot) SetClient(c sb.Client) {
 	s.sbClient = c
-	s.timeout = 2 * time.Second
+	if s.timeout == 0 {
+		s.timeout = 2 * time.Second
+	}
 	if s.logger == nil {
 		s.logger = zap.NewNop()
 	}
@@ -95,10 +97,23 @@ func (s *StyloBot) Cleanup() error {
 	return nil
 }
 
+var stylobotHeaders = []string{
+	"X-StyloBot-IsBot", "X-StyloBot-Probability", "X-StyloBot-Confidence",
+	"X-StyloBot-BotType", "X-StyloBot-BotName", "X-StyloBot-RiskBand",
+	"X-StyloBot-Action", "X-StyloBot-ThreatScore", "X-StyloBot-ThreatBand",
+}
+
 // ServeHTTP calls the StyloBot sidecar, injects detection headers, and optionally blocks bots.
 // Fails open: if the sidecar is unreachable or times out, the request forwards unchanged.
 func (s *StyloBot) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	verdict, err := s.sbClient.Detect(context.Background(), sb.DetectRequest{
+	for _, name := range stylobotHeaders {
+		r.Header.Del(name)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), s.timeout)
+	defer cancel()
+
+	verdict, err := s.sbClient.Detect(ctx, sb.DetectRequest{
 		Method:   r.Method,
 		Path:     r.URL.RequestURI(),
 		RemoteIP: ExtractIP(r),
