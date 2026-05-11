@@ -191,10 +191,13 @@ if verdict.RecommendedAction == "Block" {
 }
 ```
 
-> **Lazy dial -why `NewClient` does not fail at startup**
+> **Lazy dial — why `NewClient` does not fail at startup**
 > `grpc.NewClient` (the underlying gRPC function) creates a client channel but does not establish a TCP connection immediately. The connection happens on the first RPC call. This means your gateway process starts successfully even if the sidecar has not started yet. The first request after startup may fail (and should be handled with fail-open), but every subsequent request works normally once the sidecar is running.
 >
 > This is different from older `grpc.Dial` behaviour (which also deferred the connection) and from HTTP clients, where you typically connect on creation. The [gRPC Go documentation](https://pkg.go.dev/google.golang.org/grpc#NewClient) covers the lifecycle in detail.
+
+> **`WithTimeout` and caller-supplied deadlines**
+> `WithTimeout` on `NewClient` sets a default per-call deadline applied inside each `Detect` call. If your calling code (or middleware such as the Caddy plugin) already derives a deadline-bounded context from the incoming request, the SDK applies whichever deadline expires first. When the Caddy plugin is in use, the plugin owns the 50ms deadline; you can omit `WithTimeout` from `NewClient` and let the plugin control it. For standalone use (a handler calling the SDK directly), set it on `NewClient` as shown above.
 
 # The Caddy plugin
 
@@ -214,6 +217,7 @@ The Caddyfile configuration:
     stylobot {
         endpoint localhost:5090   # gRPC host:port of the sidecar
         timeout   50ms            # per-request deadline; fails open on expiry
+        # on_block 503            # optional: change the block status code (default: 403)
     }
     reverse_proxy upstream:3000
 }
@@ -258,7 +262,7 @@ flowchart TD
 >
 > Deriving the child context from `r.Context()` (not `context.Background()`) is the key point: client disconnection cancels the gRPC call. The middleware logs and fails open.
 
-**Steps 3–4** — detect and inject. The nine verdict fields become nine `X-StyloBot-*` headers. Headers are set before the block check, so the upstream reads them via `styloBotMiddleware({ mode: 'headers' })` for all non-blocked requests. Requests with `recommendedAction=Block` are returned as 403 at the gateway; everything else forwards with the full verdict headers attached.
+**Steps 3–4** — detect and inject. The nine verdict fields become nine `X-StyloBot-*` headers. Headers are set before the block check, so the upstream reads them via `styloBotMiddleware({ mode: 'headers' })` for all non-blocked requests. Requests where `isBot=true` and `recommendedAction=Block` are returned as 403 at the gateway; everything else forwards with the full verdict headers attached.
 
 The implementation:
 

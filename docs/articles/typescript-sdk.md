@@ -277,7 +277,9 @@ The template:
 {{/if}}
 ```
 
-Honeypot discard is the key technique here. Error feedback teaches attackers to iterate; a silent fake confirmation wastes their time. The confirmation page looks identical whether the order was real or discarded. Express checkout as a trust benefit -not a default -means only sessions that have earned it get the shorter path.
+Honeypot discard is the key technique here. Error feedback teaches attackers to iterate; a silent fake confirmation wastes their time. The confirmation page looks identical whether the order was real or discarded. Express checkout as a trust benefit, not a default, means only sessions that have earned it get the shorter path.
+
+The honeypot `<div>` wrapper is identical on every protected form; extract it as a shared Handlebars partial (`{{> honeypot}}`) in production rather than repeating the inline style block.
 
 ## Page 3: Login
 
@@ -414,6 +416,8 @@ app.use(sbVerdictInjector({ mode: 'sidecar', endpoint: 'http://localhost:5091' }
 
 ## Handlebars
 
+Define `RISK_ORDER` once at module scope — the Nunjucks and EJS helpers below use the same map:
+
 ```ts
 import type { Verdict, RiskBand } from '@stylobot/core';
 
@@ -476,9 +480,7 @@ In templates:
 ```ts
 import nunjucks from 'nunjucks';
 
-const RISK_ORDER: Record<string, number> = {
-  Unknown: 0, VeryLow: 1, Low: 2, Elevated: 3, Medium: 4, High: 5, VeryHigh: 6, Verified: 7,
-};
+// RISK_ORDER — same map defined in the Handlebars section above
 
 class SbGateExtension {
   tags = ['sbgate'];
@@ -517,6 +519,8 @@ env.addExtension('SbGateExtension', new SbGateExtension());
 EJS does not have block helpers, but locals functions cover most cases cleanly:
 
 ```ts
+// RISK_ORDER — same map defined in the Handlebars section above
+
 app.use((req, res, next) => {
   const v = res.locals.sbVerdict ?? null;
   res.locals.sbBelowRisk = (max: string) =>
