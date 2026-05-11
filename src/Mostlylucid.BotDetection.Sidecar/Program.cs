@@ -27,9 +27,22 @@ try
 
     builder.WebHost.ConfigureKestrel(kestrel =>
     {
-        // Single port handles both HTTP/1.1 (REST) and HTTP/2 (gRPC).
-        // Kestrel distinguishes gRPC by content-type: application/grpc.
-        kestrel.ListenAnyIP(port, opts => opts.Protocols = HttpProtocols.Http1AndHttp2);
+        if (grpcOnly)
+        {
+            // gRPC-only: HTTP/2 Prior Knowledge (h2c) on a single port.
+            // Http1AndHttp2 sends GOAWAY to h2c Prior Knowledge connections; Http2 accepts them.
+            kestrel.ListenAnyIP(port, opts => opts.Protocols = HttpProtocols.Http2);
+        }
+        else
+        {
+            // Mixed mode: gRPC (h2c) + REST (HTTP/1.1) on separate ports.
+            // gRPC clients use Prior Knowledge h2c which requires Http2.
+            // REST/health clients use HTTP/1.1 which requires Http1.
+            var restPort = int.Parse(Environment.GetEnvironmentVariable("STYLOBOT_REST_PORT") ?? (port + 1).ToString());
+            kestrel.ListenAnyIP(port, opts => opts.Protocols = HttpProtocols.Http2);
+            kestrel.ListenAnyIP(restPort, opts => opts.Protocols = HttpProtocols.Http1);
+            Log.Information("Mixed mode: gRPC on port {GrpcPort}, REST on port {RestPort}", port, restPort);
+        }
     });
 
     // gRPC - primary high-throughput interface
