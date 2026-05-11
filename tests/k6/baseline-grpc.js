@@ -24,12 +24,13 @@ export const options = {
 
 const SIDECAR_ENDPOINT = __ENV.SIDECAR_ENDPOINT || 'localhost:5090';
 
+let connected = false;
+
 export default function () {
-  // connect() is called per iteration as required by k6's gRPC API (k6 manages
-  // per-VU connection state). client.close() is intentionally omitted so k6
-  // reuses the connection across iterations rather than paying TCP/TLS handshake
-  // overhead on every request.
-  client.connect(SIDECAR_ENDPOINT, { plaintext: true, timeout: '5s' });
+  if (!connected) {
+    client.connect(SIDECAR_ENDPOINT, { plaintext: true });
+    connected = true;
+  }
 
   const response = client.invoke('stylobot.detection.v1.DetectionService/Detect', {
     method: 'GET',
@@ -51,4 +52,8 @@ export default function () {
   }
 
   sleep(0.1);
+}
+
+export function teardown() {
+  client.close();
 }
