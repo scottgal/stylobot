@@ -1,16 +1,14 @@
 syntax = "proto3";
 
 option csharp_namespace = "Stylobot.Detection.V1";
-option go_package = "github.com/scottgal/caddy-stylobot/proto;proto";
+option go_package = "github.com/scottgal/stylobot-go/proto;proto";
 
 package stylobot.detection.v1;
 
-// DetectionService: the primary sidecar interface.
-// Binary protobuf over HTTP/2 (gRPC). REST is available via /api/v1/detect for
-// callers that can't use gRPC.
 service DetectionService {
   rpc Detect (DetectRequest) returns (DetectResponse);
   rpc DetectBatch (DetectBatchRequest) returns (DetectBatchResponse);
+  rpc RenderWidget (RenderWidgetRequest) returns (RenderWidgetResponse);
 }
 
 message DetectRequest {
@@ -18,8 +16,8 @@ message DetectRequest {
   string path      = 2;
   map<string, string> headers = 3;
   string remote_ip = 4;
-  string protocol  = 5;  // "http" or "https", default "https"
-  TlsInfo tls      = 6;  // optional; omit if not available
+  string protocol  = 5;
+  TlsInfo tls      = 6;
 }
 
 message TlsInfo {
@@ -33,8 +31,8 @@ message DetectResponse {
   bool              is_bot             = 1;
   float             bot_probability    = 2;
   float             confidence         = 3;
-  string            bot_type           = 4;  // empty string = no known type
-  string            bot_name           = 5;  // empty string = not identified
+  string            bot_type           = 4;
+  string            bot_name           = 5;
   RiskBand          risk_band          = 6;
   RecommendedAction recommended_action = 7;
   float             threat_score       = 8;
@@ -47,7 +45,7 @@ message DetectResponse {
 message Reason {
   string detector = 1;
   string detail   = 2;
-  float  impact   = 3;  // negative = bot signal, positive = human signal
+  float  impact   = 3;
 }
 
 message DetectBatchRequest {
@@ -56,6 +54,18 @@ message DetectBatchRequest {
 
 message DetectBatchResponse {
   repeated DetectResponse responses = 1;
+}
+
+message RenderWidgetRequest {
+  string template              = 1;
+  DetectResponse verdict       = 2;
+  map<string, string> vars     = 3;
+}
+
+message RenderWidgetResponse {
+  string html    = 1;
+  bool   success = 2;
+  string error   = 3;
 }
 
 enum RiskBand {
