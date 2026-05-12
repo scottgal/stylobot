@@ -15,7 +15,11 @@ public sealed record DetectionEntry(
     string? ActionPolicy,
     string? Country,
     double DetectionTimeMs,
-    int DetectorCount);
+    int DetectorCount,
+    string? PrimarySignature,
+    RiskBand RiskBand,
+    ThreatBand ThreatBand,
+    double ThreatScore);
 
 public sealed class DetectionEventSink
 {
@@ -50,6 +54,8 @@ public sealed class DetectionTapMiddleware
             var detector = ev.Contributions?.LastOrDefault()?.DetectorName ?? "-";
             var country = ev.Signals?.TryGetValue("geo.country_code", out var cc) == true
                 ? cc?.ToString() : null;
+            var primarySig = ev.Signals?.TryGetValue("signature.primary", out var sig) == true
+                ? sig?.ToString() : null;
 
             _sink.Write(new DetectionEntry(
                 DateTime.Now,
@@ -61,7 +67,11 @@ public sealed class DetectionTapMiddleware
                 ev.TriggeredActionPolicyName,
                 country,
                 ev.TotalProcessingTimeMs,
-                ev.ContributingDetectors?.Count ?? 0));
+                ev.ContributingDetectors?.Count ?? 0,
+                primarySig,
+                ev.RiskBand,
+                ev.ThreatBand,
+                ev.ThreatScore));
         }
     }
 }
@@ -83,9 +93,6 @@ public sealed class LiveDetectionTableService : BackgroundService
     private readonly Func<string?>? _tunnelUrlGetter;
 
     private int _totalRequests;
-    private int _totalBots;
-    private int _totalHumans;
-    private int _totalThreats;
     private double _totalDetectionTimeMs;
     private double _maxDetectionTimeMs;
     private readonly DateTime _startTime = DateTime.Now;
@@ -93,7 +100,23 @@ public sealed class LiveDetectionTableService : BackgroundService
     private readonly ConcurrentQueue<DateTime> _recentRequests = new();
     private readonly ConcurrentQueue<DateTime> _sparkHistory = new();
     private readonly ConcurrentDictionary<string, int> _endpointHits = new();
-    private readonly ConcurrentDictionary<string, int> _botSignatures = new();
+
+    /// <summary>
+    ///     Per-fingerprint state. Counts in the stats bar are derived from this dictionary,
+    ///     so "32 hum" means thirty-two distinct fingerprints, not thirty-two requests.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, FingerprintStat> _fingerprints = new();
+
+    private sealed class FingerprintStat
+    {
+        public double LastBotProbability;
+        public RiskBand LastRisk;
+        public ThreatBand LastIntent;
+        public double LastThreatScore;
+        public bool IsBot;
+        public int Requests;
+        public DateTime LastSeen;
+    }
 
     public LiveDetectionTableService(
         DetectionEventSink sink,
@@ -167,14 +190,37 @@ public sealed class LiveDetectionTableService : BackgroundService
         if (entry.DetectionTimeMs > _maxDetectionTimeMs)
             _maxDetectionTimeMs = entry.DetectionTimeMs;
 
-        if (entry.Verdict == "BOT")
+        // Track per-fingerprint stats. Counts shown in the stats bar are derived from
+        // _fingerprints so they represent unique fingerprints, not request volume.
+        // Requests without a primary signature (rare) still count toward _totalRequests
+        // but cannot be attributed to a fingerprint.
+        var fp = entry.PrimarySignature;
+        if (!string.IsNullOrEmpty(fp))
         {
-            _totalBots++;
-            if (entry.BotProbability >= 0.8) _totalThreats++;
-            var sig = entry.BotName ?? entry.TopDetector;
-            _botSignatures.AddOrUpdate(sig, 1, (_, c) => c + 1);
+            _fingerprints.AddOrUpdate(
+                fp,
+                _ => new FingerprintStat
+                {
+                    LastBotProbability = entry.BotProbability,
+                    LastRisk = entry.RiskBand,
+                    LastIntent = entry.ThreatBand,
+                    LastThreatScore = entry.ThreatScore,
+                    IsBot = entry.Verdict == "BOT",
+                    Requests = 1,
+                    LastSeen = entry.Timestamp,
+                },
+                (_, s) =>
+                {
+                    s.LastBotProbability = entry.BotProbability;
+                    s.LastRisk = entry.RiskBand;
+                    s.LastIntent = entry.ThreatBand;
+                    s.LastThreatScore = entry.ThreatScore;
+                    s.IsBot = entry.Verdict == "BOT";
+                    s.Requests++;
+                    s.LastSeen = entry.Timestamp;
+                    return s;
+                });
         }
-        else _totalHumans++;
 
         var path = entry.Path.Split('?')[0];
         _endpointHits.AddOrUpdate(path, 1, (_, c) => c + 1);
@@ -182,8 +228,27 @@ public sealed class LiveDetectionTableService : BackgroundService
         _sparkHistory.Enqueue(DateTime.Now);
 
         if (_endpointHits.Count > 500) Trim(_endpointHits, 100);
-        if (_botSignatures.Count > 200) Trim(_botSignatures, 50);
+        if (_fingerprints.Count > 1000) TrimFingerprints(200);
         while (entries.Count > 200) entries.RemoveLast();
+    }
+
+    private void TrimFingerprints(int keep)
+    {
+        var stale = _fingerprints.OrderBy(kv => kv.Value.LastSeen)
+            .Take(_fingerprints.Count - keep)
+            .Select(kv => kv.Key).ToArray();
+        foreach (var k in stale) _fingerprints.TryRemove(k, out _);
+    }
+
+    private (int Humans, int Bots, int Threats) FingerprintCounts()
+    {
+        var humans = 0; var bots = 0; var threats = 0;
+        foreach (var stat in _fingerprints.Values)
+        {
+            if (stat.IsBot) bots++; else humans++;
+            if (stat.LastIntent >= ThreatBand.High || stat.LastBotProbability >= 0.8) threats++;
+        }
+        return (humans, bots, threats);
     }
 
     private void TrimWindows()
@@ -219,13 +284,15 @@ public sealed class LiveDetectionTableService : BackgroundService
         sb.Append(C.R + "\n");
         lines++;
 
-        // ── Line 1: Stats bar ─────────────────────────────────────────────────
+        // ── Line 1: Stats bar (counts are unique fingerprints, not requests) ──
         var spark = BuildSparkline(Math.Min(40, w / 3));
-        var threatCol = _totalThreats > 0 ? C.Red : C.Dim;
+        var (humansFp, botsFp, threatsFp) = FingerprintCounts();
+        var threatCol = threatsFp > 0 ? C.Red : C.Dim;
 
-        var statsContent = C.Green + $"  \u2713 {_totalHumans} ok" + C.R
-            + C.Red + $"  \u2717 {_totalBots} bots" + C.R
-            + threatCol + $"  \u26a0 {_totalThreats} threats" + C.R
+        var statsContent = C.Dim + "  fp " + C.R
+            + C.Green + $"\u2713 {humansFp} hum" + C.R
+            + C.Red + $"  \u2717 {botsFp} bot" + C.R
+            + threatCol + $"  \u26a0 {threatsFp} threats" + C.R
             + C.Dim + $"  avg {avgMs:F1}ms  max {_maxDetectionTimeMs:F1}ms  " + C.R
             + C.Blue + spark + C.R;
         var statsVis = VLen(statsContent);
@@ -239,12 +306,21 @@ public sealed class LiveDetectionTableService : BackgroundService
         var sideW = wide ? 30 : 0;
         var feedW = wide ? w - sideW - 1 : w;
 
-        var feedHdr = " " + C.Dim + VPad("Time", 8) + "  " + VPad("Path", feedW - 30) + "  " + VPadL("Bot%", 5) + "  " + VPad("Action", 7) + "  " + VPadL("ms", 5) + " " + C.R;
+        // Time(8) + Path + Bot%(4) + Rsk(3) + Int(3) + Act(6) + ms(4) = path consumes the rest
+        var fixedCols = 8 + 4 + 3 + 3 + 6 + 4 + 7 * 2; // 7 two-space separators
+        var feedHdr = " " + C.Dim
+            + VPad("Time", 8)
+            + "  " + VPad("Path", Math.Max(10, feedW - fixedCols))
+            + "  " + VPadL("Bot%", 4)
+            + "  " + VPad("Rsk", 3)
+            + "  " + VPad("Int", 3)
+            + "  " + VPad("Act", 6)
+            + "  " + VPadL("ms", 4) + " " + C.R;
         sb.Append(feedHdr);
         if (wide)
         {
             sb.Append(C.Dim + "\u2502" + C.R);
-            sb.Append(C.Dim + VPad(" Top Bots", sideW - 1) + C.R);
+            sb.Append(C.Dim + VPad(" Top Fingerprints", sideW - 1) + C.R);
         }
         sb.Append("\x1b[K\n");
         lines++;
@@ -290,8 +366,8 @@ public sealed class LiveDetectionTableService : BackgroundService
 
         // ── Footer text ───────────────────────────────────────────────────────
         string footer;
-        if (_totalThreats >= 3 && _policy.Equals("logonly", StringComparison.OrdinalIgnoreCase))
-            footer = C.Yellow + $"  \u26a0  {_totalThreats} threats in observe-only mode  add --policy block to enable blocking" + C.R;
+        if (threatsFp >= 3 && _policy.Equals("logonly", StringComparison.OrdinalIgnoreCase))
+            footer = C.Yellow + $"  \u26a0  {threatsFp} threat fingerprints in observe-only mode  add --policy block to enable blocking" + C.R;
         else
             footer = C.Dim + "  Ctrl+C to stop  |  --verbose for full logs" + C.R;
 
@@ -324,8 +400,9 @@ public sealed class LiveDetectionTableService : BackgroundService
 
     private static string FormatFeedRow(DetectionEntry e, int width)
     {
-        var pathW = width - 8 - 5 - 7 - 5 - 6; // time + prob + action + ms + spaces
-        if (pathW < 10) pathW = 10;
+        // Keep in sync with the column-width math in BuildFrame's feed header.
+        var fixedCols = 8 + 4 + 3 + 3 + 6 + 4 + 7 * 2;
+        var pathW = Math.Max(10, width - fixedCols);
 
         var path = VTrunc(e.Path.Split('?')[0], pathW);
         var prob = e.BotProbability;
@@ -339,14 +416,42 @@ public sealed class LiveDetectionTableService : BackgroundService
 
         var msCol = e.DetectionTimeMs > 200 ? C.Red : e.DetectionTimeMs > 50 ? C.Yellow : C.Dim;
         var action = FormatAction(e);
+        var (riskTxt, riskCol) = FormatRiskCell(e.RiskBand);
+        var (intTxt, intCol)   = FormatIntentCell(e.ThreatBand);
 
         return " " + C.Dim + e.Timestamp.ToString("HH:mm:ss") + C.R
             + "  " + VPad(path, pathW)
-            + "  " + probCol + VPadL(probStr, 5) + C.R
-            + "  " + action + VPad("", Math.Max(0, 7 - VLen(action)))
-            + "  " + msCol + VPadL($"{e.DetectionTimeMs:F0}", 5) + C.R
+            + "  " + probCol + VPadL(probStr, 4) + C.R
+            + "  " + riskCol + VPad(riskTxt, 3) + C.R
+            + "  " + intCol  + VPad(intTxt, 3)  + C.R
+            + "  " + action + VPad("", Math.Max(0, 6 - VLen(action)))
+            + "  " + msCol + VPadL($"{e.DetectionTimeMs:F0}", 4) + C.R
             + " ";
     }
+
+    /// <summary>Compact 2-3 char abbreviation for the risk band with a colour.</summary>
+    private static (string Text, string Colour) FormatRiskCell(RiskBand r) => r switch
+    {
+        RiskBand.Verified => ("Ver", C.Bold + C.Red),
+        RiskBand.VeryHigh => ("VH",  C.Bold + C.Red),
+        RiskBand.High     => ("Hi",  C.Red),
+        RiskBand.Medium   => ("Md",  C.Yellow),
+        RiskBand.Elevated => ("El",  C.Yellow),
+        RiskBand.Low      => ("Lo",  C.Green),
+        RiskBand.VeryLow  => ("VL",  C.Green),
+        _                 => ("-",   C.Dim),
+    };
+
+    /// <summary>Compact 1-2 char abbreviation for the intent (threat) band with a colour.</summary>
+    private static (string Text, string Colour) FormatIntentCell(ThreatBand t) => t switch
+    {
+        ThreatBand.Critical => ("Cr", C.Bold + C.Red),
+        ThreatBand.High     => ("Hi", C.Red),
+        ThreatBand.Elevated => ("El", C.Yellow),
+        ThreatBand.Low      => ("Lo", C.Dim),
+        ThreatBand.None     => ("-",  C.Dim),
+        _                   => ("-",  C.Dim),
+    };
 
     // ── Sidebar ───────────────────────────────────────────────────────────────
 
@@ -372,14 +477,30 @@ public sealed class LiveDetectionTableService : BackgroundService
             lines.Add(C.Dim + new string('\u2500', width) + C.R);
         }
 
-        // Top bots
-        Section("Top Bots");
-        var bots = _botSignatures.OrderByDescending(kv => kv.Value).Take(5).ToList();
-        if (bots.Count == 0)
+        // Top fingerprints. Ordered by most-recently-seen so the list visibly updates
+        // as scores change. Each row shows the last 10 chars of the signature, the
+        // latest bot percentage, and the latest risk band, colour-coded by verdict.
+        Section("Top Fingerprints");
+        var fps = _fingerprints
+            .OrderByDescending(kv => kv.Value.LastSeen)
+            .Take(7)
+            .ToList();
+        if (fps.Count == 0)
             Row(C.Dim + "  none yet" + C.R);
         else
-            foreach (var (sig, count) in bots)
-                Row(C.Red + " \u25a0 " + C.R + VTrunc(sig, width - 8) + C.Dim + " " + count.ToString().PadLeft(4) + C.R);
+            foreach (var (sig, stat) in fps)
+            {
+                var bullet = stat.IsBot ? C.Red + "\u25a0" : C.Green + "\u25a0";
+                var sigTail = sig.Length > 10 ? sig[^10..] : sig;
+                var prob = $"{stat.LastBotProbability * 100:F0}%";
+                var (rTxt, rCol) = FormatRiskCell(stat.LastRisk);
+                // Layout: " ● <sigtail-10>  ##%  RR "  ≈ 4 + 10 + 2 + 4 + 2 + 3 = 25 chars min
+                var line = " " + bullet + C.R + " "
+                    + VPad(sigTail, 10)
+                    + "  " + (stat.IsBot ? C.Red : C.Green) + VPadL(prob, 4) + C.R
+                    + "  " + rCol + VPad(rTxt, 3) + C.R;
+                Row(line);
+            }
 
         Divider();
 
