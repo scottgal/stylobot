@@ -88,39 +88,24 @@ public class BoundedChannelLearningBusTests : IAsyncDisposable
         var bus = CreateBus(hpMode: true, inner: inner);
         var evt = MakeEvent("hp-source");
 
-        // Start the background consumer
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        // Start the background consumer. Use a generous timeout so this is not flaky
+        // on slow CI runners; the actual forwarding happens in microseconds when the
+        // scheduler is responsive.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         await bus.StartAsync(cts.Token);
 
-        // Act — TryPublish returns before the consumer forwards the event
+        // Act: TryPublish returns before the consumer forwards the event.
         var result = bus.TryPublish(evt);
         Assert.True(result);
 
-        // The inner bus may or may not have the event yet — the consumer is async.
-        // Use a TaskCompletionSource to wait without Task.Delay.
-        var tcs = new TaskCompletionSource<LearningEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
-        cts.Token.Register(() => tcs.TrySetCanceled());
+        // Wait directly on the inner reader. WaitToReadAsync is the canonical
+        // channel-aware wait; no Task.Run + TaskCompletionSource shim needed.
+        var hasData = await inner.Reader.WaitToReadAsync(cts.Token);
+        Assert.True(hasData, "Inner reader signalled completion before delivering the event");
+        Assert.True(inner.Reader.TryRead(out var delivered),
+            "WaitToReadAsync returned true but TryRead found no item");
 
-        // Poll the inner reader via a background task (avoiding sleep in the hot path)
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await foreach (var received in inner.Reader.ReadAllAsync(cts.Token))
-                {
-                    tcs.TrySetResult(received);
-                    break;
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                tcs.TrySetCanceled();
-            }
-        }, cts.Token);
-
-        // Assert — event eventually arrives on the inner bus
-        var delivered = await tcs.Task;
-        Assert.Equal(evt.Source, delivered.Source);
+        Assert.Equal(evt.Source, delivered!.Source);
         Assert.Equal(evt.Type, delivered.Type);
     }
 
