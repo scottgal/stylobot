@@ -5,6 +5,18 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.4.2] - 2026-05-12
+
+Test-only release. Fixes a flaky concurrency test that intermittently failed the 6.4.1 publish workflow on slow GitHub Actions runners.
+
+### Fixed
+
+- **`BoundedChannelLearningBusTests.TryPublish_WhenHpModeOn_ReturnsImmediately_InnerBusReceivesLater`** -replaced the `TaskCompletionSource + Task.Run` polling shim with a direct `WaitToReadAsync` on the inner reader and bumped the deadline from 5s to 30s. The test now fails clearly on a genuine deadlock but no longer flakes under normal CI scheduler variance.
+
+No production code changes. No runtime behaviour changes.
+
+---
+
 ## [6.4.1] - 2026-05-12
 
 Policy-system consolidation. Two genuine additions (`FailureMode`, `LoadShed`) plus a deprecation pass that surfaces and documents the existing duplication between `BotDetectionOptions` and `DetectionPolicy`. No breaking changes; existing customers continue to work unchanged.
