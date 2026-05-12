@@ -661,6 +661,40 @@ public class ContentSequenceContributorTests : IDisposable
 
     #endregion
 
+    #region Idle Reset
+
+    [Fact]
+    public async Task RequestCount_ResetsAfterIdleGap()
+    {
+        const string sig = "idle-reset";
+        SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-5));
+        var ctxBefore = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, ctxBefore with
+        {
+            RequestCountInWindow = 199,
+            LastRequest = DateTimeOffset.UtcNow.AddMinutes(-2)
+        });
+
+        // idle gap (2 min) > idle reset (60 sec) so the window should reset on next request
+        var contributor = CreateContributor(new Dictionary<string, object>
+        {
+            ["request_count_idle_reset_seconds"] = 60
+        });
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "GET";
+            ctx.Request.Path = "/widget.js";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "script";
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var ctxAfter = _contextStore.TryGet(sig)!;
+        Assert.Equal(1, ctxAfter.RequestCountInWindow);
+    }
+
+    #endregion
+
     #region SignalR Expected — Not Written When Centroid Is Bot
 
     [Fact]

@@ -92,6 +92,7 @@ public class ContentSequenceContributor : ConfiguredContributorBase
     private double MachineSpeedScore => GetParam("machine_speed_score", 0.3);
     private double HighRequestCountScore => GetParam("high_request_count_score", 0.2);
     private int HighRequestCountThreshold => GetParam("high_request_count_threshold", 200);
+    private int RequestCountIdleResetSeconds => GetParam("request_count_idle_reset_seconds", 60);
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
@@ -283,17 +284,28 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         // SignalR expected: next step in chain is SignalR AND centroid is not Bot
         var signalRExpected = IsSignalRExpected(ctx, position);
 
-        // Build updated context
+        // If the inter-request idle gap exceeded the reset threshold, treat this as a
+        // fresh window: reset count, observed states, and cache-warm. Prevents long-lived
+        // sessions from accumulating a permanent high-request-count signal.
+        var idleSeconds = (now - ctx.LastRequest).TotalSeconds;
+        var resetWindow = idleSeconds >= RequestCountIdleResetSeconds;
+        var newRequestCount = resetWindow ? 1 : ctx.RequestCountInWindow + 1;
+        var newWindowStart = resetWindow ? now : ctx.WindowStartTime;
+        var newObservedSet = resetWindow
+            ? ImmutableHashSet<RequestState>.Empty.Add(requestState)
+            : observedSet;
+        var newCacheWarm = resetWindow ? false : cacheWarm;
+
         var updatedCtx = ctx with
         {
             Position = position,
-            ObservedStateSet = observedSet,
-            WindowStartTime = ctx.WindowStartTime,
-            RequestCountInWindow = ctx.RequestCountInWindow + 1,
+            ObservedStateSet = newObservedSet,
+            WindowStartTime = newWindowStart,
+            RequestCountInWindow = newRequestCount,
             LastRequest = now,
             HasDiverged = hasDiverged,
             DivergenceCount = divergenceCount,
-            CacheWarm = cacheWarm
+            CacheWarm = newCacheWarm
         };
         _contextStore.Update(signature, updatedCtx);
 
