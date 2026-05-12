@@ -41,6 +41,7 @@
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.Holodeck\Mostlylucid.BotDetection.Llm.Holodeck.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.Tunnel\Mostlylucid.BotDetection.Llm.Tunnel.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
+        <ProjectReference Include="..\Mostlylucid.BotDetection.Sidecar.Client\Mostlylucid.BotDetection.Sidecar.Client.csproj" />
     </ItemGroup>
 
 </Project>
