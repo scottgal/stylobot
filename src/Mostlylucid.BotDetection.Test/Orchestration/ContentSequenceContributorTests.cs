@@ -325,17 +325,18 @@ public class ContentSequenceContributorTests : IDisposable
     #region Machine-Speed Divergence
 
     [Fact]
-    public async Task MachineSpeedRequest_SubTwentyMs_WritesDivergedTrue()
+    public async Task MachineSpeedPlusNotFound_TripsDivergence()
     {
+        // Verifies: machine-speed timing (sub-20ms) combined with an unexpected NotFound
+        // classification (404 response, weight 0.50) crosses the 0.6 threshold.
+        // Under the new per-state weighting, machine-speed alone (0.3) is intentionally
+        // insufficient: see MachineSpeedAloneOnExpectedState_DoesNotTrip below.
         const string sig = "sig-machine-speed";
         // Seed context first, then stamp LastRequest immediately before ContributeAsync
         // to keep the gap well within the 20ms machine-speed threshold on slow CI.
         SeedDocumentContext(sig);
 
         var contributor = CreateContributor();
-        // Use a 404 response so the classifier returns NotFound (weight 0.50). Combined with
-        // machine-speed (0.3) this exceeds the new 0.6 divergence threshold. Machine-speed alone
-        // is intentionally insufficient under the weighted model.
         var state = CreateState(
             signature: sig,
             configureHttp: ctx =>
@@ -345,7 +346,7 @@ public class ContentSequenceContributorTests : IDisposable
                 ctx.Response.StatusCode = 404;
             });
 
-        // Stamp right before the call — minimises elapsed time between seed and detect.
+        // Stamp right before the call: minimises elapsed time between seed and detect.
         var existing = _contextStore.TryGet(sig);
         if (existing != null)
             _contextStore.Update(sig, existing with { LastRequest = DateTimeOffset.UtcNow.AddMilliseconds(-2) });
@@ -356,6 +357,36 @@ public class ContentSequenceContributorTests : IDisposable
             "Machine-speed request must write sequence.diverged");
         var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
         Assert.True(diverged, "sequence.diverged must be true for sub-20ms machine-speed + NotFound (0.3 + 0.5 = 0.8)");
+    }
+
+    [Fact]
+    public async Task MachineSpeedAloneOnExpectedState_DoesNotTrip()
+    {
+        // Verifies: machine-speed timing (sub-20ms) on an EXPECTED state (StaticAsset in
+        // the critical phase) does NOT trip divergence. The new per-state weighting
+        // intentionally requires machine-speed to combine with a meaningful unexpected
+        // state, not on its own.
+        const string sig = "machine-speed-expected";
+        SeedDocumentContext(sig);
+        var ctxBefore = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, ctxBefore with
+        {
+            LastRequest = DateTimeOffset.UtcNow.AddMilliseconds(-5)
+        });
+
+        var contributor = CreateContributor();
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "GET";
+            ctx.Request.Path = "/site.css";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "style";
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
+        var score = state.GetSignal<double>(SignalKeys.SequenceDivergenceScore);
+        Assert.False(diverged, $"Machine-speed on an expected state must not trip (score={score:F2})");
     }
 
     #endregion
@@ -443,10 +474,18 @@ public class ContentSequenceContributorTests : IDisposable
         const string sig = "weighted-auth";
         SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-1));
 
+        // Push LastRequest into the machine-speed band (sub-20ms) so the score lands
+        // clearly above the 0.6 threshold instead of sitting exactly on the boundary:
+        // AuthAttempt (0.60) + machine-speed (0.30) = 0.90, well above 0.6.
+        var ctxBefore = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, ctxBefore with
+        {
+            LastRequest = DateTimeOffset.UtcNow.AddMilliseconds(-5)
+        });
+
         var contributor = CreateContributor();
         // Response status 401 forces the classifier to return AuthAttempt (weight 0.60).
-        // AuthAttempt is not in the critical-phase expected set, so weight applies directly
-        // and meets the 0.6 divergence threshold.
+        // AuthAttempt is not in the critical-phase expected set, so weight applies directly.
         var state = CreateState(sig, configureHttp: ctx =>
         {
             ctx.Request.Method = "POST";
@@ -459,7 +498,67 @@ public class ContentSequenceContributorTests : IDisposable
         await contributor.ContributeAsync(state, CancellationToken.None);
 
         var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
-        Assert.True(diverged, "AuthAttempt should trip divergence on a fresh session at position 1");
+        Assert.True(diverged, "AuthAttempt + machine-speed should trip divergence well above the 0.6 threshold");
+    }
+
+    [Fact]
+    public async Task UnexpectedStaticAsset_WithBoostedWeight_DoesTripDivergence()
+    {
+        // When YAML override boosts static-asset weight to 0.9, an unexpected static asset
+        // SHOULD trip divergence. Proves GetWeights honours per-state YAML overrides.
+        const string sig = "boosted-static";
+        SeedDocumentContext(sig);
+        var ctxBefore = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, ctxBefore with
+        {
+            WindowStartTime = DateTimeOffset.UtcNow.AddSeconds(-3),
+            LastRequest = DateTimeOffset.UtcNow.AddSeconds(-1)
+        });
+
+        var contributor = CreateContributor(new Dictionary<string, object>
+        {
+            ["unexpected_weight_static_asset"] = 0.9
+        });
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "GET";
+            ctx.Request.Path = "/extra.css";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "style";
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        Assert.True(state.GetSignal<bool>(SignalKeys.SequenceDiverged),
+            "Boosted static-asset weight (0.9) must trip divergence in late phase");
+    }
+
+    [Fact]
+    public void YamlKeyFor_HasMappingForEveryRequestState()
+    {
+        // Ensures adding a RequestState enum value also requires updating YamlKeyFor.
+        // If this test breaks, add the missing case to the switch AND a YAML key in
+        // contentsequence.detector.yaml.
+        var method = typeof(ContentSequenceContributor).GetMethod(
+            "YamlKeyFor",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(method);
+        foreach (var state in Enum.GetValues<RequestState>())
+        {
+            // Will throw ArgumentOutOfRangeException (wrapped in TargetInvocationException)
+            // if a RequestState lacks a switch arm. Surface the inner cause if so.
+            object? key;
+            try
+            {
+                key = method!.Invoke(null, new object[] { state });
+            }
+            catch (System.Reflection.TargetInvocationException tie)
+            {
+                throw new Xunit.Sdk.XunitException(
+                    $"YamlKeyFor has no mapping for RequestState.{state}: {tie.InnerException?.Message}");
+            }
+            Assert.NotNull(key);
+            Assert.StartsWith("unexpected_weight_", (string)key!);
+        }
     }
 
     #endregion

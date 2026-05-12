@@ -93,9 +93,6 @@ public class ContentSequenceContributor : ConfiguredContributorBase
     private double HighRequestCountScore => GetParam("high_request_count_score", 0.2);
     private int HighRequestCountThreshold => GetParam("high_request_count_threshold", 200);
 
-    // Per-RequestState divergence weights, loaded lazily from YAML defaults.
-    private StateDivergenceWeights? _weights;
-
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
         CancellationToken cancellationToken = default)
@@ -336,9 +333,9 @@ public class ContentSequenceContributor : ConfiguredContributorBase
 
     /// <summary>
     ///     Computes a divergence score for the current request based on:
-    ///     - Machine-speed timing (< 20ms inter-request)
-    ///     - State not in expected set for the current phase
-    ///     - High request volume in window (> 50)
+    ///     - Machine-speed timing (&lt; MachineSpeedThresholdMs inter-request)
+    ///     - State not in expected set for the current phase, weighted by RequestState
+    ///     - High request volume in window (&gt; HighRequestCountThreshold)
     ///     Score is capped at 1.0.
     /// </summary>
     private double ComputeDivergenceScore(
@@ -374,8 +371,11 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         return Math.Min(score, 1.0);
     }
 
+    // Recomputed per request so commercial overrides pushed via
+    // IDetectorConfigProvider.InvalidateCache take effect immediately, matching
+    // the behaviour of the other GetParam-backed knobs on this contributor.
     private StateDivergenceWeights GetWeights() =>
-        _weights ??= StateDivergenceWeights.FromParameters((state, fallback) =>
+        StateDivergenceWeights.FromParameters((state, fallback) =>
             GetParam(YamlKeyFor(state), fallback));
 
     private static string YamlKeyFor(RequestState state) => state switch
@@ -390,7 +390,9 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         RequestState.AuthAttempt => "unexpected_weight_auth_attempt",
         RequestState.NotFound => "unexpected_weight_not_found",
         RequestState.Search => "unexpected_weight_search",
-        _ => "unexpected_weight_api_call"
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(state), state,
+            "RequestState has no YAML weight key mapping. Add a YAML key in contentsequence.detector.yaml and a switch arm in YamlKeyFor.")
     };
 
     /// <summary>
