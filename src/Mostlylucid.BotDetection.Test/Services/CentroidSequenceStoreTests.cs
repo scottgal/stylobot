@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Services;
@@ -5,8 +6,10 @@ using Xunit;
 
 namespace Mostlylucid.BotDetection.Test.Services;
 
-public class CentroidSequenceStoreTests
+public class CentroidSequenceStoreTests : IDisposable
 {
+    private readonly List<string> _tempDbPaths = new();
+
     private static SessionTransitionData TypicalHumanSession() =>
         new(RequestState.PageView, new Dictionary<(RequestState, RequestState), int>
         {
@@ -15,8 +18,12 @@ public class CentroidSequenceStoreTests
             { (RequestState.ApiCall, RequestState.SignalR), 5 }
         });
 
-    private static string TempDbConnStr() =>
-        $"Data Source={Path.Combine(Path.GetTempPath(), $"centroid-test-{Guid.NewGuid():N}.db")}";
+    private string CreateTempDbConnStr()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"centroid-test-{Guid.NewGuid():N}.db");
+        _tempDbPaths.Add(path);
+        return $"Data Source={path}";
+    }
 
     [Fact]
     public async Task RebuildAsync_UsesLoaderResult_WhenLoaderReturnsData()
@@ -25,7 +32,7 @@ public class CentroidSequenceStoreTests
             Task.FromResult(Enumerable.Repeat(TypicalHumanSession(), 5).ToList()));
 
         var store = new CentroidSequenceStore(
-            TempDbConnStr(),
+            CreateTempDbConnStr(),
             NullLogger<CentroidSequenceStore>.Instance,
             loader);
         await store.InitializeAsync();
@@ -53,7 +60,7 @@ public class CentroidSequenceStoreTests
         var loader = new CentroidSequenceStore.ClusterSessionLoader((_, _, _) =>
             Task.FromResult(new List<SessionTransitionData>()));
         var store = new CentroidSequenceStore(
-            TempDbConnStr(),
+            CreateTempDbConnStr(),
             NullLogger<CentroidSequenceStore>.Instance,
             loader);
         await store.InitializeAsync();
@@ -77,7 +84,7 @@ public class CentroidSequenceStoreTests
     public async Task RebuildAsync_NoLoader_UsesTemplate()
     {
         var store = new CentroidSequenceStore(
-            TempDbConnStr(),
+            CreateTempDbConnStr(),
             NullLogger<CentroidSequenceStore>.Instance);
         await store.InitializeAsync();
 
@@ -93,5 +100,25 @@ public class CentroidSequenceStoreTests
         var chain = store.TryGetCentroidChain("cluster-no-loader", minSampleSize: 20);
         Assert.NotNull(chain);
         Assert.Equal(RequestState.StaticAsset, chain!.ExpectedStates[0]);
+    }
+
+    public void Dispose()
+    {
+        SqliteConnection.ClearAllPools();
+        foreach (var path in _tempDbPaths)
+        {
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+            {
+                var fullPath = path + suffix;
+                try
+                {
+                    if (File.Exists(fullPath)) File.Delete(fullPath);
+                }
+                catch
+                {
+                    // best-effort cleanup; tests shouldn't fail because of leftover temp files
+                }
+            }
+        }
     }
 }
