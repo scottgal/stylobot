@@ -83,16 +83,18 @@ public class ContentSequenceContributor : ConfiguredContributorBase
     public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
 
     // Config-driven parameters
-    private double DivergenceThreshold => GetParam("divergence_threshold", 0.4);
+    private double DivergenceThreshold => GetParam("divergence_threshold", 0.6);
     private double TimingToleranceMultiplier => GetParam("timing_tolerance_multiplier", 3.0);
     private int MinCentroidSampleSize => GetParam("min_centroid_sample_size", 20);
     private int SessionGapMinutes => GetParam("session_gap_minutes", 30);
     private int MaxTrackedPositions => GetParam("max_tracked_positions", 20);
     private double MachineSpeedThresholdMs => GetParam("machine_speed_threshold_ms", 20.0);
-    private double MachineSpeedScore => GetParam("machine_speed_score", 0.4);
-    private double UnexpectedStateScore => GetParam("unexpected_state_score", 0.5);
-    private double HighRequestCountScore => GetParam("high_request_count_score", 0.3);
-    private int HighRequestCountThreshold => GetParam("high_request_count_threshold", 50);
+    private double MachineSpeedScore => GetParam("machine_speed_score", 0.3);
+    private double HighRequestCountScore => GetParam("high_request_count_score", 0.2);
+    private int HighRequestCountThreshold => GetParam("high_request_count_threshold", 200);
+
+    // Per-RequestState divergence weights, loaded lazily from YAML defaults.
+    private StateDivergenceWeights? _weights;
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
@@ -347,20 +349,22 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         bool cacheWarm)
     {
         double score = 0.0;
+        var weights = GetWeights();
 
         // Machine-speed timing: sub-threshold ms between requests is bot-like
         var msSinceLastRequest = (DateTimeOffset.UtcNow - ctx.LastRequest).TotalMilliseconds;
         if (msSinceLastRequest < MachineSpeedThresholdMs)
             score += MachineSpeedScore;
 
-        // State not in expected set for this phase
-        // Exception: if cache-warm and ApiCall in critical window, don't penalise
+        // State not in expected set for this phase.
+        // Score is now per-state (was a flat 0.5 — major false-positive source).
+        // Exception: if cache-warm and ApiCall in critical window, don't penalise.
         var isExpected = expectedSet.Contains(requestState);
         if (!isExpected)
         {
             var isCacheWarmException = cacheWarm && requestState == RequestState.ApiCall;
             if (!isCacheWarmException)
-                score += UnexpectedStateScore;
+                score += weights.For(requestState);
         }
 
         // High request volume in window
@@ -369,6 +373,25 @@ public class ContentSequenceContributor : ConfiguredContributorBase
 
         return Math.Min(score, 1.0);
     }
+
+    private StateDivergenceWeights GetWeights() =>
+        _weights ??= StateDivergenceWeights.FromParameters((state, fallback) =>
+            GetParam(YamlKeyFor(state), fallback));
+
+    private static string YamlKeyFor(RequestState state) => state switch
+    {
+        RequestState.StaticAsset => "unexpected_weight_static_asset",
+        RequestState.PageView => "unexpected_weight_page_view",
+        RequestState.ApiCall => "unexpected_weight_api_call",
+        RequestState.SignalR => "unexpected_weight_signalr",
+        RequestState.WebSocket => "unexpected_weight_websocket",
+        RequestState.ServerSentEvent => "unexpected_weight_server_sent_event",
+        RequestState.FormSubmit => "unexpected_weight_form_submit",
+        RequestState.AuthAttempt => "unexpected_weight_auth_attempt",
+        RequestState.NotFound => "unexpected_weight_not_found",
+        RequestState.Search => "unexpected_weight_search",
+        _ => "unexpected_weight_api_call"
+    };
 
     /// <summary>
     ///     Returns true when the next expected chain state is SignalR AND the centroid is not Bot.

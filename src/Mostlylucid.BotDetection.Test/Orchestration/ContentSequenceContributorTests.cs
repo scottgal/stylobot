@@ -333,12 +333,16 @@ public class ContentSequenceContributorTests : IDisposable
         SeedDocumentContext(sig);
 
         var contributor = CreateContributor();
+        // Use a 404 response so the classifier returns NotFound (weight 0.50). Combined with
+        // machine-speed (0.3) this exceeds the new 0.6 divergence threshold. Machine-speed alone
+        // is intentionally insufficient under the weighted model.
         var state = CreateState(
             signature: sig,
             configureHttp: ctx =>
             {
                 ctx.Request.Path = "/api/data";
                 ctx.Request.Headers["Sec-Fetch-Mode"] = "cors";
+                ctx.Response.StatusCode = 404;
             });
 
         // Stamp right before the call — minimises elapsed time between seed and detect.
@@ -351,7 +355,7 @@ public class ContentSequenceContributorTests : IDisposable
         Assert.True(state.Signals.ContainsKey(SignalKeys.SequenceDiverged),
             "Machine-speed request must write sequence.diverged");
         var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
-        Assert.True(diverged, "sequence.diverged must be true for sub-20ms inter-request gap");
+        Assert.True(diverged, "sequence.diverged must be true for sub-20ms machine-speed + NotFound (0.3 + 0.5 = 0.8)");
     }
 
     #endregion
@@ -395,6 +399,67 @@ public class ContentSequenceContributorTests : IDisposable
         var diverged = state.Signals.TryGetValue(SignalKeys.SequenceDiverged, out var divVal)
             && divVal is true;
         Assert.False(diverged, "Cache-warm ApiCall in mid-window must NOT be flagged as diverged");
+    }
+
+    #endregion
+
+    #region Per-State Divergence Weights
+
+    [Fact]
+    public async Task UnexpectedStaticAsset_DoesNotTripDivergence()
+    {
+        const string sig = "weighted-static";
+        SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-1));
+
+        // Push the window start into the LATE phase (>2s) so StaticAsset is unexpected
+        // (late-phase expected set is [ApiCall, SignalR, WebSocket, ServerSentEvent]).
+        // Under the new per-state weights, StaticAsset weight is 0.05, well below the 0.6
+        // threshold, so a single static-asset miss must NOT trip divergence.
+        var seeded = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, seeded with
+        {
+            WindowStartTime = DateTimeOffset.UtcNow.AddSeconds(-3),
+            LastRequest = DateTimeOffset.UtcNow.AddSeconds(-1)
+        });
+
+        var contributor = CreateContributor();
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "GET";
+            ctx.Request.Path = "/extra.css";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "style";
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
+        var score = state.GetSignal<double>(SignalKeys.SequenceDivergenceScore);
+        Assert.False(diverged, $"StaticAsset alone must not trip divergence (score={score:F2})");
+    }
+
+    [Fact]
+    public async Task UnexpectedAuthAttempt_TripsDivergence()
+    {
+        const string sig = "weighted-auth";
+        SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-1));
+
+        var contributor = CreateContributor();
+        // Response status 401 forces the classifier to return AuthAttempt (weight 0.60).
+        // AuthAttempt is not in the critical-phase expected set, so weight applies directly
+        // and meets the 0.6 divergence threshold.
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "POST";
+            ctx.Request.Path = "/login";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "empty";
+            ctx.Request.Headers["Content-Type"] = "application/x-www-form-urlencoded";
+            ctx.Response.StatusCode = 401;
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
+        Assert.True(diverged, "AuthAttempt should trip divergence on a fresh session at position 1");
     }
 
     #endregion
