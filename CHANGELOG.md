@@ -5,6 +5,66 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.4.1] - 2026-05-12
+
+Policy-system consolidation. Two genuine additions (`FailureMode`, `LoadShed`) plus a deprecation pass that surfaces and documents the existing duplication between `BotDetectionOptions` and `DetectionPolicy`. No breaking changes; existing customers continue to work unchanged.
+
+### Added
+
+- **`DetectionPolicy.OnFailure` (FailureMode enum)** -policy-level behaviour when detection itself fails. Three values: `FailOpen` (default), `FailClosed` (HTTP 503), `LogOnly` (allow + emit `X-StyloBot-Failed` header). Honoured by `BotDetectionMiddleware` (via a new try-catch around `DetectWithPolicyAsync` that previously was missing, so unhandled detector exceptions used to crash with HTTP 500) and `SidecarBotDetectionMiddleware` (via `SidecarClientOptions.OnFailure`).
+- **`DetectionPolicy.LoadShed` (LoadShedOptions)** -per-policy load shedding at request intake. `DropFractionAtHigh` and `DropFractionAtCritical` (default 0.0) drop the configured fraction of requests when `PipelineLoadSensor.CurrentBand` reports `High` or `Critical`. Sheds emit `X-StyloBot-Shed: 1` for observability. Decision is deterministic by request seed (Connection.Id hash) so retries land identically.
+- **`LoadShedDecision`** service and **`ILoadBandSource`** interface -wraps `PipelineLoadSensor` so the shed decision is unit-testable.
+- **`HoneypotPack`** -discoverable static factory for `SimulationPack`, disambiguating the type name from `ReactionPack` / `CompliancePack` / `MonitoringPack`. Existing `SimulationPack` code continues to work.
+- **`docs/policy-system.md`** -new reference doc covering all four policy-shaped concepts (DetectionPolicy, ActionPolicy, FailureMode, LoadShed), the four "pack" types, threshold precedence, and existing capabilities customers commonly ask for (per-detector timeout, the existing circuit breaker, sidecar mode, FastPathDecider sampling).
+
+### Changed
+
+- **`BotDetectionMiddleware.DetectWithPolicyAsync` calls** -both call sites are now wrapped in try-catch that applies the policy's `OnFailure`. Previously an unhandled detector exception crashed the request with HTTP 500. The change preserves the existing UA-override finally semantics in `RunDetectionWithOverriddenUaAsync`.
+- **`SidecarBotDetectionMiddleware`** -previously hardcoded fail-open on RPC error; now reads `SidecarClientOptions.OnFailure`.
+
+### Deprecated
+
+Nine fields on `BotDetectionOptions` duplicate per-policy `DetectionPolicy` properties. All are now `[Obsolete]` (warning only) with the corresponding replacement in the message. Scheduled for removal in a future major release. Internal callsites are suppressed via `#pragma warning disable CS0618` so the build remains clean while the consolidation lands incrementally; customer code that references these fields will emit a build warning naming the replacement.
+
+- `BotThreshold` -use `DetectionPolicy.ImmediateBlockThreshold` / `EarlyExitThreshold`
+- `MinConfidenceToBlock` -use `DetectionPolicy.MinConfidence`
+- `BlockDetectedBots` -use per-policy `ActionPolicyName` / `Transitions`
+- `AllowVerifiedSearchEngines` -use `DetectionPolicy.AllowVerifiedBots` (or a `Transitions` rule)
+- `EnableUserAgentDetection`, `EnableHeaderAnalysis`, `EnableIpDetection`, `EnableBehavioralAnalysis`, `EnableLlmDetection` -use `DetectionPolicy.{FastPathDetectors, SlowPathDetectors, AiPathDetectors, ExcludedDetectors}`
+
+### Configuration
+
+New per-policy JSON shape (via `DetectionPolicyConfiguration`):
+
+```json
+"Policies": {
+  "admin": {
+    "OnFailure": "FailClosed",
+    "LoadShed": { "DropFractionAtHigh": 0.0, "DropFractionAtCritical": 0.05 }
+  }
+}
+```
+
+Unrecognised `OnFailure` values fall back to `FailOpen`. Absent `LoadShed` defaults to a zero-fraction (no shedding).
+
+### Tests Added
+
+- `FailureModeTests` -3 facts on enum default + init + value set
+- `BotDetectionMiddlewareFailureTests` -4 facts: FailOpen / FailClosed / LogOnly applier behaviour + LoadShed policy-options integration
+- `SidecarMiddlewareFailureTests` -2 facts on `SidecarClientOptions.OnFailure` default + setter
+- `LoadShedDecisionTests` -6 facts covering Low / Normal / High / Critical bands and 0.0 / 0.5 / 1.0 drop fractions
+- `PolicyConfigurationBindingTests` -3 facts for JSON binding of `OnFailure` (valid, default, unrecognised) and `LoadShed`
+
+Total new tests: 18. Full BotDetection.Test suite: 1520 passed, 0 failed, 10 pre-existing skips (Ollama integration).
+
+### Not Done
+
+- No `PerformanceMode` enum was added. The existing scattered controls (`UseFastPath`, `FastPathDetectors`, `FastPathDecider.IsAlwaysFullPath`, `ForceSlowPath`, and the seven built-in policies `default` / `strict` / `relaxed` / `static` / `learning` / `monitor` / `api`) already cover the concept; adding a new enum would have been an 8th surface for the same idea. The new `docs/policy-system.md` makes the existing capabilities discoverable.
+- No new circuit-breaker was added. The existing `CircuitState` in `BlackboardOrchestrator` already opens after `CircuitBreakerThreshold` failures (default 5) and half-opens after `CircuitBreakerResetTime` (default 60s). Documented in `policy-system.md`.
+- Internal callsites that read deprecated `BotDetectionOptions` fields were NOT migrated to `DetectionPolicy`. That migration is a larger design decision (some of those callsites are public DI extension methods like `AddSimpleBotDetection`) and is deferred to a future major release.
+
+---
+
 ## [6.4.0] - 2026-05-12
 
 False-positive reduction in `ContentSequenceContributor`. The previous flat unexpected-state score (0.5) tripped divergence on routine browser noise (a single unexpected static asset crossed the 0.4 threshold and cascaded to five deferred detectors). The global baseline was a hardcoded human-with-SignalR template that diverged for any site that did not match it, especially on cold-start before clusters formed. This release replaces both with per-state weights and a site-learned baseline, plus several supporting fixes that prevent heavy SPAs and returning visitors from being misclassified.

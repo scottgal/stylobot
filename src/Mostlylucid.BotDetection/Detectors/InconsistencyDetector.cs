@@ -203,8 +203,10 @@ public partial class InconsistencyDetector : IDetector
             if (result.Confidence >= 0.3) result.BotType = BotType.Scraper;
 
             stopwatch.Stop();
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
             _metrics?.RecordDetection(result.Confidence, result.Confidence > _options.BotThreshold, stopwatch.Elapsed,
                 Name);
+#pragma warning restore CS0618
 
             if (result.Reasons.Count > 0)
                 _logger.LogDebug(

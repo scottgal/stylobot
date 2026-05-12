@@ -54,7 +54,9 @@ public class LlmContributor : ConfiguredContributorBase
         var llmProviderType = Type.GetType("Mostlylucid.BotDetection.Llm.ILlmProvider, Mostlylucid.BotDetection.Llm");
         var hasProvider = llmProviderType != null && _serviceProvider.GetService(llmProviderType) != null;
 
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         var isAvailable = (_coordinator != null || hasProvider) && _options.EnableLlmDetection;
+#pragma warning restore CS0618
 
         var reason = isAvailable
             ? "LLM background classification available"

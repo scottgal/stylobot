@@ -740,8 +740,10 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                     }
 
                 // Enqueue for background LLM classification if appropriate
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
                 if (_llmCoordinator != null && _fullOptions.EnableLlmDetection)
                     TryEnqueueLlmClassification(httpContext, result, signals);
+#pragma warning restore CS0618
 
                 // Enqueue for background enrichment (ProjectHoneypot DNS lookup) when confidence is low
                 TryEnqueueBackgroundEnrichment(httpContext, result);

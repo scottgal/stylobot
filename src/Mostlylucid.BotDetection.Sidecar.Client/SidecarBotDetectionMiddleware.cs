@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
+using Mostlylucid.BotDetection.Policies;
 using Stylobot.Detection.V1;
 
 namespace Mostlylucid.BotDetection.Sidecar.Client;
@@ -15,6 +16,7 @@ public sealed class SidecarBotDetectionMiddleware
     private readonly RequestDelegate _next;
     private readonly DetectionService.DetectionServiceClient _client;
     private readonly int _timeoutMs;
+    private readonly FailureMode _onFailure;
     private readonly ILogger<SidecarBotDetectionMiddleware> _logger;
 
     public SidecarBotDetectionMiddleware(
@@ -26,6 +28,7 @@ public sealed class SidecarBotDetectionMiddleware
         _next = next;
         _client = new DetectionService.DetectionServiceClient(channel);
         _timeoutMs = options.Value.TimeoutMs;
+        _onFailure = options.Value.OnFailure;
         _logger = logger;
     }
 
@@ -37,17 +40,31 @@ public sealed class SidecarBotDetectionMiddleware
             var deadline = DateTime.UtcNow.AddMilliseconds(_timeoutMs);
             var response = await _client.DetectAsync(req, deadline: deadline);
             WriteToContext(context, response);
+            await _next(context);
+            return;
         }
         catch (RpcException ex)
         {
-            _logger.LogWarning(ex, "Sidecar gRPC call failed; failing open");
+            _logger.LogWarning(ex, "Sidecar gRPC call failed; applying OnFailure={Mode}", _onFailure);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Sidecar detection error; failing open");
+            _logger.LogWarning(ex, "Sidecar detection error; applying OnFailure={Mode}", _onFailure);
         }
 
-        await _next(context);
+        // Failure path: same three-mode applier shape as BotDetectionMiddleware.
+        context.Response.Headers["X-StyloBot-Failed"] = "sidecar";
+        switch (_onFailure)
+        {
+            case FailureMode.FailClosed:
+                context.Response.StatusCode = 503;
+                return;
+            case FailureMode.LogOnly:
+            case FailureMode.FailOpen:
+            default:
+                await _next(context);
+                return;
+        }
     }
 
     private static DetectRequest BuildRequest(HttpContext context)

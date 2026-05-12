@@ -6,7 +6,7 @@ namespace Mostlylucid.BotDetection.Services;
 ///     <see cref="GetWorstOffenderCap"/> to self-throttle and prioritise
 ///     the highest-threat signatures when CPU is constrained.
 /// </summary>
-public sealed class PipelineLoadSensor : IDisposable
+public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
 {
     // EMA smoothing factor: 30% weight on the latest 1-second sample.
     private const double Alpha = 0.3;

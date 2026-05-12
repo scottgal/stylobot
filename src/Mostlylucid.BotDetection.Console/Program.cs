@@ -522,8 +522,10 @@ try
     builder.Services.PostConfigure<Mostlylucid.BotDetection.Models.BotDetectionOptions>(opts =>
     {
         opts.DefaultActionPolicyName = actionPolicy;
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (botThreshold.HasValue) opts.BotThreshold = botThreshold.Value;
         if (llmProvider != null) opts.EnableLlmDetection = true;
+#pragma warning restore CS0618
         // Ensure a writable data directory even when installed to a root-owned path (e.g. apt install)
         opts.DatabasePath ??= Path.Combine(
             Mostlylucid.BotDetection.Models.BotDetectionOptions.ResolveDataDirectory(), "botdetection.db");

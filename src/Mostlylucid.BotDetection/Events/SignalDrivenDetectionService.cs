@@ -123,7 +123,9 @@ public class SignalDrivenDetectionService
             await RunDetectorAsync(_inconsistencyAnalyzer, httpContext, context, bus, ct);
 
             // === Stage 3: AI/ML (if enabled) ===
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
             if (_options.EnableLlmDetection)
+#pragma warning restore CS0618
             {
                 if (_options.AiDetection.Provider == AiProvider.Heuristic && _heuristicAnalyzer != null)
                     await RunDetectorAsync(_heuristicAnalyzer, httpContext, context, bus, ct);
@@ -168,6 +170,7 @@ public class SignalDrivenDetectionService
         if (_clientSideAnalyzer != null && _options.ClientSide.Enabled)
             detectors.Add("Client-Side Detector");
 
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (_options.EnableLlmDetection)
         {
             if (_options.AiDetection.Provider == AiProvider.Heuristic)
@@ -175,6 +178,7 @@ public class SignalDrivenDetectionService
             else if (_options.AiDetection.Provider == AiProvider.Ollama)
                 detectors.Add("LLM Detector");
         }
+#pragma warning restore CS0618
 
         return detectors;
     }
@@ -347,7 +351,9 @@ public class SignalDrivenDetectionService
         var agreementBoost = suspiciousCount > 1 ? (suspiciousCount - 1) * 0.1 : 0.0;
 
         result.ConfidenceScore = Math.Min(maxConfidence + agreementBoost, 1.0);
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         result.IsBot = result.ConfidenceScore >= _options.BotThreshold;
+#pragma warning restore CS0618
 
         // Determine bot type
         var botTypes = detectorResults

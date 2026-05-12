@@ -51,7 +51,8 @@ public class BotDetectionMiddleware(
     MultiFactorSignatureService? signatureService = null,
     SignatureCoordinator? signatureCoordinator = null,
     IApiKeyStore? apiKeyStore = null,
-    Services.PipelineLoadSensor? loadSensor = null)
+    Services.PipelineLoadSensor? loadSensor = null,
+    LoadShedDecision? loadShedDecision = null)
 {
     // Default test mode simulations - used as fallback when options don't contain the mode
     private static readonly Dictionary<string, string> DefaultTestModeSimulations =
@@ -103,6 +104,7 @@ public class BotDetectionMiddleware(
     private readonly SignatureCoordinator? _signatureCoordinator = signatureCoordinator;
     private readonly IApiKeyStore? _apiKeyStore = apiKeyStore;
     private readonly Services.PipelineLoadSensor? _loadSensor = loadSensor;
+    private readonly LoadShedDecision? _loadShedDecision = loadShedDecision;
 
     /// <summary>
     ///     Main middleware entry point. Runs bot detection and handles blocking/throttling.
@@ -322,8 +324,58 @@ public class BotDetectionMiddleware(
         var policy = ResolvePolicy(context, endpoint, policyRegistry);
         var policyAttr = endpoint?.Metadata.GetMetadata<BotPolicyAttribute>();
 
-        // Run full pipeline with orchestrator - always use full detection
-        var aggregatedResult = await orchestrator.DetectWithPolicyAsync(context, policy, context.RequestAborted);
+        // Load-shed gate: at High/Critical load, skip detection per policy.LoadShed.
+        // Uses connection-id-hash as the seed so retries from the same client land
+        // identically. Sheds emit X-StyloBot-Shed=1 for observability.
+        if (_loadShedDecision is not null)
+        {
+            var loadShedSeed = context.Connection?.Id?.GetHashCode()
+                ?? context.Request.Path.Value?.GetHashCode()
+                ?? 0;
+            if (_loadShedDecision.ShouldShed(policy.LoadShed, loadShedSeed))
+            {
+                context.Response.Headers["X-StyloBot-Shed"] = "1";
+                _logger.LogInformation("Load-shed: skipping detection for {Path}", context.Request.Path);
+                await _next(context);
+                return;
+            }
+        }
+
+        // Run full pipeline with orchestrator - always use full detection.
+        // Wrapped in try/catch so policy.OnFailure governs the response when the
+        // pipeline throws (detector bug, store unavailable, etc.) instead of the
+        // request crashing into a generic HTTP 500.
+        AggregatedEvidence aggregatedResult;
+        try
+        {
+            aggregatedResult = await orchestrator.DetectWithPolicyAsync(context, policy, context.RequestAborted);
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            // Client aborted; rethrow so ASP.NET handles connection teardown normally.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Detection pipeline failed for {Path}; applying policy.OnFailure={Mode}",
+                context.Request.Path, policy.OnFailure);
+
+            var fh = HandleDetectionFailureFor(policy);
+            var fr = fh.Apply(context, ex);
+            if (!fr.ContinuePipeline)
+                return;
+
+            // Synthesise a neutral verdict so downstream middleware sees a consistent shape.
+            aggregatedResult = new AggregatedEvidence
+            {
+                BotProbability = 0.0,
+                Confidence = 0.0,
+                RiskBand = RiskBand.Low,
+                ThreatBand = ThreatBand.Low,
+                TotalProcessingTimeMs = 0,
+            };
+        }
+
         PopulateContextFromAggregated(context, aggregatedResult, policy.Name);
 
         // Compute multi-vector signatures for dashboard and bot identity tracking
@@ -472,10 +524,12 @@ public class BotDetectionMiddleware(
         // This enables "tarpit all detected bots" without needing per-policy transitions.
         // When DefaultActionPolicyName fires, it REPLACES the hard block/403 - the tarpit
         // IS the response. We skip ShouldBlockRequest so bots see a normal (delayed) response.
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
             && !string.IsNullOrEmpty(_options.DefaultActionPolicyName)
             && aggregatedResult.BotProbability >= _options.BotThreshold
             && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
+#pragma warning restore CS0618
         {
             var fallbackPolicy = actionPolicyRegistry.GetPolicy(_options.DefaultActionPolicyName);
             if (fallbackPolicy != null)
@@ -720,7 +774,9 @@ public class BotDetectionMiddleware(
 
         var riskScore = aggregated.BotProbability;
         var riskBand = aggregated.RiskBand;
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         var isLikelyBot = riskScore >= _options.BotThreshold;
+#pragma warning restore CS0618
 
         // For low-risk (likely human) requests, only log if LogAllRequests is true
         if (!isLikelyBot && !_options.LogAllRequests) return;
@@ -1116,6 +1172,7 @@ public class BotDetectionMiddleware(
             return (true, defaultAction == BotBlockAction.Default ? BotBlockAction.StatusCode : defaultAction);
 
         // Global BlockDetectedBots: block all detected bots app-wide (respecting allow-lists)
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (_options.BlockDetectedBots
             && aggregated.BotProbability >= _options.MinConfidenceToBlock)
         {
@@ -1130,6 +1187,7 @@ public class BotDetectionMiddleware(
 
             return (true, BotBlockAction.StatusCode);
         }
+#pragma warning restore CS0618
 
         return (false, BotBlockAction.Default);
     }
@@ -1372,7 +1430,58 @@ public class BotDetectionMiddleware(
         {
             var endpoint = context.GetEndpoint();
             policy = ResolvePolicy(context, endpoint, policyRegistry);
-            aggregatedResult = await orchestrator.DetectWithPolicyAsync(context, policy, context.RequestAborted);
+
+            // Load-shed gate: at High/Critical load, skip detection per policy.LoadShed.
+            // Uses connection-id-hash as the seed so retries from the same client land
+            // identically. Sheds emit X-StyloBot-Shed=1 for observability.
+            // The finally block below restores the original User-Agent header.
+            if (_loadShedDecision is not null)
+            {
+                var loadShedSeed = context.Connection?.Id?.GetHashCode()
+                    ?? context.Request.Path.Value?.GetHashCode()
+                    ?? 0;
+                if (_loadShedDecision.ShouldShed(policy.LoadShed, loadShedSeed))
+                {
+                    context.Response.Headers["X-StyloBot-Shed"] = "1";
+                    _logger.LogInformation("Load-shed: skipping detection for {Path}", context.Request.Path);
+                    await _next(context);
+                    return;
+                }
+            }
+
+            // Wrapped in try/catch so policy.OnFailure governs the response when the
+            // pipeline throws (detector bug, store unavailable, etc.) instead of the
+            // request crashing into a generic HTTP 500.
+            try
+            {
+                aggregatedResult = await orchestrator.DetectWithPolicyAsync(context, policy, context.RequestAborted);
+            }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+            {
+                // Client aborted; rethrow so ASP.NET handles connection teardown normally.
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Detection pipeline failed for {Path}; applying policy.OnFailure={Mode}",
+                    context.Request.Path, policy.OnFailure);
+
+                var fh = HandleDetectionFailureFor(policy);
+                var fr = fh.Apply(context, ex);
+                if (!fr.ContinuePipeline)
+                    return;
+
+                // Synthesise a neutral verdict so downstream middleware sees a consistent shape.
+                aggregatedResult = new AggregatedEvidence
+                {
+                    BotProbability = 0.0,
+                    Confidence = 0.0,
+                    RiskBand = RiskBand.Low,
+                    ThreatBand = ThreatBand.Low,
+                    TotalProcessingTimeMs = 0,
+                };
+            }
+
             PopulateContextFromAggregated(context, aggregatedResult, policy.Name);
             FeedDetectionServices(context, aggregatedResult);
 
@@ -1487,9 +1596,11 @@ public class BotDetectionMiddleware(
 
         // Fallback: per-bot-type action policy, then DefaultActionPolicyName.
         // When this fires, it replaces the hard block - the policy IS the response.
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
             && aggregatedResult.BotProbability >= _options.BotThreshold
             && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
+#pragma warning restore CS0618
         {
             // Try bot-type-specific policy first (e.g., Tool → throttle-tools)
             string? resolvedPolicyName = null;
@@ -1899,7 +2010,9 @@ public class BotDetectionMiddleware(
 
         // Map to legacy keys for compatibility
         // Use configurable BotThreshold for consistency with blocking logic
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         var isBot = result.BotProbability >= _options.BotThreshold;
+#pragma warning restore CS0618
         context.Items[IsBotKey] = isBot;
         context.Items[BotConfidenceKey] = result.BotProbability; // Legacy: holds probability for backward compat
         context.Items[BotProbabilityKey] = result.BotProbability;
@@ -2257,7 +2370,9 @@ public class BotDetectionMiddleware(
         context.Items[AggregatedEvidenceKey] = updatedEvidence;
         context.Items[BotProbabilityKey] = newProbability;
         context.Items[BotConfidenceKey] = newProbability;
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         context.Items[IsBotKey] = newProbability >= _options.BotThreshold;
+#pragma warning restore CS0618
 
         _logger.LogInformation(
             "[RESPONSE-BOOST] {Path} status={Status} delta={Delta:+0.00;-0.00} " +
@@ -2353,6 +2468,51 @@ public class BotDetectionMiddleware(
         var hash = System.IO.Hashing.XxHash32.HashToUInt32(bytes);
         return hash.ToString("X8");
     }
+
+    #endregion
+
+    #region Detection failure handling
+
+    /// <summary>
+    ///     Result of the detection-failure applier: whether to continue the pipeline
+    ///     (FailOpen / LogOnly) or short-circuit (FailClosed).
+    /// </summary>
+    public readonly record struct DetectionFailureResult(bool ContinuePipeline);
+
+    /// <summary>
+    ///     Small applier used by the middleware's try-catch around the orchestrator call.
+    ///     Split out as a public type so the failure semantics are unit-testable without
+    ///     the full middleware fixture.
+    /// </summary>
+    public sealed class DetectionFailureHandler
+    {
+        private readonly FailureMode _mode;
+        public DetectionFailureHandler(FailureMode mode) => _mode = mode;
+
+        /// <summary>
+        ///     Apply the configured FailureMode to the current response. Writes an
+        ///     X-StyloBot-Failed header (carrying the exception's type name) on all modes
+        ///     for observability. FailClosed sets status 503 and returns ContinuePipeline=false.
+        /// </summary>
+        public DetectionFailureResult Apply(HttpContext ctx, Exception ex)
+        {
+            ctx.Response.Headers["X-StyloBot-Failed"] = ex.GetType().Name;
+            switch (_mode)
+            {
+                case FailureMode.FailClosed:
+                    ctx.Response.StatusCode = 503;
+                    return new DetectionFailureResult(ContinuePipeline: false);
+                case FailureMode.LogOnly:
+                case FailureMode.FailOpen:
+                default:
+                    return new DetectionFailureResult(ContinuePipeline: true);
+            }
+        }
+    }
+
+    /// <summary>Factory used by tests and the middleware's catch block.</summary>
+    public static DetectionFailureHandler HandleDetectionFailureFor(DetectionPolicy policy)
+        => new(policy.OnFailure);
 
     #endregion
 }

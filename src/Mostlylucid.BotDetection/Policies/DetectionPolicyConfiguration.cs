@@ -254,11 +254,48 @@ public class DetectionPolicyConfig : BaseComponentConfig
     /// </summary>
     public bool BypassTriggerConditions { get; set; }
 
+    // ==========================================
+    // Failure & Load-Shed Behaviour
+    // ==========================================
+
+    /// <summary>
+    ///     What to do when bot detection itself fails (orchestrator exception, store
+    ///     unavailable, sidecar unreachable). String form of <see cref="FailureMode"/>:
+    ///     "FailOpen" (default), "FailClosed", or "LogOnly". Unknown values fall back
+    ///     to <see cref="FailureMode.FailOpen"/>.
+    /// </summary>
+    /// <example>
+    ///     "admin": { "OnFailure": "FailClosed" }
+    /// </example>
+    public string? OnFailure { get; set; }
+
+    /// <summary>
+    ///     Per-policy load-shed configuration. When the pipeline is under High or
+    ///     Critical load, the configured fraction of requests skips detection.
+    ///     Defaults to zero (no shedding). Opt-in.
+    /// </summary>
+    /// <example>
+    ///     "admin": { "LoadShed": { "DropFractionAtHigh": 0.0, "DropFractionAtCritical": 0.1 } }
+    /// </example>
+    public LoadShedDef? LoadShed { get; set; }
+
     /// <summary>
     ///     Converts this configuration to a DetectionPolicy record.
     /// </summary>
     public DetectionPolicy ToPolicy(string name)
     {
+        var onFailure = Enum.TryParse<FailureMode>(OnFailure, ignoreCase: true, out var mode)
+            ? mode
+            : FailureMode.FailOpen;
+
+        var loadShed = LoadShed is { } ls
+            ? new LoadShedOptions
+            {
+                DropFractionAtHigh = ls.DropFractionAtHigh,
+                DropFractionAtCritical = ls.DropFractionAtCritical,
+            }
+            : new LoadShedOptions();
+
         return new DetectionPolicy
         {
             Name = name,
@@ -278,9 +315,24 @@ public class DetectionPolicyConfig : BaseComponentConfig
             Timeout = TimeSpan.FromMilliseconds(TimeoutMs),
             Enabled = Enabled,
             BypassTriggerConditions = BypassTriggerConditions,
-            ActionPolicyOverridable = ActionPolicyOverridable
+            ActionPolicyOverridable = ActionPolicyOverridable,
+            OnFailure = onFailure,
+            LoadShed = loadShed,
         };
     }
+}
+
+/// <summary>
+///     JSON-bindable shape for <see cref="LoadShedOptions"/>. Kept as a mutable class
+///     with simple setters so it works with <c>IConfiguration.Bind</c>.
+/// </summary>
+public sealed class LoadShedDef
+{
+    /// <summary>Fraction of requests to shed when load band is High. Range 0.0 to 1.0.</summary>
+    public double DropFractionAtHigh { get; set; }
+
+    /// <summary>Fraction of requests to shed when load band is Critical. Range 0.0 to 1.0.</summary>
+    public double DropFractionAtCritical { get; set; }
 }
 
 /// <summary>

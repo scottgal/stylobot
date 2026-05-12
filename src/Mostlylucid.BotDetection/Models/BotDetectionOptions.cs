@@ -27,6 +27,8 @@ public class BotDetectionOptions
     ///     Lower values = more aggressive detection (more false positives)
     ///     Higher values = more conservative (fewer false positives, may miss some bots)
     /// </summary>
+    [Obsolete("Use DetectionPolicy.ImmediateBlockThreshold / EarlyExitThreshold per policy. " +
+              "Will be removed in a future major release.", error: false)]
     public double BotThreshold { get; set; } = 0.7;
 
     /// <summary>
@@ -62,6 +64,8 @@ public class BotDetectionOptions
     ///     Matches against known bot signatures from Matomo, crawler-user-agents, etc.
     ///     Recommended: Always enable unless you have specific requirements.
     /// </summary>
+    [Obsolete("Use DetectionPolicy.ExcludedDetectors or FastPathDetectors per policy. " +
+              "Will be removed in a future major release.", error: false)]
     public bool EnableUserAgentDetection { get; set; } = true;
 
     /// <summary>
@@ -69,6 +73,8 @@ public class BotDetectionOptions
     ///     Detects missing or suspicious HTTP headers that bots often omit.
     ///     Low overhead, recommended for most use cases.
     /// </summary>
+    [Obsolete("Use DetectionPolicy.ExcludedDetectors per policy. " +
+              "Will be removed in a future major release.", error: false)]
     public bool EnableHeaderAnalysis { get; set; } = true;
 
     /// <summary>
@@ -76,6 +82,8 @@ public class BotDetectionOptions
     ///     Identifies requests from AWS, Azure, GCP, and other cloud providers.
     ///     Useful for detecting automated traffic from servers.
     /// </summary>
+    [Obsolete("Use DetectionPolicy.ExcludedDetectors per policy. " +
+              "Will be removed in a future major release.", error: false)]
     public bool EnableIpDetection { get; set; } = true;
 
     /// <summary>
@@ -83,6 +91,8 @@ public class BotDetectionOptions
     ///     Monitors request frequency per IP address.
     ///     Requires memory to track request counts.
     /// </summary>
+    [Obsolete("Use DetectionPolicy.ExcludedDetectors per policy. " +
+              "Will be removed in a future major release.", error: false)]
     public bool EnableBehavioralAnalysis { get; set; } = true;
 
     /// <summary>
@@ -91,6 +101,8 @@ public class BotDetectionOptions
     ///     Higher latency but can detect sophisticated bots.
     ///     Configure provider via AiDetection section.
     /// </summary>
+    [Obsolete("Use DetectionPolicy.AiPathDetectors and EscalateToAi per policy. " +
+              "Will be removed in a future major release.", error: false)]
     public bool EnableLlmDetection { get; set; }
 
     // ==========================================
@@ -155,6 +167,8 @@ public class BotDetectionOptions
     ///     When false, bots are detected and logged but not blocked.
     ///     Use endpoint-specific [BlockBots] attributes for fine-grained control.
     /// </summary>
+    [Obsolete("Per-policy ActionPolicyName / Transitions cover this. " +
+              "Will be removed in a future major release.", error: false)]
     public bool BlockDetectedBots { get; set; } = false;
 
     /// <summary>
@@ -173,6 +187,8 @@ public class BotDetectionOptions
     ///     Set higher than BotThreshold for conservative blocking.
     ///     Valid range: 0.0 to 1.0
     /// </summary>
+    [Obsolete("Use DetectionPolicy.MinConfidence per policy. " +
+              "Will be removed in a future major release.", error: false)]
     public double MinConfidenceToBlock { get; set; } = 0.8;
 
     /// <summary>
@@ -195,6 +211,8 @@ public class BotDetectionOptions
     ///     Allow verified search engine bots (Googlebot, Bingbot, etc.) through even when blocking.
     ///     Recommended: true, unless you have specific SEO requirements.
     /// </summary>
+    [Obsolete("Use DetectionPolicy.AllowVerifiedBots (or a Transitions rule) per policy. " +
+              "Will be removed in a future major release.", error: false)]
     public bool AllowVerifiedSearchEngines { get; set; } = true;
 
     /// <summary>
@@ -3357,8 +3375,10 @@ public class BotDetectionOptionsValidator : IValidateOptions<BotDetectionOptions
         var warnings = new List<string>();
 
         // Critical validations (would cause runtime errors)
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (options.BotThreshold < 0.0 || options.BotThreshold > 1.0)
             errors.Add($"BotThreshold must be between 0.0 and 1.0, got {options.BotThreshold}");
+#pragma warning restore CS0618
 
         if (options.AiDetection.TimeoutMs < 100 || options.AiDetection.TimeoutMs > 30000)
             errors.Add($"AiDetection.TimeoutMs must be between 100 and 30000, got {options.AiDetection.TimeoutMs}");
@@ -3378,6 +3398,7 @@ public class BotDetectionOptionsValidator : IValidateOptions<BotDetectionOptions
                 $"ResponsePiiMasking.AutoApplyConfidenceThreshold must be between 0.0 and 1.0, got {options.ResponsePiiMasking.AutoApplyConfidenceThreshold}");
 
         // Validate Ollama settings only when using Ollama provider
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (options.EnableLlmDetection && options.AiDetection.Provider == AiProvider.Ollama)
         {
             if (string.IsNullOrWhiteSpace(options.AiDetection.Ollama.Endpoint))
@@ -3390,6 +3411,7 @@ public class BotDetectionOptionsValidator : IValidateOptions<BotDetectionOptions
         if (options.MinConfidenceToBlock < options.BotThreshold)
             warnings.Add(
                 $"MinConfidenceToBlock ({options.MinConfidenceToBlock}) is less than BotThreshold ({options.BotThreshold}), this may cause unexpected blocking");
+#pragma warning restore CS0618
 
         // Upstream trust without HMAC allows header spoofing - warn but allow (network-isolated backends are a valid use case)
         if (options.TrustUpstreamDetection &&
