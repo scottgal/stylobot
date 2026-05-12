@@ -407,11 +407,17 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         return Math.Min(score, 1.0);
     }
 
-    // Recomputed per request so commercial overrides pushed via
-    // IDetectorConfigProvider.InvalidateCache take effect immediately, matching
-    // the behaviour of the other GetParam-backed knobs on this contributor.
+    // Cached at contributor scope. Wave 0 runs on every request and the sidecar
+    // p99 detection budget is 10ms; recomputing 10 GetParam calls per request
+    // burns budget for no behavioural benefit, since ConfiguredContributorBase.Config
+    // (Weights, Confidence, etc.) is itself pinned with the same ??= pattern and
+    // already bounded by the same hot-reload semantics. A future InvalidateCache
+    // extension to push contributor-scope refresh should reset both this field
+    // and the base class's _cachedConfig together.
+    private StateDivergenceWeights? _weights;
+
     private StateDivergenceWeights GetWeights() =>
-        StateDivergenceWeights.FromParameters((state, fallback) =>
+        _weights ??= StateDivergenceWeights.FromParameters((state, fallback) =>
             GetParam(YamlKeyFor(state), fallback));
 
     private static string YamlKeyFor(RequestState state) => state switch
