@@ -239,10 +239,20 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         var phaseIndex = GetPhaseIndex(elapsedMs);
         var expectedSet = PhaseExpectedSets[phaseIndex];
 
-        // Cache warm detection: critical window closed with no StaticAsset observed
+        // Cache warm detection:
+        //  1. critical window closed with no StaticAsset observed (returning visitor whose
+        //     browser skipped statics), OR
+        //  2. returning visitor signalled by a Cookie header and the first continuation is
+        //     not a StaticAsset (warm cache means the XHR fires before any static reload).
         var cacheWarm = ctx.CacheWarm;
-        if (!cacheWarm && phaseIndex > 0 && !observedSet.Contains(RequestState.StaticAsset))
-            cacheWarm = true;
+        var hasCookie = request.Headers.ContainsKey("Cookie");
+        if (!cacheWarm)
+        {
+            if (phaseIndex > 0 && !observedSet.Contains(RequestState.StaticAsset))
+                cacheWarm = true;
+            else if (hasCookie && requestState != RequestState.StaticAsset)
+                cacheWarm = true;
+        }
 
         // Divergence scoring (skip for prefetch requests)
         double divergenceScore = 0.0;

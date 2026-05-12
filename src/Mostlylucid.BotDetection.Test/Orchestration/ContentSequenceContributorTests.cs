@@ -432,6 +432,39 @@ public class ContentSequenceContributorTests : IDisposable
         Assert.False(diverged, "Cache-warm ApiCall in mid-window must NOT be flagged as diverged");
     }
 
+    [Fact]
+    public async Task CriticalWindow_ApiCall_WithCookie_CacheWarmFlipsImmediately()
+    {
+        const string sig = "returning-visitor";
+        SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-1));
+
+        var contributor = CreateContributor();
+        // transport.protocol_class = "api" forces RequestMarkovClassifier.Classify to return ApiCall.
+        // The classifier has no built-in "/api/" path heuristic, so we set the upstream signal
+        // (normally written by TransportProtocolContributor) explicitly here.
+        var state = CreateState(
+            signature: sig,
+            configureHttp: ctx =>
+            {
+                ctx.Request.Method = "GET";
+                ctx.Request.Path = "/api/me";
+                ctx.Request.Headers["Cookie"] = "session=abc";
+                ctx.Request.Headers["Sec-Fetch-Dest"] = "empty";
+                ctx.Request.Headers["Accept"] = "application/json";
+            },
+            extraSignals: new Dictionary<string, object>
+            {
+                [SignalKeys.TransportProtocolClass] = "api"
+            });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var cacheWarm = state.GetSignal<bool>(SignalKeys.SequenceCacheWarm);
+        Assert.True(cacheWarm, "Returning visitor (Cookie present) should flip cache_warm in critical window");
+        var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
+        Assert.False(diverged, "ApiCall in critical window with Cookie + cache_warm must not diverge");
+    }
+
     #endregion
 
     #region Per-State Divergence Weights
