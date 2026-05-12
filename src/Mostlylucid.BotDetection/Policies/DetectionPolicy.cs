@@ -114,6 +114,12 @@ public sealed record DetectionPolicy
     public FailureMode OnFailure { get; init; } = FailureMode.FailOpen;
 
     /// <summary>
+    ///     Load-shed configuration: at High/Critical pipeline load, skip detection on
+    ///     the configured fraction of requests. Defaults to no shedding (opt-in).
+    /// </summary>
+    public LoadShedOptions LoadShed { get; init; } = new();
+
+    /// <summary>
     ///     When true, all detectors run in Wave 0 regardless of their TriggerConditions.
     ///     Primary use case: learning/slow path where full characterization is required.
     ///     Also useful for demo/testing to ensure the full detection pipeline runs.
