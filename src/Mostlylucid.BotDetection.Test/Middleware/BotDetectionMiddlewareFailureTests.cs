@@ -1,12 +1,39 @@
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Policies;
+using Mostlylucid.BotDetection.Services;
 using Xunit;
 
 namespace Mostlylucid.BotDetection.Test.Middleware;
 
 public class BotDetectionMiddlewareFailureTests
 {
+    private sealed class FixedBandSource : ILoadBandSource
+    {
+        public FixedBandSource(LoadBand band) => CurrentBand = band;
+        public LoadBand CurrentBand { get; }
+    }
+
+    [Fact]
+    public void LoadShed_PolicyOptionsRespected_ForCriticalBand()
+    {
+        // Cover the integration of LoadShedDecision with policy options at unit level.
+        // The actual middleware gate runs only with full DI; this verifies the decision
+        // service the middleware will use.
+        var sensor = new FixedBandSource(LoadBand.Critical);
+        var decision = new LoadShedDecision(sensor);
+
+        var alwaysShedPolicy = new DetectionPolicy
+        {
+            Name = "shed-all",
+            LoadShed = new LoadShedOptions { DropFractionAtCritical = 1.0 }
+        };
+        Assert.True(decision.ShouldShed(alwaysShedPolicy.LoadShed, requestSeed: 42));
+
+        var neverShedPolicy = new DetectionPolicy { Name = "default" };
+        Assert.False(decision.ShouldShed(neverShedPolicy.LoadShed, requestSeed: 42));
+    }
+
     [Fact]
     public void FailOpen_AllowsRequest_AndDoesNotSet503()
     {

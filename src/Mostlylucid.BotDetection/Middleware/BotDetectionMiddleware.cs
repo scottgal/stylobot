@@ -51,7 +51,8 @@ public class BotDetectionMiddleware(
     MultiFactorSignatureService? signatureService = null,
     SignatureCoordinator? signatureCoordinator = null,
     IApiKeyStore? apiKeyStore = null,
-    Services.PipelineLoadSensor? loadSensor = null)
+    Services.PipelineLoadSensor? loadSensor = null,
+    LoadShedDecision? loadShedDecision = null)
 {
     // Default test mode simulations - used as fallback when options don't contain the mode
     private static readonly Dictionary<string, string> DefaultTestModeSimulations =
@@ -103,6 +104,7 @@ public class BotDetectionMiddleware(
     private readonly SignatureCoordinator? _signatureCoordinator = signatureCoordinator;
     private readonly IApiKeyStore? _apiKeyStore = apiKeyStore;
     private readonly Services.PipelineLoadSensor? _loadSensor = loadSensor;
+    private readonly LoadShedDecision? _loadShedDecision = loadShedDecision;
 
     /// <summary>
     ///     Main middleware entry point. Runs bot detection and handles blocking/throttling.
@@ -321,6 +323,23 @@ public class BotDetectionMiddleware(
         // Determine policy to use
         var policy = ResolvePolicy(context, endpoint, policyRegistry);
         var policyAttr = endpoint?.Metadata.GetMetadata<BotPolicyAttribute>();
+
+        // Load-shed gate: at High/Critical load, skip detection per policy.LoadShed.
+        // Uses connection-id-hash as the seed so retries from the same client land
+        // identically. Sheds emit X-StyloBot-Shed=1 for observability.
+        if (_loadShedDecision is not null)
+        {
+            var loadShedSeed = context.Connection?.Id?.GetHashCode()
+                ?? context.Request.Path.Value?.GetHashCode()
+                ?? 0;
+            if (_loadShedDecision.ShouldShed(policy.LoadShed, loadShedSeed))
+            {
+                context.Response.Headers["X-StyloBot-Shed"] = "1";
+                _logger.LogInformation("Load-shed: skipping detection for {Path}", context.Request.Path);
+                await _next(context);
+                return;
+            }
+        }
 
         // Run full pipeline with orchestrator - always use full detection.
         // Wrapped in try/catch so policy.OnFailure governs the response when the
@@ -1405,6 +1424,24 @@ public class BotDetectionMiddleware(
         {
             var endpoint = context.GetEndpoint();
             policy = ResolvePolicy(context, endpoint, policyRegistry);
+
+            // Load-shed gate: at High/Critical load, skip detection per policy.LoadShed.
+            // Uses connection-id-hash as the seed so retries from the same client land
+            // identically. Sheds emit X-StyloBot-Shed=1 for observability.
+            // The finally block below restores the original User-Agent header.
+            if (_loadShedDecision is not null)
+            {
+                var loadShedSeed = context.Connection?.Id?.GetHashCode()
+                    ?? context.Request.Path.Value?.GetHashCode()
+                    ?? 0;
+                if (_loadShedDecision.ShouldShed(policy.LoadShed, loadShedSeed))
+                {
+                    context.Response.Headers["X-StyloBot-Shed"] = "1";
+                    _logger.LogInformation("Load-shed: skipping detection for {Path}", context.Request.Path);
+                    await _next(context);
+                    return;
+                }
+            }
 
             // Wrapped in try/catch so policy.OnFailure governs the response when the
             // pipeline throws (detector bug, store unavailable, etc.) instead of the
