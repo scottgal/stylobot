@@ -322,8 +322,41 @@ public class BotDetectionMiddleware(
         var policy = ResolvePolicy(context, endpoint, policyRegistry);
         var policyAttr = endpoint?.Metadata.GetMetadata<BotPolicyAttribute>();
 
-        // Run full pipeline with orchestrator - always use full detection
-        var aggregatedResult = await orchestrator.DetectWithPolicyAsync(context, policy, context.RequestAborted);
+        // Run full pipeline with orchestrator - always use full detection.
+        // Wrapped in try/catch so policy.OnFailure governs the response when the
+        // pipeline throws (detector bug, store unavailable, etc.) instead of the
+        // request crashing into a generic HTTP 500.
+        AggregatedEvidence aggregatedResult;
+        try
+        {
+            aggregatedResult = await orchestrator.DetectWithPolicyAsync(context, policy, context.RequestAborted);
+        }
+        catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+        {
+            // Client aborted; rethrow so ASP.NET handles connection teardown normally.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Detection pipeline failed for {Path}; applying policy.OnFailure={Mode}",
+                context.Request.Path, policy.OnFailure);
+
+            var fh = HandleDetectionFailureFor(policy);
+            var fr = fh.Apply(context, ex);
+            if (!fr.ContinuePipeline)
+                return;
+
+            // Synthesise a neutral verdict so downstream middleware sees a consistent shape.
+            aggregatedResult = new AggregatedEvidence
+            {
+                BotProbability = 0.0,
+                Confidence = 0.0,
+                RiskBand = RiskBand.Low,
+                ThreatBand = ThreatBand.Low,
+                TotalProcessingTimeMs = 0,
+            };
+        }
+
         PopulateContextFromAggregated(context, aggregatedResult, policy.Name);
 
         // Compute multi-vector signatures for dashboard and bot identity tracking
@@ -1372,7 +1405,40 @@ public class BotDetectionMiddleware(
         {
             var endpoint = context.GetEndpoint();
             policy = ResolvePolicy(context, endpoint, policyRegistry);
-            aggregatedResult = await orchestrator.DetectWithPolicyAsync(context, policy, context.RequestAborted);
+
+            // Wrapped in try/catch so policy.OnFailure governs the response when the
+            // pipeline throws (detector bug, store unavailable, etc.) instead of the
+            // request crashing into a generic HTTP 500.
+            try
+            {
+                aggregatedResult = await orchestrator.DetectWithPolicyAsync(context, policy, context.RequestAborted);
+            }
+            catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+            {
+                // Client aborted; rethrow so ASP.NET handles connection teardown normally.
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Detection pipeline failed for {Path}; applying policy.OnFailure={Mode}",
+                    context.Request.Path, policy.OnFailure);
+
+                var fh = HandleDetectionFailureFor(policy);
+                var fr = fh.Apply(context, ex);
+                if (!fr.ContinuePipeline)
+                    return;
+
+                // Synthesise a neutral verdict so downstream middleware sees a consistent shape.
+                aggregatedResult = new AggregatedEvidence
+                {
+                    BotProbability = 0.0,
+                    Confidence = 0.0,
+                    RiskBand = RiskBand.Low,
+                    ThreatBand = ThreatBand.Low,
+                    TotalProcessingTimeMs = 0,
+                };
+            }
+
             PopulateContextFromAggregated(context, aggregatedResult, policy.Name);
             FeedDetectionServices(context, aggregatedResult);
 
@@ -2353,6 +2419,51 @@ public class BotDetectionMiddleware(
         var hash = System.IO.Hashing.XxHash32.HashToUInt32(bytes);
         return hash.ToString("X8");
     }
+
+    #endregion
+
+    #region Detection failure handling
+
+    /// <summary>
+    ///     Result of the detection-failure applier: whether to continue the pipeline
+    ///     (FailOpen / LogOnly) or short-circuit (FailClosed).
+    /// </summary>
+    public readonly record struct DetectionFailureResult(bool ContinuePipeline);
+
+    /// <summary>
+    ///     Small applier used by the middleware's try-catch around the orchestrator call.
+    ///     Split out as a public type so the failure semantics are unit-testable without
+    ///     the full middleware fixture.
+    /// </summary>
+    public sealed class DetectionFailureHandler
+    {
+        private readonly FailureMode _mode;
+        public DetectionFailureHandler(FailureMode mode) => _mode = mode;
+
+        /// <summary>
+        ///     Apply the configured FailureMode to the current response. Writes an
+        ///     X-StyloBot-Failed header (carrying the exception's type name) on all modes
+        ///     for observability. FailClosed sets status 503 and returns ContinuePipeline=false.
+        /// </summary>
+        public DetectionFailureResult Apply(HttpContext ctx, Exception ex)
+        {
+            ctx.Response.Headers["X-StyloBot-Failed"] = ex.GetType().Name;
+            switch (_mode)
+            {
+                case FailureMode.FailClosed:
+                    ctx.Response.StatusCode = 503;
+                    return new DetectionFailureResult(ContinuePipeline: false);
+                case FailureMode.LogOnly:
+                case FailureMode.FailOpen:
+                default:
+                    return new DetectionFailureResult(ContinuePipeline: true);
+            }
+        }
+    }
+
+    /// <summary>Factory used by tests and the middleware's catch block.</summary>
+    public static DetectionFailureHandler HandleDetectionFailureFor(DetectionPolicy policy)
+        => new(policy.OnFailure);
 
     #endregion
 }
