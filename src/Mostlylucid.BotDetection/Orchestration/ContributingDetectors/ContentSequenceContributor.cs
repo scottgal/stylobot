@@ -357,7 +357,7 @@ public class ContentSequenceContributor : ConfiguredContributorBase
             score += MachineSpeedScore;
 
         // State not in expected set for this phase.
-        // Score is now per-state (was a flat 0.5 — major false-positive source).
+        // Score is now per-state (was a flat 0.5, a major false-positive source).
         // Exception: if cache-warm and ApiCall in critical window, don't penalise.
         var isExpected = expectedSet.Contains(requestState);
         if (!isExpected)
