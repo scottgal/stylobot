@@ -666,7 +666,30 @@ public static class ServiceCollectionExtensions
         {
             var connStr = CentroidConnStr(sp);
             var logger = sp.GetRequiredService<ILogger<CentroidSequenceStore>>();
-            return new CentroidSequenceStore(connStr, logger);
+            var sessionStore = sp.GetService<ISessionStore>();
+
+            CentroidSequenceStore.ClusterSessionLoader? loader = null;
+            if (sessionStore is SqliteSessionStore sqliteSessions)
+            {
+                loader = async (signatures, perSig, ct) =>
+                {
+                    var result = new List<SessionTransitionData>();
+                    foreach (var sig in signatures)
+                    {
+                        var sessions = await sqliteSessions.GetSessionsAsync(sig, perSig, ct);
+                        foreach (var s in sessions)
+                        {
+                            var transitions = SessionChainAggregator.ParseTransitionCounts(s.TransitionCountsJson ?? "");
+                            var dominant = SessionChainAggregator.ParseDominantState(s.DominantState);
+                            if (transitions.Count > 0)
+                                result.Add(new SessionTransitionData(dominant, transitions));
+                        }
+                    }
+                    return result;
+                };
+            }
+
+            return new CentroidSequenceStore(connStr, logger, loader);
         });
         services.TryAddSingleton<EndpointDivergenceTracker>();
         services.AddSingleton(sp =>

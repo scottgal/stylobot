@@ -26,8 +26,17 @@ public sealed record CentroidSequence
 /// </summary>
 public sealed class CentroidSequenceStore
 {
+    /// <summary>
+    ///     Optional delegate for fetching session transition data for a set of cluster members.
+    ///     When non-null, <see cref="RebuildAsync"/> uses it to compute centroid chains from real
+    ///     observed sessions; when null, falls back to the typical-bot / typical-human templates.
+    /// </summary>
+    public delegate Task<List<SessionTransitionData>> ClusterSessionLoader(
+        IReadOnlyList<string> memberSignatures, int perSignature, CancellationToken ct);
+
     private readonly string _connectionString;
     private readonly ILogger<CentroidSequenceStore> _logger;
+    private readonly ClusterSessionLoader? _sessionLoader;
 
     // Global fallback chain (Tier 1): typical human sequence from PageView.
     private CentroidSequence _globalChain = new()
@@ -69,10 +78,14 @@ public sealed class CentroidSequenceStore
     private static readonly double[] DefaultBotGapsMs = [50, 50, 50, 50, 50];
     private static readonly double[] DefaultBotTolerancesMs = [100, 100, 100, 100, 100];
 
-    public CentroidSequenceStore(string connectionString, ILogger<CentroidSequenceStore> logger)
+    public CentroidSequenceStore(
+        string connectionString,
+        ILogger<CentroidSequenceStore> logger,
+        ClusterSessionLoader? sessionLoader = null)
     {
         _connectionString = connectionString;
         _logger = logger;
+        _sessionLoader = sessionLoader;
     }
 
     public CentroidSequence GlobalChain => _globalChain;
@@ -142,9 +155,23 @@ public sealed class CentroidSequenceStore
             var type = DetermineClusterType(cluster);
             var sampleSize = cluster.MemberCount;
 
-            var (states, gaps, tolerances) = type == CentroidType.Bot
-                ? (TypicalBotChain, DefaultBotGapsMs, DefaultBotTolerancesMs)
-                : (TypicalHumanChain, DefaultHumanGapsMs, DefaultHumanTolerancesMs);
+            RequestState[] states;
+            if (_sessionLoader != null && cluster.MemberSignatures.Count > 0)
+            {
+                var perSig = Math.Max(1, 200 / Math.Max(1, cluster.MemberSignatures.Count));
+                var observed = await _sessionLoader(cluster.MemberSignatures, perSig, ct);
+                var modal = SessionChainAggregator.AggregateFromTransitions(
+                    observed, chainLength: 5, minTotalTransitions: 10);
+                states = modal.Length > 0 ? modal : DefaultChainFor(type);
+            }
+            else
+            {
+                states = DefaultChainFor(type);
+            }
+
+            var (gaps, tolerances) = type == CentroidType.Bot
+                ? (DefaultBotGapsMs, DefaultBotTolerancesMs)
+                : (DefaultHumanGapsMs, DefaultHumanTolerancesMs);
 
             newChains[cluster.ClusterId] = new CentroidSequence
             {
@@ -161,6 +188,9 @@ public sealed class CentroidSequenceStore
         await PersistAsync(newChains.Values, ct);
         _logger.LogDebug("CentroidSequenceStore rebuilt with {Count} clusters", newChains.Count);
     }
+
+    private static RequestState[] DefaultChainFor(CentroidType type) =>
+        type == CentroidType.Bot ? TypicalBotChain : TypicalHumanChain;
 
     /// <summary>
     ///     Map a <see cref="BotClusterType"/> to the coarser <see cref="CentroidType"/> used
