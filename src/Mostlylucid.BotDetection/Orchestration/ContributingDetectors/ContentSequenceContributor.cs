@@ -230,13 +230,29 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         var isPrefetch = RequestMarkovClassifier.IsPrefetchRequest(request);
         var requestState = RequestMarkovClassifier.Classify(state);
         var now = DateTimeOffset.UtcNow;
-        var elapsedMs = (now - ctx.WindowStartTime).TotalMilliseconds;
+
+        // Idle-reset: if the inter-request gap exceeded the configured threshold, treat this
+        // as a fresh window before scoring. The new window starts at `now`, the observed-state
+        // set is reseeded with the current request's state, and the request count and
+        // cache-warm flag are reset. Position, ChainId, and divergence counters are session-
+        // scoped and intentionally NOT reset. Computed BEFORE divergence scoring so the
+        // first request after idle does not see the stale high request count or stale
+        // WindowStartTime (which would mis-categorise its phase).
+        var idleSeconds = (now - ctx.LastRequest).TotalSeconds;
+        var resetWindow = idleSeconds >= RequestCountIdleResetSeconds;
+
+        var effectiveWindowStart = resetWindow ? now : ctx.WindowStartTime;
+        var effectiveRequestCount = resetWindow ? 1 : ctx.RequestCountInWindow + 1;
+        var effectiveObservedSetIn = resetWindow ? ImmutableHashSet<RequestState>.Empty : ctx.ObservedStateSet;
+        var initialCacheWarm = !resetWindow && ctx.CacheWarm;
+
+        var elapsedMs = (now - effectiveWindowStart).TotalMilliseconds;
         var position = Math.Min(ctx.Position + 1, MaxTrackedPositions);
 
         // Track observed states (prefetch requests are recorded but not used for divergence scoring)
-        var observedSet = ctx.ObservedStateSet.Add(requestState);
+        var observedSet = effectiveObservedSetIn.Add(requestState);
 
-        // Phase window detection
+        // Phase window detection (uses the fresh window start when reset)
         var phaseIndex = GetPhaseIndex(elapsedMs);
         var expectedSet = PhaseExpectedSets[phaseIndex];
 
@@ -245,7 +261,7 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         //     browser skipped statics), OR
         //  2. returning visitor signalled by a Cookie header and the first continuation is
         //     not a StaticAsset (warm cache means the XHR fires before any static reload).
-        var cacheWarm = ctx.CacheWarm;
+        var cacheWarm = initialCacheWarm;
         var hasCookie = request.Headers.ContainsKey("Cookie");
         if (!cacheWarm)
         {
@@ -255,10 +271,15 @@ public class ContentSequenceContributor : ConfiguredContributorBase
                 cacheWarm = true;
         }
 
-        // Divergence scoring (skip for prefetch requests)
+        // Divergence scoring (skip for prefetch requests). Uses a synthetic ctx view where
+        // RequestCountInWindow reflects the post-reset count so the high-count penalty does
+        // not fire on the first request back from an idle gap.
         double divergenceScore = 0.0;
         if (!isPrefetch)
-            divergenceScore = ComputeDivergenceScore(requestState, elapsedMs, expectedSet, ctx, cacheWarm);
+            divergenceScore = ComputeDivergenceScore(
+                requestState, elapsedMs, expectedSet,
+                ctx with { RequestCountInWindow = effectiveRequestCount },
+                cacheWarm);
 
         var hasDiverged = divergenceScore >= DivergenceThreshold;
         var divergenceCount = ctx.DivergenceCount + (hasDiverged && !ctx.HasDiverged ? 1 : 0);
@@ -284,28 +305,16 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         // SignalR expected: next step in chain is SignalR AND centroid is not Bot
         var signalRExpected = IsSignalRExpected(ctx, position);
 
-        // If the inter-request idle gap exceeded the reset threshold, treat this as a
-        // fresh window: reset count, observed states, and cache-warm. Prevents long-lived
-        // sessions from accumulating a permanent high-request-count signal.
-        var idleSeconds = (now - ctx.LastRequest).TotalSeconds;
-        var resetWindow = idleSeconds >= RequestCountIdleResetSeconds;
-        var newRequestCount = resetWindow ? 1 : ctx.RequestCountInWindow + 1;
-        var newWindowStart = resetWindow ? now : ctx.WindowStartTime;
-        var newObservedSet = resetWindow
-            ? ImmutableHashSet<RequestState>.Empty.Add(requestState)
-            : observedSet;
-        var newCacheWarm = resetWindow ? false : cacheWarm;
-
         var updatedCtx = ctx with
         {
             Position = position,
-            ObservedStateSet = newObservedSet,
-            WindowStartTime = newWindowStart,
-            RequestCountInWindow = newRequestCount,
+            ObservedStateSet = observedSet,
+            WindowStartTime = effectiveWindowStart,
+            RequestCountInWindow = effectiveRequestCount,
             LastRequest = now,
             HasDiverged = hasDiverged,
             DivergenceCount = divergenceCount,
-            CacheWarm = newCacheWarm
+            CacheWarm = cacheWarm
         };
         _contextStore.Update(signature, updatedCtx);
 

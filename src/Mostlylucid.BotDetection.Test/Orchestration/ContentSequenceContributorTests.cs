@@ -672,7 +672,9 @@ public class ContentSequenceContributorTests : IDisposable
         _contextStore.Update(sig, ctxBefore with
         {
             RequestCountInWindow = 199,
-            LastRequest = DateTimeOffset.UtcNow.AddMinutes(-2)
+            LastRequest = DateTimeOffset.UtcNow.AddMinutes(-2),
+            CacheWarm = true,
+            WindowStartTime = DateTimeOffset.UtcNow.AddMinutes(-2)
         });
 
         // idle gap (2 min) > idle reset (60 sec) so the window should reset on next request
@@ -691,6 +693,90 @@ public class ContentSequenceContributorTests : IDisposable
 
         var ctxAfter = _contextStore.TryGet(sig)!;
         Assert.Equal(1, ctxAfter.RequestCountInWindow);
+        // Cache warm should re-derive from current request; not just carry over stale true.
+        // After an idle reset, with a StaticAsset request in the critical phase (fresh window
+        // starts now), cache_warm should be false (StaticAsset is expected in critical).
+        Assert.False(ctxAfter.CacheWarm,
+            "After idle reset, cache_warm should not carry over the stale true value");
+        // Window start should be fresh (within last second).
+        Assert.True((DateTimeOffset.UtcNow - ctxAfter.WindowStartTime).TotalSeconds < 2,
+            "After idle reset, WindowStartTime should be fresh");
+    }
+
+    [Fact]
+    public async Task RequestCount_OverThreshold_FirstRequestAfterIdle_NoHighCountPenalty()
+    {
+        // Regression: before the ordering fix, a session at count > threshold then idle
+        // would still get +HighRequestCountScore on its first request back, because the
+        // reset was computed AFTER divergence scoring. After the fix, the first request
+        // back must use the post-reset count.
+        const string sig = "idle-no-residual-penalty";
+        SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-5));
+        var ctxBefore = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, ctxBefore with
+        {
+            // High count and 2-min idle so the reset triggers.
+            RequestCountInWindow = 250,
+            LastRequest = DateTimeOffset.UtcNow.AddMinutes(-2),
+            WindowStartTime = DateTimeOffset.UtcNow.AddMinutes(-2)
+        });
+
+        var contributor = CreateContributor(new Dictionary<string, object>
+        {
+            ["request_count_idle_reset_seconds"] = 60,
+            ["high_request_count_threshold"] = 200,
+            ["high_request_count_score"] = 0.5  // exaggerated so we can detect if it fires
+        });
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "GET";
+            ctx.Request.Path = "/site.css";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "style";
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var score = state.GetSignal<double>(SignalKeys.SequenceDivergenceScore);
+        Assert.True(score < 0.4,
+            $"First request after idle reset must not carry over the high-request-count penalty (score={score:F2})");
+    }
+
+    [Fact]
+    public async Task PhaseDetection_AfterIdleReset_UsesFreshWindow()
+    {
+        // Regression: before the ordering fix, phaseIndex was computed against the stale
+        // WindowStartTime, so a 2-minute idle put the first request in phase 3 (settled).
+        // After the fix, the window starts at `now` and the first request lands in phase 0
+        // (critical, expected set [StaticAsset, PageView]).
+        const string sig = "fresh-phase";
+        SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-5));
+        var ctxBefore = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, ctxBefore with
+        {
+            LastRequest = DateTimeOffset.UtcNow.AddMinutes(-2),
+            WindowStartTime = DateTimeOffset.UtcNow.AddMinutes(-2)
+        });
+
+        var contributor = CreateContributor(new Dictionary<string, object>
+        {
+            ["request_count_idle_reset_seconds"] = 60
+        });
+        // StaticAsset is in the critical-phase expected set; if phase detection
+        // mis-categorises this request as settled, StaticAsset is NOT expected and
+        // divergence score will be non-zero. With the fix, score should be 0.
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "GET";
+            ctx.Request.Path = "/site.css";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "style";
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var score = state.GetSignal<double>(SignalKeys.SequenceDivergenceScore);
+        var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
+        Assert.False(diverged,
+            $"After idle reset, StaticAsset in fresh critical window must not diverge (score={score:F2})");
     }
 
     #endregion
