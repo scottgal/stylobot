@@ -67,7 +67,10 @@ public class ContentSequenceContributorTests : IDisposable
         _centroidStore = new CentroidSequenceStore(
             "Data Source=:memory:",
             NullLogger<CentroidSequenceStore>.Instance);
-        // Do not call InitializeAsync — we only need GlobalChain for these tests.
+        // Mark the global baseline as ready so existing divergence tests continue to
+        // exercise scoring. Tests that need the warming-up path construct their own store.
+        _centroidStore.SetGlobalChain(_centroidStore.GlobalChain);
+        // Do not call InitializeAsync; we only need GlobalChain for these tests.
     }
 
     public void Dispose() => _contextStore.Dispose();
@@ -325,8 +328,12 @@ public class ContentSequenceContributorTests : IDisposable
     #region Machine-Speed Divergence
 
     [Fact]
-    public async Task MachineSpeedRequest_SubTwentyMs_WritesDivergedTrue()
+    public async Task MachineSpeedPlusNotFound_TripsDivergence()
     {
+        // Verifies: machine-speed timing (sub-20ms) combined with an unexpected NotFound
+        // classification (404 response, weight 0.50) crosses the 0.6 threshold.
+        // Under the new per-state weighting, machine-speed alone (0.3) is intentionally
+        // insufficient: see MachineSpeedAloneOnExpectedState_DoesNotTrip below.
         const string sig = "sig-machine-speed";
         // Seed context first, then stamp LastRequest immediately before ContributeAsync
         // to keep the gap well within the 20ms machine-speed threshold on slow CI.
@@ -339,9 +346,10 @@ public class ContentSequenceContributorTests : IDisposable
             {
                 ctx.Request.Path = "/api/data";
                 ctx.Request.Headers["Sec-Fetch-Mode"] = "cors";
+                ctx.Response.StatusCode = 404;
             });
 
-        // Stamp right before the call — minimises elapsed time between seed and detect.
+        // Stamp right before the call: minimises elapsed time between seed and detect.
         var existing = _contextStore.TryGet(sig);
         if (existing != null)
             _contextStore.Update(sig, existing with { LastRequest = DateTimeOffset.UtcNow.AddMilliseconds(-2) });
@@ -351,7 +359,37 @@ public class ContentSequenceContributorTests : IDisposable
         Assert.True(state.Signals.ContainsKey(SignalKeys.SequenceDiverged),
             "Machine-speed request must write sequence.diverged");
         var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
-        Assert.True(diverged, "sequence.diverged must be true for sub-20ms inter-request gap");
+        Assert.True(diverged, "sequence.diverged must be true for sub-20ms machine-speed + NotFound (0.3 + 0.5 = 0.8)");
+    }
+
+    [Fact]
+    public async Task MachineSpeedAloneOnExpectedState_DoesNotTrip()
+    {
+        // Verifies: machine-speed timing (sub-20ms) on an EXPECTED state (StaticAsset in
+        // the critical phase) does NOT trip divergence. The new per-state weighting
+        // intentionally requires machine-speed to combine with a meaningful unexpected
+        // state, not on its own.
+        const string sig = "machine-speed-expected";
+        SeedDocumentContext(sig);
+        var ctxBefore = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, ctxBefore with
+        {
+            LastRequest = DateTimeOffset.UtcNow.AddMilliseconds(-5)
+        });
+
+        var contributor = CreateContributor();
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "GET";
+            ctx.Request.Path = "/site.css";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "style";
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
+        var score = state.GetSignal<double>(SignalKeys.SequenceDivergenceScore);
+        Assert.False(diverged, $"Machine-speed on an expected state must not trip (score={score:F2})");
     }
 
     #endregion
@@ -395,6 +433,168 @@ public class ContentSequenceContributorTests : IDisposable
         var diverged = state.Signals.TryGetValue(SignalKeys.SequenceDiverged, out var divVal)
             && divVal is true;
         Assert.False(diverged, "Cache-warm ApiCall in mid-window must NOT be flagged as diverged");
+    }
+
+    [Fact]
+    public async Task CriticalWindow_ApiCall_WithCookie_CacheWarmFlipsImmediately()
+    {
+        const string sig = "returning-visitor";
+        SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-1));
+
+        var contributor = CreateContributor();
+        // transport.protocol_class = "api" forces RequestMarkovClassifier.Classify to return ApiCall.
+        // The classifier has no built-in "/api/" path heuristic, so we set the upstream signal
+        // (normally written by TransportProtocolContributor) explicitly here.
+        var state = CreateState(
+            signature: sig,
+            configureHttp: ctx =>
+            {
+                ctx.Request.Method = "GET";
+                ctx.Request.Path = "/api/me";
+                ctx.Request.Headers["Cookie"] = "session=abc";
+                ctx.Request.Headers["Sec-Fetch-Dest"] = "empty";
+                ctx.Request.Headers["Accept"] = "application/json";
+            },
+            extraSignals: new Dictionary<string, object>
+            {
+                [SignalKeys.TransportProtocolClass] = "api"
+            });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var cacheWarm = state.GetSignal<bool>(SignalKeys.SequenceCacheWarm);
+        Assert.True(cacheWarm, "Returning visitor (Cookie present) should flip cache_warm in critical window");
+        var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
+        Assert.False(diverged, "ApiCall in critical window with Cookie + cache_warm must not diverge");
+    }
+
+    #endregion
+
+    #region Per-State Divergence Weights
+
+    [Fact]
+    public async Task UnexpectedStaticAsset_DoesNotTripDivergence()
+    {
+        const string sig = "weighted-static";
+        SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-1));
+
+        // Push the window start into the LATE phase (>2s) so StaticAsset is unexpected
+        // (late-phase expected set is [ApiCall, SignalR, WebSocket, ServerSentEvent]).
+        // Under the new per-state weights, StaticAsset weight is 0.05, well below the 0.6
+        // threshold, so a single static-asset miss must NOT trip divergence.
+        var seeded = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, seeded with
+        {
+            WindowStartTime = DateTimeOffset.UtcNow.AddSeconds(-3),
+            LastRequest = DateTimeOffset.UtcNow.AddSeconds(-1)
+        });
+
+        var contributor = CreateContributor();
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "GET";
+            ctx.Request.Path = "/extra.css";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "style";
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
+        var score = state.GetSignal<double>(SignalKeys.SequenceDivergenceScore);
+        Assert.False(diverged, $"StaticAsset alone must not trip divergence (score={score:F2})");
+    }
+
+    [Fact]
+    public async Task UnexpectedAuthAttempt_TripsDivergence()
+    {
+        const string sig = "weighted-auth";
+        SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-1));
+
+        // Push LastRequest into the machine-speed band (sub-20ms) so the score lands
+        // clearly above the 0.6 threshold instead of sitting exactly on the boundary:
+        // AuthAttempt (0.60) + machine-speed (0.30) = 0.90, well above 0.6.
+        var ctxBefore = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, ctxBefore with
+        {
+            LastRequest = DateTimeOffset.UtcNow.AddMilliseconds(-5)
+        });
+
+        var contributor = CreateContributor();
+        // Response status 401 forces the classifier to return AuthAttempt (weight 0.60).
+        // AuthAttempt is not in the critical-phase expected set, so weight applies directly.
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "POST";
+            ctx.Request.Path = "/login";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "empty";
+            ctx.Request.Headers["Content-Type"] = "application/x-www-form-urlencoded";
+            ctx.Response.StatusCode = 401;
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
+        Assert.True(diverged, "AuthAttempt + machine-speed should trip divergence well above the 0.6 threshold");
+    }
+
+    [Fact]
+    public async Task UnexpectedStaticAsset_WithBoostedWeight_DoesTripDivergence()
+    {
+        // When YAML override boosts static-asset weight to 0.9, an unexpected static asset
+        // SHOULD trip divergence. Proves GetWeights honours per-state YAML overrides.
+        const string sig = "boosted-static";
+        SeedDocumentContext(sig);
+        var ctxBefore = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, ctxBefore with
+        {
+            WindowStartTime = DateTimeOffset.UtcNow.AddSeconds(-3),
+            LastRequest = DateTimeOffset.UtcNow.AddSeconds(-1)
+        });
+
+        var contributor = CreateContributor(new Dictionary<string, object>
+        {
+            ["unexpected_weight_static_asset"] = 0.9
+        });
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "GET";
+            ctx.Request.Path = "/extra.css";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "style";
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        Assert.True(state.GetSignal<bool>(SignalKeys.SequenceDiverged),
+            "Boosted static-asset weight (0.9) must trip divergence in late phase");
+    }
+
+    [Fact]
+    public void YamlKeyFor_HasMappingForEveryRequestState()
+    {
+        // Ensures adding a RequestState enum value also requires updating YamlKeyFor.
+        // If this test breaks, add the missing case to the switch AND a YAML key in
+        // contentsequence.detector.yaml.
+        var method = typeof(ContentSequenceContributor).GetMethod(
+            "YamlKeyFor",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(method);
+        foreach (var state in Enum.GetValues<RequestState>())
+        {
+            // Will throw ArgumentOutOfRangeException (wrapped in TargetInvocationException)
+            // if a RequestState lacks a switch arm. Surface the inner cause if so.
+            object? key;
+            try
+            {
+                key = method!.Invoke(null, new object[] { state });
+            }
+            catch (System.Reflection.TargetInvocationException tie)
+            {
+                throw new Xunit.Sdk.XunitException(
+                    $"YamlKeyFor has no mapping for RequestState.{state}: {tie.InnerException?.Message}");
+            }
+            Assert.NotNull(key);
+            Assert.StartsWith("unexpected_weight_", (string)key!);
+        }
     }
 
     #endregion
@@ -460,6 +660,126 @@ public class ContentSequenceContributorTests : IDisposable
         Assert.True(state.Signals.ContainsKey(SignalKeys.SequenceDiverged));
         var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
         Assert.False(diverged, "StaticAsset in critical window is expected and must NOT cause divergence");
+    }
+
+    #endregion
+
+    #region Idle Reset
+
+    [Fact]
+    public async Task RequestCount_ResetsAfterIdleGap()
+    {
+        const string sig = "idle-reset";
+        SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-5));
+        var ctxBefore = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, ctxBefore with
+        {
+            RequestCountInWindow = 199,
+            LastRequest = DateTimeOffset.UtcNow.AddMinutes(-2),
+            CacheWarm = true,
+            WindowStartTime = DateTimeOffset.UtcNow.AddMinutes(-2)
+        });
+
+        // idle gap (2 min) > idle reset (60 sec) so the window should reset on next request
+        var contributor = CreateContributor(new Dictionary<string, object>
+        {
+            ["request_count_idle_reset_seconds"] = 60
+        });
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "GET";
+            ctx.Request.Path = "/widget.js";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "script";
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var ctxAfter = _contextStore.TryGet(sig)!;
+        Assert.Equal(1, ctxAfter.RequestCountInWindow);
+        // Cache warm should re-derive from current request; not just carry over stale true.
+        // After an idle reset, with a StaticAsset request in the critical phase (fresh window
+        // starts now), cache_warm should be false (StaticAsset is expected in critical).
+        Assert.False(ctxAfter.CacheWarm,
+            "After idle reset, cache_warm should not carry over the stale true value");
+        // Window start should be fresh (within last second).
+        Assert.True((DateTimeOffset.UtcNow - ctxAfter.WindowStartTime).TotalSeconds < 2,
+            "After idle reset, WindowStartTime should be fresh");
+    }
+
+    [Fact]
+    public async Task RequestCount_OverThreshold_FirstRequestAfterIdle_NoHighCountPenalty()
+    {
+        // Regression: before the ordering fix, a session at count > threshold then idle
+        // would still get +HighRequestCountScore on its first request back, because the
+        // reset was computed AFTER divergence scoring. After the fix, the first request
+        // back must use the post-reset count.
+        const string sig = "idle-no-residual-penalty";
+        SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-5));
+        var ctxBefore = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, ctxBefore with
+        {
+            // High count and 2-min idle so the reset triggers.
+            RequestCountInWindow = 250,
+            LastRequest = DateTimeOffset.UtcNow.AddMinutes(-2),
+            WindowStartTime = DateTimeOffset.UtcNow.AddMinutes(-2)
+        });
+
+        var contributor = CreateContributor(new Dictionary<string, object>
+        {
+            ["request_count_idle_reset_seconds"] = 60,
+            ["high_request_count_threshold"] = 200,
+            ["high_request_count_score"] = 0.5  // exaggerated so we can detect if it fires
+        });
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "GET";
+            ctx.Request.Path = "/site.css";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "style";
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var score = state.GetSignal<double>(SignalKeys.SequenceDivergenceScore);
+        Assert.True(score < 0.4,
+            $"First request after idle reset must not carry over the high-request-count penalty (score={score:F2})");
+    }
+
+    [Fact]
+    public async Task PhaseDetection_AfterIdleReset_UsesFreshWindow()
+    {
+        // Regression: before the ordering fix, phaseIndex was computed against the stale
+        // WindowStartTime, so a 2-minute idle put the first request in phase 3 (settled).
+        // After the fix, the window starts at `now` and the first request lands in phase 0
+        // (critical, expected set [StaticAsset, PageView]).
+        const string sig = "fresh-phase";
+        SeedDocumentContext(sig, lastRequest: DateTimeOffset.UtcNow.AddSeconds(-5));
+        var ctxBefore = _contextStore.TryGet(sig)!;
+        _contextStore.Update(sig, ctxBefore with
+        {
+            LastRequest = DateTimeOffset.UtcNow.AddMinutes(-2),
+            WindowStartTime = DateTimeOffset.UtcNow.AddMinutes(-2)
+        });
+
+        var contributor = CreateContributor(new Dictionary<string, object>
+        {
+            ["request_count_idle_reset_seconds"] = 60
+        });
+        // StaticAsset is in the critical-phase expected set; if phase detection
+        // mis-categorises this request as settled, StaticAsset is NOT expected and
+        // divergence score will be non-zero. With the fix, score should be 0.
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "GET";
+            ctx.Request.Path = "/site.css";
+            ctx.Request.Headers["Sec-Fetch-Dest"] = "style";
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var score = state.GetSignal<double>(SignalKeys.SequenceDivergenceScore);
+        var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
+        Assert.False(diverged,
+            $"After idle reset, StaticAsset in fresh critical window must not diverge (score={score:F2})");
     }
 
     #endregion
@@ -532,6 +852,57 @@ public class ContentSequenceContributorTests : IDisposable
             "sequence.signalr_expected must be written when centroid is Human and next chain step is SignalR");
         var signalRExpected = state.GetSignal<bool>(SignalKeys.SequenceSignalRExpected);
         Assert.True(signalRExpected);
+    }
+
+    [Fact]
+    public async Task GlobalWarmingUp_SuppressesDivergenceScoring()
+    {
+        // Build a contributor whose CentroidSequenceStore has IsGlobalReady == false (no
+        // loader, no SetGlobalChain). A continuation request that would normally trip
+        // divergence must be suppressed while the site-learned global baseline warms up.
+        var warmingStore = new CentroidSequenceStore(
+            "Data Source=:memory:",
+            NullLogger<CentroidSequenceStore>.Instance);
+        var contextStore = new SequenceContextStore();
+        var contributor = new ContentSequenceContributor(
+            NullLogger<ContentSequenceContributor>.Instance,
+            new StubConfigProvider(),
+            contextStore,
+            warmingStore,
+            new EndpointDivergenceTracker(),
+            assetHashStore: null,
+            clusterService: null);
+
+        const string sig = "warming-up";
+        // Seed an initial document hit so the continuation path runs.
+        var seedState = CreateState(
+            signature: sig,
+            configureHttp: ctx => ctx.Request.Headers["Sec-Fetch-Mode"] = "navigate");
+        await contributor.ContributeAsync(seedState, CancellationToken.None);
+        var ctxBefore = contextStore.TryGet(sig)!;
+        contextStore.Update(sig, ctxBefore with
+        {
+            WindowStartTime = DateTimeOffset.UtcNow.AddSeconds(-3), // push to late phase
+            LastRequest = DateTimeOffset.UtcNow.AddSeconds(-1)
+        });
+
+        // POST /login with 401 should classify as AuthAttempt (weight 0.60) and trip under
+        // normal conditions, BUT the global baseline is not learned so scoring is skipped.
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "POST";
+            ctx.Request.Path = "/login";
+            ctx.Response.StatusCode = 401;
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
+        var score = state.GetSignal<double>(SignalKeys.SequenceDivergenceScore);
+        Assert.False(diverged, $"Global-not-ready must suppress divergence (score={score:F2})");
+        Assert.Equal(0.0, score);
+
+        contextStore.Dispose();
     }
 
     #endregion

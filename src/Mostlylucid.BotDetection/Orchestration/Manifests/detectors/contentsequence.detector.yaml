@@ -83,16 +83,32 @@ defaults:
     can_escalate: false
 
   parameters:
-    divergence_threshold: 0.4
+    divergence_threshold: 0.6
     timing_tolerance_multiplier: 3.0
     min_centroid_sample_size: 20
     session_gap_minutes: 30
     max_tracked_positions: 20
     machine_speed_threshold_ms: 20.0
-    machine_speed_score: 0.4
-    unexpected_state_score: 0.5
-    high_request_count_score: 0.3
-    high_request_count_threshold: 50
+    machine_speed_score: 0.3
+    high_request_count_score: 0.2
+    high_request_count_threshold: 200
+    request_count_idle_reset_seconds: 60
+
+    # Per-RequestState divergence weights. Flat 0.5 was a major false-positive source.
+    # Static fetches are noise (browser side-effect); auth/notfound/search are highly meaningful.
+    unexpected_weight_static_asset: 0.05
+    unexpected_weight_page_view: 0.10
+    unexpected_weight_api_call: 0.25
+    unexpected_weight_signalr: 0.20
+    unexpected_weight_websocket: 0.20
+    unexpected_weight_server_sent_event: 0.20
+    unexpected_weight_form_submit: 0.40
+    unexpected_weight_auth_attempt: 0.60
+    unexpected_weight_not_found: 0.50
+    unexpected_weight_search: 0.40
+
+    # Learned-global warmup: suppress divergence until this many confirmed-human sessions exist.
+    learned_global_min_sessions: 50
 
 tags:
   - fast-path

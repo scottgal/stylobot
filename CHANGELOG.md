@@ -5,6 +5,85 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.4.0] - 2026-05-12
+
+False-positive reduction in `ContentSequenceContributor`. The previous flat unexpected-state score (0.5) tripped divergence on routine browser noise (a single unexpected static asset crossed the 0.4 threshold and cascaded to five deferred detectors). The global baseline was a hardcoded human-with-SignalR template that diverged for any site that did not match it, especially on cold-start before clusters formed. This release replaces both with per-state weights and a site-learned baseline, plus several supporting fixes that prevent heavy SPAs and returning visitors from being misclassified.
+
+### Added
+
+#### Per-state divergence weights
+
+- **`StateDivergenceWeights`** (`Mostlylucid.BotDetection/Services/StateDivergenceWeights.cs`) -immutable per-`RequestState` weight map; `Default` is a `FrozenDictionary` populated for all 10 enum values; `FromParameters(resolve)` factory for YAML overrides
+- **YAML weight knobs** in `contentsequence.detector.yaml`: `unexpected_weight_static_asset` (0.05), `unexpected_weight_page_view` (0.10), `unexpected_weight_api_call` (0.25), `unexpected_weight_signalr` / `unexpected_weight_websocket` / `unexpected_weight_server_sent_event` (0.20), `unexpected_weight_form_submit` (0.40), `unexpected_weight_auth_attempt` (0.60), `unexpected_weight_not_found` (0.50), `unexpected_weight_search` (0.40)
+- **Drift-guard test** (`YamlKeyFor_HasMappingForEveryRequestState`) -iterates `Enum.GetValues<RequestState>()` via reflection and asserts every state has a YAML key; future enum additions fail loudly instead of silently aliasing to ApiCall
+
+#### Learned global baseline
+
+- **`CentroidSequenceStore.RelearnGlobalAsync(minSessions, ct)`** -learns the global chain from a broad sample of confirmed-human sessions via the new `ClusterSessionLoader` delegate; falls back to template only when sessions are below `learned_global_min_sessions` (default 50)
+- **`CentroidSequenceStore.IsGlobalReady`** -read by `ContentSequenceContributor` to suppress divergence scoring entirely while warming up (`scoringAllowed = ctx.CentroidType != Unknown || _centroidStore.IsGlobalReady`)
+- **Learned global persistence** -`"global"` row in `centroid_sequences` table; `LoadFromDatabaseAsync` restores both `_globalChain` and `IsGlobalReady` on startup
+- **`CentroidSequenceRebuildHostedService`** -kicks initial `RelearnGlobalAsync(50)` in `StartAsync`; runs again after every cluster rebuild so the learned global re-converges as the human cluster grows
+- **YAML knob** `learned_global_min_sessions: 50` in `contentsequence.detector.yaml`
+
+#### Real centroid computation from session data
+
+- **`SessionChainAggregator`** (`Mostlylucid.BotDetection/Services/SessionChainAggregator.cs`) -aggregates per-cluster session `TransitionCountsJson` into a Markov transition matrix and greedy-walks the expected chain from the modal `DominantState`; gated by `minTotalTransitions` floor (10); truncates when a state has no outbound transitions
+- **`CentroidSequenceStore.ClusterSessionLoader`** delegate -optional constructor argument; when present, `RebuildAsync` aggregates real session paths into modal chains instead of mapping cluster type to a hardcoded template
+- **DI factory wiring** in `ServiceCollectionExtensions.cs` -builds the loader closure over `SqliteSessionStore`; empty signatures list calls `GetRecentSessionsAsync(perSig, isBot: false, ct)` for the learned-global broad sample
+
+#### Cookie-aware cache-warm in the critical window
+
+- A `Cookie` header on the first non-static continuation request now flips `sequence.cache_warm = true` immediately, suppressing the unexpected-ApiCall penalty for returning visitors whose browser already has warm assets; the original `phaseIndex > 0 && !observedSet.Contains(StaticAsset)` trigger is preserved
+
+#### Idle-reset on the request-count window
+
+- **`RequestCountIdleResetSeconds`** parameter (default 60s) -inter-request gap above this resets `RequestCountInWindow`, `WindowStartTime`, `ObservedStateSet`, and `CacheWarm` so a long-lived heavy SPA does not accumulate a permanent `HighRequestCountScore` penalty
+- Idle-reset locals are now computed BEFORE `ComputeDivergenceScore`, so the first request after an idle gap is scored against a fresh window (previous code left a one-request residual penalty and mis-categorised the phase)
+
+### Changed
+
+- **`DivergenceThreshold`** -default raised from 0.4 to 0.6 so a single unexpected state cannot trip divergence
+- **`HighRequestCountThreshold`** -default raised from 50 to 200 (modern dashboards with polling and telemetry routinely exceed 50 requests per session)
+- **`MachineSpeedScore`** -default lowered from 0.4 to 0.3
+- **`HighRequestCountScore`** -default lowered from 0.3 to 0.2
+- **`YamlKeyFor`** -default switch arm now throws `ArgumentOutOfRangeException` (was silently aliasing unknown states to ApiCall)
+- **`CentroidSequenceStore.SetGlobalChain`** -also sets `IsGlobalReady = true`; an explicit caller asserting a baseline is available
+
+### Removed
+
+- **`UnexpectedStateScore`** property on `ContentSequenceContributor` -replaced by per-state lookup via `GetWeights().For(requestState)`
+- **`unexpected_state_score`** YAML key -superseded by the 10 `unexpected_weight_*` keys
+- **Hardcoded `_globalChain` template** -`[StaticAsset, StaticAsset, StaticAsset, ApiCall, SignalR]` is now the fallback only when the learned global has not converged
+
+### Fixed
+
+- **First request after idle no longer carries residual high-count penalty** -the reset locals are computed before `ComputeDivergenceScore`, not after
+- **Phase mis-categorisation after idle reset** -`elapsedMs` is computed against `effectiveWindowStart` (the post-reset value), so the first request post-idle lands in the critical phase as intended, not the settled phase (index 3)
+- **`MachineSpeedRequest_SubTwentyMs_WritesDivergedTrue` renamed to `MachineSpeedPlusNotFound_TripsDivergence`** -test name now reflects the new policy: machine-speed alone (0.3) intentionally cannot trip the 0.6 threshold; combined with NotFound (0.50) it does
+
+### Performance
+
+- **Lazy `_weights` cache** on `ContentSequenceContributor` (commit `1ccb36e`) -Wave 0 hot path: matches the base class `ConfiguredContributorBase.Config` caching pattern; avoids 10 GetParam calls per request inside the sidecar p99 detection budget
+
+### Tests Added
+
+- **`StateDivergenceWeightsTests`** -4 facts on the type's Default values and FromParameters override behaviour
+- **`SessionChainAggregatorTests`** -10 facts covering greedy walk, modal start, truncation on no outbound, min-total floor, JSON parser edge cases (unknown states, malformed input)
+- **`CentroidSequenceStoreTests`** -learned-global ready/not-ready/persistence-across-init tests; loader fallback to template; uses temp-file SQLite paths with `IDisposable` cleanup of `.db` and WAL/SHM sidecars
+- **`ContentSequenceContributorTests`** -8 new facts: per-state weight scoring, AuthAttempt trips divergence, StaticAsset does not, cookie-aware cache-warm, idle reset, no residual penalty after idle, phase detection uses fresh window, drift-guard for `YamlKeyFor`, global-warming-up suppresses scoring, YAML weight override flows through
+
+### Documentation
+
+- `src/Mostlylucid.BotDetection/docs/centroid-freshness.md` -new section "Learned global baseline and per-state weights" covering all four mechanisms (weights, cookie-warm, idle reset, learned global)
+- `src/Mostlylucid.BotDetection/docs/content-sequence-detection.md` -divergence-scoring section rewritten with the new per-state weight table; YAML config block updated to match the current manifest
+
+### Verified
+
+- **AOT compatibility** -`Mostlylucid.BotDetection.Console` (`PublishAot=true`) publishes cleanly for `osx-arm64`; zero new IL2026/IL3050 warnings introduced by `StateDivergenceWeights`, `SessionChainAggregator`, `CentroidSequenceStore`, `ContentSequenceContributor`, or `CentroidSequenceRebuildHostedService`. The published binary starts and serves requests through the full detection pipeline.
+- **Sidecar pattern** -end-to-end review confirmed all changes work correctly in the gRPC sidecar deployment: Cookie header round-trips through `SyntheticHttpContext.FromDetectRequest`; `SequenceContextStore`, `CentroidSequenceStore`, and `CentroidSequenceRebuildHostedService` are all singletons in the sidecar's DI graph; `ISessionStore` is registered so the learned-global loader closure activates identically to the gateway pattern; Caddy plugin only forwards to the gRPC `Detect` RPC with no shadow sequence tracking
+
+---
+
 ## [6.2.0] - 2026-05-06
 
 ### Added

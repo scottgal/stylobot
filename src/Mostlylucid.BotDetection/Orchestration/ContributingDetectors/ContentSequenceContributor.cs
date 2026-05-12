@@ -83,16 +83,16 @@ public class ContentSequenceContributor : ConfiguredContributorBase
     public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
 
     // Config-driven parameters
-    private double DivergenceThreshold => GetParam("divergence_threshold", 0.4);
+    private double DivergenceThreshold => GetParam("divergence_threshold", 0.6);
     private double TimingToleranceMultiplier => GetParam("timing_tolerance_multiplier", 3.0);
     private int MinCentroidSampleSize => GetParam("min_centroid_sample_size", 20);
     private int SessionGapMinutes => GetParam("session_gap_minutes", 30);
     private int MaxTrackedPositions => GetParam("max_tracked_positions", 20);
     private double MachineSpeedThresholdMs => GetParam("machine_speed_threshold_ms", 20.0);
-    private double MachineSpeedScore => GetParam("machine_speed_score", 0.4);
-    private double UnexpectedStateScore => GetParam("unexpected_state_score", 0.5);
-    private double HighRequestCountScore => GetParam("high_request_count_score", 0.3);
-    private int HighRequestCountThreshold => GetParam("high_request_count_threshold", 50);
+    private double MachineSpeedScore => GetParam("machine_speed_score", 0.3);
+    private double HighRequestCountScore => GetParam("high_request_count_score", 0.2);
+    private int HighRequestCountThreshold => GetParam("high_request_count_threshold", 200);
+    private int RequestCountIdleResetSeconds => GetParam("request_count_idle_reset_seconds", 60);
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
@@ -167,7 +167,7 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         SequenceContext ctx)
     {
         // Resolve the best available chain for this fingerprint
-        var (chain, centroidId) = ResolveChain(signature);
+        var (chain, centroidId, isReady) = ResolveChain(signature);
 
         var contentPath = request.Path.Value ?? "/";
 
@@ -196,7 +196,8 @@ public class ContentSequenceContributor : ConfiguredContributorBase
 
         // Check if this path's asset hash changed recently (deploy happened)
         var assetChanged = _assetHashStore?.IsRecentlyChanged(contentPath) ?? false;
-        var centroidStale = _centroidStore.IsEndpointStale(contentPath);
+        // Treat a not-yet-learned global as stale: suppresses divergence scoring downstream.
+        var centroidStale = _centroidStore.IsEndpointStale(contentPath) || !isReady;
 
         _logger.LogDebug(
             "ContentSequence: document hit for {Signature}, chain={ChainId}, centroid={CentroidId}",
@@ -230,25 +231,60 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         var isPrefetch = RequestMarkovClassifier.IsPrefetchRequest(request);
         var requestState = RequestMarkovClassifier.Classify(state);
         var now = DateTimeOffset.UtcNow;
-        var elapsedMs = (now - ctx.WindowStartTime).TotalMilliseconds;
+
+        // Idle-reset: if the inter-request gap exceeded the configured threshold, treat this
+        // as a fresh window before scoring. The new window starts at `now`, the observed-state
+        // set is reseeded with the current request's state, and the request count and
+        // cache-warm flag are reset. Position, ChainId, and divergence counters are session-
+        // scoped and intentionally NOT reset. Computed BEFORE divergence scoring so the
+        // first request after idle does not see the stale high request count or stale
+        // WindowStartTime (which would mis-categorise its phase).
+        var idleSeconds = (now - ctx.LastRequest).TotalSeconds;
+        var resetWindow = idleSeconds >= RequestCountIdleResetSeconds;
+
+        var effectiveWindowStart = resetWindow ? now : ctx.WindowStartTime;
+        var effectiveRequestCount = resetWindow ? 1 : ctx.RequestCountInWindow + 1;
+        var effectiveObservedSetIn = resetWindow ? ImmutableHashSet<RequestState>.Empty : ctx.ObservedStateSet;
+        var initialCacheWarm = !resetWindow && ctx.CacheWarm;
+
+        var elapsedMs = (now - effectiveWindowStart).TotalMilliseconds;
         var position = Math.Min(ctx.Position + 1, MaxTrackedPositions);
 
         // Track observed states (prefetch requests are recorded but not used for divergence scoring)
-        var observedSet = ctx.ObservedStateSet.Add(requestState);
+        var observedSet = effectiveObservedSetIn.Add(requestState);
 
-        // Phase window detection
+        // Phase window detection (uses the fresh window start when reset)
         var phaseIndex = GetPhaseIndex(elapsedMs);
         var expectedSet = PhaseExpectedSets[phaseIndex];
 
-        // Cache warm detection: critical window closed with no StaticAsset observed
-        var cacheWarm = ctx.CacheWarm;
-        if (!cacheWarm && phaseIndex > 0 && !observedSet.Contains(RequestState.StaticAsset))
-            cacheWarm = true;
+        // Cache warm detection:
+        //  1. critical window closed with no StaticAsset observed (returning visitor whose
+        //     browser skipped statics), OR
+        //  2. returning visitor signalled by a Cookie header and the first continuation is
+        //     not a StaticAsset (warm cache means the XHR fires before any static reload).
+        var cacheWarm = initialCacheWarm;
+        var hasCookie = request.Headers.ContainsKey("Cookie");
+        if (!cacheWarm)
+        {
+            if (phaseIndex > 0 && !observedSet.Contains(RequestState.StaticAsset))
+                cacheWarm = true;
+            else if (hasCookie && requestState != RequestState.StaticAsset)
+                cacheWarm = true;
+        }
 
-        // Divergence scoring (skip for prefetch requests)
+        // Divergence scoring (skip for prefetch requests). Uses a synthetic ctx view where
+        // RequestCountInWindow reflects the post-reset count so the high-count penalty does
+        // not fire on the first request back from an idle gap.
+        // Suppress scoring entirely when the global baseline is still warming up.
+        // ctx.CentroidType is Unknown for global-chain users; the IsGlobalReady check
+        // distinguishes a warming-up baseline from a cluster-specific chain.
+        var scoringAllowed = ctx.CentroidType != CentroidType.Unknown || _centroidStore.IsGlobalReady;
         double divergenceScore = 0.0;
-        if (!isPrefetch)
-            divergenceScore = ComputeDivergenceScore(requestState, elapsedMs, expectedSet, ctx, cacheWarm);
+        if (!isPrefetch && scoringAllowed)
+            divergenceScore = ComputeDivergenceScore(
+                requestState, elapsedMs, expectedSet,
+                ctx with { RequestCountInWindow = effectiveRequestCount },
+                cacheWarm);
 
         var hasDiverged = divergenceScore >= DivergenceThreshold;
         var divergenceCount = ctx.DivergenceCount + (hasDiverged && !ctx.HasDiverged ? 1 : 0);
@@ -274,13 +310,12 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         // SignalR expected: next step in chain is SignalR AND centroid is not Bot
         var signalRExpected = IsSignalRExpected(ctx, position);
 
-        // Build updated context
         var updatedCtx = ctx with
         {
             Position = position,
             ObservedStateSet = observedSet,
-            WindowStartTime = ctx.WindowStartTime,
-            RequestCountInWindow = ctx.RequestCountInWindow + 1,
+            WindowStartTime = effectiveWindowStart,
+            RequestCountInWindow = effectiveRequestCount,
             LastRequest = now,
             HasDiverged = hasDiverged,
             DivergenceCount = divergenceCount,
@@ -334,9 +369,9 @@ public class ContentSequenceContributor : ConfiguredContributorBase
 
     /// <summary>
     ///     Computes a divergence score for the current request based on:
-    ///     - Machine-speed timing (< 20ms inter-request)
-    ///     - State not in expected set for the current phase
-    ///     - High request volume in window (> 50)
+    ///     - Machine-speed timing (&lt; MachineSpeedThresholdMs inter-request)
+    ///     - State not in expected set for the current phase, weighted by RequestState
+    ///     - High request volume in window (&gt; HighRequestCountThreshold)
     ///     Score is capped at 1.0.
     /// </summary>
     private double ComputeDivergenceScore(
@@ -347,20 +382,22 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         bool cacheWarm)
     {
         double score = 0.0;
+        var weights = GetWeights();
 
         // Machine-speed timing: sub-threshold ms between requests is bot-like
         var msSinceLastRequest = (DateTimeOffset.UtcNow - ctx.LastRequest).TotalMilliseconds;
         if (msSinceLastRequest < MachineSpeedThresholdMs)
             score += MachineSpeedScore;
 
-        // State not in expected set for this phase
-        // Exception: if cache-warm and ApiCall in critical window, don't penalise
+        // State not in expected set for this phase.
+        // Score is now per-state (was a flat 0.5, a major false-positive source).
+        // Exception: if cache-warm and ApiCall in critical window, don't penalise.
         var isExpected = expectedSet.Contains(requestState);
         if (!isExpected)
         {
             var isCacheWarmException = cacheWarm && requestState == RequestState.ApiCall;
             if (!isCacheWarmException)
-                score += UnexpectedStateScore;
+                score += weights.For(requestState);
         }
 
         // High request volume in window
@@ -369,6 +406,36 @@ public class ContentSequenceContributor : ConfiguredContributorBase
 
         return Math.Min(score, 1.0);
     }
+
+    // Cached at contributor scope. Wave 0 runs on every request and the sidecar
+    // p99 detection budget is 10ms; recomputing 10 GetParam calls per request
+    // burns budget for no behavioural benefit, since ConfiguredContributorBase.Config
+    // (Weights, Confidence, etc.) is itself pinned with the same ??= pattern and
+    // already bounded by the same hot-reload semantics. A future InvalidateCache
+    // extension to push contributor-scope refresh should reset both this field
+    // and the base class's _cachedConfig together.
+    private StateDivergenceWeights? _weights;
+
+    private StateDivergenceWeights GetWeights() =>
+        _weights ??= StateDivergenceWeights.FromParameters((state, fallback) =>
+            GetParam(YamlKeyFor(state), fallback));
+
+    private static string YamlKeyFor(RequestState state) => state switch
+    {
+        RequestState.StaticAsset => "unexpected_weight_static_asset",
+        RequestState.PageView => "unexpected_weight_page_view",
+        RequestState.ApiCall => "unexpected_weight_api_call",
+        RequestState.SignalR => "unexpected_weight_signalr",
+        RequestState.WebSocket => "unexpected_weight_websocket",
+        RequestState.ServerSentEvent => "unexpected_weight_server_sent_event",
+        RequestState.FormSubmit => "unexpected_weight_form_submit",
+        RequestState.AuthAttempt => "unexpected_weight_auth_attempt",
+        RequestState.NotFound => "unexpected_weight_not_found",
+        RequestState.Search => "unexpected_weight_search",
+        _ => throw new ArgumentOutOfRangeException(
+            nameof(state), state,
+            "RequestState has no YAML weight key mapping. Add a YAML key in contentsequence.detector.yaml and a switch arm in YamlKeyFor.")
+    };
 
     /// <summary>
     ///     Returns true when the next expected chain state is SignalR AND the centroid is not Bot.
@@ -390,12 +457,14 @@ public class ContentSequenceContributor : ConfiguredContributorBase
 
     /// <summary>
     ///     Resolves the best available chain for a fingerprint.
-    ///     Priority: centroid-specific chain (Tier 2) → global chain (Tier 1).
+    ///     Priority: centroid-specific chain (Tier 2) then global chain (Tier 1).
     ///     The centroid is discovered via <see cref="BotClusterService.FindCluster"/> (optional service).
+    ///     The <c>isReady</c> flag is true for any cluster-specific chain; it reflects
+    ///     <see cref="CentroidSequenceStore.IsGlobalReady"/> for the global-chain fallback so callers
+    ///     can suppress divergence scoring while the site-learned baseline warms up.
     /// </summary>
-    private (CentroidSequence chain, string centroidId) ResolveChain(string signature)
+    private (CentroidSequence chain, string centroidId, bool isReady) ResolveChain(string signature)
     {
-        // Try to find a cluster for this signature
         if (_clusterService != null)
         {
             var cluster = _clusterService.FindCluster(signature);
@@ -408,13 +477,11 @@ public class ContentSequenceContributor : ConfiguredContributorBase
                     _logger.LogDebug(
                         "ContentSequence: using centroid chain {CentroidId} (type={Type}, samples={Samples})",
                         centroidChain.CentroidId, centroidChain.Type, centroidChain.SampleSize);
-                    return (centroidChain, centroidChain.CentroidId);
+                    return (centroidChain, centroidChain.CentroidId, true);
                 }
             }
         }
 
-        // Fall back to global chain
-        var global = _centroidStore.GlobalChain;
-        return (global, "global");
+        return (_centroidStore.GlobalChain, "global", _centroidStore.IsGlobalReady);
     }
 }

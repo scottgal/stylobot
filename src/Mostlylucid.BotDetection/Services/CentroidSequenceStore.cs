@@ -26,8 +26,17 @@ public sealed record CentroidSequence
 /// </summary>
 public sealed class CentroidSequenceStore
 {
+    /// <summary>
+    ///     Optional delegate for fetching session transition data for a set of cluster members.
+    ///     When non-null, <see cref="RebuildAsync"/> uses it to compute centroid chains from real
+    ///     observed sessions; when null, falls back to the typical-bot / typical-human templates.
+    /// </summary>
+    public delegate Task<List<SessionTransitionData>> ClusterSessionLoader(
+        IReadOnlyList<string> memberSignatures, int perSignature, CancellationToken ct);
+
     private readonly string _connectionString;
     private readonly ILogger<CentroidSequenceStore> _logger;
+    private readonly ClusterSessionLoader? _sessionLoader;
 
     // Global fallback chain (Tier 1): typical human sequence from PageView.
     private CentroidSequence _globalChain = new()
@@ -69,15 +78,75 @@ public sealed class CentroidSequenceStore
     private static readonly double[] DefaultBotGapsMs = [50, 50, 50, 50, 50];
     private static readonly double[] DefaultBotTolerancesMs = [100, 100, 100, 100, 100];
 
-    public CentroidSequenceStore(string connectionString, ILogger<CentroidSequenceStore> logger)
+    public CentroidSequenceStore(
+        string connectionString,
+        ILogger<CentroidSequenceStore> logger,
+        ClusterSessionLoader? sessionLoader = null)
     {
         _connectionString = connectionString;
         _logger = logger;
+        _sessionLoader = sessionLoader;
     }
 
     public CentroidSequence GlobalChain => _globalChain;
 
-    public void SetGlobalChain(CentroidSequence chain) => _globalChain = chain;
+    /// <summary>
+    ///     Replace the global fallback chain with an explicit value.
+    ///     Marks the store as ready so callers stop suppressing divergence scoring.
+    ///     Used by tests and tools that want to bypass the learned-baseline warm-up.
+    /// </summary>
+    public void SetGlobalChain(CentroidSequence chain)
+    {
+        _globalChain = chain;
+        IsGlobalReady = true;
+    }
+
+    /// <summary>
+    ///     True once a site-learned global baseline is available (either learned from recent
+    ///     confirmed-human sessions via <see cref="RelearnGlobalAsync"/> or restored from
+    ///     SQLite at startup). When false, callers should suppress divergence scoring for
+    ///     fingerprints that fall back to the global chain.
+    /// </summary>
+    public bool IsGlobalReady { get; private set; }
+
+    /// <summary>
+    ///     Learn a site-wide global baseline by sampling all recent confirmed-human sessions
+    ///     via the configured loader. If fewer than <paramref name="minSessions"/> sessions
+    ///     are available or the aggregator returns an empty chain, leaves
+    ///     <see cref="IsGlobalReady"/> false so callers can suppress divergence scoring.
+    /// </summary>
+    public async Task RelearnGlobalAsync(int minSessions, CancellationToken ct = default)
+    {
+        if (_sessionLoader == null) return;
+
+        // Empty signature list = "broad sample across all signatures".
+        var sessions = await _sessionLoader(Array.Empty<string>(), minSessions * 2, ct);
+        if (sessions.Count < minSessions)
+        {
+            IsGlobalReady = false;
+            return;
+        }
+
+        var chain = SessionChainAggregator.AggregateFromTransitions(
+            sessions, chainLength: 5, minTotalTransitions: 10);
+        if (chain.Length == 0)
+        {
+            IsGlobalReady = false;
+            return;
+        }
+
+        _globalChain = new CentroidSequence
+        {
+            CentroidId = "global",
+            Type = CentroidType.Unknown,
+            ExpectedStates = chain,
+            TypicalGapsMs = DefaultHumanGapsMs,
+            GapToleranceMs = DefaultHumanTolerancesMs,
+            SampleSize = sessions.Count
+        };
+        IsGlobalReady = true;
+        await PersistAsync(new[] { _globalChain }, ct);
+    }
 
     /// <summary>
     ///     Mark an endpoint path as stale. ContentSequenceContributor will suppress divergence scoring
@@ -142,9 +211,23 @@ public sealed class CentroidSequenceStore
             var type = DetermineClusterType(cluster);
             var sampleSize = cluster.MemberCount;
 
-            var (states, gaps, tolerances) = type == CentroidType.Bot
-                ? (TypicalBotChain, DefaultBotGapsMs, DefaultBotTolerancesMs)
-                : (TypicalHumanChain, DefaultHumanGapsMs, DefaultHumanTolerancesMs);
+            RequestState[] states;
+            if (_sessionLoader != null && cluster.MemberSignatures.Count > 0)
+            {
+                var perSig = Math.Max(1, 200 / Math.Max(1, cluster.MemberSignatures.Count));
+                var observed = await _sessionLoader(cluster.MemberSignatures, perSig, ct);
+                var modal = SessionChainAggregator.AggregateFromTransitions(
+                    observed, chainLength: 5, minTotalTransitions: 10);
+                states = modal.Length > 0 ? modal : DefaultChainFor(type);
+            }
+            else
+            {
+                states = DefaultChainFor(type);
+            }
+
+            var (gaps, tolerances) = type == CentroidType.Bot
+                ? (DefaultBotGapsMs, DefaultBotTolerancesMs)
+                : (DefaultHumanGapsMs, DefaultHumanTolerancesMs);
 
             newChains[cluster.ClusterId] = new CentroidSequence
             {
@@ -161,6 +244,9 @@ public sealed class CentroidSequenceStore
         await PersistAsync(newChains.Values, ct);
         _logger.LogDebug("CentroidSequenceStore rebuilt with {Count} clusters", newChains.Count);
     }
+
+    private static RequestState[] DefaultChainFor(CentroidType type) =>
+        type == CentroidType.Bot ? TypicalBotChain : TypicalHumanChain;
 
     /// <summary>
     ///     Map a <see cref="BotClusterType"/> to the coarser <see cref="CentroidType"/> used
@@ -229,7 +315,17 @@ public sealed class CentroidSequenceStore
             {
                 var chain = JsonSerializer.Deserialize<CentroidSequence>(reader.GetString(0));
                 if (chain != null)
-                    chains[chain.CentroidId] = chain;
+                {
+                    if (chain.CentroidId == "global")
+                    {
+                        _globalChain = chain;
+                        IsGlobalReady = true;
+                    }
+                    else
+                    {
+                        chains[chain.CentroidId] = chain;
+                    }
+                }
             }
             catch (Exception ex)
             {
