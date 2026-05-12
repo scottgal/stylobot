@@ -167,7 +167,7 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         SequenceContext ctx)
     {
         // Resolve the best available chain for this fingerprint
-        var (chain, centroidId) = ResolveChain(signature);
+        var (chain, centroidId, isReady) = ResolveChain(signature);
 
         var contentPath = request.Path.Value ?? "/";
 
@@ -196,7 +196,8 @@ public class ContentSequenceContributor : ConfiguredContributorBase
 
         // Check if this path's asset hash changed recently (deploy happened)
         var assetChanged = _assetHashStore?.IsRecentlyChanged(contentPath) ?? false;
-        var centroidStale = _centroidStore.IsEndpointStale(contentPath);
+        // Treat a not-yet-learned global as stale: suppresses divergence scoring downstream.
+        var centroidStale = _centroidStore.IsEndpointStale(contentPath) || !isReady;
 
         _logger.LogDebug(
             "ContentSequence: document hit for {Signature}, chain={ChainId}, centroid={CentroidId}",
@@ -274,8 +275,12 @@ public class ContentSequenceContributor : ConfiguredContributorBase
         // Divergence scoring (skip for prefetch requests). Uses a synthetic ctx view where
         // RequestCountInWindow reflects the post-reset count so the high-count penalty does
         // not fire on the first request back from an idle gap.
+        // Suppress scoring entirely when the global baseline is still warming up.
+        // ctx.CentroidType is Unknown for global-chain users; the IsGlobalReady check
+        // distinguishes a warming-up baseline from a cluster-specific chain.
+        var scoringAllowed = ctx.CentroidType != CentroidType.Unknown || _centroidStore.IsGlobalReady;
         double divergenceScore = 0.0;
-        if (!isPrefetch)
+        if (!isPrefetch && scoringAllowed)
             divergenceScore = ComputeDivergenceScore(
                 requestState, elapsedMs, expectedSet,
                 ctx with { RequestCountInWindow = effectiveRequestCount },
@@ -446,12 +451,14 @@ public class ContentSequenceContributor : ConfiguredContributorBase
 
     /// <summary>
     ///     Resolves the best available chain for a fingerprint.
-    ///     Priority: centroid-specific chain (Tier 2) → global chain (Tier 1).
+    ///     Priority: centroid-specific chain (Tier 2) then global chain (Tier 1).
     ///     The centroid is discovered via <see cref="BotClusterService.FindCluster"/> (optional service).
+    ///     The <c>isReady</c> flag is true for any cluster-specific chain; it reflects
+    ///     <see cref="CentroidSequenceStore.IsGlobalReady"/> for the global-chain fallback so callers
+    ///     can suppress divergence scoring while the site-learned baseline warms up.
     /// </summary>
-    private (CentroidSequence chain, string centroidId) ResolveChain(string signature)
+    private (CentroidSequence chain, string centroidId, bool isReady) ResolveChain(string signature)
     {
-        // Try to find a cluster for this signature
         if (_clusterService != null)
         {
             var cluster = _clusterService.FindCluster(signature);
@@ -464,13 +471,11 @@ public class ContentSequenceContributor : ConfiguredContributorBase
                     _logger.LogDebug(
                         "ContentSequence: using centroid chain {CentroidId} (type={Type}, samples={Samples})",
                         centroidChain.CentroidId, centroidChain.Type, centroidChain.SampleSize);
-                    return (centroidChain, centroidChain.CentroidId);
+                    return (centroidChain, centroidChain.CentroidId, true);
                 }
             }
         }
 
-        // Fall back to global chain
-        var global = _centroidStore.GlobalChain;
-        return (global, "global");
+        return (_centroidStore.GlobalChain, "global", _centroidStore.IsGlobalReady);
     }
 }

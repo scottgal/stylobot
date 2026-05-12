@@ -102,6 +102,97 @@ public class CentroidSequenceStoreTests : IDisposable
         Assert.Equal(RequestState.StaticAsset, chain!.ExpectedStates[0]);
     }
 
+    [Fact]
+    public async Task LearnedGlobal_BelowMinSessions_NotReady()
+    {
+        var store = new CentroidSequenceStore(
+            CreateTempDbConnStr(),
+            NullLogger<CentroidSequenceStore>.Instance);
+        await store.InitializeAsync();
+        Assert.False(store.IsGlobalReady, "Fresh store with no sessions must not be ready");
+    }
+
+    [Fact]
+    public async Task LearnedGlobal_LoaderReturnsEnoughSessions_BecomesReady()
+    {
+        var humanSession = new SessionTransitionData(
+            RequestState.PageView,
+            new Dictionary<(RequestState, RequestState), int>
+            {
+                { (RequestState.PageView, RequestState.StaticAsset), 30 },
+                { (RequestState.StaticAsset, RequestState.ApiCall), 10 },
+                { (RequestState.ApiCall, RequestState.SignalR), 5 }
+            });
+        var sessions = Enumerable.Repeat(humanSession, 60).ToList();
+        var loader = new CentroidSequenceStore.ClusterSessionLoader((_, _, _) =>
+            Task.FromResult(sessions));
+
+        var store = new CentroidSequenceStore(
+            CreateTempDbConnStr(),
+            NullLogger<CentroidSequenceStore>.Instance,
+            loader);
+        await store.InitializeAsync();
+
+        await store.RelearnGlobalAsync(minSessions: 50);
+        Assert.True(store.IsGlobalReady);
+        Assert.Equal(RequestState.PageView, store.GlobalChain.ExpectedStates[0]);
+        Assert.Equal(RequestState.StaticAsset, store.GlobalChain.ExpectedStates[1]);
+    }
+
+    [Fact]
+    public async Task LearnedGlobal_LoaderReturnsTooFewSessions_StaysNotReady()
+    {
+        var humanSession = new SessionTransitionData(
+            RequestState.PageView,
+            new Dictionary<(RequestState, RequestState), int>
+            {
+                { (RequestState.PageView, RequestState.StaticAsset), 10 }
+            });
+        var sessions = Enumerable.Repeat(humanSession, 10).ToList();
+        var loader = new CentroidSequenceStore.ClusterSessionLoader((_, _, _) =>
+            Task.FromResult(sessions));
+
+        var store = new CentroidSequenceStore(
+            CreateTempDbConnStr(),
+            NullLogger<CentroidSequenceStore>.Instance,
+            loader);
+        await store.InitializeAsync();
+
+        await store.RelearnGlobalAsync(minSessions: 50);
+        Assert.False(store.IsGlobalReady, "10 sessions < min 50, not ready");
+    }
+
+    [Fact]
+    public async Task LearnedGlobal_PersistedAcrossInitialize()
+    {
+        var humanSession = new SessionTransitionData(
+            RequestState.PageView,
+            new Dictionary<(RequestState, RequestState), int>
+            {
+                { (RequestState.PageView, RequestState.StaticAsset), 30 },
+                { (RequestState.StaticAsset, RequestState.ApiCall), 10 }
+            });
+        var sessions = Enumerable.Repeat(humanSession, 60).ToList();
+        var loader = new CentroidSequenceStore.ClusterSessionLoader((_, _, _) =>
+            Task.FromResult(sessions));
+
+        var connStr = CreateTempDbConnStr();
+        var store1 = new CentroidSequenceStore(
+            connStr,
+            NullLogger<CentroidSequenceStore>.Instance,
+            loader);
+        await store1.InitializeAsync();
+        await store1.RelearnGlobalAsync(minSessions: 50);
+
+        // Reopen the same DB without a loader; the persisted global should be restored.
+        var store2 = new CentroidSequenceStore(
+            connStr,
+            NullLogger<CentroidSequenceStore>.Instance);
+        await store2.InitializeAsync();
+        Assert.True(store2.IsGlobalReady, "Reopened store must restore IsGlobalReady from persisted row");
+        Assert.Equal(RequestState.PageView, store2.GlobalChain.ExpectedStates[0]);
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

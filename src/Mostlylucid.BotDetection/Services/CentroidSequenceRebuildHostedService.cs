@@ -49,6 +49,18 @@ internal sealed class CentroidSequenceRebuildHostedService : IHostedService
             _clusterService.ClustersUpdated += OnClustersUpdated;
             _logger.LogDebug("CentroidSequenceStore wired to BotClusterService.ClustersUpdated");
         }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _centroidStore.RelearnGlobalAsync(minSessions: 50, CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Initial learned-global relearn failed; falling back to suppression");
+            }
+        });
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
@@ -73,6 +85,7 @@ internal sealed class CentroidSequenceRebuildHostedService : IHostedService
             try
             {
                 await _centroidStore.RebuildAsync(clusters, CancellationToken.None);
+                await _centroidStore.RelearnGlobalAsync(minSessions: 50, CancellationToken.None);
             }
             catch (Exception ex)
             {

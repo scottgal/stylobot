@@ -90,7 +90,63 @@ public sealed class CentroidSequenceStore
 
     public CentroidSequence GlobalChain => _globalChain;
 
-    public void SetGlobalChain(CentroidSequence chain) => _globalChain = chain;
+    /// <summary>
+    ///     Replace the global fallback chain with an explicit value.
+    ///     Marks the store as ready so callers stop suppressing divergence scoring.
+    ///     Used by tests and tools that want to bypass the learned-baseline warm-up.
+    /// </summary>
+    public void SetGlobalChain(CentroidSequence chain)
+    {
+        _globalChain = chain;
+        IsGlobalReady = true;
+    }
+
+    /// <summary>
+    ///     True once a site-learned global baseline is available (either learned from recent
+    ///     confirmed-human sessions via <see cref="RelearnGlobalAsync"/> or restored from
+    ///     SQLite at startup). When false, callers should suppress divergence scoring for
+    ///     fingerprints that fall back to the global chain.
+    /// </summary>
+    public bool IsGlobalReady { get; private set; }
+
+    /// <summary>
+    ///     Learn a site-wide global baseline by sampling all recent confirmed-human sessions
+    ///     via the configured loader. If fewer than <paramref name="minSessions"/> sessions
+    ///     are available or the aggregator returns an empty chain, leaves
+    ///     <see cref="IsGlobalReady"/> false so callers can suppress divergence scoring.
+    /// </summary>
+    public async Task RelearnGlobalAsync(int minSessions, CancellationToken ct = default)
+    {
+        if (_sessionLoader == null) return;
+
+        // Empty signature list = "broad sample across all signatures".
+        var sessions = await _sessionLoader(Array.Empty<string>(), minSessions * 2, ct);
+        if (sessions.Count < minSessions)
+        {
+            IsGlobalReady = false;
+            return;
+        }
+
+        var chain = SessionChainAggregator.AggregateFromTransitions(
+            sessions, chainLength: 5, minTotalTransitions: 10);
+        if (chain.Length == 0)
+        {
+            IsGlobalReady = false;
+            return;
+        }
+
+        _globalChain = new CentroidSequence
+        {
+            CentroidId = "global",
+            Type = CentroidType.Unknown,
+            ExpectedStates = chain,
+            TypicalGapsMs = DefaultHumanGapsMs,
+            GapToleranceMs = DefaultHumanTolerancesMs,
+            SampleSize = sessions.Count
+        };
+        IsGlobalReady = true;
+        await PersistAsync(new[] { _globalChain }, ct);
+    }
 
     /// <summary>
     ///     Mark an endpoint path as stale. ContentSequenceContributor will suppress divergence scoring
@@ -259,7 +315,17 @@ public sealed class CentroidSequenceStore
             {
                 var chain = JsonSerializer.Deserialize<CentroidSequence>(reader.GetString(0));
                 if (chain != null)
-                    chains[chain.CentroidId] = chain;
+                {
+                    if (chain.CentroidId == "global")
+                    {
+                        _globalChain = chain;
+                        IsGlobalReady = true;
+                    }
+                    else
+                    {
+                        chains[chain.CentroidId] = chain;
+                    }
+                }
             }
             catch (Exception ex)
             {

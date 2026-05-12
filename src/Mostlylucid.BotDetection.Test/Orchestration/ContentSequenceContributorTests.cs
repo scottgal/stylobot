@@ -67,7 +67,10 @@ public class ContentSequenceContributorTests : IDisposable
         _centroidStore = new CentroidSequenceStore(
             "Data Source=:memory:",
             NullLogger<CentroidSequenceStore>.Instance);
-        // Do not call InitializeAsync — we only need GlobalChain for these tests.
+        // Mark the global baseline as ready so existing divergence tests continue to
+        // exercise scoring. Tests that need the warming-up path construct their own store.
+        _centroidStore.SetGlobalChain(_centroidStore.GlobalChain);
+        // Do not call InitializeAsync; we only need GlobalChain for these tests.
     }
 
     public void Dispose() => _contextStore.Dispose();
@@ -849,6 +852,57 @@ public class ContentSequenceContributorTests : IDisposable
             "sequence.signalr_expected must be written when centroid is Human and next chain step is SignalR");
         var signalRExpected = state.GetSignal<bool>(SignalKeys.SequenceSignalRExpected);
         Assert.True(signalRExpected);
+    }
+
+    [Fact]
+    public async Task GlobalWarmingUp_SuppressesDivergenceScoring()
+    {
+        // Build a contributor whose CentroidSequenceStore has IsGlobalReady == false (no
+        // loader, no SetGlobalChain). A continuation request that would normally trip
+        // divergence must be suppressed while the site-learned global baseline warms up.
+        var warmingStore = new CentroidSequenceStore(
+            "Data Source=:memory:",
+            NullLogger<CentroidSequenceStore>.Instance);
+        var contextStore = new SequenceContextStore();
+        var contributor = new ContentSequenceContributor(
+            NullLogger<ContentSequenceContributor>.Instance,
+            new StubConfigProvider(),
+            contextStore,
+            warmingStore,
+            new EndpointDivergenceTracker(),
+            assetHashStore: null,
+            clusterService: null);
+
+        const string sig = "warming-up";
+        // Seed an initial document hit so the continuation path runs.
+        var seedState = CreateState(
+            signature: sig,
+            configureHttp: ctx => ctx.Request.Headers["Sec-Fetch-Mode"] = "navigate");
+        await contributor.ContributeAsync(seedState, CancellationToken.None);
+        var ctxBefore = contextStore.TryGet(sig)!;
+        contextStore.Update(sig, ctxBefore with
+        {
+            WindowStartTime = DateTimeOffset.UtcNow.AddSeconds(-3), // push to late phase
+            LastRequest = DateTimeOffset.UtcNow.AddSeconds(-1)
+        });
+
+        // POST /login with 401 should classify as AuthAttempt (weight 0.60) and trip under
+        // normal conditions, BUT the global baseline is not learned so scoring is skipped.
+        var state = CreateState(sig, configureHttp: ctx =>
+        {
+            ctx.Request.Method = "POST";
+            ctx.Request.Path = "/login";
+            ctx.Response.StatusCode = 401;
+        });
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        var diverged = state.GetSignal<bool>(SignalKeys.SequenceDiverged);
+        var score = state.GetSignal<double>(SignalKeys.SequenceDivergenceScore);
+        Assert.False(diverged, $"Global-not-ready must suppress divergence (score={score:F2})");
+        Assert.Equal(0.0, score);
+
+        contextStore.Dispose();
     }
 
     #endregion
