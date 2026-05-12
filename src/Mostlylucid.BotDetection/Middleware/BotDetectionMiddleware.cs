@@ -524,10 +524,12 @@ public class BotDetectionMiddleware(
         // This enables "tarpit all detected bots" without needing per-policy transitions.
         // When DefaultActionPolicyName fires, it REPLACES the hard block/403 - the tarpit
         // IS the response. We skip ShouldBlockRequest so bots see a normal (delayed) response.
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
             && !string.IsNullOrEmpty(_options.DefaultActionPolicyName)
             && aggregatedResult.BotProbability >= _options.BotThreshold
             && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
+#pragma warning restore CS0618
         {
             var fallbackPolicy = actionPolicyRegistry.GetPolicy(_options.DefaultActionPolicyName);
             if (fallbackPolicy != null)
@@ -772,7 +774,9 @@ public class BotDetectionMiddleware(
 
         var riskScore = aggregated.BotProbability;
         var riskBand = aggregated.RiskBand;
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         var isLikelyBot = riskScore >= _options.BotThreshold;
+#pragma warning restore CS0618
 
         // For low-risk (likely human) requests, only log if LogAllRequests is true
         if (!isLikelyBot && !_options.LogAllRequests) return;
@@ -1168,6 +1172,7 @@ public class BotDetectionMiddleware(
             return (true, defaultAction == BotBlockAction.Default ? BotBlockAction.StatusCode : defaultAction);
 
         // Global BlockDetectedBots: block all detected bots app-wide (respecting allow-lists)
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (_options.BlockDetectedBots
             && aggregated.BotProbability >= _options.MinConfidenceToBlock)
         {
@@ -1182,6 +1187,7 @@ public class BotDetectionMiddleware(
 
             return (true, BotBlockAction.StatusCode);
         }
+#pragma warning restore CS0618
 
         return (false, BotBlockAction.Default);
     }
@@ -1590,9 +1596,11 @@ public class BotDetectionMiddleware(
 
         // Fallback: per-bot-type action policy, then DefaultActionPolicyName.
         // When this fires, it replaces the hard block - the policy IS the response.
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
             && aggregatedResult.BotProbability >= _options.BotThreshold
             && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
+#pragma warning restore CS0618
         {
             // Try bot-type-specific policy first (e.g., Tool → throttle-tools)
             string? resolvedPolicyName = null;
@@ -2002,7 +2010,9 @@ public class BotDetectionMiddleware(
 
         // Map to legacy keys for compatibility
         // Use configurable BotThreshold for consistency with blocking logic
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         var isBot = result.BotProbability >= _options.BotThreshold;
+#pragma warning restore CS0618
         context.Items[IsBotKey] = isBot;
         context.Items[BotConfidenceKey] = result.BotProbability; // Legacy: holds probability for backward compat
         context.Items[BotProbabilityKey] = result.BotProbability;
@@ -2360,7 +2370,9 @@ public class BotDetectionMiddleware(
         context.Items[AggregatedEvidenceKey] = updatedEvidence;
         context.Items[BotProbabilityKey] = newProbability;
         context.Items[BotConfidenceKey] = newProbability;
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         context.Items[IsBotKey] = newProbability >= _options.BotThreshold;
+#pragma warning restore CS0618
 
         _logger.LogInformation(
             "[RESPONSE-BOOST] {Path} status={Status} delta={Delta:+0.00;-0.00} " +

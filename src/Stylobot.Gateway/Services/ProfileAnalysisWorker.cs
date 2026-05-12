@@ -65,7 +65,9 @@ public class ProfileAnalysisWorker(
         var evidence = await RunDetectionAsync(ctx, scope.ServiceProvider, ct);
 
         var probability = evidence?.BotProbability ?? 0.0;
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         var botThreshold = detectionOptions.Value.BotThreshold;
+#pragma warning restore CS0618
         var isBot = probability >= botThreshold;
         var botType = evidence?.PrimaryBotType?.ToString();
         var botName = evidence?.PrimaryBotName;

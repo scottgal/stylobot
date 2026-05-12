@@ -291,8 +291,10 @@ public class HeuristicDetector : IDetector, IDisposable
                 mode, features.Count, probability);
 
             stopwatch.Stop();
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
             _metrics?.RecordDetection(result.Confidence, result.Confidence > _options.BotThreshold, stopwatch.Elapsed,
                 Name);
+#pragma warning restore CS0618
         }
         catch (Exception ex)
         {

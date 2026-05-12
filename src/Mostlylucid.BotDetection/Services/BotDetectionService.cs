@@ -202,7 +202,9 @@ public class BotDetectionService : IBotDetectionService
         var agreementBoost = suspiciousDetectors > 1 ? (suspiciousDetectors - 1) * 0.1 : 0.0;
 
         result.ConfidenceScore = Math.Min(maxConfidence + agreementBoost, 1.0);
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         result.IsBot = result.ConfidenceScore >= _options.BotThreshold;
+#pragma warning restore CS0618
 
         // Determine bot type (prefer specific types over unknown)
         var botTypes = detectorResults

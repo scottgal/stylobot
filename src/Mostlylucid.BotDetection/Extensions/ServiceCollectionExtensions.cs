@@ -135,11 +135,13 @@ public static class ServiceCollectionExtensions
     {
         return services.AddBotDetection(options =>
         {
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
             options.EnableUserAgentDetection = true;
             options.EnableHeaderAnalysis = false;
             options.EnableIpDetection = false;
             options.EnableBehavioralAnalysis = false;
             options.EnableLlmDetection = false;
+#pragma warning restore CS0618
 
             configure?.Invoke(options);
         });
@@ -167,11 +169,13 @@ public static class ServiceCollectionExtensions
     {
         return services.AddBotDetection(options =>
         {
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
             options.EnableUserAgentDetection = true;
             options.EnableHeaderAnalysis = true;
             options.EnableIpDetection = true;
             options.EnableBehavioralAnalysis = true;
             options.EnableLlmDetection = false;
+#pragma warning restore CS0618
 
             configure?.Invoke(options);
         });
@@ -211,11 +215,13 @@ public static class ServiceCollectionExtensions
     {
         return services.AddBotDetection(options =>
         {
+#pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
             options.EnableUserAgentDetection = true;
             options.EnableHeaderAnalysis = true;
             options.EnableIpDetection = true;
             options.EnableBehavioralAnalysis = true;
             options.EnableLlmDetection = true;
+#pragma warning restore CS0618
 
             // Use the new AiDetection configuration
             options.AiDetection.Provider = AiProvider.Ollama;
