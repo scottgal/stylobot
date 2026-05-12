@@ -4,7 +4,9 @@
 Current versions are in development. With version 7 (due early June 2026) this will stabilize (read fewer releases). 
 
 ## STATUS
-With version 6.x these are the stablisation versions - IT IS LIKELY THEY WILL BREAK - as I work through this. StyloBot is now *feature complete* and I'm now stabilising it with a view to a June 1st RTM
+With version 6.x these are the stabilisation versions - IT IS LIKELY THEY WILL BREAK - as I work through this. StyloBot is now *feature complete* and I'm now stabilising it with a view to a June 1st RTM
+
+The website https://www.stylobot.net will also be updated at that time (right now it's VERY old and unstable). 
 
 [PLEASE REPORT ANY BUGS IN ISSUES ](https://github.com/scottgal/stylobot/issues)
 
