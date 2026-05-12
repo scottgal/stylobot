@@ -51,15 +51,34 @@ Phase windows are defined by elapsed time since the document request, not by req
 
 ### Divergence scoring
 
-The divergence score is a sum of three additive components, clamped to 1.0. When the score meets or exceeds `divergence_threshold` (default 0.4), the request is marked as diverged.
+The divergence score is a sum of three additive components, clamped to 1.0. When the score meets or exceeds `divergence_threshold` (default 0.6), the request is marked as diverged.
 
 | Condition | Score contribution | Default |
 |---|---|---|
-| Inter-request gap below `machine_speed_threshold_ms` | `machine_speed_score` | 0.4 |
-| Observed state not in expected set for current phase | `unexpected_state_score` | 0.5 |
-| Request count in window exceeds `high_request_count_threshold` | `high_request_count_score` | 0.3 |
+| Inter-request gap below `machine_speed_threshold_ms` | `machine_speed_score` | 0.3 |
+| Observed state not in expected set for current phase | per-state weight (table below) | varies |
+| Request count in window exceeds `high_request_count_threshold` | `high_request_count_score` | 0.2 |
 
-The unexpected-state contribution has one exception: an ApiCall during the Critical window (0–500 ms) is not penalised when `sequence.cache_warm` is true, because a warm-cache visitor's browser skips static asset fetches and moves directly to data requests.
+The unexpected-state contribution is weighted by the observed `RequestState`. A late static-asset fetch and a late authentication attempt no longer score equally; weights reflect intent, not just placement.
+
+| State | Weight | Rationale |
+| --- | --- | --- |
+| StaticAsset | 0.05 | Browser noise; CSS/JS/image fetches don't represent navigation intent |
+| PageView | 0.10 | Page navigation; unusual placement matters but not strongly |
+| ApiCall | 0.25 | Programmatic intent; moderately meaningful |
+| SignalR | 0.20 | Streaming transport |
+| WebSocket | 0.20 | Streaming transport |
+| ServerSentEvent | 0.20 | Streaming transport |
+| FormSubmit | 0.40 | User action; deliberately disruptive when off-script |
+| AuthAttempt | 0.60 | Highly meaningful; 401/403 implies an attempted credential check |
+| NotFound | 0.50 | 404 paths often indicate probing |
+| Search | 0.40 | Often a scanner pattern |
+
+The threshold was raised from 0.4 to 0.6 to match the new scale: a single off-phase static-asset fetch can no longer push a session over the line, but an off-phase AuthAttempt still crosses on its own.
+
+The unexpected-state contribution has one exception. The `sequence.cache_warm` signal flips immediately when the first non-static continuation request carries a `Cookie` header in the Critical window (0-500 ms), and once it is set, an ApiCall during the Critical window is not penalised. A warm-cache returning visitor's browser skips the static-asset burst and moves directly to data requests, which is a normal pattern, not a bot pattern.
+
+The `RequestCountInWindow` accumulator that drives `high_request_count_score` resets after `request_count_idle_reset_seconds` of inactivity (default 60). Long-lived sessions with periodic polling, telemetry beacons, or chat-style widgets no longer accumulate a permanent high-count signal across quiet pauses. The `high_request_count_threshold` was raised from 50 to 200 alongside this change to reflect realistic SPA traffic.
 
 ### Prefetch handling
 
@@ -160,32 +179,58 @@ taxonomy:
 
 defaults:
   parameters:
-    divergence_threshold: 0.4
+    divergence_threshold: 0.6
     timing_tolerance_multiplier: 3.0
     min_centroid_sample_size: 20
     session_gap_minutes: 30
     max_tracked_positions: 20
     machine_speed_threshold_ms: 20.0
-    machine_speed_score: 0.4
-    unexpected_state_score: 0.5
-    high_request_count_score: 0.3
-    high_request_count_threshold: 50
+    machine_speed_score: 0.3
+    high_request_count_score: 0.2
+    high_request_count_threshold: 200
+    request_count_idle_reset_seconds: 60
+
+    # Per-RequestState unexpected-state weights.
+    unexpected_weight_static_asset: 0.05
+    unexpected_weight_page_view: 0.10
+    unexpected_weight_api_call: 0.25
+    unexpected_weight_signalr: 0.20
+    unexpected_weight_websocket: 0.20
+    unexpected_weight_server_sent_event: 0.20
+    unexpected_weight_form_submit: 0.40
+    unexpected_weight_auth_attempt: 0.60
+    unexpected_weight_not_found: 0.50
+    unexpected_weight_search: 0.40
+
+    # Learned-global warmup gate.
+    learned_global_min_sessions: 50
 ```
 
 ### Parameter reference
 
 | Parameter | Default | Description |
 |---|---|---|
-| `divergence_threshold` | 0.4 | Cumulative score at which a request is flagged as diverged |
+| `divergence_threshold` | 0.6 | Cumulative score at which a request is flagged as diverged |
 | `timing_tolerance_multiplier` | 3.0 | Reserved for chain-based timing checks; unused in current set-based scoring |
 | `min_centroid_sample_size` | 20 | Minimum cluster member count to use a Tier 2 chain; smaller clusters fall back to Tier 1 |
 | `session_gap_minutes` | 30 | Inactivity gap that causes a new document request to start a fresh chain |
 | `max_tracked_positions` | 20 | Maximum continuation positions tracked per session before the session is considered complete |
 | `machine_speed_threshold_ms` | 20.0 | Inter-request gap (ms) below which machine-speed scoring applies |
-| `machine_speed_score` | 0.4 | Divergence score contribution for machine-speed timing |
-| `unexpected_state_score` | 0.5 | Divergence score contribution for an out-of-phase request state |
-| `high_request_count_score` | 0.3 | Divergence score contribution when request count exceeds threshold |
-| `high_request_count_threshold` | 50 | Request count within the phase window that triggers high-volume scoring |
+| `machine_speed_score` | 0.3 | Divergence score contribution for machine-speed timing |
+| `high_request_count_score` | 0.2 | Divergence score contribution when request count exceeds threshold |
+| `high_request_count_threshold` | 200 | Request count within the phase window that triggers high-volume scoring |
+| `request_count_idle_reset_seconds` | 60 | Inactivity (seconds) that resets the `RequestCountInWindow` accumulator |
+| `unexpected_weight_static_asset` | 0.05 | Per-state weight when an off-phase StaticAsset is observed |
+| `unexpected_weight_page_view` | 0.10 | Per-state weight when an off-phase PageView is observed |
+| `unexpected_weight_api_call` | 0.25 | Per-state weight when an off-phase ApiCall is observed |
+| `unexpected_weight_signalr` | 0.20 | Per-state weight when an off-phase SignalR is observed |
+| `unexpected_weight_websocket` | 0.20 | Per-state weight when an off-phase WebSocket is observed |
+| `unexpected_weight_server_sent_event` | 0.20 | Per-state weight when an off-phase ServerSentEvent is observed |
+| `unexpected_weight_form_submit` | 0.40 | Per-state weight when an off-phase FormSubmit is observed |
+| `unexpected_weight_auth_attempt` | 0.60 | Per-state weight when an off-phase AuthAttempt is observed |
+| `unexpected_weight_not_found` | 0.50 | Per-state weight when an off-phase NotFound (404) is observed |
+| `unexpected_weight_search` | 0.40 | Per-state weight when an off-phase Search is observed |
+| `learned_global_min_sessions` | 50 | Minimum confirmed-human sessions required before scoring against the learned global chain |
 
 ## appsettings.json Override
 

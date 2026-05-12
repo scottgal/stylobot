@@ -82,6 +82,72 @@ To resume scoring immediately after a centroid is rebuilt (e.g., via a manual re
 
 ---
 
+## Learned global baseline and per-state weights
+
+Centroid freshness handles the post-deploy window. A separate set of changes handles the much more common case of a *first-contact* false positive: the centroid is fresh but is the wrong shape for the user in front of it (warm-cache repeat visitor, heavy SPA, or simply a quiet site with no learned baseline yet). Four mechanisms work together to push these cases below the divergence threshold.
+
+### Per-state divergence weights
+
+The unexpected-state contribution used to be a flat `unexpected_state_score: 0.5` regardless of which `RequestState` was observed off-phase. A late `StaticAsset` and a late `AuthAttempt` scored identically, which is wrong: static asset fetches are browser side-effects (lazy-loaded images, async chunks, font swaps) and carry almost no intent, whereas an off-phase `AuthAttempt` is one of the strongest single-request signals available.
+
+The flat parameter is replaced with a per-state table. Weights:
+
+```yaml
+unexpected_weight_static_asset:        0.05
+unexpected_weight_page_view:           0.10
+unexpected_weight_api_call:            0.25
+unexpected_weight_signalr:             0.20
+unexpected_weight_websocket:           0.20
+unexpected_weight_server_sent_event:   0.20
+unexpected_weight_form_submit:         0.40
+unexpected_weight_auth_attempt:        0.60
+unexpected_weight_not_found:           0.50
+unexpected_weight_search:              0.40
+```
+
+The `divergence_threshold` was raised from 0.4 to 0.6 to match the new scale. A request now needs either a high-weight off-phase state (AuthAttempt, NotFound, Search, FormSubmit) or a combination of weaker signals (off-phase ApiCall plus machine-speed timing) to cross the threshold. A handful of off-phase static-asset fetches no longer drive a session over the line on their own.
+
+Tuning guidance: if legitimate users are still tripping divergence on async chunks or third-party JS that loads outside the Critical window, lower `unexpected_weight_static_asset` further (0.02 or zero). If scanner activity is being missed because it's mostly probing 404s, raise `unexpected_weight_not_found` toward 0.7.
+
+### Cookie-aware cache-warm in the Critical window
+
+The Critical window (0-500 ms) previously expected a static-asset burst before the first API call. Returning visitors with a warm browser cache skip the burst entirely and go straight to data fetches, which scored as an unexpected `ApiCall` and bumped divergence.
+
+The contributor now flips `sequence.cache_warm = true` immediately when the first non-static continuation request carries a `Cookie` header. Cookies are a strong proxy for a returning visitor, and a returning visitor with no static-asset burst is the textbook cache-warm pattern - not a bot pattern. Once `cache_warm` is set, the ApiCall-in-Critical exception fires and the request is not penalised.
+
+### Idle-window reset on the request-count accumulator
+
+`high_request_count_threshold` previously fired once a session crossed 50 requests in the phase window, and the counter was never reset. Heavy SPAs with periodic polling, live widgets, or telemetry beacons hit the threshold within minutes and stayed above it for the rest of the session.
+
+Two changes:
+
+- The threshold was raised from 50 to 200, which is a more realistic ceiling for modern client-side apps.
+- The accumulator now resets after `request_count_idle_reset_seconds` (default 60) of inactivity, so a quiet pause clears the count rather than carrying it forward indefinitely.
+
+This pair removes a class of false positives that affected long-lived sessions on dashboards, chat clients, and any page with persistent polling.
+
+### Learned global baseline
+
+The Tier 1 global fallback used to be a hardcoded template chain (StaticAsset, StaticAsset, StaticAsset, ApiCall, SignalR). It worked as a placeholder but was wrong for any site that didn't match that exact shape - SPAs, API-heavy products, and content sites with lazy-loaded media all diverged on the global chain from the first session.
+
+The global chain is now *learned* from a broad sample of confirmed-human sessions across all signatures. `CentroidSequenceStore.RelearnGlobalAsync(minSessions)` aggregates Markov transitions from sessions classified as human and persists the result under the `"global"` row in the `centroid_sequences` SQLite table. The chain survives process restart.
+
+`CentroidSequenceRebuildHostedService` kicks `RelearnGlobalAsync(50)` in the background on startup and re-runs it after every cluster update. Until the configured minimum is reached, the contributor suppresses divergence scoring entirely for sessions falling back to the global chain - the `sequence.centroid_stale` signal carries the warmup state through to `ResourceWaterfallContributor` and `CacheBehaviorContributor`.
+
+YAML key:
+
+```yaml
+learned_global_min_sessions: 50
+```
+
+Cluster-specific (Tier 2) chains bypass the warmup gate entirely; they have their own sample-size guard via `min_centroid_sample_size`.
+
+### Combined effect
+
+Together these four changes practically eliminate false positives during cold-start. The detector waits for genuine ground truth before scoring against a global chain, weights its scoring by state significance rather than by state count, recognises returning visitors via their cookies, and stops accumulating count signals once a session goes quiet. Cluster-specific chains, once available, bypass the warmup entirely and continue to score normally against their learned per-cluster expectations.
+
+---
+
 ## Components
 
 ### EndpointDivergenceTracker
