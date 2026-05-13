@@ -172,6 +172,12 @@ public sealed record PersistedSignature
 
     /// <summary>Top reasons (JSON)</summary>
     public string? TopReasonsJson { get; init; }
+
+    /// <summary>
+    ///     UTC timestamp of the most recent upsert. Used by downstream verdict caches to
+    ///     apply recency-based freshness rules.
+    /// </summary>
+    public DateTime? LastUpdatedUtc { get; init; }
 }
 
 /// <summary>

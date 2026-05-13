@@ -498,6 +498,13 @@ public class BotDetectionOptions
     public string? DatabasePath { get; set; }
 
     /// <summary>
+    ///     EWMA weight for the newest observation when updating a signature's persisted
+    ///     bot_probability. Smaller values mean stronger memory: 0.10 retains roughly 90 percent
+    ///     of prior state, 0.30 reacts more quickly to changes. Default 0.15.
+    /// </summary>
+    public double SignatureEwmaAlpha { get; set; } = 0.15;
+
+    /// <summary>
     ///     Resolves a writable data directory for SQLite and index files.
     ///     Falls back through: current working directory, XDG_DATA_HOME/stylobot,
     ///     ~/.local/share/stylobot, then AppContext.BaseDirectory (install dir, requires write permission).
