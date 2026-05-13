@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.KeyedSequential;
 using Mostlylucid.Ephemeral.Atoms.SlidingCache;
@@ -488,6 +489,42 @@ public class SignatureCoordinator : IAsyncDisposable
             return null;
 
         return await atom.GetBehaviorAsync(cancellationToken);
+    }
+
+    /// <summary>
+    ///     Snapshot the per-signature state currently held in the sliding window. Returns
+    ///     null when the signature is not in the window (cold or evicted). This is the
+    ///     live verdict source consumed by SignatureVerdictGate; there is no parallel
+    ///     cache. Async because the underlying tracking atom serialises field access
+    ///     behind a SemaphoreSlim, the same way GetSignatureBehaviorAsync does.
+    /// </summary>
+    public async Task<SignatureVerdict?> TryGetVerdictAsync(
+        string signatureId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(signatureId))
+            return null;
+
+        if (!_signatureCache.TryGet(signatureId, out var atom) || atom == null)
+            return null;
+
+        var behavior = await atom.GetBehaviorAsync(cancellationToken);
+
+        // Confidence is not surfaced directly by the tracking atom yet, so derive it
+        // from sample size: full confidence at 10+ requests, linear ramp below. This
+        // mirrors the convention used in DetectorAggregator and keeps the verdict
+        // self-contained until a future task extends the atom. RiskBand and
+        // ThreatScore fall back to defaults (Unknown / 0.0) for the same reason.
+        var confidence = Math.Min(1.0, behavior.RequestCount / 10.0);
+
+        return new SignatureVerdict
+        {
+            SignatureId = signatureId,
+            BotProbability = behavior.AverageBotProbability,
+            Confidence = confidence,
+            RequestCount = behavior.RequestCount,
+            LastSeenUtc = behavior.LastSeen
+        };
     }
 
     /// <summary>
