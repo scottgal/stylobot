@@ -889,6 +889,9 @@ public static class ServiceCollectionExtensions
         // Fingerprint approval contributor (checks approval + locked dimensions)
         services.AddSingleton<IContributingDetector, FingerprintApprovalContributor>();
 
+        // Fingerprint prior contributor (Wave 0: injects cached verdict as bias)
+        services.AddSingleton<IContributingDetector, FingerprintPriorContributor>();
+
         // Challenge verification contributor (reads PoW solve metadata as detection signal)
         services.AddSingleton<IContributingDetector, ChallengeVerificationContributor>();
 
