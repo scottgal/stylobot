@@ -412,42 +412,89 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
-            SELECT
-                COUNT(*) as total,
-                SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots,
-                COUNT(DISTINCT signature) as signatures
-            FROM detections
-            WHERE timestamp >= @since
-            """;
-        cmd.Parameters.AddWithValue("@since", DateTime.UtcNow.AddHours(-6).ToString("O"));
+        var since = DateTime.UtcNow.AddHours(-6).ToString("O");
 
-        await using var reader = await cmd.ExecuteReaderAsync();
-        if (await reader.ReadAsync())
+        // Request-level counts (one detection row per request — drives traffic charts).
+        int total = 0, bots = 0;
+        await using (var cmd = conn.CreateCommand())
         {
-            var total = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
-            var bots = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
-            var sigs = reader.IsDBNull(2) ? 0 : reader.GetInt32(2);
-            return new DashboardSummary
+            cmd.CommandText = """
+                SELECT
+                    COUNT(*) AS total,
+                    SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots
+                FROM detections
+                WHERE timestamp >= @since
+                """;
+            cmd.Parameters.AddWithValue("@since", since);
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
             {
-                Timestamp = DateTime.UtcNow,
-                TotalRequests = total,
-                BotRequests = bots,
-                HumanRequests = total - bots,
-                UncertainRequests = 0,
-                UniqueSignatures = sigs,
-                RiskBandCounts = new Dictionary<string, int>(),
-                TopBotTypes = new Dictionary<string, int>(),
-                TopActions = new Dictionary<string, int>()
-            };
+                total = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
+                bots  = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
+            }
+        }
+
+        // Fingerprint-level counts (one signatures row per unique fingerprint).
+        // bot_probability is the EWMA-blended posterior, risk_band is the latest
+        // band — so these are the "how many actors did we see" counts the
+        // dashboard banner should be showing.
+        int sigs = 0, botSigs = 0, humanSigs = 0, highSigs = 0;
+        var riskBands = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT
+                    COUNT(*) AS sigs,
+                    SUM(CASE WHEN bot_probability >= 0.5 THEN 1 ELSE 0 END) AS bot_sigs,
+                    SUM(CASE WHEN bot_probability < 0.5 THEN 1 ELSE 0 END) AS human_sigs,
+                    SUM(CASE WHEN risk_band IN ('High','VeryHigh') THEN 1 ELSE 0 END) AS high_sigs
+                FROM signatures
+                WHERE last_seen >= @since
+                """;
+            cmd.Parameters.AddWithValue("@since", since);
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                sigs      = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
+                botSigs   = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
+                humanSigs = reader.IsDBNull(2) ? 0 : reader.GetInt32(2);
+                highSigs  = reader.IsDBNull(3) ? 0 : reader.GetInt32(3);
+            }
+        }
+
+        // Risk-band distribution at fingerprint level (one bucket per signature).
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT COALESCE(risk_band, 'Unknown') AS band, COUNT(*) AS n
+                FROM signatures
+                WHERE last_seen >= @since
+                GROUP BY band
+                """;
+            cmd.Parameters.AddWithValue("@since", since);
+            await using var reader = await cmd.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var band = reader.IsDBNull(0) ? "Unknown" : reader.GetString(0);
+                var n = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
+                riskBands[band] = n;
+            }
         }
 
         return new DashboardSummary
         {
             Timestamp = DateTime.UtcNow,
-            TotalRequests = 0, BotRequests = 0, HumanRequests = 0, UncertainRequests = 0,
-            UniqueSignatures = 0, RiskBandCounts = new(), TopBotTypes = new(), TopActions = new()
+            TotalRequests = total,
+            BotRequests = bots,
+            HumanRequests = total - bots,
+            UncertainRequests = 0,
+            UniqueSignatures = sigs,
+            BotFingerprints = botSigs,
+            HumanFingerprints = humanSigs,
+            HighRiskFingerprints = highSigs,
+            RiskBandCounts = riskBands,
+            TopBotTypes = new Dictionary<string, int>(),
+            TopActions = new Dictionary<string, int>()
         };
     }
 

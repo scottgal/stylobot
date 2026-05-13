@@ -36,17 +36,6 @@ public sealed class LoadShedDecision
             LoadBand.Critical => options.DropFractionAtCritical,
             _                 => 0.0,
         };
-        if (fraction <= 0.0) return false;
-        if (fraction >= 1.0) return true;
-
-        // Deterministic shed decision: map the seed through a stable Knuth multiplicative
-        // hash to a bucket in [0, 1.0). Same seed always yields same decision, so retries
-        // land identically.
-        unchecked
-        {
-            var h = (uint)requestSeed * 2654435761u;
-            var bucket = (h % 10_000) / 10_000.0;
-            return bucket < fraction;
-        }
+        return DeterministicBucket.ShouldFire(requestSeed, fraction);
     }
 }

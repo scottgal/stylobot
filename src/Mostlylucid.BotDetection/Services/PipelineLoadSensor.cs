@@ -1,3 +1,5 @@
+using Mostlylucid.BotDetection.Helpers;
+
 namespace Mostlylucid.BotDetection.Services;
 
 /// <summary>
@@ -83,7 +85,7 @@ public sealed class PipelineLoadSensor : ILoadBandSource, IDisposable
     {
         var count = Interlocked.Exchange(ref _tickCount, 0);
         var prev = Volatile.Read(ref _smoothedRps);
-        Interlocked.Exchange(ref _smoothedRps, Alpha * count + (1 - Alpha) * prev);
+        Interlocked.Exchange(ref _smoothedRps, Ewma.Update(prev, count, Alpha));
     }
 }
 

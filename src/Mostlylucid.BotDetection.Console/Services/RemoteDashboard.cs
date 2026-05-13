@@ -10,10 +10,13 @@ public sealed record RemoteStats(
     int BotRequests,
     int HumanRequests,
     int UniqueSignatures,
+    int BotFingerprints,
+    int HumanFingerprints,
+    int HighRiskFingerprints,
     IReadOnlyDictionary<string, int> RiskBandCounts)
 {
     public static readonly RemoteStats Empty =
-        new(0, 0, 0, 0, new Dictionary<string, int>());
+        new(0, 0, 0, 0, 0, 0, 0, new Dictionary<string, int>());
 }
 
 public sealed record RemoteBotEntry(
@@ -43,9 +46,15 @@ public sealed class RemoteDashboardService : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly HttpClient _http;
     private Task? _runTask;
+    private int _consecutiveFailures;
 
     public ChannelReader<RemoteDashboardSnapshot> Updates => _channel.Reader;
     public string ConnectionStatus { get; private set; } = "Initializing...";
+
+    // Once we hit this many consecutive failures, treat the upstream as gone (likely a
+    // dropped anonymous Cloudflare tunnel) and surface a clearer status. At 5s backoff per
+    // attempt, 3 misses = ~15s without contact.
+    private const int TunnelDownThreshold = 3;
 
     public RemoteDashboardService(string baseUrl, string? apiKey)
     {
@@ -73,10 +82,34 @@ public sealed class RemoteDashboardService : IAsyncDisposable
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (Exception ex)
             {
-                ConnectionStatus = "Reconnecting...";
-                _ = ex; // network failures are expected; retry after delay
+                _consecutiveFailures++;
+                ConnectionStatus = _consecutiveFailures >= TunnelDownThreshold
+                    ? $"Tunnel down? ({DescribeFailure(ex)}, {_consecutiveFailures} misses)"
+                    : $"Reconnecting ({DescribeFailure(ex)})...";
                 await Task.Delay(5000, ct);
             }
+        }
+    }
+
+    /// <summary>
+    ///     Categorise a connection failure so the status line surfaces *why* contact dropped.
+    ///     Cloudflare anonymous tunnels timing out typically present as 502/503/504, while a
+    ///     gateway crash usually shows up as connect-refused.
+    /// </summary>
+    private static string DescribeFailure(Exception ex)
+    {
+        switch (ex)
+        {
+            case TaskCanceledException:
+                return "timeout";
+            case System.Net.Http.HttpRequestException hre when hre.StatusCode is { } sc:
+                return $"HTTP {(int)sc}";
+            case System.Net.Http.HttpRequestException hre when hre.InnerException is System.Net.Sockets.SocketException se:
+                return $"socket: {se.SocketErrorCode}";
+            case System.Net.WebSockets.WebSocketException wse:
+                return $"ws: {wse.WebSocketErrorCode}";
+            default:
+                return ex.GetType().Name;
         }
     }
 
@@ -98,6 +131,7 @@ public sealed class RemoteDashboardService : IAsyncDisposable
             "{\"protocol\":\"json\",\"version\":1}\u001e"u8.ToArray(),
             WebSocketMessageType.Text, true, ct);
 
+        _consecutiveFailures = 0;
         ConnectionStatus = "Connected";
 
         var buffer = new byte[8192];
@@ -148,6 +182,7 @@ public sealed class RemoteDashboardService : IAsyncDisposable
             using var botsDoc    = await FetchJsonAsync("/_stylobot/api/topbots?pageSize=8", ct);
             using var detectDoc  = await FetchJsonAsync("/_stylobot/api/detections?limit=50", ct);
 
+            _consecutiveFailures = 0;
             _channel.Writer.TryWrite(new RemoteDashboardSnapshot(
                 ParseStats(statsDoc),
                 ParseTopBots(botsDoc),
@@ -155,7 +190,12 @@ public sealed class RemoteDashboardService : IAsyncDisposable
                 ConnectionStatus));
         }
         catch (OperationCanceledException) { }
-        catch { /* best-effort */ }
+        catch (Exception ex)
+        {
+            _consecutiveFailures++;
+            if (_consecutiveFailures >= TunnelDownThreshold)
+                ConnectionStatus = $"Tunnel down? ({DescribeFailure(ex)}, {_consecutiveFailures} misses)";
+        }
     }
 
     private async Task<JsonDocument> FetchJsonAsync(string path, CancellationToken ct)
@@ -173,10 +213,13 @@ public sealed class RemoteDashboardService : IAsyncDisposable
                 bands[kv.Name] = kv.Value.GetInt32();
 
         return new RemoteStats(
-            r.TryGetProperty("totalRequests",    out var tr) ? tr.GetInt32() : 0,
-            r.TryGetProperty("botRequests",      out var br) ? br.GetInt32() : 0,
-            r.TryGetProperty("humanRequests",    out var hr) ? hr.GetInt32() : 0,
-            r.TryGetProperty("uniqueSignatures", out var us) ? us.GetInt32() : 0,
+            r.TryGetProperty("totalRequests",        out var tr)  ? tr.GetInt32()  : 0,
+            r.TryGetProperty("botRequests",          out var br)  ? br.GetInt32()  : 0,
+            r.TryGetProperty("humanRequests",        out var hr)  ? hr.GetInt32()  : 0,
+            r.TryGetProperty("uniqueSignatures",     out var us)  ? us.GetInt32()  : 0,
+            r.TryGetProperty("botFingerprints",      out var bf)  ? bf.GetInt32()  : 0,
+            r.TryGetProperty("humanFingerprints",    out var hf)  ? hf.GetInt32()  : 0,
+            r.TryGetProperty("highRiskFingerprints", out var hrf) ? hrf.GetInt32() : 0,
             bands);
     }
 

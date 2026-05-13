@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
-using System.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Policies;
 
 namespace Mostlylucid.BotDetection.Services;
@@ -19,6 +19,15 @@ public sealed class VarianceWatchdog
     private const int PruneTrigger = MaxFingerprints + (MaxFingerprints / 5);
     private const int ObservationCap = 600;
 
+    // Bounded per-signature path-family memory. Eight slots is enough to span typical
+    // browsing variety without unbounded growth or large memory cost (8 strings * 10k
+    // signatures ~ 80k references).
+    private const int PathFamilySlots = 8;
+
+    // Minimum distinct families before a "new family" reading is treated as divergence,
+    // otherwise warm-up requests would all trip the watchdog.
+    private const int PathFamilyBaseline = 3;
+
     private static readonly WatchdogResult NotTripped = new(false, null);
 
     private readonly ILogger<VarianceWatchdog> _logger;
@@ -31,6 +40,13 @@ public sealed class VarianceWatchdog
         public DateTime LastIp24SeenUtc;
         public DateTime LastSeenUtc;
         public readonly ConcurrentQueue<DateTime> RecentObservations = new();
+
+        // Per-history lock for the small fixed-size path-family memory. Reads + writes
+        // are O(8) so contention is negligible vs. the alternative of a per-call dict.
+        public readonly object PathLock = new();
+        public readonly string[] PathFamilies = new string[PathFamilySlots];
+        public readonly DateTime[] PathFamilySeen = new DateTime[PathFamilySlots];
+        public int PathFamilyCount;
     }
 
     public VarianceWatchdog(ILogger<VarianceWatchdog> logger) => _logger = logger;
@@ -38,7 +54,7 @@ public sealed class VarianceWatchdog
     public void RecordObservation(string signature, string clientIp, string path)
     {
         var hist = _history.GetOrAdd(signature, _ => new FingerprintHistory());
-        var slash24 = Slash24(clientIp);
+        var slash24 = NetworkHelper.GetIPv4Slash24(clientIp);
         var now = DateTime.UtcNow;
         if (slash24 is not null)
         {
@@ -49,8 +65,71 @@ public sealed class VarianceWatchdog
         hist.RecentObservations.Enqueue(now);
         TrimObservations(hist, now);
 
+        var family = PathFamily(path);
+        if (family is not null)
+            RememberFamily(hist, family, now);
+
         if (_history.Count >= PruneTrigger)
             TryPruneStale(now);
+    }
+
+    private static void RememberFamily(FingerprintHistory hist, string family, DateTime now)
+    {
+        lock (hist.PathLock)
+        {
+            for (var i = 0; i < hist.PathFamilyCount; i++)
+            {
+                if (string.Equals(hist.PathFamilies[i], family, StringComparison.OrdinalIgnoreCase))
+                {
+                    hist.PathFamilySeen[i] = now;
+                    return;
+                }
+            }
+
+            if (hist.PathFamilyCount < PathFamilySlots)
+            {
+                hist.PathFamilies[hist.PathFamilyCount] = family;
+                hist.PathFamilySeen[hist.PathFamilyCount] = now;
+                hist.PathFamilyCount++;
+                return;
+            }
+
+            // Evict oldest slot.
+            var oldest = 0;
+            for (var i = 1; i < PathFamilySlots; i++)
+                if (hist.PathFamilySeen[i] < hist.PathFamilySeen[oldest])
+                    oldest = i;
+            hist.PathFamilies[oldest] = family;
+            hist.PathFamilySeen[oldest] = now;
+        }
+    }
+
+    private static bool ContainsFamily(FingerprintHistory hist, string family)
+    {
+        lock (hist.PathLock)
+        {
+            for (var i = 0; i < hist.PathFamilyCount; i++)
+                if (string.Equals(hist.PathFamilies[i], family, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
+        }
+    }
+
+    /// <summary>
+    ///     First non-empty path segment, lowercased. "/wp-admin/install.php" → "wp-admin";
+    ///     "/api/v1/users" → "api"; "/" or empty → null (no useful family).
+    /// </summary>
+    internal static string? PathFamily(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+        var span = path.AsSpan();
+        var start = 0;
+        if (span[0] == '/') start = 1;
+        var end = start;
+        while (end < span.Length && span[end] != '/' && span[end] != '?' && span[end] != '#')
+            end++;
+        if (end <= start) return null;
+        return span.Slice(start, end - start).ToString().ToLowerInvariant();
     }
 
     public WatchdogResult Check(HttpContext ctx, string signature, SignatureVerdict cached, VarianceWatchdogOptions options)
@@ -62,7 +141,7 @@ public sealed class VarianceWatchdog
 
         if (options.IpRotationWindowSeconds > 0 && hist.LastIp24 is { } prevIp)
         {
-            var currentIp = Slash24(ctx.Connection.RemoteIpAddress?.ToString());
+            var currentIp = NetworkHelper.GetIPv4Slash24(ctx.Connection.RemoteIpAddress?.ToString());
             if (currentIp is not null
                 && !string.Equals(currentIp, prevIp, StringComparison.Ordinal)
                 && (now - hist.LastIp24SeenUtc).TotalSeconds <= options.IpRotationWindowSeconds)
@@ -78,19 +157,14 @@ public sealed class VarianceWatchdog
                 return new WatchdogResult(true, $"rate-spike:{current:F1}vs{baseline:F1}");
         }
 
-        return NotTripped;
-    }
+        if (options.CheckPathCentroid && hist.PathFamilyCount >= PathFamilyBaseline)
+        {
+            var family = PathFamily(ctx.Request.Path.Value);
+            if (family is not null && !ContainsFamily(hist, family))
+                return new WatchdogResult(true, $"path-divergence:{family}");
+        }
 
-    private static string? Slash24(string? ip)
-    {
-        if (string.IsNullOrEmpty(ip)) return null;
-        if (!IPAddress.TryParse(ip, out var addr)) return null;
-        if (addr.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
-            return ip;
-        Span<byte> bytes = stackalloc byte[4];
-        return addr.TryWriteBytes(bytes, out _)
-            ? string.Create(null, stackalloc char[16], $"{bytes[0]}.{bytes[1]}.{bytes[2]}")
-            : null;
+        return NotTripped;
     }
 
     private static (int current, double baseline) ComputeRates(FingerprintHistory hist, DateTime now)

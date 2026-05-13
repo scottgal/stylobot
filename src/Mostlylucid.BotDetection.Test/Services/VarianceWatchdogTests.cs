@@ -84,4 +84,66 @@ public class VarianceWatchdogTests
         var result = watchdog.Check(ctx, "sig-D", CachedHuman(), opts);
         Assert.False(result.Tripped);
     }
+
+    [Fact]
+    public void PathCentroid_BelowBaseline_DoesNotTrip()
+    {
+        // Single known family is not enough to call divergence on a new one.
+        var watchdog = new VarianceWatchdog(NullLogger<VarianceWatchdog>.Instance);
+        watchdog.RecordObservation("sig-PC1", "10.0.0.5", "/blog/post");
+
+        var ctx = CtxFrom("10.0.0.5", "/wp-admin/install.php");
+        var opts = new VarianceWatchdogOptions { IpRotationWindowSeconds = 0, RateSpikeMultiplier = 0 };
+        var result = watchdog.Check(ctx, "sig-PC1", CachedHuman(), opts);
+        Assert.False(result.Tripped);
+    }
+
+    [Fact]
+    public void PathCentroid_NewFamilyAfterBaseline_Trips()
+    {
+        var watchdog = new VarianceWatchdog(NullLogger<VarianceWatchdog>.Instance);
+        watchdog.RecordObservation("sig-PC2", "10.0.0.5", "/blog/post");
+        watchdog.RecordObservation("sig-PC2", "10.0.0.5", "/blog/another");
+        watchdog.RecordObservation("sig-PC2", "10.0.0.5", "/api/v1/users");
+        watchdog.RecordObservation("sig-PC2", "10.0.0.5", "/about");
+
+        var ctx = CtxFrom("10.0.0.5", "/wp-admin/install.php");
+        var opts = new VarianceWatchdogOptions { IpRotationWindowSeconds = 0, RateSpikeMultiplier = 0 };
+        var result = watchdog.Check(ctx, "sig-PC2", CachedHuman(), opts);
+        Assert.True(result.Tripped);
+        Assert.Contains("path-divergence", result.Reason ?? "");
+    }
+
+    [Fact]
+    public void PathCentroid_KnownFamily_DoesNotTrip()
+    {
+        var watchdog = new VarianceWatchdog(NullLogger<VarianceWatchdog>.Instance);
+        watchdog.RecordObservation("sig-PC3", "10.0.0.5", "/blog/post");
+        watchdog.RecordObservation("sig-PC3", "10.0.0.5", "/api/v1/users");
+        watchdog.RecordObservation("sig-PC3", "10.0.0.5", "/about");
+
+        var ctx = CtxFrom("10.0.0.5", "/blog/2024/latest");
+        var opts = new VarianceWatchdogOptions { IpRotationWindowSeconds = 0, RateSpikeMultiplier = 0 };
+        var result = watchdog.Check(ctx, "sig-PC3", CachedHuman(), opts);
+        Assert.False(result.Tripped);
+    }
+
+    [Fact]
+    public void PathCentroid_DisabledViaOptions_DoesNotTrip()
+    {
+        var watchdog = new VarianceWatchdog(NullLogger<VarianceWatchdog>.Instance);
+        watchdog.RecordObservation("sig-PC4", "10.0.0.5", "/blog/post");
+        watchdog.RecordObservation("sig-PC4", "10.0.0.5", "/api/v1/users");
+        watchdog.RecordObservation("sig-PC4", "10.0.0.5", "/about");
+
+        var ctx = CtxFrom("10.0.0.5", "/wp-admin/install.php");
+        var opts = new VarianceWatchdogOptions
+        {
+            IpRotationWindowSeconds = 0,
+            RateSpikeMultiplier = 0,
+            CheckPathCentroid = false,
+        };
+        var result = watchdog.Check(ctx, "sig-PC4", CachedHuman(), opts);
+        Assert.False(result.Tripped);
+    }
 }

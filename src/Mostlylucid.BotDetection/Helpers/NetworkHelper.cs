@@ -79,4 +79,21 @@ public static class NetworkHelper
 
         return false;
     }
+
+    /// <summary>
+    ///     Return the /24 network of an IPv4 address as a string (e.g. "203.0.113.42" → "203.0.113").
+    ///     IPv6 inputs are returned unchanged, since /24 is an IPv4 concept; nulls and unparseable
+    ///     inputs return null. Uses stack-allocated buffers, allocating only the result string.
+    /// </summary>
+    public static string? GetIPv4Slash24(string? ip)
+    {
+        if (string.IsNullOrEmpty(ip)) return null;
+        if (!IPAddress.TryParse(ip, out var addr)) return null;
+        if (addr.AddressFamily != AddressFamily.InterNetwork)
+            return ip;
+        Span<byte> bytes = stackalloc byte[4];
+        return addr.TryWriteBytes(bytes, out _)
+            ? string.Create(null, stackalloc char[16], $"{bytes[0]}.{bytes[1]}.{bytes[2]}")
+            : null;
+    }
 }

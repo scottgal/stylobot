@@ -4,6 +4,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Metrics;
 using Mostlylucid.BotDetection.Models;
 
@@ -435,8 +436,7 @@ public class SqliteWeightStore : IWeightStore, IAsyncDisposable, IDisposable
         // Get existing cached value if present
         if (_cache.TryGetValue(key, out LearnedWeight? existing) && existing != null)
         {
-            // Apply EMA: new_weight = old_weight * (1-α) + delta * α
-            newWeight = existing.Weight * (1 - alpha) + weightDelta * alpha;
+            newWeight = Ewma.Update(existing.Weight, weightDelta, alpha);
             newConfidence = Math.Min(1.0, existing.Confidence + detectionConfidence * 0.01);
             newObservationCount = existing.ObservationCount + 1;
         }

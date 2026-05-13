@@ -20,7 +20,7 @@ Also fixes a latent persistence bug: the `signatures.bot_probability` upsert was
 
 - **`SignatureCoordinator.TryGetVerdictAsync(signature)`** -snapshot accessor over the existing in-process sliding window. Returns `SignatureVerdict?` with the per-signature aggregate (probability, confidence, request count, last-seen, risk band, threat score). The window is bounded by `MaxSignaturesInWindow` (default 1000, platform-tunable) with LRU + TTL eviction so hot signatures retain their slot.
 - **`SignatureVerdictGate`** -decides Skip / Bias / Miss per request based on the policy's `SignatureCacheOptions`. `SkipSamplingRate` (default 5 percent) forces a fraction of Skip-eligible requests to refresh the cache.
-- **`VarianceWatchdog`** -cheap per-signature checks (IP rotation within window, rate spike vs rolling baseline) that veto a Skip and force a pipeline run. `CheckPathCentroid` is a follow-up that needs `CentroidSequenceStore` integration. Has its own per-signature observation history kept current by every request (Skip, Bias, or Miss).
+- **`VarianceWatchdog`** -cheap per-signature checks (IP rotation within window, rate spike vs rolling baseline, path-family divergence vs bounded per-signature memory) that veto a Skip and force a pipeline run. Has its own per-signature observation history kept current by every request (Skip, Bias, or Miss).
 - **`FingerprintPriorContributor`** (Wave 0, priority 4) -reads `fingerprint.prior.*` signals written by the gate on a Bias decision and emits a single calibrated contribution. Effective weight is `prior_confidence * multiplier * linear-age-decay`, so old priors lose all weight and very-recent confident priors strongly anchor the posterior.
 - **`SignatureCacheOptions`** on `DetectionPolicy` -per-policy thresholds (`SkipMinConfidence`, `SkipMaxAgeSeconds`, `BiasMinConfidence`, `BiasMaxAgeSeconds`, `SkipSamplingRate`, `Enabled`) plus a nested `Watchdog` of type `VarianceWatchdogOptions`. JSON-bindable via the existing `DetectionPolicyConfiguration`.
 - **`AggregatedEvidence.PriorProbability` and `.RequestContributionDelta`** -let downstream consumers display the per-request contribution to the fingerprint score instead of the absolute per-request probability. Computed during orchestrator aggregation by reverse-mapping the `FingerprintPrior` contribution. The Skip path's synthetic evidence reports the cached value as both prior and posterior, with delta zero.
@@ -73,11 +73,30 @@ A second review pass tightened allocations along the Skip path before merge:
 
 - **`VerdictCacheBenchmarks`** added with `[MemoryDiagnoser]` covering: gate Skip/Bias/Miss paths, watchdog Check (tripped and not), watchdog RecordObservation, coordinator `NotifyObservationAsync`, and prior-contributor Miss vs Bias. Lets allocation regressions surface immediately.
 
+### Dashboard wiring follow-up
+
+- **`DashboardSummary.BotFingerprints` / `.HumanFingerprints` / `.HighRiskFingerprints`** new fields populated from the `signatures` table (one row per unique fingerprint, with EWMA-blended `bot_probability` and latest `risk_band`). The previous `BotRequests` / `HumanRequests` were request counts (one detection row per request); the dashboard's "X ok / Y bots / Z high" banner was effectively saying "this many *requests*", which dominated whenever a single fingerprint hit repeatedly. The new fields say "this many distinct *actors*". `BotRequests`/`HumanRequests` remain for traffic-volume displays.
+- **`SqliteDashboardEventStore.GetSummaryAsync`** now issues a second query against `signatures` to compute the fingerprint-level counts plus a fingerprint-level `RiskBandCounts` distribution. The previous implementation always returned an empty `RiskBandCounts` dict.
+- **CLI banner** (`RemoteDashboardTui`) renders the new fingerprint-level numbers: `✓ N ok  ✗ N bots  ⚠ N high  · N sigs`. CLI's `RemoteStats` carries the three new fields end-to-end.
+- **`SbWidgetBatchMiddleware.BuildSummaryContextAsync`** exposes `bot_fingerprints`, `human_fingerprints`, `high_risk_fingerprints` to the widget Liquid context.
+
+### Entity-resolution merge-prior inheritance
+
+- **`SignatureCoordinator.TryGetVerdictAsync`** now falls through to the family's canonical signature when the requesting signature has no atom of its own. A rotating fingerprint that has been merged into a family inherits its sibling's verdict and skips a fresh pipeline pass. The verdict is reported under the *requested* `SignatureId` so the gate, cache header, and dashboard see continuous identity. Forgetting is implicit via the existing sliding-window TTL (cold canonical atoms evict naturally) and via split events that drop the `_signatureToFamily` entry. No new aggregation policy or invalidation channel was needed.
+
+### Follow-up batch
+
+- **`SignatureVerdict.RiskBand` and `.ThreatScore`** are now populated on Skip-served verdicts. The tracking atom captures the latest pipeline-observed `intent.threat_score` and confirmed-bad flag from incoming signals (Skip observations leave the cached values untouched, so the band stays representative of the most recent full pass). `TryGetVerdictAsync` then routes those plus `BotProbability` / `Confidence` / `RequestCount` through `DetectionLedgerExtensions.DetermineRiskBand(aiRan: false)` so a cached verdict carries the same band a fresh pipeline pass would.
+- **Watchdog `CheckPathCentroid` is implemented.** Each `FingerprintHistory` keeps a bounded fixed-size (8 slot) memory of recently-observed path families (first non-empty path segment, lowercased). The check activates once at least three distinct families have been seen, then trips on a never-before-seen family. Tunable per policy via the existing `VarianceWatchdogOptions.CheckPathCentroid` flag.
+- **`BoundedChannelLearningBusTests.TryPublish_WhenQueueFull_DropsOldestAndAcceptsNew`** flake is fixed: replaced `await foreach + ReadAllAsync` with a bounded `WaitToReadAsync` loop and a 30-second deadline, matching the fix used in 6.4.2 for the sibling HP-mode test.
+- **CLI dashboard tunnel-dropout detection.** `RemoteDashboardService` now categorises connection failures (timeout / HTTP status / socket / WebSocket error code) and tracks consecutive failure count. After three back-to-back misses (~15s at the existing 5s backoff) the status line flips to `Tunnel down? (<reason>, N misses)` so a vanished anonymous Cloudflare tunnel is visible without grepping logs.
+- **`Helpers.DeterministicBucket`** consolidates the Knuth-multiplicative-hash `bucket < rate` decision used by both `SignatureVerdictGate.ShouldRefresh` and `LoadShedDecision.ShouldShed`.
+- **`Helpers.NetworkHelper.GetIPv4Slash24`** extracts the `/24` helper previously private to `VarianceWatchdog`.
+- **`Helpers.Ewma.Update`** consolidates the canonical `(1 - alpha) * previous + alpha * observation` blend, applied in `PipelineLoadSensor`, `PatternReputation`, and `WeightStore`. `UaProfileStore` is intentionally left alone with a comment noting its inverted-alpha convention.
+
 ### Not Done
 
-- Watchdog `CheckPathCentroid` is deferred to a follow-up; the option exists on `VarianceWatchdogOptions` but the implementation will require integration with `CentroidSequenceStore`.
-- Entity-resolution multi-signature merge priors: the `entities` table exists but is not consulted when blending priors. Two signatures of the same actor have independent EWMAs today.
-- `BoundedChannelLearningBusTests.TryPublish_WhenQueueFull_DropsOldestAndAcceptsNew` is occasionally flaky on slow CI runners (same family as the `TryPublish_WhenHpModeOn_ReturnsImmediately_InnerBusReceivesLater` flake fixed in 6.4.2); can be cleaned up with the same `WaitToReadAsync` rewrite.
+Nothing outstanding from the original Not Done list. Future ideas (not blockers): surfacing the per-request contribution delta on the web dashboard the way the CLI already does (`PriorProbability` / `RequestContributionDelta` are populated on the Skip path and consumed by the CLI; the web dashboard widgets currently still display the absolute Bot%).
 - Cloudflare anonymous quick tunnels time out (typically a few hours); the CLI dashboard's sidebar shows the tunnel URL but does not yet detect when it goes dead. Separate small follow-up.
 
 ---

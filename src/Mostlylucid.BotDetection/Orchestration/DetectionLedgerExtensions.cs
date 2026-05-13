@@ -241,7 +241,7 @@ public static class DetectionLedgerExtensions
     /// VeryHigh without AI requires one of: probability >= 0.85, OR confirmed bad actor, OR
     /// probability >= 0.70 with active threat OR >= 5 requests.
     /// </summary>
-    private static (RiskBand Band, string Justification) DetermineRiskBand(
+    internal static (RiskBand Band, string Justification) DetermineRiskBand(
         double botProbability, double confidence, bool aiRan,
         double threatScore, bool isConfirmedBad, int sessionRequestCount,
         string? intentCategory = null)

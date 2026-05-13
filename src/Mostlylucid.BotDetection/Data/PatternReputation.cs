@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
 
@@ -328,10 +329,10 @@ public class PatternReputationUpdater
         // Apply time decay first (if stale)
         var decayed = ApplyTimeDecay(current);
 
-        // EMA update: new_score = (1 - α) * old_score + α * label
-        // Clamp alpha to [0,1] to preserve EMA semantics (alpha > 1 inverts the old score contribution)
+        // EMA update: alpha clamped to [0,1] preserves EMA semantics (alpha > 1 inverts
+        // the old score contribution).
         var alpha = Math.Min(_options.LearningRate * evidenceWeight, 1.0);
-        var newScore = (1 - alpha) * decayed.BotScore + alpha * label;
+        var newScore = Ewma.Update(decayed.BotScore, label, alpha);
 
         // Increment support (capped)
         var newSupport = Math.Min(decayed.Support + evidenceWeight, _options.MaxSupport);

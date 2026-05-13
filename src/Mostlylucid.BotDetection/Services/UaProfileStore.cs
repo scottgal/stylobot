@@ -73,6 +73,9 @@ public sealed class UaProfileStore
             foreach (var (dim, value) in observed)
             {
                 if (centroid.Dimensions.TryGetValue(dim, out var d))
+                    // Inverted-alpha convention: _alpha is the OLD-value weight (default 0.99
+                    // = slow-moving centroid), the reverse of Helpers.Ewma.Update. Do not
+                    // collapse onto that helper without flipping the alpha at the call site.
                     d.Mean = _alpha * d.Mean + (1.0 - _alpha) * value;
             }
             centroid.SampleCount++;

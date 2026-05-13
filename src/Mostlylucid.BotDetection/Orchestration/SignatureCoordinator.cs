@@ -125,6 +125,12 @@ public record SignatureBehavior
 
     /// <summary>Cumulative response bytes sent to this signature in the tracking window.</summary>
     public long TotalResponseBytes { get; init; }
+
+    /// <summary>Latest non-zero threat (intent) score observed across pipeline-running requests.</summary>
+    public double LatestThreatScore { get; init; }
+
+    /// <summary>True if a pipeline-running request marked this signature as a confirmed bad actor.</summary>
+    public bool IsConfirmedBad { get; init; }
 }
 
 /// <summary>
@@ -550,23 +556,54 @@ public class SignatureCoordinator : IAsyncDisposable
         if (string.IsNullOrEmpty(signatureId))
             return null;
 
+        // Direct hit on the requesting signature is the common case. On miss, fall through
+        // to the entity's canonical signature (if this signature is a member of a merged
+        // family) so a rotating fingerprint inherits its merge sibling's verdict without
+        // paying for a fresh pipeline pass.
+        // Forgetting is implicit: the canonical-signature atom is itself subject to the
+        // sliding-window TTL, so once the family-anchor goes cold the lookup naturally
+        // misses and the request falls through to Miss. Splits drop the _signatureToFamily
+        // entry, so post-split signatures stop inheriting.
         if (!_signatureCache.TryGet(signatureId, out var atom) || atom == null)
-            return null;
+        {
+            if (!_signatureToFamily.TryGetValue(signatureId, out var familyId) ||
+                !_families.TryGetValue(familyId, out var family) ||
+                string.Equals(family.CanonicalSignature, signatureId, StringComparison.OrdinalIgnoreCase) ||
+                !_signatureCache.TryGet(family.CanonicalSignature, out atom) || atom == null)
+            {
+                return null;
+            }
+        }
 
         var behavior = await atom.GetBehaviorAsync(cancellationToken);
 
         // Confidence is not surfaced directly by the tracking atom yet, so derive it
         // from sample size: full confidence at 10+ requests, linear ramp below. This
         // mirrors the convention used in DetectorAggregator and keeps the verdict
-        // self-contained until a future task extends the atom. RiskBand and
-        // ThreatScore fall back to defaults (Unknown / 0.0) for the same reason.
+        // self-contained until a future task extends the atom.
         var confidence = Math.Min(1.0, behavior.RequestCount / 10.0);
+
+        // Cached verdicts never run AI; reuse the canonical band logic so a Skip-served
+        // verdict classifies into the same band a fresh pipeline pass would have produced
+        // given the same probability / threat / persistence inputs.
+        var (riskBand, _) = DetectionLedgerExtensions.DetermineRiskBand(
+            botProbability: behavior.AverageBotProbability,
+            confidence: confidence,
+            aiRan: false,
+            threatScore: behavior.LatestThreatScore,
+            isConfirmedBad: behavior.IsConfirmedBad,
+            sessionRequestCount: behavior.RequestCount);
 
         return new SignatureVerdict
         {
+            // Report the verdict under the *requested* signature ID so the gate / cache
+            // header / dashboard see a continuous identity. The resolution path
+            // (signatureId → family canonical) is internal and not surfaced.
             SignatureId = signatureId,
             BotProbability = behavior.AverageBotProbability,
             Confidence = confidence,
+            RiskBand = riskBand,
+            ThreatScore = behavior.LatestThreatScore,
             RequestCount = behavior.RequestCount,
             LastSeenUtc = behavior.LastSeen
         };
@@ -866,6 +903,12 @@ internal class SignatureTrackingAtom : IDisposable
     private readonly string _signature;
     private long _totalResponseBytes;
 
+    // Latest pipeline-derived risk inputs. Skip-path observations carry empty signals
+    // and intentionally do NOT overwrite these, so the band stays representative of
+    // the most recent full-detection pass.
+    private double _latestThreatScore;
+    private bool _isConfirmedBad;
+
     // Cached behavior (recomputed on each request)
     private SignatureBehavior? _cachedBehavior;
 
@@ -929,12 +972,42 @@ internal class SignatureTrackingAtom : IDisposable
             // Enforce max requests per signature
             while (_requests.Count > _options.MaxRequestsPerSignature) _requests.RemoveFirst();
 
+            // Capture latest pipeline-derived risk inputs from this observation. Skip-path
+            // observations pass an empty signals dict; we deliberately keep the most recent
+            // non-empty values rather than clobbering them with zeros.
+            if (request.Signals.Count > 0)
+            {
+                if (request.Signals.TryGetValue(SignalKeys.IntentThreatScore, out var rawThreat)
+                    && TryReadDouble(rawThreat, out var threat))
+                {
+                    _latestThreatScore = threat;
+                }
+
+                if ((request.Signals.TryGetValue(SignalKeys.ReputationCanAbort, out var canAbort) && canAbort is true) ||
+                    (request.Signals.TryGetValue(SignalKeys.ReputationFastAbortActive, out var abortActive) && abortActive is true))
+                {
+                    _isConfirmedBad = true;
+                }
+            }
+
             // Recompute behavior
             _cachedBehavior = ComputeBehavior();
         }
         finally
         {
             _lock.Release();
+        }
+    }
+
+    private static bool TryReadDouble(object? raw, out double value)
+    {
+        switch (raw)
+        {
+            case double d: value = d; return true;
+            case float f:  value = f; return true;
+            case int i:    value = i; return true;
+            case long l:   value = l; return true;
+            default:       value = 0.0; return false;
         }
     }
 
@@ -971,7 +1044,9 @@ internal class SignatureTrackingAtom : IDisposable
                 AverageBotProbability = 0,
                 AberrationScore = 0,
                 IsAberrant = false,
-                TotalResponseBytes = _totalResponseBytes
+                TotalResponseBytes = _totalResponseBytes,
+                LatestThreatScore = _latestThreatScore,
+                IsConfirmedBad = _isConfirmedBad
             };
 
         var requestList = _requests.ToList();
@@ -1034,7 +1109,9 @@ internal class SignatureTrackingAtom : IDisposable
             AverageBotProbability = avgBotProb,
             AberrationScore = aberrationScore,
             IsAberrant = isAberrant,
-            TotalResponseBytes = _totalResponseBytes
+            TotalResponseBytes = _totalResponseBytes,
+            LatestThreatScore = _latestThreatScore,
+            IsConfirmedBad = _isConfirmedBad
         };
     }
 

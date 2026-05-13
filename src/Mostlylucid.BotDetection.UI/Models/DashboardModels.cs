@@ -139,6 +139,15 @@ public sealed record DashboardSummary
     public double AverageProcessingTimeMs { get; init; }
     public double LastProcessingTimeMs { get; init; }
     public required int UniqueSignatures { get; init; }
+
+    // Fingerprint-level counts derived from the signatures table (one row per
+    // unique fingerprint, with EWMA-blended bot_probability + risk_band).
+    // Distinct from BotRequests/HumanRequests which count individual detection rows.
+    // Dashboards should prefer these for "how many actors did we see" displays;
+    // BotRequests/HumanRequests are still correct for "how much traffic" displays.
+    public int BotFingerprints { get; init; }
+    public int HumanFingerprints { get; init; }
+    public int HighRiskFingerprints { get; init; }
 }
 
 /// <summary>

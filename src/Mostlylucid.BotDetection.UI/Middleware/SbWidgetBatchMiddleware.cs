@@ -546,6 +546,9 @@ public sealed class SbWidgetBatchMiddleware
                 ? (double)summary.BotRequests / summary.TotalRequests : 0d,
             ["bot_percentage"] = summary.BotPercentage,
             ["unique_signatures"] = summary.UniqueSignatures,
+            ["bot_fingerprints"] = summary.BotFingerprints,
+            ["human_fingerprints"] = summary.HumanFingerprints,
+            ["high_risk_fingerprints"] = summary.HighRiskFingerprints,
             ["avg_processing_ms"] = summary.AverageProcessingTimeMs,
         };
     }

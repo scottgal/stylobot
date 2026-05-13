@@ -138,23 +138,19 @@ public class BoundedChannelLearningBusTests : IAsyncDisposable
         // Assert: TryPublish returns true (channel accepted the write)
         Assert.True(result);
 
-        // Now start the consumer and let it drain into the inner bus
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        // Now start the consumer and let it drain into the inner bus. Use a generous
+        // deadline so this is not flaky on slow CI runners; the actual drain is
+        // microseconds when the scheduler is responsive.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         await bus.StartAsync(cts.Token);
 
-        // Collect up to 2 events (queue held depth=2 after the oldest was dropped)
         var received = new List<string>();
-        using var drainCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-
-        try
+        for (var i = 0; i < depth; i++)
         {
-            await foreach (var evt in inner.Reader.ReadAllAsync(drainCts.Token))
-            {
+            if (!await inner.Reader.WaitToReadAsync(cts.Token)) break;
+            if (inner.Reader.TryRead(out var evt))
                 received.Add(evt.Source);
-                if (received.Count >= depth) break;
-            }
         }
-        catch (OperationCanceledException) { /* timeout is acceptable */ }
 
         // "first" should have been dropped (oldest); "second" and "third" survive
         Assert.DoesNotContain("first", received);

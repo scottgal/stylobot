@@ -33,13 +33,15 @@ public static class RemoteDashboardTui
             WrapText    = false
         };
 
-        // Title/header
+        // Title/header. Banner numbers are fingerprint-level (one entry per actor) so
+        // the user reads "this many distinct things hit us" rather than aggregate hit
+        // counts. Request volume still shows via the rps tail.
         var header = new Group($" stylobot dashboard  \u00b7  {url} ")
             .Content(new HStack(
-                new TextBlock(() => $" \u2713 {stats.Value.HumanRequests:N0} ok  "),
-                new TextBlock(() => $"\u2717 {stats.Value.BotRequests:N0} bots  "),
-                new TextBlock(() => $"\u26a0 {HighCount(stats.Value)} high  "),
-                new TextBlock(() => $"\u00b7 {stats.Value.UniqueSignatures} sigs  "),
+                new TextBlock(() => $" \u2713 {stats.Value.HumanFingerprints:N0} ok  "),
+                new TextBlock(() => $"\u2717 {stats.Value.BotFingerprints:N0} bots  "),
+                new TextBlock(() => $"\u26a0 {stats.Value.HighRiskFingerprints:N0} high  "),
+                new TextBlock(() => $"\u00b7 {stats.Value.UniqueSignatures:N0} sigs  "),
                 new TextBlock(() => BuildRps(stats.Value))));
 
         // Right sidebar
@@ -87,9 +89,6 @@ public static class RemoteDashboardTui
     }
 
     // ── Formatters ────────────────────────────────────────────────────────────
-
-    private static int HighCount(RemoteStats s) =>
-        s.RiskBandCounts.TryGetValue("High", out var h) ? h : 0;
 
     private static string BuildRps(RemoteStats s)
     {

@@ -66,20 +66,9 @@ public sealed class SignatureVerdictGate
         return new GateDecision(biasEligible ? GateAction.Bias : GateAction.Miss, verdict);
     }
 
-    /// <summary>
-    ///     Deterministic refresh: a fraction of Skip-eligible requests are downgraded to
-    ///     Bias so the pipeline runs and refreshes the live state. Deterministic by
-    ///     signature hash so retries land identically.
-    /// </summary>
+    // Deterministic refresh: a fraction of Skip-eligible requests are downgraded to
+    // Bias so the pipeline runs and refreshes the live state. Stable by signature hash
+    // so retries land identically. See DeterministicBucket for the shared impl.
     private static bool ShouldRefresh(string signature, double rate)
-    {
-        if (rate <= 0.0) return false;
-        if (rate >= 1.0) return true;
-        unchecked
-        {
-            var h = (uint)signature.GetHashCode() * 2654435761u;
-            var bucket = (h % 10_000) / 10_000.0;
-            return bucket < rate;
-        }
-    }
+        => DeterministicBucket.ShouldFire(signature, rate);
 }
