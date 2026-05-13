@@ -516,6 +516,9 @@ public static class ServiceCollectionExtensions
         // Register cross-request signature coordinator (singleton - tracks across all requests)
         services.TryAddSingleton<SignatureCoordinator>();
 
+        // Register variance watchdog (singleton - per-signature observation history used by the verdict gate)
+        services.TryAddSingleton<Services.VarianceWatchdog>();
+
         // Register response coordinator (tracks response patterns for behavioral feedback)
         services.TryAddSingleton<ResponseCoordinator>();
         services.TryAddSingleton<IResponsePiiMasker, MicrosoftRecognizersResponsePiiMasker>();

@@ -315,6 +315,15 @@ public class DetectionPolicyConfig : BaseComponentConfig
                 BiasMinConfidence = sc.BiasMinConfidence,
                 BiasMaxAgeSeconds = sc.BiasMaxAgeSeconds,
                 SkipSamplingRate = sc.SkipSamplingRate,
+                Watchdog = sc.Watchdog is { } wd
+                    ? new VarianceWatchdogOptions
+                    {
+                        Enabled = wd.Enabled,
+                        IpRotationWindowSeconds = wd.IpRotationWindowSeconds,
+                        CheckPathCentroid = wd.CheckPathCentroid,
+                        RateSpikeMultiplier = wd.RateSpikeMultiplier,
+                    }
+                    : new VarianceWatchdogOptions(),
             }
             : new SignatureCacheOptions();
 
@@ -384,6 +393,28 @@ public sealed class SignatureCacheDef
     ///     verdict cache stays honest. Default 0.05 (5 percent). Set to 0 to disable.
     /// </summary>
     public double SkipSamplingRate { get; set; } = 0.05;
+
+    /// <summary>Variance watchdog sensitivities. Defaults are appropriate for general-purpose sites.</summary>
+    public WatchdogDef? Watchdog { get; set; }
+}
+
+/// <summary>
+///     JSON-bindable shape for <see cref="VarianceWatchdogOptions"/>. Mutable class with
+///     simple setters so it works with <c>IConfiguration.Bind</c>.
+/// </summary>
+public sealed class WatchdogDef
+{
+    /// <summary>Master switch. Default true.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Trip when the same primary signature appears from a new /24 within this many seconds. 0 to disable.</summary>
+    public int IpRotationWindowSeconds { get; set; } = 300;
+
+    /// <summary>Trip when the requested path's RequestState is not in the fingerprint's expected centroid set. Default true. (Follow-up; not implemented in v1.)</summary>
+    public bool CheckPathCentroid { get; set; } = true;
+
+    /// <summary>Trip when this fingerprint's recent request rate exceeds rolling mean by this multiplier. Default 10x. 0 to disable.</summary>
+    public double RateSpikeMultiplier { get; set; } = 10.0;
 }
 
 /// <summary>

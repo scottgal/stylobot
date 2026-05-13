@@ -51,4 +51,7 @@ public sealed record SignatureCacheOptions
     ///     endpoints, debug builds, etc.).
     /// </summary>
     public bool Enabled { get; init; } = true;
+
+    /// <summary>Variance watchdog sensitivities. Defaults are appropriate for general-purpose sites.</summary>
+    public VarianceWatchdogOptions Watchdog { get; init; } = new();
 }
