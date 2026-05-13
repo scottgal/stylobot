@@ -19,7 +19,10 @@ public sealed record DetectionEntry(
     string? PrimarySignature,
     RiskBand RiskBand,
     ThreatBand ThreatBand,
-    double ThreatScore);
+    double ThreatScore,
+    double PriorProbability,
+    double RequestContributionDelta,
+    string VerdictSource);
 
 public sealed class DetectionEventSink
 {
@@ -71,7 +74,10 @@ public sealed class DetectionTapMiddleware
                 primarySig,
                 ev.RiskBand,
                 ev.ThreatBand,
-                ev.ThreatScore));
+                ev.ThreatScore,
+                ev.PriorProbability,
+                ev.RequestContributionDelta,
+                context.Response.Headers.TryGetValue("X-StyloBot-VerdictSource", out var vs) ? vs.ToString() : "pipeline"));
         }
     }
 }
@@ -116,6 +122,35 @@ public sealed class LiveDetectionTableService : BackgroundService
         public bool IsBot;
         public int Requests;
         public DateTime LastSeen;
+
+        /// <summary>
+        ///     EWMA of bot probability across this fingerprint's requests. Damps
+        ///     per-request volatility so the sidebar reflects the fingerprint's stable
+        ///     trend rather than the latest spike.
+        /// </summary>
+        public double Ewma;
+
+        /// <summary>
+        ///     Last 8 per-request probabilities (oldest..newest, packed left). Powers
+        ///     the per-fingerprint sparkline so volatility is visible without
+        ///     dominating the score column.
+        /// </summary>
+        public readonly double[] RecentScores = new double[8];
+        public int RecentScoresCount;
+
+        public void Push(double p)
+        {
+            if (RecentScoresCount < RecentScores.Length)
+            {
+                RecentScores[RecentScoresCount++] = p;
+            }
+            else
+            {
+                for (var i = 1; i < RecentScores.Length; i++)
+                    RecentScores[i - 1] = RecentScores[i];
+                RecentScores[^1] = p;
+            }
+        }
     }
 
     public LiveDetectionTableService(
@@ -199,15 +234,21 @@ public sealed class LiveDetectionTableService : BackgroundService
         {
             _fingerprints.AddOrUpdate(
                 fp,
-                _ => new FingerprintStat
+                _ =>
                 {
-                    LastBotProbability = entry.BotProbability,
-                    LastRisk = entry.RiskBand,
-                    LastIntent = entry.ThreatBand,
-                    LastThreatScore = entry.ThreatScore,
-                    IsBot = entry.Verdict == "BOT",
-                    Requests = 1,
-                    LastSeen = entry.Timestamp,
+                    var stat = new FingerprintStat
+                    {
+                        LastBotProbability = entry.BotProbability,
+                        LastRisk = entry.RiskBand,
+                        LastIntent = entry.ThreatBand,
+                        LastThreatScore = entry.ThreatScore,
+                        IsBot = entry.Verdict == "BOT",
+                        Requests = 1,
+                        LastSeen = entry.Timestamp,
+                        Ewma = entry.BotProbability,
+                    };
+                    stat.Push(entry.BotProbability);
+                    return stat;
                 },
                 (_, s) =>
                 {
@@ -218,6 +259,8 @@ public sealed class LiveDetectionTableService : BackgroundService
                     s.IsBot = entry.Verdict == "BOT";
                     s.Requests++;
                     s.LastSeen = entry.Timestamp;
+                    s.Ewma = 0.3 * entry.BotProbability + 0.7 * s.Ewma;
+                    s.Push(entry.BotProbability);
                     return s;
                 });
         }
@@ -306,12 +349,13 @@ public sealed class LiveDetectionTableService : BackgroundService
         var sideW = wide ? 30 : 0;
         var feedW = wide ? w - sideW - 1 : w;
 
-        // Time(8) + Path + Bot%(4) + Rsk(3) + Int(3) + Act(6) + ms(4) = path consumes the rest
-        var fixedCols = 8 + 4 + 3 + 3 + 6 + 4 + 7 * 2; // 7 two-space separators
-        var feedHdr = " " + C.Dim
+        // SrcMark(1) + Time(8) + Path + Δ%(5) + Rsk(3) + Int(3) + Act(6) + ms(4) = path consumes the rest
+        var fixedCols = 1 + 8 + 5 + 3 + 3 + 6 + 4 + 7 * 2; // 7 two-space separators
+        var feedHdr = C.Dim
+            + VPad(" ", 1)
             + VPad("Time", 8)
             + "  " + VPad("Path", Math.Max(10, feedW - fixedCols))
-            + "  " + VPadL("Bot%", 4)
+            + "  " + VPadL("\u0394%", 5)
             + "  " + VPad("Rsk", 3)
             + "  " + VPad("Int", 3)
             + "  " + VPad("Act", 6)
@@ -401,27 +445,31 @@ public sealed class LiveDetectionTableService : BackgroundService
     private static string FormatFeedRow(DetectionEntry e, int width)
     {
         // Keep in sync with the column-width math in BuildFrame's feed header.
-        var fixedCols = 8 + 4 + 3 + 3 + 6 + 4 + 7 * 2;
+        var fixedCols = 1 + 8 + 5 + 3 + 3 + 6 + 4 + 7 * 2;
         var pathW = Math.Max(10, width - fixedCols);
 
         var path = VTrunc(e.Path.Split('?')[0], pathW);
-        var prob = e.BotProbability;
-        var probStr = $"{prob * 100:F0}%";
 
-        string probCol;
-        if (prob >= 0.9)       probCol = C.Bold + C.Red;
-        else if (prob >= 0.7)  probCol = C.Red;
-        else if (prob >= 0.4)  probCol = C.Yellow;
-        else                   probCol = C.Green;
+        // Per-request contribution delta in percentage points. Bounded to roughly
+        // [-100, +100] but typically tiny; F1 keeps the column scannable.
+        var delta = e.RequestContributionDelta;
+        var deltaStr = $"{(delta >= 0 ? "+" : "")}{delta * 100:F1}";
+        var deltaCol = Math.Abs(delta) < 0.02 ? C.Dim
+            : delta > 0 ? C.Yellow
+            : C.Green;
 
         var msCol = e.DetectionTimeMs > 200 ? C.Red : e.DetectionTimeMs > 50 ? C.Yellow : C.Dim;
         var action = FormatAction(e);
         var (riskTxt, riskCol) = FormatRiskCell(e.RiskBand);
         var (intTxt, intCol)   = FormatIntentCell(e.ThreatBand);
 
-        return " " + C.Dim + e.Timestamp.ToString("HH:mm:ss") + C.R
+        // Dim asterisk in front of the timestamp marks rows where the verdict
+        // came from the cached fingerprint posterior (bypassed the pipeline).
+        var srcMark = e.VerdictSource == "cache" ? C.Dim + "*" + C.R : " ";
+
+        return srcMark + C.Dim + e.Timestamp.ToString("HH:mm:ss") + C.R
             + "  " + VPad(path, pathW)
-            + "  " + probCol + VPadL(probStr, 4) + C.R
+            + "  " + deltaCol + VPadL(deltaStr, 5) + C.R
             + "  " + riskCol + VPad(riskTxt, 3) + C.R
             + "  " + intCol  + VPad(intTxt, 3)  + C.R
             + "  " + action + VPad("", Math.Max(0, 6 - VLen(action)))
@@ -479,7 +527,9 @@ public sealed class LiveDetectionTableService : BackgroundService
 
         // Top fingerprints. Ordered by most-recently-seen so the list visibly updates
         // as scores change. Each row shows the last 10 chars of the signature, the
-        // latest bot percentage, and the latest risk band, colour-coded by verdict.
+        // EWMA-smoothed posterior (the fingerprint's stable verdict, not the latest
+        // spike), an 8-sample sparkline of recent observations so volatility shows
+        // up as trend, and the latest risk band. Bullet colour reflects the EWMA.
         Section("Top Fingerprints");
         var fps = _fingerprints
             .OrderByDescending(kv => kv.Value.LastSeen)
@@ -490,15 +540,21 @@ public sealed class LiveDetectionTableService : BackgroundService
         else
             foreach (var (sig, stat) in fps)
             {
-                var bullet = stat.IsBot ? C.Red + "\u25a0" : C.Green + "\u25a0";
+                var bulletCol = stat.Ewma > 0.5 ? C.Red : C.Green;
+                var bullet = bulletCol + "\u25a0";
                 var sigTail = sig.Length > 10 ? sig[^10..] : sig;
-                var prob = $"{stat.LastBotProbability * 100:F0}%";
+                var posterior = $"{stat.Ewma * 100:F0}%";
+                var spark = MicroSpark(stat.RecentScores, stat.RecentScoresCount);
                 var (rTxt, rCol) = FormatRiskCell(stat.LastRisk);
-                // Layout: " ● <sigtail-10>  ##%  RR "  ≈ 4 + 10 + 2 + 4 + 2 + 3 = 25 chars min
-                var line = " " + bullet + C.R + " "
+                // Layout: " ● <sigtail-10> <post-4> <spark-8> <rsk-3>"
+                //        = 1+1+1+10+1+4+1+8+1+3 = 31, but sidebar width is ~29 so
+                // we squeeze the leading bullet padding to fit:
+                //          "●<sigtail-10> <post-4> <spark-8> <rsk-3>" = 1+10+1+4+1+8+1+3 = 29
+                var line = bullet + C.R
                     + VPad(sigTail, 10)
-                    + "  " + (stat.IsBot ? C.Red : C.Green) + VPadL(prob, 4) + C.R
-                    + "  " + rCol + VPad(rTxt, 3) + C.R;
+                    + " " + bulletCol + VPadL(posterior, 4) + C.R
+                    + " " + C.Blue + spark + C.R
+                    + " " + rCol + VPad(rTxt, 3) + C.R;
                 Row(line);
             }
 
@@ -533,6 +589,27 @@ public sealed class LiveDetectionTableService : BackgroundService
     }
 
     // ── Sparkline ─────────────────────────────────────────────────────────────
+
+    /// <summary>
+    ///     Render a fixed 8-cell sparkline from probability samples in [0,1].
+    ///     Pads with leading spaces when fewer than 8 samples have arrived so
+    ///     the column width stays stable as fingerprints warm up.
+    /// </summary>
+    private static string MicroSpark(double[] vals, int count)
+    {
+        if (count == 0) return new string(' ', 8);
+        const string chars = "\u2581\u2582\u2583\u2584\u2585\u2586\u2587\u2588"; // 8 levels
+        var sb = new StringBuilder(8);
+        var pad = 8 - count;
+        for (var i = 0; i < pad; i++) sb.Append(' ');
+        for (var i = 0; i < count; i++)
+        {
+            var v = Math.Clamp(vals[i], 0.0, 1.0);
+            var idx = (int)Math.Floor(v * (chars.Length - 1));
+            sb.Append(chars[idx]);
+        }
+        return sb.ToString();
+    }
 
     private string BuildSparkline(int buckets)
     {
