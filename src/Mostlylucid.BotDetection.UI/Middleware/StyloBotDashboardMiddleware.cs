@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using Mostlylucid.BotDetection.Middleware;
 using System.Reflection;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
@@ -931,7 +932,7 @@ public class StyloBotDashboardMiddleware
                 return "null";
 
             // Use pre-computed signature from BotDetectionMiddleware if available
-            var sigs = context.Items["BotDetection.Signatures"] as MultiFactorSignatures
+            var sigs = context.Items[BotDetectionMiddleware.SignatureSetKey] as MultiFactorSignatures
                        ?? sigService.GenerateSignatures(context);
             var visitor = visitorCache.Get(sigs.PrimarySignature);
 
@@ -4246,7 +4247,7 @@ public class StyloBotDashboardMiddleware
             if (sigService == null || visitorCache == null)
                 return new YourDetectionModel { HasData = false, BasePath = _options.BasePath.TrimEnd('/') };
 
-            var sigs = context.Items["BotDetection.Signatures"] as MultiFactorSignatures
+            var sigs = context.Items[BotDetectionMiddleware.SignatureSetKey] as MultiFactorSignatures
                        ?? sigService.GenerateSignatures(context);
             var visitor = visitorCache.Get(sigs.PrimarySignature);
 

@@ -28,60 +28,60 @@ public class VarianceWatchdogTests
     }
 
     [Fact]
-    public async Task NoChange_DoesNotTrip()
+    public void NoChange_DoesNotTrip()
     {
         var watchdog = new VarianceWatchdog(NullLogger<VarianceWatchdog>.Instance);
-        await watchdog.RecordObservationAsync("sig-X", "10.0.0.5", "/blog/post");
+        watchdog.RecordObservation("sig-X", "10.0.0.5", "/blog/post");
 
         var ctx = CtxFrom("10.0.0.5", "/blog/post");
-        var result = await watchdog.CheckAsync(ctx, "sig-X", CachedHuman(), new VarianceWatchdogOptions());
+        var result = watchdog.Check(ctx, "sig-X", CachedHuman(), new VarianceWatchdogOptions());
         Assert.False(result.Tripped);
     }
 
     [Fact]
-    public async Task IpRotation_WithinWindow_Trips()
+    public void IpRotation_WithinWindow_Trips()
     {
         var watchdog = new VarianceWatchdog(NullLogger<VarianceWatchdog>.Instance);
-        await watchdog.RecordObservationAsync("sig-Y", "10.0.0.5", "/blog/post");
+        watchdog.RecordObservation("sig-Y", "10.0.0.5", "/blog/post");
 
-        var ctx = CtxFrom("10.1.0.5", "/blog/post"); // same signature, different /24
-        var result = await watchdog.CheckAsync(ctx, "sig-Y", CachedHuman(), new VarianceWatchdogOptions());
+        var ctx = CtxFrom("10.1.0.5", "/blog/post");
+        var result = watchdog.Check(ctx, "sig-Y", CachedHuman(), new VarianceWatchdogOptions());
         Assert.True(result.Tripped);
         Assert.Contains("ip", result.Reason ?? "", StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public async Task IpRotation_DisabledViaOptions_DoesNotTrip()
+    public void IpRotation_DisabledViaOptions_DoesNotTrip()
     {
         var watchdog = new VarianceWatchdog(NullLogger<VarianceWatchdog>.Instance);
-        await watchdog.RecordObservationAsync("sig-Z", "10.0.0.5", "/");
+        watchdog.RecordObservation("sig-Z", "10.0.0.5", "/");
         var ctx = CtxFrom("10.1.0.5", "/");
         var opts = new VarianceWatchdogOptions { IpRotationWindowSeconds = 0 };
-        var result = await watchdog.CheckAsync(ctx, "sig-Z", CachedHuman(), opts);
+        var result = watchdog.Check(ctx, "sig-Z", CachedHuman(), opts);
         Assert.False(result.Tripped);
     }
 
     [Fact]
-    public async Task RateSpike_WhenObservedRateExceedsMultiplier_Trips()
+    public void RateSpike_WhenObservedRateExceedsMultiplier_Trips()
     {
         var watchdog = new VarianceWatchdog(NullLogger<VarianceWatchdog>.Instance);
         for (var i = 0; i < 200; i++)
-            await watchdog.RecordObservationAsync("sig-R", "10.0.0.5", "/api");
+            watchdog.RecordObservation("sig-R", "10.0.0.5", "/api");
 
         var ctx = CtxFrom("10.0.0.5", "/api");
         var opts = new VarianceWatchdogOptions { RateSpikeMultiplier = 2.0 };
-        var result = await watchdog.CheckAsync(ctx, "sig-R", CachedHuman(), opts);
+        var result = watchdog.Check(ctx, "sig-R", CachedHuman(), opts);
         Assert.True(result.Tripped);
     }
 
     [Fact]
-    public async Task Disabled_NeverTrips()
+    public void Disabled_NeverTrips()
     {
         var watchdog = new VarianceWatchdog(NullLogger<VarianceWatchdog>.Instance);
-        await watchdog.RecordObservationAsync("sig-D", "10.0.0.5", "/");
+        watchdog.RecordObservation("sig-D", "10.0.0.5", "/");
         var ctx = CtxFrom("10.1.0.5", "/");
         var opts = new VarianceWatchdogOptions { Enabled = false };
-        var result = await watchdog.CheckAsync(ctx, "sig-D", CachedHuman(), opts);
+        var result = watchdog.Check(ctx, "sig-D", CachedHuman(), opts);
         Assert.False(result.Tripped);
     }
 }

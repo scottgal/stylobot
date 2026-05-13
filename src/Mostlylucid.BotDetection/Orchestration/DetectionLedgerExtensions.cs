@@ -74,18 +74,12 @@ public static class DetectionLedgerExtensions
         if (!string.IsNullOrEmpty(riskJustification))
             signals[SignalKeys.RiskJustification] = riskJustification;
 
-        // Compute the per-request contribution delta. If a FingerprintPrior contribution
-        // exists, the prior was applied and we can express the request's contribution
-        // as the difference between the posterior (final BotProbability) and the prior.
         double priorProbability = 0.0;
         double contributionDelta = 0.0;
-        var priorContribution = ledger.Contributions.FirstOrDefault(c => c.DetectorName == "FingerprintPrior");
-        if (priorContribution is not null)
+        if (preSignals.TryGetValue(SignalKeys.FingerprintPriorProbability, out var rawPrior)
+            && TryReadDouble(rawPrior, out var pp))
         {
-            // The prior contributor maps prob -> delta as: delta = 2 * (prob - 0.5).
-            // Reverse it: prob = 0.5 + 0.5 * delta. This recovers the cached verdict's
-            // probability for display, independent of how the orchestrator weighted it.
-            priorProbability = 0.5 + 0.5 * priorContribution.ConfidenceDelta;
+            priorProbability = pp;
             contributionDelta = botProbability - priorProbability;
         }
 
@@ -344,6 +338,18 @@ public static class DetectionLedgerExtensions
         }
 
         return (finalBand, string.Join("; ", reasons));
+    }
+
+    private static bool TryReadDouble(object? raw, out double value)
+    {
+        switch (raw)
+        {
+            case double d: value = d; return true;
+            case float f:  value = f; return true;
+            case int i:    value = i; return true;
+            case long l:   value = l; return true;
+            default:       value = 0.0; return false;
+        }
     }
 
     private static double ExtractThreatScoreRaw(IReadOnlyDictionary<string, object> signals)

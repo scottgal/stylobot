@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Mostlylucid.BotDetection.Middleware;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -145,7 +146,7 @@ public class AuditProcessorTests
             sink,
             new AuditProcessorOptions { Enabled = true });
         var context = CreateHttpContext();
-        context.Items["BotDetection.Signatures"] = new MultiFactorSignatures
+        context.Items[BotDetectionMiddleware.SignatureSetKey] = new MultiFactorSignatures
         {
             PrimarySignature = "primary-hmac",
             IpSignature = "ip-hmac"
@@ -186,7 +187,7 @@ public class AuditProcessorTests
             });
         var context = CreateHttpContext();
         context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-        context.Items["BotDetection:Signature"] = "primary-hmac";
+        context.Items[BotDetectionMiddleware.PrimarySignatureKey] = "primary-hmac";
 
         var ledger = new DetectionLedger("request-1");
         ledger.AddContribution(new DetectionContribution

@@ -7,23 +7,20 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 
 /// <summary>
 ///     Wave 0 contributor that injects the cached fingerprint verdict as a prior bias.
-///     Reads fingerprint.prior.* values written by the middleware (after the
-///     SignatureVerdictGate returns a Bias decision) and emits a single contribution
-///     so the orchestrator's existing weighted-sum aggregation pulls the per-request
-///     posterior toward the prior.
+///     Effective weight = prior_confidence * multiplier * linear-age-decay, so stale
+///     priors lose all weight. ConfidenceDelta maps probability to [-1, +1].
 ///
-///     Effective contribution weight = prior_confidence * multiplier * linear-age-decay,
-///     so old priors lose all weight and very-recent confident priors strongly anchor
-///     the posterior. ConfidenceDelta maps prior probability to [-1, +1]:
-///     prob = 0.0 -> -1.0 (strong human), prob = 0.5 -> 0.0 (neutral),
-///     prob = 1.0 -> +1.0 (strong bot).
-///
-///     Reads from state.Signals first (test path), then falls back to
-///     state.HttpContext.Items (production path, where the middleware stashes
-///     the prior values before the orchestrator runs).
+///     Reads from <c>state.Signals</c> first, then <c>HttpContext.Items</c>: the
+///     middleware writes to Items before the orchestrator runs, but tests seed
+///     signals directly.
 /// </summary>
 public class FingerprintPriorContributor : ConfiguredContributorBase
 {
+    public const string DetectorName = "FingerprintPrior";
+
+    private static readonly Task<IReadOnlyList<DetectionContribution>> _emptyResult =
+        Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
+
     private readonly ILogger<FingerprintPriorContributor> _logger;
 
     public FingerprintPriorContributor(
@@ -34,7 +31,7 @@ public class FingerprintPriorContributor : ConfiguredContributorBase
         _logger = logger;
     }
 
-    public override string Name => "FingerprintPrior";
+    public override string Name => DetectorName;
     public override int Priority => Manifest?.Priority ?? 4;
     public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
 
@@ -47,7 +44,7 @@ public class FingerprintPriorContributor : ConfiguredContributorBase
         if (!TryReadDouble(state, SignalKeys.FingerprintPriorProbability, out var prob) ||
             !TryReadDouble(state, SignalKeys.FingerprintPriorConfidence, out var conf))
         {
-            return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
+            return _emptyResult;
         }
 
         var age = TryReadDouble(state, SignalKeys.FingerprintPriorAgeSeconds, out var a) ? a : 0.0;
@@ -57,17 +54,14 @@ public class FingerprintPriorContributor : ConfiguredContributorBase
         var effectiveWeight = conf * WeightMultiplier * decay;
 
         if (effectiveWeight <= 0.0)
-            return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
+            return _emptyResult;
 
-        // Map prior probability to confidence delta in [-1, +1].
         var delta = 2.0 * (prob - 0.5);
 
-        // Construct the contribution directly so weight is driven by the
-        // age-decayed prior confidence rather than the YAML-configured constants.
         var contribution = new DetectionContribution
         {
-            DetectorName = Name,
-            Category = "FingerprintPrior",
+            DetectorName = DetectorName,
+            Category = DetectorName,
             ConfidenceDelta = delta,
             Weight = effectiveWeight,
             Reason = $"Cached fingerprint verdict (prob={prob:F2}, conf={conf:F2}, age={age:F0}s)"
@@ -83,11 +77,6 @@ public class FingerprintPriorContributor : ConfiguredContributorBase
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(new[] { contribution });
     }
 
-    /// <summary>
-    ///     Tries to read a numeric prior value from either the blackboard signals
-    ///     or HttpContext.Items. Handles boxed doubles, ints, and any IConvertible
-    ///     numeric type.
-    /// </summary>
     private static bool TryReadDouble(BlackboardState state, string key, out double value)
     {
         if (state.Signals.TryGetValue(key, out var sig) && TryToDouble(sig, out value))

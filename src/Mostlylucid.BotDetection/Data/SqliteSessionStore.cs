@@ -376,7 +376,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                     -- is_bot, risk_band, bot_name, bot_type, action all key off whether the new
                     -- observation exceeds the EWMA-blended value, not the raw historical max.
                     is_bot = CASE WHEN @prob > ((1.0 - @alpha) * bot_probability + @alpha * @prob) THEN @isBot ELSE is_bot END,
-                    bot_probability = COALESCE((1.0 - @alpha) * bot_probability + @alpha * @prob, @prob),
+                    bot_probability = (1.0 - @alpha) * bot_probability + @alpha * @prob,
                     confidence = MAX(confidence, @conf),
                     risk_band = CASE WHEN @prob > bot_probability THEN @risk ELSE risk_band END,
                     bot_name = COALESCE(CASE WHEN @prob > bot_probability THEN @botName ELSE NULL END, bot_name),

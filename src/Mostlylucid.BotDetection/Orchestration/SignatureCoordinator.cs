@@ -480,15 +480,31 @@ public class SignatureCoordinator : IAsyncDisposable
         if (string.IsNullOrEmpty(signature))
             return Task.CompletedTask;
 
-        return RecordRequestAsync(
-            signature: signature,
-            requestId: Guid.NewGuid().ToString("N"),
-            path: path,
-            botProbability: lastKnownBotProbability,
-            signals: new Dictionary<string, object>(),
-            detectorsRan: new HashSet<string>(),
-            cancellationToken: cancellationToken);
+        // Skip-path race tolerance: the gate just saw the verdict, but the atom may
+        // have been evicted before we got here. Silently drop in that case; the next
+        // Bias/Miss request will repopulate.
+        if (!_signatureCache.TryGet(signature, out var atom) || atom == null)
+            return Task.CompletedTask;
+
+        return atom.RecordRequestAsync(new SignatureRequest
+        {
+            RequestId = _skipObservationRequestId,
+            Timestamp = DateTime.UtcNow,
+            Path = path,
+            BotProbability = lastKnownBotProbability,
+            Signals = _emptySignals,
+            DetectorsRan = _emptyDetectors,
+            Escalated = false
+        }, cancellationToken);
     }
+
+    // Shared empties so the per-Skip observation allocates only one SignatureRequest
+    // (down from: SignatureRequest + Guid + Dictionary + HashSet + SignatureGeoContext +
+    // SignatureUpdateRequest on the original RecordRequestAsync path).
+    private static readonly IReadOnlyDictionary<string, object> _emptySignals =
+        new Dictionary<string, object>(0);
+    private static readonly HashSet<string> _emptyDetectors = new();
+    private const string _skipObservationRequestId = "skip";
 
     /// <summary>
     ///     Record response bytes for a specific request.

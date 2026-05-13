@@ -407,7 +407,7 @@ public partial class DetectionBroadcastMiddleware
 
     private static SignatureFactors ParseSignatureFactors(HttpContext context)
     {
-        if (context.Items.TryGetValue("BotDetection.Signatures", out var allSigsObj))
+        if (context.Items.TryGetValue(BotDetectionMiddleware.SignatureSetKey, out var allSigsObj))
         {
             // Preferred path: MultiFactorSignatures object
             if (allSigsObj is Mostlylucid.BotDetection.Dashboard.MultiFactorSignatures mfs)
@@ -453,7 +453,7 @@ public partial class DetectionBroadcastMiddleware
     /// </summary>
     private string ResolvePrimarySignature(HttpContext context)
     {
-        if (context.Items.TryGetValue("BotDetection.Signatures", out var sigObj))
+        if (context.Items.TryGetValue(BotDetectionMiddleware.SignatureSetKey, out var sigObj))
         {
             // Preferred path: MultiFactorSignatures object from ComputeAndStoreSignature
             if (sigObj is Mostlylucid.BotDetection.Dashboard.MultiFactorSignatures mfs &&

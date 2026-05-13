@@ -5,7 +5,8 @@
 **Goal:** Wire the per-signature verdict the product has been computing but never reading into the live request path, so a known-fingerprint request can be answered from cache (HighPerformance mode) or biased toward its accumulated prior (Standard mode). Fix the MAX-not-EWMA aggregation bug while we are in there. Make per-request volatility visible as a contribution delta, not as a hysterical absolute score.
 
 **Architecture:**
-- `SignatureVerdictCache` is an in-process read-through over the existing `signatures` table. It exposes a hot-path lookup `TryGetVerdict(signatureId) -> (BotProbability, Confidence, RiskBand, ThreatScore, LastSeenUtc, SampleCount)`.
+- **The ephemeral sliding window IS the verdict source, not a parallel cache.** `SignatureCoordinator` already uses `SlidingCacheAtom<string, SignatureTrackingAtom>` (`MaxSignaturesInWindow`, default 1000, tunable per platform) with TTL eviction. We extend it with a `TryGetVerdict(signatureId) -> SignatureVerdict?` method that exposes a snapshot of the per-signature state (BotProbability, Confidence, RiskBand, ThreatScore, LastSeenUtc, SampleCount) for the gate to read. There is no separate `SignatureVerdictCache` class; this would duplicate the system.
+- The sliding window's existing LRU+TTL eviction matches the desired "keep active ones active" semantic: every hit re-touches the entry so hot signatures retain their slot, cold ones fall off after TTL or capacity pressure. The SQLite `signatures` table acts as a startup-warmup backstop and an offline-analysis sink, NOT as a live read source.
 - `SignatureVerdictGate` runs in `BotDetectionMiddleware` BEFORE the orchestrator. Four outcomes per policy:
   - **Skip**: cache hit, **confidence** above `SkipMinConfidence` (i.e., sure-bot OR sure-human; confidence is direction-agnostic) AND freshness OK. Enforce the cached verdict, bypass the heavy detector pipeline, but **always run the `VarianceWatchdog`** and **always record the request in the per-fingerprint sliding window**.
   - **Watchdog-trip**: a Skip that the watchdog vetoed: a cheap signal said the cached verdict no longer fits this request. Downgrades to Miss for this single request, forcing the full pipeline so the new evidence is properly weighed.
@@ -30,7 +31,7 @@
 ## File Structure
 
 **New files:**
-- `src/Mostlylucid.BotDetection/Services/SignatureVerdictCache.cs` (read-through cache over `signatures`)
+- `src/Mostlylucid.BotDetection/Services/SignatureVerdict.cs` (the immutable verdict snapshot record returned by the coordinator)
 - `src/Mostlylucid.BotDetection/Services/SignatureVerdictGate.cs` (the Skip/Bias/Miss decision)
 - `src/Mostlylucid.BotDetection/Services/VarianceWatchdog.cs` (cheap checks that veto a Skip)
 - `src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/FingerprintPriorContributor.cs` (Wave 0 bias)
@@ -38,18 +39,19 @@
 - `src/Mostlylucid.BotDetection/Policies/SignatureCacheOptions.cs` (per-policy thresholds, including watchdog enables)
 - `src/Mostlylucid.BotDetection/Policies/VarianceWatchdogOptions.cs` (per-policy watchdog sensitivities)
 - `src/Mostlylucid.BotDetection/docs/fingerprint-verdict-cache.md`
-- `src/Mostlylucid.BotDetection.Test/Services/SignatureVerdictCacheTests.cs`
+- `src/Mostlylucid.BotDetection.Test/Orchestration/SignatureCoordinatorVerdictTests.cs`
 - `src/Mostlylucid.BotDetection.Test/Services/SignatureVerdictGateTests.cs`
 - `src/Mostlylucid.BotDetection.Test/Services/VarianceWatchdogTests.cs`
 - `src/Mostlylucid.BotDetection.Test/Orchestration/FingerprintPriorContributorTests.cs`
 
 **Modified files:**
-- `src/Mostlylucid.BotDetection/Data/SqliteSessionStore.cs` (replace MAX with EWMA on upsert; add `LastUpdatedUtc` column)
-- `src/Mostlylucid.BotDetection/Data/SessionPersistence.cs` (add `LastUpdatedUtc` to `PersistedSignature`)
+- `src/Mostlylucid.BotDetection/Data/SqliteSessionStore.cs` (replace MAX with EWMA on upsert; add `LastUpdatedUtc` column) — **Task 1 complete**
+- `src/Mostlylucid.BotDetection/Data/SessionPersistence.cs` (add `LastUpdatedUtc` to `PersistedSignature`) — **Task 1 complete**
+- `src/Mostlylucid.BotDetection/Orchestration/SignatureCoordinator.cs` (add `TryGetVerdict(signature)` returning a snapshot of the existing per-signature state)
 - `src/Mostlylucid.BotDetection/Policies/DetectionPolicy.cs` (add `SignatureCache` property)
 - `src/Mostlylucid.BotDetection/Policies/DetectionPolicyConfiguration.cs` (bind it from JSON)
 - `src/Mostlylucid.BotDetection/Middleware/BotDetectionMiddleware.cs` (run the gate before the orchestrator)
-- `src/Mostlylucid.BotDetection/Extensions/ServiceCollectionExtensions.cs` (register cache, gate, contributor)
+- `src/Mostlylucid.BotDetection/Extensions/ServiceCollectionExtensions.cs` (register gate, watchdog, contributor)
 - `src/Mostlylucid.BotDetection/Models/DetectionContext.cs` (add new signal keys: `fingerprint.prior.*`)
 - `src/Mostlylucid.BotDetection/Orchestration/DetectionContribution.cs` (add `RequestContributionDelta` to `AggregatedEvidence`)
 - `src/Mostlylucid.BotDetection.Console/Services/LiveDetectionTable.cs` (feed shows delta; sidebar shows cache state)
@@ -284,7 +286,27 @@ EOF
 
 ---
 
+## Plan revisions during execution
+
+After Task 1 landed (`e2d0dce`), the user clarified the architecture:
+
+- **The sliding window IS the verdict source, not a separate cache.** Do NOT build a parallel `SignatureVerdictCache` class. `SignatureCoordinator` already maintains a `SlidingCacheAtom<string, SignatureTrackingAtom>` per signature with `MaxSignaturesInWindow` (default 1000, tunable per platform) and TTL eviction. The LRU+TTL semantic is what the user means by "keep active ones active until the next sampling step": every hit re-touches the entry, so hot signatures retain their slot, cold ones fall off after TTL or capacity pressure.
+- **The `signatures` SQLite table is the startup-warmup backstop and offline-analysis sink, not the live read source.**
+
+Tasks that change as a result:
+
+- **Task 2 (below) is REPLACED**. New scope: define a `SignatureVerdict` record, add `TryGetVerdict(signatureId)` to `SignatureCoordinator` that snapshots the existing per-signature state. NO `SignatureVerdictCache` class.
+- **Task 4 (gate) reads from `SignatureCoordinator.TryGetVerdict`** instead of a `SignatureVerdictCache`. The constructor signature changes accordingly.
+- **Task 8 (cache invalidation) is DROPPED**. Reads and writes share the same in-process coordinator state; no invalidation needed.
+- **Task 10 verification** drops the Task 8 commit reference and the `SignatureVerdictCacheTests` count.
+
+The block below labelled "Task 2: SignatureVerdictCache" is kept for historical reference of the prior design. The implementer must follow the revised description in the dispatch prompt, not the prose below.
+
+---
+
 ## Task 2: `SignatureVerdictCache` (read-through over `signatures` table)
+
+> **DEPRECATED BY REVISION.** See the "Plan revisions during execution" note above. The actual Task 2 the implementer will run is: define `SignatureVerdict` record and add `TryGetVerdict` to `SignatureCoordinator`. The original prose is retained below for context but is not the instruction set.
 
 **Files:**
 - Create: `src/Mostlylucid.BotDetection/Services/SignatureVerdictCache.cs`

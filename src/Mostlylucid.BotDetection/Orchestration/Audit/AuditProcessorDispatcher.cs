@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Mostlylucid.BotDetection.Middleware;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Dashboard;
@@ -126,12 +127,12 @@ public sealed class AuditProcessorDispatcher
 
     private static string? TryGetPrimarySignature(HttpContext httpContext)
     {
-        if (httpContext.Items.TryGetValue("BotDetection:Signature", out var signature) &&
+        if (httpContext.Items.TryGetValue(BotDetectionMiddleware.PrimarySignatureKey, out var signature) &&
             signature is string primarySignature &&
             !string.IsNullOrWhiteSpace(primarySignature))
             return primarySignature;
 
-        if (httpContext.Items.TryGetValue("BotDetection.Signatures", out var signatures) &&
+        if (httpContext.Items.TryGetValue(BotDetectionMiddleware.SignatureSetKey, out var signatures) &&
             signatures is MultiFactorSignatures multiFactorSignatures &&
             !string.IsNullOrWhiteSpace(multiFactorSignatures.PrimarySignature))
             return multiFactorSignatures.PrimarySignature;
