@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using Mostlylucid.BotDetection.Middleware;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -266,7 +267,7 @@ public class DetectionDataExtractor
 
     private MultiFactorSignatureDisplay? ExtractSignatures(HttpContext context)
     {
-        if (context.Items.TryGetValue("BotDetection.Signatures", out var signaturesObj) &&
+        if (context.Items.TryGetValue(BotDetectionMiddleware.SignatureSetKey, out var signaturesObj) &&
             signaturesObj is string signaturesJson)
             try
             {
@@ -291,7 +292,7 @@ public class DetectionDataExtractor
         {
             // Also write it back so DetectionBroadcastMiddleware uses the same value
             var fallbackDict = new Dictionary<string, string> { ["primary"] = fallback };
-            context.Items["BotDetection.Signatures"] = JsonSerializer.Serialize(fallbackDict);
+            context.Items[BotDetectionMiddleware.SignatureSetKey] = JsonSerializer.Serialize(fallbackDict);
             return BuildSignatureDisplay(fallbackDict, context);
         }
 

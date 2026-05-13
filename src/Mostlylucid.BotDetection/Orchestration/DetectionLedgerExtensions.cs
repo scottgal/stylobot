@@ -74,11 +74,22 @@ public static class DetectionLedgerExtensions
         if (!string.IsNullOrEmpty(riskJustification))
             signals[SignalKeys.RiskJustification] = riskJustification;
 
+        double priorProbability = 0.0;
+        double contributionDelta = 0.0;
+        if (preSignals.TryGetValue(SignalKeys.FingerprintPriorProbability, out var rawPrior)
+            && TryReadDouble(rawPrior, out var pp))
+        {
+            priorProbability = pp;
+            contributionDelta = botProbability - priorProbability;
+        }
+
         return new AggregatedEvidence
         {
             Ledger = ledger,
             BotProbability = botProbability,
             Confidence = confidence,
+            PriorProbability = priorProbability,
+            RequestContributionDelta = contributionDelta,
             RiskBand = riskBand,
             RiskJustification = riskJustification,
             EarlyExit = false,
@@ -327,6 +338,18 @@ public static class DetectionLedgerExtensions
         }
 
         return (finalBand, string.Join("; ", reasons));
+    }
+
+    private static bool TryReadDouble(object? raw, out double value)
+    {
+        switch (raw)
+        {
+            case double d: value = d; return true;
+            case float f:  value = f; return true;
+            case int i:    value = i; return true;
+            case long l:   value = l; return true;
+            default:       value = 0.0; return false;
+        }
     }
 
     private static double ExtractThreatScoreRaw(IReadOnlyDictionary<string, object> signals)

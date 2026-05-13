@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Mostlylucid.BotDetection.Middleware;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Dashboard;
@@ -60,8 +61,8 @@ public class SignatureContributor : ContributingDetectorBase
                 state.WriteSignal(SignalKeys.HeaderHashes, JsonSerializer.Serialize(headerHashes));
 
             // Store in HttpContext.Items for backward compat with post-detection middleware
-            state.HttpContext.Items["BotDetection.Signatures"] = signatures;
-            state.HttpContext.Items["BotDetection:Signature"] = signatures.PrimarySignature;
+            state.HttpContext.Items[BotDetectionMiddleware.SignatureSetKey] = signatures;
+            state.HttpContext.Items[BotDetectionMiddleware.PrimarySignatureKey] = signatures.PrimarySignature;
         }
         catch (Exception ex)
         {

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral;
 using Mostlylucid.Ephemeral.Atoms.KeyedSequential;
 using Mostlylucid.Ephemeral.Atoms.SlidingCache;
@@ -461,6 +462,51 @@ public class SignatureCoordinator : IAsyncDisposable
     }
 
     /// <summary>
+    ///     Lightweight observation hook used by the middleware on the Skip path. Bumps
+    ///     the per-signature atom's last-seen time and request count, and appends the
+    ///     observation to its in-window history, so clustering / drift analysis still
+    ///     see Skip traffic. Implemented as a thin wrapper over <see cref="RecordRequestAsync"/>
+    ///     with empty signals and no detector list: there is no separate state path,
+    ///     and per-signature aberration detection keeps running on the Skip path. The
+    ///     pipeline-running paths (Miss / Bias) still call <see cref="RecordRequestAsync"/>
+    ///     directly with full signals.
+    /// </summary>
+    public Task NotifyObservationAsync(
+        string signature,
+        string path,
+        double lastKnownBotProbability,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(signature))
+            return Task.CompletedTask;
+
+        // Skip-path race tolerance: the gate just saw the verdict, but the atom may
+        // have been evicted before we got here. Silently drop in that case; the next
+        // Bias/Miss request will repopulate.
+        if (!_signatureCache.TryGet(signature, out var atom) || atom == null)
+            return Task.CompletedTask;
+
+        return atom.RecordRequestAsync(new SignatureRequest
+        {
+            RequestId = _skipObservationRequestId,
+            Timestamp = DateTime.UtcNow,
+            Path = path,
+            BotProbability = lastKnownBotProbability,
+            Signals = _emptySignals,
+            DetectorsRan = _emptyDetectors,
+            Escalated = false
+        }, cancellationToken);
+    }
+
+    // Shared empties so the per-Skip observation allocates only one SignatureRequest
+    // (down from: SignatureRequest + Guid + Dictionary + HashSet + SignatureGeoContext +
+    // SignatureUpdateRequest on the original RecordRequestAsync path).
+    private static readonly IReadOnlyDictionary<string, object> _emptySignals =
+        new Dictionary<string, object>(0);
+    private static readonly HashSet<string> _emptyDetectors = new();
+    private const string _skipObservationRequestId = "skip";
+
+    /// <summary>
     ///     Record response bytes for a specific request.
     ///     Called from OnCompleted after the response finishes, so the request was already recorded.
     /// </summary>
@@ -488,6 +534,42 @@ public class SignatureCoordinator : IAsyncDisposable
             return null;
 
         return await atom.GetBehaviorAsync(cancellationToken);
+    }
+
+    /// <summary>
+    ///     Snapshot the per-signature state currently held in the sliding window. Returns
+    ///     null when the signature is not in the window (cold or evicted). This is the
+    ///     live verdict source consumed by SignatureVerdictGate; there is no parallel
+    ///     cache. Async because the underlying tracking atom serialises field access
+    ///     behind a SemaphoreSlim, the same way GetSignatureBehaviorAsync does.
+    /// </summary>
+    public async Task<SignatureVerdict?> TryGetVerdictAsync(
+        string signatureId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(signatureId))
+            return null;
+
+        if (!_signatureCache.TryGet(signatureId, out var atom) || atom == null)
+            return null;
+
+        var behavior = await atom.GetBehaviorAsync(cancellationToken);
+
+        // Confidence is not surfaced directly by the tracking atom yet, so derive it
+        // from sample size: full confidence at 10+ requests, linear ramp below. This
+        // mirrors the convention used in DetectorAggregator and keeps the verdict
+        // self-contained until a future task extends the atom. RiskBand and
+        // ThreatScore fall back to defaults (Unknown / 0.0) for the same reason.
+        var confidence = Math.Min(1.0, behavior.RequestCount / 10.0);
+
+        return new SignatureVerdict
+        {
+            SignatureId = signatureId,
+            BotProbability = behavior.AverageBotProbability,
+            Confidence = confidence,
+            RequestCount = behavior.RequestCount,
+            LastSeenUtc = behavior.LastSeen
+        };
     }
 
     /// <summary>

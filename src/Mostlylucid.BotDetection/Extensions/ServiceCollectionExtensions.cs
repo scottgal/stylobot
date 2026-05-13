@@ -516,6 +516,12 @@ public static class ServiceCollectionExtensions
         // Register cross-request signature coordinator (singleton - tracks across all requests)
         services.TryAddSingleton<SignatureCoordinator>();
 
+        // Register variance watchdog (singleton - per-signature observation history used by the verdict gate)
+        services.TryAddSingleton<Services.VarianceWatchdog>();
+
+        // Register the signature verdict gate (singleton - thin decision wrapper over the coordinator)
+        services.TryAddSingleton<Services.SignatureVerdictGate>();
+
         // Register response coordinator (tracks response patterns for behavioral feedback)
         services.TryAddSingleton<ResponseCoordinator>();
         services.TryAddSingleton<IResponsePiiMasker, MicrosoftRecognizersResponsePiiMasker>();
@@ -882,6 +888,9 @@ public static class ServiceCollectionExtensions
 
         // Fingerprint approval contributor (checks approval + locked dimensions)
         services.AddSingleton<IContributingDetector, FingerprintApprovalContributor>();
+
+        // Fingerprint prior contributor (Wave 0: injects cached verdict as bias)
+        services.AddSingleton<IContributingDetector, FingerprintPriorContributor>();
 
         // Challenge verification contributor (reads PoW solve metadata as detection signal)
         services.AddSingleton<IContributingDetector, ChallengeVerificationContributor>();

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Mostlylucid.BotDetection.Middleware;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Mostlylucid.BotDetection.Models;
@@ -95,7 +96,7 @@ public static class YarpExtensions
 
         // Forward multi-factor signatures so downstream can match "your detection" and
         // report accurate factor counts without recomputing from a different vantage point
-        if (httpContext.Items.TryGetValue("BotDetection.Signatures", out var sigsObj) &&
+        if (httpContext.Items.TryGetValue(BotDetectionMiddleware.SignatureSetKey, out var sigsObj) &&
             sigsObj is Dashboard.MultiFactorSignatures mfs &&
             !string.IsNullOrEmpty(mfs.PrimarySignature))
         {

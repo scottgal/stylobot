@@ -120,6 +120,15 @@ public sealed record DetectionPolicy
     public LoadShedOptions LoadShed { get; init; } = new();
 
     /// <summary>
+    ///     Per-policy signature verdict cache thresholds. Controls whether the
+    ///     SignatureVerdictGate skips the pipeline on a confident live snapshot, biases
+    ///     it with a prior on a less-confident snapshot, or runs the full pipeline.
+    ///     Defaults are tuned for general-purpose sites; high-security endpoints should
+    ///     set <see cref="SignatureCacheOptions.Enabled"/> = false.
+    /// </summary>
+    public SignatureCacheOptions SignatureCache { get; init; } = new();
+
+    /// <summary>
     ///     When true, all detectors run in Wave 0 regardless of their TriggerConditions.
     ///     Primary use case: learning/slow path where full characterization is required.
     ///     Also useful for demo/testing to ensure the full detection pipeline runs.

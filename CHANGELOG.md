@@ -5,6 +5,83 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Wires the per-signature reputation aggregate the product has been computing into the live request path as a verdict cache. Known fingerprints reuse their verdict; only unknown, stale, or verifiably-changed fingerprints run the full detector pipeline. The verdict source is the existing ephemeral sliding window in `SignatureCoordinator`, not a parallel cache. Four gate outcomes emerge per policy:
+
+- **Skip**: live signature state meets `SkipMinConfidence` (direction-agnostic: sure-bot AND sure-human qualify) AND was observed within `SkipMaxAgeSeconds`. The variance watchdog confirms nothing variant. The request bypasses the heavy detector pipeline; the cached verdict is enforced. Sliding-window observation is still recorded so clustering and drift detection see the request. Emits `X-StyloBot-VerdictSource: cache`.
+- **Watchdog-trip**: Skip-eligible cache hit BUT the variance watchdog detected an unusual signal (IP rotation, rate spike). The cached verdict is invalidated for this request; full pipeline runs. Emits `X-StyloBot-WatchdogTrip: <reason>`.
+- **Bias**: cache hit meets `BiasMinConfidence` but is too low-confidence or too stale for Skip. Pipeline runs with the cached verdict injected as a Wave 0 prior contribution. The posterior is pulled toward the prior in proportion to prior confidence and linear age decay.
+- **Miss**: no usable cache, below `BiasMinConfidence`, or older than `BiasMaxAgeSeconds`. Full pipeline runs from scratch.
+
+Also fixes a latent persistence bug: the `signatures.bot_probability` upsert was MAX-prob (so a one-off 0.95 false positive pinned the signature at 0.95 forever); it is now a proper EWMA that decays toward benign observations.
+
+### Added
+
+- **`SignatureCoordinator.TryGetVerdictAsync(signature)`** -snapshot accessor over the existing in-process sliding window. Returns `SignatureVerdict?` with the per-signature aggregate (probability, confidence, request count, last-seen, risk band, threat score). The window is bounded by `MaxSignaturesInWindow` (default 1000, platform-tunable) with LRU + TTL eviction so hot signatures retain their slot.
+- **`SignatureVerdictGate`** -decides Skip / Bias / Miss per request based on the policy's `SignatureCacheOptions`. `SkipSamplingRate` (default 5 percent) forces a fraction of Skip-eligible requests to refresh the cache.
+- **`VarianceWatchdog`** -cheap per-signature checks (IP rotation within window, rate spike vs rolling baseline) that veto a Skip and force a pipeline run. `CheckPathCentroid` is a follow-up that needs `CentroidSequenceStore` integration. Has its own per-signature observation history kept current by every request (Skip, Bias, or Miss).
+- **`FingerprintPriorContributor`** (Wave 0, priority 4) -reads `fingerprint.prior.*` signals written by the gate on a Bias decision and emits a single calibrated contribution. Effective weight is `prior_confidence * multiplier * linear-age-decay`, so old priors lose all weight and very-recent confident priors strongly anchor the posterior.
+- **`SignatureCacheOptions`** on `DetectionPolicy` -per-policy thresholds (`SkipMinConfidence`, `SkipMaxAgeSeconds`, `BiasMinConfidence`, `BiasMaxAgeSeconds`, `SkipSamplingRate`, `Enabled`) plus a nested `Watchdog` of type `VarianceWatchdogOptions`. JSON-bindable via the existing `DetectionPolicyConfiguration`.
+- **`AggregatedEvidence.PriorProbability` and `.RequestContributionDelta`** -let downstream consumers display the per-request contribution to the fingerprint score instead of the absolute per-request probability. Computed during orchestrator aggregation by reverse-mapping the `FingerprintPrior` contribution. The Skip path's synthetic evidence reports the cached value as both prior and posterior, with delta zero.
+- **`SignatureCoordinator.NotifyObservationAsync`** -lightweight per-signature observation hook called on the Skip path. Records signature, timestamp, path, and last-known probability into the sliding window so clustering, drift detection, and the dashboard's per-signature stats see the full traffic, NOT a hole where the cached fingerprint flew through.
+- **`BotDetectionOptions.SignatureEwmaAlpha`** (default 0.15) -tunable EWMA weight for the newest observation when updating a signature's persisted `bot_probability`. Smaller values mean stronger memory; larger values react more quickly to changes.
+- **`signatures.last_updated_utc`** column (with migration) so the verdict gate can apply freshness thresholds.
+- **CLI dashboard** -feed rows now display the per-request contribution delta (signed percentage points moved against the fingerprint's prior) instead of the absolute Bot%. Cache-served rows are marked with a dim asterisk in the time column. Sidebar Top Fingerprints shows the fingerprint's EWMA-smoothed posterior with an 8-sample sparkline of recent observations so volatility is visible as trend, not as a row-by-row hysterical number. Bullet colour reflects the EWMA (stable verdict), not the latest spike.
+- **`docs/fingerprint-verdict-cache.md`** -reference doc covering the scaling thesis, the four gate outcomes, per-policy configuration, the EWMA upsert fix, direction-agnostic Skip, the sliding window as core (not a parallel cache), Skip-path sliding-window observation, the per-request contribution delta, performance posture, tuning patterns, and follow-ups.
+
+### Changed
+
+- **`BotDetectionMiddleware`** -consults `SignatureVerdictGate` at request intake. Skip enforces the cached verdict and bypasses the heavy pipeline (with watchdog veto check). Bias writes `fingerprint.prior.*` signals to `context.Items` so the prior contributor injects them in Wave 0. Miss runs the pipeline normally. `ComputeAndStoreSignature` is now called BEFORE the gate (moved from post-orchestrator) so the gate can find the primary signature on the first request; the call is idempotent so the existing post-orchestrator call is a no-op when the signature is already populated.
+
+### Fixed
+
+- **`signatures.bot_probability` upsert was MAX, now EWMA**. A signature that scored 0.95 once was pinned at 0.95 forever, regardless of subsequent benign observations. The upsert now blends `(1 - alpha) * prior + alpha * observation` with `alpha = 0.15` (configurable via `BotDetectionOptions.SignatureEwmaAlpha`). Old high-risk priors now decay toward benign observations as the entity continues to behave.
+
+### Tests Added
+
+Total: 24 new unit tests across:
+
+- `SignatureUpsertEwmaTests` (3): literal first observation, EWMA decay on repeated benign observations, `last_updated_utc` recording.
+- `SignatureCoordinatorVerdictTests` (3): unknown signature returns null, after-record-request returns snapshot, multiple-requests reflects latest aggregate.
+- `VarianceWatchdogTests` (5): no change does not trip, IP rotation within window trips, IP rotation disabled does not trip, rate spike trips, disabled never trips.
+- `SignatureVerdictGateTests` (8): no signature, no cache, fresh confident hit (Skip), low confidence (Bias), very low (Miss), disabled, sampling refresh (Skip downgraded to Bias), stale (Bias not Skip).
+- `FingerprintPriorContributorTests` (4): no prior, human prior, bot prior, old prior decayed.
+- `BotDetectionOptions.SignatureEwmaAlpha` exposed as a tunable knob with default 0.15.
+
+Full suite after this work: 2040 tests pass across `Mostlylucid.BotDetection.Test`, `Mostlylucid.BotDetection.Api.Tests`, `Mostlylucid.BotDetection.Demo.Tests`, `Stylobot.Gateway.Tests`, and `Mostlylucid.BotDetection.Orchestration.Tests` (Puppeteer integration tests excluded).
+
+### Verified
+
+- **AOT compatibility**: `Mostlylucid.BotDetection.Console` publishes cleanly under `PublishAot=true` for `osx-arm64`; zero IL2026/IL3050 warnings from any of the added files (`SignatureVerdict`, `SignatureVerdictGate`, `VarianceWatchdog`, `FingerprintPriorContributor`, `SignatureCacheOptions`, `VarianceWatchdogOptions`).
+- **Build**: 0 errors across the solution after the work. 0 new warnings introduced.
+
+### Performance and hot-path quality
+
+A second review pass tightened allocations along the Skip path before merge:
+
+- **`SignatureCoordinator.NotifyObservationAsync`** dropped from ~6 heap allocations per Skip request (Guid string, Dictionary, HashSet, `SignatureGeoContext`, `SignatureUpdateRequest`, LINQ prune) down to a single `SignatureRequest` by calling the atom directly with shared static empties. The keyed-sequential dispatch and shadow-index work are correctly bypassed for Skip; they still run on Miss / Bias via the unchanged `RecordRequestAsync`.
+- **`VarianceWatchdog`** is now bounded: `MaxFingerprints = 10_000` with TTL + LRU prune (single-flight via `Interlocked`); per-fingerprint observation queue capped at 600 entries. Was previously unbounded.
+- **`VarianceWatchdog.Check`** is sync (was fake-async with no awaits). `WatchdogResult` is a `readonly record struct` so checks allocate nothing on the heap.
+- **`Slash24`** uses `Span<byte>` + `string.Create` to avoid intermediate string allocation.
+- **`FingerprintPriorContributor`** caches the empty-result `Task<IReadOnlyList<DetectionContribution>>` so the Miss path allocates nothing.
+- **`DetectionLedgerExtensions`** reads `PriorProbability` directly from signals instead of reverse-mapping the `FingerprintPrior` contribution.
+- **SQL EWMA upsert** dropped a redundant `COALESCE` wrapper.
+- **Stringly-typed context keys** `"BotDetection:Signature"` and `"BotDetection.Signatures"` were duplicated across 14 call sites in 12 files. Now centralised as `BotDetectionMiddleware.PrimarySignatureKey` and `.SignatureSetKey`; all callers route through the constants.
+
+### BenchmarkDotNet
+
+- **`VerdictCacheBenchmarks`** added with `[MemoryDiagnoser]` covering: gate Skip/Bias/Miss paths, watchdog Check (tripped and not), watchdog RecordObservation, coordinator `NotifyObservationAsync`, and prior-contributor Miss vs Bias. Lets allocation regressions surface immediately.
+
+### Not Done
+
+- Watchdog `CheckPathCentroid` is deferred to a follow-up; the option exists on `VarianceWatchdogOptions` but the implementation will require integration with `CentroidSequenceStore`.
+- Entity-resolution multi-signature merge priors: the `entities` table exists but is not consulted when blending priors. Two signatures of the same actor have independent EWMAs today.
+- `BoundedChannelLearningBusTests.TryPublish_WhenQueueFull_DropsOldestAndAcceptsNew` is occasionally flaky on slow CI runners (same family as the `TryPublish_WhenHpModeOn_ReturnsImmediately_InnerBusReceivesLater` flake fixed in 6.4.2); can be cleaned up with the same `WaitToReadAsync` rewrite.
+- Cloudflare anonymous quick tunnels time out (typically a few hours); the CLI dashboard's sidebar shows the tunnel URL but does not yet detect when it goes dead. Separate small follow-up.
+
+---
+
 ## [6.4.2] - 2026-05-12
 
 Test-only release. Fixes a flaky concurrency test that intermittently failed the 6.4.1 publish workflow on slow GitHub Actions runners.

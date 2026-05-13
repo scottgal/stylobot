@@ -1,4 +1,5 @@
 using System.Net;
+using Mostlylucid.BotDetection.Middleware;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http;
@@ -184,12 +185,12 @@ public class ChallengeActionPolicy : IActionPolicy
 
     private static string ResolveRequestBinding(HttpContext context)
     {
-        if (context.Items.TryGetValue("BotDetection:Signature", out var signatureObj) &&
+        if (context.Items.TryGetValue(BotDetectionMiddleware.PrimarySignatureKey, out var signatureObj) &&
             signatureObj is string signature &&
             !string.IsNullOrWhiteSpace(signature))
             return signature;
 
-        if (context.Items.TryGetValue("BotDetection.Signatures", out var signaturesObj) &&
+        if (context.Items.TryGetValue(BotDetectionMiddleware.SignatureSetKey, out var signaturesObj) &&
             signaturesObj is MultiFactorSignatures signatures &&
             !string.IsNullOrWhiteSpace(signatures.PrimarySignature))
             return signatures.PrimarySignature;
@@ -330,7 +331,7 @@ public class ChallengeActionPolicy : IActionPolicy
         }
 
         // Compute signature for this request (use the stored signature if available)
-        var signature = context.Items.TryGetValue("BotDetection:Signature", out var sig) && sig is string s
+        var signature = context.Items.TryGetValue(BotDetectionMiddleware.PrimarySignatureKey, out var sig) && sig is string s
             ? s
             : context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 

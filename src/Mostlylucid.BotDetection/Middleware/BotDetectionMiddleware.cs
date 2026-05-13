@@ -52,7 +52,9 @@ public class BotDetectionMiddleware(
     SignatureCoordinator? signatureCoordinator = null,
     IApiKeyStore? apiKeyStore = null,
     Services.PipelineLoadSensor? loadSensor = null,
-    LoadShedDecision? loadShedDecision = null)
+    LoadShedDecision? loadShedDecision = null,
+    Services.SignatureVerdictGate? verdictGate = null,
+    Services.VarianceWatchdog? watchdog = null)
 {
     // Default test mode simulations - used as fallback when options don't contain the mode
     private static readonly Dictionary<string, string> DefaultTestModeSimulations =
@@ -105,6 +107,8 @@ public class BotDetectionMiddleware(
     private readonly IApiKeyStore? _apiKeyStore = apiKeyStore;
     private readonly Services.PipelineLoadSensor? _loadSensor = loadSensor;
     private readonly LoadShedDecision? _loadShedDecision = loadShedDecision;
+    private readonly Services.SignatureVerdictGate? _verdictGate = verdictGate;
+    private readonly Services.VarianceWatchdog? _watchdog = watchdog;
 
     /// <summary>
     ///     Main middleware entry point. Runs bot detection and handles blocking/throttling.
@@ -324,6 +328,74 @@ public class BotDetectionMiddleware(
         var policy = ResolvePolicy(context, endpoint, policyRegistry);
         var policyAttr = endpoint?.Metadata.GetMetadata<BotPolicyAttribute>();
 
+        // Signature verdict gate: consult the live coordinator before running the
+        // full pipeline. Three outcomes:
+        //   Skip - cached verdict is fresh and confident; enforce it (subject to
+        //          VarianceWatchdog veto) and bypass the orchestrator entirely.
+        //   Bias - verdict exists but is below SkipMinConfidence or older; write
+        //          fingerprint.prior.* signals so Wave 0 contributors (Task 5) can
+        //          inject the verdict as a prior before the pipeline runs.
+        //   Miss - no usable verdict; run the pipeline normally.
+        //
+        // Precompute the primary signature so the gate can find it. The compute is
+        // idempotent and cheap (IP and UA hash); the post-orchestrator call later in
+        // this method becomes a no-op when the signature is already populated.
+        ComputeAndStoreSignature(context);
+
+        if (_verdictGate is not null && _signatureCoordinator is not null && _watchdog is not null)
+        {
+            var precomputedSig = context.Items.TryGetValue(PrimarySignatureKey, out var sObj)
+                ? sObj as string
+                : null;
+
+            var gateDecision = await _verdictGate.DecideAsync(
+                precomputedSig, policy.SignatureCache, context.RequestAborted);
+
+            if (gateDecision.Action == GateAction.Skip && gateDecision.Verdict is { } v && precomputedSig is not null)
+            {
+                var wd = _watchdog.Check(context, precomputedSig, v, policy.SignatureCache.Watchdog);
+                if (wd.Tripped)
+                {
+                    context.Response.Headers["X-StyloBot-VerdictSource"] = "pipeline";
+                    context.Response.Headers["X-StyloBot-WatchdogTrip"] = wd.Reason ?? "unknown";
+                }
+                else
+                {
+                    var cachedEvidence = new AggregatedEvidence
+                    {
+                        BotProbability = v.BotProbability,
+                        Confidence = v.Confidence,
+                        PriorProbability = v.BotProbability,
+                        RequestContributionDelta = 0.0,
+                        RiskBand = v.RiskBand,
+                        ThreatBand = ThreatBand.Low,
+                        TotalProcessingTimeMs = 0.0,
+                    };
+                    context.Items[AggregatedEvidenceKey] = cachedEvidence;
+                    context.Response.Headers["X-StyloBot-VerdictSource"] = "cache";
+
+                    var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "";
+                    var pathStr = context.Request.Path.Value ?? "/";
+                    _watchdog.RecordObservation(precomputedSig, clientIp, pathStr);
+                    _ = _signatureCoordinator.NotifyObservationAsync(
+                        precomputedSig, pathStr, v.BotProbability, context.RequestAborted);
+
+                    await _next(context);
+                    return;
+                }
+            }
+            else if (gateDecision.Action == GateAction.Bias && gateDecision.Verdict is { } vb)
+            {
+                // Stash prior signals on context.Items; FingerprintPriorContributor (Task 5)
+                // reads them in Wave 0 and injects the prior contribution.
+                context.Items[SignalKeys.FingerprintPriorProbability] = vb.BotProbability;
+                context.Items[SignalKeys.FingerprintPriorConfidence] = vb.Confidence;
+                context.Items[SignalKeys.FingerprintPriorRequestCount] = vb.RequestCount;
+                context.Items[SignalKeys.FingerprintPriorAgeSeconds] =
+                    (DateTime.UtcNow - vb.LastSeenUtc).TotalSeconds;
+            }
+        }
+
         // Load-shed gate: at High/Critical load, skip detection per policy.LoadShed.
         // Uses connection-id-hash as the seed so retries from the same client land
         // identically. Sheds emit X-StyloBot-Shed=1 for observability.
@@ -399,7 +471,7 @@ public class BotDetectionMiddleware(
         var capturedReq = CaptureRequestSnapshot(context);
         var capturedBotProbability = aggregatedResult.BotProbability;
         var capturedAction = aggregatedResult.PolicyAction;
-        var capturedSig = context.Items["BotDetection:Signature"] as string;
+        var capturedSig = context.Items[PrimarySignatureKey] as string;
         var capturedSigCoordinator = _signatureCoordinator;
         var capturedAuditCtx = auditProcessorDispatcher?.HasProcessors == true
             ? auditProcessorDispatcher.BuildContext(context, aggregatedResult)
@@ -742,7 +814,7 @@ public class BotDetectionMiddleware(
             && !aggregated.Signals.ContainsKey(SignalKeys.ApprovalVerified))
         {
             var approvalStore = context.RequestServices.GetService<Data.IFingerprintApprovalStore>();
-            var signature = context.Items.TryGetValue("BotDetection:Signature", out var sig) && sig is string s ? s : null;
+            var signature = context.Items.TryGetValue(PrimarySignatureKey, out var sig) && sig is string s ? s : null;
             if (approvalStore is not null && signature is not null)
             {
                 try
@@ -818,6 +890,12 @@ public class BotDetectionMiddleware(
 
     /// <summary>Full AggregatedEvidence from blackboard orchestrator</summary>
     public const string AggregatedEvidenceKey = "BotDetection.AggregatedEvidence";
+
+    /// <summary>String: precomputed primary signature, set by ComputeAndStoreSignature.</summary>
+    public const string PrimarySignatureKey = "BotDetection:Signature";
+
+    /// <summary>SignatureSet: structured signature pair produced by the signature service.</summary>
+    public const string SignatureSetKey = "BotDetection.Signatures";
 
     /// <summary>Boolean: true if request is from a bot</summary>
     public const string IsBotKey = "BotDetection.IsBot";
@@ -1059,9 +1137,14 @@ public class BotDetectionMiddleware(
     {
         if (_signatureService == null) return;
 
+        // Idempotent: callers (signature-only paths, the verdict gate at request entry,
+        // the post-detection path) may invoke this more than once per request. If a
+        // prior call already populated the signature, skip the recompute.
+        if (context.Items.ContainsKey(PrimarySignatureKey)) return;
+
         var sigs = _signatureService.GenerateSignatures(context);
-        context.Items["BotDetection.Signatures"] = sigs;
-        context.Items["BotDetection:Signature"] = sigs.PrimarySignature;
+        context.Items[SignatureSetKey] = sigs;
+        context.Items[PrimarySignatureKey] = sigs.PrimarySignature;
     }
 
     /// <summary>
@@ -1958,7 +2041,7 @@ public class BotDetectionMiddleware(
                 UaSignature = context.Request.Headers["X-Bot-Detection-UaSignature"].FirstOrDefault(),
                 ClientSideSignature = context.Request.Headers["X-Bot-Detection-ClientSideSignature"].FirstOrDefault(),
             };
-            context.Items["BotDetection.Signatures"] = upstreamSigs;
+            context.Items[SignatureSetKey] = upstreamSigs;
         }
 
         // Create legacy result for compatibility with views/TagHelpers/extension methods

@@ -1,0 +1,74 @@
+name: FingerprintPriorContributor
+priority: 4
+enabled: true
+description: Injects the cached fingerprint verdict as a prior contribution.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: priors
+
+taxonomy:
+  kind: bias
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+  required_signals: []
+  optional_signals:
+    - fingerprint.prior.probability
+    - fingerprint.prior.confidence
+    - fingerprint.prior.age_seconds
+
+output:
+  signals: []
+
+triggers:
+  requires: []
+  skip_when: []
+
+lane:
+  name: fast
+  max_concurrency: 16
+  priority: 96
+
+defaults:
+  weights:
+    base: 0.0
+    bot_signal: 1.0
+    human_signal: 1.0
+    verified: 0.0
+    early_exit: 0.0
+
+  confidence:
+    neutral: 0.0
+    bot_detected: 0.5
+    human_indicated: -0.5
+    strong_signal: 0.8
+    high_threshold: 0.7
+    low_threshold: 0.2
+    escalation_threshold: 0.0
+
+  timing:
+    timeout_ms: 2
+    cache_refresh_sec: 0
+
+  features:
+    detailed_logging: false
+    enable_cache: false
+    can_early_exit: false
+    can_escalate: false
+
+  parameters:
+    # Multiplier on prior confidence to derive contribution weight.
+    prior_weight_multiplier: 1.0
+    # Linear decay: effective weight = prior_confidence * multiplier * max(0, 1 - age_seconds / age_decay_horizon_seconds)
+    age_decay_horizon_seconds: 86400
+
+tags:
+  - fast-path
+  - prior
+  - stage-0

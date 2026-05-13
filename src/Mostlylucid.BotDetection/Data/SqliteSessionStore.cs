@@ -21,6 +21,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
 
     public string? PersistenceConnectionString => _connectionString;
     private readonly ILogger<SqliteSessionStore> _logger;
+    private readonly BotDetectionOptions _options;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private Task? _initTask;
     private ISessionVectorSearch? _vectorSearch;
@@ -32,6 +33,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
     {
         _vectorSearch = vectorSearch;
         _logger = logger;
+        _options = options.Value;
         var basePath = Path.GetDirectoryName(
             options.Value.DatabasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db"))
             ?? AppContext.BaseDirectory;
@@ -103,7 +105,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                 root_vector BLOB,
                 root_vector_maturity REAL DEFAULT 0,
                 narrative TEXT,
-                top_reasons_json TEXT
+                top_reasons_json TEXT,
+                last_updated_utc TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_signatures_bot ON signatures(is_bot, session_count DESC);
@@ -223,6 +226,7 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         await MigrateAddColumnAsync(conn, "sessions", "drift_vector", "BLOB", ct);
         await MigrateAddColumnAsync(conn, "sessions", "user_agent_raw", "TEXT", ct);
         await MigrateAddColumnAsync(conn, "signatures", "frequency_centroid", "BLOB", ct);
+        await MigrateAddColumnAsync(conn, "signatures", "last_updated_utc", "TEXT", ct);
         await MigrateAddColumnAsync(conn, "signature_centroids", "access_count", "INTEGER NOT NULL DEFAULT 0", ct);
 
         _logger.LogInformation("SQLite session store initialized at {ConnectionString}", _connectionString);
@@ -354,22 +358,25 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                     signature_id, session_count, total_request_count, first_seen, last_seen,
                     is_bot, bot_probability, confidence, risk_band,
                     bot_name, bot_type, action, country_code,
-                    root_vector, root_vector_maturity, narrative, top_reasons_json
+                    root_vector, root_vector_maturity, narrative, top_reasons_json,
+                    last_updated_utc
                 ) VALUES (
                     @id, @sessions, @requests, @first, @last,
                     @isBot, @prob, @conf, @risk,
                     @botName, @botType, @action, @country,
-                    @rootVec, @rootMat, @narrative, @reasons
+                    @rootVec, @rootMat, @narrative, @reasons,
+                    @lastUpdatedUtc
                 )
                 ON CONFLICT(signature_id) DO UPDATE SET
                     session_count = session_count + @sessions,
                     total_request_count = total_request_count + @requests,
                     last_seen = @last,
-                    -- Preserve the highest-confidence detection result seen so far.
-                    -- Session finalization may update bot_probability, so use MAX to preserve the
-                    -- highest confidence value across all updates.
-                    is_bot = CASE WHEN @prob > bot_probability THEN @isBot ELSE is_bot END,
-                    bot_probability = MAX(bot_probability, @prob),
+                    -- EWMA: blend prior with new observation so a high score from one observation
+                    -- decays over time rather than pinning the signature at its all-time peak.
+                    -- is_bot, risk_band, bot_name, bot_type, action all key off whether the new
+                    -- observation exceeds the EWMA-blended value, not the raw historical max.
+                    is_bot = CASE WHEN @prob > ((1.0 - @alpha) * bot_probability + @alpha * @prob) THEN @isBot ELSE is_bot END,
+                    bot_probability = (1.0 - @alpha) * bot_probability + @alpha * @prob,
                     confidence = MAX(confidence, @conf),
                     risk_band = CASE WHEN @prob > bot_probability THEN @risk ELSE risk_band END,
                     bot_name = COALESCE(CASE WHEN @prob > bot_probability THEN @botName ELSE NULL END, bot_name),
@@ -379,7 +386,8 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                     root_vector = COALESCE(@rootVec, root_vector),
                     root_vector_maturity = CASE WHEN @rootMat > root_vector_maturity THEN @rootMat ELSE root_vector_maturity END,
                     narrative = COALESCE(@narrative, narrative),
-                    top_reasons_json = COALESCE(@reasons, top_reasons_json)
+                    top_reasons_json = COALESCE(@reasons, top_reasons_json),
+                    last_updated_utc = @lastUpdatedUtc
             """;
             cmd.Parameters.AddWithValue("@id", signature.SignatureId);
             cmd.Parameters.AddWithValue("@sessions", signature.SessionCount);
@@ -398,6 +406,9 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("@rootMat", signature.RootVectorMaturity);
             cmd.Parameters.AddWithValue("@narrative", (object?)signature.Narrative ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@reasons", (object?)signature.TopReasonsJson ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@alpha", _options.SignatureEwmaAlpha);
+            cmd.Parameters.AddWithValue("@lastUpdatedUtc",
+                (signature.LastUpdatedUtc ?? DateTime.UtcNow).ToString("O"));
 
             await cmd.ExecuteNonQueryAsync(ct);
         }
@@ -1604,8 +1615,22 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         RootVector = reader.IsDBNull(reader.GetOrdinal("root_vector")) ? null : (byte[])reader["root_vector"],
         RootVectorMaturity = reader.IsDBNull(reader.GetOrdinal("root_vector_maturity")) ? 0 : reader.GetFloat(reader.GetOrdinal("root_vector_maturity")),
         Narrative = reader.IsDBNull(reader.GetOrdinal("narrative")) ? null : reader.GetString(reader.GetOrdinal("narrative")),
-        TopReasonsJson = reader.IsDBNull(reader.GetOrdinal("top_reasons_json")) ? null : reader.GetString(reader.GetOrdinal("top_reasons_json"))
+        TopReasonsJson = reader.IsDBNull(reader.GetOrdinal("top_reasons_json")) ? null : reader.GetString(reader.GetOrdinal("top_reasons_json")),
+        LastUpdatedUtc = ReadOptionalUtc(reader, "last_updated_utc")
     };
+
+    private static DateTime? ReadOptionalUtc(SqliteDataReader reader, string columnName)
+    {
+        // Column may not exist on a pre-migration database that's been read before InitializeAsync ran.
+        int ordinal;
+        try { ordinal = reader.GetOrdinal(columnName); }
+        catch (IndexOutOfRangeException) { return null; }
+        if (reader.IsDBNull(ordinal)) return null;
+        return DateTime.Parse(
+            reader.GetString(ordinal),
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.RoundtripKind);
+    }
 
     /// <summary>Deserialize a float[] from a BLOB (IEEE 754 little-endian).</summary>
     /// <summary>Deserialize a BLOB (IEEE 754 little-endian) to float[].</summary>
