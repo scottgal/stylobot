@@ -1434,6 +1434,14 @@ public static class SignalKeys
 
     /// <summary>Bool: true when a static asset's content fingerprint (ETag/Last-Modified) changed since last recorded.</summary>
     public const string AssetContentChanged = "asset.content_changed";
+
+    // Fingerprint prior signals, written by SignatureVerdictGate on a Bias decision.
+    // Consumed by FingerprintPriorContributor (Wave 0) to bias the orchestrator's
+    // aggregation toward the cached verdict.
+    public const string FingerprintPriorProbability = "fingerprint.prior.probability";
+    public const string FingerprintPriorConfidence  = "fingerprint.prior.confidence";
+    public const string FingerprintPriorAgeSeconds  = "fingerprint.prior.age_seconds";
+    public const string FingerprintPriorRequestCount = "fingerprint.prior.request_count";
 }
 
 /// <summary>Values written to <see cref="SignalKeys.TransportProtocolClass"/> by TransportProtocolContributor.</summary>

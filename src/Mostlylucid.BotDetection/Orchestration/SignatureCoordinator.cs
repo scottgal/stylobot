@@ -462,6 +462,35 @@ public class SignatureCoordinator : IAsyncDisposable
     }
 
     /// <summary>
+    ///     Lightweight observation hook used by the middleware on the Skip path. Bumps
+    ///     the per-signature atom's last-seen time and request count, and appends the
+    ///     observation to its in-window history, so clustering / drift analysis still
+    ///     see Skip traffic. Implemented as a thin wrapper over <see cref="RecordRequestAsync"/>
+    ///     with empty signals and no detector list: there is no separate state path,
+    ///     and per-signature aberration detection keeps running on the Skip path. The
+    ///     pipeline-running paths (Miss / Bias) still call <see cref="RecordRequestAsync"/>
+    ///     directly with full signals.
+    /// </summary>
+    public Task NotifyObservationAsync(
+        string signature,
+        string path,
+        double lastKnownBotProbability,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrEmpty(signature))
+            return Task.CompletedTask;
+
+        return RecordRequestAsync(
+            signature: signature,
+            requestId: Guid.NewGuid().ToString("N"),
+            path: path,
+            botProbability: lastKnownBotProbability,
+            signals: new Dictionary<string, object>(),
+            detectorsRan: new HashSet<string>(),
+            cancellationToken: cancellationToken);
+    }
+
+    /// <summary>
     ///     Record response bytes for a specific request.
     ///     Called from OnCompleted after the response finishes, so the request was already recorded.
     /// </summary>

@@ -519,6 +519,9 @@ public static class ServiceCollectionExtensions
         // Register variance watchdog (singleton - per-signature observation history used by the verdict gate)
         services.TryAddSingleton<Services.VarianceWatchdog>();
 
+        // Register the signature verdict gate (singleton - thin decision wrapper over the coordinator)
+        services.TryAddSingleton<Services.SignatureVerdictGate>();
+
         // Register response coordinator (tracks response patterns for behavioral feedback)
         services.TryAddSingleton<ResponseCoordinator>();
         services.TryAddSingleton<IResponsePiiMasker, MicrosoftRecognizersResponsePiiMasker>();

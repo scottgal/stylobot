@@ -52,7 +52,9 @@ public class BotDetectionMiddleware(
     SignatureCoordinator? signatureCoordinator = null,
     IApiKeyStore? apiKeyStore = null,
     Services.PipelineLoadSensor? loadSensor = null,
-    LoadShedDecision? loadShedDecision = null)
+    LoadShedDecision? loadShedDecision = null,
+    Services.SignatureVerdictGate? verdictGate = null,
+    Services.VarianceWatchdog? watchdog = null)
 {
     // Default test mode simulations - used as fallback when options don't contain the mode
     private static readonly Dictionary<string, string> DefaultTestModeSimulations =
@@ -105,6 +107,8 @@ public class BotDetectionMiddleware(
     private readonly IApiKeyStore? _apiKeyStore = apiKeyStore;
     private readonly Services.PipelineLoadSensor? _loadSensor = loadSensor;
     private readonly LoadShedDecision? _loadShedDecision = loadShedDecision;
+    private readonly Services.SignatureVerdictGate? _verdictGate = verdictGate;
+    private readonly Services.VarianceWatchdog? _watchdog = watchdog;
 
     /// <summary>
     ///     Main middleware entry point. Runs bot detection and handles blocking/throttling.
@@ -323,6 +327,78 @@ public class BotDetectionMiddleware(
         // Determine policy to use
         var policy = ResolvePolicy(context, endpoint, policyRegistry);
         var policyAttr = endpoint?.Metadata.GetMetadata<BotPolicyAttribute>();
+
+        // Signature verdict gate: consult the live coordinator before running the
+        // full pipeline. Three outcomes:
+        //   Skip - cached verdict is fresh and confident; enforce it (subject to
+        //          VarianceWatchdog veto) and bypass the orchestrator entirely.
+        //   Bias - verdict exists but is below SkipMinConfidence or older; write
+        //          fingerprint.prior.* signals so Wave 0 contributors (Task 5) can
+        //          inject the verdict as a prior before the pipeline runs.
+        //   Miss - no usable verdict; run the pipeline normally.
+        //
+        // The primary signature for this request is computed by ComputeAndStoreSignature
+        // AFTER the orchestrator runs today, so on the very first request from a new
+        // fingerprint the gate sees null and returns Miss. After the orchestrator runs
+        // and ComputeAndStoreSignature populates "BotDetection:Signature", subsequent
+        // requests from the same fingerprint can be matched. A future
+        // "PrimarySignatureMiddleware" that computes the signature once upstream would
+        // enable Skip on cold-after-restart cases too; this is a follow-up.
+        if (_verdictGate is not null && _signatureCoordinator is not null && _watchdog is not null)
+        {
+            var precomputedSig = context.Items.TryGetValue("BotDetection:Signature", out var sObj)
+                ? sObj as string
+                : null;
+
+            var gateDecision = await _verdictGate.DecideAsync(
+                precomputedSig, policy.SignatureCache, context.RequestAborted);
+
+            if (gateDecision.Action == GateAction.Skip && gateDecision.Verdict is { } v && precomputedSig is not null)
+            {
+                // Variance watchdog veto: if anything looks unusual for this fingerprint,
+                // fall through to the full pipeline. Otherwise enforce the cached verdict.
+                var wd = await _watchdog.CheckAsync(
+                    context, precomputedSig, v, policy.SignatureCache.Watchdog, context.RequestAborted);
+                if (wd.Tripped)
+                {
+                    context.Response.Headers["X-StyloBot-VerdictSource"] = "pipeline";
+                    context.Response.Headers["X-StyloBot-WatchdogTrip"] = wd.Reason ?? "unknown";
+                    // Fall through to the pipeline (no return).
+                }
+                else
+                {
+                    var cachedEvidence = new AggregatedEvidence
+                    {
+                        BotProbability = v.BotProbability,
+                        Confidence = v.Confidence,
+                        RiskBand = v.RiskBand,
+                        ThreatBand = ThreatBand.Low,
+                        TotalProcessingTimeMs = 0.0,
+                    };
+                    context.Items[AggregatedEvidenceKey] = cachedEvidence;
+                    context.Response.Headers["X-StyloBot-VerdictSource"] = "cache";
+
+                    var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "";
+                    var pathStr = context.Request.Path.Value ?? "/";
+                    await _watchdog.RecordObservationAsync(precomputedSig, clientIp, pathStr, context.RequestAborted);
+                    await _signatureCoordinator.NotifyObservationAsync(
+                        precomputedSig, pathStr, v.BotProbability, context.RequestAborted);
+
+                    await _next(context);
+                    return;
+                }
+            }
+            else if (gateDecision.Action == GateAction.Bias && gateDecision.Verdict is { } vb)
+            {
+                // Stash prior signals on context.Items; FingerprintPriorContributor (Task 5)
+                // reads them in Wave 0 and injects the prior contribution.
+                context.Items[SignalKeys.FingerprintPriorProbability] = vb.BotProbability;
+                context.Items[SignalKeys.FingerprintPriorConfidence] = vb.Confidence;
+                context.Items[SignalKeys.FingerprintPriorRequestCount] = vb.RequestCount;
+                context.Items[SignalKeys.FingerprintPriorAgeSeconds] =
+                    (DateTime.UtcNow - vb.LastSeenUtc).TotalSeconds;
+            }
+        }
 
         // Load-shed gate: at High/Critical load, skip detection per policy.LoadShed.
         // Uses connection-id-hash as the seed so retries from the same client land
