@@ -280,6 +280,16 @@ public class DetectionPolicyConfig : BaseComponentConfig
     public LoadShedDef? LoadShed { get; set; }
 
     /// <summary>
+    ///     Per-policy signature verdict cache thresholds. Controls SignatureVerdictGate
+    ///     Skip/Bias/Miss behaviour for this policy. Defaults to enabled with general-
+    ///     purpose thresholds; high-security endpoints should set Enabled=false.
+    /// </summary>
+    /// <example>
+    ///     "admin": { "SignatureCache": { "Enabled": false } }
+    /// </example>
+    public SignatureCacheDef? SignatureCache { get; set; }
+
+    /// <summary>
     ///     Converts this configuration to a DetectionPolicy record.
     /// </summary>
     public DetectionPolicy ToPolicy(string name)
@@ -295,6 +305,18 @@ public class DetectionPolicyConfig : BaseComponentConfig
                 DropFractionAtCritical = ls.DropFractionAtCritical,
             }
             : new LoadShedOptions();
+
+        var signatureCache = SignatureCache is { } sc
+            ? new SignatureCacheOptions
+            {
+                Enabled = sc.Enabled,
+                SkipMinConfidence = sc.SkipMinConfidence,
+                SkipMaxAgeSeconds = sc.SkipMaxAgeSeconds,
+                BiasMinConfidence = sc.BiasMinConfidence,
+                BiasMaxAgeSeconds = sc.BiasMaxAgeSeconds,
+                SkipSamplingRate = sc.SkipSamplingRate,
+            }
+            : new SignatureCacheOptions();
 
         return new DetectionPolicy
         {
@@ -318,6 +340,7 @@ public class DetectionPolicyConfig : BaseComponentConfig
             ActionPolicyOverridable = ActionPolicyOverridable,
             OnFailure = onFailure,
             LoadShed = loadShed,
+            SignatureCache = signatureCache,
         };
     }
 }
@@ -333,6 +356,34 @@ public sealed class LoadShedDef
 
     /// <summary>Fraction of requests to shed when load band is Critical. Range 0.0 to 1.0.</summary>
     public double DropFractionAtCritical { get; set; }
+}
+
+/// <summary>
+///     JSON-bindable shape for <see cref="SignatureCacheOptions"/>. Mutable class with
+///     simple setters so it works with <c>IConfiguration.Bind</c>.
+/// </summary>
+public sealed class SignatureCacheDef
+{
+    /// <summary>Whether the SignatureVerdictGate is enabled for this policy. Default true.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Minimum confidence required to skip the pipeline entirely. Default 0.85.</summary>
+    public double SkipMinConfidence { get; set; } = 0.85;
+
+    /// <summary>Maximum age in seconds for a Skip-eligible verdict. Default 300 (5 minutes).</summary>
+    public int SkipMaxAgeSeconds { get; set; } = 300;
+
+    /// <summary>Minimum confidence required to inject a prior bias. Default 0.30.</summary>
+    public double BiasMinConfidence { get; set; } = 0.30;
+
+    /// <summary>Maximum age in seconds for a Bias-eligible verdict. Default 86400 (24h).</summary>
+    public int BiasMaxAgeSeconds { get; set; } = 86_400;
+
+    /// <summary>
+    ///     Fraction of Skip-eligible requests that nevertheless run the pipeline so the
+    ///     verdict cache stays honest. Default 0.05 (5 percent). Set to 0 to disable.
+    /// </summary>
+    public double SkipSamplingRate { get; set; } = 0.05;
 }
 
 /// <summary>
