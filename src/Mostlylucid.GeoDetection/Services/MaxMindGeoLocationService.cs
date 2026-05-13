@@ -24,11 +24,15 @@ public class MaxMindGeoLocationService : IGeoLocationService, IDisposable
 
     private DatabaseReader? _reader;
 
+    // The fallback param is typed as the concrete SimpleGeoLocationService rather than
+    // IGeoLocationService so the default DI container doesn't try to resolve the
+    // fallback as IGeoLocationService — which is registered as this class, causing a
+    // singleton-activation deadlock during BuildServiceProvider().GetService<IGeoLocationService>().
     public MaxMindGeoLocationService(
         ILogger<MaxMindGeoLocationService> logger,
         IOptions<GeoLite2Options> options,
         IMemoryCache cache,
-        IGeoLocationService? fallbackService = null)
+        SimpleGeoLocationService? fallbackService = null)
     {
         _logger = logger;
         _options = options.Value;

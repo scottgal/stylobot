@@ -336,7 +336,7 @@ public sealed class LiveDetectionTableService : BackgroundService
             + C.Green + $"\u2713 {humansFp} hum" + C.R
             + C.Red + $"  \u2717 {botsFp} bot" + C.R
             + threatCol + $"  \u26a0 {threatsFp} threats" + C.R
-            + C.Dim + $"  avg {avgMs:F1}ms  max {_maxDetectionTimeMs:F1}ms  " + C.R
+            + C.Dim + $"  avg {FormatLatency(avgMs)}  max {FormatLatency(_maxDetectionTimeMs)}  " + C.R
             + C.Blue + spark + C.R;
         var statsVis = VLen(statsContent);
         sb.Append(statsContent);
@@ -349,8 +349,8 @@ public sealed class LiveDetectionTableService : BackgroundService
         var sideW = wide ? 30 : 0;
         var feedW = wide ? w - sideW - 1 : w;
 
-        // SrcMark(1) + Time(8) + Path + Δ%(5) + Rsk(3) + Int(3) + Act(6) + ms(4) = path consumes the rest
-        var fixedCols = 1 + 8 + 5 + 3 + 3 + 6 + 4 + 7 * 2; // 7 two-space separators
+        // SrcMark(1) + Time(8) + Path + Δ%(5) + Rsk(3) + Int(3) + Act(6) + Lat(5) = path consumes the rest
+        var fixedCols = 1 + 8 + 5 + 3 + 3 + 6 + 5 + 7 * 2; // 7 two-space separators
         var feedHdr = C.Dim
             + VPad(" ", 1)
             + VPad("Time", 8)
@@ -359,7 +359,7 @@ public sealed class LiveDetectionTableService : BackgroundService
             + "  " + VPad("Rsk", 3)
             + "  " + VPad("Int", 3)
             + "  " + VPad("Act", 6)
-            + "  " + VPadL("ms", 4) + " " + C.R;
+            + "  " + VPadL("Lat", 5) + " " + C.R;
         sb.Append(feedHdr);
         if (wide)
         {
@@ -445,7 +445,7 @@ public sealed class LiveDetectionTableService : BackgroundService
     private static string FormatFeedRow(DetectionEntry e, int width)
     {
         // Keep in sync with the column-width math in BuildFrame's feed header.
-        var fixedCols = 1 + 8 + 5 + 3 + 3 + 6 + 4 + 7 * 2;
+        var fixedCols = 1 + 8 + 5 + 3 + 3 + 6 + 5 + 7 * 2;
         var pathW = Math.Max(10, width - fixedCols);
 
         var path = VTrunc(e.Path.Split('?')[0], pathW);
@@ -473,8 +473,23 @@ public sealed class LiveDetectionTableService : BackgroundService
             + "  " + riskCol + VPad(riskTxt, 3) + C.R
             + "  " + intCol  + VPad(intTxt, 3)  + C.R
             + "  " + action + VPad("", Math.Max(0, 6 - VLen(action)))
-            + "  " + msCol + VPadL($"{e.DetectionTimeMs:F0}", 4) + C.R
+            + "  " + msCol + VPadL(FormatLatency(e.DetectionTimeMs), 5) + C.R
             + " ";
+    }
+
+    /// <summary>
+    ///     Adaptive latency formatter for the per-request column. Sub-ms values render
+    ///     as integer microseconds (the verdict-cache Skip path lives here), single-digit
+    ///     ms get one decimal, larger ms drop the fraction, and seconds collapse with a
+    ///     decimal. All forms fit a five-character field.
+    /// </summary>
+    internal static string FormatLatency(double ms)
+    {
+        if (double.IsNaN(ms) || ms < 0) return "-";
+        if (ms < 1.0) return $"{(int)Math.Round(ms * 1000.0)}\u00b5s"; // e.g. 342µs
+        if (ms < 10.0) return $"{ms:F1}ms";                            // e.g. 1.4ms
+        if (ms < 1000.0) return $"{ms:F0}ms";                          // e.g. 55ms, 200ms
+        return $"{ms / 1000.0:F1}s";                                   // e.g. 1.2s
     }
 
     /// <summary>Compact 2-3 char abbreviation for the risk band with a colour.</summary>
