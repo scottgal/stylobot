@@ -56,6 +56,23 @@ Full suite after this work: 2040 tests pass across `Mostlylucid.BotDetection.Tes
 - **AOT compatibility**: `Mostlylucid.BotDetection.Console` publishes cleanly under `PublishAot=true` for `osx-arm64`; zero IL2026/IL3050 warnings from any of the added files (`SignatureVerdict`, `SignatureVerdictGate`, `VarianceWatchdog`, `FingerprintPriorContributor`, `SignatureCacheOptions`, `VarianceWatchdogOptions`).
 - **Build**: 0 errors across the solution after the work. 0 new warnings introduced.
 
+### Performance and hot-path quality
+
+A second review pass tightened allocations along the Skip path before merge:
+
+- **`SignatureCoordinator.NotifyObservationAsync`** dropped from ~6 heap allocations per Skip request (Guid string, Dictionary, HashSet, `SignatureGeoContext`, `SignatureUpdateRequest`, LINQ prune) down to a single `SignatureRequest` by calling the atom directly with shared static empties. The keyed-sequential dispatch and shadow-index work are correctly bypassed for Skip; they still run on Miss / Bias via the unchanged `RecordRequestAsync`.
+- **`VarianceWatchdog`** is now bounded: `MaxFingerprints = 10_000` with TTL + LRU prune (single-flight via `Interlocked`); per-fingerprint observation queue capped at 600 entries. Was previously unbounded.
+- **`VarianceWatchdog.Check`** is sync (was fake-async with no awaits). `WatchdogResult` is a `readonly record struct` so checks allocate nothing on the heap.
+- **`Slash24`** uses `Span<byte>` + `string.Create` to avoid intermediate string allocation.
+- **`FingerprintPriorContributor`** caches the empty-result `Task<IReadOnlyList<DetectionContribution>>` so the Miss path allocates nothing.
+- **`DetectionLedgerExtensions`** reads `PriorProbability` directly from signals instead of reverse-mapping the `FingerprintPrior` contribution.
+- **SQL EWMA upsert** dropped a redundant `COALESCE` wrapper.
+- **Stringly-typed context keys** `"BotDetection:Signature"` and `"BotDetection.Signatures"` were duplicated across 14 call sites in 12 files. Now centralised as `BotDetectionMiddleware.PrimarySignatureKey` and `.SignatureSetKey`; all callers route through the constants.
+
+### BenchmarkDotNet
+
+- **`VerdictCacheBenchmarks`** added with `[MemoryDiagnoser]` covering: gate Skip/Bias/Miss paths, watchdog Check (tripped and not), watchdog RecordObservation, coordinator `NotifyObservationAsync`, and prior-contributor Miss vs Bias. Lets allocation regressions surface immediately.
+
 ### Not Done
 
 - Watchdog `CheckPathCentroid` is deferred to a follow-up; the option exists on `VarianceWatchdogOptions` but the implementation will require integration with `CentroidSequenceStore`.
