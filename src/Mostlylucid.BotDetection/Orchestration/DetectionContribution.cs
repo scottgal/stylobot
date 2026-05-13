@@ -58,6 +58,24 @@ public sealed record AggregatedEvidence
     public required double Confidence { get; init; }
 
     /// <summary>
+    ///     The prior probability that was applied for this request. Zero when no prior
+    ///     was applied (cold-start fingerprint or Miss path). Equals the cached
+    ///     fingerprint verdict's BotProbability when a Bias decision routed it through
+    ///     <see cref="ContributingDetectors.FingerprintPriorContributor"/>; equals the
+    ///     enforced cached value on a Skip decision.
+    /// </summary>
+    public double PriorProbability { get; init; }
+
+    /// <summary>
+    ///     Posterior minus prior: how much this single request moved the fingerprint's
+    ///     belief, in absolute probability units. Zero when there was no prior (cold
+    ///     start). Negative if confirmatory of human, positive if confirmatory of bot.
+    ///     The CLI dashboard surfaces this as the per-row delta so request rows are
+    ///     not misread as standalone verdicts.
+    /// </summary>
+    public double RequestContributionDelta { get; init; }
+
+    /// <summary>
     /// Risk band based on probability, threat score, and persistence.
     /// </summary>
     public required RiskBand RiskBand { get; init; }

@@ -369,6 +369,11 @@ public class BotDetectionMiddleware(
                     {
                         BotProbability = v.BotProbability,
                         Confidence = v.Confidence,
+                        // Skip path: the verdict came entirely from the cached prior; the
+                        // current request did no per-request work, so its contribution
+                        // delta is zero and the prior equals the posterior.
+                        PriorProbability = v.BotProbability,
+                        RequestContributionDelta = 0.0,
                         RiskBand = v.RiskBand,
                         ThreatBand = ThreatBand.Low,
                         TotalProcessingTimeMs = 0.0,

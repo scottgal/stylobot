@@ -74,11 +74,28 @@ public static class DetectionLedgerExtensions
         if (!string.IsNullOrEmpty(riskJustification))
             signals[SignalKeys.RiskJustification] = riskJustification;
 
+        // Compute the per-request contribution delta. If a FingerprintPrior contribution
+        // exists, the prior was applied and we can express the request's contribution
+        // as the difference between the posterior (final BotProbability) and the prior.
+        double priorProbability = 0.0;
+        double contributionDelta = 0.0;
+        var priorContribution = ledger.Contributions.FirstOrDefault(c => c.DetectorName == "FingerprintPrior");
+        if (priorContribution is not null)
+        {
+            // The prior contributor maps prob -> delta as: delta = 2 * (prob - 0.5).
+            // Reverse it: prob = 0.5 + 0.5 * delta. This recovers the cached verdict's
+            // probability for display, independent of how the orchestrator weighted it.
+            priorProbability = 0.5 + 0.5 * priorContribution.ConfidenceDelta;
+            contributionDelta = botProbability - priorProbability;
+        }
+
         return new AggregatedEvidence
         {
             Ledger = ledger,
             BotProbability = botProbability,
             Confidence = confidence,
+            PriorProbability = priorProbability,
+            RequestContributionDelta = contributionDelta,
             RiskBand = riskBand,
             RiskJustification = riskJustification,
             EarlyExit = false,
