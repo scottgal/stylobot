@@ -337,13 +337,11 @@ public class BotDetectionMiddleware(
         //          inject the verdict as a prior before the pipeline runs.
         //   Miss - no usable verdict; run the pipeline normally.
         //
-        // The primary signature for this request is computed by ComputeAndStoreSignature
-        // AFTER the orchestrator runs today, so on the very first request from a new
-        // fingerprint the gate sees null and returns Miss. After the orchestrator runs
-        // and ComputeAndStoreSignature populates "BotDetection:Signature", subsequent
-        // requests from the same fingerprint can be matched. A future
-        // "PrimarySignatureMiddleware" that computes the signature once upstream would
-        // enable Skip on cold-after-restart cases too; this is a follow-up.
+        // Precompute the primary signature so the gate can find it. The compute is
+        // idempotent and cheap (IP and UA hash); the post-orchestrator call later in
+        // this method becomes a no-op when the signature is already populated.
+        ComputeAndStoreSignature(context);
+
         if (_verdictGate is not null && _signatureCoordinator is not null && _watchdog is not null)
         {
             var precomputedSig = context.Items.TryGetValue("BotDetection:Signature", out var sObj)
@@ -1134,6 +1132,11 @@ public class BotDetectionMiddleware(
     private void ComputeAndStoreSignature(HttpContext context)
     {
         if (_signatureService == null) return;
+
+        // Idempotent: callers (signature-only paths, the verdict gate at request entry,
+        // the post-detection path) may invoke this more than once per request. If a
+        // prior call already populated the signature, skip the recompute.
+        if (context.Items.ContainsKey("BotDetection:Signature")) return;
 
         var sigs = _signatureService.GenerateSignatures(context);
         context.Items["BotDetection.Signatures"] = sigs;
