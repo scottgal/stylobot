@@ -96,19 +96,71 @@ public class MeterListenerServiceTests : IAsyncDisposable
         Assert.InRange(p95!.Value, 93, 97);
     }
 
+    [Fact]
+    public async Task PackChanged_RebuildsListener_NewInstrumentIsCollected()
+    {
+        var counter1 = _testMeter.CreateCounter<long>("test.original");
+        var counter2 = _testMeter.CreateCounter<long>("test.added");
+
+        var initialPack = new TestPack(
+            [
+                new MeterCollectionGroup("TestMeter", [
+                    new InstrumentCollectionSpec("test.original", CollectedValueType.Counter)
+                ])
+            ],
+            id: "hot-reload-test");
+        var fakeController = new FakePackRuntimeController();
+
+        using var svc = new MeterListenerService(
+            [initialPack], _store, NullLogger<MeterListenerService>.Instance, fakeController);
+        svc.StartListening();
+
+        counter1.Add(7);
+        counter2.Add(99);
+
+        var beforeReload = await svc.FlushSnapshotsAsync(CancellationToken.None);
+        Assert.Single(beforeReload);
+        Assert.Equal("test.original", beforeReload[0].Instrument);
+        Assert.Equal(7.0, beforeReload[0].Value);
+
+        var updatedPack = new TestPack(
+            [
+                new MeterCollectionGroup("TestMeter", [
+                    new InstrumentCollectionSpec("test.original", CollectedValueType.Counter),
+                    new InstrumentCollectionSpec("test.added", CollectedValueType.Counter)
+                ])
+            ],
+            id: "hot-reload-test");
+        fakeController.RaisePackChanged(updatedPack);
+
+        counter2.Add(11);
+
+        var afterReload = await svc.FlushSnapshotsAsync(CancellationToken.None);
+        var newSnap = Assert.Single(afterReload, s => s.Instrument == "test.added");
+        Assert.Equal(11.0, newSnap.Value);
+    }
+
     public async ValueTask DisposeAsync()
     {
         _testMeter.Dispose();
         await _conn.DisposeAsync();
     }
 
-    private sealed class TestPack(IReadOnlyList<MeterCollectionGroup> groups) : IMonitoringPack
+    private sealed class FakePackRuntimeController : IPackRuntimeController
     {
-        public string Id => "test";
-        public string Name => "Test Pack";
-        public string Description => "Test";
-        public string TabName => "Test";
-        public TimeSpan CollectionInterval => TimeSpan.FromSeconds(60);
-        public IReadOnlyList<MeterCollectionGroup> MeterGroups => groups;
+        public bool SupportsHotReload(string packId) => true;
+
+        public Task ReplacePackAsync(IMonitoringPack pack, CancellationToken ct)
+        {
+            RaisePackChanged(pack);
+            return Task.CompletedTask;
+        }
+
+        public Task ReloadAllAsync(CancellationToken ct) => Task.CompletedTask;
+
+        public event EventHandler<PackChangedEventArgs>? PackChanged;
+
+        public void RaisePackChanged(IMonitoringPack pack)
+            => PackChanged?.Invoke(this, new PackChangedEventArgs(pack));
     }
 }

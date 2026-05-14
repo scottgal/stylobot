@@ -232,6 +232,10 @@ public static class StyloBotDashboardServiceExtensions
                 return new SqliteMetricSnapshotStore(connStr, logger);
             });
 
+            // Default no-op runtime controller. Commercial pack assemblies replace this
+            // (via Replace, not TryAdd) to enable per-pack license-gated hot-reload.
+            services.TryAddSingleton<IPackRuntimeController, NullPackRuntimeController>();
+
             if (options.MonitoringPack.Mode == MonitoringMode.Local)
             {
                 services.AddSingleton<IMonitoringPack>(
@@ -240,7 +244,8 @@ public static class StyloBotDashboardServiceExtensions
                     new MeterListenerService(
                         sp.GetServices<IMonitoringPack>(),
                         sp.GetRequiredService<IMetricSnapshotStore>(),
-                        sp.GetRequiredService<ILogger<MeterListenerService>>()));
+                        sp.GetRequiredService<ILogger<MeterListenerService>>(),
+                        sp.GetRequiredService<IPackRuntimeController>()));
             }
             else if (options.MonitoringPack.Mode == MonitoringMode.GatewayServer)
             {

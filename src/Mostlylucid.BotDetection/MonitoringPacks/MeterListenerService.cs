@@ -7,9 +7,11 @@ namespace Mostlylucid.BotDetection.MonitoringPacks;
 
 public sealed class MeterListenerService : BackgroundService, IDisposable
 {
-    private readonly IReadOnlyList<IMonitoringPack> _packs;
+    private readonly Dictionary<string, IMonitoringPack> _packs;
     private readonly IMetricSnapshotStoreAccessor? _storeAccessor;
     private readonly ILogger<MeterListenerService> _logger;
+    private readonly IPackRuntimeController? _runtimeController;
+    private readonly object _packsLock = new();
     private MeterListener? _listener;
 
     private readonly ConcurrentDictionary<string, InstrumentState> _counters = new();
@@ -22,21 +24,51 @@ public sealed class MeterListenerService : BackgroundService, IDisposable
     public MeterListenerService(
         IEnumerable<IMonitoringPack> packs,
         IMetricSnapshotStore store,
-        ILogger<MeterListenerService> logger)
+        ILogger<MeterListenerService> logger,
+        IPackRuntimeController? runtimeController = null)
     {
-        _packs = packs.ToList();
+        _packs = packs.ToDictionary(p => p.Id);
         _directStore = store;
         _logger = logger;
+        _runtimeController = runtimeController;
+        SubscribeRuntimeController();
     }
 
     public MeterListenerService(
         IEnumerable<IMonitoringPack> packs,
         IMetricSnapshotStoreAccessor storeAccessor,
-        ILogger<MeterListenerService> logger)
+        ILogger<MeterListenerService> logger,
+        IPackRuntimeController? runtimeController = null)
     {
-        _packs = packs.ToList();
+        _packs = packs.ToDictionary(p => p.Id);
         _storeAccessor = storeAccessor;
         _logger = logger;
+        _runtimeController = runtimeController;
+        SubscribeRuntimeController();
+    }
+
+    private void SubscribeRuntimeController()
+    {
+        if (_runtimeController is null) return;
+        _runtimeController.PackChanged += OnPackChanged;
+    }
+
+    private void OnPackChanged(object? sender, PackChangedEventArgs e)
+    {
+        lock (_packsLock)
+        {
+            _packs[e.Pack.Id] = e.Pack;
+        }
+        RebuildListener();
+        _logger.LogInformation(
+            "MeterListener rebuilt after pack '{PackId}' was hot-reloaded", e.Pack.Id);
+    }
+
+    private void RebuildListener()
+    {
+        _listener?.Dispose();
+        _listener = null;
+        StartListening();
     }
 
     public void StartListening()
@@ -45,7 +77,7 @@ public sealed class MeterListenerService : BackgroundService, IDisposable
 
         _listener.InstrumentPublished = (instrument, listener) =>
         {
-            foreach (var pack in _packs)
+            foreach (var pack in SnapshotPacks())
             foreach (var group in pack.MeterGroups)
             {
                 if (!string.Equals(instrument.Meter.Name, group.MeterName, StringComparison.OrdinalIgnoreCase))
@@ -73,8 +105,9 @@ public sealed class MeterListenerService : BackgroundService, IDisposable
         StartListening();
         _logger.LogInformation("MeterListenerService started with {Count} pack(s)", _packs.Count);
 
-        var interval = _packs.Count > 0
-            ? _packs.Min(p => p.CollectionInterval)
+        var packs = SnapshotPacks();
+        var interval = packs.Count > 0
+            ? packs.Min(p => p.CollectionInterval)
             : TimeSpan.FromSeconds(60);
 
         while (!stoppingToken.IsCancellationRequested)
@@ -166,7 +199,7 @@ public sealed class MeterListenerService : BackgroundService, IDisposable
 
     private void ProcessMeasurement(Instrument instrument, double value)
     {
-        foreach (var pack in _packs)
+        foreach (var pack in SnapshotPacks())
         foreach (var group in pack.MeterGroups)
         {
             if (!string.Equals(instrument.Meter.Name, group.MeterName, StringComparison.OrdinalIgnoreCase)) continue;
@@ -200,15 +233,23 @@ public sealed class MeterListenerService : BackgroundService, IDisposable
     private string GetMeterName(string packId, string instrument)
     {
         var bare = instrument.Split('|')[0];
-        foreach (var pack in _packs)
+        IMonitoringPack? pack;
+        lock (_packsLock)
         {
-            if (pack.Id != packId) continue;
-            foreach (var group in pack.MeterGroups)
-            foreach (var spec in group.Instruments)
-                if (spec.InstrumentName == bare)
-                    return group.MeterName;
+            if (!_packs.TryGetValue(packId, out pack))
+                return string.Empty;
         }
+        foreach (var group in pack.MeterGroups)
+        foreach (var spec in group.Instruments)
+            if (spec.InstrumentName == bare)
+                return group.MeterName;
         return string.Empty;
+    }
+
+    private List<IMonitoringPack> SnapshotPacks()
+    {
+        lock (_packsLock)
+            return _packs.Values.ToList();
     }
 
     private static string MakeKey(string packId, string instrument, CollectedValueType vtype)
@@ -222,6 +263,8 @@ public sealed class MeterListenerService : BackgroundService, IDisposable
 
     public override void Dispose()
     {
+        if (_runtimeController is not null)
+            _runtimeController.PackChanged -= OnPackChanged;
         _listener?.Dispose();
         base.Dispose();
     }
