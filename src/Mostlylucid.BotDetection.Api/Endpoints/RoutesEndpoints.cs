@@ -1,0 +1,132 @@
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Routing;
+using Mostlylucid.BotDetection.Api.Auth;
+using Mostlylucid.BotDetection.Api.Models;
+using Mostlylucid.BotDetection.UI.Services.Routes;
+
+namespace Mostlylucid.BotDetection.Api.Endpoints;
+
+public static class RoutesEndpoints
+{
+    public static IEndpointRouteBuilder MapRoutesEndpoints(this IEndpointRouteBuilder endpoints)
+    {
+        var group = endpoints.MapGroup("/api/v1/routes")
+            .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
+            .WithTags("Routes");
+
+        group.MapGet("", HandleList)
+            .WithName("ListRoutes")
+            .WithOpenApi();
+
+        group.MapPut("/name", HandleSetName)
+            .WithName("SetRouteName")
+            .WithOpenApi();
+
+        group.MapDelete("/name", HandleRemoveName)
+            .WithName("RemoveRouteName")
+            .WithOpenApi();
+
+        return endpoints;
+    }
+
+    private static async Task<IResult> HandleList(
+        [FromServices] IRouteCatalogService? catalog,
+        CancellationToken ct = default)
+    {
+        if (catalog is null)
+            return Results.Problem("Route catalog not enabled.", statusCode: 503);
+
+        var entries = await catalog.GetCatalogAsync(ct);
+        var data = entries.Select(RouteEntryDto.FromEntry).ToList();
+        return Results.Ok(new PaginatedResponse<RouteEntryDto>
+        {
+            Data = data,
+            Pagination = new PaginationInfo { Offset = 0, Limit = data.Count, Total = data.Count },
+            Meta = new ResponseMeta()
+        });
+    }
+
+    private static async Task<IResult> HandleSetName(
+        [FromServices] IRouteNameStore? store,
+        [FromBody] SetRouteNameRequest body,
+        HttpContext http,
+        CancellationToken ct = default)
+    {
+        if (store is null)
+            return Results.Problem("Route catalog not enabled.", statusCode: 503);
+        if (string.IsNullOrWhiteSpace(body?.RouteKey))
+            return Results.BadRequest(new { error = "routeKey is required" });
+        if (string.IsNullOrWhiteSpace(body.FriendlyName))
+            return Results.BadRequest(new { error = "friendlyName is required" });
+
+        var updatedBy = http.User.Identity?.Name ?? "api-key";
+        try
+        {
+            await store.SetAsync(body.RouteKey, body.FriendlyName, body.Notes, updatedBy, ct);
+            return Results.NoContent();
+        }
+        catch (ArgumentException ex)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+    }
+
+    private static async Task<IResult> HandleRemoveName(
+        [FromServices] IRouteNameStore? store,
+        string routeKey,
+        CancellationToken ct = default)
+    {
+        if (store is null)
+            return Results.Problem("Route catalog not enabled.", statusCode: 503);
+        if (string.IsNullOrWhiteSpace(routeKey))
+            return Results.BadRequest(new { error = "routeKey is required" });
+
+        await store.RemoveAsync(routeKey, ct);
+        return Results.NoContent();
+    }
+}
+
+public sealed record SetRouteNameRequest(string RouteKey, string FriendlyName, string? Notes);
+
+public sealed record RouteEntryDto(
+    string RouteKey,
+    string Pattern,
+    IReadOnlyList<string> HttpMethods,
+    string? DisplayName,
+    string? FriendlyName,
+    string? Notes,
+    bool IsDiscovered,
+    bool IsDocumented,
+    bool RequiresAuthorization,
+    bool AllowsAnonymous,
+    string? Summary,
+    string? Description,
+    IReadOnlyList<string> Tags,
+    string Category,
+    string? OperationId,
+    bool? OpenApiDeprecated,
+    IReadOnlyList<int> OpenApiResponseStatusCodes,
+    IReadOnlyList<string> OpenApiSecuritySchemes)
+{
+    public static RouteEntryDto FromEntry(RouteCatalogEntry e) => new(
+        RouteKey: e.RouteKey,
+        Pattern: e.Pattern,
+        HttpMethods: e.HttpMethods,
+        DisplayName: e.DisplayName,
+        FriendlyName: e.FriendlyName,
+        Notes: e.Notes,
+        IsDiscovered: e.IsDiscovered,
+        IsDocumented: e.IsDocumented,
+        RequiresAuthorization: e.RequiresAuthorization,
+        AllowsAnonymous: e.AllowsAnonymous,
+        Summary: e.Summary,
+        Description: e.Description,
+        Tags: e.Tags,
+        Category: e.Category.ToString(),
+        OperationId: e.OpenApiOperation?.OperationId,
+        OpenApiDeprecated: e.OpenApiOperation?.Deprecated,
+        OpenApiResponseStatusCodes: e.OpenApiOperation?.ResponseStatusCodes ?? Array.Empty<int>(),
+        OpenApiSecuritySchemes: e.OpenApiOperation?.SecuritySchemes ?? Array.Empty<string>());
+}

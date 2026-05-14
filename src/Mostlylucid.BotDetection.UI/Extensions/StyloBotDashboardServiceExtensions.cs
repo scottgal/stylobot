@@ -12,6 +12,7 @@ using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.MonitoringPacks;
+using Mostlylucid.BotDetection.OpenApi;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Configuration;
@@ -21,6 +22,7 @@ using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Models.Auth;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.BotDetection.UI.Services.Auth;
+using Mostlylucid.BotDetection.UI.Services.Routes;
 
 namespace Mostlylucid.BotDetection.UI.Extensions;
 
@@ -221,6 +223,30 @@ public static class StyloBotDashboardServiceExtensions
         // Warm visitor cache from DB on startup so "Top Bots" isn't empty after restarts
         services.AddHostedService<VisitorCacheWarmupService>();
 
+        // Route catalog: discovery + manual names + OpenAPI cross-reference. FOSS feature,
+        // shared by the dashboard Routes tab and (future) auto-honeypot generation.
+        services.TryAddSingleton<IRouteDiscoveryService>(sp =>
+            new RouteDiscoveryService(sp.GetServices<EndpointDataSource>()));
+
+        services.TryAddSingleton<IRouteNameStore>(sp =>
+        {
+            var botOpts = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
+            var connStr = DashboardDbPath.GetConnectionString(botOpts);
+            var logger = sp.GetRequiredService<ILogger<SqliteRouteNameStore>>();
+            return new SqliteRouteNameStore(connStr, logger);
+        });
+
+        services.TryAddSingleton<IOpenApiCatalog, OpenApiCatalog>();
+        services.AddHttpClient("stylobot-openapi");
+        services.TryAddSingleton<IOpenApiDocumentLoader, OpenApiDocumentLoader>();
+        // Bind from the StyloBotDashboardOptions.OpenApi instance the user already configured.
+        services.AddSingleton<IOptions<OpenApiSeedOptions>>(sp =>
+            Options.Create(sp.GetRequiredService<StyloBotDashboardOptions>().OpenApi));
+        services.AddHostedService<OpenApiStartupSeederService>();
+        services.AddHostedService<RouteNameStoreInitializer>();
+
+        services.TryAddSingleton<IRouteCatalogService, RouteCatalogService>();
+
         // MonitoringPack
         if (options.MonitoringPack.Enabled)
         {
@@ -232,6 +258,10 @@ public static class StyloBotDashboardServiceExtensions
                 return new SqliteMetricSnapshotStore(connStr, logger);
             });
 
+            // Default no-op runtime controller. Commercial pack assemblies replace this
+            // (via Replace, not TryAdd) to enable per-pack license-gated hot-reload.
+            services.TryAddSingleton<IPackRuntimeController, NullPackRuntimeController>();
+
             if (options.MonitoringPack.Mode == MonitoringMode.Local)
             {
                 services.AddSingleton<IMonitoringPack>(
@@ -240,7 +270,8 @@ public static class StyloBotDashboardServiceExtensions
                     new MeterListenerService(
                         sp.GetServices<IMonitoringPack>(),
                         sp.GetRequiredService<IMetricSnapshotStore>(),
-                        sp.GetRequiredService<ILogger<MeterListenerService>>()));
+                        sp.GetRequiredService<ILogger<MeterListenerService>>(),
+                        sp.GetRequiredService<IPackRuntimeController>()));
             }
             else if (options.MonitoringPack.Mode == MonitoringMode.GatewayServer)
             {

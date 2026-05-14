@@ -49,6 +49,7 @@ public static class StyloBotApiExtensions
         endpoints.MapLlmNodeControllerEndpoints();
         endpoints.MapMetricsEndpoints();
         endpoints.MapMetricsSnapshotEndpoints();
+        endpoints.MapRoutesEndpoints();
 
         if (options.EnableOpenApi)
         {
