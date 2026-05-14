@@ -120,4 +120,17 @@
             </div>
         </div>
     }
+
+    @* Edit form slot: rendered only when a commercial pack has registered a
+       hot-reload-capable IPackRuntimeController. The endpoint
+       /api/v1/monitoring/packs/{packId}/edit-form is provided by the commercial
+       assembly; under FOSS-only deployments the slot is omitted entirely so no
+       404 is ever issued. *@
+    @if (Model.SupportsHotReload)
+    {
+        <div hx-get="@(bp)/api/v1/monitoring/packs/@(packId)/edit-form"
+             hx-trigger="load"
+             hx-swap="outerHTML"
+             class="mt-4"></div>
+    }
 </div>
