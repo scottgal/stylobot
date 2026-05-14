@@ -52,20 +52,27 @@ jobs:
           --repo "$GITHUB_REPOSITORY" \
           --pattern "SHA256SUMS.txt"
 
-    - name: Update version and checksum
+    - name: Update version and checksums
       env:
         VERSION: ${{ steps.version.outputs.version }}
       shell: pwsh
       run: |
-        $sha = (Get-Content SHA256SUMS.txt | Select-String 'stylobot-win-x64.zip').ToString().Split(' ')[0]
-        Write-Host "Windows x64 SHA256: $sha"
+        $x64Line   = Get-Content SHA256SUMS.txt | Select-String 'stylobot-win-x64.zip'
+        $arm64Line = Get-Content SHA256SUMS.txt | Select-String 'stylobot-win-arm64.zip'
+        if (-not $x64Line)   { throw "x64 checksum not in SHA256SUMS.txt" }
+        if (-not $arm64Line) { throw "arm64 checksum not in SHA256SUMS.txt" }
+        $x64Sha   = $x64Line.ToString().Split(' ')[0]
+        $arm64Sha = $arm64Line.ToString().Split(' ')[0]
+        Write-Host "x64:   $x64Sha"
+        Write-Host "arm64: $arm64Sha"
 
         $nuspec = Get-Content scripts/chocolatey/stylobot.nuspec -Raw
         $nuspec = $nuspec -replace '<version>.*</version>', "<version>$env:VERSION</version>"
         Set-Content scripts/chocolatey/stylobot.nuspec $nuspec
 
         $install = Get-Content scripts/chocolatey/tools/chocolateyInstall.ps1 -Raw
-        $install = $install -replace "checksum       = '.*'", "checksum       = '$sha'"
+        $install = $install -replace 'X64_CHECKSUM_PLACEHOLDER',   $x64Sha
+        $install = $install -replace 'ARM64_CHECKSUM_PLACEHOLDER', $arm64Sha
         Set-Content scripts/chocolatey/tools/chocolateyInstall.ps1 $install
 
     - name: Pack
