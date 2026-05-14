@@ -72,4 +72,25 @@
         </EmbeddedResource>
     </ItemGroup>
 
+    <!--
+        Strip foreign-RID native libraries from the publish directory.
+        LLamaSharp.Backend.Cpu ships libllama for every platform + every CPU
+        instruction-set variant; under dotnet publish (RID) only the matching
+        one is ever loaded, but the rest sit on disk (~90MB of dead weight on
+        osx-arm64). dotnet publish does not prune them by default for this
+        package, so we do it ourselves below.
+    -->
+    <Target Name="PruneForeignRuntimeNatives" AfterTargets="Publish"
+            Condition="'$(RuntimeIdentifier)' != ''">
+        <ItemGroup>
+            <_ForeignRids Include="win-x64;win-arm64;linux-x64;linux-arm64;linux-musl-x64;linux-musl-arm64;osx-x64;osx-arm64"
+                          Exclude="$(RuntimeIdentifier)" />
+            <_ForeignNatives Include="$(PublishDir)runtimes/%(_ForeignRids.Identity)/**/*" />
+        </ItemGroup>
+        <Delete Files="@(_ForeignNatives)" />
+        <RemoveDir Directories="$(PublishDir)runtimes/%(_ForeignRids.Identity)" />
+        <Message Importance="high"
+                 Text="Pruned foreign-RID natives for $(RuntimeIdentifier); kept runtimes/$(RuntimeIdentifier)/ only" />
+    </Target>
+
 </Project>

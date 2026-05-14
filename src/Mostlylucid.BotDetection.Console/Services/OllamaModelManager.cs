@@ -1,4 +1,4 @@
-using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using SysConsole = System.Console;
 
@@ -88,7 +88,22 @@ public static class OllamaModelManager
         try
         {
             using var pullHttp = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
-            var payload = JsonContent.Create(new { name = model, stream = true });
+            // Hand-rolled JSON via Utf8JsonWriter so we never touch JsonSerializer's
+            // reflection-based generic paths (RequiresUnreferencedCode / RequiresDynamicCode).
+            // Utf8JsonWriter is the AOT-safe way to emit JSON without source generators.
+            byte[] bodyBytes;
+            using (var ms = new MemoryStream())
+            using (var writer = new Utf8JsonWriter(ms))
+            {
+                writer.WriteStartObject();
+                writer.WriteString("name", model);
+                writer.WriteBoolean("stream", true);
+                writer.WriteEndObject();
+                writer.Flush();
+                bodyBytes = ms.ToArray();
+            }
+            using var payload = new ByteArrayContent(bodyBytes);
+            payload.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
             using var response = await pullHttp.PostAsync(
                 $"{baseUrl}/api/pull", payload, ct);
             response.EnsureSuccessStatusCode();
