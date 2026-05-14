@@ -118,6 +118,8 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("    --config <path>             Path to appsettings.json override");
     Console.WriteLine("    --log-level <level>         Minimum log level (default: Warning)");
     Console.WriteLine("    --verbose                   Show all log output (disables live table)");
+    Console.WriteLine("    --skip-dependencies-check   Skip first-run downloads (bot list, GeoIP,");
+    Console.WriteLine("                                Ollama model pull). Use for CI / automated starts.");
     Console.WriteLine("    -h, --help                  Show this help");
     Console.WriteLine();
     Console.WriteLine("  Examples:");
@@ -227,6 +229,15 @@ if (tunnelArgIndex >= 0)
         tunnelToken = cmdArgs[tunnelArgIndex + 1];
 }
 
+// --skip-dependencies-check (or --no-deps-check / --skip-deps): bypass first-run
+// downloads (bot list, GeoIP CSV, Ollama pull). Detection runs against whatever
+// is already on disk. Intended for CI / automated starts that should not block
+// on a slow registry or a multi-MB pull.
+var skipDependencyChecks = cmdArgs.Any(a =>
+    a.Equals("--skip-dependencies-check", StringComparison.OrdinalIgnoreCase)
+    || a.Equals("--no-deps-check", StringComparison.OrdinalIgnoreCase)
+    || a.Equals("--skip-deps", StringComparison.OrdinalIgnoreCase));
+
 // Validate TLS cert exists
 if (certPath != null && !File.Exists(certPath))
 {
@@ -239,10 +250,10 @@ if (keyPath != null && !File.Exists(keyPath))
     return 1;
 }
 
-// Validate Ollama availability before startup
-if (llmProvider?.Equals("ollama", StringComparison.OrdinalIgnoreCase) == true)
-    await CheckOllamaAsync(llmUrl ?? Mostlylucid.BotDetection.Models.LlmDefaults.DefaultEndpoint,
-        llmModel ?? Mostlylucid.BotDetection.Models.LlmDefaults.DefaultModel);
+// Ollama availability + model presence are checked DURING the startup banner phase
+// below (see "ollama-model" task), not here. Pulling at the top of Program.cs would
+// happen before the banner is alive and the user would stare at a quiet terminal
+// for a multi-GB download.
 
 // Parse log level override (default: Warning when live table active, Debug when verbose)
 var minLogLevel = verbose ? LogEventLevel.Debug : LogEventLevel.Warning;
@@ -951,6 +962,46 @@ try
             throw;
         }
 
+        if (skipDependencyChecks)
+        {
+            statusBoard.Skip("dependencies", "Dependency checks",
+                "--skip-dependencies-check set; using whatever is already on disk");
+        }
+        else
+        {
+            // Setup resources (bot list, ONNX model, GeoIP CSV). Each ISetupResource is
+            // checked and downloaded if missing or stale. Runs after the listener is up
+            // so the local port serves immediately while large CSVs / model files stream
+            // in. Every failure is captured as a Failed row and the host keeps going so
+            // a broken registry never blocks the local port from serving.
+            try
+            {
+                await StartupSetupBridge.RunAsync(app.Services, statusBoard);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Setup resource bridge failed; detection will use last-known data on disk");
+            }
+
+            // LLM model presence + auto-pull (when --llm ollama is set). Runs after the
+            // listener is up so the local port is already serving while a large model
+            // download streams in. Detection works without LLM enrichment in the
+            // meantime; the LLM coordinator picks up the model when it appears.
+            if (llmProvider?.Equals("ollama", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var ollamaEndpoint = llmUrl ?? Mostlylucid.BotDetection.Models.LlmDefaults.DefaultEndpoint;
+                var ollamaModel    = llmModel ?? Mostlylucid.BotDetection.Models.LlmDefaults.DefaultModel;
+                try
+                {
+                    await OllamaModelManager.EnsureModelAsync(ollamaEndpoint, ollamaModel, statusBoard);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Ollama model setup failed; LLM enrichment will be unavailable");
+                }
+            }
+        }
+
         if (tunnelEnabled)
         {
             statusBoard.Start("tunnel",
@@ -1307,50 +1358,8 @@ static double CalculateClientBotScore(bool hasCanvas, bool hasWebGL, bool hasAud
     return Math.Clamp(score, 0.0, 1.0);
 }
 
-// Checks Ollama is reachable and the requested model is available. Prints a hint if not.
-static async Task CheckOllamaAsync(string endpoint, string model)
-{
-    try
-    {
-        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
-        var response = await http.GetAsync($"{endpoint.TrimEnd('/')}/api/tags");
-        if (!response.IsSuccessStatusCode)
-        {
-            Console.Error.WriteLine($"  Warning: Ollama returned {(int)response.StatusCode} at {endpoint}.");
-            return;
-        }
-
-        var json = await response.Content.ReadAsStringAsync();
-        using var doc = System.Text.Json.JsonDocument.Parse(json);
-        var models = doc.RootElement.TryGetProperty("models", out var arr)
-            ? arr.EnumerateArray().Select(m => m.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "").ToList()
-            : [];
-
-        var modelBase = model.Split(':')[0];
-        var found = models.Any(m => m.Equals(model, StringComparison.OrdinalIgnoreCase)
-                                 || m.StartsWith(modelBase + ":", StringComparison.OrdinalIgnoreCase)
-                                 || m.Equals(modelBase, StringComparison.OrdinalIgnoreCase));
-        if (!found)
-        {
-            var available = models.Count > 0 ? string.Join(", ", models.Take(5)) : "(none)";
-            Console.Error.WriteLine($"  Warning: Ollama model '{model}' not found.");
-            Console.Error.WriteLine($"  Available: {available}");
-            Console.Error.WriteLine($"  Run: ollama pull {model}");
-            Console.Error.WriteLine();
-        }
-    }
-    catch (HttpRequestException)
-    {
-        Console.Error.WriteLine($"  Warning: Ollama not reachable at {endpoint}.");
-        Console.Error.WriteLine($"  Install: https://ollama.com  |  Start: ollama serve");
-        Console.Error.WriteLine($"  Then pull the model: ollama pull {model}");
-        Console.Error.WriteLine();
-    }
-    catch
-    {
-        // non-fatal, startup continues regardless
-    }
-}
+// (Old CheckOllamaAsync helper removed; superseded by OllamaModelManager.EnsureModelAsync
+//  which runs inside the startup banner phase and supports auto-pull with streamed progress.)
 
 // Helper to get command-line argument value
 static string? GetArg(string[] args, string name)
