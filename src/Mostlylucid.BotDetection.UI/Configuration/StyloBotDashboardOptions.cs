@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Mostlylucid.BotDetection.MonitoringPacks;
+using Mostlylucid.BotDetection.OpenApi;
 
 namespace Mostlylucid.BotDetection.UI.Configuration;
 
@@ -171,6 +172,14 @@ public sealed class StyloBotDashboardOptions
     public bool RequireAuthentication { get; set; }
 
     public MonitoringPackOptions MonitoringPack { get; set; } = new();
+
+    /// <summary>
+    ///     OpenAPI document(s) to load on startup. Operations are merged into the
+    ///     route catalog and cross-referenced with discovered routes. Useful for
+    ///     surfacing documented-but-not-implemented endpoints and (future) seeding
+    ///     auto-honeypots from documented operations.
+    /// </summary>
+    public OpenApiSeedOptions OpenApi { get; set; } = new();
 }
 
 public sealed class MonitoringPackOptions

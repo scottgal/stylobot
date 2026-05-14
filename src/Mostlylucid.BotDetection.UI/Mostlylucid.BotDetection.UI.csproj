@@ -25,6 +25,7 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
+        <ProjectReference Include="..\Mostlylucid.BotDetection.OpenApi\Mostlylucid.BotDetection.OpenApi.csproj" />
     </ItemGroup>
 
     <ItemGroup>

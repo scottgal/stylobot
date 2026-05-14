@@ -1,11 +1,16 @@
+using Mostlylucid.BotDetection.OpenApi;
+
 namespace Mostlylucid.BotDetection.UI.Services.Routes;
 
 /// <summary>
-///     A unified row for the dashboard Routes tab. Combines discovery data
-///     (<see cref="DiscoveredRoute"/>) with operator-assigned naming
-///     (<see cref="RouteNameEntry"/>). Names are nullable when no override has
-///     been set, leaving the dashboard to fall back to <see cref="DisplayName"/>
-///     or the raw <see cref="Pattern"/>.
+///     A unified row for the dashboard Routes tab. Combines:
+///     - Discovery data from <see cref="DiscoveredRoute"/> (what the host actually mapped)
+///     - Operator-assigned naming from <see cref="RouteNameEntry"/>
+///     - OpenAPI documentation from <see cref="IOpenApiCatalog"/> (what the spec advertises)
+///
+///     An entry can be discovered-only (live but undocumented), documented-only
+///     (advertised but not implemented -prime honeypot target), or both
+///     (well-described route).
 /// </summary>
 public sealed record RouteCatalogEntry(
     string RouteKey,
@@ -14,10 +19,13 @@ public sealed record RouteCatalogEntry(
     string? DisplayName,
     string? FriendlyName,
     string? Notes,
+    bool IsDiscovered,
+    bool IsDocumented,
     bool RequiresAuthorization,
     bool AllowsAnonymous,
     bool HasOpenApiMetadata,
     string? Summary,
     string? Description,
     IReadOnlyList<string> Tags,
-    RouteCategory Category);
+    RouteCategory Category,
+    LoadedOpenApiOperation? OpenApiOperation);
