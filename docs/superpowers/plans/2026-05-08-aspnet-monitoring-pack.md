@@ -1,5 +1,7 @@
 # ASP.NET MonitoringPack Implementation Plan
 
+> **Note (2026-05-14):** the pack itself is FOSS (collect → store → dashboard tab). The live-edit / no-restart add-on is commercial at $5/mo, planned in `stylobot-commercial/docs/superpowers/plans/2026-05-14-aspnet-monitoring-pack-commercial.md`. The seam that connects them is **Task 4a** below — keep it; the commercial pack attaches there.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement the ASP.NET MonitoringPack (Phase 1) -a `MeterListener`-backed background service that collects StyloBot operational meters + optional ASP.NET host meters into a new `metric_snapshots` SQLite table, with a Metrics tab in the dashboard displaying time-series charts.
@@ -540,8 +542,31 @@ git commit -m "feat(monitoring): add SqliteMetricSnapshotStore + metric_snapshot
 
 ## Task 4: MeterListenerService (Local Mode)
 
+**Architecture note (2026-05-14):** the background service is not a direct writer. It accumulates samples and "clicks into" a singleton `EphemeralResultCoordinator<MetricsFlushBatch, MetricsFlushResult>` registered in DI. The coordinator's body delegates the actual SQLite write to `IMetricSnapshotStore.WriteSnapshotsAsync`; subscribers (the dashboard broadcaster, future commercial alerts, future packs) tap into the result stream rather than calling the listener directly. This matches the rest of StyloBot's ephemeral-coordinated architecture (`mostlylucid.ephemeral`) and keeps the producer ignorant of who consumes flushed metrics.
+
+Concretely:
+
+```csharp
+// Registered as a singleton in StyloBotDashboardServiceExtensions:
+services.AddSingleton(sp =>
+    new EphemeralResultCoordinator<MetricsFlushBatch, MetricsFlushResult>(
+        body: async (batch, ct) =>
+        {
+            var store = sp.GetRequiredService<IMetricSnapshotStore>();
+            await store.WriteSnapshotsAsync(batch.Snapshots, ct);
+            return new MetricsFlushResult(batch.Snapshots.Count, batch.PackIds);
+        },
+        options: new EphemeralOptions { /* concurrency 1, bounded channel */ }));
+```
+
+`MeterListenerService` resolves this coordinator from DI and enqueues a `MetricsFlushBatch` on each flush tick. Downstream subscribers (e.g., `DashboardSummaryBroadcaster` listening to the result stream) react asynchronously. This decouples the producer-flush cadence from the consumer-broadcast cadence and gives the system a single, observable bus for "metrics were just flushed" events.
+
+The same pattern is intended for future cross-component eventing in the monitoring stack: subscribers register with the coordinator rather than depending on the listener service directly.
+
 **Files:**
 - Create: `src/Mostlylucid.BotDetection/MonitoringPacks/MeterListenerService.cs`
+- Create: `src/Mostlylucid.BotDetection/MonitoringPacks/MetricsFlushBatch.cs` (input record: snapshots + pack IDs touched)
+- Create: `src/Mostlylucid.BotDetection/MonitoringPacks/MetricsFlushResult.cs` (result record)
 - Test: `src/Mostlylucid.BotDetection.Test/MonitoringPacks/MeterListenerServiceTests.cs`
 
 - [ ] **Step 1: Write the failing tests**
@@ -957,6 +982,503 @@ git add src/Mostlylucid.BotDetection/MonitoringPacks/MeterListenerService.cs \
         src/Mostlylucid.BotDetection.Test/MonitoringPacks/MeterListenerServiceTests.cs
 git commit -m "feat(monitoring): add MeterListenerService -local mode meter accumulation"
 ```
+
+---
+
+## Task 4a: IPackRuntimeController Seam (commercial extension point)
+
+**Why:** This is the single FOSS-side seam that the commercial `Stylobot.Commercial.MonitoringPacks` assembly attaches to. It lets a licensed controller hot-swap pack configuration on a per-pack basis without restarting the host. Without this, "no-restart updates" would require modifying FOSS internals every time a new commercial pack capability is added.
+
+**Design constraints (from user):**
+- Capability is gated **per pack**, not globally. A license that authenticates the ASP.NET monitoring pack must NOT also unlock other commercial packs that happen to use the same controller.
+- The check uses **authenticated (signed) capability claims** in the license, not just "the license file exists". A stripped or unsigned license MUST be rejected.
+- The seam itself ships in FOSS and never performs license checks. It just provides the rebuild hook. The commercial assembly owns all gating logic.
+
+**Files:**
+- Create: `src/Mostlylucid.BotDetection/MonitoringPacks/IPackRuntimeController.cs`
+- Create: `src/Mostlylucid.BotDetection/MonitoringPacks/NullPackRuntimeController.cs`
+- Create: `src/Mostlylucid.BotDetection/MonitoringPacks/PackChangedEventArgs.cs`
+- Modify: `src/Mostlylucid.BotDetection/MonitoringPacks/MeterListenerService.cs` (subscribe to PackChanged, rebuild on event)
+- Modify: `src/Mostlylucid.BotDetection.UI/Extensions/StyloBotDashboardServiceExtensions.cs` (register `NullPackRuntimeController` via `TryAddSingleton`)
+- Test: `src/Mostlylucid.BotDetection.Test/MonitoringPacks/PackRuntimeControllerTests.cs`
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `src/Mostlylucid.BotDetection.Test/MonitoringPacks/PackRuntimeControllerTests.cs`:
+
+```csharp
+using Mostlylucid.BotDetection.MonitoringPacks;
+
+namespace Mostlylucid.BotDetection.Test.MonitoringPacks;
+
+public class PackRuntimeControllerTests
+{
+    [Fact]
+    public void NullController_SupportsHotReload_AlwaysFalse()
+    {
+        var c = new NullPackRuntimeController();
+        Assert.False(c.SupportsHotReload("aspnet-monitoring"));
+        Assert.False(c.SupportsHotReload("anything"));
+    }
+
+    [Fact]
+    public async Task NullController_ReplacePack_Throws()
+    {
+        var c = new NullPackRuntimeController();
+        var pack = new TestPack(Array.Empty<MeterCollectionGroup>());
+        await Assert.ThrowsAsync<NotSupportedException>(
+            () => c.ReplacePackAsync(pack, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task NullController_ReloadAll_NoOp()
+    {
+        var c = new NullPackRuntimeController();
+        await c.ReloadAllAsync(CancellationToken.None); // must not throw
+    }
+
+    [Fact]
+    public void PackChangedEventArgs_CarriesPackId()
+    {
+        var pack = new TestPack(Array.Empty<MeterCollectionGroup>());
+        var args = new PackChangedEventArgs(pack);
+        Assert.Equal(pack.Id, args.Pack.Id);
+    }
+}
+```
+
+(`TestPack` is the same helper used in `MeterListenerServiceTests` from Task 4. If not already shared, lift it into a common test fixture.)
+
+- [ ] **Step 2: Run to confirm it fails**
+
+```bash
+dotnet test src/Mostlylucid.BotDetection.Test/ --filter "PackRuntimeControllerTests" -v minimal 2>&1 | tail -10
+```
+
+Expected: compile error -types not found.
+
+- [ ] **Step 3: Create `IPackRuntimeController.cs`**
+
+```csharp
+namespace Mostlylucid.BotDetection.MonitoringPacks;
+
+/// <summary>
+/// Optional FOSS extension point for hot-swapping monitoring pack configuration
+/// at runtime without restarting the host. The default <see cref="NullPackRuntimeController"/>
+/// reports no support and rejects all writes; commercial implementations override this
+/// behavior with per-pack license-gated reloads.
+///
+/// FOSS code (e.g. <c>MeterListenerService</c>) subscribes to <see cref="PackChanged"/>
+/// to rebuild listener subscriptions. It never inspects license state; that is the
+/// commercial controller's responsibility.
+/// </summary>
+public interface IPackRuntimeController
+{
+    /// <summary>
+    /// True when the named pack can be hot-reloaded. The result is per-pack so a
+    /// license authorising one pack does not unlock others.
+    /// </summary>
+    bool SupportsHotReload(string packId);
+
+    /// <summary>
+    /// Replace the configuration of a single registered pack. Implementations must
+    /// validate the caller's capability against the license at every call (defence
+    /// in depth -registration-time checks alone are not sufficient).
+    /// </summary>
+    Task ReplacePackAsync(IMonitoringPack pack, CancellationToken ct);
+
+    /// <summary>
+    /// Re-emit <see cref="PackChanged"/> for every registered pack. Used after bulk
+    /// config restore or license refresh.
+    /// </summary>
+    Task ReloadAllAsync(CancellationToken ct);
+
+    /// <summary>
+    /// Fired after a pack's configuration has been replaced. Subscribers (e.g.
+    /// <c>MeterListenerService</c>) should rebuild any state derived from the pack.
+    /// </summary>
+    event EventHandler<PackChangedEventArgs>? PackChanged;
+}
+```
+
+- [ ] **Step 4: Create `PackChangedEventArgs.cs`**
+
+```csharp
+namespace Mostlylucid.BotDetection.MonitoringPacks;
+
+public sealed class PackChangedEventArgs(IMonitoringPack pack) : EventArgs
+{
+    public IMonitoringPack Pack { get; } = pack;
+}
+```
+
+- [ ] **Step 5: Create `NullPackRuntimeController.cs`**
+
+```csharp
+namespace Mostlylucid.BotDetection.MonitoringPacks;
+
+/// <summary>
+/// Default no-op controller registered by FOSS. Reports no hot-reload support for
+/// any pack and rejects all replace attempts. The event is exposed for interface
+/// compliance but is never raised.
+/// </summary>
+internal sealed class NullPackRuntimeController : IPackRuntimeController
+{
+    public bool SupportsHotReload(string packId) => false;
+
+    public Task ReplacePackAsync(IMonitoringPack pack, CancellationToken ct)
+        => throw new NotSupportedException(
+            $"Hot reload of pack '{pack.Id}' requires the commercial monitoring pack with a valid per-pack capability claim.");
+
+    public Task ReloadAllAsync(CancellationToken ct) => Task.CompletedTask;
+
+    public event EventHandler<PackChangedEventArgs>? PackChanged
+    {
+        add { /* no-op: never raised */ }
+        remove { /* no-op */ }
+    }
+}
+```
+
+- [ ] **Step 6: Wire `MeterListenerService` to subscribe to `PackChanged`**
+
+Modify the constructor and add a rebuild method:
+
+```csharp
+public sealed class MeterListenerService : BackgroundService, IDisposable
+{
+    private readonly IReadOnlyList<IMonitoringPack> _packs;
+    private readonly IMetricSnapshotStore _store;
+    private readonly IPackRuntimeController _runtimeController;
+    private readonly ILogger<MeterListenerService> _logger;
+    private MeterListener? _listener;
+    private readonly Dictionary<string, IMonitoringPack> _activePacks; // pack.Id → current snapshot
+
+    public MeterListenerService(
+        IEnumerable<IMonitoringPack> packs,
+        IMetricSnapshotStore store,
+        IPackRuntimeController runtimeController,
+        ILogger<MeterListenerService> logger)
+    {
+        _packs = packs.ToList();
+        _store = store;
+        _runtimeController = runtimeController;
+        _logger = logger;
+        _activePacks = _packs.ToDictionary(p => p.Id);
+
+        _runtimeController.PackChanged += OnPackChanged;
+    }
+
+    private void OnPackChanged(object? sender, PackChangedEventArgs e)
+    {
+        _activePacks[e.Pack.Id] = e.Pack;
+        RebuildListener();
+        _logger.LogInformation("Rebuilt MeterListener after pack '{PackId}' was hot-reloaded", e.Pack.Id);
+    }
+
+    private void RebuildListener()
+    {
+        _listener?.Dispose();
+        _listener = BuildListener(_activePacks.Values);
+    }
+
+    public override void Dispose()
+    {
+        _runtimeController.PackChanged -= OnPackChanged;
+        _listener?.Dispose();
+        base.Dispose();
+    }
+
+    // ... existing accumulation logic, refactored so the listener is built from _activePacks ...
+}
+```
+
+The accumulator buffer must NOT be cleared on rebuild -in-flight bucket data should still flush at the next interval boundary.
+
+- [ ] **Step 7: Register `NullPackRuntimeController` via `TryAddSingleton`**
+
+In `StyloBotDashboardServiceExtensions.AddStyloBot` (or wherever monitoring services are wired), add:
+
+```csharp
+services.TryAddSingleton<IPackRuntimeController, NullPackRuntimeController>();
+```
+
+`TryAddSingleton` is critical: the commercial assembly's `AddCommercialMonitoringPacks(license)` call replaces this with a licensed controller. If the commercial package is not present or its license check fails, the null controller stays.
+
+- [ ] **Step 8: Add hot-reload test for MeterListenerService**
+
+Add to `MeterListenerServiceTests.cs`:
+
+```csharp
+[Fact]
+public async Task PackChanged_RebuildsListener_NewInstrumentsAreCollected()
+{
+    var counter1 = _testMeter.CreateCounter<long>("test.original");
+    var counter2 = _testMeter.CreateCounter<long>("test.new");
+
+    var initialPack = new TestPack([
+        new MeterCollectionGroup("TestMeter", [
+            new InstrumentCollectionSpec("test.original", CollectedValueType.Counter)
+        ])
+    ]);
+    var fakeController = new FakePackRuntimeController(supportsHotReload: true);
+
+    using var svc = new MeterListenerService(
+        [initialPack], _store, fakeController, NullLogger<MeterListenerService>.Instance);
+    svc.StartListening();
+
+    counter1.Add(7);
+    counter2.Add(99);  // not collected yet -instrument not in initial pack
+
+    var beforeReload = await svc.FlushSnapshotsAsync(CancellationToken.None);
+    Assert.Single(beforeReload);
+    Assert.Equal(7.0, beforeReload[0].Value);
+
+    // Hot-reload pack to include the new instrument
+    var updatedPack = new TestPack([
+        new MeterCollectionGroup("TestMeter", [
+            new InstrumentCollectionSpec("test.original", CollectedValueType.Counter),
+            new InstrumentCollectionSpec("test.new", CollectedValueType.Counter)
+        ])
+    ]);
+    fakeController.RaisePackChanged(updatedPack);
+
+    counter2.Add(11);
+
+    var afterReload = await svc.FlushSnapshotsAsync(CancellationToken.None);
+    var newSnap = Assert.Single(afterReload, s => s.Instrument == "test.new");
+    Assert.Equal(11.0, newSnap.Value);
+}
+
+private sealed class FakePackRuntimeController : IPackRuntimeController
+{
+    public FakePackRuntimeController(bool supportsHotReload) => _support = supportsHotReload;
+    private readonly bool _support;
+    public bool SupportsHotReload(string packId) => _support;
+    public Task ReplacePackAsync(IMonitoringPack pack, CancellationToken ct)
+    { RaisePackChanged(pack); return Task.CompletedTask; }
+    public Task ReloadAllAsync(CancellationToken ct) => Task.CompletedTask;
+    public event EventHandler<PackChangedEventArgs>? PackChanged;
+    public void RaisePackChanged(IMonitoringPack pack)
+        => PackChanged?.Invoke(this, new PackChangedEventArgs(pack));
+}
+```
+
+- [ ] **Step 9: Run tests**
+
+```bash
+dotnet test src/Mostlylucid.BotDetection.Test/ --filter "PackRuntimeControllerTests|MeterListenerServiceTests" -v minimal 2>&1 | tail -15
+```
+
+Expected: all tests pass (4 new + existing 3 = 7 total).
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add src/Mostlylucid.BotDetection/MonitoringPacks/IPackRuntimeController.cs \
+        src/Mostlylucid.BotDetection/MonitoringPacks/NullPackRuntimeController.cs \
+        src/Mostlylucid.BotDetection/MonitoringPacks/PackChangedEventArgs.cs \
+        src/Mostlylucid.BotDetection/MonitoringPacks/MeterListenerService.cs \
+        src/Mostlylucid.BotDetection.UI/Extensions/StyloBotDashboardServiceExtensions.cs \
+        src/Mostlylucid.BotDetection.Test/MonitoringPacks/PackRuntimeControllerTests.cs \
+        src/Mostlylucid.BotDetection.Test/MonitoringPacks/MeterListenerServiceTests.cs
+git commit -m "feat(monitoring): add IPackRuntimeController seam for commercial hot-reload extension"
+```
+
+---
+
+## Task 4b: Extension Assembly Loader (drop-a-DLL install model)
+
+**Why:** Commercial packs need a way to be installed by customers without modifying the host's `Program.cs` per pack. The v1 distribution model is "drop a DLL into a known directory, add one line to appsettings.json, restart" — same shape as IIS modules. NuGet auto-discovery and MEF-style streamlined integration are deferred to v2; the loader interface is generic enough that either can be added later without changing the contract.
+
+**Files:**
+- Create: `src/Mostlylucid.BotDetection/Extensions/IBotDetectionExtension.cs`
+- Create: `src/Mostlylucid.BotDetection/Extensions/ExtensionLoader.cs`
+- Create: `src/Mostlylucid.BotDetection/Extensions/ExtensionOptions.cs`
+- Modify: `src/Mostlylucid.BotDetection.UI/Extensions/StyloBotDashboardServiceExtensions.cs` (add `AddStyloBotExtensions` helper)
+- Test: `src/Mostlylucid.BotDetection.Test/Extensions/ExtensionLoaderTests.cs`
+
+- [ ] **Step 1: Create `IBotDetectionExtension.cs`**
+
+```csharp
+namespace Mostlylucid.BotDetection.Extensions;
+
+/// <summary>
+///     Implemented by a commercial (or third-party) extension assembly. The host calls
+///     <see cref="Configure"/> during DI setup to let the extension register its services.
+///     Drop the assembly DLL next to the host, list its path in
+///     <c>BotDetection:Extensions:AssemblyPaths</c>, restart.
+///
+///     Implementations must be parameterless-constructable (the loader uses
+///     <see cref="Activator.CreateInstance(Type)"/>); save state on the service collection,
+///     not on the extension type.
+/// </summary>
+public interface IBotDetectionExtension
+{
+    string Name { get; }
+    Version Version { get; }
+    void Configure(IServiceCollection services, IConfiguration configuration);
+}
+```
+
+- [ ] **Step 2: Create `ExtensionOptions.cs`**
+
+```csharp
+namespace Mostlylucid.BotDetection.Extensions;
+
+public sealed class ExtensionOptions
+{
+    /// <summary>
+    ///     Absolute or relative paths to extension assemblies. Relative paths resolve
+    ///     against <see cref="AppContext.BaseDirectory"/>. Glob patterns are NOT supported
+    ///     in v1; list each DLL explicitly.
+    /// </summary>
+    public List<string> AssemblyPaths { get; set; } = new();
+
+    /// <summary>
+    ///     When true (default), an assembly that fails to load logs a warning and is
+    ///     skipped; the host continues. When false, load failures throw at startup.
+    ///     Default true preserves warn-never-lock for customers whose license lapsed.
+    /// </summary>
+    public bool ContinueOnLoadFailure { get; set; } = true;
+}
+```
+
+- [ ] **Step 3: Create `ExtensionLoader.cs`**
+
+```csharp
+public static class ExtensionLoader
+{
+    public static IServiceCollection AddStyloBotExtensions(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        var options = new ExtensionOptions();
+        configuration.GetSection("BotDetection:Extensions").Bind(options);
+        if (options.AssemblyPaths.Count == 0) return services;
+
+        var logger = services.BuildServiceProvider().GetService<ILogger<ExtensionLoaderMarker>>();
+
+        foreach (var rawPath in options.AssemblyPaths)
+        {
+            var path = ResolvePath(rawPath);
+            try
+            {
+                var asm = Assembly.LoadFrom(path);
+                foreach (var t in asm.GetExportedTypes())
+                {
+                    if (!typeof(IBotDetectionExtension).IsAssignableFrom(t) || t.IsAbstract)
+                        continue;
+                    var ext = (IBotDetectionExtension)Activator.CreateInstance(t)!;
+                    ext.Configure(services, configuration);
+                    logger?.LogInformation("Loaded extension {Name} v{Version} from {Path}",
+                        ext.Name, ext.Version, path);
+                }
+            }
+            catch (Exception ex) when (options.ContinueOnLoadFailure)
+            {
+                logger?.LogWarning(ex, "Failed to load extension from {Path}; continuing without it", path);
+            }
+        }
+        return services;
+    }
+
+    private static string ResolvePath(string raw)
+        => Path.IsPathRooted(raw) ? raw : Path.Combine(AppContext.BaseDirectory, raw);
+
+    private sealed class ExtensionLoaderMarker { }
+}
+```
+
+The loader runs **after** `AddStyloBot()` so extensions can override `TryAdd` registrations (e.g., commercial `IPackRuntimeController` replaces the FOSS null impl).
+
+- [ ] **Step 4: Customer-facing wiring**
+
+Document in `quickstart.md`: customer's `Program.cs` needs ONE line after `AddStyloBot()` to enable extension loading.
+
+```csharp
+builder.Services.AddStyloBot(dashboard => { /* ... */ });
+builder.Services.AddStyloBotExtensions(builder.Configuration);  // v1 drop-a-DLL loader
+```
+
+And in `appsettings.json`:
+
+```json
+{
+  "BotDetection": {
+    "Extensions": {
+      "AssemblyPaths": [
+        "extensions/Stylobot.Commercial.MonitoringPacks.dll"
+      ]
+    },
+    "Commercial": {
+      "LicenseToken": "eyJhbGciOi..."
+    }
+  }
+}
+```
+
+- [ ] **Step 5: TDD tests**
+
+```csharp
+[Fact]
+public void Loader_NoExtensionsConfigured_NoOp()
+{
+    var services = new ServiceCollection();
+    var config = new ConfigurationBuilder().AddInMemoryCollection().Build();
+    services.AddStyloBotExtensions(config);
+    Assert.Empty(services);
+}
+
+[Fact]
+public void Loader_InvalidPath_ContinuesByDefault()
+{
+    var services = new ServiceCollection();
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["BotDetection:Extensions:AssemblyPaths:0"] = "does-not-exist.dll"
+    }).Build();
+
+    services.AddStyloBotExtensions(config);  // must not throw
+}
+
+[Fact]
+public void Loader_InvalidPath_Throws_WhenContinueOnFailureIsFalse()
+{
+    var services = new ServiceCollection();
+    var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+    {
+        ["BotDetection:Extensions:AssemblyPaths:0"] = "does-not-exist.dll",
+        ["BotDetection:Extensions:ContinueOnLoadFailure"] = "false"
+    }).Build();
+
+    Assert.ThrowsAny<Exception>(() => services.AddStyloBotExtensions(config));
+}
+
+[Fact]
+public void Loader_ValidExtensionAssembly_CallsConfigure()
+{
+    // Build a temp assembly with a test IBotDetectionExtension impl, load via path,
+    // assert services contain a marker registered by the test extension.
+}
+```
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/Mostlylucid.BotDetection/Extensions \
+        src/Mostlylucid.BotDetection.UI/Extensions/StyloBotDashboardServiceExtensions.cs \
+        src/Mostlylucid.BotDetection.Test/Extensions
+git commit -m "feat(extensions): add drop-a-DLL extension loader with IBotDetectionExtension contract"
+```
+
+**Out of scope for v1 (call out, do not build):**
+- NuGet auto-discovery (rummage `bin/` for assemblies marked with an attribute).
+- MEF / `System.Composition` streamlined integration with catalogs and exports.
+- Hot-load of new DLLs at runtime without restart (would require `AssemblyLoadContext` unload semantics).
+- Glob patterns in `AssemblyPaths`.
+
+Both deferred options can wire into the same `IBotDetectionExtension` contract in v2, so customer code doesn't change.
 
 ---
 

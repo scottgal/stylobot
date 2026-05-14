@@ -1,8 +1,10 @@
 # ASP.NET MonitoringPack Design
 
-**Date:** 2026-05-08
+**Date:** 2026-05-08 (revised 2026-05-14)
 **Status:** Approved
 **Scope:** FOSS product (`Mostlylucid.BotDetection` + `Mostlylucid.BotDetection.UI`)
+
+> **Note (2026-05-14):** brief detour considered moving the whole pack to commercial; reversed. The pack itself is FOSS (collection + store + dashboard tab + read endpoints). Live editing of pack configuration without restart is the commercial add-on, gated by `stylobot.monitoring.aspnet.hot-reload` and priced at $5/mo. Companion docs: `stylobot-commercial/docs/superpowers/specs/2026-05-14-aspnet-monitoring-pack-commercial-design.md` and the matching plan.
 
 ---
 
