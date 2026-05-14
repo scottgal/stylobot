@@ -44,9 +44,12 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
         _dimension = embeddingOptions.EmbeddingDimension;
         _autoDownloadEmbeddingModel = embeddingOptions.AutoDownloadEmbeddingModel;
 
-        _modelsDir = Path.Combine(
-            databasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection-data"),
-            "models");
+        // databasePath, when set, points at the SQLite file itself (e.g. /var/lib/stylobot/botdetection.db).
+        // Treat its parent directory as the data root; otherwise fall back to a sibling botdetection-data folder.
+        var baseDir = !string.IsNullOrEmpty(databasePath)
+            ? Path.GetDirectoryName(databasePath) ?? AppContext.BaseDirectory
+            : Path.Combine(AppContext.BaseDirectory, "botdetection-data");
+        _modelsDir = Path.Combine(baseDir, "models");
         Directory.CreateDirectory(_modelsDir);
 
         _modelPath = Path.Combine(_modelsDir, embeddingOptions.EmbeddingModel);
