@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.Extensions.Primitives;
@@ -84,6 +85,58 @@ public class RouteDiscoveryServiceTests
     }
 
     [Fact]
+    public void Discover_OpenApiDocumentRoute_IsCategorized()
+    {
+        var src = BuildDataSource(
+            BuildRouteEndpoint("/openapi/v1.json", new[] { "GET" }, "OpenAPI"));
+
+        var svc = new RouteDiscoveryService(new[] { src });
+        var route = Assert.Single(svc.DiscoverRoutes());
+        Assert.Equal(RouteCategory.OpenApiDocument, route.Category);
+    }
+
+    [Fact]
+    public void Discover_HealthRoute_IsCategorized()
+    {
+        var src = BuildDataSource(
+            BuildRouteEndpoint("/health", new[] { "GET" }, "Health"));
+
+        var svc = new RouteDiscoveryService(new[] { src });
+        var route = Assert.Single(svc.DiscoverRoutes());
+        Assert.Equal(RouteCategory.Health, route.Category);
+    }
+
+    [Fact]
+    public void Discover_SummaryAndDescription_AreCaptured()
+    {
+        var src = BuildDataSource(
+            BuildRouteEndpoint("/users", new[] { "GET" }, "List",
+                new TestSummary("List users"),
+                new TestDescription("Returns a paginated list.")));
+
+        var svc = new RouteDiscoveryService(new[] { src });
+        var route = Assert.Single(svc.DiscoverRoutes());
+        Assert.Equal("List users", route.Summary);
+        Assert.Equal("Returns a paginated list.", route.Description);
+        Assert.True(route.HasOpenApiMetadata);
+    }
+
+    [Fact]
+    public void Discover_TagsAndGroupName_AreMerged()
+    {
+        var src = BuildDataSource(
+            BuildRouteEndpoint("/admin/things", new[] { "GET" }, "AdminThings",
+                new TestTags("admin", "ops"),
+                new TestGroupName("Operations")));
+
+        var svc = new RouteDiscoveryService(new[] { src });
+        var route = Assert.Single(svc.DiscoverRoutes());
+        Assert.Contains("admin", route.Tags);
+        Assert.Contains("ops", route.Tags);
+        Assert.Contains("Operations", route.Tags);
+    }
+
+    [Fact]
     public void Discover_NonRouteEndpoint_IsSkipped()
     {
         // A plain Endpoint (not a RouteEndpoint) should be ignored.
@@ -118,5 +171,13 @@ public class RouteDiscoveryServiceTests
     {
         public override IReadOnlyList<Endpoint> Endpoints { get; } = endpoints;
         public override IChangeToken GetChangeToken() => new CancellationChangeToken(CancellationToken.None);
+    }
+
+    private sealed record TestSummary(string Summary) : IEndpointSummaryMetadata;
+    private sealed record TestDescription(string Description) : IEndpointDescriptionMetadata;
+    private sealed record TestGroupName(string EndpointGroupName) : IEndpointGroupNameMetadata;
+    private sealed class TestTags(params string[] tags) : ITagsMetadata
+    {
+        public IReadOnlyList<string> Tags { get; } = tags;
     }
 }
