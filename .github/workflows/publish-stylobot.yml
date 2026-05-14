@@ -380,6 +380,7 @@ jobs:
     - name: Create GitHub Release
       uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
       with:
+        token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
         name: ${{ steps.get_version.outputs.RELEASE_TITLE }}
         tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
         body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
@@ -388,8 +389,6 @@ jobs:
         files: |
           release-assets/*
         fail_on_unmatched_files: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Release created
       env:
