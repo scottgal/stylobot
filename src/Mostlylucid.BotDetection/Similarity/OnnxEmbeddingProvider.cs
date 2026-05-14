@@ -12,7 +12,7 @@ namespace Mostlylucid.BotDetection.Similarity;
 ///     Runs pure CPU inference (~1-5ms per embedding for short text).
 ///     Thread-safe singleton - model loaded once on first use.
 ///     Model assets are loaded from disk by default. Optional auto-download from HuggingFace
-///     can be enabled explicitly via Qdrant.AutoDownloadEmbeddingModel.
+///     can be enabled explicitly via Embedding.AutoDownloadEmbeddingModel.
 /// </summary>
 public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
 {
@@ -36,20 +36,20 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
     private volatile bool _available;
 
     public OnnxEmbeddingProvider(
-        QdrantOptions qdrantOptions,
+        EmbeddingOptions embeddingOptions,
         string? databasePath,
         ILogger<OnnxEmbeddingProvider> logger)
     {
         _logger = logger;
-        _dimension = qdrantOptions.EmbeddingDimension;
-        _autoDownloadEmbeddingModel = qdrantOptions.AutoDownloadEmbeddingModel;
+        _dimension = embeddingOptions.EmbeddingDimension;
+        _autoDownloadEmbeddingModel = embeddingOptions.AutoDownloadEmbeddingModel;
 
         _modelsDir = Path.Combine(
             databasePath ?? Path.Combine(AppContext.BaseDirectory, "botdetection-data"),
             "models");
         Directory.CreateDirectory(_modelsDir);
 
-        _modelPath = Path.Combine(_modelsDir, qdrantOptions.EmbeddingModel);
+        _modelPath = Path.Combine(_modelsDir, embeddingOptions.EmbeddingModel);
         _vocabPath = Path.Combine(_modelsDir, "vocab.txt");
     }
 
@@ -164,7 +164,7 @@ public sealed class OnnxEmbeddingProvider : IEmbeddingProvider, IDisposable
                     _logger.LogWarning(
                         "ONNX model or vocab not available at {Dir}. Embeddings disabled. " +
                         "To enable: place all-MiniLM-L6-v2.onnx and vocab.txt in the models directory, " +
-                        "or explicitly set BotDetection:Qdrant:AutoDownloadEmbeddingModel=true.",
+                        "or explicitly set BotDetection:Embedding:AutoDownloadEmbeddingModel=true.",
                         _modelsDir);
                     _available = false;
                     return;

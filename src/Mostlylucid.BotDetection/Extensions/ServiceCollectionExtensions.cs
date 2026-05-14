@@ -794,7 +794,7 @@ public static class ServiceCollectionExtensions
         {
             var opts = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
             var logger = sp.GetRequiredService<ILogger<OnnxEmbeddingProvider>>();
-            return new OnnxEmbeddingProvider(opts.Qdrant, opts.DatabasePath, logger);
+            return new OnnxEmbeddingProvider(opts.Embedding, opts.DatabasePath, logger);
         });
 
         // SQLite centroid stores - share the same DB file as the session store.

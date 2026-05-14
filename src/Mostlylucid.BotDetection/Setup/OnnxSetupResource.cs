@@ -22,7 +22,7 @@ public class OnnxSetupResource : ISetupResource
             ? Path.GetDirectoryName(opts.DatabasePath) ?? AppContext.BaseDirectory
             : AppContext.BaseDirectory;
         _modelsDir = Path.Combine(baseDir, "models");
-        _modelPath = Path.Combine(_modelsDir, opts.Qdrant.EmbeddingModel);
+        _modelPath = Path.Combine(_modelsDir, opts.Embedding.EmbeddingModel);
         _vocabPath = Path.Combine(_modelsDir, "vocab.txt");
     }
 

@@ -540,10 +540,10 @@ public class BotDetectionOptions
     }
 
     /// <summary>
-    ///     Qdrant vector database configuration for similarity search.
-    ///     When enabled, replaces the file-backed HNSW index with Qdrant.
+    ///     Embedding model configuration for ONNX-based semantic similarity.
+    ///     FOSS uses an in-process ONNX runtime; commercial may swap in a vector DB backend.
     /// </summary>
-    public QdrantOptions Qdrant { get; set; } = new();
+    public EmbeddingOptions Embedding { get; set; } = new();
 
     /// <summary>
     ///     Enable database WAL mode for better concurrent access (SQLite only).
@@ -3967,28 +3967,15 @@ public class ProjectHoneypotOptions
 }
 
 /// <summary>
-///     Qdrant vector database configuration for similarity search.
-///     When enabled, replaces the file-backed HNSW index with Qdrant for
-///     fuzzy multi-vector signature matching.
+///     ONNX embedding model configuration. The FOSS product runs embeddings
+///     in-process; a commercial backend may use this to drive an external vector store.
 /// </summary>
-public class QdrantOptions
+public class EmbeddingOptions
 {
-    /// <summary>Enable Qdrant-backed similarity search (default: false = use HNSW file)</summary>
-    public bool Enabled { get; set; }
-
-    /// <summary>Qdrant gRPC endpoint (default: http://localhost:6334)</summary>
-    public string Endpoint { get; set; } = "http://localhost:6334";
-
-    /// <summary>Collection name for signature vectors</summary>
-    public string CollectionName { get; set; } = "stylobot-signatures";
-
-    /// <summary>Vector dimension for heuristic features (default: 64, matching FeatureVectorizer)</summary>
-    public int VectorDimension { get; set; } = 64;
-
-    /// <summary>Enable ML embeddings via ONNX (augments heuristic vectors with semantic similarity)</summary>
+    /// <summary>Enable ML embeddings via ONNX (augments heuristic vectors with semantic similarity).</summary>
     public bool EnableEmbeddings { get; set; }
 
-    /// <summary>ONNX model file name for embeddings (default: all-MiniLM-L6-v2.onnx)</summary>
+    /// <summary>ONNX model file name for embeddings (default: all-MiniLM-L6-v2.onnx).</summary>
     public string EmbeddingModel { get; set; } = "all-MiniLM-L6-v2.onnx";
 
     /// <summary>
@@ -3997,7 +3984,7 @@ public class QdrantOptions
     /// </summary>
     public bool AutoDownloadEmbeddingModel { get; set; }
 
-    /// <summary>Embedding vector dimension (384 for all-MiniLM-L6-v2)</summary>
+    /// <summary>Embedding vector dimension (384 for all-MiniLM-L6-v2).</summary>
     public int EmbeddingDimension { get; set; } = 384;
 }
 

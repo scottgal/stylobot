@@ -16,7 +16,7 @@ public class OnnxSetupResourceTests : IDisposable
         Options.Create(new BotDetectionOptions
         {
             DatabasePath = Path.Combine(_tempDir, "botdetection.db"),
-            Qdrant = new QdrantOptions { EmbeddingModel = "all-MiniLM-L6-v2.onnx" }
+            Embedding = new EmbeddingOptions { EmbeddingModel = "all-MiniLM-L6-v2.onnx" }
         });
 
     private string ModelsDir => Path.Combine(_tempDir, "models");
