@@ -909,36 +909,106 @@ try
     // Shared tunnel URL (populated by cloudflared log parser, read by live table)
     string? tunnelUrl = null;
 
-    // Launch Cloudflare tunnel if requested
-    Process? tunnelProcess = null;
-    if (tunnelEnabled)
+    // -----------------------------------------------------------------------
+    // Start-safe startup sequence:
+    //   1. Start a live status panel showing each step.
+    //   2. Bring up Kestrel via app.StartAsync() so the local listener is
+    //      definitely serving before anything else can fail.
+    //   3. Launch Cloudflare tunnel (if requested) AFTER the listener is up so
+    //      a tunnel failure cannot prevent the local port from being usable.
+    //   4. Hand off to the live detection table and block on WaitForShutdownAsync.
+    // -----------------------------------------------------------------------
+    var statusBoard = new StartupStatusBoard();
+    var bannerEnabled = !verbose && !System.Console.IsOutputRedirected;
+    CancellationTokenSource? bannerCts = null;
+    Task? bannerTask = null;
+    StartupBannerRenderer? banner = null;
+
+    if (bannerEnabled)
     {
-        tunnelProcess = CloudflaredTunnelLauncher.Launch(portNumber, scheme, tunnelToken, url => tunnelUrl = url);
+        banner = new StartupBannerRenderer(statusBoard, "StyloBot starting up");
+        bannerCts = new CancellationTokenSource();
+        bannerTask = banner.RunUntilSettledAsync(bannerCts.Token);
     }
 
-    // Start live detection table (replaces verbose log output)
-    // Link to ApplicationStopping so the table clears immediately on Ctrl-C,
-    // before app.RunAsync() finishes draining registered hosted services.
+    Process? tunnelProcess = null;
     CancellationTokenSource? liveTableCts = null;
     Task? liveTableTask = null;
-    if (!verbose)
-    {
-        var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
-        liveTableCts = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping);
-        var liveTable = new LiveDetectionTableService(
-            detectionSink, mode, upstream, port, actionPolicy,
-            useTls, tunnelEnabled, () => tunnelUrl);
-        liveTableTask = liveTable.StartAsync(liveTableCts.Token);
-    }
-    else
-    {
-        Log.Information("  Press Ctrl+C to stop.");
-    }
 
     try
     {
-        await app.RunAsync();
-        Log.Warning("Application host stopped normally (this should only happen on shutdown)");
+        statusBoard.Start("listener", $"Starting HTTP listener on port {portNumber}");
+        try
+        {
+            await app.StartAsync();
+            statusBoard.Done("listener", $"{scheme}://localhost:{portNumber}");
+        }
+        catch (Exception ex)
+        {
+            statusBoard.Fail("listener", ex.Message);
+            banner?.StopAndFlush();
+            Log.Fatal(ex, "Failed to start HTTP listener");
+            throw;
+        }
+
+        if (tunnelEnabled)
+        {
+            statusBoard.Start("tunnel",
+                tunnelToken != null ? "Launching Cloudflare tunnel (named)" : "Launching Cloudflare tunnel (quick)");
+            try
+            {
+                tunnelProcess = CloudflaredTunnelLauncher.Launch(portNumber, scheme, tunnelToken, url => tunnelUrl = url);
+                if (tunnelProcess == null)
+                {
+                    statusBoard.Fail("tunnel", "cloudflared not found");
+                }
+                else
+                {
+                    statusBoard.Done("tunnel", "cloudflared launched");
+                    statusBoard.Start("tunnel-url", "Waiting for public URL");
+                    var urlDeadline = DateTime.UtcNow.AddSeconds(20);
+                    while (tunnelUrl is null && DateTime.UtcNow < urlDeadline && !tunnelProcess.HasExited)
+                        await Task.Delay(200);
+                    if (tunnelUrl != null) statusBoard.Done("tunnel-url", tunnelUrl);
+                    else if (tunnelProcess.HasExited) statusBoard.Fail("tunnel-url", "cloudflared exited before publishing URL");
+                    else statusBoard.Fail("tunnel-url", "timed out waiting for URL");
+                }
+            }
+            catch (Exception ex)
+            {
+                // App stays usable on local port even if tunnel fails - this is the safety win.
+                statusBoard.Fail("tunnel", ex.Message);
+                Log.Warning(ex, "Cloudflare tunnel failed to launch; local listener remains active");
+            }
+        }
+        else
+        {
+            statusBoard.Skip("tunnel", "Cloudflare tunnel", "not requested (--tunnel not set)");
+        }
+
+        // Stop the banner and let the alt-screen live table take over.
+        if (banner != null && bannerCts != null && bannerTask != null)
+        {
+            await bannerCts.CancelAsync();
+            try { await bannerTask; } catch (OperationCanceledException) { }
+        }
+
+        if (!verbose)
+        {
+            var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+            liveTableCts = CancellationTokenSource.CreateLinkedTokenSource(lifetime.ApplicationStopping);
+            var liveTable = new LiveDetectionTableService(
+                detectionSink, mode, upstream, port, actionPolicy,
+                useTls, tunnelEnabled, () => tunnelUrl);
+            liveTableTask = liveTable.StartAsync(liveTableCts.Token);
+        }
+        else
+        {
+            Log.Information("  Press Ctrl+C to stop.");
+        }
+
+        await app.WaitForShutdownAsync();
+        Log.Information("Application shutdown requested (Ctrl+C or SIGTERM)");
     }
     catch (OperationCanceledException)
     {
@@ -951,7 +1021,9 @@ try
     }
     finally
     {
-        // Stop live table
+        if (banner != null) banner.StopAndFlush();
+        bannerCts?.Dispose();
+
         if (liveTableCts != null)
         {
             await liveTableCts.CancelAsync();
@@ -960,7 +1032,6 @@ try
             liveTableCts.Dispose();
         }
 
-        // Kill tunnel process if we started one
         if (tunnelProcess is { HasExited: false })
         {
             Log.Information("Stopping Cloudflare tunnel...");
@@ -968,7 +1039,6 @@ try
             tunnelProcess.Dispose();
         }
 
-        // Flush signature logger before shutdown
         await signatureLogger.FlushAndStopAsync();
     }
 }
