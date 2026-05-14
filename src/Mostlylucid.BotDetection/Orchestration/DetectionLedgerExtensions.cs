@@ -49,9 +49,15 @@ public static class DetectionLedgerExtensions
         var isConfirmedBadForBand = IsConfirmedBad(preSignals);
         var sessionCountForBand = ExtractSessionCount(preSignals);
         var intentCategory = preSignals.TryGetValue(SignalKeys.IntentCategory, out var ic) ? ic as string : null;
+        // Find any contributor that classified this UA as a friendly bot type. The ledger's
+        // single BotType property is last-writer-wins (HeuristicEarly often overwrites the
+        // UA's authoritative pattern match with a generic "Scraper" guess). Scanning all
+        // contributions surfaces the strongest identification.
+        var friendlyBotType = FindFriendlyBotType(ledger);
+        var ledgerBotType = friendlyBotType ?? ParseBotType(ledger.BotType);
 
         var (riskBand, riskJustification) = DetermineRiskBand(botProbability, confidence, aiRan,
-            earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory);
+            earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory, ledgerBotType);
 
         // Only set BotType/BotName if actually a bot
         var isActuallyBot = botProbability >= 0.5;
@@ -141,6 +147,21 @@ public static class DetectionLedgerExtensions
             EarlyExitVerdict.Blacklisted     => "Explicitly blacklisted",
             _                                => "Early exit policy"
         };
+
+        // Friendly UA classification overrides reputation-driven VerifiedBadBot.
+        // FastPathReputation triggers VerifiedBadBot from cached IP/UA reputation, but
+        // Mastodon-shaped traffic is still benign automation regardless of how many
+        // times the IP has been seen. Confirmed-bad still wins.
+        if (verdict is EarlyExitVerdict.VerifiedBadBot)
+        {
+            var friendlyType = FindFriendlyBotType(ledger);
+            var isConfirmedBadEarly = IsConfirmedBad(earlySignals);
+            if (friendlyType != null && !isConfirmedBadEarly && earlyThreatScore < 0.55)
+            {
+                earlyRiskBand = RiskBand.Low;
+                earlyRiskJustification = $"identified as {friendlyType} (friendly automation; reputation-cache override)";
+            }
+        }
 
         if (!string.IsNullOrEmpty(earlyRiskJustification))
             earlySignals[SignalKeys.RiskJustification] = earlyRiskJustification;
@@ -244,8 +265,23 @@ public static class DetectionLedgerExtensions
     internal static (RiskBand Band, string Justification) DetermineRiskBand(
         double botProbability, double confidence, bool aiRan,
         double threatScore, bool isConfirmedBad, int sessionRequestCount,
-        string? intentCategory = null)
+        string? intentCategory = null,
+        BotType? botType = null)
     {
+        // Friendly bot types (search engines, fediverse link previewers, monitoring,
+        // explicitly-verified good bots) get pinned to Low even when probability is
+        // near the AI-clamp ceiling. Threat / confirmed-bad still escalate below.
+        var isFriendlyBotType = botType is BotType.SearchEngine
+            or BotType.SocialMediaBot
+            or BotType.MonitoringBot
+            or BotType.GoodBot
+            or BotType.VerifiedBot;
+        if (isFriendlyBotType && !isConfirmedBad && threatScore < 0.55)
+        {
+            var label = botType.ToString();
+            return (RiskBand.Low, $"identified as {label} (friendly automation)");
+        }
+
         // Low confidence: not enough data to assess reliably
         if (confidence < 0.3)
             return botProbability >= 0.5
@@ -383,6 +419,23 @@ public static class DetectionLedgerExtensions
             double d => (int)d,
             _        => 0
         };
+    }
+
+    private static BotType? FindFriendlyBotType(DetectionLedger ledger)
+    {
+        foreach (var contrib in ledger.Contributions)
+        {
+            if (string.IsNullOrEmpty(contrib.BotType) || contrib.ConfidenceDelta <= 0)
+                continue;
+            var parsed = ParseBotType(contrib.BotType);
+            if (parsed is BotType.SearchEngine
+                or BotType.SocialMediaBot
+                or BotType.MonitoringBot
+                or BotType.GoodBot
+                or BotType.VerifiedBot)
+                return parsed;
+        }
+        return null;
     }
 
     private static BotType? ParseBotType(string? botType)
