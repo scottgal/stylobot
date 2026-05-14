@@ -9,6 +9,11 @@ namespace Mostlylucid.BotDetection.Console.Services;
 ///     present, and pulls it if it is not. Writes live progress into a
 ///     <see cref="StartupStatusBoard"/> so operators can see the download happen
 ///     instead of staring at a quiet terminal.
+///
+///     Uses raw HTTP (not OllamaSharp) deliberately. The Console is published as
+///     NativeAOT single-file -OllamaSharp's transitive Microsoft.Extensions.*
+///     deps pull in versions that downgrade the AOT-pinned stack (NU1605). The
+///     `/api/tags` + `/api/pull` surfaces are stable enough to hand-roll.
 /// </summary>
 public static class OllamaModelManager
 {
@@ -45,7 +50,7 @@ public static class OllamaModelManager
                 : new List<string>();
             board.Done("ollama-check", $"{installedModels.Count} model(s) cached locally");
         }
-        catch (HttpRequestException ex)
+        catch (HttpRequestException)
         {
             board.Fail("ollama-check", "daemon not reachable - install from ollama.com or start `ollama serve`");
             board.Skip("ollama-model", $"Model '{model}'", "skipped - Ollama not reachable");

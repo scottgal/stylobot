@@ -88,18 +88,10 @@ public static class ServiceCollectionExtensions
             return services;
         }
 
-        services.AddDbContext<GatewayDbContext>(options =>
-        {
-            switch (dbOptions.Provider)
-            {
-                case DatabaseProvider.Postgres:
-                    options.UseNpgsql(dbOptions.ConnectionString);
-                    break;
-                case DatabaseProvider.SqlServer:
-                    options.UseSqlServer(dbOptions.ConnectionString);
-                    break;
-            }
-        });
+        // FOSS Gateway ships no DB providers. Commercial add-on packs register a
+        // provider via IBotDetectionExtension (e.g. UseNpgsql, UseSqlServer,
+        // UseMySql) by replacing this DbContextOptions builder.
+        services.AddDbContext<GatewayDbContext>(_ => { });
 
         return services;
     }
@@ -243,18 +235,9 @@ public static class ServiceCollectionExtensions
             configuration.GetSection(DatabaseOptions.SectionName).Bind(dbOptions);
         }
 
-        if (dbOptions.IsEnabled)
-        {
-            switch (dbOptions.Provider)
-            {
-                case DatabaseProvider.Postgres:
-                    healthChecks.AddNpgSql(dbOptions.ConnectionString!, name: "postgres");
-                    break;
-                case DatabaseProvider.SqlServer:
-                    healthChecks.AddSqlServer(dbOptions.ConnectionString!, name: "sqlserver");
-                    break;
-            }
-        }
+        // FOSS Gateway ships no DB-specific health checks. Commercial add-on
+        // packs register their own (e.g. AddNpgSql, AddSqlServer) via
+        // IBotDetectionExtension.
 
         return services;
     }
