@@ -231,6 +231,7 @@
             <a href="@TabUrl("clusters")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("clusters")">Clusters</a>
             <a href="@TabUrl("threats")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("threats")">Threats</a>
             <a href="@TabUrl("useragents")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("useragents")">User Agents</a>
+            <a href="@TabUrl("routes")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("routes")">Routes</a>
             @foreach (var pack in Model.MonitoringPacks)
             {
                 <a href="@TabUrl(pack.Id)" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass(pack.Id)">@pack.TabName</a>
@@ -409,6 +410,10 @@
         else if (tab == "useragents")
         {
             <sb-useragents-list />
+        }
+        else if (tab == "routes")
+        {
+            <sb-routes-tab />
         }
         else if (Model.MonitoringPacks.FirstOrDefault(p => p.Id == tab) is { } activePack)
         {

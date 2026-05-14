@@ -1,0 +1,169 @@
+@using Mostlylucid.BotDetection.UI.Services.Routes
+@using Mostlylucid.BotDetection.UI.ViewComponents.Dashboard
+@model RoutesTabModel
+@{
+    var bp = Model.BasePath;
+
+    string CategoryBadge(RouteCategory c) => c switch
+    {
+        RouteCategory.OpenApiDocument => "OpenAPI doc",
+        RouteCategory.Health => "Health",
+        RouteCategory.SignalRHub => "SignalR",
+        RouteCategory.Identity => "Identity",
+        RouteCategory.StaticAsset => "Static",
+        _ => "Standard"
+    };
+
+    string SourceLabel(RouteCatalogEntry e) => (e.IsDiscovered, e.IsDocumented) switch
+    {
+        (true, true) => "Live + documented",
+        (true, false) => "Live (undocumented)",
+        (false, true) => "Documented (not implemented)",
+        _ => "?"
+    };
+
+    string SourceColor(RouteCatalogEntry e) => (e.IsDiscovered, e.IsDocumented) switch
+    {
+        (true, true) => "var(--sb-color-success, #22c55e)",
+        (true, false) => "var(--sb-color-warning, #f59e0b)",
+        (false, true) => "var(--sb-color-danger, #ef4444)",
+        _ => "var(--sb-card-fg)"
+    };
+}
+<div id="routes-tab" data-sb-widget="routes" data-sb-depends="routes">
+
+    <div class="text-[10px] font-semibold text-base-content/50 uppercase tracking-wider mb-3">Route Catalog</div>
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-[10px] text-base-content/50">Total routes</div>
+            <div class="text-xl font-bold">@Model.Entries.Count</div>
+        </div>
+        <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-[10px] text-base-content/50">Discovered (live)</div>
+            <div class="text-xl font-bold">@Model.DiscoveredCount</div>
+            <div class="text-[10px] text-base-content/50">@Model.UndocumentedCount undocumented</div>
+        </div>
+        <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-[10px] text-base-content/50">Documented</div>
+            <div class="text-xl font-bold">@Model.DocumentedCount</div>
+            <div class="text-[10px] text-base-content/50">@Model.OpenApiSourceCount source(s)</div>
+        </div>
+        <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-[10px] text-base-content/50">Phantom routes</div>
+            <div class="text-xl font-bold" style="color: var(--sb-color-danger, #ef4444);">@Model.PhantomCount</div>
+            <div class="text-[10px] text-base-content/50">Documented but not live</div>
+        </div>
+    </div>
+
+    @if (!Model.OpenApiIsSeeded)
+    {
+        <div class="text-[10px] text-base-content/50 mb-3 italic">
+            OpenAPI sources not configured. Add <code>StyloBot:Dashboard:OpenApi:SourceUrl</code> to appsettings.json
+            to enable spec cross-reference and phantom-route detection.
+        </div>
+    }
+
+    <div class="rounded-xl border overflow-hidden"
+         style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <table class="w-full text-xs">
+            <thead style="background: var(--sb-card-header-bg, rgba(255,255,255,0.03));">
+                <tr class="text-left text-[10px] text-base-content/50 uppercase tracking-wider">
+                    <th class="px-3 py-2">Method</th>
+                    <th class="px-3 py-2">Pattern</th>
+                    <th class="px-3 py-2">Friendly name</th>
+                    <th class="px-3 py-2">Source</th>
+                    <th class="px-3 py-2">Category</th>
+                    <th class="px-3 py-2">Auth</th>
+                    <th class="px-3 py-2"></th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var e in Model.Entries)
+            {
+                <tr style="border-top: 1px solid var(--sb-card-border);" data-sb-route-key="@e.RouteKey">
+                    <td class="px-3 py-2 font-mono text-[10px]">
+                        @string.Join(", ", e.HttpMethods)
+                    </td>
+                    <td class="px-3 py-2 font-mono">
+                        @e.Pattern
+                        @if (e.OpenApiOperation?.Deprecated == true)
+                        {
+                            <span class="text-[9px] ml-1 px-1 rounded" style="background: var(--sb-color-warning, #f59e0b); color: black;">DEPRECATED</span>
+                        }
+                        @if (!string.IsNullOrEmpty(e.Summary))
+                        {
+                            <div class="text-[10px] text-base-content/50 mt-0.5">@e.Summary</div>
+                        }
+                    </td>
+                    <td class="px-3 py-2">
+                        <input type="text"
+                               class="bg-transparent border-b border-dashed text-xs px-1 py-0.5 w-full"
+                               style="border-color: var(--sb-card-border);"
+                               value="@e.FriendlyName"
+                               placeholder="@(e.DisplayName ?? "Assign a name")"
+                               data-sb-name-input
+                               data-sb-route-key="@e.RouteKey" />
+                    </td>
+                    <td class="px-3 py-2 text-[10px]" style="color: @SourceColor(e);">
+                        @SourceLabel(e)
+                    </td>
+                    <td class="px-3 py-2 text-[10px]">@CategoryBadge(e.Category)</td>
+                    <td class="px-3 py-2 text-[10px]">
+                        @if (e.RequiresAuthorization)
+                        {
+                            <span>Required</span>
+                        }
+                        else if (e.AllowsAnonymous)
+                        {
+                            <span class="text-base-content/50">Anonymous</span>
+                        }
+                        else
+                        {
+                            <span class="text-base-content/50">-</span>
+                        }
+                    </td>
+                    <td class="px-3 py-2">
+                        @if (e.IsDocumented && !string.IsNullOrEmpty(e.OpenApiOperation?.OperationId))
+                        {
+                            <span class="text-[10px] text-base-content/50" title="OpenAPI operationId">@e.OpenApiOperation!.OperationId</span>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        (function() {
+            var tab = document.getElementById('routes-tab');
+            if (!tab) return;
+            var saving = new Set();
+            tab.addEventListener('change', function(ev) {
+                var input = ev.target.closest('[data-sb-name-input]');
+                if (!input) return;
+                var routeKey = input.dataset.sbRouteKey;
+                if (!routeKey || saving.has(routeKey)) return;
+                saving.add(routeKey);
+                var name = (input.value || '').trim();
+                var url = '@bp/api/v1/routes/name';
+                var method = name === '' ? 'DELETE' : 'PUT';
+                var fetchOpts = method === 'DELETE'
+                    ? { method: 'DELETE' }
+                    : { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ routeKey: routeKey, friendlyName: name }) };
+                var urlWithQuery = method === 'DELETE'
+                    ? url + '?routeKey=' + encodeURIComponent(routeKey)
+                    : url;
+                fetch(urlWithQuery, fetchOpts).then(function(r) {
+                    saving.delete(routeKey);
+                    input.style.borderColor = r.ok ? '' : 'var(--sb-color-danger, #ef4444)';
+                }).catch(function() {
+                    saving.delete(routeKey);
+                    input.style.borderColor = 'var(--sb-color-danger, #ef4444)';
+                });
+            });
+        })();
+    </script>
+</div>
