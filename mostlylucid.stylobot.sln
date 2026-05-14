@@ -96,6 +96,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.Sidecar.Client", "src\Mostlylucid.BotDetection.Sidecar.Client\Mostlylucid.BotDetection.Sidecar.Client.csproj", "{AB9083D2-B51B-4B09-9F35-FE62EAA64335}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Mostlylucid.BotDetection.OpenApi", "src\Mostlylucid.BotDetection.OpenApi\Mostlylucid.BotDetection.OpenApi.csproj", "{21ACF970-819C-4B48-86C9-494752574CDF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -478,6 +480,18 @@ Global
 		{AB9083D2-B51B-4B09-9F35-FE62EAA64335}.Release|x64.Build.0 = Release|Any CPU
 		{AB9083D2-B51B-4B09-9F35-FE62EAA64335}.Release|x86.ActiveCfg = Release|Any CPU
 		{AB9083D2-B51B-4B09-9F35-FE62EAA64335}.Release|x86.Build.0 = Release|Any CPU
+		{21ACF970-819C-4B48-86C9-494752574CDF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{21ACF970-819C-4B48-86C9-494752574CDF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{21ACF970-819C-4B48-86C9-494752574CDF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{21ACF970-819C-4B48-86C9-494752574CDF}.Debug|x64.Build.0 = Debug|Any CPU
+		{21ACF970-819C-4B48-86C9-494752574CDF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{21ACF970-819C-4B48-86C9-494752574CDF}.Debug|x86.Build.0 = Debug|Any CPU
+		{21ACF970-819C-4B48-86C9-494752574CDF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{21ACF970-819C-4B48-86C9-494752574CDF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{21ACF970-819C-4B48-86C9-494752574CDF}.Release|x64.ActiveCfg = Release|Any CPU
+		{21ACF970-819C-4B48-86C9-494752574CDF}.Release|x64.Build.0 = Release|Any CPU
+		{21ACF970-819C-4B48-86C9-494752574CDF}.Release|x86.ActiveCfg = Release|Any CPU
+		{21ACF970-819C-4B48-86C9-494752574CDF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -488,5 +502,6 @@ Global
 		{C1C8742B-C0BC-4BB2-B185-316596A4E2F8} = {38A686BC-6C3C-124F-5A1E-A910F678968F}
 		{899C7D2B-4F06-43A7-862D-E909D8FC1037} = {38A686BC-6C3C-124F-5A1E-A910F678968F}
 		{AB9083D2-B51B-4B09-9F35-FE62EAA64335} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{21ACF970-819C-4B48-86C9-494752574CDF} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal
