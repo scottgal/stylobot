@@ -88,9 +88,10 @@ public static class ServiceCollectionExtensions
             return services;
         }
 
-        // FOSS Gateway ships no DB providers. Commercial add-on packs register a
-        // provider via IBotDetectionExtension (e.g. UseNpgsql, UseSqlServer,
-        // UseMySql) by replacing this DbContextOptions builder.
+        // FOSS Gateway ships no DB providers. Commercial variant binaries
+        // (stylobot-commercial repo) bake in their own provider registration
+        // at build time via xcaddy-style composition - no runtime plugin
+        // loading because NativeAOT can't JIT loaded assemblies.
         services.AddDbContext<GatewayDbContext>(_ => { });
 
         return services;
@@ -235,9 +236,9 @@ public static class ServiceCollectionExtensions
             configuration.GetSection(DatabaseOptions.SectionName).Bind(dbOptions);
         }
 
-        // FOSS Gateway ships no DB-specific health checks. Commercial add-on
-        // packs register their own (e.g. AddNpgSql, AddSqlServer) via
-        // IBotDetectionExtension.
+        // FOSS Gateway ships no DB-specific health checks. Commercial variant
+        // binaries register their own (e.g. AddNpgSql, AddSqlServer) at build
+        // time.
 
         return services;
     }

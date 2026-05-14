@@ -238,6 +238,12 @@ var skipDependencyChecks = cmdArgs.Any(a =>
     || a.Equals("--no-deps-check", StringComparison.OrdinalIgnoreCase)
     || a.Equals("--skip-deps", StringComparison.OrdinalIgnoreCase));
 
+// Note: there is no --enable-monitoring flag here because the Console binary
+// is a reverse-proxy + detection host without a dashboard. The ASP.NET
+// monitoring pack lives in projects that host the dashboard (Demo, the
+// stylobot.net website, and commercial variant binaries). To turn it on
+// there, set StyloBot:Dashboard:MonitoringPack:Enabled = true in appsettings.
+
 // Validate TLS cert exists
 if (certPath != null && !File.Exists(certPath))
 {

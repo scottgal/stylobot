@@ -185,10 +185,16 @@ public sealed class StyloBotDashboardOptions
 public sealed class MonitoringPackOptions
 {
     /// <summary>
-    ///     When false, disables the monitoring pack and hides all pack tabs from the dashboard.
-    ///     Default: true. Set to false in appsettings.json to opt out.
+    ///     When false (default), the monitoring pack registers no services, no
+    ///     background collectors, and no dashboard tabs. Operators who want
+    ///     operational metrics opt in via appsettings:
+    ///     <c>StyloBot:Dashboard:MonitoringPack:Enabled = true</c> or the
+    ///     Console flag <c>--enable-monitoring</c>.
+    ///
+    ///     Commercial variant binaries (stylobot-{variant}) flip this to true
+    ///     programmatically so paid customers get monitoring out of the box.
     /// </summary>
-    public bool Enabled { get; set; } = true;
+    public bool Enabled { get; set; }
     public MonitoringMode Mode { get; set; } = MonitoringMode.Local;
     public bool IncludeAspNetHostMeters { get; set; }
     public string? GatewayMetricsUrl { get; set; }

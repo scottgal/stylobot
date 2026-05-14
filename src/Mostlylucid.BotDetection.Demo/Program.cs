@@ -68,6 +68,10 @@ builder.Services.AddStyloBotDashboard(builder.Configuration, options =>
     options.Enabled = true;
     options.BasePath = "/stylobot";
     options.AllowUnauthenticatedAccess = true; // Demo: no auth required
+    // Demo showcases every FOSS feature, so the monitoring pack is on. The
+    // base FOSS binary defaults to MonitoringPack.Enabled = false; operators
+    // opt in via appsettings or by setting this property programmatically.
+    options.MonitoringPack.Enabled = true;
 });
 
 // Add StyloBot Public API (detect, read, me endpoints + API key auth)

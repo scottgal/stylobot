@@ -15,10 +15,12 @@ public class PackUxTests
     }
 
     [Fact]
-    public void MonitoringPackOptions_Enabled_DefaultsToTrue()
+    public void MonitoringPackOptions_Enabled_DefaultsToFalse()
     {
+        // The base FOSS binary ships the monitoring pack disabled so operators
+        // opt in explicitly. Commercial variant binaries flip this to true.
         var opts = new MonitoringPackOptions();
-        Assert.True(opts.Enabled);
+        Assert.False(opts.Enabled);
     }
 
     [Fact]
