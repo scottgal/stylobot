@@ -19,6 +19,55 @@ public sealed class IdentityOptions
     public IdentityDriftOptions Drift { get; set; } = new();
     public IdentityCalibrationOptions Calibration { get; set; } = new();
     public IdentityEngineOptions Engine { get; set; } = new();
+    public IdentityCoordinatorOptions Coordinator { get; set; } = new();
+}
+
+/// <summary>
+///     Bounds and tuning for <c>IdentityProcessingCoordinator</c> — the slow-path queue
+///     that runs Pass 2 / corrections / absorption / EWMA updates / on-demand drift
+///     checks. The fast path (cache hits, L1 confirm wins) does not touch this
+///     coordinator. Under burst, the coordinator sheds rather than blocking — callers
+///     receive a "shed" outcome and use the fast-path default verdict.
+/// </summary>
+public sealed class IdentityCoordinatorOptions
+{
+    /// <summary>Global queue depth cap. Beyond this, oldest item is dropped to admit the new one.</summary>
+    public int MaxQueueDepth { get; set; } = 10_000;
+
+    /// <summary>Per-fingerprint cap on queued items. Burst from a single fp gets coalesced past this.</summary>
+    public int MaxQueuedPerFingerprint { get; set; } = 4;
+
+    /// <summary>
+    ///     A new request finding an in-flight Pass 2 for the same fingerprint younger
+    ///     than this joins as a waiter (coalesces); older than this, the new request is
+    ///     shed and falls back to the fast-path default.
+    /// </summary>
+    public int CoalesceWindowMs { get; set; } = 100;
+
+    /// <summary>Circuit breaker trips when global queue depth exceeds this fraction of <see cref="MaxQueueDepth"/>.</summary>
+    public double BreakerTripThreshold { get; set; } = 0.80;
+
+    /// <summary>Breaker auto-resets when global queue depth drops below this fraction.</summary>
+    public double BreakerResetThreshold { get; set; } = 0.30;
+
+    /// <summary>Breaker only trips after the trip-threshold condition has held this long.</summary>
+    public int BreakerTripHoldSeconds { get; set; } = 5;
+
+    /// <summary>Breaker only resets after the reset-threshold condition has held this long.</summary>
+    public int BreakerResetHoldSeconds { get; set; } = 10;
+
+    /// <summary>Aging boost applied per second a queued item waits — prevents starvation under sustained high-risk load.</summary>
+    public double AgingBoostPerSecond { get; set; } = 0.01;
+
+    /// <summary>
+    ///     Worker pool size. The coordinator runs N independent workers pulling from the
+    ///     priority queue; per-fp ordering is enforced by the inflight tracker (a worker
+    ///     skips items whose fp is already executing). Higher counts give parallelism
+    ///     across fingerprints — important for the manual AI opinion path which can
+    ///     take seconds. 1 keeps the slow path strictly serial (deterministic but slow
+    ///     under any blocking op).
+    /// </summary>
+    public int WorkerCount { get; set; } = 4;
 }
 
 public sealed class IdentityVectorOptions

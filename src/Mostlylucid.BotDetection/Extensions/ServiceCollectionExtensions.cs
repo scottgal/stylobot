@@ -578,6 +578,11 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Identity.IdentityArchetypeRegistry>();
         services.AddSingleton<Identity.IdentityGlobalWeightsCache>();
         services.AddHostedService(sp => sp.GetRequiredService<Identity.IdentityGlobalWeightsCache>());
+        // Slow-path coordinator: bounded queue, priority scheduling, per-fp coalesce,
+        // circuit breaker. Fast path bypasses it; slow path goes through it so adversarial
+        // bursts cannot starve legitimate slow-path enrichment.
+        services.AddSingleton<Identity.IdentityProcessingCoordinator>();
+        services.AddHostedService(sp => sp.GetRequiredService<Identity.IdentityProcessingCoordinator>());
         // Verdict-gate composition: lets SignatureVerdictGate read the metastable cached
         // verdict alongside the per-signature aggregate. Internally returns null when
         // Identity:Enabled is false, so wiring is unconditional and zero-cost when off.
