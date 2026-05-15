@@ -23,6 +23,13 @@ public sealed record Fingerprint
     public double CachedBotProbability { get; init; }
     public string? CachedRiskBand { get; init; }
     public DateTime? CachedScoreUpdatedAt { get; init; }
+
+    /// <summary>
+    ///     EWMA-smoothed fraction of recent matches that landed in the ambiguity band
+    ///     (Pass 2 correction, rotation candidate, L1 confirm fail, allocation). High
+    ///     values reveal boundary-probing — see task #42.
+    /// </summary>
+    public double AmbiguityPersistence { get; init; }
 }
 
 /// <summary>

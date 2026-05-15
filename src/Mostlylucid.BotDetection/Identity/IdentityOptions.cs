@@ -151,6 +151,24 @@ public sealed class IdentityDriftOptions
     ///     as drift; tighter values (e.g. 0.85) reduce noise on slowly-shifting fingerprints.
     /// </summary>
     public double DriftWarningThreshold { get; set; } = 0.92;
+
+    /// <summary>
+    ///     EWMA alpha for the per-fingerprint ambiguity-persistence signal. Each match
+    ///     outcome bumps the EWMA: ambiguity events (Pass 2 correction, rotation candidate,
+    ///     L1 confirm fail, new fingerprint allocation) push toward 1; clean L1 confirm
+    ///     successes push toward 0. The smoothed value reveals fingerprints that
+    ///     persistently live in the boundary band — rare for legit traffic, near-diagnostic
+    ///     for adversarial probing of the gate semantics.
+    /// </summary>
+    public double AmbiguityEwmaAlpha { get; set; } = 0.1;
+
+    /// <summary>
+    ///     Above this <c>ambiguity_persistence</c> value, a fingerprint is flagged as
+    ///     boundary-probing. Emits <c>identity.ambiguity_probing = true</c> as a positive
+    ///     bot signal in its own right. Default 0.4 — a fingerprint that triggers slow
+    ///     path on >40% of recent requests is doing something legitimate clients don't.
+    /// </summary>
+    public double AmbiguityProbingThreshold { get; set; } = 0.4;
 }
 
 public sealed class IdentityCalibrationOptions

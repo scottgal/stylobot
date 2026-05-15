@@ -492,6 +492,22 @@ public static class SignalKeys
     /// </summary>
     public const string IdentitySlowPathShed = "identity.slow_path_shed";
 
+    /// <summary>
+    ///     double in [0,1]: EWMA-smoothed fraction of recent matches for this fingerprint
+    ///     that landed in the ambiguity zone (Pass 2 correction, rotation candidate,
+    ///     L1 confirm fail, allocation). High values reveal a fingerprint that persistently
+    ///     fails to settle into a stable identity — rare for legit traffic, characteristic
+    ///     of an adversary probing the gate semantics. See task #42.
+    /// </summary>
+    public const string IdentityAmbiguityPersistence = "identity.ambiguity_persistence";
+
+    /// <summary>
+    ///     bool: ambiguity_persistence above the configured threshold. Emitted as a
+    ///     positive bot signal in its own right; a flat 30% bot probability bias is
+    ///     applied via a contributor when set.
+    /// </summary>
+    public const string IdentityAmbiguityProbing = "identity.ambiguity_probing";
+
     /// <summary>List of {dim_name, observed, expected}: dims that drifted on a rotation-band match.</summary>
     public const string IdentityRotationDimensions = "identity.rotation_dimensions";
 

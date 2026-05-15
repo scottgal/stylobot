@@ -27,7 +27,8 @@ internal static class IdentitySchema
             inferred_type_changed_at    TEXT NOT NULL,
             cached_bot_probability      REAL NOT NULL DEFAULT 0,
             cached_risk_band            TEXT,
-            cached_score_updated_at     TEXT
+            cached_score_updated_at     TEXT,
+            ambiguity_persistence       REAL NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS fingerprint_keys (
@@ -96,6 +97,32 @@ internal static class IdentitySchema
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = CoreTables;
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    ///     Applies forward-only ALTER TABLE migrations for columns added after the
+    ///     initial schema. SQLite's <c>ALTER TABLE ADD COLUMN</c> has no <c>IF NOT EXISTS</c>
+    ///     clause, so each migration catches the duplicate-column error to stay
+    ///     idempotent.
+    /// </summary>
+    public static async Task MigrateExistingTablesAsync(SqliteConnection conn, CancellationToken ct = default)
+    {
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN ambiguity_persistence REAL NOT NULL DEFAULT 0", ct);
+    }
+
+    private static async Task TryAddColumnAsync(SqliteConnection conn, string sql, CancellationToken ct)
+    {
+        try
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        catch (SqliteException ex) when (ex.Message.Contains("duplicate column", StringComparison.OrdinalIgnoreCase))
+        {
+            // Already migrated; nothing to do.
+        }
     }
 
     /// <summary>

@@ -83,35 +83,42 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             {
                 EmitConfirmedSignals(state, l1Candidate, confirmScore, primarySig);
                 await _store.RecordObservationAsync(l1Candidate.FingerprintId, vector, cancellationToken);
+                // Clean L1 confirm = non-ambiguity event; pulls EWMA toward 0.
+                await BumpAmbiguityAsync(state, l1Candidate.FingerprintId, isAmbiguous: false, cancellationToken);
                 return Array.Empty<DetectionContribution>();
             }
-            // L1 confirm failed; fall through to Pass 2.
+            // L1 confirm failed; fall through to Pass 2 — record this as an ambiguity event
+            // even before Pass 2 runs (the confirm-fail itself is a boundary indicator).
             state.WriteSignal(SignalKeys.IdentityFingerprintL1, l1FingerprintId!);
+            await BumpAmbiguityAsync(state, l1Candidate.FingerprintId, isAmbiguous: true, cancellationToken);
         }
 
-        // Pass 2 + match decision + write — gated by the slow-path coordinator. Bursts on
-        // the same fingerprint coalesce to a "shed" outcome; the matcher then falls back
-        // to whatever fast-path verdict it can produce (the L1 candidate's data, or no
-        // identity signals if there's no L1 candidate yet). This keeps the request path
-        // fast under adversarial pressure and bounds the slow-path resource cost.
-        var coordinatorKey = l1FingerprintId ?? primarySig;
-        var riskScore = l1Candidate?.CachedBotProbability ?? 0.5;
-        var (_, dispatchOutcome) = await _coordinator.RunAsync<bool>(
-            fingerprintId: coordinatorKey,
-            kind: IdentitySlowPathKind.Pass2Match,
-            riskScore: riskScore,
-            operation: ct => RunPass2InternalAsync(state, vector, primarySig, l1Candidate, l1FingerprintId, ct),
-            ct: cancellationToken);
-
-        if (dispatchOutcome == SlowPathDispatchOutcome.Executed)
-            return Array.Empty<DetectionContribution>();
-
-        // Shed: emit the best fast-path default we have. With an L1 candidate we can at
-        // least surface its identity (the centroid is stale-ish but still meaningful);
-        // without one, downstream consumers see no identity signals this request.
-        state.WriteSignal(SignalKeys.IdentitySlowPathShed, dispatchOutcome.ToString());
+        // Coordinator gating only when we have an L1 candidate to fall back to on shed.
+        // First-time identities (no L1 binding) run Pass 2 inline — coalescing them would
+        // emit no identity signals and we'd rather accept the duplicate-fp risk on
+        // concurrent first-allocations (the loser becomes an orphan; no signal gap).
         if (l1Candidate is not null)
+        {
+            var (_, dispatchOutcome) = await _coordinator.RunAsync<bool>(
+                fingerprintId: l1FingerprintId!,
+                kind: IdentitySlowPathKind.Pass2Match,
+                riskScore: l1Candidate.CachedBotProbability,
+                operation: ct => RunPass2InternalAsync(state, vector, primarySig, l1Candidate, l1FingerprintId, ct),
+                ct: cancellationToken);
+
+            if (dispatchOutcome == SlowPathDispatchOutcome.Executed)
+                return Array.Empty<DetectionContribution>();
+
+            // Shed: fall back to the L1 candidate's identity verdict.
+            state.WriteSignal(SignalKeys.IdentitySlowPathShed, dispatchOutcome.ToString());
             EmitConfirmedSignals(state, l1Candidate, matchScore: 0.0, primarySig);
+            return Array.Empty<DetectionContribution>();
+        }
+
+        // No L1: run inline. Concurrent allocations may produce duplicate fps (loser becomes
+        // an orphan, fingerprint_keys upsert resolves to one of them), but every request
+        // still gets identity signals.
+        await RunPass2InternalAsync(state, vector, primarySig, null, null, cancellationToken);
         return Array.Empty<DetectionContribution>();
     }
 
@@ -175,6 +182,10 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             {
                 await _store.UpsertKeyAsync(primarySig, best.FingerprintId, cancellationToken);
             }
+            // Correction = ambiguity event for the Pass 2 winner; clean Pass 2 match (no
+            // L1 disagreement) is also recorded as an ambiguity event because reaching
+            // Pass 2 at all means L1 didn't suffice.
+            await BumpAmbiguityAsync(state, best.FingerprintId, isAmbiguous: true, cancellationToken);
             return true;
         }
 
@@ -183,6 +194,8 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             // Rotation candidate band: assign to the candidate, observe-and-drift, signal it.
             EmitConfirmedSignals(state, best, bestScore, primarySig, rotationCandidate: true);
             await _store.RecordObservationAsync(best.FingerprintId, vector, cancellationToken);
+            // Rotation-band match = ambiguity event by definition.
+            await BumpAmbiguityAsync(state, best.FingerprintId, isAmbiguous: true, cancellationToken);
             return true;
         }
 
@@ -270,6 +283,8 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         if (archetypeOrigin is not null)
             state.WriteSignal(SignalKeys.IdentityClientTypeOrigin, archetypeOrigin);
 
+        // New-fingerprint allocation = ambiguity event by definition (no L1 baseline matched).
+        await BumpAmbiguityAsync(state, newId, isAmbiguous: true, cancellationToken);
         return true;
     }
 
@@ -293,5 +308,35 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         state.WriteSignal(SignalKeys.IdentityCachedBotProbability, matched.CachedBotProbability);
         if (matched.CachedRiskBand is not null)
             state.WriteSignal(SignalKeys.IdentityCachedRiskBand, matched.CachedRiskBand);
+    }
+
+    /// <summary>
+    ///     Bumps the per-fingerprint ambiguity-persistence EWMA and emits
+    ///     <see cref="SignalKeys.IdentityAmbiguityPersistence"/>. When the post-bump value
+    ///     crosses the configured threshold, also emits
+    ///     <see cref="SignalKeys.IdentityAmbiguityProbing"/> as a positive bot signal —
+    ///     the boundary-prober defence's diagnostic output. The bump SQL is atomic
+    ///     (UPDATE ... RETURNING) so concurrent writers cannot lose updates.
+    /// </summary>
+    private async Task BumpAmbiguityAsync(
+        BlackboardState state,
+        string fingerprintId,
+        bool isAmbiguous,
+        CancellationToken ct)
+    {
+        try
+        {
+            var newValue = await _store.BumpAmbiguityPersistenceAsync(
+                fingerprintId, isAmbiguous, _options.Drift.AmbiguityEwmaAlpha, ct);
+            state.WriteSignal(SignalKeys.IdentityAmbiguityPersistence, newValue);
+            if (newValue >= _options.Drift.AmbiguityProbingThreshold)
+                state.WriteSignal(SignalKeys.IdentityAmbiguityProbing, true);
+        }
+        catch (Exception ex)
+        {
+            // The ambiguity meta-signal is best-effort — never let its failure break the
+            // matcher's primary contract (emit identity signals).
+            _logger.LogWarning(ex, "Ambiguity persistence bump failed for fingerprint {Id}", fingerprintId);
+        }
     }
 }

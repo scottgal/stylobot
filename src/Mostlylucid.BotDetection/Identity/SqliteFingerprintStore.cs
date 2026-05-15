@@ -67,6 +67,7 @@ public sealed class SqliteFingerprintStore
             }
 
             await IdentitySchema.CreateCoreTablesAsync(conn, ct);
+            await IdentitySchema.MigrateExistingTablesAsync(conn, ct);
             await EnsureLayoutRowAsync(conn, ct);
 
             // Best-effort sqlite-vec load. The brute-force index is the FOSS default;
@@ -242,7 +243,7 @@ public sealed class SqliteFingerprintStore
                    observation_count, correction_count, first_seen, last_seen, quality,
                    archetype_origin, inferred_client_type, inferred_type_confidence,
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
-                   cached_score_updated_at
+                   cached_score_updated_at, ambiguity_persistence
               FROM fingerprints WHERE fingerprint_id = @id
             """;
         cmd.Parameters.AddWithValue("@id", fingerprintId);
@@ -267,13 +268,13 @@ public sealed class SqliteFingerprintStore
                     observation_count, correction_count, first_seen, last_seen, quality,
                     archetype_origin, inferred_client_type, inferred_type_confidence,
                     inferred_type_changed_at, cached_bot_probability, cached_risk_band,
-                    cached_score_updated_at
+                    cached_score_updated_at, ambiguity_persistence
                 ) VALUES (
                     @id, @centroid, @maturity, @weights, @members,
                     @observations, @corrections, @first_seen, @last_seen, @quality,
                     @origin, @inferred_type, @inferred_conf,
                     @inferred_changed, @cached_prob, @cached_band,
-                    @cached_updated
+                    @cached_updated, @ambiguity
                 )
                 """;
             cmd.Parameters.AddWithValue("@id", fp.FingerprintId);
@@ -294,6 +295,7 @@ public sealed class SqliteFingerprintStore
             cmd.Parameters.AddWithValue("@cached_band", (object?)fp.CachedRiskBand ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@cached_updated",
                 (object?)fp.CachedScoreUpdatedAt?.ToString("O") ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@ambiguity", fp.AmbiguityPersistence);
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
@@ -608,7 +610,7 @@ public sealed class SqliteFingerprintStore
                    observation_count, correction_count, first_seen, last_seen, quality,
                    archetype_origin, inferred_client_type, inferred_type_confidence,
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
-                   cached_score_updated_at
+                   cached_score_updated_at, ambiguity_persistence
               FROM fingerprints
             """;
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -662,7 +664,7 @@ public sealed class SqliteFingerprintStore
                    observation_count, correction_count, first_seen, last_seen, quality,
                    archetype_origin, inferred_client_type, inferred_type_confidence,
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
-                   cached_score_updated_at
+                   cached_score_updated_at, ambiguity_persistence
               FROM fingerprints
              WHERE observation_count > 0
                AND (cached_score_updated_at IS NULL OR cached_score_updated_at < @cutoff)
@@ -725,6 +727,34 @@ public sealed class SqliteFingerprintStore
         cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    ///     Atomically EWMA-updates the per-fingerprint ambiguity-persistence value and
+    ///     returns the post-update value. <paramref name="isAmbiguityEvent"/> = true pushes
+    ///     toward 1 (Pass 2 correction, rotation candidate, L1 confirm fail, allocation),
+    ///     false pushes toward 0 (clean L1 confirm success). EWMA is computed in SQL so
+    ///     concurrent writers can't lose updates — SQLite serialises UPDATEs to the same
+    ///     row. Uses RETURNING for the atomic post-write read.
+    /// </summary>
+    public async Task<double> BumpAmbiguityPersistenceAsync(
+        string fingerprintId, bool isAmbiguityEvent, double alpha, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE fingerprints
+               SET ambiguity_persistence = ((1 - @alpha) * ambiguity_persistence) + (@alpha * @ev)
+             WHERE fingerprint_id = @id
+            RETURNING ambiguity_persistence
+            """;
+        cmd.Parameters.AddWithValue("@alpha", alpha);
+        cmd.Parameters.AddWithValue("@ev", isAmbiguityEvent ? 1.0 : 0.0);
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        var result = await cmd.ExecuteScalarAsync(ct);
+        return result is null or DBNull ? 0.0 : Convert.ToDouble(result);
     }
 
     /// <summary>
@@ -927,7 +957,8 @@ public sealed class SqliteFingerprintStore
         CachedRiskBand = reader.IsDBNull(15) ? null : reader.GetString(15),
         CachedScoreUpdatedAt = reader.IsDBNull(16)
             ? null
-            : DateTime.Parse(reader.GetString(16), null, System.Globalization.DateTimeStyles.RoundtripKind)
+            : DateTime.Parse(reader.GetString(16), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        AmbiguityPersistence = reader.GetDouble(17)
     };
 
     /// <summary>
