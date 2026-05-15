@@ -62,8 +62,6 @@
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.SlidingCache" Version="2.5.0" />
         <PackageReference Include="Mostlylucid.Ephemeral.Atoms.Batching" Version="2.5.0" />
         <PackageReference Include="HNSW" Version="26.4.177" />
-        <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.26.0" />
-        <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
         <PackageReference Include="System.Numerics.Tensors" Version="10.0.8" />
         <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
         <PackageReference Include="Microsoft.Recognizers.Text" Version="1.8.13" />

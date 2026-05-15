@@ -109,16 +109,16 @@ Available via `Algorithm=label_propagation`:
 4. Converge when no labels change (or after `MaxIterations`)
 5. Groups with >= `MinClusterSize` (default: 3) members become clusters
 
-### Semantic Embeddings (Optional)
+### Behavioural-Vector Axis (Optional)
 
-When `EnableSemanticEmbeddings=true` (default), the similarity graph edges blend heuristic and semantic similarity:
+When `EnableBehaviouralVectorAxis=true` (default) and the metastable identity layer is enabled, the similarity graph edges blend the heuristic axis with the per-fingerprint behavioural centroid:
 
 - **Heuristic similarity** (60%): 12-dimensional feature vector comparison (see table above)
-- **Semantic similarity** (40%): Cosine similarity of 384-dim ONNX embeddings (all-MiniLM-L6-v2)
+- **Behavioural-vector similarity** (40%): Cosine similarity of `fingerprints.centroid` — the stabilised learned shape from the metastable identity layer (~110 dims; per-fp + global Fisher-weighted)
 
-The semantic embedding is generated from a privacy-safe text representation of each signature's behavioral characteristics (no raw IP/UA). This helps detect behavioral patterns that are similar in meaning but differ in exact feature values.
+The centroid is the actual learned shape from real observations, not a text embedding of pre-aggregated features. This replaced the prior ONNX `all-MiniLM-L6-v2` text-embedding axis in 6.4.7 — embedding a hand-summarised string was a workaround for not having a real behavioural vector; the metastable centroid is the real thing.
 
-Configure the blend via `SemanticWeight` (0.0 = heuristic only, 1.0 = semantic only).
+Configure the blend via `BehaviouralVectorWeight` (0.0 = heuristic only, 1.0 = behavioural-vector only). When Identity is disabled or a signature has no resolved fingerprint binding, similarity falls back to the heuristic axis only.
 
 ### Cross-Correlation Boost
 

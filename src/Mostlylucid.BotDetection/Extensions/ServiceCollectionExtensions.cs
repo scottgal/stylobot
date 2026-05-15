@@ -262,7 +262,6 @@ public static class ServiceCollectionExtensions
             return new BotListDatabase(fetcher, logger, options.DatabasePath);
         });
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ISetupResource, BotListSetupResource>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<ISetupResource, OnnxSetupResource>());
         services.TryAddSingleton<SetupService>();
         return services;
     }
@@ -815,14 +814,6 @@ public static class ServiceCollectionExtensions
 
         // Intent vectorizer (threat scoring via session intent patterns)
         services.TryAddSingleton<IntentVectorizer>();
-
-        // ONNX embedding provider (optional - for ML-powered similarity)
-        services.TryAddSingleton<IEmbeddingProvider>(sp =>
-        {
-            var opts = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value;
-            var logger = sp.GetRequiredService<ILogger<OnnxEmbeddingProvider>>();
-            return new OnnxEmbeddingProvider(opts.Embedding, opts.DatabasePath, logger);
-        });
 
         // SQLite centroid stores - share the same DB file as the session store.
         // Compute the path directly from BotDetectionOptions (same logic as SqliteSessionStore)

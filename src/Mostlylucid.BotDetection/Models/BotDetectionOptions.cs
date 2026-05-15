@@ -540,12 +540,6 @@ public class BotDetectionOptions
     }
 
     /// <summary>
-    ///     Embedding model configuration for ONNX-based semantic similarity.
-    ///     FOSS uses an in-process ONNX runtime; commercial may swap in a vector DB backend.
-    /// </summary>
-    public EmbeddingOptions Embedding { get; set; } = new();
-
-    /// <summary>
     ///     Identity (metastable fingerprint) match configuration. See
     ///     docs/architecture/fingerprint-match.md for the full design.
     /// </summary>
@@ -3243,8 +3237,14 @@ public class ClusterOptions
     /// <summary>Number of new bot detections that trigger an early clustering run. Default: 20</summary>
     public int MinBotDetectionsToTrigger { get; set; } = 20;
 
-    /// <summary>Enable semantic embeddings in clustering. Default: true</summary>
-    public bool EnableSemanticEmbeddings { get; set; } = true;
+    /// <summary>
+    ///     Enable the behavioural-vector axis in clustering similarity. When true and the
+    ///     metastable identity layer is on, similarity blends per-fp centroid cosine into
+    ///     the heuristic similarity score by <see cref="BehaviouralVectorWeight"/>. When
+    ///     false, or when no centroid resolves for a signature, similarity uses the
+    ///     numeric/categorical heuristic axis only. Default: true.
+    /// </summary>
+    public bool EnableBehaviouralVectorAxis { get; set; } = true;
 
     /// <summary>Clustering algorithm: "leiden" or "label_propagation". Default: leiden</summary>
     public string Algorithm { get; set; } = "leiden";
@@ -3252,8 +3252,14 @@ public class ClusterOptions
     /// <summary>Leiden resolution parameter (higher = more/smaller clusters). Default: 1.0</summary>
     public double LeidenResolution { get; set; } = 1.0;
 
-    /// <summary>Weight for semantic similarity vs heuristic (0-1). Default: 0.4</summary>
-    public double SemanticWeight { get; set; } = 0.4;
+    /// <summary>
+    ///     Weight (0..1) of the behavioural-vector cosine relative to the heuristic
+    ///     similarity score when both are available. Replaces the prior text-embedding
+    ///     blend weight; the axis is now the metastable centroid (~110 dims of stabilised
+    ///     learned shape) rather than 384 dims of all-MiniLM-L6-v2 text embedding.
+    ///     Default: 0.4.
+    /// </summary>
+    public double BehaviouralVectorWeight { get; set; } = 0.4;
 
     /// <summary>Enable LLM-generated cluster descriptions. Default: false</summary>
     public bool EnableLlmDescriptions { get; set; }
@@ -3970,28 +3976,6 @@ public class ProjectHoneypotOptions
     ///     Default: true
     /// </summary>
     public bool TreatSuspiciousAsSuspicious { get; set; } = true;
-}
-
-/// <summary>
-///     ONNX embedding model configuration. The FOSS product runs embeddings
-///     in-process; a commercial backend may use this to drive an external vector store.
-/// </summary>
-public class EmbeddingOptions
-{
-    /// <summary>Enable ML embeddings via ONNX (augments heuristic vectors with semantic similarity).</summary>
-    public bool EnableEmbeddings { get; set; }
-
-    /// <summary>ONNX model file name for embeddings (default: all-MiniLM-L6-v2.onnx).</summary>
-    public string EmbeddingModel { get; set; } = "all-MiniLM-L6-v2.onnx";
-
-    /// <summary>
-    ///     Allow automatic download of ONNX model assets when they are missing.
-    ///     Disabled by default to keep runtime behavior offline by default.
-    /// </summary>
-    public bool AutoDownloadEmbeddingModel { get; set; }
-
-    /// <summary>Embedding vector dimension (384 for all-MiniLM-L6-v2).</summary>
-    public int EmbeddingDimension { get; set; } = 384;
 }
 
 /// <summary>

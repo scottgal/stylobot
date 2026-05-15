@@ -22,8 +22,10 @@ namespace Mostlylucid.BotDetection.Services;
 ///       well-connected communities. Better quality than Label Propagation.
 ///     - Label Propagation (fallback): Fast, simple algorithm for compatibility.
 ///
-///     Optionally blends semantic embeddings (ONNX all-MiniLM-L6-v2) with heuristic features
-///     for improved similarity scoring.
+///     When the metastable identity layer is enabled, blends per-fingerprint centroid
+///     cosine into the heuristic similarity by <c>BehaviouralVectorWeight</c>. The
+///     centroid is the actual learned behavioural shape — strictly higher fidelity than
+///     the prior text-embedding axis it replaced.
 ///
 ///     After clustering completes, fires an event for background LLM description generation
 ///     (never blocks the request pipeline).
@@ -40,10 +42,14 @@ public class BotClusterService : BackgroundService
     private readonly ILicenseState _licenseState;
     private readonly ClusterOptions _options;
     private readonly SignatureCoordinator _signatureCoordinator;
-    private readonly IEmbeddingProvider? _embeddingProvider;
+    private readonly Identity.SqliteFingerprintStore? _fingerprintStore;
     private readonly MarkovTracker? _markovTracker;
     private readonly AdaptiveSimilarityWeighter? _adaptiveWeighter;
     private readonly UaProfileStore? _uaProfileStore;
+    // Per-RunClustering snapshot of the centroid axis. Built once per cluster pass via
+    // SqliteFingerprintStore.GetCentroidsBySignaturesAsync — single round-trip rather
+    // than N lookups during BuildFeatureVectors.
+    private IReadOnlyDictionary<string, float[]>? _centroidsForCurrentRun;
 
     // Event-driven trigger: counts new bot detections since last clustering run
     private int _botDetectionsSinceLastRun;
@@ -62,7 +68,7 @@ public class BotClusterService : BackgroundService
         IOptions<BotDetectionOptions> options,
         SignatureCoordinator signatureCoordinator,
         ILicenseState licenseState,
-        IEmbeddingProvider? embeddingProvider = null,
+        Identity.SqliteFingerprintStore? fingerprintStore = null,
         MarkovTracker? markovTracker = null,
         AdaptiveSimilarityWeighter? adaptiveWeighter = null,
         UaProfileStore? uaProfileStore = null,
@@ -72,16 +78,16 @@ public class BotClusterService : BackgroundService
         _options = options.Value.Cluster;
         _signatureCoordinator = signatureCoordinator;
         _licenseState = licenseState;
-        _embeddingProvider = embeddingProvider;
+        _fingerprintStore = fingerprintStore;
         _markovTracker = markovTracker;
         _adaptiveWeighter = adaptiveWeighter;
         _uaProfileStore = uaProfileStore;
         _loadSensor = loadSensor;
 
-        if (_options.EnableSemanticEmbeddings && _embeddingProvider != null)
+        if (_options.EnableBehaviouralVectorAxis && _fingerprintStore != null)
             _logger.LogInformation(
-                "Semantic embeddings enabled for clustering (dimension={Dim}, weight={Weight:F2})",
-                _embeddingProvider.Dimension, _options.SemanticWeight);
+                "Behavioural-vector axis enabled for clustering (source: metastable centroids, weight={Weight:F2})",
+                _options.BehaviouralVectorWeight);
     }
 
     /// <summary>
@@ -269,7 +275,26 @@ public class BotClusterService : BackgroundService
             return;
         }
 
-        // 2. Build feature vectors (includes spectral analysis + optional semantic embeddings)
+        // 2. Build feature vectors (spectral analysis + optional behavioural-vector axis
+        //    sourced from the metastable identity layer's centroids).
+        if (_options.EnableBehaviouralVectorAxis && _fingerprintStore != null)
+        {
+            try
+            {
+                var sigs = behaviors.Select(b => b.Signature).ToList();
+                _centroidsForCurrentRun = _fingerprintStore
+                    .GetCentroidsBySignaturesAsync(sigs).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Centroid lookup failed; clustering uses heuristic axis only this pass");
+                _centroidsForCurrentRun = null;
+            }
+        }
+        else
+        {
+            _centroidsForCurrentRun = null;
+        }
         var features = BuildFeatureVectors(behaviors);
 
         // 2.5. Build spectral cache
@@ -441,8 +466,13 @@ public class BotClusterService : BackgroundService
         public SpectralFeatures? Spectral { get; init; }
         public double[]? Intervals { get; init; }
 
-        /// <summary>384-dim semantic embedding from ONNX model, or null if unavailable.</summary>
-        public float[]? SemanticEmbedding { get; init; }
+        /// <summary>
+        ///     Behavioural centroid pulled from the metastable identity layer
+        ///     (<c>fingerprints.centroid</c>), or null when Identity is disabled or this
+        ///     signature has no resolved fingerprint binding. ~110 dims of stabilised
+        ///     learned shape; replaces the prior 384-dim text-embedding hack.
+        /// </summary>
+        public float[]? BehaviouralCentroid { get; init; }
 
         // Enriched geo fields
         public double? Latitude { get; init; }
@@ -471,8 +501,7 @@ public class BotClusterService : BackgroundService
 
     internal List<FeatureVector> BuildFeatureVectors(IReadOnlyList<SignatureBehavior> behaviors)
     {
-        var useEmbeddings = _options.EnableSemanticEmbeddings
-                            && _embeddingProvider is { IsAvailable: true };
+        var centroids = _centroidsForCurrentRun;
 
         return behaviors.Select(b =>
         {
@@ -492,40 +521,11 @@ public class BotClusterService : BackgroundService
                 spectral = SpectralFeatureExtractor.Extract(intervals);
             }
 
-            // Generate semantic embedding from behavioral text (privacy-safe: no raw IP/UA)
-            float[]? embedding = null;
-            if (useEmbeddings)
-            {
-                var topPaths = string.Join(",",
-                    b.Requests.GroupBy(r => r.Path)
-                        .OrderByDescending(g => g.Count())
-                        .Take(5)
-                        .Select(g => g.Key));
-
-                // Derive path-based intent heuristics from request history
-                var intentPart = "";
-                var probePaths = b.Requests.Count(r =>
-                    r.Path.Contains(".env", StringComparison.OrdinalIgnoreCase) ||
-                    r.Path.Contains("wp-login", StringComparison.OrdinalIgnoreCase) ||
-                    r.Path.Contains("/admin", StringComparison.OrdinalIgnoreCase) ||
-                    r.Path.Contains("/.git", StringComparison.OrdinalIgnoreCase) ||
-                    r.Path.Contains("phpmyadmin", StringComparison.OrdinalIgnoreCase));
-                if (probePaths > 0)
-                    intentPart += $" | PROBE_PATHS:{probePaths}";
-                if (b.AverageBotProbability > 0.7)
-                    intentPart += $" | HIGH_BOT_PROB:{b.AverageBotProbability:F2}";
-                if (b.IsAberrant)
-                    intentPart += " | ABERRANT";
-
-                var embeddingText =
-                    $"RATE:{requestRate:F1}/min | PATHS:{topPaths} | " +
-                    $"ENTROPY:{b.PathEntropy:F2} | TIMING_CV:{b.TimingCoefficient:F2} | " +
-                    $"COUNTRY:{b.CountryCode ?? "?"} | ASN:{b.Asn ?? "?"} | " +
-                    $"DC:{b.IsDatacenter} | BOT_PROB:{b.AverageBotProbability:F2}" +
-                    intentPart;
-
-                embedding = _embeddingProvider!.GenerateEmbedding(embeddingText);
-            }
+            // Behavioural axis: the fingerprint's stabilised centroid from the metastable
+            // identity layer. Absent when Identity is off or this signature has no
+            // fingerprint binding yet — in either case ComputeBlendedSimilarity falls
+            // back to the heuristic axis only.
+            float[]? centroid = centroids?.GetValueOrDefault(b.Signature);
 
             // Get Markov drift signals (single call per signature)
             var drift = _markovTracker?.GetDriftSignals(
@@ -546,7 +546,7 @@ public class BotClusterService : BackgroundService
                 LastSeen = b.LastSeen,
                 Spectral = spectral,
                 Intervals = intervals,
-                SemanticEmbedding = embedding,
+                BehaviouralCentroid = centroid,
                 // Enriched geo
                 Latitude = b.Latitude,
                 Longitude = b.Longitude,
@@ -586,12 +586,15 @@ public class BotClusterService : BackgroundService
         var weights = _currentWeights ?? _adaptiveWeighter?.GetDefaultWeights();
         var heuristicSim = ComputeSimilarity(a, b, weights);
 
-        // If both have semantic embeddings, blend with heuristic
-        if (a.SemanticEmbedding != null && b.SemanticEmbedding != null)
+        // When both signatures resolved to a metastable centroid, blend the cosine of
+        // the learned shape into the heuristic similarity. Same blend formula the prior
+        // text-embedding axis used; the input is now an actual learned vector instead
+        // of a 384-dim approximation of a hand-summarised string.
+        if (a.BehaviouralCentroid != null && b.BehaviouralCentroid != null
+            && a.BehaviouralCentroid.Length == b.BehaviouralCentroid.Length)
         {
-            var cosineSim = CosineSimilarity(a.SemanticEmbedding, b.SemanticEmbedding);
-            // Blend: (1-w)*heuristic + w*semantic
-            var w = _options.SemanticWeight;
+            var cosineSim = CosineSimilarity(a.BehaviouralCentroid, b.BehaviouralCentroid);
+            var w = _options.BehaviouralVectorWeight;
             return (1.0 - w) * heuristicSim + w * cosineSim;
         }
 
@@ -763,8 +766,10 @@ public class BotClusterService : BackgroundService
     private static double CosineSimilarity(float[] a, float[] b)
     {
         var dot = TensorPrimitives.Dot(a, b);
-        // Embeddings are already L2-normalized by OnnxEmbeddingProvider
-        // so cosine similarity = dot product, mapped from [-1,1] to [0,1]
+        // Inputs are L2-normalised at composition time (IdentityVectorEncoder for
+        // metastable centroids; the same invariant the matcher and drift verifier rely
+        // on), so cosine similarity collapses to a dot product. Map from [-1,1] to [0,1]
+        // for the cluster blend.
         return (dot + 1.0) / 2.0;
     }
 

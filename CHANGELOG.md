@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 6.4.7
 
+### Removed — ONNX text embeddings; clustering uses metastable centroids
+
+The `OnnxEmbeddingProvider` (and its `IEmbeddingProvider` interface, `OnnxSetupResource`, and `EmbeddingOptions` config) is gone. It existed as a workaround for not having a real behavioural vector — embedded a hand-summarised text string (`RATE:42/min | PATHS:/wp-login,/.env | COUNTRY:RU | ...`) through `all-MiniLM-L6-v2` to fake similarity over numeric features we already had natively. With the metastable identity layer landing in this release, that workaround is strictly worse than the alternative: the per-fingerprint centroid is the actual learned shape, weighted by per-fp + global Fisher.
+
+- **`BotClusterService`** now reads `fingerprints.centroid` via the new `SqliteFingerprintStore.GetCentroidsBySignaturesAsync` (single round-trip per cluster pass) and feeds the cosine of the centroid into the cluster similarity blend at the same weight the prior text-embedding axis used. Same Leiden algorithm, same blend formula — better vector. Falls back to heuristic-only similarity when Identity is disabled or a signature has no resolved fingerprint binding.
+- **`ClusterOptions.EnableSemanticEmbeddings` → `EnableBehaviouralVectorAxis`**, **`SemanticWeight` → `BehaviouralVectorWeight`**. Defaults preserved (true / 0.4). `BotDetection:Embedding:*` config block is silently ignored — operators with old `Embedding` entries can delete them.
+- **Packages dropped:** `Microsoft.ML.OnnxRuntime`, `Microsoft.ML.Tokenizers`. Native binary footprint reduction across rids; AOT path improves (these packages had known AOT trim issues).
+- **Operator action:** if you'd downloaded the `all-MiniLM-L6-v2.onnx` model file (~90 MB), you can delete it. Cluster output may shift slightly because the input vector changed from text-embedding-of-summary to learned-behavioural-shape — this is an upgrade in fidelity, not a regression. UA-family clustering is preserved via the existing `UaFamily` categorical match boost (heuristically parsed from UA string).
+
+
 ### Added — Metastable fingerprint identity
 
 A new identity layer that treats each visitor as a *shape* (a learned vector centroid + per-fingerprint weight vector + observation cloud) rather than a single hash. Replaces the load-bearing role of `PrimarySignature` (HMAC of IP + UA) for visitors whose IP or UA rotates. Reads `PrimarySignature` first as a fast L1 point lookup; falls back to a vector cosine search (L2) when the rotation guarantee doesn't hold. Dormant by default; flip on with `BotDetection:Identity:Enabled = true`.

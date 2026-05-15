@@ -703,6 +703,58 @@ public sealed class SqliteFingerprintStore
     }
 
     /// <summary>
+    ///     Batch lookup: resolves each primary signature to its fingerprint's centroid in
+    ///     a single round-trip. Used by <c>BotClusterService</c> as the behavioural-vector
+    ///     axis for similarity scoring — the metastable centroid is the actual learned
+    ///     shape, replacing the prior text-embedding hack. Signatures with no fingerprint
+    ///     binding are absent from the result; callers fall back to heuristic-only
+    ///     similarity for them.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, float[]>> GetCentroidsBySignaturesAsync(
+        IReadOnlyCollection<string> primarySignatures, CancellationToken ct = default)
+    {
+        if (primarySignatures.Count == 0)
+            return new Dictionary<string, float[]>(StringComparer.OrdinalIgnoreCase);
+
+        await EnsureInitialisedAsync(ct);
+        var result = new Dictionary<string, float[]>(StringComparer.OrdinalIgnoreCase);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        // Inline IN-clause via parameterised placeholders. SQLite tolerates large IN lists
+        // (limit defaults to 250k); cluster batches are O(hundreds), well under.
+        var sb = new System.Text.StringBuilder();
+        sb.Append("""
+            SELECT k.primary_signature, f.centroid
+              FROM fingerprint_keys k
+              JOIN fingerprints f ON f.fingerprint_id = k.fingerprint_id
+             WHERE k.primary_signature IN (
+            """);
+        var i = 0;
+        foreach (var _ in primarySignatures)
+        {
+            if (i > 0) sb.Append(',');
+            sb.Append('@').Append('p').Append(i);
+            i++;
+        }
+        sb.Append(')');
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = sb.ToString();
+        i = 0;
+        foreach (var sig in primarySignatures)
+        {
+            cmd.Parameters.AddWithValue($"@p{i}", sig);
+            i++;
+        }
+
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            result[reader.GetString(0)] = BlobToFloats((byte[])reader.GetValue(1));
+        return result;
+    }
+
+    /// <summary>
     ///     Counts of unabsorbed observation rows grouped by fingerprint id. Returned as a
     ///     dictionary keyed by fingerprint id so a dashboard listing can join in C# without
     ///     N+1 queries. Materialised; reader closes before return.

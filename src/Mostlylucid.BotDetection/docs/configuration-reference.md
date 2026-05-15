@@ -411,10 +411,10 @@ Bot cluster detection via Leiden/label propagation clustering.
 | `NetworkTemporalDensityThreshold` | `double` | `0.6` | Threshold for "Bot Network" classification |
 | `MinBotProbabilityForClustering` | `double` | `0.5` | Minimum avg bot probability to enter clustering |
 | `MinBotDetectionsToTrigger` | `int` | `20` | New detections that trigger early clustering run |
-| `EnableSemanticEmbeddings` | `bool` | `true` | Enable semantic embeddings in clustering |
+| `EnableBehaviouralVectorAxis` | `bool` | `true` | Blend per-fp metastable centroid cosine with heuristic features (requires `Identity:Enabled = true`; 6.4.7+) |
 | `Algorithm` | `string` | `"leiden"` | Clustering algorithm: `leiden` or `label_propagation` |
 | `LeidenResolution` | `double` | `1.0` | Leiden resolution (higher = more/smaller clusters) |
-| `SemanticWeight` | `double` | `0.4` | Weight for semantic vs heuristic similarity (0-1) |
+| `BehaviouralVectorWeight` | `double` | `0.4` | Weight for behavioural-vector vs heuristic similarity (0-1) |
 | `EnableLlmDescriptions` | `bool` | `false` | Enable LLM-generated cluster descriptions |
 | `DescriptionModel` | `string` | `"qwen3:0.6b"` | LLM model for cluster descriptions |
 | `DescriptionEndpoint` | `string?` | `null` | Ollama endpoint for descriptions (null = use main) |
@@ -459,10 +459,6 @@ Section path: `BotDetection:Qdrant`
 | `Endpoint` | `string` | `"http://localhost:6334"` | Qdrant gRPC endpoint |
 | `CollectionName` | `string` | `"stylobot-signatures"` | Collection name for signature vectors |
 | `VectorDimension` | `int` | `64` | Vector dimension for heuristic features |
-| `EnableEmbeddings` | `bool` | `false` | Enable ML embeddings via ONNX |
-| `EmbeddingModel` | `string` | `"all-MiniLM-L6-v2.onnx"` | ONNX model file for embeddings |
-| `AutoDownloadEmbeddingModel` | `bool` | `false` | Allow automatic download of missing ONNX model assets |
-| `EmbeddingDimension` | `int` | `384` | Embedding vector dimension |
 
 ## Whitelists and Customization
 
