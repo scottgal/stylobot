@@ -81,6 +81,30 @@ Rotation-candidate semantics (LOOSE <= score < MERGE):
 
 Detectors run regardless of either pass; fingerprint match is orthogonal to bot-vs-human verdict.
 
+**L1-confirmed is "trust the identity, fast-respond, still observe."** It is never "trust and do nothing." Two consequences:
+
+1. **Cached per-fingerprint verdict served immediately.** Each fingerprint row carries `cached_bot_probability` (EWMA over recent observations' classifier verdicts) and `cached_risk_band`. The L1 confirm path reads these and emits them as `identity.cached_bot_probability` / `identity.cached_risk_band` signals so action policies and the deterministic bot/human verdict use the fingerprint's *learned* prior, not just this request's in-line score. Humans benefit (their cached score is low, response is fast). Bots pretending to be a known-good fingerprint don't (their cached score climbs as drift accumulates).
+
+2. **Background L2 re-verification samples L1-confirmed observations.** A separate component, `FingerprintDriftService`, periodically pulls sampled observations from the L1-confirm queue and runs a full Pass 2 against them. When delayed L2 disagrees with the L1-cached `fingerprint_id`, it records a *delayed correction* (same row shape as a real-time correction) and updates `fingerprint_keys` so the next L1 hit goes to the right fingerprint. The cached_bot_probability EWMA is also updated by this service (and by the absorption service, on the same in-memory recent-classifier-verdict cache).
+
+Together these guard against the pass-as-human-then-drift-to-bot failure mode: a fingerprint that L1 confirms today on the Chrome-desktop centroid can have its centroid drift toward headless-chrome over subsequent observations, surface as `identity.client_type_drift`, AND have its `cached_bot_probability` climb so the *next* L1-confirmed request to the same fingerprint already serves a higher risk band. No request ever pays Pass 2 cost on the hot path; drift is caught and propagated entirely off-band.
+
+### Feedback latency tiers
+
+Feedback must propagate fast or it isn't really feedback. Each loop runs at the latency it can afford and that the data warrants:
+
+| Loop                            | Cadence                | Notes |
+|---------------------------------|------------------------|-------|
+| `cached_bot_probability` EWMA   | every request, in-line | Each post-detection verdict immediately EWMA-updates the matched fingerprint's row (single in-memory dictionary, write-through to SQLite on a short batch). Next request to the same fingerprint reads the updated score in L1 confirm. Zero-latency feedback for the served verdict. |
+| Drift verification (delayed L2) | every few seconds      | `FingerprintDriftService` ticks at `DriftCheckIntervalSeconds` (default 5). Each tick pulls up to `DriftBatchSize` (default 50) sampled observations, runs Pass 2 against each, records delayed corrections, updates `fingerprint_keys`. Drift surfaces within seconds, not hours. |
+| Per-fingerprint absorption      | per fingerprint, on maturity threshold | Hot fingerprints fire absorption every few seconds (their threshold of 5 requests fills fast); cold fingerprints absorb when maturity or age threshold trips. Each absorption recomputes inferred_client_type and emits drift signal if it changed. |
+| Global weights calibration      | every 30 min (default) | Fisher ratios over the dataset move slowly; running this less frequently is fine. Operator-tunable. |
+| Archetype refinement            | same cycle as calibration | Bundled with the calibration tick. |
+
+The hot path serves the cached score from the previous tick of the loop. The previous tick had at most a few seconds of staleness for drift, near-zero for the cached bot probability, and 30 min for global calibration weights — and the in-line classifier pipeline still runs every request, so gross misclassification always gets corrected within the same response, not only on the next one.
+
+Sampling rate for the drift-verification queue is configurable (`DriftSamplingRate`, default 0.05 — 5% of L1-confirmed requests get re-verified by L2 in the background); the slow-path classifier detectors always run regardless of sampling.
+
 Cost profile by traffic shape:
 - Stable human (L1 hit, confirm passes): one point lookup, one cosine. ≪ 1 ms.
 - Returning visitor with mild drift (L1 hit, confirm passes at lower margin): same as above.
@@ -521,7 +545,8 @@ Every component named so far is a node in one closed loop. Each cycle improves t
                                │
                                ▼
               ┌─────────────────────────────────────┐
-              │ Background absorption (per fp)      │
+              │ Background absorption (per fp,      │
+              │ fires per maturity threshold)       │
               │  • fold mature/aged observations    │
               │    into centroid (maturity-mean)    │
               │  • signal 2: per-fp stability       │
@@ -530,7 +555,19 @@ Every component named so far is a node in one closed loop. Each cycle improves t
               │    → emit drift if changed          │
               └────────────────┬────────────────────┘
                                │
-                               ▼
+                               ├──────────────────────────────────────┐
+                               │                                      ▼
+                               │            ┌──────────────────────────────────────┐
+                               │            │ FingerprintDriftService              │
+                               │            │ (every ~5 s)                         │
+                               │            │  • pull sampled L1-confirmed obs     │
+                               │            │  • run delayed Pass 2 against each   │
+                               │            │  • record delayed corrections        │
+                               │            │  • update fingerprint_keys & cached  │
+                               │            │    bot probability EWMA              │
+                               │            └─────────────────┬────────────────────┘
+                               │                              │
+                               ▼                              ▼
               ┌─────────────────────────────────────┐
               │ BotClusterService (Leiden)          │
               │  → cluster labels per fingerprint   │
@@ -617,6 +654,8 @@ Identity:
     AbsorptionMaturityThreshold = 5         # absorb obs after fingerprint sees N more requests
     AbsorptionAgeDays           = 30        # absorb obs older than this on active fingerprints
     ActiveWindowDays            = 90        # fingerprint counts as active if observed within
+    ObservationSamplingRate     = 1.0       # fraction of L1-confirmed requests to record obs for
+                                            # (1.0 = every request; 0.1 = 10% sample on very hot fps)
   Match:
     MergeThreshold              = 0.92      # weighted-cosine score for confident match
     LooseThreshold              = 0.75      # below this, allocate new fingerprint
@@ -673,5 +712,9 @@ Each item should be checkable against the body above.
 27. **Archetype scan happens only on the new-fingerprint branch.** Lookup mechanics step 5 references it; the matcher never scans archetypes for confirmed matches or rotation candidates.
 28. **Closed-loop learning system.** Eight named feedback paths, each writing a DB row that the next request reads. No terminal nodes, no separate training step. Stated in the learning feedback section.
 29. **One component per loop node.** Each named C# class owns exactly one node in the feedback diagram. Components communicate through DB rows, never directly. Restarting any one resumes the loop from its last persisted output.
+30. **L1-confirmed still observes.** Pass 1 confirm is "trust the identity, fast-respond, still observe" — never "trust and skip". Every confirmed match writes an observation row (subject to ObservationSamplingRate) and the full classifier pipeline still runs. Background absorption then drives drift detection. Stated in the two-pass section after the cost profile.
+31. **Cached fingerprint-level verdict served in L1.** Each fingerprint row carries `cached_bot_probability` and `cached_risk_band`. L1 confirm reads them and emits as signals so action policies use the fingerprint's *learned* prior, not just this request's in-line score. Stated in the L1-still-observes consequences.
+32. **FingerprintDriftService runs delayed L2 verification.** Distinct from the absorption service. Pulls sampled observations from the L1-confirm queue every few seconds, runs Pass 2, records delayed corrections, updates fingerprint_keys. Stated in the L1-still-observes consequences and in the loop diagram (extra node).
+33. **Latency tiers for feedback are explicit.** `cached_bot_probability` updates per request in-line; drift verification runs every few seconds; absorption fires per-fp on maturity threshold; global calibration runs every 30 min. The hot path serves the previous tick of every loop. Stated in the feedback latency tiers table.
 
 If any item above doesn't check out against the body, the body is wrong.

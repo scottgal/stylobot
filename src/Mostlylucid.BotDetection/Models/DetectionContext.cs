@@ -456,6 +456,58 @@ public static class SignalKeys
     /// <summary>String (JSON): HMAC hashes of discriminatory headers. Written by SignatureContributor.</summary>
     public const string HeaderHashes = "signature.header_hashes";
 
+    // Identity (metastable fingerprint match)
+    // See docs/architecture/fingerprint-match.md
+    // ==========================================
+
+    /// <summary>float[D]: composed identity feature vector. Written by IdentityVectorContributor.</summary>
+    public const string IdentityVector = "identity.vector";
+
+    /// <summary>double in [0,1]: average dimension-presence ratio for the composed vector.</summary>
+    public const string IdentityVectorQuality = "identity.vector_quality";
+
+    /// <summary>String (UUID): the matched (or newly allocated) fingerprint shape. Written by FingerprintMatchContributor.</summary>
+    public const string IdentityFingerprintId = "identity.fingerprint_id";
+
+    /// <summary>String (UUID): Pass 1's L1 candidate (may differ from final fingerprint_id).</summary>
+    public const string IdentityFingerprintL1 = "identity.fingerprint_l1";
+
+    /// <summary>double: weighted-cosine score of the winning match.</summary>
+    public const string IdentityMatchScore = "identity.match_score";
+
+    /// <summary>bool: set when this request allocated a new fingerprint.</summary>
+    public const string IdentityIsNewFingerprint = "identity.is_new_fingerprint";
+
+    /// <summary>bool: set when L1 and L2 disagreed on the fingerprint.</summary>
+    public const string IdentityIsCorrection = "identity.is_correction";
+
+    /// <summary>bool: set when match score landed in [LooseThreshold, MergeThreshold).</summary>
+    public const string IdentityRotationCandidate = "identity.rotation_candidate";
+
+    /// <summary>List of {dim_name, observed, expected}: dims that drifted on a rotation-band match.</summary>
+    public const string IdentityRotationDimensions = "identity.rotation_dimensions";
+
+    /// <summary>double in [0,1]: EWMA of post-detection bot probability over recent observations of this fingerprint.</summary>
+    public const string IdentityCachedBotProbability = "identity.cached_bot_probability";
+
+    /// <summary>String: cached risk band derived from cached_bot_probability.</summary>
+    public const string IdentityCachedRiskBand = "identity.cached_risk_band";
+
+    /// <summary>String: archetype_id this fingerprint currently most resembles (cached on the row).</summary>
+    public const string IdentityClientType = "identity.client_type";
+
+    /// <summary>double: weighted-cosine score to the inferred archetype.</summary>
+    public const string IdentityClientTypeConfidence = "identity.client_type_confidence";
+
+    /// <summary>String: archetype_id the fingerprint was originally seeded from (lineage).</summary>
+    public const string IdentityClientTypeOrigin = "identity.client_type_origin";
+
+    /// <summary>bool: this request's centroid update flipped inferred_client_type to a different archetype.</summary>
+    public const string IdentityClientTypeDrift = "identity.client_type_drift";
+
+    /// <summary>bool: transport-layer dims are zero on what should be TLS-fronted traffic.</summary>
+    public const string ConfigWarningCleartextHttp = "config.warning.cleartext_http";
+
     // Periodicity Detection
     // ==========================================
 

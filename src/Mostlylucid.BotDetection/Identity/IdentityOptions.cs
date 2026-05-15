@@ -1,0 +1,105 @@
+namespace Mostlylucid.BotDetection.Models;
+
+/// <summary>
+///     Configuration knobs for the metastable fingerprint match system.
+///     See docs/architecture/fingerprint-match.md for design.
+/// </summary>
+public sealed class IdentityOptions
+{
+    /// <summary>
+    ///     Master switch. When false, the IdentityVector and FingerprintMatch foundation
+    ///     contributors do not run; PrimarySignature remains the identity key as before.
+    ///     Defaults to false until the implementation is feature-complete.
+    /// </summary>
+    public bool Enabled { get; set; }
+
+    public IdentityVectorOptions Vector { get; set; } = new();
+    public IdentityMatchOptions Match { get; set; } = new();
+    public IdentityWeightsOptions Weights { get; set; } = new();
+    public IdentityDriftOptions Drift { get; set; } = new();
+    public IdentityCalibrationOptions Calibration { get; set; } = new();
+    public IdentityEngineOptions Engine { get; set; } = new();
+}
+
+public sealed class IdentityVectorOptions
+{
+    /// <summary>Absorb a detailed observation after the fingerprint sees N more requests.</summary>
+    public int AbsorptionMaturityThreshold { get; set; } = 5;
+
+    /// <summary>Absorb observations older than this on active fingerprints.</summary>
+    public int AbsorptionAgeDays { get; set; } = 30;
+
+    /// <summary>A fingerprint counts as active if it has received an observation in this window.</summary>
+    public int ActiveWindowDays { get; set; } = 90;
+
+    /// <summary>
+    ///     Fraction of L1-confirmed requests for which an observation is recorded. 1.0 = every
+    ///     request; lower values sample on very hot fingerprints (CDN warm pools, etc.).
+    ///     Slow-path detectors always run regardless; this only gates the observation-row write
+    ///     and the eventual centroid update.
+    /// </summary>
+    public double ObservationSamplingRate { get; set; } = 1.0;
+}
+
+public sealed class IdentityMatchOptions
+{
+    /// <summary>Weighted-cosine score required for a confident match.</summary>
+    public double MergeThreshold { get; set; } = 0.92;
+
+    /// <summary>Below this score, allocate a new fingerprint instead of matching.</summary>
+    public double LooseThreshold { get; set; } = 0.75;
+
+    /// <summary>Top-K candidates pulled per vec0 query before re-ranking.</summary>
+    public int TopK { get; set; } = 10;
+
+    /// <summary>Number of dims listed in identity.rotation_dimensions when in the rotation band.</summary>
+    public int RotationDimensionsTopK { get; set; } = 5;
+}
+
+public sealed class IdentityWeightsOptions
+{
+    /// <summary>Per-fingerprint weight signal 1: corrections (sharp edits when L1 was wrong).</summary>
+    public double CorrectionLearningRate { get; set; } = 0.05;
+
+    /// <summary>Per-fingerprint weight signal 2: stability (gentler, every absorption).</summary>
+    public double StabilityLearningRate { get; set; } = 0.01;
+
+    /// <summary>Numeric stability lower bound on per-dimension weights. Not a data cap.</summary>
+    public double MinWeight { get; set; } = 0.1;
+
+    /// <summary>Numeric stability upper bound on per-dimension weights. Not a data cap.</summary>
+    public double MaxWeight { get; set; } = 10.0;
+
+    /// <summary>How often the matcher rechecks identity_dimension_weights.last_computed_at.</summary>
+    public int GlobalRefreshSeconds { get; set; } = 60;
+}
+
+public sealed class IdentityDriftOptions
+{
+    /// <summary>FingerprintDriftService tick interval. Drift surfaces within this many seconds.</summary>
+    public int DriftCheckIntervalSeconds { get; set; } = 5;
+
+    /// <summary>Maximum sampled observations Pass 2 re-verifies per drift tick.</summary>
+    public int DriftBatchSize { get; set; } = 50;
+
+    /// <summary>Fraction of L1-confirmed requests sampled into the drift-verification queue.</summary>
+    public double DriftSamplingRate { get; set; } = 0.05;
+
+    /// <summary>EWMA alpha for cached_bot_probability updates from in-line classifier verdicts.</summary>
+    public double CachedScoreEwmaAlpha { get; set; } = 0.2;
+}
+
+public sealed class IdentityCalibrationOptions
+{
+    /// <summary>IdentityWeightCalibrationService run cadence.</summary>
+    public int CalibrationIntervalMinutes { get; set; } = 30;
+
+    /// <summary>Maximum α (descendant blend ratio) in archetype self-refinement.</summary>
+    public double ArchetypeRefinementCap { get; set; } = 0.7;
+}
+
+public sealed class IdentityEngineOptions
+{
+    /// <summary>Prefer sqlite-vec when the extension loads; fall back to brute-force UDF when it cannot.</summary>
+    public bool PreferSqliteVec { get; set; } = true;
+}

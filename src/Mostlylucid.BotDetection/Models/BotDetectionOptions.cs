@@ -546,6 +546,12 @@ public class BotDetectionOptions
     public EmbeddingOptions Embedding { get; set; } = new();
 
     /// <summary>
+    ///     Identity (metastable fingerprint) match configuration. See
+    ///     docs/architecture/fingerprint-match.md for the full design.
+    /// </summary>
+    public IdentityOptions Identity { get; set; } = new();
+
+    /// <summary>
     ///     Enable database WAL mode for better concurrent access (SQLite only).
     ///     Recommended for production.
     /// </summary>
