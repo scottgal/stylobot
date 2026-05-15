@@ -19,7 +19,7 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     No trigger conditions (runs on every request).
 ///     Returns empty contributions (informational only - no bot/human signal).
 /// </summary>
-public class SignatureContributor : ContributingDetectorBase
+public class SignatureContributor : ContributingDetectorBase, IFoundationContributor
 {
     private readonly ILogger<SignatureContributor> _logger;
     private readonly MultiFactorSignatureService _signatureService;
@@ -43,32 +43,22 @@ public class SignatureContributor : ContributingDetectorBase
         BlackboardState state,
         CancellationToken cancellationToken = default)
     {
-        var contributionSignals = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
-
         try
         {
             var signatures = _signatureService.GenerateSignatures(state.HttpContext);
 
             // Write the canonical signature to the blackboard
             if (!string.IsNullOrEmpty(signatures.PrimarySignature))
-            {
                 state.WriteSignal(SignalKeys.PrimarySignature, signatures.PrimarySignature);
-                contributionSignals[SignalKeys.PrimarySignature] = signatures.PrimarySignature;
-            }
 
             // Write the full MultiFactorSignatures to the blackboard
             state.WriteSignal("signature.multifactor", signatures);
-            contributionSignals["signature.multifactor"] = signatures;
 
             // Collect header hashes for progressive identity resolution.
             // These get persisted per session for retroactive stability analysis.
             var headerHashes = _headerHashCollector.CollectHashes(state.HttpContext.Request);
             if (headerHashes.Count > 0)
-            {
-                var hashesJson = JsonSerializer.Serialize(headerHashes);
-                state.WriteSignal(SignalKeys.HeaderHashes, hashesJson);
-                contributionSignals[SignalKeys.HeaderHashes] = hashesJson;
-            }
+                state.WriteSignal(SignalKeys.HeaderHashes, JsonSerializer.Serialize(headerHashes));
 
             // Store in HttpContext.Items for backward compat with post-detection middleware
             state.HttpContext.Items[BotDetectionMiddleware.SignatureSetKey] = signatures;
@@ -79,25 +69,6 @@ public class SignatureContributor : ContributingDetectorBase
             _logger.LogWarning(ex, "Error computing unified signature");
         }
 
-        if (contributionSignals.Count == 0)
-            return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
-
-        // Emit a neutral contribution carrying the signature signals so DetectionLedger.MergedSignals
-        // (which only walks per-contribution Signals) exposes them to downstream consumers
-        // (RequestPersistenceService, dashboard projections, ResponseHeader middleware).
-        return Task.FromResult<IReadOnlyList<DetectionContribution>>(new[]
-        {
-            new DetectionContribution
-            {
-                DetectorName = Name,
-                Category = "identity",
-                ConfidenceDelta = 0.0,
-                Weight = 0.0,
-                Salience = 0.0,
-                Reason = "signature computed",
-                Priority = Priority,
-                Signals = contributionSignals
-            }
-        });
+        return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
     }
 }

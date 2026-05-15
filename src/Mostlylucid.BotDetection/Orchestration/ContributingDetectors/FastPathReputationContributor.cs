@@ -22,7 +22,7 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     Configuration loaded from: fastpath.detector.yaml
 ///     Override via: appsettings.json → BotDetection:Detectors:FastPathReputationContributor:*
 /// </summary>
-public class FastPathReputationContributor : ConfiguredContributorBase
+public class FastPathReputationContributor : ConfiguredContributorBase, IFoundationContributor
 {
     private readonly ILogger<FastPathReputationContributor> _logger;
     private readonly IPatternReputationCache _reputationCache;

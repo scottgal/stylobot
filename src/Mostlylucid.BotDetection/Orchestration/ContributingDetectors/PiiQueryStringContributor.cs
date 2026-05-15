@@ -12,7 +12,7 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     the sanitizer strips them - enabling downstream click-fraud detection with zero PII stored.
 ///     Runs in Wave 0 at Priority 8 (very early, before most detectors).
 /// </summary>
-public class PiiQueryStringContributor : ContributingDetectorBase
+public class PiiQueryStringContributor : ContributingDetectorBase, IFoundationContributor
 {
     private readonly ILogger<PiiQueryStringContributor> _logger;
     private readonly PiiHasher _hasher;

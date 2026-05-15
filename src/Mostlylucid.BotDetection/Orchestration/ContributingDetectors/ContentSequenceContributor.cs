@@ -33,7 +33,7 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     Configuration loaded from: contentsequence.detector.yaml
 ///     Override via: appsettings.json → BotDetection:Detectors:ContentSequenceContributor:*
 /// </summary>
-public class ContentSequenceContributor : ConfiguredContributorBase
+public class ContentSequenceContributor : ConfiguredContributorBase, IFoundationContributor
 {
     private readonly ILogger<ContentSequenceContributor> _logger;
     private readonly SequenceContextStore _contextStore;

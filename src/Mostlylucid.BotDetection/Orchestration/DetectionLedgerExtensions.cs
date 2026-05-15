@@ -152,14 +152,24 @@ public static class DetectionLedgerExtensions
         // FastPathReputation triggers VerifiedBadBot from cached IP/UA reputation, but
         // Mastodon-shaped traffic is still benign automation regardless of how many
         // times the IP has been seen. Confirmed-bad still wins.
+        // When the friendly-bot override fires, also pull the friendly UA's name so the
+        // dashboard / CLI fingerprint table shows "Mastodon" / "Googlebot" rather than the
+        // reputation-pattern id (e.g. "ip:::ffff::/48") that FastPathReputation injected
+        // into the early-exit contribution.
+        var primaryBotType = ParseBotType(exitContrib.BotType);
+        var primaryBotName = exitContrib.BotName;
         if (verdict is EarlyExitVerdict.VerifiedBadBot)
         {
-            var friendlyType = FindFriendlyBotType(ledger);
+            var friendlyContrib = FindFriendlyBotContribution(ledger);
             var isConfirmedBadEarly = IsConfirmedBad(earlySignals);
-            if (friendlyType != null && !isConfirmedBadEarly && earlyThreatScore < 0.55)
+            if (friendlyContrib != null && !isConfirmedBadEarly && earlyThreatScore < 0.55)
             {
+                var friendlyType = ParseBotType(friendlyContrib.BotType);
                 earlyRiskBand = RiskBand.Low;
                 earlyRiskJustification = $"identified as {friendlyType} (friendly automation; reputation-cache override)";
+                primaryBotType = friendlyType;
+                if (!string.IsNullOrEmpty(friendlyContrib.BotName))
+                    primaryBotName = friendlyContrib.BotName;
             }
         }
 
@@ -175,8 +185,8 @@ public static class DetectionLedgerExtensions
             RiskJustification = earlyRiskJustification,
             EarlyExit = true,
             EarlyExitVerdict = verdict,
-            PrimaryBotType = ParseBotType(exitContrib.BotType),
-            PrimaryBotName = exitContrib.BotName,
+            PrimaryBotType = primaryBotType,
+            PrimaryBotName = primaryBotName,
             Signals = earlySignals,
             TotalProcessingTimeMs = ledger.TotalProcessingTimeMs,
             CategoryBreakdown = ledger.CategoryBreakdown,
@@ -422,6 +432,9 @@ public static class DetectionLedgerExtensions
     }
 
     private static BotType? FindFriendlyBotType(DetectionLedger ledger)
+        => FindFriendlyBotContribution(ledger) is { } c ? ParseBotType(c.BotType) : null;
+
+    private static DetectionContribution? FindFriendlyBotContribution(DetectionLedger ledger)
     {
         foreach (var contrib in ledger.Contributions)
         {
@@ -433,7 +446,7 @@ public static class DetectionLedgerExtensions
                 or BotType.MonitoringBot
                 or BotType.GoodBot
                 or BotType.VerifiedBot)
-                return parsed;
+                return contrib;
         }
         return null;
     }

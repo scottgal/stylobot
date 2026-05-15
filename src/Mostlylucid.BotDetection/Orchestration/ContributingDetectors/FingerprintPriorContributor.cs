@@ -14,7 +14,7 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     middleware writes to Items before the orchestrator runs, but tests seed
 ///     signals directly.
 /// </summary>
-public class FingerprintPriorContributor : ConfiguredContributorBase
+public class FingerprintPriorContributor : ConfiguredContributorBase, IFoundationContributor
 {
     public const string DetectorName = "FingerprintPrior";
 

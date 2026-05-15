@@ -37,7 +37,7 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     Configuration loaded from: transport-protocol.detector.yaml
 ///     Override via: appsettings.json → BotDetection:Detectors:TransportProtocolContributor:*
 /// </summary>
-public partial class TransportProtocolContributor : ConfiguredContributorBase
+public partial class TransportProtocolContributor : ConfiguredContributorBase, IFoundationContributor
 {
     /// <summary>
     ///     Known browser User-Agent family prefixes. gRPC calls from these are suspicious
