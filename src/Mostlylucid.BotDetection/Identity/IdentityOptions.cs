@@ -87,6 +87,21 @@ public sealed class IdentityDriftOptions
 
     /// <summary>EWMA alpha for cached_bot_probability updates from in-line classifier verdicts.</summary>
     public double CachedScoreEwmaAlpha { get; set; } = 0.2;
+
+    /// <summary>
+    ///     A fingerprint's cached score (and the L1-confirmed verdict it represents) is considered
+    ///     fresh for this many seconds. The drift service re-verifies fingerprints whose
+    ///     cached_score_updated_at is null or older than this, so a "passes as human" L1 hit cannot
+    ///     persist indefinitely without the L2 vector match agreeing.
+    /// </summary>
+    public int CachedScoreTtlSeconds { get; set; } = 60;
+
+    /// <summary>
+    ///     Weighted-cosine score below which the drift service flags a fingerprint as drifting.
+    ///     Defaults to MergeThreshold so any L2 score that wouldn't have confirmed in-line counts
+    ///     as drift; tighter values (e.g. 0.85) reduce noise on slowly-shifting fingerprints.
+    /// </summary>
+    public double DriftWarningThreshold { get; set; } = 0.92;
 }
 
 public sealed class IdentityCalibrationOptions

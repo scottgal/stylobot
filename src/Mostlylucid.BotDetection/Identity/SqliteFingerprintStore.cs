@@ -475,6 +475,85 @@ public sealed class SqliteFingerprintStore
         return results;
     }
 
+    /// <summary>
+    ///     Lists fingerprints whose cached_score_updated_at is null or older than
+    ///     <paramref name="ttlSeconds"/>, capped at <paramref name="batchSize"/>. Returned in
+    ///     oldest-checked-first order so the longest-stale fingerprints are re-verified first.
+    ///     Skips fingerprints with no observation rows (nothing for the drift service to compare).
+    ///     Materialised; reader closes before return.
+    /// </summary>
+    public async Task<IReadOnlyList<Fingerprint>> ListStaleScoreFingerprintsAsync(
+        int ttlSeconds, int batchSize, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        var cutoff = DateTime.UtcNow.AddSeconds(-Math.Max(1, ttlSeconds)).ToString("O");
+        var results = new List<Fingerprint>();
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT fingerprint_id, centroid, centroid_maturity, weights, member_count,
+                   observation_count, correction_count, first_seen, last_seen, quality,
+                   archetype_origin, inferred_client_type, inferred_type_confidence,
+                   inferred_type_changed_at, cached_bot_probability, cached_risk_band,
+                   cached_score_updated_at
+              FROM fingerprints
+             WHERE observation_count > 0
+               AND (cached_score_updated_at IS NULL OR cached_score_updated_at < @cutoff)
+             ORDER BY COALESCE(cached_score_updated_at, '0001-01-01T00:00:00Z') ASC
+             LIMIT @limit
+            """;
+        cmd.Parameters.AddWithValue("@cutoff", cutoff);
+        cmd.Parameters.AddWithValue("@limit", Math.Max(1, batchSize));
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            results.Add(ReadFingerprint(reader));
+        return results;
+    }
+
+    /// <summary>
+    ///     Returns the most recent observation vector for the fingerprint regardless of absorption
+    ///     state, or null if it has no observations. Used by the drift service to re-verify the
+    ///     fingerprint's most recent behaviour against its centroid + weights.
+    /// </summary>
+    public async Task<float[]?> GetLatestObservationVectorAsync(
+        string fingerprintId, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT vector FROM fingerprint_observations
+             WHERE fingerprint_id = @id
+             ORDER BY id DESC
+             LIMIT 1
+            """;
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        var blob = await cmd.ExecuteScalarAsync(ct);
+        return blob is byte[] bytes ? BlobToFloats(bytes) : null;
+    }
+
+    /// <summary>
+    ///     Marks the fingerprint as re-verified. The drift service calls this after every check
+    ///     regardless of outcome, so a noisy-but-stable fingerprint doesn't get re-checked every
+    ///     tick. Drift-detected fingerprints will be picked up again on the next TTL expiry.
+    /// </summary>
+    public async Task BumpCachedScoreCheckedAtAsync(string fingerprintId, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE fingerprints SET cached_score_updated_at = @ts
+             WHERE fingerprint_id = @id
+            """;
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     private Fingerprint ReadFingerprint(SqliteDataReader reader) => new()
     {
         FingerprintId = reader.GetString(0),
