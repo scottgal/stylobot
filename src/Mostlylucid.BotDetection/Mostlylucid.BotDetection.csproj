@@ -99,6 +99,7 @@
     <ItemGroup>
         <EmbeddedResource Include="Definitions\Actions\*.yaml" />
         <EmbeddedResource Include="Definitions\BotPatterns\*.yaml" />
+        <EmbeddedResource Include="Definitions\IdentityArchetypes\*.yaml" />
     </ItemGroup>
 
     <!-- Embed detector and pipeline YAML manifests -->

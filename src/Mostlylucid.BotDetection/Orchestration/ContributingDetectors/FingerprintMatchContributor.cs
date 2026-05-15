@@ -25,6 +25,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     private readonly ILogger<FingerprintMatchContributor> _logger;
     private readonly SqliteFingerprintStore _store;
     private readonly IIdentityAnchorIndex _index;
+    private readonly IdentityArchetypeRegistry _archetypes;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
 
@@ -32,11 +33,13 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         ILogger<FingerprintMatchContributor> logger,
         SqliteFingerprintStore store,
         IIdentityAnchorIndex index,
+        IdentityArchetypeRegistry archetypes,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
         _store = store;
         _index = index;
+        _archetypes = archetypes;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
     }
@@ -136,29 +139,61 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             return Array.Empty<DetectionContribution>();
         }
 
-        // No plausible existing identity: allocate a new fingerprint. Archetype seeding will
-        // arrive in a later slice; for now we seed centroid = vector, weights = 1.0, no archetype.
+        // No plausible existing identity: allocate a new fingerprint, seeded from the nearest
+        // archetype. The archetype's centroid blends with the observation (mostly the obs);
+        // its dimension_mask becomes the per-fingerprint weight vector.
         var newId = Guid.NewGuid().ToString("N");
         var now = DateTime.UtcNow;
         var dim = vector.Length;
-        var defaultWeights = new float[dim];
-        Array.Fill(defaultWeights, 1.0f);
+
+        var nearestArchetype = _archetypes.FindNearest(vector);
+        float[] seedCentroid;
+        float[] seedWeights;
+        string? archetypeOrigin = null;
+        string inferredType = "unknown";
+        double inferredConfidence = 0.0;
+
+        if (nearestArchetype is not null)
+        {
+            // Light blend: 70% observation, 30% archetype prior.
+            var arch = nearestArchetype.Archetype;
+            seedCentroid = new float[dim];
+            for (var i = 0; i < dim; i++)
+                seedCentroid[i] = vector[i] * 0.7f + arch.Centroid[i] * 0.3f;
+
+            // Weights take the archetype's mask, clamped into the [min, max] band so even
+            // unmasked dims retain a tiny floor (no zero-weight columns the matcher can't move).
+            seedWeights = new float[dim];
+            for (var i = 0; i < dim; i++)
+                seedWeights[i] = (float)Math.Clamp(arch.DimensionMask[i], _options.Weights.MinWeight, _options.Weights.MaxWeight);
+
+            archetypeOrigin = arch.ArchetypeId;
+            inferredType = arch.ArchetypeId;
+            inferredConfidence = nearestArchetype.Score;
+        }
+        else
+        {
+            // No archetypes loaded: seed centroid from the observation, uniform weights.
+            seedCentroid = (float[])vector.Clone();
+            seedWeights = new float[dim];
+            Array.Fill(seedWeights, 1.0f);
+        }
 
         var newFp = new Fingerprint
         {
             FingerprintId = newId,
-            Centroid = (float[])vector.Clone(),
+            Centroid = seedCentroid,
             CentroidMaturity = 1,
-            Weights = defaultWeights,
+            Weights = seedWeights,
             MemberCount = 1,
             ObservationCount = 1,
             CorrectionCount = 0,
             FirstSeen = now,
             LastSeen = now,
             Quality = state.Signals.TryGetValue(SignalKeys.IdentityVectorQuality, out var qObj) && qObj is double q ? q : 0.0,
-            ArchetypeOrigin = null,
-            InferredClientType = "unknown",
-            InferredTypeConfidence = 0.0,
+            ArchetypeOrigin = archetypeOrigin,
+            InferredClientType = inferredType,
+            InferredTypeConfidence = inferredConfidence,
             InferredTypeChangedAt = now,
             CachedBotProbability = 0.0,
             CachedRiskBand = null,
@@ -171,6 +206,8 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         state.WriteSignal(SignalKeys.IdentityMatchScore, 0.0);
         state.WriteSignal(SignalKeys.IdentityClientType, newFp.InferredClientType);
         state.WriteSignal(SignalKeys.IdentityClientTypeConfidence, newFp.InferredTypeConfidence);
+        if (archetypeOrigin is not null)
+            state.WriteSignal(SignalKeys.IdentityClientTypeOrigin, archetypeOrigin);
 
         return Array.Empty<DetectionContribution>();
     }

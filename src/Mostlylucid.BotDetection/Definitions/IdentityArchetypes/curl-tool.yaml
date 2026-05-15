@@ -1,0 +1,20 @@
+archetype_id: curl-tool
+name: curl
+description: Command-line HTTP client (curl, wget, similar).
+archetype_kind: tool
+dimensions:
+  hdr.accept:
+    value: "*/*"
+    confidence: 0.95
+  hdr.accept_encoding_ordered:
+    value: ""
+    confidence: 0.85
+  hdr.sec_fetch_pattern:
+    value: 0
+    confidence: 0.95
+  hdr.upgrade_insecure_requests:
+    value: false
+    confidence: 0.95
+  hdr.sec_ch_ua_mobile:
+    value: false
+    confidence: 0.6

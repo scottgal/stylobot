@@ -1,0 +1,17 @@
+archetype_id: python-requests
+name: python-requests
+description: Python `requests` library default fingerprint.
+archetype_kind: tool
+dimensions:
+  hdr.accept:
+    value: "*/*"
+    confidence: 0.9
+  hdr.accept_encoding_ordered:
+    value: "gzip, deflate"
+    confidence: 0.85
+  hdr.sec_fetch_pattern:
+    value: 0
+    confidence: 0.95
+  hdr.upgrade_insecure_requests:
+    value: false
+    confidence: 0.9

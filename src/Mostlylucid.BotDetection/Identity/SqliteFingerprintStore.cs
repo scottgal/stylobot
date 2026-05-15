@@ -297,6 +297,9 @@ public sealed class SqliteFingerprintStore
     /// <summary>
     ///     Absorption transaction: fold the supplied observation into the fingerprint's centroid
     ///     using maturity-weighted mean, mark the obs row absorbed, persist the updated weights.
+    ///     If <paramref name="newInferredClientType"/> is non-null and differs from the current
+    ///     row, also updates inferred_client_type / inferred_type_confidence /
+    ///     inferred_type_changed_at in the same transaction.
     /// </summary>
     public async Task AbsorbObservationAsync(
         long observationId,
@@ -304,6 +307,9 @@ public sealed class SqliteFingerprintStore
         float[] newCentroid,
         int newMaturity,
         float[] newWeights,
+        string? newInferredClientType = null,
+        double newInferredTypeConfidence = 0,
+        bool inferredTypeChanged = false,
         CancellationToken ct = default)
     {
         await EnsureInitialisedAsync(ct);
@@ -314,13 +320,34 @@ public sealed class SqliteFingerprintStore
         await using (var fp = conn.CreateCommand())
         {
             fp.Transaction = tx;
-            fp.CommandText = """
-                UPDATE fingerprints
-                   SET centroid = @centroid,
-                       centroid_maturity = @maturity,
-                       weights = @weights
-                 WHERE fingerprint_id = @id
-                """;
+            if (newInferredClientType is not null)
+            {
+                fp.CommandText = """
+                    UPDATE fingerprints
+                       SET centroid                 = @centroid,
+                           centroid_maturity        = @maturity,
+                           weights                  = @weights,
+                           inferred_client_type     = @itype,
+                           inferred_type_confidence = @iconf,
+                           inferred_type_changed_at = CASE WHEN @ichanged THEN @now
+                                                            ELSE inferred_type_changed_at END
+                     WHERE fingerprint_id = @id
+                    """;
+                fp.Parameters.AddWithValue("@itype", newInferredClientType);
+                fp.Parameters.AddWithValue("@iconf", newInferredTypeConfidence);
+                fp.Parameters.AddWithValue("@ichanged", inferredTypeChanged);
+                fp.Parameters.AddWithValue("@now", DateTime.UtcNow.ToString("O"));
+            }
+            else
+            {
+                fp.CommandText = """
+                    UPDATE fingerprints
+                       SET centroid          = @centroid,
+                           centroid_maturity = @maturity,
+                           weights           = @weights
+                     WHERE fingerprint_id = @id
+                    """;
+            }
             fp.Parameters.AddWithValue("@centroid", FloatsToBlob(newCentroid));
             fp.Parameters.AddWithValue("@maturity", newMaturity);
             fp.Parameters.AddWithValue("@weights", FloatsToBlob(newWeights));
@@ -361,7 +388,8 @@ public sealed class SqliteFingerprintStore
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT o.id, o.fingerprint_id, o.vector, o.observed_at,
-                   f.centroid, f.centroid_maturity, f.weights, f.observation_count, f.last_seen
+                   f.centroid, f.centroid_maturity, f.weights, f.observation_count, f.last_seen,
+                   f.inferred_client_type
               FROM fingerprint_observations o
               JOIN fingerprints f ON f.fingerprint_id = o.fingerprint_id
              WHERE o.absorbed_at IS NULL
@@ -394,7 +422,8 @@ public sealed class SqliteFingerprintStore
                 Vector = BlobToFloats((byte[])reader.GetValue(2)),
                 Centroid = BlobToFloats((byte[])reader.GetValue(4)),
                 CentroidMaturity = reader.GetInt32(5),
-                Weights = BlobToFloats((byte[])reader.GetValue(6))
+                Weights = BlobToFloats((byte[])reader.GetValue(6)),
+                InferredClientType = reader.GetString(9)
             });
         }
         return results;

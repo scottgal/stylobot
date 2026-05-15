@@ -1,0 +1,17 @@
+archetype_id: mobile-chrome
+name: Mobile Chrome
+description: Chrome on Android or iOS.
+archetype_kind: human-browser
+dimensions:
+  hdr.sec_ch_ua_mobile:
+    value: true
+    confidence: 0.95
+  hdr.accept_encoding_ordered:
+    value: "gzip, deflate, br, zstd"
+    confidence: 0.85
+  hdr.sec_fetch_pattern:
+    value: 15
+    confidence: 0.9
+  hdr.upgrade_insecure_requests:
+    value: true
+    confidence: 0.9

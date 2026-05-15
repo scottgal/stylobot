@@ -46,4 +46,5 @@ public sealed record AbsorbableObservation
     public required float[] Centroid { get; init; }
     public required int CentroidMaturity { get; init; }
     public required float[] Weights { get; init; }
+    public required string InferredClientType { get; init; }
 }

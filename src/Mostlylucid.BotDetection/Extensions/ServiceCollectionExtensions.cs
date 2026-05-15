@@ -573,6 +573,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Identity.IdentityVectorEncoder>();
         services.TryAddSingleton<Identity.SqliteFingerprintStore>();
         services.TryAddSingleton<Identity.IIdentityAnchorIndex, Identity.BruteForceIdentityAnchorIndex>();
+        services.TryAddSingleton<Identity.IdentityArchetypeRegistry>();
         services.AddSingleton<IContributingDetector, IdentityVectorContributor>();
         services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
         services.AddSingleton<Identity.FingerprintAbsorptionService>();

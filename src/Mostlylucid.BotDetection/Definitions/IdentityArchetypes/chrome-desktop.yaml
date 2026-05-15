@@ -1,0 +1,20 @@
+archetype_id: chrome-desktop
+name: Chrome Desktop
+description: Chromium-family browser on a desktop OS.
+archetype_kind: human-browser
+dimensions:
+  hdr.accept:
+    value: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+    confidence: 0.85
+  hdr.accept_encoding_ordered:
+    value: "gzip, deflate, br, zstd"
+    confidence: 0.9
+  hdr.sec_ch_ua_mobile:
+    value: false
+    confidence: 0.95
+  hdr.sec_fetch_pattern:
+    value: 15            # all four Sec-Fetch-* headers present
+    confidence: 0.9
+  hdr.upgrade_insecure_requests:
+    value: true
+    confidence: 0.9

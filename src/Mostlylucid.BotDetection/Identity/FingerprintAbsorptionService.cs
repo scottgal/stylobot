@@ -22,16 +22,19 @@ public sealed class FingerprintAbsorptionService : BackgroundService
 {
     private readonly ILogger<FingerprintAbsorptionService> _logger;
     private readonly SqliteFingerprintStore _store;
+    private readonly IdentityArchetypeRegistry _archetypes;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
 
     public FingerprintAbsorptionService(
         ILogger<FingerprintAbsorptionService> logger,
         SqliteFingerprintStore store,
+        IdentityArchetypeRegistry archetypes,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
         _store = store;
+        _archetypes = archetypes;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
     }
@@ -77,35 +80,36 @@ public sealed class FingerprintAbsorptionService : BackgroundService
             _options.Vector.ActiveWindowDays,
             ct);
 
-        // Track in-flight per-fingerprint centroid + maturity so multiple absorptions in the
-        // same tick fold sequentially against the latest values, not against the stale row.
-        var inflight = new Dictionary<string, (float[] Centroid, int Maturity, float[] Weights)>(
+        // Track in-flight per-fingerprint state so multiple absorptions in the same tick fold
+        // sequentially against the latest values, not against the stale row.
+        var inflight = new Dictionary<string, (float[] Centroid, int Maturity, float[] Weights, string InferredType)>(
             StringComparer.OrdinalIgnoreCase);
 
         foreach (var obs in batch)
         {
-            var (centroid, maturity, weights) = inflight.TryGetValue(obs.FingerprintId, out var current)
-                ? current
-                : (obs.Centroid, obs.CentroidMaturity, obs.Weights);
+            var current = inflight.TryGetValue(obs.FingerprintId, out var cached)
+                ? cached
+                : (obs.Centroid, obs.CentroidMaturity, obs.Weights, obs.InferredClientType);
 
             var working = new AbsorbableObservation
             {
                 ObservationId = obs.ObservationId,
                 FingerprintId = obs.FingerprintId,
                 Vector = obs.Vector,
-                Centroid = centroid,
-                CentroidMaturity = maturity,
-                Weights = weights
+                Centroid = current.Item1,
+                CentroidMaturity = current.Item2,
+                Weights = current.Item3,
+                InferredClientType = current.Item4
             };
 
-            var (newCentroid, newMaturity, newWeights) = await AbsorbAsync(working, ct);
-            inflight[obs.FingerprintId] = (newCentroid, newMaturity, newWeights);
+            var (newCentroid, newMaturity, newWeights, newInferredType) = await AbsorbAsync(working, ct);
+            inflight[obs.FingerprintId] = (newCentroid, newMaturity, newWeights, newInferredType);
         }
 
         return batch.Count;
     }
 
-    private async Task<(float[] Centroid, int Maturity, float[] Weights)> AbsorbAsync(
+    private async Task<(float[] Centroid, int Maturity, float[] Weights, string InferredType)> AbsorbAsync(
         AbsorbableObservation obs, CancellationToken ct)
     {
         // Maturity-weighted mean: every absorbed observation contributes equally to the centroid
@@ -124,9 +128,27 @@ public sealed class FingerprintAbsorptionService : BackgroundService
         IdentityWeightMath.RenormaliseAndClamp(
             newWeights, _options.Weights.MinWeight, _options.Weights.MaxWeight);
 
+        // Recompute inferred client type against the new centroid. If the nearest archetype has
+        // changed, the fingerprint's behavioural classification has drifted; the next request
+        // will emit identity.client_type_drift.
+        var nearest = _archetypes.FindNearest(newCentroid);
+        var newInferredType = nearest?.Archetype.ArchetypeId ?? obs.InferredClientType;
+        var newInferredConfidence = nearest?.Score ?? 0.0;
+        var typeChanged = !string.Equals(newInferredType, obs.InferredClientType, StringComparison.OrdinalIgnoreCase);
+
         var newMaturity = maturity + 1;
         await _store.AbsorbObservationAsync(
-            obs.ObservationId, obs.FingerprintId, newCentroid, newMaturity, newWeights, ct);
-        return (newCentroid, newMaturity, newWeights);
+            obs.ObservationId, obs.FingerprintId, newCentroid, newMaturity, newWeights,
+            newInferredClientType: newInferredType,
+            newInferredTypeConfidence: newInferredConfidence,
+            inferredTypeChanged: typeChanged,
+            ct);
+
+        if (typeChanged)
+            _logger.LogInformation(
+                "Fingerprint {Id} drifted: {Old} → {New} (confidence {Conf:F2})",
+                obs.FingerprintId, obs.InferredClientType, newInferredType, newInferredConfidence);
+
+        return (newCentroid, newMaturity, newWeights, newInferredType);
     }
 }

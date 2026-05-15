@@ -1,0 +1,20 @@
+archetype_id: googlebot
+name: Googlebot
+description: Google's web crawler.
+archetype_kind: verified-bot
+dimensions:
+  hdr.accept:
+    value: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    confidence: 0.6
+  hdr.accept_encoding_ordered:
+    value: "gzip, deflate, br"
+    confidence: 0.85
+  hdr.sec_fetch_pattern:
+    value: 0             # Googlebot does not emit Sec-Fetch-* headers
+    confidence: 0.95
+  hdr.upgrade_insecure_requests:
+    value: false
+    confidence: 0.7
+  hdr.sec_ch_ua_mobile:
+    value: false
+    confidence: 0.7
