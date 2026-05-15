@@ -3316,9 +3316,11 @@ public class StyloBotDashboardMiddleware
     }
 
     /// <summary>
-    ///     POST /api/identities/{id}/run-ai — stubbed pending task #39 (manual AI opinion).
-    ///     Returns the row HTML unchanged with a 202 so the operator gets visual feedback;
-    ///     a follow-up slice wires this into the LLM escalation pipeline.
+    ///     POST /api/identities/{id}/run-ai — invokes the slow-path classifier (LLM escalation
+    ///     included) against the fingerprint's metadata, writes the verdict back to the
+    ///     fingerprint's cached score, and returns the updated row HTML for HTMX swap. When no
+    ///     LLM provider is registered, returns the row unchanged with a header explaining the
+    ///     no-provider state so the operator sees the click registered but nothing changed.
     /// </summary>
     private async Task ServeIdentityRunAiAsync(HttpContext context, string relativePath)
     {
@@ -3329,11 +3331,29 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        // Stub: re-render the row unchanged. Real implementation invokes the slow-path
-        // classifier (LLM escalation included) and updates cached_bot_probability live.
-        // Tracked as task #39 — the UI shape is locked here so the swap target is right
-        // when the backend lands.
-        context.Response.StatusCode = 202;
+        var aiService = context.RequestServices.GetService<BotDetection.Identity.IdentityAiOpinionService>();
+        if (aiService is null)
+        {
+            context.Response.StatusCode = 503;
+            await context.Response.WriteAsync("Identity AI opinion service not registered");
+            return;
+        }
+
+        var result = await aiService.RunAsync(fingerprintId, context.RequestAborted);
+        // Surface status to the operator via response header so the dashboard can show why
+        // a click was a no-op (e.g. "no-llm-provider", "parse-error") without changing the
+        // visible row layout.
+        context.Response.Headers["X-StyloBot-AiOpinion-Status"] = result.Status;
+        if (result.Status == "ok" && result.BotProbability is { } prob)
+            context.Response.Headers["X-StyloBot-AiOpinion-Probability"] = prob.ToString("F2");
+        if (!string.IsNullOrEmpty(result.ErrorDetail))
+        {
+            // HTTP header values must be ASCII without CR/LF; clean before forwarding.
+            var detail = result.ErrorDetail.Replace('\n', ' ').Replace('\r', ' ');
+            if (detail.Length > 200) detail = detail[..200] + "…";
+            context.Response.Headers["X-StyloBot-AiOpinion-Detail"] = detail;
+        }
+
         await RenderSingleIdentityRowAsync(context, fingerprintId);
     }
 

@@ -535,6 +535,33 @@ public sealed class SqliteFingerprintStore
     }
 
     /// <summary>
+    ///     Writes a new cached verdict to the fingerprint row. Used by the manual AI opinion
+    ///     path so an operator-triggered classifier verdict updates the row live without
+    ///     waiting for the next drift tick. Touches <c>cached_bot_probability</c>,
+    ///     <c>cached_risk_band</c>, and <c>cached_score_updated_at</c> in one transaction.
+    /// </summary>
+    public async Task UpdateCachedVerdictAsync(
+        string fingerprintId, double botProbability, string? riskBand, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE fingerprints
+               SET cached_bot_probability  = @prob,
+                   cached_risk_band        = @band,
+                   cached_score_updated_at = @ts
+             WHERE fingerprint_id = @id
+            """;
+        cmd.Parameters.AddWithValue("@prob", botProbability);
+        cmd.Parameters.AddWithValue("@band", (object?)riskBand ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
     ///     Marks the fingerprint as re-verified. The drift service calls this after every check
     ///     regardless of outcome, so a noisy-but-stable fingerprint doesn't get re-checked every
     ///     tick. Drift-detected fingerprints will be picked up again on the next TTL expiry.

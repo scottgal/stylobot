@@ -580,6 +580,9 @@ public static class ServiceCollectionExtensions
         // verdict alongside the per-signature aggregate. Internally returns null when
         // Identity:Enabled is false, so wiring is unconditional and zero-cost when off.
         services.TryAddSingleton<Identity.IdentityVerdictLookup>();
+        // Operator-triggered AI opinion path. Returns a structured "no-llm-provider" result
+        // when no Llm package is registered, so the dashboard surface stays well-defined.
+        services.TryAddSingleton<Identity.IdentityAiOpinionService>();
         services.AddSingleton<IContributingDetector, IdentityVectorContributor>();
         services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
         services.AddSingleton<Identity.FingerprintAbsorptionService>();
