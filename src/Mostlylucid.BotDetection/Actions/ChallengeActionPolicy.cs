@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.Actions;
@@ -185,15 +186,17 @@ public class ChallengeActionPolicy : IActionPolicy
 
     private static string ResolveRequestBinding(HttpContext context)
     {
-        if (context.Items.TryGetValue(BotDetectionMiddleware.PrimarySignatureKey, out var signatureObj) &&
-            signatureObj is string signature &&
-            !string.IsNullOrWhiteSpace(signature))
-            return signature;
+        if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj) &&
+            evObj is Orchestration.AggregatedEvidence ev)
+        {
+            if (ev.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sigObj) &&
+                sigObj is string signature && !string.IsNullOrWhiteSpace(signature))
+                return signature;
 
-        if (context.Items.TryGetValue(BotDetectionMiddleware.SignatureSetKey, out var signaturesObj) &&
-            signaturesObj is MultiFactorSignatures signatures &&
-            !string.IsNullOrWhiteSpace(signatures.PrimarySignature))
-            return signatures.PrimarySignature;
+            if (ev.Signals.TryGetValue(SignalKeys.SignatureMultifactor, out var multiObj) &&
+                multiObj is MultiFactorSignatures multi && !string.IsNullOrWhiteSpace(multi.PrimarySignature))
+                return multi.PrimarySignature;
+        }
 
         var remoteIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         var userAgent = context.Request.Headers.UserAgent.ToString();
@@ -330,8 +333,9 @@ public class ChallengeActionPolicy : IActionPolicy
             return await HandleRedirectChallenge(context, cancellationToken);
         }
 
-        // Compute signature for this request (use the stored signature if available)
-        var signature = context.Items.TryGetValue(BotDetectionMiddleware.PrimarySignatureKey, out var sig) && sig is string s
+        // Bind the challenge to whatever signature the orchestrator computed (or fall back to
+        // the raw IP if detection didn't run, e.g. on a bypass path).
+        var signature = evidence.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sig) && sig is string s
             ? s
             : context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
 

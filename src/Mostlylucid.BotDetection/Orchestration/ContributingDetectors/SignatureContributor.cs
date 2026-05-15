@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Mostlylucid.BotDetection.Middleware;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Dashboard;
@@ -47,22 +46,15 @@ public class SignatureContributor : ContributingDetectorBase, IFoundationContrib
         {
             var signatures = _signatureService.GenerateSignatures(state.HttpContext);
 
-            // Write the canonical signature to the blackboard
+            // Canonical store: ev.Signals. Consumers read via state.GetSignal<string>() or
+            // evidence.Signals[SignalKeys.PrimarySignature]. See docs/architecture/signal-contracts.md.
             if (!string.IsNullOrEmpty(signatures.PrimarySignature))
                 state.WriteSignal(SignalKeys.PrimarySignature, signatures.PrimarySignature);
+            state.WriteSignal(SignalKeys.SignatureMultifactor, signatures);
 
-            // Write the full MultiFactorSignatures to the blackboard
-            state.WriteSignal("signature.multifactor", signatures);
-
-            // Collect header hashes for progressive identity resolution.
-            // These get persisted per session for retroactive stability analysis.
             var headerHashes = _headerHashCollector.CollectHashes(state.HttpContext.Request);
             if (headerHashes.Count > 0)
                 state.WriteSignal(SignalKeys.HeaderHashes, JsonSerializer.Serialize(headerHashes));
-
-            // Store in HttpContext.Items for backward compat with post-detection middleware
-            state.HttpContext.Items[BotDetectionMiddleware.SignatureSetKey] = signatures;
-            state.HttpContext.Items[BotDetectionMiddleware.PrimarySignatureKey] = signatures.PrimarySignature;
         }
         catch (Exception ex)
         {

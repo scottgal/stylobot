@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Http;
-using Mostlylucid.BotDetection.Middleware;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Dashboard;
@@ -86,7 +85,7 @@ public sealed class AuditProcessorDispatcher
             {
                 Timestamp = DateTime.UtcNow,
                 RequestId = httpContext.TraceIdentifier,
-                PrimarySignature = TryGetPrimarySignature(httpContext),
+                PrimarySignature = TryGetPrimarySignature(evidence),
                 Path = httpContext.Request.Path.Value,
                 Method = httpContext.Request.Method,
                 StatusCode = null,  // set by caller after response is finalized
@@ -125,22 +124,15 @@ public sealed class AuditProcessorDispatcher
         => _options.SignalRetention.ExcludedSignalPrefixes.Any(prefix =>
             key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 
-    private static string? TryGetPrimarySignature(HttpContext httpContext)
+    private static string? TryGetPrimarySignature(AggregatedEvidence evidence)
     {
-        if (httpContext.Items.TryGetValue(BotDetectionMiddleware.PrimarySignatureKey, out var signature) &&
-            signature is string primarySignature &&
-            !string.IsNullOrWhiteSpace(primarySignature))
-            return primarySignature;
+        if (evidence.Signals.TryGetValue(Models.SignalKeys.PrimarySignature, out var sig) &&
+            sig is string primary && !string.IsNullOrWhiteSpace(primary))
+            return primary;
 
-        if (httpContext.Items.TryGetValue(BotDetectionMiddleware.SignatureSetKey, out var signatures) &&
-            signatures is MultiFactorSignatures multiFactorSignatures &&
-            !string.IsNullOrWhiteSpace(multiFactorSignatures.PrimarySignature))
-            return multiFactorSignatures.PrimarySignature;
-
-        if (httpContext.Items.TryGetValue("BotDetection.PrimarySignature", out var primary) &&
-            primary is string legacyPrimary &&
-            !string.IsNullOrWhiteSpace(legacyPrimary))
-            return legacyPrimary;
+        if (evidence.Signals.TryGetValue(Models.SignalKeys.SignatureMultifactor, out var multiObj) &&
+            multiObj is MultiFactorSignatures multi && !string.IsNullOrWhiteSpace(multi.PrimarySignature))
+            return multi.PrimarySignature;
 
         return null;
     }

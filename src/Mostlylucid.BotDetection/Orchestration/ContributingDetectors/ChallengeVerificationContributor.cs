@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -68,12 +67,8 @@ public class ChallengeVerificationContributor : ConfiguredContributorBase
 
         try
         {
-            // Get signature from context
-            var signature = state.HttpContext.Items.TryGetValue(BotDetectionMiddleware.PrimarySignatureKey, out var sig) && sig is string s
-                ? s
-                : null;
-
-            if (signature is null)
+            var signature = state.GetSignal<string>(SignalKeys.PrimarySignature);
+            if (string.IsNullOrEmpty(signature))
                 return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
 
             var verification = _challengeStore.GetVerification(signature);

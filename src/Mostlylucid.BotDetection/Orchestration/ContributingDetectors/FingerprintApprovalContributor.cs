@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using Mostlylucid.BotDetection.Middleware;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
@@ -62,11 +61,8 @@ public class FingerprintApprovalContributor : ConfiguredContributorBase
 
         try
         {
-            var signature = state.HttpContext.Items.TryGetValue(BotDetectionMiddleware.PrimarySignatureKey, out var sig) && sig is string s
-                ? s
-                : null;
-
-            if (signature is null)
+            var signature = state.GetSignal<string>(SignalKeys.PrimarySignature);
+            if (string.IsNullOrEmpty(signature))
                 return contributions;
 
             var approval = await _approvalStore.GetAsync(signature, cancellationToken);

@@ -407,42 +407,23 @@ public partial class DetectionBroadcastMiddleware
 
     private static SignatureFactors ParseSignatureFactors(HttpContext context)
     {
-        if (context.Items.TryGetValue(BotDetectionMiddleware.SignatureSetKey, out var allSigsObj))
+        if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
+            && evObj is AggregatedEvidence ev
+            && ev.Signals.TryGetValue(SignalKeys.SignatureMultifactor, out var multiObj)
+            && multiObj is Mostlylucid.BotDetection.Dashboard.MultiFactorSignatures mfs)
         {
-            // Preferred path: MultiFactorSignatures object
-            if (allSigsObj is Mostlylucid.BotDetection.Dashboard.MultiFactorSignatures mfs)
-            {
-                var factorCount = 0;
-                if (!string.IsNullOrEmpty(mfs.IpSignature)) factorCount++;
-                if (!string.IsNullOrEmpty(mfs.UaSignature)) factorCount++;
-                if (!string.IsNullOrEmpty(mfs.ClientSideSignature)) factorCount++;
-                if (!string.IsNullOrEmpty(mfs.PluginSignature)) factorCount++;
-                if (!string.IsNullOrEmpty(mfs.IpSubnetSignature)) factorCount++;
-                if (!string.IsNullOrEmpty(mfs.GeoSignature)) factorCount++;
-                return new SignatureFactors(
-                    mfs.IpSignature,
-                    mfs.UaSignature,
-                    mfs.ClientSideSignature,
-                    Math.Max(1, factorCount));
-            }
-
-            // Legacy path: JSON string
-            if (allSigsObj is string allSigsJson)
-            {
-                try
-                {
-                    var allSigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(allSigsJson);
-                    if (allSigs != null)
-                    {
-                        return new SignatureFactors(
-                            allSigs.GetValueOrDefault("ip"),
-                            allSigs.GetValueOrDefault("ua"),
-                            allSigs.GetValueOrDefault("clientSide"),
-                            Math.Max(1, allSigs.Count(s => !string.IsNullOrEmpty(s.Value) && s.Key != "primary")));
-                    }
-                }
-                catch (System.Text.Json.JsonException) { }
-            }
+            var factorCount = 0;
+            if (!string.IsNullOrEmpty(mfs.IpSignature)) factorCount++;
+            if (!string.IsNullOrEmpty(mfs.UaSignature)) factorCount++;
+            if (!string.IsNullOrEmpty(mfs.ClientSideSignature)) factorCount++;
+            if (!string.IsNullOrEmpty(mfs.PluginSignature)) factorCount++;
+            if (!string.IsNullOrEmpty(mfs.IpSubnetSignature)) factorCount++;
+            if (!string.IsNullOrEmpty(mfs.GeoSignature)) factorCount++;
+            return new SignatureFactors(
+                mfs.IpSignature,
+                mfs.UaSignature,
+                mfs.ClientSideSignature,
+                Math.Max(1, factorCount));
         }
 
         return new SignatureFactors(null, null, null, 1);
@@ -453,27 +434,17 @@ public partial class DetectionBroadcastMiddleware
     /// </summary>
     private string ResolvePrimarySignature(HttpContext context)
     {
-        if (context.Items.TryGetValue(BotDetectionMiddleware.SignatureSetKey, out var sigObj))
+        if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
+            && evObj is AggregatedEvidence ev)
         {
-            // Preferred path: MultiFactorSignatures object from ComputeAndStoreSignature
-            if (sigObj is Mostlylucid.BotDetection.Dashboard.MultiFactorSignatures mfs &&
-                !string.IsNullOrEmpty(mfs.PrimarySignature))
-                return mfs.PrimarySignature;
+            if (ev.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sig)
+                && sig is string primary && !string.IsNullOrEmpty(primary))
+                return primary;
 
-            // Legacy path: JSON string (from upstream gateway headers)
-            if (sigObj is string sigJson)
-            {
-                try
-                {
-                    var sigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(sigJson);
-                    var primary = sigs?.GetValueOrDefault("primary");
-                    if (!string.IsNullOrEmpty(primary)) return primary;
-                }
-                catch (System.Text.Json.JsonException ex)
-                {
-                    _logger.LogDebug(ex, "Failed to deserialize primary signature JSON");
-                }
-            }
+            if (ev.Signals.TryGetValue(SignalKeys.SignatureMultifactor, out var multiObj)
+                && multiObj is Mostlylucid.BotDetection.Dashboard.MultiFactorSignatures mfs
+                && !string.IsNullOrEmpty(mfs.PrimarySignature))
+                return mfs.PrimarySignature;
         }
 
         return GenerateFallbackSignature(context);

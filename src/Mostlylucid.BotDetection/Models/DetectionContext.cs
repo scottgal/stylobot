@@ -450,6 +450,9 @@ public static class SignalKeys
     /// <summary>String: Unified client signature (HMAC-SHA256). Written by SignatureContributor at Priority 1.</summary>
     public const string PrimarySignature = "signature.primary";
 
+    /// <summary>MultiFactorSignatures: full per-factor signature set (IP+UA, IP+Plugin, etc.). Written by SignatureContributor.</summary>
+    public const string SignatureMultifactor = "signature.multifactor";
+
     /// <summary>String (JSON): HMAC hashes of discriminatory headers. Written by SignatureContributor.</summary>
     public const string HeaderHashes = "signature.header_hashes";
 

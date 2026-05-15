@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.UI.Models;
 
@@ -267,15 +269,25 @@ public class DetectionDataExtractor
 
     private MultiFactorSignatureDisplay? ExtractSignatures(HttpContext context)
     {
-        if (context.Items.TryGetValue(BotDetectionMiddleware.SignatureSetKey, out var signaturesObj) &&
-            signaturesObj is string signaturesJson)
-            try
+        // Canonical: read the signature the orchestrator's foundation wave wrote.
+        if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
+            && evObj is AggregatedEvidence ev)
+        {
+            if (ev.Signals.TryGetValue(Mostlylucid.BotDetection.Models.SignalKeys.SignatureMultifactor, out var multiObj)
+                && multiObj is MultiFactorSignatures multi
+                && !string.IsNullOrEmpty(multi.PrimarySignature))
             {
-                var signatures = JsonSerializer.Deserialize<Dictionary<string, string>>(signaturesJson);
-                if (signatures != null) return BuildSignatureDisplay(signatures, context);
+                return BuildSignatureDisplay(MultiFactorToDict(multi), context);
             }
-            catch { /* ignore */ }
 
+            if (ev.Signals.TryGetValue(Mostlylucid.BotDetection.Models.SignalKeys.PrimarySignature, out var primaryObj)
+                && primaryObj is string primary && !string.IsNullOrEmpty(primary))
+            {
+                return BuildSignatureDisplay(new Dictionary<string, string> { ["primary"] = primary }, context);
+            }
+        }
+
+        // Gateway-trust path: signatures forwarded as a JSON header by an upstream gateway.
         var signatureHeader = GetHeaderValue(context.Request.Headers, "X-Bot-Detection-Signatures");
         if (!string.IsNullOrEmpty(signatureHeader))
             try
@@ -285,18 +297,24 @@ public class DetectionDataExtractor
             }
             catch { /* ignore */ }
 
-        // Generate a fallback signature from IP+UA so the header bar and
-        // SignalR tracking always have a value to work with.
+        // No detection ran and no upstream sigs: synthesize a transient IP+UA fallback so the
+        // header bar and SignalR tracking always have a value. Not stored back; downstream
+        // consumers compute their own fallbacks via the same helper.
         var fallback = GenerateFallbackSignature(context);
         if (fallback != null)
-        {
-            // Also write it back so DetectionBroadcastMiddleware uses the same value
-            var fallbackDict = new Dictionary<string, string> { ["primary"] = fallback };
-            context.Items[BotDetectionMiddleware.SignatureSetKey] = JsonSerializer.Serialize(fallbackDict);
-            return BuildSignatureDisplay(fallbackDict, context);
-        }
+            return BuildSignatureDisplay(new Dictionary<string, string> { ["primary"] = fallback }, context);
 
         return null;
+    }
+
+    private static Dictionary<string, string> MultiFactorToDict(MultiFactorSignatures m)
+    {
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(m.PrimarySignature)) dict["primary"] = m.PrimarySignature;
+        if (!string.IsNullOrEmpty(m.IpSignature)) dict["ip"] = m.IpSignature;
+        if (!string.IsNullOrEmpty(m.UaSignature)) dict["ua"] = m.UaSignature;
+        if (!string.IsNullOrEmpty(m.ClientSideSignature)) dict["client"] = m.ClientSideSignature;
+        return dict;
     }
 
     private static string? GenerateFallbackSignature(HttpContext context)

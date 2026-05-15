@@ -96,7 +96,7 @@ public static class YarpExtensions
 
         // Forward multi-factor signatures so downstream can match "your detection" and
         // report accurate factor counts without recomputing from a different vantage point
-        if (httpContext.Items.TryGetValue(BotDetectionMiddleware.SignatureSetKey, out var sigsObj) &&
+        if (evidence.Signals.TryGetValue(Models.SignalKeys.SignatureMultifactor, out var sigsObj) &&
             sigsObj is Dashboard.MultiFactorSignatures mfs &&
             !string.IsNullOrEmpty(mfs.PrimarySignature))
         {

@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Http;
-using Mostlylucid.BotDetection.Middleware;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Dashboard;
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.Audit;
 using Mostlylucid.BotDetection.Policies;
@@ -146,13 +146,16 @@ public class AuditProcessorTests
             sink,
             new AuditProcessorOptions { Enabled = true });
         var context = CreateHttpContext();
-        context.Items[BotDetectionMiddleware.SignatureSetKey] = new MultiFactorSignatures
+        var evidence = CreateEvidence(signals: new Dictionary<string, object>
         {
-            PrimarySignature = "primary-hmac",
-            IpSignature = "ip-hmac"
-        };
+            [SignalKeys.SignatureMultifactor] = new MultiFactorSignatures
+            {
+                PrimarySignature = "primary-hmac",
+                IpSignature = "ip-hmac"
+            }
+        });
 
-        await dispatcher.DispatchAsync(context, CreateEvidence());
+        await dispatcher.DispatchAsync(context, evidence);
 
         var record = Assert.Single(sink.Records);
         Assert.Equal("primary-hmac", record.PrimarySignature);
@@ -187,7 +190,6 @@ public class AuditProcessorTests
             });
         var context = CreateHttpContext();
         context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-        context.Items[BotDetectionMiddleware.PrimarySignatureKey] = "primary-hmac";
 
         var ledger = new DetectionLedger("request-1");
         ledger.AddContribution(new DetectionContribution
@@ -205,6 +207,7 @@ public class AuditProcessorTests
             ledger: ledger,
             signals: new Dictionary<string, object>
             {
+                [SignalKeys.PrimarySignature] = "primary-hmac",
                 ["pipeline.error.message"] = "processor timeout"
             });
 

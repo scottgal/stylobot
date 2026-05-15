@@ -225,10 +225,13 @@ public class BotDetectionMiddleware(
             }
         }
 
-        // Signature-only paths: compute signature for cache lookups but skip detection
+        // Signature-only paths: prime any internal signature-service caches but skip detection.
+        // Nothing in the FOSS pipeline downstream of here reads the signature on these paths
+        // (no orchestrator → no AggregatedEvidence). External consumers that previously read
+        // HttpContext.Items[PrimarySignatureKey] must now run detection or compute their own.
         if (IsSignatureOnlyPath(context.Request.Path))
         {
-            ComputeAndStoreSignature(context);
+            _ = ComputeSignature(context);
             await _next(context);
             return;
         }
@@ -337,17 +340,13 @@ public class BotDetectionMiddleware(
         //          inject the verdict as a prior before the pipeline runs.
         //   Miss - no usable verdict; run the pipeline normally.
         //
-        // Precompute the primary signature so the gate can find it. The compute is
-        // idempotent and cheap (IP and UA hash); the post-orchestrator call later in
-        // this method becomes a no-op when the signature is already populated.
-        ComputeAndStoreSignature(context);
+        // Pre-orchestrator: compute the signature for the verdict gate. The orchestrator's
+        // foundation wave will recompute it (cheap, idempotent) and write it to ev.Signals
+        // for downstream consumers. Local-var only — no parallel HttpContext.Items store.
+        var precomputedSig = ComputeSignature(context);
 
         if (_verdictGate is not null && _signatureCoordinator is not null && _watchdog is not null)
         {
-            var precomputedSig = context.Items.TryGetValue(PrimarySignatureKey, out var sObj)
-                ? sObj as string
-                : null;
-
             var gateDecision = await _verdictGate.DecideAsync(
                 precomputedSig, policy.SignatureCache, context.RequestAborted);
 
@@ -450,11 +449,8 @@ public class BotDetectionMiddleware(
 
         PopulateContextFromAggregated(context, aggregatedResult, policy.Name);
 
-        // Compute multi-vector signatures for dashboard and bot identity tracking
-        ComputeAndStoreSignature(context);
-
-        // Signatures are unified - PrimarySignature is used by both dashboard and session store.
-        // No mapping needed (SignatureMapper was removed as part of signature unification).
+        // The orchestrator's foundation wave already wrote signature.primary and
+        // signature.multifactor to aggregatedResult.Signals — see SignatureContributor.
 
         // Record OTel telemetry (spans, metrics, score journey) if instrumentation is registered
         telemetryInstrumentation?.Record(
@@ -471,7 +467,9 @@ public class BotDetectionMiddleware(
         var capturedReq = CaptureRequestSnapshot(context);
         var capturedBotProbability = aggregatedResult.BotProbability;
         var capturedAction = aggregatedResult.PolicyAction;
-        var capturedSig = context.Items[PrimarySignatureKey] as string;
+        var capturedSig = aggregatedResult.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sigObj)
+            ? sigObj as string
+            : null;
         var capturedSigCoordinator = _signatureCoordinator;
         var capturedAuditCtx = auditProcessorDispatcher?.HasProcessors == true
             ? auditProcessorDispatcher.BuildContext(context, aggregatedResult)
@@ -814,7 +812,7 @@ public class BotDetectionMiddleware(
             && !aggregated.Signals.ContainsKey(SignalKeys.ApprovalVerified))
         {
             var approvalStore = context.RequestServices.GetService<Data.IFingerprintApprovalStore>();
-            var signature = context.Items.TryGetValue(PrimarySignatureKey, out var sig) && sig is string s ? s : null;
+            var signature = aggregated.Signals.TryGetValue(SignalKeys.PrimarySignature, out var sig) && sig is string s ? s : null;
             if (approvalStore is not null && signature is not null)
             {
                 try
@@ -891,10 +889,22 @@ public class BotDetectionMiddleware(
     /// <summary>Full AggregatedEvidence from blackboard orchestrator</summary>
     public const string AggregatedEvidenceKey = "BotDetection.AggregatedEvidence";
 
-    /// <summary>String: precomputed primary signature, set by ComputeAndStoreSignature.</summary>
+    /// <summary>
+    ///     Legacy: previously held the precomputed primary signature on HttpContext.Items.
+    ///     Read the signature from <see cref="AggregatedEvidence.Signals"/>[<see cref="SignalKeys.PrimarySignature"/>]
+    ///     instead. Internal consumers no longer write this; the constant is retained so external
+    ///     code that read it continues to compile until the next major. Will be removed at v8.
+    ///     See <c>docs/architecture/signal-contracts.md</c>.
+    /// </summary>
+    [Obsolete("Read signature from AggregatedEvidence.Signals[SignalKeys.PrimarySignature] instead. Removed at v8.")]
     public const string PrimarySignatureKey = "BotDetection:Signature";
 
-    /// <summary>SignatureSet: structured signature pair produced by the signature service.</summary>
+    /// <summary>
+    ///     Legacy: previously held the full <see cref="Dashboard.MultiFactorSignatures"/> set on
+    ///     HttpContext.Items. Read from <see cref="AggregatedEvidence.Signals"/>[<see cref="SignalKeys.SignatureMultifactor"/>]
+    ///     instead. Will be removed at v8.
+    /// </summary>
+    [Obsolete("Read signature set from AggregatedEvidence.Signals[SignalKeys.SignatureMultifactor] instead. Removed at v8.")]
     public const string SignatureSetKey = "BotDetection.Signatures";
 
     /// <summary>Boolean: true if request is from a bot</summary>
@@ -1133,18 +1143,17 @@ public class BotDetectionMiddleware(
         return false;
     }
 
-    private void ComputeAndStoreSignature(HttpContext context)
+    /// <summary>
+    ///     Compute the request's primary signature for pre-detection consumers (verdict gate,
+    ///     signature-only paths). Post-detection consumers must read from
+    ///     <see cref="AggregatedEvidence.Signals"/>[<see cref="SignalKeys.PrimarySignature"/>] —
+    ///     the foundation wave's <see cref="SignatureContributor"/> populates it. Returns null
+    ///     if the signature service is not registered.
+    /// </summary>
+    private string? ComputeSignature(HttpContext context)
     {
-        if (_signatureService == null) return;
-
-        // Idempotent: callers (signature-only paths, the verdict gate at request entry,
-        // the post-detection path) may invoke this more than once per request. If a
-        // prior call already populated the signature, skip the recompute.
-        if (context.Items.ContainsKey(PrimarySignatureKey)) return;
-
-        var sigs = _signatureService.GenerateSignatures(context);
-        context.Items[SignatureSetKey] = sigs;
-        context.Items[PrimarySignatureKey] = sigs.PrimarySignature;
+        if (_signatureService == null) return null;
+        return _signatureService.GenerateSignatures(context).PrimarySignature;
     }
 
     /// <summary>
@@ -2001,6 +2010,25 @@ public class BotDetectionMiddleware(
             }
         }
 
+        // Hoist gateway-forwarded signatures into the signals dict so downstream consumers
+        // see them via ev.Signals (no parallel HttpContext.Items store). Mutate the signals
+        // dict before constructing the evidence record so it is part of the canonical surface.
+        var upstreamPrimarySig = context.Request.Headers["X-Bot-Detection-PrimarySignature"].FirstOrDefault();
+        if (!string.IsNullOrEmpty(upstreamPrimarySig))
+        {
+            var mutableSignals = upstreamSignals as Dictionary<string, object>
+                ?? new Dictionary<string, object>(upstreamSignals, StringComparer.OrdinalIgnoreCase);
+            mutableSignals[SignalKeys.PrimarySignature] = upstreamPrimarySig;
+            mutableSignals[SignalKeys.SignatureMultifactor] = new Dashboard.MultiFactorSignatures
+            {
+                PrimarySignature = upstreamPrimarySig,
+                IpSignature = context.Request.Headers["X-Bot-Detection-IpSignature"].FirstOrDefault(),
+                UaSignature = context.Request.Headers["X-Bot-Detection-UaSignature"].FirstOrDefault(),
+                ClientSideSignature = context.Request.Headers["X-Bot-Detection-ClientSideSignature"].FirstOrDefault(),
+            };
+            upstreamSignals = mutableSignals;
+        }
+
         // Build AggregatedEvidence with ledger so Contributions property works
         var evidence = new AggregatedEvidence
         {
@@ -2029,20 +2057,6 @@ public class BotDetectionMiddleware(
         context.Items[DetectionReasonsKey] = detectionReasons;
         if (!string.IsNullOrEmpty(category))
             context.Items[BotCategoryKey] = category;
-
-        // Use upstream multi-factor signatures if forwarded by the gateway
-        var upstreamPrimarySig = context.Request.Headers["X-Bot-Detection-PrimarySignature"].FirstOrDefault();
-        if (!string.IsNullOrEmpty(upstreamPrimarySig))
-        {
-            var upstreamSigs = new Dashboard.MultiFactorSignatures
-            {
-                PrimarySignature = upstreamPrimarySig,
-                IpSignature = context.Request.Headers["X-Bot-Detection-IpSignature"].FirstOrDefault(),
-                UaSignature = context.Request.Headers["X-Bot-Detection-UaSignature"].FirstOrDefault(),
-                ClientSideSignature = context.Request.Headers["X-Bot-Detection-ClientSideSignature"].FirstOrDefault(),
-            };
-            context.Items[SignatureSetKey] = upstreamSigs;
-        }
 
         // Create legacy result for compatibility with views/TagHelpers/extension methods
         var legacyResult = new BotDetectionResult

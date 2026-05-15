@@ -19,6 +19,7 @@ using Mostlylucid.BotDetection.Similarity;
 using Mostlylucid.BotDetection.Licensing;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.MonitoringPacks;
+using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.Analysis;
@@ -931,9 +932,17 @@ public class StyloBotDashboardMiddleware
             if (sigService == null || visitorCache == null)
                 return "null";
 
-            // Use pre-computed signature from BotDetectionMiddleware if available
-            var sigs = context.Items[BotDetectionMiddleware.SignatureSetKey] as MultiFactorSignatures
-                       ?? sigService.GenerateSignatures(context);
+            // Read the signature set the orchestrator's foundation wave wrote; fall back to
+            // a fresh compute when no detection ran on this request.
+            MultiFactorSignatures? sigs = null;
+            if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
+                && evObj is AggregatedEvidence ev
+                && ev.Signals.TryGetValue(SignalKeys.SignatureMultifactor, out var multiObj)
+                && multiObj is MultiFactorSignatures m)
+            {
+                sigs = m;
+            }
+            sigs ??= sigService.GenerateSignatures(context);
             var visitor = visitorCache.Get(sigs.PrimarySignature);
 
             if (visitor == null)
@@ -4247,8 +4256,15 @@ public class StyloBotDashboardMiddleware
             if (sigService == null || visitorCache == null)
                 return new YourDetectionModel { HasData = false, BasePath = _options.BasePath.TrimEnd('/') };
 
-            var sigs = context.Items[BotDetectionMiddleware.SignatureSetKey] as MultiFactorSignatures
-                       ?? sigService.GenerateSignatures(context);
+            MultiFactorSignatures? sigs = null;
+            if (context.Items.TryGetValue(BotDetectionMiddleware.AggregatedEvidenceKey, out var evObj)
+                && evObj is AggregatedEvidence ev
+                && ev.Signals.TryGetValue(SignalKeys.SignatureMultifactor, out var multiObj)
+                && multiObj is MultiFactorSignatures m)
+            {
+                sigs = m;
+            }
+            sigs ??= sigService.GenerateSignatures(context);
             var visitor = visitorCache.Get(sigs.PrimarySignature);
 
             if (visitor == null)
