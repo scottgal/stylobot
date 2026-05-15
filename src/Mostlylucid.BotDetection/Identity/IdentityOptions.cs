@@ -117,4 +117,17 @@ public sealed class IdentityEngineOptions
 {
     /// <summary>Prefer sqlite-vec when the extension loads; fall back to brute-force UDF when it cannot.</summary>
     public bool PreferSqliteVec { get; set; } = true;
+
+    /// <summary>
+    ///     Optional override for the sqlite-vec extension path. When null, the store calls
+    ///     <c>conn.LoadExtension("vec0")</c> and SQLite resolves the binary from the OS
+    ///     library search path (PATH on Windows, LD_LIBRARY_PATH on Linux, DYLD_LIBRARY_PATH
+    ///     on macOS). Set to an absolute path (e.g. <c>/usr/local/lib/vec0.dylib</c>) when
+    ///     the binary lives somewhere the search path doesn't cover.
+    ///
+    ///     Get the binary from https://github.com/asg017/sqlite-vec/releases — there is no
+    ///     in-tree native dependency, so the brute-force engine remains the FOSS default
+    ///     and operators opt into the perf path by installing the extension themselves.
+    /// </summary>
+    public string? SqliteVecExtensionPath { get; set; }
 }

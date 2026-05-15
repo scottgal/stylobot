@@ -16,8 +16,10 @@ public sealed class SqliteFingerprintStore
     private readonly ILogger<SqliteFingerprintStore> _logger;
     private readonly string _connectionString;
     private readonly IdentityVectorLayout _layout;
+    private readonly IdentityEngineOptions _engineOptions;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private bool _initialised;
+    private bool _vecAvailable;
 
     public SqliteFingerprintStore(
         ILogger<SqliteFingerprintStore> logger,
@@ -26,6 +28,7 @@ public sealed class SqliteFingerprintStore
     {
         _logger = logger;
         _layout = layout;
+        _engineOptions = options.Value.Identity.Engine;
         var dbPath = options.Value.DatabasePath
             ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
         var dir = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
@@ -38,6 +41,13 @@ public sealed class SqliteFingerprintStore
     }
 
     public IdentityVectorLayout Layout => _layout;
+
+    /// <summary>
+    ///     True when the sqlite-vec extension loaded successfully on init and the vec0
+    ///     virtual tables were created. Read by <c>SqliteVecIdentityAnchorIndex</c> to
+    ///     decide whether to dispatch to vec0 KNN or fall through to brute force.
+    /// </summary>
+    public bool IsVecAvailable => _vecAvailable;
 
     public async Task EnsureInitialisedAsync(CancellationToken ct = default)
     {
@@ -58,16 +68,77 @@ public sealed class SqliteFingerprintStore
 
             await IdentitySchema.CreateCoreTablesAsync(conn, ct);
             await EnsureLayoutRowAsync(conn, ct);
+
+            // Best-effort sqlite-vec load. The brute-force index is the FOSS default;
+            // operators install asg017/sqlite-vec themselves to opt into the perf path.
+            // Failure to load is informational, never fatal.
+            if (_engineOptions.PreferSqliteVec)
+                _vecAvailable = await TryLoadVecExtensionAsync(conn, ct);
+
             _initialised = true;
             _logger.LogInformation(
-                "Fingerprint store initialised at {Path}, layout v{Version} dim={Dim}",
-                _connectionString, _layout.Version, _layout.Dimension);
+                "Fingerprint store initialised at {Path}, layout v{Version} dim={Dim}, sqlite-vec={Vec}",
+                _connectionString, _layout.Version, _layout.Dimension,
+                _vecAvailable ? "enabled" : "unavailable (brute force)");
         }
         finally
         {
             _initLock.Release();
         }
     }
+
+    /// <summary>
+    ///     Attempts to load the sqlite-vec extension on the supplied connection and create
+    ///     the vec0 virtual indexes. Returns true on success. Failure is silent at WARN
+    ///     level — the brute-force index will pick up where vec0 didn't.
+    /// </summary>
+    private async Task<bool> TryLoadVecExtensionAsync(SqliteConnection conn, CancellationToken ct)
+    {
+        try
+        {
+            conn.EnableExtensions(true);
+            // Either operator-supplied path or the OS library search path.
+            var extName = _engineOptions.SqliteVecExtensionPath ?? "vec0";
+            conn.LoadExtension(extName);
+            await IdentitySchema.CreateVecIndexesAsync(conn, _layout.Dimension, ct);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogInformation(
+                "sqlite-vec extension not available ({Reason}); using brute-force anchor index. " +
+                "Install from https://github.com/asg017/sqlite-vec/releases to opt into the vec0 perf path.",
+                ex.GetType().Name);
+            return false;
+        }
+    }
+
+    /// <summary>
+    ///     Opens a connection and, when sqlite-vec was successfully loaded at init time,
+    ///     re-loads the extension on this connection so vec0 queries work. Each
+    ///     <see cref="SqliteConnection"/> needs the extension loaded independently —
+    ///     loading on one connection doesn't propagate.
+    /// </summary>
+    private async Task<SqliteConnection> OpenConnectionWithVecAsync(CancellationToken ct)
+    {
+        var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        if (!_vecAvailable) return conn;
+        try
+        {
+            conn.EnableExtensions(true);
+            conn.LoadExtension(_engineOptions.SqliteVecExtensionPath ?? "vec0");
+        }
+        catch (Exception ex)
+        {
+            // Per-connection load failure shouldn't crash the request — fall back silently.
+            _logger.LogWarning(ex, "Per-connection sqlite-vec load failed; vec queries on this connection will fail");
+        }
+        return conn;
+    }
+
+    /// <summary>Public connection factory used by <see cref="SqliteVecIdentityAnchorIndex"/>.</summary>
+    internal Task<SqliteConnection> OpenVecConnectionAsync(CancellationToken ct) => OpenConnectionWithVecAsync(ct);
 
     private async Task EnsureLayoutRowAsync(SqliteConnection conn, CancellationToken ct)
     {
@@ -139,8 +210,7 @@ public sealed class SqliteFingerprintStore
     public async Task InsertFingerprintAsync(Fingerprint fp, string primarySignature, CancellationToken ct = default)
     {
         await EnsureInitialisedAsync(ct);
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
+        await using var conn = await OpenConnectionWithVecAsync(ct);
         await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
 
         await using (var cmd = conn.CreateCommand())
@@ -183,6 +253,17 @@ public sealed class SqliteFingerprintStore
         }
 
         await UpsertKeyAsync(conn, tx, primarySignature, fp.FingerprintId, ct);
+
+        if (_vecAvailable)
+        {
+            await using var vec = conn.CreateCommand();
+            vec.Transaction = tx;
+            vec.CommandText = "INSERT INTO fingerprints_vec(fingerprint_id, centroid) VALUES (@id, @vec)";
+            vec.Parameters.AddWithValue("@id", fp.FingerprintId);
+            vec.Parameters.AddWithValue("@vec", FloatsToBlob(fp.Centroid));
+            await vec.ExecuteNonQueryAsync(ct);
+        }
+
         await tx.CommitAsync(ct);
     }
 
@@ -220,17 +301,17 @@ public sealed class SqliteFingerprintStore
     public async Task RecordObservationAsync(string fingerprintId, float[] vector, CancellationToken ct = default)
     {
         await EnsureInitialisedAsync(ct);
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
+        await using var conn = await OpenConnectionWithVecAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             INSERT INTO fingerprint_observations (fingerprint_id, vector, observed_at, absorbed_at)
-            VALUES (@id, @vec, @ts, NULL)
+            VALUES (@id, @vec, @ts, NULL);
+            SELECT last_insert_rowid();
             """;
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         cmd.Parameters.AddWithValue("@vec", FloatsToBlob(vector));
         cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
-        await cmd.ExecuteNonQueryAsync(ct);
+        var observationId = (long)(await cmd.ExecuteScalarAsync(ct))!;
 
         await using var bump = conn.CreateCommand();
         bump.CommandText = """
@@ -242,6 +323,16 @@ public sealed class SqliteFingerprintStore
         bump.Parameters.AddWithValue("@id", fingerprintId);
         bump.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
         await bump.ExecuteNonQueryAsync(ct);
+
+        if (_vecAvailable)
+        {
+            await using var vec = conn.CreateCommand();
+            vec.CommandText = "INSERT INTO observations_vec(observation_id, fingerprint_id, vector) VALUES (@oid, @fid, @v)";
+            vec.Parameters.AddWithValue("@oid", observationId);
+            vec.Parameters.AddWithValue("@fid", fingerprintId);
+            vec.Parameters.AddWithValue("@v", FloatsToBlob(vector));
+            await vec.ExecuteNonQueryAsync(ct);
+        }
     }
 
     /// <summary>Record a Pass-2-corrects-Pass-1 disagreement and persist Pass 2's updated weights.</summary>
@@ -313,8 +404,7 @@ public sealed class SqliteFingerprintStore
         CancellationToken ct = default)
     {
         await EnsureInitialisedAsync(ct);
-        await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(ct);
+        await using var conn = await OpenConnectionWithVecAsync(ct);
         await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
 
         await using (var fp = conn.CreateCommand())
@@ -362,6 +452,37 @@ public sealed class SqliteFingerprintStore
             obs.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
             obs.Parameters.AddWithValue("@id", observationId);
             await obs.ExecuteNonQueryAsync(ct);
+        }
+
+        if (_vecAvailable)
+        {
+            // Update the centroid in vec0 — UPSERT shape: delete-then-insert is the
+            // simplest reliable way to push a new centroid into vec0, since vec0's UPDATE
+            // syntax has version-dependent behaviour for the vector column.
+            await using (var del = conn.CreateCommand())
+            {
+                del.Transaction = tx;
+                del.CommandText = "DELETE FROM fingerprints_vec WHERE fingerprint_id = @id";
+                del.Parameters.AddWithValue("@id", fingerprintId);
+                await del.ExecuteNonQueryAsync(ct);
+            }
+            await using (var ins = conn.CreateCommand())
+            {
+                ins.Transaction = tx;
+                ins.CommandText = "INSERT INTO fingerprints_vec(fingerprint_id, centroid) VALUES (@id, @vec)";
+                ins.Parameters.AddWithValue("@id", fingerprintId);
+                ins.Parameters.AddWithValue("@vec", FloatsToBlob(newCentroid));
+                await ins.ExecuteNonQueryAsync(ct);
+            }
+            // Drop the absorbed observation from the active vec0 index — it's been
+            // folded into the centroid; keeping it would double-count in KNN searches.
+            await using (var obsDel = conn.CreateCommand())
+            {
+                obsDel.Transaction = tx;
+                obsDel.CommandText = "DELETE FROM observations_vec WHERE observation_id = @id";
+                obsDel.Parameters.AddWithValue("@id", observationId);
+                await obsDel.ExecuteNonQueryAsync(ct);
+            }
         }
 
         await tx.CommitAsync(ct);

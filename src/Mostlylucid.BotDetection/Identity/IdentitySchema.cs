@@ -102,15 +102,24 @@ internal static class IdentitySchema
     ///     Creates the vec0 virtual tables when the sqlite-vec extension has been loaded on the
     ///     connection. Caller is responsible for loading the extension first; if it isn't loaded,
     ///     this throws and the caller should fall back to the brute-force engine.
+    ///
+    ///     The schema carries the fingerprint id as a TEXT primary key on the centroid index,
+    ///     and as an auxiliary column (the <c>+</c> prefix means "stored, queryable") on the
+    ///     observations index alongside an integer rowid that mirrors
+    ///     <c>fingerprint_observations.id</c>. This lets KNN results return fingerprint ids
+    ///     directly without a join.
     /// </summary>
     public static async Task CreateVecIndexesAsync(SqliteConnection conn, int dimension, CancellationToken ct = default)
     {
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = $"""
             CREATE VIRTUAL TABLE IF NOT EXISTS fingerprints_vec USING vec0(
+                fingerprint_id text primary key,
                 centroid float[{dimension}]
             );
             CREATE VIRTUAL TABLE IF NOT EXISTS observations_vec USING vec0(
+                observation_id integer primary key,
+                +fingerprint_id text,
                 vector float[{dimension}]
             );
             """;

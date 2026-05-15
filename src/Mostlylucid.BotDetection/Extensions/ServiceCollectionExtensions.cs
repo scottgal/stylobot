@@ -572,7 +572,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(sp => Identity.IdentityVectorLayout.DefaultV1());
         services.TryAddSingleton<Identity.IdentityVectorEncoder>();
         services.TryAddSingleton<Identity.SqliteFingerprintStore>();
-        services.TryAddSingleton<Identity.IIdentityAnchorIndex, Identity.BruteForceIdentityAnchorIndex>();
+        // Anchor index: vec0 wrapper that dispatches to brute force when sqlite-vec didn't
+        // load. Both impls registered as concrete types so the wrapper can fall back per-call.
+        services.TryAddSingleton<Identity.BruteForceIdentityAnchorIndex>();
+        services.TryAddSingleton<Identity.IIdentityAnchorIndex, Identity.SqliteVecIdentityAnchorIndex>();
         services.TryAddSingleton<Identity.IdentityArchetypeRegistry>();
         services.AddSingleton<Identity.IdentityGlobalWeightsCache>();
         services.AddHostedService(sp => sp.GetRequiredService<Identity.IdentityGlobalWeightsCache>());
