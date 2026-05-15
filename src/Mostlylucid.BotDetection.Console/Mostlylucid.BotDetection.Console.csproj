@@ -33,6 +33,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <PackageReference Include="OpenTelemetry.Api" Version="1.15.3" />
 <PackageReference Include="Yarp.ReverseProxy" Version="2.3.0" />
         <PackageReference Include="XenoAtom.Terminal.UI" Version="3.2.2" />
         <PackageReference Include="Serilog.AspNetCore" Version="10.0.0" />
