@@ -574,6 +574,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Identity.SqliteFingerprintStore>();
         services.TryAddSingleton<Identity.IIdentityAnchorIndex, Identity.BruteForceIdentityAnchorIndex>();
         services.TryAddSingleton<Identity.IdentityArchetypeRegistry>();
+        services.AddSingleton<Identity.IdentityGlobalWeightsCache>();
+        services.AddHostedService(sp => sp.GetRequiredService<Identity.IdentityGlobalWeightsCache>());
         services.AddSingleton<IContributingDetector, IdentityVectorContributor>();
         services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
         services.AddSingleton<Identity.FingerprintAbsorptionService>();

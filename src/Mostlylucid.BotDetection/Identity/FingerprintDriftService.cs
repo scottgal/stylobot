@@ -27,16 +27,19 @@ public sealed class FingerprintDriftService : BackgroundService
 {
     private readonly ILogger<FingerprintDriftService> _logger;
     private readonly SqliteFingerprintStore _store;
+    private readonly IdentityGlobalWeightsCache _globalWeights;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
 
     public FingerprintDriftService(
         ILogger<FingerprintDriftService> logger,
         SqliteFingerprintStore store,
+        IdentityGlobalWeightsCache globalWeights,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
         _store = store;
+        _globalWeights = globalWeights;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
     }
@@ -88,7 +91,8 @@ public sealed class FingerprintDriftService : BackgroundService
                 continue;
             }
 
-            var score = BruteForceIdentityAnchorIndex.WeightedCosine(latest, fp.Centroid, fp.Weights);
+            var composed = _globalWeights.Compose(fp.Weights);
+            var score = BruteForceIdentityAnchorIndex.WeightedCosine(latest, fp.Centroid, composed);
             if (score < _options.Drift.DriftWarningThreshold)
             {
                 drifts++;

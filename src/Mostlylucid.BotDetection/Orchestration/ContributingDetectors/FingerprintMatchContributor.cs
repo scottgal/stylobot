@@ -26,6 +26,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     private readonly SqliteFingerprintStore _store;
     private readonly IIdentityAnchorIndex _index;
     private readonly IdentityArchetypeRegistry _archetypes;
+    private readonly IdentityGlobalWeightsCache _globalWeights;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
 
@@ -34,12 +35,14 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         SqliteFingerprintStore store,
         IIdentityAnchorIndex index,
         IdentityArchetypeRegistry archetypes,
+        IdentityGlobalWeightsCache globalWeights,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
         _store = store;
         _index = index;
         _archetypes = archetypes;
+        _globalWeights = globalWeights;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
     }
@@ -68,10 +71,11 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
         if (l1Candidate is not null)
         {
-            // Quick confirm: weighted cosine against the candidate's centroid using its own weights.
-            // (Global weights compose multiplicatively; until calibration runs, global is all-1.0.)
+            // Quick confirm: weighted cosine against the candidate's centroid using its own
+            // weights composed multiplicatively with the calibrated global weights (when loaded).
+            var confirmComposed = _globalWeights.Compose(l1Candidate.Weights);
             var confirmScore = BruteForceIdentityAnchorIndex.WeightedCosine(
-                vector, l1Candidate.Centroid, l1Candidate.Weights);
+                vector, l1Candidate.Centroid, confirmComposed);
             if (confirmScore >= _options.Match.MergeThreshold)
             {
                 EmitConfirmedSignals(state, l1Candidate, confirmScore, primarySig);
@@ -91,7 +95,8 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         {
             var fp = await _store.GetFingerprintAsync(c.FingerprintId, cancellationToken);
             if (fp is null) continue;
-            var centroidScore = BruteForceIdentityAnchorIndex.WeightedCosine(vector, fp.Centroid, fp.Weights);
+            var composed = _globalWeights.Compose(fp.Weights);
+            var centroidScore = BruteForceIdentityAnchorIndex.WeightedCosine(vector, fp.Centroid, composed);
             var score = Math.Max(centroidScore, c.BestObsScore);
             if (score > bestScore)
             {

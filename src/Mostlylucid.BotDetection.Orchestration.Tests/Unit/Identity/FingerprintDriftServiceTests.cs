@@ -40,7 +40,10 @@ public sealed class FingerprintDriftServiceTests : IDisposable
         var optionsWrapper = Options.Create(_options);
         var layout = IdentityVectorLayout.DefaultV1();
         _store = new SqliteFingerprintStore(NullLogger<SqliteFingerprintStore>.Instance, optionsWrapper, layout);
-        _service = new FingerprintDriftService(NullLogger<FingerprintDriftService>.Instance, _store, optionsWrapper);
+        var globalWeights = new IdentityGlobalWeightsCache(
+            NullLogger<IdentityGlobalWeightsCache>.Instance, _store, optionsWrapper);
+        _service = new FingerprintDriftService(
+            NullLogger<FingerprintDriftService>.Instance, _store, globalWeights, optionsWrapper);
     }
 
     public void Dispose()
