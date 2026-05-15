@@ -20,13 +20,13 @@ public sealed class BruteForceIdentityAnchorIndex : IIdentityAnchorIndex
         var centroidScores = new SortedSet<(double Score, string Id)>(CandidateComparer.Instance);
         var observationScores = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
-        await foreach (var fp in _store.EnumerateFingerprintsAsync(ct))
+        foreach (var fp in await _store.ListFingerprintsAsync(ct))
         {
             var s = Cosine(vector, fp.Centroid);
             AddTopK(centroidScores, topK, (s, fp.FingerprintId));
         }
 
-        await foreach (var (id, vec) in _store.EnumerateActiveObservationsAsync(ct))
+        foreach (var (id, vec) in await _store.ListActiveObservationsAsync(ct))
         {
             var s = Cosine(vector, vec);
             if (!observationScores.TryGetValue(id, out var existing) || s > existing)

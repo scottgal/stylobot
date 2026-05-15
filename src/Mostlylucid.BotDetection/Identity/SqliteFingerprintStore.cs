@@ -31,7 +31,10 @@ public sealed class SqliteFingerprintStore
         var dir = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
         Directory.CreateDirectory(dir);
         var fpDb = Path.Combine(dir, "fingerprints.db");
-        _connectionString = $"Data Source={fpDb};Cache=Shared";
+        // Private cache + WAL gives proper reader/writer concurrency. Shared cache forces
+        // serialisation across all connections in-process, which deadlocks when the brute-force
+        // index holds a reader on `fingerprints` while the absorption service tries to UPDATE.
+        _connectionString = $"Data Source={fpDb}";
     }
 
     public IdentityVectorLayout Layout => _layout;
@@ -241,11 +244,167 @@ public sealed class SqliteFingerprintStore
         await bump.ExecuteNonQueryAsync(ct);
     }
 
-    /// <summary>Enumerate all fingerprints (used by the brute-force index scan).</summary>
-    public async IAsyncEnumerable<Fingerprint> EnumerateFingerprintsAsync(
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    /// <summary>Record a Pass-2-corrects-Pass-1 disagreement and persist Pass 2's updated weights.</summary>
+    public async Task RecordCorrectionAsync(
+        string requestId,
+        string primarySignature,
+        string? pass1FingerprintId,
+        string pass2FingerprintId,
+        float[] differentiator,
+        float[] updatedPass2Weights,
+        CancellationToken ct = default)
     {
         await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO fingerprint_corrections
+                    (request_id, primary_signature, pass1_fingerprint, pass2_fingerprint,
+                     differentiator, observed_at)
+                VALUES (@req, @sig, @p1, @p2, @diff, @ts)
+                """;
+            cmd.Parameters.AddWithValue("@req", requestId);
+            cmd.Parameters.AddWithValue("@sig", primarySignature);
+            cmd.Parameters.AddWithValue("@p1", (object?)pass1FingerprintId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@p2", pass2FingerprintId);
+            cmd.Parameters.AddWithValue("@diff", FloatsToBlob(differentiator));
+            cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await using (var bump = conn.CreateCommand())
+        {
+            bump.Transaction = tx;
+            bump.CommandText = """
+                UPDATE fingerprints
+                   SET weights = @weights,
+                       correction_count = correction_count + 1
+                 WHERE fingerprint_id = @id
+                """;
+            bump.Parameters.AddWithValue("@weights", FloatsToBlob(updatedPass2Weights));
+            bump.Parameters.AddWithValue("@id", pass2FingerprintId);
+            await bump.ExecuteNonQueryAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>
+    ///     Absorption transaction: fold the supplied observation into the fingerprint's centroid
+    ///     using maturity-weighted mean, mark the obs row absorbed, persist the updated weights.
+    /// </summary>
+    public async Task AbsorbObservationAsync(
+        long observationId,
+        string fingerprintId,
+        float[] newCentroid,
+        int newMaturity,
+        float[] newWeights,
+        CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+
+        await using (var fp = conn.CreateCommand())
+        {
+            fp.Transaction = tx;
+            fp.CommandText = """
+                UPDATE fingerprints
+                   SET centroid = @centroid,
+                       centroid_maturity = @maturity,
+                       weights = @weights
+                 WHERE fingerprint_id = @id
+                """;
+            fp.Parameters.AddWithValue("@centroid", FloatsToBlob(newCentroid));
+            fp.Parameters.AddWithValue("@maturity", newMaturity);
+            fp.Parameters.AddWithValue("@weights", FloatsToBlob(newWeights));
+            fp.Parameters.AddWithValue("@id", fingerprintId);
+            await fp.ExecuteNonQueryAsync(ct);
+        }
+
+        await using (var obs = conn.CreateCommand())
+        {
+            obs.Transaction = tx;
+            obs.CommandText = "UPDATE fingerprint_observations SET absorbed_at = @ts WHERE id = @id";
+            obs.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+            obs.Parameters.AddWithValue("@id", observationId);
+            await obs.ExecuteNonQueryAsync(ct);
+        }
+
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>
+    ///     Returns observations that meet the maturity threshold (the fingerprint has had
+    ///     <paramref name="maturityThreshold"/> additional observations since this one was
+    ///     recorded) OR are older than <paramref name="ageDays"/> on an active fingerprint.
+    ///     Active = the fingerprint has been observed within <paramref name="activeWindowDays"/>.
+    ///
+    ///     Materialised before return so the reader closes before any caller starts writing.
+    /// </summary>
+    public async Task<IReadOnlyList<AbsorbableObservation>> ListAbsorbableObservationsAsync(
+        int maturityThreshold,
+        int ageDays,
+        int activeWindowDays,
+        CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        var results = new List<AbsorbableObservation>();
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT o.id, o.fingerprint_id, o.vector, o.observed_at,
+                   f.centroid, f.centroid_maturity, f.weights, f.observation_count, f.last_seen
+              FROM fingerprint_observations o
+              JOIN fingerprints f ON f.fingerprint_id = o.fingerprint_id
+             WHERE o.absorbed_at IS NULL
+            """;
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+
+        var ageCutoff = DateTime.UtcNow.AddDays(-ageDays);
+        var activeCutoff = DateTime.UtcNow.AddDays(-activeWindowDays);
+
+        while (await reader.ReadAsync(ct))
+        {
+            var observedAt = DateTime.Parse(reader.GetString(3), null,
+                System.Globalization.DateTimeStyles.RoundtripKind);
+            var lastSeen = DateTime.Parse(reader.GetString(8), null,
+                System.Globalization.DateTimeStyles.RoundtripKind);
+            var observationCount = reader.GetInt32(7);
+
+            // No per-row "observations since this one" cheaply; approximate by fingerprint's
+            // lifetime observation_count. Anything past the maturity threshold is eligible; we
+            // also accept old rows on active fingerprints. The brute-force scan picks them up
+            // each tick.
+            var maturityFired = observationCount >= maturityThreshold;
+            var ageFired = observedAt <= ageCutoff && lastSeen >= activeCutoff;
+            if (!maturityFired && !ageFired) continue;
+
+            results.Add(new AbsorbableObservation
+            {
+                ObservationId = reader.GetInt64(0),
+                FingerprintId = reader.GetString(1),
+                Vector = BlobToFloats((byte[])reader.GetValue(2)),
+                Centroid = BlobToFloats((byte[])reader.GetValue(4)),
+                CentroidMaturity = reader.GetInt32(5),
+                Weights = BlobToFloats((byte[])reader.GetValue(6))
+            });
+        }
+        return results;
+    }
+
+    /// <summary>List all fingerprints. Materialised; reader closes before return.</summary>
+    public async Task<IReadOnlyList<Fingerprint>> ListFingerprintsAsync(CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        var results = new List<Fingerprint>();
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
@@ -259,14 +418,16 @@ public sealed class SqliteFingerprintStore
             """;
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         while (await reader.ReadAsync(ct))
-            yield return ReadFingerprint(reader);
+            results.Add(ReadFingerprint(reader));
+        return results;
     }
 
-    /// <summary>Enumerate unabsorbed observation vectors for the brute-force index.</summary>
-    public async IAsyncEnumerable<(string FingerprintId, float[] Vector)> EnumerateActiveObservationsAsync(
-        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    /// <summary>List unabsorbed observation vectors. Materialised; reader closes before return.</summary>
+    public async Task<IReadOnlyList<(string FingerprintId, float[] Vector)>> ListActiveObservationsAsync(
+        CancellationToken ct = default)
     {
         await EnsureInitialisedAsync(ct);
+        var results = new List<(string, float[])>();
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
@@ -280,8 +441,9 @@ public sealed class SqliteFingerprintStore
         {
             var id = reader.GetString(0);
             var blob = (byte[])reader.GetValue(1);
-            yield return (id, BlobToFloats(blob));
+            results.Add((id, BlobToFloats(blob)));
         }
+        return results;
     }
 
     private Fingerprint ReadFingerprint(SqliteDataReader reader) => new()

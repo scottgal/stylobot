@@ -575,6 +575,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Identity.IIdentityAnchorIndex, Identity.BruteForceIdentityAnchorIndex>();
         services.AddSingleton<IContributingDetector, IdentityVectorContributor>();
         services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
+        services.AddSingleton<Identity.FingerprintAbsorptionService>();
+        services.AddHostedService(sp => sp.GetRequiredService<Identity.FingerprintAbsorptionService>());
         services.AddSingleton<IContributingDetector, HeaderContributor>();
         services.AddSingleton<IContributingDetector, IpContributor>();
         services.AddSingleton<IContributingDetector, BehavioralContributor>();

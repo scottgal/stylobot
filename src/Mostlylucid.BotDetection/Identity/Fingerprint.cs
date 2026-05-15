@@ -33,3 +33,17 @@ public sealed record FingerprintCandidate(
     string FingerprintId,
     double CentroidScore,
     double BestObsScore);
+
+/// <summary>
+///     A detailed observation that has met an absorption threshold; carries everything the
+///     absorption transaction needs without re-reading.
+/// </summary>
+public sealed record AbsorbableObservation
+{
+    public required long ObservationId { get; init; }
+    public required string FingerprintId { get; init; }
+    public required float[] Vector { get; init; }
+    public required float[] Centroid { get; init; }
+    public required int CentroidMaturity { get; init; }
+    public required float[] Weights { get; init; }
+}

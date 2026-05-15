@@ -99,14 +99,32 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
         if (best is not null && bestScore >= _options.Match.MergeThreshold)
         {
-            // Match. If L1 had a different candidate, this is a correction.
-            var isCorrection = l1FingerprintId is not null && !string.Equals(l1FingerprintId, best.FingerprintId, StringComparison.OrdinalIgnoreCase);
+            // Match. If L1 had a different candidate, this is a correction: record the
+            // differentiator, update Pass 2's weights toward dims that distinguished it from L1,
+            // re-key fingerprint_keys to point at Pass 2's winner.
+            var isCorrection = l1Candidate is not null
+                && !string.Equals(l1Candidate.FingerprintId, best.FingerprintId, StringComparison.OrdinalIgnoreCase);
             EmitConfirmedSignals(state, best, bestScore, primarySig, isCorrection: isCorrection);
             await _store.RecordObservationAsync(best.FingerprintId, vector, cancellationToken);
+
             if (isCorrection)
+            {
+                var diff = IdentityWeightMath.ComputeDifferentiator(vector, l1Candidate!.Centroid, best.Centroid);
+                IdentityWeightMath.ApplyCorrection(best.Weights, diff, _options.Weights.CorrectionLearningRate);
+                IdentityWeightMath.RenormaliseAndClamp(best.Weights, _options.Weights.MinWeight, _options.Weights.MaxWeight);
+                await _store.RecordCorrectionAsync(
+                    state.RequestId, primarySig,
+                    pass1FingerprintId: l1Candidate.FingerprintId,
+                    pass2FingerprintId: best.FingerprintId,
+                    differentiator: diff,
+                    updatedPass2Weights: best.Weights,
+                    cancellationToken);
                 await _store.UpsertKeyAsync(primarySig, best.FingerprintId, cancellationToken);
+            }
             else if (l1FingerprintId is null)
+            {
                 await _store.UpsertKeyAsync(primarySig, best.FingerprintId, cancellationToken);
+            }
             return Array.Empty<DetectionContribution>();
         }
 
