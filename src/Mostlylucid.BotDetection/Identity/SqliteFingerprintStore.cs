@@ -1,0 +1,325 @@
+using System.Buffers.Binary;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Models;
+
+namespace Mostlylucid.BotDetection.Identity;
+
+/// <summary>
+///     SQLite read/write surface for fingerprints, observations, key cache, and corrections.
+///     Holds nothing in memory beyond per-call state; durable concurrency is owned by SQLite
+///     itself (WAL when enabled). Writes batched at the call site.
+/// </summary>
+public sealed class SqliteFingerprintStore
+{
+    private readonly ILogger<SqliteFingerprintStore> _logger;
+    private readonly string _connectionString;
+    private readonly IdentityVectorLayout _layout;
+    private readonly SemaphoreSlim _initLock = new(1, 1);
+    private bool _initialised;
+
+    public SqliteFingerprintStore(
+        ILogger<SqliteFingerprintStore> logger,
+        IOptions<BotDetectionOptions> options,
+        IdentityVectorLayout layout)
+    {
+        _logger = logger;
+        _layout = layout;
+        var dbPath = options.Value.DatabasePath
+            ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
+        var dir = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
+        Directory.CreateDirectory(dir);
+        var fpDb = Path.Combine(dir, "fingerprints.db");
+        _connectionString = $"Data Source={fpDb};Cache=Shared";
+    }
+
+    public IdentityVectorLayout Layout => _layout;
+
+    public async Task EnsureInitialisedAsync(CancellationToken ct = default)
+    {
+        if (_initialised) return;
+        await _initLock.WaitAsync(ct);
+        try
+        {
+            if (_initialised) return;
+
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+
+            await using (var pragma = conn.CreateCommand())
+            {
+                pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
+                await pragma.ExecuteNonQueryAsync(ct);
+            }
+
+            await IdentitySchema.CreateCoreTablesAsync(conn, ct);
+            await EnsureLayoutRowAsync(conn, ct);
+            _initialised = true;
+            _logger.LogInformation(
+                "Fingerprint store initialised at {Path}, layout v{Version} dim={Dim}",
+                _connectionString, _layout.Version, _layout.Dimension);
+        }
+        finally
+        {
+            _initLock.Release();
+        }
+    }
+
+    private async Task EnsureLayoutRowAsync(SqliteConnection conn, CancellationToken ct)
+    {
+        await using var read = conn.CreateCommand();
+        read.CommandText = "SELECT version, dimension FROM identity_vector_layout WHERE id = 1";
+        await using var reader = await read.ExecuteReaderAsync(ct);
+        if (await reader.ReadAsync(ct))
+        {
+            var ver = reader.GetInt32(0);
+            var dim = reader.GetInt32(1);
+            if (ver != _layout.Version || dim != _layout.Dimension)
+                throw new InvalidOperationException(
+                    $"Stored identity_vector_layout (v{ver}, dim={dim}) does not match the running " +
+                    $"layout (v{_layout.Version}, dim={_layout.Dimension}). Migrate before starting.");
+            return;
+        }
+        reader.Close();
+
+        await using var insert = conn.CreateCommand();
+        insert.CommandText = """
+            INSERT INTO identity_vector_layout (id, version, dimension, layout_json, installed_at)
+            VALUES (1, @ver, @dim, @json, @ts)
+            """;
+        insert.Parameters.AddWithValue("@ver", _layout.Version);
+        insert.Parameters.AddWithValue("@dim", _layout.Dimension);
+        insert.Parameters.AddWithValue("@json",
+            System.Text.Json.JsonSerializer.Serialize(_layout.Slots.Select(s => new
+            {
+                s.Name, s.Offset, s.Width, encoding = s.Encoding.ToString()
+            })));
+        insert.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        await insert.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>L1 cache lookup by primary signature.</summary>
+    public async Task<string?> LookupFingerprintIdAsync(string primarySignature, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT fingerprint_id FROM fingerprint_keys WHERE primary_signature = @sig";
+        cmd.Parameters.AddWithValue("@sig", primarySignature);
+        var result = await cmd.ExecuteScalarAsync(ct);
+        return result as string;
+    }
+
+    public async Task<Fingerprint?> GetFingerprintAsync(string fingerprintId, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT fingerprint_id, centroid, centroid_maturity, weights, member_count,
+                   observation_count, correction_count, first_seen, last_seen, quality,
+                   archetype_origin, inferred_client_type, inferred_type_confidence,
+                   inferred_type_changed_at, cached_bot_probability, cached_risk_band,
+                   cached_score_updated_at
+              FROM fingerprints WHERE fingerprint_id = @id
+            """;
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        return ReadFingerprint(reader);
+    }
+
+    /// <summary>Allocate a new fingerprint with the supplied centroid and weights.</summary>
+    public async Task InsertFingerprintAsync(Fingerprint fp, string primarySignature, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                INSERT INTO fingerprints (
+                    fingerprint_id, centroid, centroid_maturity, weights, member_count,
+                    observation_count, correction_count, first_seen, last_seen, quality,
+                    archetype_origin, inferred_client_type, inferred_type_confidence,
+                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
+                    cached_score_updated_at
+                ) VALUES (
+                    @id, @centroid, @maturity, @weights, @members,
+                    @observations, @corrections, @first_seen, @last_seen, @quality,
+                    @origin, @inferred_type, @inferred_conf,
+                    @inferred_changed, @cached_prob, @cached_band,
+                    @cached_updated
+                )
+                """;
+            cmd.Parameters.AddWithValue("@id", fp.FingerprintId);
+            cmd.Parameters.AddWithValue("@centroid", FloatsToBlob(fp.Centroid));
+            cmd.Parameters.AddWithValue("@maturity", fp.CentroidMaturity);
+            cmd.Parameters.AddWithValue("@weights", FloatsToBlob(fp.Weights));
+            cmd.Parameters.AddWithValue("@members", fp.MemberCount);
+            cmd.Parameters.AddWithValue("@observations", fp.ObservationCount);
+            cmd.Parameters.AddWithValue("@corrections", fp.CorrectionCount);
+            cmd.Parameters.AddWithValue("@first_seen", fp.FirstSeen.ToString("O"));
+            cmd.Parameters.AddWithValue("@last_seen", fp.LastSeen.ToString("O"));
+            cmd.Parameters.AddWithValue("@quality", fp.Quality);
+            cmd.Parameters.AddWithValue("@origin", (object?)fp.ArchetypeOrigin ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@inferred_type", fp.InferredClientType);
+            cmd.Parameters.AddWithValue("@inferred_conf", fp.InferredTypeConfidence);
+            cmd.Parameters.AddWithValue("@inferred_changed", fp.InferredTypeChangedAt.ToString("O"));
+            cmd.Parameters.AddWithValue("@cached_prob", fp.CachedBotProbability);
+            cmd.Parameters.AddWithValue("@cached_band", (object?)fp.CachedRiskBand ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@cached_updated",
+                (object?)fp.CachedScoreUpdatedAt?.ToString("O") ?? DBNull.Value);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        await UpsertKeyAsync(conn, tx, primarySignature, fp.FingerprintId, ct);
+        await tx.CommitAsync(ct);
+    }
+
+    /// <summary>Insert or update fingerprint_keys binding a primary_signature to a fingerprint_id.</summary>
+    public async Task UpsertKeyAsync(string primarySignature, string fingerprintId, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await UpsertKeyAsync(conn, null, primarySignature, fingerprintId, ct);
+    }
+
+    private static async Task UpsertKeyAsync(
+        SqliteConnection conn, SqliteTransaction? tx,
+        string primarySignature, string fingerprintId, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow.ToString("O");
+        await using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO fingerprint_keys (primary_signature, fingerprint_id, first_seen, last_seen, hit_count)
+                VALUES (@sig, @id, @now, @now, 1)
+                ON CONFLICT(primary_signature) DO UPDATE SET
+                    fingerprint_id = excluded.fingerprint_id,
+                    last_seen      = excluded.last_seen,
+                    hit_count      = hit_count + 1
+            """;
+        cmd.Parameters.AddWithValue("@sig", primarySignature);
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        cmd.Parameters.AddWithValue("@now", now);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>Append an unabsorbed observation row.</summary>
+    public async Task RecordObservationAsync(string fingerprintId, float[] vector, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO fingerprint_observations (fingerprint_id, vector, observed_at, absorbed_at)
+            VALUES (@id, @vec, @ts, NULL)
+            """;
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        cmd.Parameters.AddWithValue("@vec", FloatsToBlob(vector));
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync(ct);
+
+        await using var bump = conn.CreateCommand();
+        bump.CommandText = """
+            UPDATE fingerprints
+               SET observation_count = observation_count + 1,
+                   last_seen = @ts
+             WHERE fingerprint_id = @id
+            """;
+        bump.Parameters.AddWithValue("@id", fingerprintId);
+        bump.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        await bump.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>Enumerate all fingerprints (used by the brute-force index scan).</summary>
+    public async IAsyncEnumerable<Fingerprint> EnumerateFingerprintsAsync(
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT fingerprint_id, centroid, centroid_maturity, weights, member_count,
+                   observation_count, correction_count, first_seen, last_seen, quality,
+                   archetype_origin, inferred_client_type, inferred_type_confidence,
+                   inferred_type_changed_at, cached_bot_probability, cached_risk_band,
+                   cached_score_updated_at
+              FROM fingerprints
+            """;
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            yield return ReadFingerprint(reader);
+    }
+
+    /// <summary>Enumerate unabsorbed observation vectors for the brute-force index.</summary>
+    public async IAsyncEnumerable<(string FingerprintId, float[] Vector)> EnumerateActiveObservationsAsync(
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT fingerprint_id, vector
+              FROM fingerprint_observations
+             WHERE absorbed_at IS NULL
+            """;
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            var id = reader.GetString(0);
+            var blob = (byte[])reader.GetValue(1);
+            yield return (id, BlobToFloats(blob));
+        }
+    }
+
+    private Fingerprint ReadFingerprint(SqliteDataReader reader) => new()
+    {
+        FingerprintId = reader.GetString(0),
+        Centroid = BlobToFloats((byte[])reader.GetValue(1)),
+        CentroidMaturity = reader.GetInt32(2),
+        Weights = BlobToFloats((byte[])reader.GetValue(3)),
+        MemberCount = reader.GetInt32(4),
+        ObservationCount = reader.GetInt32(5),
+        CorrectionCount = reader.GetInt32(6),
+        FirstSeen = DateTime.Parse(reader.GetString(7), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        LastSeen = DateTime.Parse(reader.GetString(8), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        Quality = reader.GetDouble(9),
+        ArchetypeOrigin = reader.IsDBNull(10) ? null : reader.GetString(10),
+        InferredClientType = reader.GetString(11),
+        InferredTypeConfidence = reader.GetDouble(12),
+        InferredTypeChangedAt = DateTime.Parse(reader.GetString(13), null, System.Globalization.DateTimeStyles.RoundtripKind),
+        CachedBotProbability = reader.GetDouble(14),
+        CachedRiskBand = reader.IsDBNull(15) ? null : reader.GetString(15),
+        CachedScoreUpdatedAt = reader.IsDBNull(16)
+            ? null
+            : DateTime.Parse(reader.GetString(16), null, System.Globalization.DateTimeStyles.RoundtripKind)
+    };
+
+    internal static byte[] FloatsToBlob(float[] values)
+    {
+        var bytes = new byte[values.Length * sizeof(float)];
+        for (var i = 0; i < values.Length; i++)
+            BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(i * sizeof(float)), values[i]);
+        return bytes;
+    }
+
+    internal static float[] BlobToFloats(byte[] blob)
+    {
+        var values = new float[blob.Length / sizeof(float)];
+        for (var i = 0; i < values.Length; i++)
+            values[i] = BinaryPrimitives.ReadSingleLittleEndian(blob.AsSpan(i * sizeof(float)));
+        return values;
+    }
+}

@@ -29,6 +29,7 @@ builder.Services.AddBotDetection(options =>
     options.ExcludeLocalIpFromBroadcast = false;
     options.BdfReplay.Enabled = true;
     options.BdfReplay.RequireApiKey = false;
+    options.Identity.Enabled = true;     // Demo: exercise the fingerprint match scaffold
     // Programmatic API keys (config binding for Dictionary<string, ApiKeyConfig>
     // is unreliable in .NET 10 with BindConfiguration)
     options.ApiKeys["SB-DEMO-BYPASS"] = new Mostlylucid.BotDetection.Models.ApiKeyConfig

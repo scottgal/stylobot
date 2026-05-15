@@ -567,6 +567,14 @@ public static class ServiceCollectionExtensions
         // PII query string detection - privacy signals, not bot detection (priority 8)
         services.AddSingleton<IContributingDetector, PiiQueryStringContributor>();
         services.AddSingleton<IContributingDetector, UserAgentContributor>();
+        // Identity (metastable fingerprint match). See docs/architecture/fingerprint-match.md.
+        // Both contributors are foundation, dormant when Identity.Enabled = false.
+        services.TryAddSingleton(sp => Identity.IdentityVectorLayout.DefaultV1());
+        services.TryAddSingleton<Identity.IdentityVectorEncoder>();
+        services.TryAddSingleton<Identity.SqliteFingerprintStore>();
+        services.TryAddSingleton<Identity.IIdentityAnchorIndex, Identity.BruteForceIdentityAnchorIndex>();
+        services.AddSingleton<IContributingDetector, IdentityVectorContributor>();
+        services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
         services.AddSingleton<IContributingDetector, HeaderContributor>();
         services.AddSingleton<IContributingDetector, IpContributor>();
         services.AddSingleton<IContributingDetector, BehavioralContributor>();
