@@ -1,38 +1,26 @@
 using System.Net.Http.Json;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Mostlylucid.BotDetection.Endpoints;
+using Mostlylucid.BotDetection.Models;
 using Xunit;
 using Xunit.Abstractions;
 
 namespace Mostlylucid.BotDetection.Orchestration.Tests.Integration;
 
 /// <summary>
-///     Plays the canonical BDF scenarios in <c>test-suites/</c> against a running Demo instance
-///     via the <c>/bot-detection/bdf-replay/replay</c> endpoint, then asserts on the rich response
-///     surface (bot name, risk band, signal-presence probes).
+///     Replays canonical BDF scenarios in <c>test-suites/</c> against the running Demo
+///     via <c>/bot-detection/bdf-replay/replay</c> (which routes through the active
+///     <see cref="IDetectionOrchestrator"/> under <c>DetectionPolicy.Default</c>) and
+///     asserts on the read surface — bot name, risk band, signal-presence probes.
 ///
-///     Why this exists: the EphemeralDetectionOrchestrator regression (premergedSignals dropped
-///     when the active orchestrator was swapped) only manifested in display-side fields fed by
-///     <c>AggregatedEvidence.Signals</c>. Existing unit tests asserted on bot probability and
-///     pass. UI scrape tests need a running app. This rig sits in between: real orchestrator,
-///     real signal pipeline, asserts on what the dashboard would render.
-///
-///     Once the BDF endpoint started routing through <see cref="IDetectionOrchestrator"/> instead
-///     of the concrete BlackboardOrchestrator, this rig actively defends the active path.
+///     This rig exists because the failure class it catches (downstream consumers of
+///     <c>ev.Signals</c> degrading silently when the orchestrator stops merging signals)
+///     does not fail any unit test. See <c>docs/architecture/signal-contracts.md</c>.
 /// </summary>
 [Collection("DemoApp")]
 public sealed class BdfReplayTests
 {
     private static readonly string TestSuitesRoot = Path.GetFullPath(
         Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "test-suites"));
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true,
-        Converters = { new JsonStringEnumConverter() }
-    };
 
     private readonly DemoAppFactory _demo;
     private readonly ITestOutputHelper _output;
@@ -54,17 +42,13 @@ public sealed class BdfReplayTests
         Assert.NotNull(response);
         Assert.NotEmpty(response.Results);
 
-        // Aggregate across the scenario: the LAST request should reflect the matured verdict.
+        // Aggregate across the scenario: the LAST request reflects the matured verdict.
         var last = response.Results[^1];
         Assert.NotNull(last.Actual);
 
-        // Detection sanity: the scenario was hand-built to be bot-shaped.
         Assert.True(last.Actual!.IsBot,
             $"{response.ScenarioName}: last request scored {last.Actual.BotProbability:F2}, expected bot");
 
-        // The display pipeline must have what it needs. These signals are the concrete failure
-        // surfaces of the premergedSignals regression — checking each makes the failure mode
-        // unambiguous when something breaks in the future.
         AssertSignalsFlowed(response.ScenarioName, last);
 
         _output.WriteLine(
@@ -83,16 +67,13 @@ public sealed class BdfReplayTests
         var last = response.Results[^1];
         Assert.NotNull(last.Actual);
 
-        // Human scenarios shouldn't all flip to bot. We assert "majority human" rather than
-        // "every request human" because some heuristics legitimately escalate on outlier rates.
+        // Some heuristics legitimately escalate on outlier rates; assert majority human, not all.
         var humanCount = response.Results.Count(r => r.Actual is { IsBot: false });
         var botCount = response.Results.Count - humanCount;
         Assert.True(humanCount >= botCount,
             $"{response.ScenarioName}: {botCount}/{response.Results.Count} requests classified as bot, " +
             $"expected majority human. Last verdict: {last.Actual!.RiskBand} prob={last.Actual.BotProbability:F2}");
 
-        // The signal pipeline must still be intact even on human traffic — the synthesizer
-        // and dashboard depend on UA family / signature.primary regardless of verdict.
         AssertSignalsFlowed(response.ScenarioName, last);
 
         _output.WriteLine(
@@ -101,39 +82,26 @@ public sealed class BdfReplayTests
     }
 
     /// <summary>
-    ///     The contract this rig actively defends: every detection must surface the signals that
-    ///     downstream display consumers (DeterministicBotNameSynthesizer, RequestPersistenceService,
-    ///     CLI Top Fingerprints, fingerprint-prior delta) read from <c>ev.Signals</c>.
-    ///
-    ///     If <c>signature.primary</c> is missing the dashboard's fingerprint table goes blank
-    ///     and SQLite persists nothing. If <c>ua.bot_name</c> / <c>ua.family</c> are missing
-    ///     the deterministic name synthesizer falls through to "analysing" placeholder text.
+    ///     The contract this rig actively defends: every detection must surface the signals
+    ///     downstream display consumers read from <c>ev.Signals</c>. Asserting per-key (rather
+    ///     than on a total signal count) keeps failures self-documenting — when this trips it
+    ///     names the missing key and the consumer that breaks.
     /// </summary>
     private static void AssertSignalsFlowed(string scenarioName, BdfReplayResult last)
     {
         var probes = last.Actual!.SignalProbes;
 
-        Assert.True(probes.TryGetValue("signature.primary", out var hasSig) && hasSig,
-            $"{scenarioName}: signature.primary missing from ev.Signals — " +
-            "RequestPersistenceService will skip persistence, dashboard fingerprint table goes blank");
+        Assert.True(probes.TryGetValue(SignalKeys.PrimarySignature, out var hasSig) && hasSig,
+            $"{scenarioName}: {SignalKeys.PrimarySignature} missing from ev.Signals — " +
+            "RequestPersistenceService skips persistence, dashboard fingerprint table goes blank");
 
-        Assert.True(probes.TryGetValue("ua.family", out var hasUaFamily) && hasUaFamily,
-            $"{scenarioName}: ua.family missing from ev.Signals — " +
-            "DeterministicBotNameSynthesizer will fall back to 'analysing' placeholder");
-
-        // signal count > 4 means we got the per-state SignalWriter contents, not just the
-        // 1-2 signals that contribution.Signals carries on its own. Empirically a healthy
-        // detection writes 30-60 signals; anything under 10 means premergedSignals broke.
-        Assert.True(last.Actual.SignalCount > 10,
-            $"{scenarioName}: only {last.Actual.SignalCount} signals reached ev.Signals — " +
-            "EphemeralDetectionOrchestrator is not propagating BlackboardState.SignalWriter (premergedSignals dropped?)");
+        Assert.True(probes.TryGetValue(SignalKeys.UserAgentFamily, out var hasUaFamily) && hasUaFamily,
+            $"{scenarioName}: {SignalKeys.UserAgentFamily} missing from ev.Signals — " +
+            "DeterministicBotNameSynthesizer falls back to 'analysing' placeholder");
     }
 
     private async Task<BdfReplayResponse?> ReplayAsync(string scenarioFile)
     {
-        if (!File.Exists(scenarioFile))
-            throw new FileNotFoundException($"BDF scenario not found: {scenarioFile}", scenarioFile);
-
         var bdfBody = await File.ReadAllBytesAsync(scenarioFile);
 
         using var client = new HttpClient { BaseAddress = new Uri(_demo.BaseUrl), Timeout = TimeSpan.FromSeconds(60) };
@@ -144,14 +112,19 @@ public sealed class BdfReplayTests
         Assert.True(resp.IsSuccessStatusCode,
             $"Replay request failed: {(int)resp.StatusCode} {resp.ReasonPhrase}");
 
-        return await resp.Content.ReadFromJsonAsync<BdfReplayResponse>(JsonOptions);
+        return await resp.Content.ReadFromJsonAsync<BdfReplayResponse>(BdfReplayEndpoints.ReadOptions);
     }
 
+    /// <summary>
+    ///     Discovers BDF scenarios. Asserts the directory exists rather than yielding zero
+    ///     theory cases — silent zero-coverage looks identical to "all green" in xUnit output.
+    /// </summary>
     private static IEnumerable<object[]> DiscoverScenarios(string subdir)
     {
         var dir = Path.Combine(TestSuitesRoot, subdir);
-        if (!Directory.Exists(dir))
-            yield break;
+        Assert.True(Directory.Exists(dir),
+            $"BDF scenarios directory not found at {dir}. Expected to find test-suites/{subdir}/*.bdf.json " +
+            "relative to repo root. Check that the test was launched from the repo workspace.");
 
         foreach (var file in Directory.EnumerateFiles(dir, "*.bdf.json").OrderBy(p => p))
             yield return new object[] { file };

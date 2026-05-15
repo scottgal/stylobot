@@ -362,20 +362,15 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             allPolicyDetectors.UnionWith(policy.SlowPathDetectors);
             allPolicyDetectors.UnionWith(policy.AiPathDetectors);
 
-            // Get enabled detectors (respecting circuit breakers, policy, and exclusions).
             // Foundation contributors run unconditionally; policy filter applies to classifiers
             // only. _sortedDetectors is pre-sorted at construction time, so no per-request sort.
             var availableDetectors = pooledState.AvailableDetectors;
             foreach (var d in _sortedDetectors)
             {
-                if (!d.IsEnabled || !IsCircuitClosed(d.Name)) continue;
-                var isFoundation = d is IFoundationContributor;
-                if (!isFoundation)
-                {
-                    if (allPolicyDetectors.Count > 0 && !allPolicyDetectors.Contains(d.Name)) continue;
-                    if (policy.ExcludedDetectors.Contains(d.Name)) continue;
-                }
-                availableDetectors.Add(d);
+                if (d.IsEnabled
+                    && IsCircuitClosed(d.Name)
+                    && DetectorAvailability.IsAvailableUnder(d, policy, allPolicyDetectors))
+                    availableDetectors.Add(d);
             }
 
             _logger.LogDebug(

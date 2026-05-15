@@ -30,7 +30,12 @@ public static class BdfReplayEndpoints
         PropertyNameCaseInsensitive = true
     };
 
-    private static readonly JsonSerializerOptions ReadOptions = new()
+    /// <summary>
+    ///     Wire-format options for the BDF replay endpoint. Internal so the integration
+    ///     test deserializes responses with the same shape the endpoint emits, keeping
+    ///     "what we accept" and "what tests parse" in lockstep.
+    /// </summary>
+    internal static readonly JsonSerializerOptions ReadOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
@@ -223,17 +228,15 @@ public static class BdfReplayEndpoints
                 continue;
             }
 
-            // Probe the signal flow that downstream UI consumers depend on. If any of these
-            // come back false the dashboard will degrade silently (empty fingerprints panel,
-            // wrong bot name, missing prior delta) — it's the regression class that the
-            // EphemeralDetectionOrchestrator premergedSignals drop introduced.
+            // Probe the signal flow that downstream UI consumers depend on. False on any of
+            // these means the dashboard degrades silently — see docs/architecture/signal-contracts.md.
             var signals = evidence.Signals;
             var signalProbes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
             {
-                ["signature.primary"] = signals.ContainsKey("signature.primary"),
-                ["ua.bot_name"] = signals.ContainsKey("ua.bot_name"),
-                ["ua.bot_type"] = signals.ContainsKey("ua.bot_type"),
-                ["ua.family"] = signals.ContainsKey("ua.family")
+                [Models.SignalKeys.PrimarySignature] = signals.ContainsKey(Models.SignalKeys.PrimarySignature),
+                [Models.SignalKeys.UserAgentBotName] = signals.ContainsKey(Models.SignalKeys.UserAgentBotName),
+                [Models.SignalKeys.UserAgentBotType] = signals.ContainsKey(Models.SignalKeys.UserAgentBotType),
+                [Models.SignalKeys.UserAgentFamily]  = signals.ContainsKey(Models.SignalKeys.UserAgentFamily)
             };
 
             var actual = new BdfReplayActual
@@ -244,7 +247,6 @@ public static class BdfReplayEndpoints
                 BotName = evidence.PrimaryBotName,
                 RiskBand = evidence.RiskBand.ToString(),
                 SignalCount = signals.Count,
-                SignalKeys = signals.Keys.OrderBy(k => k).Take(80).ToList(),
                 SignalProbes = signalProbes,
                 TopReasons = evidence.Contributions
                     .Where(c => !string.IsNullOrEmpty(c.Reason))
@@ -419,7 +421,6 @@ public sealed class BdfReplayActual
     public string? BotName { get; set; }
     public string? RiskBand { get; set; }
     public int SignalCount { get; set; }
-    public List<string> SignalKeys { get; set; } = new();
     public Dictionary<string, bool> SignalProbes { get; set; } = new();
     public List<string> TopReasons { get; set; } = [];
 }

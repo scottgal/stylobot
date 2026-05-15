@@ -163,16 +163,11 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         allPolicyDetectors.UnionWith(policy.SlowPathDetectors);
         allPolicyDetectors.UnionWith(policy.AiPathDetectors);
 
-        // Foundation contributors run unconditionally — identity (signature, transport,
-        // fingerprint prior, sequence, approval, challenge, PII probe) is never optional
-        // because the entire downstream system reads these signals as ground truth.
-        // Policy filter applies to classifiers only.
+        // Foundation contributors run unconditionally; policy filter applies to classifiers only.
         var availableDetectors = _detectors
-            .Where(d => d.IsEnabled && IsCircuitClosed(d.Name))
-            .Where(d => d is IFoundationContributor
-                || allPolicyDetectors.Count == 0
-                || allPolicyDetectors.Contains(d.Name))
-            .Where(d => d is IFoundationContributor || !policy.ExcludedDetectors.Contains(d.Name))
+            .Where(d => d.IsEnabled
+                && IsCircuitClosed(d.Name)
+                && DetectorAvailability.IsAvailableUnder(d, policy, allPolicyDetectors))
             .OrderBy(d => d.Priority)
             .ToList();
 
@@ -386,14 +381,11 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
                 stopwatch.ElapsedMilliseconds, requestId);
         }
 
-        // Pass the per-state signal sink as premergedSignals. DetectionLedger.MergedSignals
-        // only exposes signals attached to per-contribution Signals dicts; anything written
-        // via state.WriteSignal(...) lives only in this ConcurrentDictionary. Without this,
-        // every consumer of ev.Signals (DeterministicBotNameSynthesizer, RequestPersistenceService,
-        // ResponseHeader middleware, friendly-bot risk-band override, fingerprint-prior delta)
-        // silently sees an empty dict.
-        var mergedSignals = MergeSignalSources(signals, aggregator);
-        var result = aggregator.ToAggregatedEvidence(policy.Name, premergedSignals: mergedSignals, options: _fullOptions);
+        // signals already contains both per-state WriteSignal writes and per-contribution
+        // Signals (the wave loop merges contribution.Signals into signals after each
+        // AddContribution, see line ~676). Passing it as premergedSignals is the canonical
+        // wiring; it matches BlackboardOrchestrator. See docs/architecture/signal-contracts.md.
+        var result = aggregator.ToAggregatedEvidence(policy.Name, premergedSignals: signals, options: _fullOptions);
         var actualProcessingTimeMs = stopwatch.Elapsed.TotalMilliseconds;
 
         var wasEarlyExit = finalAction.HasValue &&
@@ -513,7 +505,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         if (quorumResult.Reached || quorumResult.CompletedCount > 0)
         {
             var currentEvidence = aggregator.ToAggregatedEvidence(
-                premergedSignals: MergeSignalSources(signals, aggregator), options: _fullOptions);
+                premergedSignals: signals, options: _fullOptions);
             var avgScore = currentEvidence.BotProbability;
 
             // Check for definitive verdict
@@ -754,42 +746,28 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         TimeSpan elapsed,
         BotDetectionOptions? options = null)
     {
-        var aggregated = aggregator.ToAggregatedEvidence(
-            premergedSignals: MergeSignalSources(signals, aggregator), options: options);
+        // Read BotProbability and Confidence directly from the ledger instead of calling
+        // ToAggregatedEvidence(), which rebuilds the merged signal dict per-detector
+        // (~49 allocations per request). Mirrors BlackboardOrchestrator.BuildState.
+        var botProbability = aggregator.BotProbability;
+        if (options is { } opts)
+            botProbability = Math.Clamp(botProbability, opts.NonAiMinProbability, opts.NonAiMaxProbability);
+
         var completedResults = tracker.GetCompletedResults();
 
         return new BlackboardState
         {
             HttpContext = httpContext,
             Signals = signals,
-            CurrentRiskScore = aggregated.BotProbability,
-            DetectionConfidence = aggregated.Confidence,
+            CurrentRiskScore = botProbability,
+            DetectionConfidence = aggregator.Confidence,
             CompletedDetectors = completedResults.Select(r => r.Contributor).ToHashSet(),
-            FailedDetectors = aggregated.FailedDetectors,
-            Contributions = aggregated.Contributions,
+            FailedDetectors = aggregator.FailedDetectors,
+            Contributions = aggregator.Contributions,
             RequestId = requestId,
             Elapsed = elapsed,
             SignalWriter = signals
         };
-    }
-
-    /// <summary>
-    ///     Merge the two parallel signal stores into one dictionary so AggregatedEvidence.Signals
-    ///     reflects everything any detector wrote. Per-state SignalWriter (state.WriteSignal) feeds
-    ///     in first; per-contribution Signals (which is what DetectionLedger.MergedSignals walks)
-    ///     overwrite, since they represent each detector's deliberate published verdict. Without
-    ///     this every consumer of ev.Signals only sees ~half of what detectors emitted.
-    /// </summary>
-    private static IReadOnlyDictionary<string, object> MergeSignalSources(
-        ConcurrentDictionary<string, object> blackboardSignals,
-        DetectionLedger ledger)
-    {
-        var merged = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (key, value) in blackboardSignals)
-            merged[key] = value;
-        foreach (var (key, value) in ledger.MergedSignals)
-            merged[key] = value;
-        return merged;
     }
 
     private void TryPersistRequest(HttpContext httpContext, AggregatedEvidence result)

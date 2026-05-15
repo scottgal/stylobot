@@ -148,14 +148,10 @@ public static class DetectionLedgerExtensions
             _                                => "Early exit policy"
         };
 
-        // Friendly UA classification overrides reputation-driven VerifiedBadBot.
-        // FastPathReputation triggers VerifiedBadBot from cached IP/UA reputation, but
-        // Mastodon-shaped traffic is still benign automation regardless of how many
-        // times the IP has been seen. Confirmed-bad still wins.
-        // When the friendly-bot override fires, also pull the friendly UA's name so the
-        // dashboard / CLI fingerprint table shows "Mastodon" / "Googlebot" rather than the
-        // reputation-pattern id (e.g. "ip:::ffff::/48") that FastPathReputation injected
-        // into the early-exit contribution.
+        // Friendly UA classification overrides reputation-driven VerifiedBadBot, and pulls
+        // the friendly UA's BotName so the dashboard shows "Mastodon" rather than the
+        // reputation-pattern id ("ip:::ffff::/48") that FastPathReputation supplied.
+        // Confirmed-bad and high threat still escalate.
         var primaryBotType = ParseBotType(exitContrib.BotType);
         var primaryBotName = exitContrib.BotName;
         if (verdict is EarlyExitVerdict.VerifiedBadBot)
