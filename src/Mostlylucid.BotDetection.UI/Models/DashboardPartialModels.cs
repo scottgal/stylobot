@@ -651,4 +651,7 @@ public sealed record IdentityListEntry
     public DateTime FirstSeen { get; init; }
     public DateTime LastSeen { get; init; }
     public string? ArchetypeOrigin { get; init; }
+
+    /// <summary>EWMA-smoothed boundary-probing score 0..1 (task #42); high values flag adversarial probing.</summary>
+    public double AmbiguityPersistence { get; init; }
 }

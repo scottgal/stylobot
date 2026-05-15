@@ -63,7 +63,8 @@ public class SbIdentitiesListViewComponent(
                 CachedScoreUpdatedAt = fp.CachedScoreUpdatedAt,
                 FirstSeen = fp.FirstSeen,
                 LastSeen = fp.LastSeen,
-                ArchetypeOrigin = fp.ArchetypeOrigin
+                ArchetypeOrigin = fp.ArchetypeOrigin,
+                AmbiguityPersistence = fp.AmbiguityPersistence
             })
             .ToList();
 

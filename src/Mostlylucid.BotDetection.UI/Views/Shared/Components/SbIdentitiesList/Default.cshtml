@@ -56,6 +56,7 @@
                                 <th class="py-1 text-right" title="Total observations recorded for this fingerprint">Obs</th>
                                 <th class="py-1 text-right" title="Unabsorbed observations — fresh data the next absorption tick will fold">In window</th>
                                 <th class="py-1 text-right" title="Pass-2-corrects-Pass-1 events">Corr</th>
+                                <th class="py-1 text-right" title="EWMA-smoothed boundary-probing score; high values flag adversarial probing of the gate semantics">Ambig</th>
                                 <th class="py-1">Cached verdict</th>
                                 <th class="py-1">Last verified</th>
                                 <th class="py-1">Last seen</th>
@@ -87,6 +88,16 @@
                                     <td class="text-xs text-right font-mono">@id.ObservationCount</td>
                                     <td class="text-xs text-right font-mono @(id.UnabsorbedObservations > 0 ? "text-warning font-semibold" : "text-base-content/40")">@id.UnabsorbedObservations</td>
                                     <td class="text-xs text-right font-mono @(id.CorrectionCount > 0 ? "text-info" : "text-base-content/40")">@id.CorrectionCount</td>
+                                    @{
+                                        var ambigClass = id.AmbiguityPersistence switch
+                                        {
+                                            >= 0.4 => "text-error font-bold",
+                                            >= 0.2 => "text-warning",
+                                            > 0.0  => "text-base-content/70",
+                                            _      => "text-base-content/40"
+                                        };
+                                    }
+                                    <td class="text-xs text-right font-mono @ambigClass" title="@id.AmbiguityPersistence.ToString("F3")">@id.AmbiguityPersistence.ToString("P0")</td>
                                     <td class="text-xs">
                                         @if (id.CachedScoreUpdatedAt is null)
                                         {
