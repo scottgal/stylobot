@@ -27,6 +27,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     private readonly IIdentityAnchorIndex _index;
     private readonly IdentityArchetypeRegistry _archetypes;
     private readonly IdentityGlobalWeightsCache _globalWeights;
+    private readonly IdentityProcessingCoordinator _coordinator;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
 
@@ -36,6 +37,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         IIdentityAnchorIndex index,
         IdentityArchetypeRegistry archetypes,
         IdentityGlobalWeightsCache globalWeights,
+        IdentityProcessingCoordinator coordinator,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
@@ -43,6 +45,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         _index = index;
         _archetypes = archetypes;
         _globalWeights = globalWeights;
+        _coordinator = coordinator;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
     }
@@ -86,7 +89,46 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             state.WriteSignal(SignalKeys.IdentityFingerprintL1, l1FingerprintId!);
         }
 
-        // Pass 2: vector search
+        // Pass 2 + match decision + write — gated by the slow-path coordinator. Bursts on
+        // the same fingerprint coalesce to a "shed" outcome; the matcher then falls back
+        // to whatever fast-path verdict it can produce (the L1 candidate's data, or no
+        // identity signals if there's no L1 candidate yet). This keeps the request path
+        // fast under adversarial pressure and bounds the slow-path resource cost.
+        var coordinatorKey = l1FingerprintId ?? primarySig;
+        var riskScore = l1Candidate?.CachedBotProbability ?? 0.5;
+        var (_, dispatchOutcome) = await _coordinator.RunAsync<bool>(
+            fingerprintId: coordinatorKey,
+            kind: IdentitySlowPathKind.Pass2Match,
+            riskScore: riskScore,
+            operation: ct => RunPass2InternalAsync(state, vector, primarySig, l1Candidate, l1FingerprintId, ct),
+            ct: cancellationToken);
+
+        if (dispatchOutcome == SlowPathDispatchOutcome.Executed)
+            return Array.Empty<DetectionContribution>();
+
+        // Shed: emit the best fast-path default we have. With an L1 candidate we can at
+        // least surface its identity (the centroid is stale-ish but still meaningful);
+        // without one, downstream consumers see no identity signals this request.
+        state.WriteSignal(SignalKeys.IdentitySlowPathShed, dispatchOutcome.ToString());
+        if (l1Candidate is not null)
+            EmitConfirmedSignals(state, l1Candidate, matchScore: 0.0, primarySig);
+        return Array.Empty<DetectionContribution>();
+    }
+
+    /// <summary>
+    ///     The Pass 2 + match decision + write path, extracted so the slow-path coordinator
+    ///     can serialise it per fingerprint and shed under pressure. Returns true when a
+    ///     verdict was written; the dispatch outcome from the coordinator is the caller's
+    ///     authoritative signal of whether this ran.
+    /// </summary>
+    private async Task<bool> RunPass2InternalAsync(
+        BlackboardState state,
+        float[] vector,
+        string primarySig,
+        Fingerprint? l1Candidate,
+        string? l1FingerprintId,
+        CancellationToken cancellationToken)
+    {
         var candidates = await _index.SearchAsync(vector, _options.Match.TopK, cancellationToken);
 
         Fingerprint? best = null;
@@ -133,7 +175,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             {
                 await _store.UpsertKeyAsync(primarySig, best.FingerprintId, cancellationToken);
             }
-            return Array.Empty<DetectionContribution>();
+            return true;
         }
 
         if (best is not null && bestScore >= _options.Match.LooseThreshold)
@@ -141,7 +183,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             // Rotation candidate band: assign to the candidate, observe-and-drift, signal it.
             EmitConfirmedSignals(state, best, bestScore, primarySig, rotationCandidate: true);
             await _store.RecordObservationAsync(best.FingerprintId, vector, cancellationToken);
-            return Array.Empty<DetectionContribution>();
+            return true;
         }
 
         // No plausible existing identity: allocate a new fingerprint, seeded from the nearest
@@ -228,7 +270,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         if (archetypeOrigin is not null)
             state.WriteSignal(SignalKeys.IdentityClientTypeOrigin, archetypeOrigin);
 
-        return Array.Empty<DetectionContribution>();
+        return true;
     }
 
     private static void EmitConfirmedSignals(

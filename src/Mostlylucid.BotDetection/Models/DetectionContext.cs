@@ -484,6 +484,14 @@ public static class SignalKeys
     /// <summary>bool: set when match score landed in [LooseThreshold, MergeThreshold).</summary>
     public const string IdentityRotationCandidate = "identity.rotation_candidate";
 
+    /// <summary>
+    ///     String: dispatch outcome reason from the slow-path coordinator when Pass 2 was
+    ///     not run (e.g. "Coalesced", "SheddedQueueFull", "SheddedBreakerOpen",
+    ///     "SheddedSamePerFpCap"). Absent when Pass 2 ran normally. Surfaces in the
+    ///     dashboard so an operator can see when the system is shedding under pressure.
+    /// </summary>
+    public const string IdentitySlowPathShed = "identity.slow_path_shed";
+
     /// <summary>List of {dim_name, observed, expected}: dims that drifted on a rotation-band match.</summary>
     public const string IdentityRotationDimensions = "identity.rotation_dimensions";
 
