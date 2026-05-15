@@ -124,6 +124,13 @@ public sealed class LiveDetectionTableService : BackgroundService
         public DateTime LastSeen;
 
         /// <summary>
+        ///     Display name for this fingerprint when the orchestrator identified it as a
+        ///     known bot (e.g. "Mastodon", "googlebot", "curl"). Null for unidentified
+        ///     fingerprints — render falls back to the trailing hash slice in that case.
+        /// </summary>
+        public string? BotName;
+
+        /// <summary>
         ///     EWMA of bot probability across this fingerprint's requests. Damps
         ///     per-request volatility so the sidebar reflects the fingerprint's stable
         ///     trend rather than the latest spike.
@@ -246,6 +253,7 @@ public sealed class LiveDetectionTableService : BackgroundService
                         Requests = 1,
                         LastSeen = entry.Timestamp,
                         Ewma = entry.BotProbability,
+                        BotName = entry.BotName,
                     };
                     stat.Push(entry.BotProbability);
                     return stat;
@@ -261,6 +269,10 @@ public sealed class LiveDetectionTableService : BackgroundService
                     s.LastSeen = entry.Timestamp;
                     s.Ewma = 0.3 * entry.BotProbability + 0.7 * s.Ewma;
                     s.Push(entry.BotProbability);
+                    // Latch the first non-empty BotName: deterministic name synthesis can
+                    // overwrite later but a known UA name should never be lost to a null update.
+                    if (!string.IsNullOrEmpty(entry.BotName))
+                        s.BotName = entry.BotName;
                     return s;
                 });
         }
@@ -557,7 +569,12 @@ public sealed class LiveDetectionTableService : BackgroundService
             {
                 var bulletCol = stat.Ewma > 0.5 ? C.Red : C.Green;
                 var bullet = bulletCol + "\u25a0";
-                var sigTail = sig.Length > 10 ? sig[^10..] : sig;
+                // Prefer the orchestrator's identified BotName (Mastodon, googlebot, curl, ...)
+                // over the trailing hash slice. Falls back to the hash for unidentified
+                // fingerprints (anonymous humans, unrecognised tools).
+                var label = !string.IsNullOrEmpty(stat.BotName)
+                    ? stat.BotName!
+                    : (sig.Length > 10 ? sig[^10..] : sig);
                 var posterior = $"{stat.Ewma * 100:F0}%";
                 var spark = MicroSpark(stat.RecentScores, stat.RecentScoresCount);
                 var (rTxt, rCol) = FormatRiskCell(stat.LastRisk);
@@ -566,7 +583,7 @@ public sealed class LiveDetectionTableService : BackgroundService
                 // we squeeze the leading bullet padding to fit:
                 //          "●<sigtail-10> <post-4> <spark-8> <rsk-3>" = 1+10+1+4+1+8+1+3 = 29
                 var line = bullet + C.R
-                    + VPad(sigTail, 10)
+                    + VPad(label, 10)
                     + " " + bulletCol + VPadL(posterior, 4) + C.R
                     + " " + C.Blue + spark + C.R
                     + " " + rCol + VPad(rTxt, 3) + C.R;
