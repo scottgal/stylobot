@@ -7,19 +7,44 @@ namespace Mostlylucid.BotDetection.Identity;
 
 /// <summary>
 ///     Outcome of an operator-triggered AI opinion request from the dashboard.
-///     <see cref="Status"/> is one of <c>"ok"</c>, <c>"identity-disabled"</c>,
-///     <c>"not-found"</c>, <c>"no-llm-provider"</c>, <c>"llm-error"</c>, or
-///     <c>"parse-error"</c>; the dashboard surfaces this verbatim so an operator can see
-///     why nothing happened when nothing happens. <see cref="BotProbability"/> and
-///     <see cref="RiskBand"/> are populated only when Status is "ok".
+///     <see cref="BotProbability"/> and <see cref="RiskBand"/> are populated only when
+///     <see cref="Status"/> is <see cref="IdentityAiOpinionStatus.Ok"/>; every other
+///     status is a named failure mode the dashboard surfaces verbatim.
 /// </summary>
 public sealed record IdentityAiOpinionResult(
-    string Status,
+    IdentityAiOpinionStatus Status,
     string FingerprintId,
     double? BotProbability,
     string? RiskBand,
     string? Reasoning,
     string? ErrorDetail);
+
+public enum IdentityAiOpinionStatus
+{
+    Ok,
+    IdentityDisabled,
+    NotFound,
+    NoLlmProvider,
+    LlmNotReady,
+    LlmError,
+    ParseError
+}
+
+public static class IdentityAiOpinionStatusExtensions
+{
+    /// <summary>Header-friendly hyphenated form (e.g. <c>identity-disabled</c>).</summary>
+    public static string ToHeaderValue(this IdentityAiOpinionStatus status) => status switch
+    {
+        IdentityAiOpinionStatus.Ok               => "ok",
+        IdentityAiOpinionStatus.IdentityDisabled => "identity-disabled",
+        IdentityAiOpinionStatus.NotFound         => "not-found",
+        IdentityAiOpinionStatus.NoLlmProvider    => "no-llm-provider",
+        IdentityAiOpinionStatus.LlmNotReady      => "llm-not-ready",
+        IdentityAiOpinionStatus.LlmError         => "llm-error",
+        IdentityAiOpinionStatus.ParseError       => "parse-error",
+        _                                        => "unknown"
+    };
+}
 
 /// <summary>
 ///     On-demand classifier invocation for a metastable fingerprint. The dashboard's
@@ -58,24 +83,24 @@ public sealed class IdentityAiOpinionService
     public async Task<IdentityAiOpinionResult> RunAsync(string fingerprintId, CancellationToken ct = default)
     {
         if (!_enabled)
-            return new IdentityAiOpinionResult("identity-disabled", fingerprintId, null, null, null,
+            return new IdentityAiOpinionResult(IdentityAiOpinionStatus.IdentityDisabled, fingerprintId, null, null, null,
                 "Identity:Enabled is false; the metastable identity layer is dormant.");
 
         var fp = await _store.GetFingerprintAsync(fingerprintId, ct);
         if (fp is null)
-            return new IdentityAiOpinionResult("not-found", fingerprintId, null, null, null,
+            return new IdentityAiOpinionResult(IdentityAiOpinionStatus.NotFound, fingerprintId, null, null, null,
                 "No fingerprint with that id exists.");
 
         var (provider, completeAsync, llmRequestType, isReadyProperty) = ResolveLlmProvider();
         if (provider is null || completeAsync is null || llmRequestType is null)
-            return new IdentityAiOpinionResult("no-llm-provider", fingerprintId, null, null, null,
+            return new IdentityAiOpinionResult(IdentityAiOpinionStatus.NoLlmProvider, fingerprintId, null, null, null,
                 "No ILlmProvider is registered. Add one of the Mostlylucid.BotDetection.Llm.* packages and configure it.");
 
         // Provider exists but may not have its model loaded (LlamaSharp without the GGUF file,
         // Ollama without a pulled model, etc.). Surface that as a distinct status so the
         // operator can see exactly why nothing happened.
         if (isReadyProperty is not null && isReadyProperty.GetValue(provider) is bool isReady && !isReady)
-            return new IdentityAiOpinionResult("llm-not-ready", fingerprintId, null, null, null,
+            return new IdentityAiOpinionResult(IdentityAiOpinionStatus.LlmNotReady, fingerprintId, null, null, null,
                 "ILlmProvider is registered but reports IsReady=false (model not loaded or initialization failed).");
 
         string raw;
@@ -91,12 +116,12 @@ public sealed class IdentityAiOpinionService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Identity AI opinion: LLM call failed for {FingerprintId}", fingerprintId);
-            return new IdentityAiOpinionResult("llm-error", fingerprintId, null, null, null, ex.Message);
+            return new IdentityAiOpinionResult(IdentityAiOpinionStatus.LlmError, fingerprintId, null, null, null, ex.Message);
         }
 
         var parsed = TryParse(raw);
         if (parsed is null)
-            return new IdentityAiOpinionResult("parse-error", fingerprintId, null, null, null,
+            return new IdentityAiOpinionResult(IdentityAiOpinionStatus.ParseError, fingerprintId, null, null, null,
                 $"LLM did not return parseable JSON. Raw response: {Truncate(raw, 200)}");
 
         await _store.UpdateCachedVerdictAsync(fingerprintId, parsed.Probability, parsed.RiskBand, ct);
@@ -104,7 +129,7 @@ public sealed class IdentityAiOpinionService
             "Identity AI opinion: fingerprint {Id} -> prob={Prob:F2} band={Band} reason={Reason}",
             fingerprintId, parsed.Probability, parsed.RiskBand, parsed.Reason);
 
-        return new IdentityAiOpinionResult("ok", fingerprintId, parsed.Probability, parsed.RiskBand, parsed.Reason, null);
+        return new IdentityAiOpinionResult(IdentityAiOpinionStatus.Ok, fingerprintId, parsed.Probability, parsed.RiskBand, parsed.Reason, null);
     }
 
     private (object? Provider, System.Reflection.MethodInfo? CompleteAsync, Type? LlmRequestType, System.Reflection.PropertyInfo? IsReadyProperty) ResolveLlmProvider()

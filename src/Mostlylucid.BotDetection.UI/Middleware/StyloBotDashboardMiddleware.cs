@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Middleware;
 using System.Reflection;
 using System.Text.Json;
@@ -3343,8 +3344,8 @@ public class StyloBotDashboardMiddleware
         // Surface status to the operator via response header so the dashboard can show why
         // a click was a no-op (e.g. "no-llm-provider", "parse-error") without changing the
         // visible row layout.
-        context.Response.Headers["X-StyloBot-AiOpinion-Status"] = result.Status;
-        if (result.Status == "ok" && result.BotProbability is { } prob)
+        context.Response.Headers["X-StyloBot-AiOpinion-Status"] = result.Status.ToHeaderValue();
+        if (result.Status == BotDetection.Identity.IdentityAiOpinionStatus.Ok && result.BotProbability is { } prob)
             context.Response.Headers["X-StyloBot-AiOpinion-Probability"] = prob.ToString("F2");
         if (!string.IsNullOrEmpty(result.ErrorDetail))
         {
@@ -3369,13 +3370,37 @@ public class StyloBotDashboardMiddleware
 
     private async Task RenderSingleIdentityRowAsync(HttpContext context, string fingerprintId)
     {
-        var model = await BuildIdentitiesModelAsync(context, page: 1, pageSize: int.MaxValue);
-        var entry = model.Identities.FirstOrDefault(e => string.Equals(e.FingerprintId, fingerprintId, StringComparison.OrdinalIgnoreCase));
-        if (entry is null)
+        // Targeted O(1) lookup — no full-table scan or page-N enumeration. Two queries:
+        // the fingerprint row + a focused unabsorbed-obs count for that one id.
+        var store = context.RequestServices.GetService<BotDetection.Identity.SqliteFingerprintStore>();
+        if (store is null)
+        {
+            context.Response.StatusCode = 503;
+            return;
+        }
+        var fp = await store.GetFingerprintAsync(fingerprintId, context.RequestAborted);
+        if (fp is null)
         {
             context.Response.StatusCode = 404;
             return;
         }
+        var unabsorbed = await store.GetUnabsorbedObservationCountAsync(fingerprintId, context.RequestAborted);
+        var entry = new Models.IdentityListEntry
+        {
+            FingerprintId = fp.FingerprintId,
+            InferredClientType = fp.InferredClientType,
+            InferredTypeConfidence = fp.InferredTypeConfidence,
+            CentroidMaturity = fp.CentroidMaturity,
+            ObservationCount = fp.ObservationCount,
+            UnabsorbedObservations = unabsorbed,
+            CorrectionCount = fp.CorrectionCount,
+            CachedBotProbability = fp.CachedBotProbability,
+            CachedRiskBand = fp.CachedRiskBand,
+            CachedScoreUpdatedAt = fp.CachedScoreUpdatedAt,
+            FirstSeen = fp.FirstSeen,
+            LastSeen = fp.LastSeen,
+            ArchetypeOrigin = fp.ArchetypeOrigin
+        };
         var rowModel = new Models.IdentitiesListModel
         {
             Identities = new[] { entry },

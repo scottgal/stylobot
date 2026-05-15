@@ -27,7 +27,13 @@ public sealed class SqliteVecIdentityAnchorIndexTests : IDisposable
         var options = Options.Create(new BotDetectionOptions
         {
             DatabasePath = Path.Combine(_tempDir, "botdetection.db"),
-            Identity = new IdentityOptions { Enabled = true }
+            // Explicit PreferSqliteVec=false guarantees the brute-force fallback path runs
+            // regardless of whether vec0 happens to be installed in the dev env.
+            Identity = new IdentityOptions
+            {
+                Enabled = true,
+                Engine = new IdentityEngineOptions { PreferSqliteVec = false }
+            }
         });
         var layout = IdentityVectorLayout.DefaultV1();
         _store = new SqliteFingerprintStore(NullLogger<SqliteFingerprintStore>.Instance, options, layout);
@@ -45,11 +51,10 @@ public sealed class SqliteVecIdentityAnchorIndexTests : IDisposable
     public async Task SearchAsync_VecExtensionUnavailable_FallsThroughToBruteForce()
     {
         await _store.EnsureInitialisedAsync();
-        // In CI the sqlite-vec extension is not installed, so the store reports vec
-        // unavailable. If this assert ever flips locally for someone with vec0 in their
-        // PATH, the rest of the test still holds — the search just goes through vec0
-        // and should return equivalent results.
-        Assert.False(_store.IsVecAvailable, "Test rig assumes vec0 is not installed in the local env");
+        // PreferSqliteVec is false in the test options, so the store never attempts to
+        // load vec0 — IsVecAvailable is deterministically false regardless of whether
+        // the extension happens to live on the dev box's library path.
+        Assert.False(_store.IsVecAvailable);
 
         var dim = _store.Layout.Dimension;
         var v1 = MakeUnitVector(dim, seed: 1);

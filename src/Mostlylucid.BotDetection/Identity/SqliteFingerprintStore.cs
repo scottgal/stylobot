@@ -137,8 +137,6 @@ public sealed class SqliteFingerprintStore
         return conn;
     }
 
-    /// <summary>Public connection factory used by <see cref="SqliteVecIdentityAnchorIndex"/>.</summary>
-    internal Task<SqliteConnection> OpenVecConnectionAsync(CancellationToken ct) => OpenConnectionWithVecAsync(ct);
 
     private async Task EnsureLayoutRowAsync(SqliteConnection conn, CancellationToken ct)
     {
@@ -171,6 +169,57 @@ public sealed class SqliteFingerprintStore
             })));
         insert.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
         await insert.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    ///     Single-roundtrip cached-verdict lookup by primary signature. Joins
+    ///     <c>fingerprint_keys</c> to <c>fingerprints</c> and projects only the columns
+    ///     the verdict gate consumes (no <c>centroid</c> blob). Returns null when no
+    ///     fingerprint is bound to this signature, or when it has never had its cached
+    ///     score written.
+    /// </summary>
+    public async Task<IdentityCachedVerdict?> GetCachedVerdictForSignatureAsync(
+        string primarySignature, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(primarySignature)) return null;
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT f.fingerprint_id, f.cached_bot_probability, f.cached_risk_band,
+                   f.cached_score_updated_at, f.observation_count, f.inferred_client_type
+              FROM fingerprint_keys k
+              JOIN fingerprints f ON f.fingerprint_id = k.fingerprint_id
+             WHERE k.primary_signature = @sig
+               AND f.cached_score_updated_at IS NOT NULL
+            """;
+        cmd.Parameters.AddWithValue("@sig", primarySignature);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        return new IdentityCachedVerdict(
+            FingerprintId: reader.GetString(0),
+            BotProbability: reader.GetDouble(1),
+            RiskBand: reader.IsDBNull(2) ? null : reader.GetString(2),
+            UpdatedAtUtc: DateTime.Parse(reader.GetString(3), null, System.Globalization.DateTimeStyles.RoundtripKind),
+            ObservationCount: reader.GetInt32(4),
+            InferredClientType: reader.GetString(5));
+    }
+
+    /// <summary>Count of unabsorbed observation rows for a single fingerprint.</summary>
+    public async Task<int> GetUnabsorbedObservationCountAsync(string fingerprintId, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT COUNT(*) FROM fingerprint_observations
+             WHERE fingerprint_id = @id AND absorbed_at IS NULL
+            """;
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
+        var result = await cmd.ExecuteScalarAsync(ct);
+        return Convert.ToInt32(result ?? 0);
     }
 
     /// <summary>L1 cache lookup by primary signature.</summary>
@@ -900,4 +949,47 @@ public sealed class SqliteFingerprintStore
             values[i] = BinaryPrimitives.ReadSingleLittleEndian(blob.AsSpan(i * sizeof(float)));
         return values;
     }
+
+    /// <summary>
+    ///     vec0 KNN over the centroid index. Returns (fingerprint_id, l2_distance) pairs
+    ///     ordered ascending by distance, capped at <paramref name="k"/>. Caller translates
+    ///     distance to cosine. Throws if <see cref="IsVecAvailable"/> is false.
+    /// </summary>
+    public async Task<IReadOnlyList<(string FingerprintId, double Distance)>> SearchVecCentroidsAsync(
+        float[] vector, int k, CancellationToken ct = default)
+    {
+        var results = new List<(string, double)>(k);
+        await using var conn = await OpenConnectionWithVecAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT fingerprint_id, distance FROM fingerprints_vec
+             WHERE centroid MATCH @vec AND k = @k
+            """;
+        cmd.Parameters.AddWithValue("@vec", FloatsToBlob(vector));
+        cmd.Parameters.AddWithValue("@k", k);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            results.Add((reader.GetString(0), reader.GetDouble(1)));
+        return results;
+    }
+
+    /// <summary>vec0 KNN over the unabsorbed observation index. Same shape as the centroid variant.</summary>
+    public async Task<IReadOnlyList<(string FingerprintId, double Distance)>> SearchVecObservationsAsync(
+        float[] vector, int k, CancellationToken ct = default)
+    {
+        var results = new List<(string, double)>(k);
+        await using var conn = await OpenConnectionWithVecAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT fingerprint_id, distance FROM observations_vec
+             WHERE vector MATCH @vec AND k = @k
+            """;
+        cmd.Parameters.AddWithValue("@vec", FloatsToBlob(vector));
+        cmd.Parameters.AddWithValue("@k", k);
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            results.Add((reader.GetString(0), reader.GetDouble(1)));
+        return results;
+    }
 }
+

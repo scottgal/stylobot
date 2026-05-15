@@ -54,7 +54,7 @@ public sealed class IdentityAiOpinionServiceTests : IDisposable
 
         var result = await service.RunAsync("any-fp", CancellationToken.None);
 
-        Assert.Equal("identity-disabled", result.Status);
+        Assert.Equal(IdentityAiOpinionStatus.IdentityDisabled, result.Status);
         Assert.Null(result.BotProbability);
     }
 
@@ -72,7 +72,7 @@ public sealed class IdentityAiOpinionServiceTests : IDisposable
 
         var result = await service.RunAsync("nonexistent-fp", CancellationToken.None);
 
-        Assert.Equal("not-found", result.Status);
+        Assert.Equal(IdentityAiOpinionStatus.NotFound, result.Status);
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public sealed class IdentityAiOpinionServiceTests : IDisposable
 
         var result = await service.RunAsync("test-fp", CancellationToken.None);
 
-        Assert.Equal("no-llm-provider", result.Status);
+        Assert.Equal(IdentityAiOpinionStatus.NoLlmProvider, result.Status);
         Assert.NotNull(result.ErrorDetail);
 
         // Cached score must remain untouched when no provider can answer.

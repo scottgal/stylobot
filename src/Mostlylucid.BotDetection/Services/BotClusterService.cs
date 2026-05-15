@@ -46,10 +46,8 @@ public class BotClusterService : BackgroundService
     private readonly MarkovTracker? _markovTracker;
     private readonly AdaptiveSimilarityWeighter? _adaptiveWeighter;
     private readonly UaProfileStore? _uaProfileStore;
-    // Per-RunClustering snapshot of the centroid axis. Built once per cluster pass via
-    // SqliteFingerprintStore.GetCentroidsBySignaturesAsync — single round-trip rather
-    // than N lookups during BuildFeatureVectors.
-    private IReadOnlyDictionary<string, float[]>? _centroidsForCurrentRun;
+
+    private bool BehaviouralAxisActive => _options.EnableBehaviouralVectorAxis && _fingerprintStore is not null;
 
     // Event-driven trigger: counts new bot detections since last clustering run
     private int _botDetectionsSinceLastRun;
@@ -84,7 +82,7 @@ public class BotClusterService : BackgroundService
         _uaProfileStore = uaProfileStore;
         _loadSensor = loadSensor;
 
-        if (_options.EnableBehaviouralVectorAxis && _fingerprintStore != null)
+        if (BehaviouralAxisActive)
             _logger.LogInformation(
                 "Behavioural-vector axis enabled for clustering (source: metastable centroids, weight={Weight:F2})",
                 _options.BehaviouralVectorWeight);
@@ -275,27 +273,13 @@ public class BotClusterService : BackgroundService
             return;
         }
 
-        // 2. Build feature vectors (spectral analysis + optional behavioural-vector axis
-        //    sourced from the metastable identity layer's centroids).
-        if (_options.EnableBehaviouralVectorAxis && _fingerprintStore != null)
-        {
-            try
-            {
-                var sigs = behaviors.Select(b => b.Signature).ToList();
-                _centroidsForCurrentRun = _fingerprintStore
-                    .GetCentroidsBySignaturesAsync(sigs).GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Centroid lookup failed; clustering uses heuristic axis only this pass");
-                _centroidsForCurrentRun = null;
-            }
-        }
-        else
-        {
-            _centroidsForCurrentRun = null;
-        }
-        var features = BuildFeatureVectors(behaviors);
+        // Pre-fetch the per-pass centroid snapshot (single round-trip), then build feature
+        // vectors against it. RunClustering itself is sync (BackgroundService.ExecuteAsync
+        // dispatches via Task.Factory.StartNew with LongRunning), so .GetAwaiter().GetResult()
+        // is safe here — but isolated to the one boundary point rather than threaded through
+        // BuildFeatureVectors.
+        var centroids = LoadCentroidsForRun(behaviors);
+        var features = BuildFeatureVectors(behaviors, centroids);
 
         // 2.5. Build spectral cache
         var spectralBuilder = new Dictionary<string, SpectralFeatures>();
@@ -499,10 +483,25 @@ public class BotClusterService : BackgroundService
         public double ClaimedIdentityScore { get; init; }
     }
 
-    internal List<FeatureVector> BuildFeatureVectors(IReadOnlyList<SignatureBehavior> behaviors)
+    private IReadOnlyDictionary<string, float[]>? LoadCentroidsForRun(IReadOnlyList<SignatureBehavior> behaviors)
     {
-        var centroids = _centroidsForCurrentRun;
+        if (!BehaviouralAxisActive) return null;
+        try
+        {
+            var sigs = behaviors.Select(b => b.Signature).ToList();
+            return _fingerprintStore!.GetCentroidsBySignaturesAsync(sigs).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Centroid lookup failed; clustering uses heuristic axis only this pass");
+            return null;
+        }
+    }
 
+    internal List<FeatureVector> BuildFeatureVectors(
+        IReadOnlyList<SignatureBehavior> behaviors,
+        IReadOnlyDictionary<string, float[]>? centroids = null)
+    {
         return behaviors.Select(b =>
         {
             var durationSeconds = (b.LastSeen - b.FirstSeen).TotalSeconds;
