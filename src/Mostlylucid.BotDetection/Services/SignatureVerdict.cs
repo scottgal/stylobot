@@ -30,4 +30,19 @@ public sealed record SignatureVerdict
 
     /// <summary>When the coordinator last observed this signature. Used by the gate for freshness.</summary>
     public DateTime LastSeenUtc { get; init; }
+
+    /// <summary>
+    ///     When non-null, the verdict was sourced from (or composed with) the metastable
+    ///     fingerprint cache via this fingerprint id. Lets dashboards and headers reveal
+    ///     when identity-layer state — not the per-signature aggregate — drove the gate.
+    /// </summary>
+    public string? IdentityFingerprintId { get; init; }
+
+    /// <summary>
+    ///     True when the cached fingerprint verdict was the FRESHER source and the
+    ///     verdict carries the fingerprint's probability rather than the per-signature
+    ///     aggregate. Implies the visitor's identity has been stable across rotation
+    ///     even if their primary signature has changed.
+    /// </summary>
+    public bool FromIdentityCache { get; init; }
 }

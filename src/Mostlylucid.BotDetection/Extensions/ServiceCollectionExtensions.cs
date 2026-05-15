@@ -576,6 +576,10 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Identity.IdentityArchetypeRegistry>();
         services.AddSingleton<Identity.IdentityGlobalWeightsCache>();
         services.AddHostedService(sp => sp.GetRequiredService<Identity.IdentityGlobalWeightsCache>());
+        // Verdict-gate composition: lets SignatureVerdictGate read the metastable cached
+        // verdict alongside the per-signature aggregate. Internally returns null when
+        // Identity:Enabled is false, so wiring is unconditional and zero-cost when off.
+        services.TryAddSingleton<Identity.IdentityVerdictLookup>();
         services.AddSingleton<IContributingDetector, IdentityVectorContributor>();
         services.AddSingleton<IContributingDetector, FingerprintMatchContributor>();
         services.AddSingleton<Identity.FingerprintAbsorptionService>();

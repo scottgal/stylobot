@@ -371,7 +371,14 @@ public class BotDetectionMiddleware(
                         TotalProcessingTimeMs = 0.0,
                     };
                     context.Items[AggregatedEvidenceKey] = cachedEvidence;
-                    context.Response.Headers["X-StyloBot-VerdictSource"] = "cache";
+                    // "identity-cache" when the metastable fingerprint cache was the fresher
+                    // source; "cache" when the per-signature aggregate was. Lets operators see
+                    // when a rotated visitor reused their identity verdict instead of paying
+                    // for a fresh pipeline pass.
+                    context.Response.Headers["X-StyloBot-VerdictSource"] =
+                        v.FromIdentityCache ? "identity-cache" : "cache";
+                    if (v.IdentityFingerprintId is not null)
+                        context.Response.Headers["X-StyloBot-IdentityFingerprint"] = v.IdentityFingerprintId;
 
                     var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "";
                     var pathStr = context.Request.Path.Value ?? "/";
@@ -392,6 +399,8 @@ public class BotDetectionMiddleware(
                 context.Items[SignalKeys.FingerprintPriorRequestCount] = vb.RequestCount;
                 context.Items[SignalKeys.FingerprintPriorAgeSeconds] =
                     (DateTime.UtcNow - vb.LastSeenUtc).TotalSeconds;
+                if (vb.IdentityFingerprintId is not null)
+                    context.Items[SignalKeys.IdentityFingerprintId] = vb.IdentityFingerprintId;
             }
         }
 

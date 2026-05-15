@@ -5,11 +5,14 @@ known fingerprints. Pairs with `signature-coordinator-architecture.md` (which
 describes the sliding window itself) and `policy-system.md` (which describes
 how `SignatureCacheOptions` is bound per policy).
 
-> **6.4.7+:** the verdict cache currently keys on `PrimarySignature` (HMAC of IP + UA).
-> The metastable identity layer ([`identity-fingerprint-match.md`](identity-fingerprint-match.md))
-> resolves rotated identities to a stable `fingerprint_id`; composing
-> `identity.cached_bot_probability` into the gate so a rotated identity inherits its
-> prior verdict is **task #36** in the active task list.
+> **6.4.7+:** when the metastable identity layer ([`identity-fingerprint-match.md`](identity-fingerprint-match.md))
+> is enabled, the gate composes the per-signature aggregate with the per-fingerprint
+> cached verdict — the fresher of the two sources wins. Because the fingerprint
+> source survives IP+UA rotation, a returning visitor whose primary signature has
+> changed inherits their prior verdict instead of paying for a fresh pipeline pass.
+> Skip-path responses set `X-StyloBot-VerdictSource: identity-cache` (vs. the plain
+> `cache` for signature-aggregate hits) and emit `X-StyloBot-IdentityFingerprint`
+> with the resolved fingerprint id.
 
 ## 1. The scaling thesis
 

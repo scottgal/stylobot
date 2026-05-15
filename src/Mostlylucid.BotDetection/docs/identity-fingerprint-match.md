@@ -136,7 +136,7 @@ The system infers client type from observed behaviour. There is no manual taggin
 ## What this replaces, what it doesn't
 
 - **Replaces** the load-bearing role of `PrimarySignature` for cross-rotation identity. PrimarySignature still exists and is still computed — it's the L1 point lookup key — but downstream consumers should read `identity.fingerprint_id` for anything that needs to survive rotation.
-- **Doesn't replace** the verdict cache (see [`fingerprint-verdict-cache.md`](fingerprint-verdict-cache.md)). The cache still operates on `PrimarySignature`. Composing the two so the cache resolves to the underlying `fingerprint_id` and inherits cached probability across rotation is task #36.
+- **Composes with** the verdict cache (see [`fingerprint-verdict-cache.md`](fingerprint-verdict-cache.md)). When Identity is enabled, `SignatureVerdictGate` reads both the per-signature aggregate and the per-fingerprint cached verdict and takes the fresher source. Because the fingerprint source survives IP+UA rotation, a returning visitor whose primary signature has changed inherits their prior verdict (`X-StyloBot-VerdictSource: identity-cache`) instead of paying for a fresh pipeline pass.
 - **Doesn't replace** session vectors (see `behavioral-analysis.md`). Sessions remain the per-visit behavioural unit; identity is the cross-visit anchor those sessions hang off.
 - **Doesn't replace** anonymous entity resolution. Entity resolution still runs the merge / split / convergence operations; it now has a stronger fingerprint identity to anchor on.
 
@@ -154,5 +154,5 @@ The dashboard "Identities" tab will surface per-fingerprint:
 - Vector layout is versioned. Don't edit `IdentityVectorLayout.DefaultV1` in place if you've shipped to anyone — bump the version and migrate. Mismatched layouts fail loud at startup.
 - Per-fp weights and global weights are clamped to `[MinWeight, MaxWeight]` purely for numeric stability. The clamp is *not* a "max boost" data cap — high-discriminating dims really do get amplified.
 - The drift verifier emits structured warnings; no schema row for drift events yet. Pipe the log to your alerting system if drift rate matters operationally.
-- `cached_bot_probability` and `cached_risk_band` are populated by the matcher when a confirmed match is read. The verdict cache wiring (composes per-fingerprint probability with the existing signature reputation) is task #36.
+- `cached_bot_probability` and `cached_risk_band` are populated by the matcher when a confirmed match is read; the verdict cache reads them via `IdentityVerdictLookup` and composes them with the per-signature aggregate at gate time (fresher source wins).
 - The brute-force `IIdentityAnchorIndex` is fine up to a few thousand active fingerprints; replacement with a `sqlite-vec` (vec0) backed implementation for higher scale is task #37.
