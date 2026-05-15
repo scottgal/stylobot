@@ -23,6 +23,8 @@ This is the series of articles on my blog about StyloBot
 
 [StyloBot Release Series: The Sidecar Architecture](https://www.mostlylucid.net/blog/typescript-sdk)
 
+[StyloBot Release Series: Learning to Get Faster](https://www.mostlylucid.net/blog/stylobot-release-learning)
+
 And NUMEROUS others in the coming weeks covering all of StyloBot's features at release. (These will also form the basis of a lucidSupport AI support system ;)) 
 
 **Bot detection that knows your site.** Cloud scoring services evaluate your traffic against generic baselines trained on other people's users. StyloBot learns what normal looks like on your specific application: the document-asset-API request sequence, the timing distribution of your real users, the session shape your checkout flow produces. Bots that adapt to evade a cloud service still diverge from those patterns.
