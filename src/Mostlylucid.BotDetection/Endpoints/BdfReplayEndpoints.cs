@@ -125,7 +125,7 @@ public static class BdfReplayEndpoints
 
     private static async Task<IResult> ReplayBdf(
         HttpContext httpContext,
-        Orchestration.BlackboardOrchestrator orchestrator)
+        Orchestration.IDetectionOrchestrator orchestrator)
     {
         var options = httpContext.RequestServices
             .GetService(typeof(IOptions<BotDetectionOptions>)) as IOptions<BotDetectionOptions>;
@@ -202,11 +202,14 @@ public static class BdfReplayEndpoints
                 }
             }
 
-            // Run detection through the full blackboard orchestrator
+            // Run detection through the active orchestrator (whichever IDetectionOrchestrator
+            // implementation is registered in DI). Previously hardcoded to BlackboardOrchestrator,
+            // which masked regressions in the Ephemeral path.
             Orchestration.AggregatedEvidence evidence;
             try
             {
-                evidence = await orchestrator.DetectAsync(syntheticContext, httpContext.RequestAborted);
+                evidence = await orchestrator.DetectWithPolicyAsync(
+                    syntheticContext, Policies.DetectionPolicy.Default, httpContext.RequestAborted);
             }
             catch (Exception ex)
             {
@@ -220,11 +223,29 @@ public static class BdfReplayEndpoints
                 continue;
             }
 
+            // Probe the signal flow that downstream UI consumers depend on. If any of these
+            // come back false the dashboard will degrade silently (empty fingerprints panel,
+            // wrong bot name, missing prior delta) — it's the regression class that the
+            // EphemeralDetectionOrchestrator premergedSignals drop introduced.
+            var signals = evidence.Signals;
+            var signalProbes = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["signature.primary"] = signals.ContainsKey("signature.primary"),
+                ["ua.bot_name"] = signals.ContainsKey("ua.bot_name"),
+                ["ua.bot_type"] = signals.ContainsKey("ua.bot_type"),
+                ["ua.family"] = signals.ContainsKey("ua.family")
+            };
+
             var actual = new BdfReplayActual
             {
                 IsBot = evidence.BotProbability >= 0.5,
                 BotProbability = Math.Round(evidence.BotProbability, 4),
                 BotType = evidence.PrimaryBotType?.ToString(),
+                BotName = evidence.PrimaryBotName,
+                RiskBand = evidence.RiskBand.ToString(),
+                SignalCount = signals.Count,
+                SignalKeys = signals.Keys.OrderBy(k => k).Take(80).ToList(),
+                SignalProbes = signalProbes,
                 TopReasons = evidence.Contributions
                     .Where(c => !string.IsNullOrEmpty(c.Reason))
                     .OrderByDescending(c => Math.Abs(c.ConfidenceDelta))
@@ -395,6 +416,11 @@ public sealed class BdfReplayActual
     public bool IsBot { get; set; }
     public double BotProbability { get; set; }
     public string? BotType { get; set; }
+    public string? BotName { get; set; }
+    public string? RiskBand { get; set; }
+    public int SignalCount { get; set; }
+    public List<string> SignalKeys { get; set; } = new();
+    public Dictionary<string, bool> SignalProbes { get; set; } = new();
     public List<string> TopReasons { get; set; } = [];
 }
 
