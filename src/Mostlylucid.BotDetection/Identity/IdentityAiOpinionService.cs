@@ -80,6 +80,13 @@ public sealed class IdentityAiOpinionService
         _enabled = options.Value.Identity.Enabled;
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Resolves Mostlylucid.BotDetection.Llm.ILlmProvider via reflection; under trimming, " +
+        "ensure the Llm.* package containing the provider is rooted (TrimmerRootAssembly) so " +
+        "ILlmProvider, LlmRequest, and CompleteAsync are preserved.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Activator.CreateInstance over LlmRequest at runtime; under AOT, ensure the LLM " +
+        "package is preserved or use a JIT'd build for the manual AI opinion path.")]
     public async Task<IdentityAiOpinionResult> RunAsync(string fingerprintId, CancellationToken ct = default)
     {
         if (!_enabled)

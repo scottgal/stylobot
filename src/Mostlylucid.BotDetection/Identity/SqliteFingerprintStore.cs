@@ -162,11 +162,7 @@ public sealed class SqliteFingerprintStore
             """;
         insert.Parameters.AddWithValue("@ver", _layout.Version);
         insert.Parameters.AddWithValue("@dim", _layout.Dimension);
-        insert.Parameters.AddWithValue("@json",
-            System.Text.Json.JsonSerializer.Serialize(_layout.Slots.Select(s => new
-            {
-                s.Name, s.Offset, s.Width, encoding = s.Encoding.ToString()
-            })));
+        insert.Parameters.AddWithValue("@json", BuildLayoutJson(_layout.Slots));
         insert.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
         await insert.ExecuteNonQueryAsync(ct);
     }
@@ -933,6 +929,31 @@ public sealed class SqliteFingerprintStore
             ? null
             : DateTime.Parse(reader.GetString(16), null, System.Globalization.DateTimeStyles.RoundtripKind)
     };
+
+    /// <summary>
+    ///     Layout JSON is diagnostic — written once at first init for forensics, never
+    ///     re-read by the code. Hand-written via <see cref="System.Text.Json.Utf8JsonWriter"/>
+    ///     to stay AOT-clean (no anonymous-type reflection).
+    /// </summary>
+    private static string BuildLayoutJson(IReadOnlyList<IdentityVectorSlot> slots)
+    {
+        using var ms = new MemoryStream();
+        using (var w = new System.Text.Json.Utf8JsonWriter(ms))
+        {
+            w.WriteStartArray();
+            foreach (var s in slots)
+            {
+                w.WriteStartObject();
+                w.WriteString("Name", s.Name);
+                w.WriteNumber("Offset", s.Offset);
+                w.WriteNumber("Width", s.Width);
+                w.WriteString("encoding", s.Encoding.ToString());
+                w.WriteEndObject();
+            }
+            w.WriteEndArray();
+        }
+        return System.Text.Encoding.UTF8.GetString(ms.ToArray());
+    }
 
     internal static byte[] FloatsToBlob(float[] values)
     {
