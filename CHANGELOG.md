@@ -5,7 +5,27 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] - 6.4.7
+
+### Added — Metastable fingerprint identity
+
+A new identity layer that treats each visitor as a *shape* (a learned vector centroid + per-fingerprint weight vector + observation cloud) rather than a single hash. Replaces the load-bearing role of `PrimarySignature` (HMAC of IP + UA) for visitors whose IP or UA rotates. Reads `PrimarySignature` first as a fast L1 point lookup; falls back to a vector cosine search (L2) when the rotation guarantee doesn't hold. Dormant by default; flip on with `BotDetection:Identity:Enabled = true`.
+
+The full design and contracts live in [`docs/architecture/fingerprint-match.md`](docs/architecture/fingerprint-match.md). User-facing reader version at [`identity-fingerprint-match.md`](src/Mostlylucid.BotDetection/docs/identity-fingerprint-match.md).
+
+- **Two-pass match** — Pass 1 looks up `fingerprint_keys[primary_signature]` and runs a quick weighted-cosine confirm against the candidate's centroid (fast-path; humans pay microseconds). Pass 2 runs `IIdentityAnchorIndex.SearchAsync` over the centroid + observation set when L1 misses or fails confirm (slow-path; bots pay it). Pass 2 disagreement triggers a *correction*: per-fp weights nudge toward dims that distinguished the new winner, and `fingerprint_keys` re-binds.
+- **Per-fingerprint weight learning** — every fingerprint carries its own dim-weight vector. Two learning signals: corrections (sharp edits when L1 was wrong) and stability (gentler nudges every absorption, based on per-dim deviation from centroid).
+- **Centroid absorption (`FingerprintAbsorptionService`)** — folds detailed observations into the centroid via a maturity-weighted mean (`new = (centroid * maturity + obs) / (maturity + 1)`) so a year-old visitor's shape is preserved while detail compresses. Recomputes inferred client type against the archetype registry on every absorption; emits a structured drift log when classification flips.
+- **Drift verifier (`FingerprintDriftService`)** — re-checks L1-confirmed fingerprints whose `cached_score_updated_at` is older than `CachedScoreTtlSeconds`. Closes the "L1 still observes" guarantee — a "passes-as-human" fast-path verdict cannot persist indefinitely without L2 agreement on the latest observation.
+- **Calibration (`IdentityWeightCalibrationService`)** — periodically computes a global per-dim weight vector via the Fisher discriminant ratio (between-cluster variance / within-cluster variance) over fingerprints grouped by inferred client type. High-discriminating dims get amplified; noise dims suppressed. Same tick refines each archetype centroid by blending in the mean of its descendants (cap-bounded by `ArchetypeRefinementCap` so an archetype can never drift more than half its identity per cycle).
+- **Global weights cache (`IdentityGlobalWeightsCache`)** — hosted singleton that reads the calibrated weights on every `GlobalRefreshSeconds` tick. The matcher composes them multiplicatively with per-fp weights at confirm + Pass 2 time. `Volatile.Write` atomic swap; live matching never sees a torn vector.
+- **Archetype registry** — nine starter archetypes loaded from embedded YAML at `src/Mostlylucid.BotDetection/Definitions/IdentityArchetypes/*.yaml`. Used as cold-start templates for new fingerprints and as cluster labels for calibration. Self-refining — descendants pull their archetype's centroid toward the population mean.
+- **`IFoundationContributor` wave** — `IdentityVectorContributor` (priority 5) composes the request vector from upstream signals and raw headers; `FingerprintMatchContributor` (priority 6) runs the two-pass match. Both are foundation: they run unconditionally under any policy, never gated by classifier filters.
+- **Signal contract** — `identity.fingerprint_id`, `identity.match_score`, `identity.is_new_fingerprint`, `identity.is_correction`, `identity.rotation_candidate`, `identity.client_type`, `identity.client_type_confidence`, `identity.client_type_origin`, `identity.cached_bot_probability`, `identity.cached_risk_band`. All emitted by `FingerprintMatchContributor`; consumed by downstream display, the BDF rig, and the verdict cache (composed in a follow-up).
+- **SQLite schema** — seven core tables in `fingerprints.db` (separate file from the main detection DB): `fingerprints`, `fingerprint_keys`, `fingerprint_observations`, `fingerprint_corrections`, `identity_dimension_weights`, `identity_archetypes`, `identity_vector_layout`. Vector layout version is fixed at deployment; mismatched layouts on startup fail loud rather than silently corrupt data.
+- **Test coverage** — 19 identity unit tests (Fisher math, weight composition, drift verifier, calibration end-to-end, global weights cache) plus 17 BDF replay scenarios that probe the metastable contract: every request emits `identity.fingerprint_id`, the last request of each scenario doesn't allocate a new fingerprint.
+
+### Added — Verdict cache (rolled forward from 6.4.6)
 
 Wires the per-signature reputation aggregate the product has been computing into the live request path as a verdict cache. Known fingerprints reuse their verdict; only unknown, stale, or verifiably-changed fingerprints run the full detector pipeline. The verdict source is the existing ephemeral sliding window in `SignatureCoordinator`, not a parallel cache. Four gate outcomes emerge per policy:
 
