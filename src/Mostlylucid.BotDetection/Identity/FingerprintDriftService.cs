@@ -72,6 +72,43 @@ public sealed class FingerprintDriftService : BackgroundService
         }
     }
 
+    /// <summary>
+    ///     On-demand single-fingerprint verification. Used by the dashboard "Re-verify"
+    ///     button so an operator can force a fresh L2 check without waiting for the
+    ///     <c>CachedScoreTtlSeconds</c> gate. Computes the same weighted cosine the
+    ///     scheduled tick uses, returns the score + whether it crossed the drift
+    ///     threshold, and bumps <c>cached_score_updated_at</c> so the row reflects the
+    ///     fresh verification.
+    /// </summary>
+    public async Task<DriftVerificationResult?> VerifyOneAsync(string fingerprintId, CancellationToken ct)
+    {
+        var fp = await _store.GetFingerprintAsync(fingerprintId, ct);
+        if (fp is null) return null;
+
+        var latest = await _store.GetLatestObservationVectorAsync(fingerprintId, ct);
+        if (latest is null)
+            return new DriftVerificationResult(
+                FingerprintId: fingerprintId,
+                Score: 0,
+                Drifted: false,
+                ObservationFound: false);
+
+        var composed = _globalWeights.Compose(fp.Weights);
+        var score = BruteForceIdentityAnchorIndex.WeightedCosine(latest, fp.Centroid, composed);
+        var drifted = score < _options.Drift.DriftWarningThreshold;
+        if (drifted)
+            _logger.LogInformation(
+                "On-demand drift check: fingerprint {Id} score={Score:F3} below {Threshold:F3}",
+                fingerprintId, score, _options.Drift.DriftWarningThreshold);
+
+        await _store.BumpCachedScoreCheckedAtAsync(fingerprintId, ct);
+        return new DriftVerificationResult(
+            FingerprintId: fingerprintId,
+            Score: score,
+            Drifted: drifted,
+            ObservationFound: true);
+    }
+
     /// <summary>One pass over stale fingerprints. Returns (checked, drift-detected).</summary>
     public async Task<(int Checked, int Drifts)> TickOnceAsync(CancellationToken ct)
     {
@@ -109,3 +146,14 @@ public sealed class FingerprintDriftService : BackgroundService
         return (stale.Count, drifts);
     }
 }
+
+/// <summary>
+///     Result of an on-demand drift verification triggered from the dashboard. Distinct
+///     from the scheduled tick's aggregate counters because the operator wants per-fingerprint
+///     visibility into what just happened.
+/// </summary>
+public sealed record DriftVerificationResult(
+    string FingerprintId,
+    double Score,
+    bool Drifted,
+    bool ObservationFound);

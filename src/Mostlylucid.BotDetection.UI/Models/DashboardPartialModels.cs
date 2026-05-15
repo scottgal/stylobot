@@ -617,3 +617,38 @@ public sealed record FilterOption
     public required string Value { get; init; }   // "signature", "country", etc.
     public required string Label { get; init; }   // "Signature", "Country", etc.
 }
+
+/// <summary>
+///     View model for the Identities tab — listing of metastable fingerprints with the
+///     surface an operator needs to triage drift candidates. Only populated when
+///     Identity:Enabled is true; the tab renders an empty-state explainer otherwise.
+/// </summary>
+public sealed class IdentitiesListModel
+{
+    public IReadOnlyList<IdentityListEntry> Identities { get; init; } = [];
+    public int TotalCount { get; init; }
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 25;
+    public string BasePath { get; init; } = "";
+    public bool IdentityEnabled { get; init; }
+}
+
+/// <summary>One row on the Identities tab. Compact projection of the fingerprints row + computed counts.</summary>
+public sealed record IdentityListEntry
+{
+    public required string FingerprintId { get; init; }
+    public required string InferredClientType { get; init; }
+    public double InferredTypeConfidence { get; init; }
+    public required int CentroidMaturity { get; init; }
+    public required int ObservationCount { get; init; }
+
+    /// <summary>Unabsorbed observation rows for this fingerprint — the freshness budget the next absorption tick has to work with.</summary>
+    public required int UnabsorbedObservations { get; init; }
+    public required int CorrectionCount { get; init; }
+    public double CachedBotProbability { get; init; }
+    public string? CachedRiskBand { get; init; }
+    public DateTime? CachedScoreUpdatedAt { get; init; }
+    public DateTime FirstSeen { get; init; }
+    public DateTime LastSeen { get; init; }
+    public string? ArchetypeOrigin { get; init; }
+}

@@ -440,6 +440,18 @@ public class StyloBotDashboardMiddleware
                 await ServeThreatsPartialAsync(context);
                 break;
 
+            case "partials/identities":
+                await ServeIdentitiesPartialAsync(context);
+                break;
+
+            case var p when p.StartsWith("api/identities/", StringComparison.OrdinalIgnoreCase) && p.EndsWith("/reverify", StringComparison.OrdinalIgnoreCase):
+                await ServeIdentityReverifyAsync(context, p);
+                break;
+
+            case var p when p.StartsWith("api/identities/", StringComparison.OrdinalIgnoreCase) && p.EndsWith("/run-ai", StringComparison.OrdinalIgnoreCase):
+                await ServeIdentityRunAiAsync(context, p);
+                break;
+
             case "partials/session-detail":
                 await ServeSessionDetailPartialAsync(context);
                 break;
@@ -3202,6 +3214,177 @@ public class StyloBotDashboardMiddleware
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbThreatsList/Default.cshtml", model, context);
         await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>Renders the Identities tab partial. Empty-state when Identity is dormant.</summary>
+    private async Task ServeIdentitiesPartialAsync(HttpContext context)
+    {
+        var page = int.TryParse(context.Request.Query["page"], out var p) ? Math.Max(1, p) : 1;
+        var pageSize = int.TryParse(context.Request.Query["pageSize"], out var ps) ? Math.Clamp(ps, 1, 100) : 25;
+
+        var model = await BuildIdentitiesModelAsync(context, page, pageSize);
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/Components/SbIdentitiesList/Default.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
+    private async Task<Models.IdentitiesListModel> BuildIdentitiesModelAsync(HttpContext context, int page, int pageSize)
+    {
+        var store = context.RequestServices.GetService<BotDetection.Identity.SqliteFingerprintStore>();
+        var optionsAccessor = context.RequestServices.GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>();
+        var enabled = optionsAccessor?.Value.Identity.Enabled ?? false;
+        if (store is null || !enabled)
+        {
+            return new Models.IdentitiesListModel
+            {
+                IdentityEnabled = false,
+                BasePath = _options.BasePath.TrimEnd('/'),
+                Page = page,
+                PageSize = pageSize
+            };
+        }
+
+        var all = await store.ListFingerprintsAsync();
+        var unabsorbed = await store.GetUnabsorbedObservationCountsAsync();
+        var ordered = all
+            .OrderByDescending(fp => unabsorbed.GetValueOrDefault(fp.FingerprintId, 0))
+            .ThenByDescending(fp => fp.LastSeen)
+            .ToList();
+        var rows = ordered
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(fp => new Models.IdentityListEntry
+            {
+                FingerprintId = fp.FingerprintId,
+                InferredClientType = fp.InferredClientType,
+                InferredTypeConfidence = fp.InferredTypeConfidence,
+                CentroidMaturity = fp.CentroidMaturity,
+                ObservationCount = fp.ObservationCount,
+                UnabsorbedObservations = unabsorbed.GetValueOrDefault(fp.FingerprintId, 0),
+                CorrectionCount = fp.CorrectionCount,
+                CachedBotProbability = fp.CachedBotProbability,
+                CachedRiskBand = fp.CachedRiskBand,
+                CachedScoreUpdatedAt = fp.CachedScoreUpdatedAt,
+                FirstSeen = fp.FirstSeen,
+                LastSeen = fp.LastSeen,
+                ArchetypeOrigin = fp.ArchetypeOrigin
+            })
+            .ToList();
+
+        return new Models.IdentitiesListModel
+        {
+            Identities = rows,
+            TotalCount = ordered.Count,
+            Page = page,
+            PageSize = pageSize,
+            IdentityEnabled = true,
+            BasePath = _options.BasePath.TrimEnd('/')
+        };
+    }
+
+    /// <summary>
+    ///     POST /api/identities/{id}/reverify — runs an on-demand L2 verification check
+    ///     against the fingerprint's most recent observation. Returns the row HTML so HTMX
+    ///     can swap it in place.
+    /// </summary>
+    private async Task ServeIdentityReverifyAsync(HttpContext context, string relativePath)
+    {
+        // Path shape: api/identities/{id}/reverify
+        var fingerprintId = ExtractFingerprintId(relativePath, "/reverify");
+        if (string.IsNullOrEmpty(fingerprintId))
+        {
+            context.Response.StatusCode = 400;
+            return;
+        }
+
+        var driftService = context.RequestServices.GetService<BotDetection.Identity.FingerprintDriftService>();
+        if (driftService is null)
+        {
+            context.Response.StatusCode = 503;
+            await context.Response.WriteAsync("Identity drift service not registered");
+            return;
+        }
+
+        var result = await driftService.VerifyOneAsync(fingerprintId, context.RequestAborted);
+        if (result is null)
+        {
+            context.Response.StatusCode = 404;
+            return;
+        }
+        await RenderSingleIdentityRowAsync(context, fingerprintId);
+    }
+
+    /// <summary>
+    ///     POST /api/identities/{id}/run-ai — stubbed pending task #39 (manual AI opinion).
+    ///     Returns the row HTML unchanged with a 202 so the operator gets visual feedback;
+    ///     a follow-up slice wires this into the LLM escalation pipeline.
+    /// </summary>
+    private async Task ServeIdentityRunAiAsync(HttpContext context, string relativePath)
+    {
+        var fingerprintId = ExtractFingerprintId(relativePath, "/run-ai");
+        if (string.IsNullOrEmpty(fingerprintId))
+        {
+            context.Response.StatusCode = 400;
+            return;
+        }
+
+        // Stub: re-render the row unchanged. Real implementation invokes the slow-path
+        // classifier (LLM escalation included) and updates cached_bot_probability live.
+        // Tracked as task #39 — the UI shape is locked here so the swap target is right
+        // when the backend lands.
+        context.Response.StatusCode = 202;
+        await RenderSingleIdentityRowAsync(context, fingerprintId);
+    }
+
+    private static string? ExtractFingerprintId(string relativePath, string suffix)
+    {
+        const string prefix = "api/identities/";
+        if (!relativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return null;
+        var rest = relativePath[prefix.Length..];
+        if (!rest.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) return null;
+        var id = rest[..^suffix.Length];
+        return string.IsNullOrWhiteSpace(id) ? null : id;
+    }
+
+    private async Task RenderSingleIdentityRowAsync(HttpContext context, string fingerprintId)
+    {
+        var model = await BuildIdentitiesModelAsync(context, page: 1, pageSize: int.MaxValue);
+        var entry = model.Identities.FirstOrDefault(e => string.Equals(e.FingerprintId, fingerprintId, StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            context.Response.StatusCode = 404;
+            return;
+        }
+        var rowModel = new Models.IdentitiesListModel
+        {
+            Identities = new[] { entry },
+            TotalCount = 1,
+            Page = 1,
+            PageSize = 1,
+            IdentityEnabled = true,
+            BasePath = _options.BasePath.TrimEnd('/')
+        };
+        context.Response.ContentType = "text/html";
+        // Render the full partial then extract the single row by id. Cheap and avoids a
+        // separate template; the table fragment HTMX swaps with outerHTML matches the
+        // <tr id="identity-row-{id}"> the list view emits.
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/Components/SbIdentitiesList/Default.cshtml", rowModel, context);
+        var marker = $"<tr id=\"identity-row-{fingerprintId}\"";
+        var startIdx = html.IndexOf(marker, StringComparison.Ordinal);
+        if (startIdx < 0)
+        {
+            await context.Response.WriteAsync(html); // fallback: full partial
+            return;
+        }
+        var endIdx = html.IndexOf("</tr>", startIdx, StringComparison.Ordinal);
+        if (endIdx < 0)
+        {
+            await context.Response.WriteAsync(html);
+            return;
+        }
+        await context.Response.WriteAsync(html[startIdx..(endIdx + 5)]);
     }
 
     private async Task<ThreatsListModel> BuildThreatsModelAsync()

@@ -1,0 +1,134 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model IdentitiesListModel
+@{
+    var bp = Model.BasePath;
+    string Short(string s) => s.Length > 8 ? s[..8] : s;
+    string AgoText(DateTime? when)
+    {
+        if (when is null) return "never";
+        var span = DateTime.UtcNow - when.Value;
+        if (span.TotalSeconds < 60) return $"{(int)span.TotalSeconds}s ago";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        return $"{(int)span.TotalDays}d ago";
+    }
+}
+
+<div id="identities-widget" data-sb-widget="identities" data-sb-depends="identities" data-sb-params="page=@Model.Page&pageSize=@Model.PageSize">
+    <div class="card bg-base-200 transition-all duration-200">
+        <div class="card-body p-3">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-1">
+                    <h3 class="text-sm font-bold text-base-content">Metastable Identities</h3>
+                </div>
+                @if (Model.IdentityEnabled)
+                {
+                    <div class="flex items-center gap-2">
+                        <span class="badge badge-info badge-sm">@Model.TotalCount fingerprints</span>
+                        <span class="badge badge-warning badge-sm">@Model.Identities.Sum(i => i.UnabsorbedObservations) observations in window</span>
+                    </div>
+                }
+            </div>
+
+            @if (!Model.IdentityEnabled)
+            {
+                <div class="text-center py-8 text-base-content/60">
+                    <p class="text-sm font-semibold">Identity layer is dormant</p>
+                    <p class="text-xs mt-2">Set <code class="text-xs px-1 rounded bg-base-300">BotDetection:Identity:Enabled = true</code> in your configuration to enable the metastable fingerprint match system.</p>
+                    <p class="text-xs mt-1 text-base-content/40">See <code class="text-xs">docs/architecture/fingerprint-match.md</code> for the design.</p>
+                </div>
+            }
+            else if (!Model.Identities.Any())
+            {
+                <div class="text-center py-8 text-base-content/50">
+                    <p class="text-sm">No fingerprints recorded yet.</p>
+                    <p class="text-xs mt-1">Fingerprints are allocated as traffic arrives; this view will populate within seconds of the first request.</p>
+                </div>
+            }
+            else
+            {
+                <div class="overflow-x-auto">
+                    <table class="table table-xs table-zebra w-full">
+                        <thead>
+                            <tr class="text-[10px] uppercase tracking-wider">
+                                <th class="py-1">Fingerprint</th>
+                                <th class="py-1">Inferred client</th>
+                                <th class="py-1 text-right" title="Total observations recorded for this fingerprint">Obs</th>
+                                <th class="py-1 text-right" title="Unabsorbed observations — fresh data the next absorption tick will fold">In window</th>
+                                <th class="py-1 text-right" title="Pass-2-corrects-Pass-1 events">Corr</th>
+                                <th class="py-1">Cached verdict</th>
+                                <th class="py-1">Last verified</th>
+                                <th class="py-1">Last seen</th>
+                                <th class="py-1">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var id in Model.Identities)
+                            {
+                                var verdictClass = id.CachedBotProbability switch
+                                {
+                                    >= 0.8 => "text-error",
+                                    >= 0.55 => "text-warning",
+                                    >= 0.35 => "text-info",
+                                    _ => "text-success"
+                                };
+                                <tr id="identity-row-@id.FingerprintId">
+                                    <td class="text-xs font-mono" title="@id.FingerprintId">
+                                        @Short(id.FingerprintId)
+                                        @if (id.ArchetypeOrigin is not null)
+                                        {
+                                            <span class="badge badge-ghost badge-xs ml-1" title="Allocation seed archetype">@id.ArchetypeOrigin</span>
+                                        }
+                                    </td>
+                                    <td class="text-xs">
+                                        <span>@id.InferredClientType</span>
+                                        <span class="text-base-content/40 ml-1">@id.InferredTypeConfidence.ToString("F2")</span>
+                                    </td>
+                                    <td class="text-xs text-right font-mono">@id.ObservationCount</td>
+                                    <td class="text-xs text-right font-mono @(id.UnabsorbedObservations > 0 ? "text-warning font-semibold" : "text-base-content/40")">@id.UnabsorbedObservations</td>
+                                    <td class="text-xs text-right font-mono @(id.CorrectionCount > 0 ? "text-info" : "text-base-content/40")">@id.CorrectionCount</td>
+                                    <td class="text-xs">
+                                        @if (id.CachedScoreUpdatedAt is null)
+                                        {
+                                            <span class="text-base-content/40">unverified</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="font-semibold @verdictClass">@id.CachedBotProbability.ToString("F2")</span>
+                                            @if (!string.IsNullOrEmpty(id.CachedRiskBand))
+                                            {
+                                                <span class="badge badge-ghost badge-xs ml-1">@id.CachedRiskBand</span>
+                                            }
+                                        }
+                                    </td>
+                                    <td class="text-xs text-base-content/60">@AgoText(id.CachedScoreUpdatedAt)</td>
+                                    <td class="text-xs text-base-content/60">@AgoText(id.LastSeen)</td>
+                                    <td>
+                                        <div class="flex items-center gap-1">
+                                            <button type="button"
+                                                    class="btn btn-xs btn-ghost"
+                                                    title="Force an L2 verification check now (skips the TTL gate)"
+                                                    hx-post="@bp/api/identities/@id.FingerprintId/reverify"
+                                                    hx-target="#identity-row-@id.FingerprintId"
+                                                    hx-swap="outerHTML">
+                                                <i class="bx bx-refresh"></i>Re-verify
+                                            </button>
+                                            <button type="button"
+                                                    class="btn btn-xs btn-ghost"
+                                                    title="Run the slow-path classifier (incl. LLM if available) and update the cached verdict live"
+                                                    hx-post="@bp/api/identities/@id.FingerprintId/run-ai"
+                                                    hx-target="#identity-row-@id.FingerprintId"
+                                                    hx-swap="outerHTML">
+                                                <i class="bx bx-brain"></i>Run AI
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>

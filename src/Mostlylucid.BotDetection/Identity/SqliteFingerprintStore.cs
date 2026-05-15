@@ -555,6 +555,31 @@ public sealed class SqliteFingerprintStore
     }
 
     /// <summary>
+    ///     Counts of unabsorbed observation rows grouped by fingerprint id. Returned as a
+    ///     dictionary keyed by fingerprint id so a dashboard listing can join in C# without
+    ///     N+1 queries. Materialised; reader closes before return.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, int>> GetUnabsorbedObservationCountsAsync(
+        CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT fingerprint_id, COUNT(*) AS unabsorbed
+              FROM fingerprint_observations
+             WHERE absorbed_at IS NULL
+             GROUP BY fingerprint_id
+            """;
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            result[reader.GetString(0)] = reader.GetInt32(1);
+        return result;
+    }
+
+    /// <summary>
     ///     Persist the calibrated global per-dim weight vector. Single-row table; replaces any
     ///     existing weights atomically. Read by the matcher via
     ///     <see cref="GetGlobalWeightsAsync"/> on its refresh cadence.
