@@ -165,6 +165,7 @@ public sealed class IdentityProcessingCoordinator : BackgroundService
                 try
                 {
                     var result = await operation(runCt);
+                    Interlocked.Increment(ref _totalExecuted);
                     tcs.TrySetResult((result, SlowPathDispatchOutcome.Executed));
                 }
                 catch (OperationCanceledException) when (runCt.IsCancellationRequested)
@@ -238,8 +239,10 @@ public sealed class IdentityProcessingCoordinator : BackgroundService
 
             try
             {
+                // _totalExecuted is incremented inside the operation closure (before the
+                // TCS resolves) so callers reading diagnostics after their await see the
+                // counter reflect their work.
                 await item.Run(item.Ct);
-                Interlocked.Increment(ref _totalExecuted);
             }
             catch (Exception ex)
             {

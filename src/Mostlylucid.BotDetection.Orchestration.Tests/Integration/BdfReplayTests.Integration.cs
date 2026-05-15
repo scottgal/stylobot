@@ -17,6 +17,7 @@ namespace Mostlylucid.BotDetection.Orchestration.Tests.Integration;
 ///     does not fail any unit test. See <c>docs/architecture/signal-contracts.md</c>.
 /// </summary>
 [Collection("DemoApp")]
+[Trait("Category", "Integration")]
 public sealed class BdfReplayTests
 {
     private static readonly string TestSuitesRoot = Path.GetFullPath(
