@@ -78,4 +78,115 @@ internal static class IdentityWeightMath
         }
         return diff;
     }
+
+    /// <summary>
+    ///     Compute global per-dim weights from cluster-grouped fingerprint centroids using the
+    ///     Fisher discriminant ratio: between-cluster variance over within-cluster variance. High
+    ///     ratio means the dim varies more across clusters than within them — it discriminates
+    ///     identity classes (e.g. real-browser vs scraper). Low ratio means the dim is noise.
+    ///
+    ///     The result is normalised to mean 1.0 so it composes multiplicatively with per-fp
+    ///     weights without inflating the cosine score, then clamped for numeric stability.
+    ///
+    ///     Returns null when there's not enough data — fewer than 2 clusters with at least one
+    ///     fingerprint each, or fewer than <paramref name="minFingerprints"/> fingerprints total.
+    /// </summary>
+    public static float[]? ComputeFisherWeights(
+        IReadOnlyList<(string ClusterId, float[] Centroid)> clusterMembers,
+        int dimension,
+        int minFingerprints,
+        double minWeight,
+        double maxWeight,
+        double epsilon = 1e-9)
+    {
+        if (clusterMembers.Count < minFingerprints) return null;
+
+        // Group by cluster id.
+        var byCluster = new Dictionary<string, List<float[]>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (id, centroid) in clusterMembers)
+        {
+            if (!byCluster.TryGetValue(id, out var list))
+            {
+                list = new List<float[]>();
+                byCluster[id] = list;
+            }
+            list.Add(centroid);
+        }
+        if (byCluster.Count < 2) return null;
+
+        // Per-cluster means and global mean per dim.
+        var clusterMeans = new Dictionary<string, double[]>(StringComparer.OrdinalIgnoreCase);
+        var globalMean = new double[dimension];
+        foreach (var (id, members) in byCluster)
+        {
+            var mean = new double[dimension];
+            foreach (var c in members)
+                for (var d = 0; d < dimension; d++) mean[d] += c[d];
+            for (var d = 0; d < dimension; d++) mean[d] /= members.Count;
+            clusterMeans[id] = mean;
+        }
+        var totalCount = clusterMembers.Count;
+        foreach (var (_, c) in clusterMembers)
+            for (var d = 0; d < dimension; d++) globalMean[d] += c[d];
+        for (var d = 0; d < dimension; d++) globalMean[d] /= totalCount;
+
+        // Within-cluster and between-cluster variance per dim.
+        var within = new double[dimension];
+        var between = new double[dimension];
+        foreach (var (id, members) in byCluster)
+        {
+            var mean = clusterMeans[id];
+            foreach (var c in members)
+            for (var d = 0; d < dimension; d++)
+            {
+                var dev = c[d] - mean[d];
+                within[d] += dev * dev;
+            }
+            for (var d = 0; d < dimension; d++)
+            {
+                var dev = mean[d] - globalMean[d];
+                between[d] += members.Count * dev * dev;
+            }
+        }
+        for (var d = 0; d < dimension; d++)
+        {
+            within[d] /= totalCount;
+            between[d] /= totalCount;
+        }
+
+        // Fisher ratio + normalise to mean 1.0 + clamp.
+        var weights = new float[dimension];
+        for (var d = 0; d < dimension; d++)
+            weights[d] = (float)(between[d] / (within[d] + epsilon));
+
+        RenormaliseAndClamp(weights, minWeight, maxWeight);
+        return weights;
+    }
+
+    /// <summary>
+    ///     Refine an archetype centroid by blending in the mean of its descendant fingerprints.
+    ///     <c>refined = (1 - α) * archetype + α * descendantsMean</c>. The α cap prevents an
+    ///     archetype from drifting more than half its identity per cycle even with many
+    ///     descendants. Returns null if the descendant list is empty.
+    /// </summary>
+    public static float[]? RefineArchetypeCentroid(
+        float[] archetypeCentroid,
+        IReadOnlyList<float[]> descendantCentroids,
+        double alphaCap)
+    {
+        if (descendantCentroids.Count == 0) return null;
+        var dim = archetypeCentroid.Length;
+        var mean = new float[dim];
+        foreach (var c in descendantCentroids)
+            for (var d = 0; d < dim; d++) mean[d] += c[d];
+        for (var d = 0; d < dim; d++) mean[d] /= descendantCentroids.Count;
+
+        // α scales with descendant count, capped — more descendants = more confident refinement,
+        // but never enough to dominate the seed in one cycle.
+        var alpha = Math.Min(alphaCap, descendantCentroids.Count / (descendantCentroids.Count + 10.0));
+        var refined = new float[dim];
+        for (var d = 0; d < dim; d++)
+            refined[d] = (float)((1 - alpha) * archetypeCentroid[d] + alpha * mean[d]);
+        return refined;
+    }
 }

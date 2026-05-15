@@ -554,6 +554,89 @@ public sealed class SqliteFingerprintStore
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>
+    ///     Persist the calibrated global per-dim weight vector. Single-row table; replaces any
+    ///     existing weights atomically. Read by the matcher via
+    ///     <see cref="GetGlobalWeightsAsync"/> on its refresh cadence.
+    /// </summary>
+    public async Task UpsertGlobalWeightsAsync(
+        float[] weights, int samplesUsed, int clustersUsed, int archetypesUsed,
+        CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO identity_dimension_weights
+                (id, weights, samples_used, clusters_used, archetypes_used, last_computed_at)
+                VALUES (1, @w, @samples, @clusters, @archetypes, @ts)
+                ON CONFLICT(id) DO UPDATE SET
+                    weights          = excluded.weights,
+                    samples_used     = excluded.samples_used,
+                    clusters_used    = excluded.clusters_used,
+                    archetypes_used  = excluded.archetypes_used,
+                    last_computed_at = excluded.last_computed_at
+            """;
+        cmd.Parameters.AddWithValue("@w", FloatsToBlob(weights));
+        cmd.Parameters.AddWithValue("@samples", samplesUsed);
+        cmd.Parameters.AddWithValue("@clusters", clustersUsed);
+        cmd.Parameters.AddWithValue("@archetypes", archetypesUsed);
+        cmd.Parameters.AddWithValue("@ts", DateTime.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    ///     Read the calibrated global per-dim weight vector. Returns null when calibration has
+    ///     never run; the matcher should fall back to all-1.0 in that case.
+    /// </summary>
+    public async Task<(float[] Weights, DateTime LastComputedAt)?> GetGlobalWeightsAsync(
+        CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT weights, last_computed_at FROM identity_dimension_weights WHERE id = 1";
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        var blob = (byte[])reader.GetValue(0);
+        var ts = DateTime.Parse(reader.GetString(1), null, System.Globalization.DateTimeStyles.RoundtripKind);
+        return (BlobToFloats(blob), ts);
+    }
+
+    /// <summary>
+    ///     Persist a refined archetype centroid + descendant count + last_refined_at. The mask
+    ///     is left as-is — only the YAML loader sets it (the dims an archetype asserts don't
+    ///     change with refinement).
+    /// </summary>
+    public async Task UpsertArchetypeAsync(IdentityArchetype archetype, CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO identity_archetypes
+                (archetype_id, name, description, centroid, dimension_mask, archetype_kind,
+                 descendant_count, last_refined_at)
+                VALUES (@id, @name, @desc, @centroid, @mask, @kind, @count, @ts)
+                ON CONFLICT(archetype_id) DO UPDATE SET
+                    centroid         = excluded.centroid,
+                    descendant_count = excluded.descendant_count,
+                    last_refined_at  = excluded.last_refined_at
+            """;
+        cmd.Parameters.AddWithValue("@id", archetype.ArchetypeId);
+        cmd.Parameters.AddWithValue("@name", archetype.Name);
+        cmd.Parameters.AddWithValue("@desc", (object?)archetype.Description ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("@centroid", FloatsToBlob(archetype.Centroid));
+        cmd.Parameters.AddWithValue("@mask", FloatsToBlob(archetype.DimensionMask));
+        cmd.Parameters.AddWithValue("@kind", archetype.ArchetypeKind);
+        cmd.Parameters.AddWithValue("@count", archetype.DescendantCount);
+        cmd.Parameters.AddWithValue("@ts", archetype.LastRefinedAt.ToString("O"));
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
     private Fingerprint ReadFingerprint(SqliteDataReader reader) => new()
     {
         FingerprintId = reader.GetString(0),

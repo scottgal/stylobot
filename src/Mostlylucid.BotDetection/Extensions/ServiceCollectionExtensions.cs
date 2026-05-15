@@ -580,6 +580,8 @@ public static class ServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Identity.FingerprintAbsorptionService>());
         services.AddSingleton<Identity.FingerprintDriftService>();
         services.AddHostedService(sp => sp.GetRequiredService<Identity.FingerprintDriftService>());
+        services.AddSingleton<Identity.IdentityWeightCalibrationService>();
+        services.AddHostedService(sp => sp.GetRequiredService<Identity.IdentityWeightCalibrationService>());
         services.AddSingleton<IContributingDetector, HeaderContributor>();
         services.AddSingleton<IContributingDetector, IpContributor>();
         services.AddSingleton<IContributingDetector, BehavioralContributor>();
