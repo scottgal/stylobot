@@ -28,6 +28,7 @@ public sealed class FingerprintDriftService : BackgroundService
     private readonly ILogger<FingerprintDriftService> _logger;
     private readonly SqliteFingerprintStore _store;
     private readonly IdentityGlobalWeightsCache _globalWeights;
+    private readonly IdentityProcessingCoordinator _coordinator;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
 
@@ -35,11 +36,13 @@ public sealed class FingerprintDriftService : BackgroundService
         ILogger<FingerprintDriftService> logger,
         SqliteFingerprintStore store,
         IdentityGlobalWeightsCache globalWeights,
+        IdentityProcessingCoordinator coordinator,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
         _store = store;
         _globalWeights = globalWeights;
+        _coordinator = coordinator;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
     }
@@ -82,31 +85,44 @@ public sealed class FingerprintDriftService : BackgroundService
     /// </summary>
     public async Task<DriftVerificationResult?> VerifyOneAsync(string fingerprintId, CancellationToken ct)
     {
-        var fp = await _store.GetFingerprintAsync(fingerprintId, ct);
-        if (fp is null) return null;
+        // Operator-triggered: routed through the coordinator with OperatorReverify priority
+        // bias so a "Re-verify" click always preempts background work and never sheds when
+        // the breaker is open. Risk score doesn't matter for operator priority but we pass
+        // a high value (1.0) for symmetry with the matcher.
+        var (result, _) = await _coordinator.RunAsync<DriftVerificationResult?>(
+            fingerprintId: fingerprintId,
+            kind: IdentitySlowPathKind.OperatorReverify,
+            riskScore: 1.0,
+            operation: async runCt =>
+            {
+                var fp = await _store.GetFingerprintAsync(fingerprintId, runCt);
+                if (fp is null) return null;
 
-        var latest = await _store.GetLatestObservationVectorAsync(fingerprintId, ct);
-        if (latest is null)
-            return new DriftVerificationResult(
-                FingerprintId: fingerprintId,
-                Score: 0,
-                Drifted: false,
-                ObservationFound: false);
+                var latest = await _store.GetLatestObservationVectorAsync(fingerprintId, runCt);
+                if (latest is null)
+                    return new DriftVerificationResult(
+                        FingerprintId: fingerprintId,
+                        Score: 0,
+                        Drifted: false,
+                        ObservationFound: false);
 
-        var composed = _globalWeights.Compose(fp.Weights);
-        var score = BruteForceIdentityAnchorIndex.WeightedCosine(latest, fp.Centroid, composed);
-        var drifted = score < _options.Drift.DriftWarningThreshold;
-        if (drifted)
-            _logger.LogInformation(
-                "On-demand drift check: fingerprint {Id} score={Score:F3} below {Threshold:F3}",
-                fingerprintId, score, _options.Drift.DriftWarningThreshold);
+                var composed = _globalWeights.Compose(fp.Weights);
+                var score = BruteForceIdentityAnchorIndex.WeightedCosine(latest, fp.Centroid, composed);
+                var drifted = score < _options.Drift.DriftWarningThreshold;
+                if (drifted)
+                    _logger.LogInformation(
+                        "On-demand drift check: fingerprint {Id} score={Score:F3} below {Threshold:F3}",
+                        fingerprintId, score, _options.Drift.DriftWarningThreshold);
 
-        await _store.BumpCachedScoreCheckedAtAsync(fingerprintId, ct);
-        return new DriftVerificationResult(
-            FingerprintId: fingerprintId,
-            Score: score,
-            Drifted: drifted,
-            ObservationFound: true);
+                await _store.BumpCachedScoreCheckedAtAsync(fingerprintId, runCt);
+                return new DriftVerificationResult(
+                    FingerprintId: fingerprintId,
+                    Score: score,
+                    Drifted: drifted,
+                    ObservationFound: true);
+            },
+            ct: ct);
+        return result;
     }
 
     /// <summary>One pass over stale fingerprints. Returns (checked, drift-detected).</summary>

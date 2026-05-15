@@ -42,8 +42,11 @@ public sealed class FingerprintDriftServiceTests : IDisposable
         _store = new SqliteFingerprintStore(NullLogger<SqliteFingerprintStore>.Instance, optionsWrapper, layout);
         var globalWeights = new IdentityGlobalWeightsCache(
             NullLogger<IdentityGlobalWeightsCache>.Instance, _store, optionsWrapper);
+        var coordinator = new IdentityProcessingCoordinator(
+            NullLogger<IdentityProcessingCoordinator>.Instance, optionsWrapper);
+        coordinator.StartAsync(CancellationToken.None).GetAwaiter().GetResult();
         _service = new FingerprintDriftService(
-            NullLogger<FingerprintDriftService>.Instance, _store, globalWeights, optionsWrapper);
+            NullLogger<FingerprintDriftService>.Instance, _store, globalWeights, coordinator, optionsWrapper);
     }
 
     public void Dispose()
