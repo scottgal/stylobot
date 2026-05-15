@@ -935,8 +935,12 @@ try
     //      a tunnel failure cannot prevent the local port from being usable.
     //   4. Hand off to the live detection table and block on WaitForShutdownAsync.
     // -----------------------------------------------------------------------
-    var statusBoard = new StartupStatusBoard();
     var bannerEnabled = !verbose && !System.Console.IsOutputRedirected;
+    // When the live banner is suppressed (verbose, redirected stdout, daemon),
+    // mirror startup task transitions through the standard log so operators
+    // still see resource downloads / Ollama pulls / tunnel events happening.
+    var statusBoard = new StartupStatusBoard(
+        echoLogger: bannerEnabled ? null : app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Stylobot.Startup"));
     CancellationTokenSource? bannerCts = null;
     Task? bannerTask = null;
     StartupBannerRenderer? banner = null;

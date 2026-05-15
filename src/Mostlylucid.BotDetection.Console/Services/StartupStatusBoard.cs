@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 
 namespace Mostlylucid.BotDetection.Console.Services;
 
@@ -33,7 +34,13 @@ public sealed class StartupStatusBoard
     private readonly ConcurrentDictionary<string, StartupTask> _tasks = new();
     private readonly List<string> _order = new();
     private readonly object _orderLock = new();
+    private readonly ILogger? _echoLogger;
     private long _version;
+
+    public StartupStatusBoard(ILogger? echoLogger = null)
+    {
+        _echoLogger = echoLogger;
+    }
 
     public long Version => Interlocked.Read(ref _version);
 
@@ -79,6 +86,7 @@ public sealed class StartupStatusBoard
                 FinishedUtc = finished ? now : existing.FinishedUtc
             });
         Interlocked.Increment(ref _version);
+        Echo(id, label, state, detail);
     }
 
     private void Mark(string id, StartupTaskState state, string? detail)
@@ -93,7 +101,22 @@ public sealed class StartupStatusBoard
                 FinishedUtc = now
             };
             Interlocked.Increment(ref _version);
+            Echo(id, existing.Label, state, detail);
         }
+    }
+
+    private void Echo(string id, string label, StartupTaskState state, string? detail)
+    {
+        if (_echoLogger is null) return;
+        var detailSuffix = string.IsNullOrEmpty(detail) ? "" : $" — {detail}";
+        var message = $"[startup:{id}] {label}: {state}{detailSuffix}";
+        var level = state switch
+        {
+            StartupTaskState.Failed => LogLevel.Warning,
+            StartupTaskState.Skipped => LogLevel.Debug,
+            _ => LogLevel.Information
+        };
+        _echoLogger.Log(level, "{StartupTask}", message);
     }
 
     /// <summary>True when every registered task is in a terminal state (Done/Failed/Skipped).</summary>
