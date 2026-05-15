@@ -239,6 +239,16 @@ public static class BdfReplayEndpoints
                 [Models.SignalKeys.UserAgentFamily]  = signals.ContainsKey(Models.SignalKeys.UserAgentFamily)
             };
 
+            // Identity match outputs (null when Identity.Enabled = false)
+            var identityFingerprintId = signals.TryGetValue(Models.SignalKeys.IdentityFingerprintId, out var fpObj)
+                ? fpObj as string : null;
+            var identityClientType = signals.TryGetValue(Models.SignalKeys.IdentityClientType, out var ctObj)
+                ? ctObj as string : null;
+            var identityIsNew = signals.TryGetValue(Models.SignalKeys.IdentityIsNewFingerprint, out var nfObj)
+                && nfObj is bool nf && nf;
+            var identityIsCorrection = signals.TryGetValue(Models.SignalKeys.IdentityIsCorrection, out var cObj)
+                && cObj is bool c && c;
+
             var actual = new BdfReplayActual
             {
                 IsBot = evidence.BotProbability >= 0.5,
@@ -248,6 +258,10 @@ public static class BdfReplayEndpoints
                 RiskBand = evidence.RiskBand.ToString(),
                 SignalCount = signals.Count,
                 SignalProbes = signalProbes,
+                IdentityFingerprintId = identityFingerprintId,
+                IdentityClientType = identityClientType,
+                IdentityIsNewFingerprint = identityIsNew,
+                IdentityIsCorrection = identityIsCorrection,
                 TopReasons = evidence.Contributions
                     .Where(c => !string.IsNullOrEmpty(c.Reason))
                     .OrderByDescending(c => Math.Abs(c.ConfidenceDelta))
@@ -422,6 +436,10 @@ public sealed class BdfReplayActual
     public string? RiskBand { get; set; }
     public int SignalCount { get; set; }
     public Dictionary<string, bool> SignalProbes { get; set; } = new();
+    public string? IdentityFingerprintId { get; set; }
+    public string? IdentityClientType { get; set; }
+    public bool IdentityIsNewFingerprint { get; set; }
+    public bool IdentityIsCorrection { get; set; }
     public List<string> TopReasons { get; set; } = [];
 }
 

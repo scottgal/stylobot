@@ -153,6 +153,21 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         string inferredType = "unknown";
         double inferredConfidence = 0.0;
 
+        // Per-dim identity weight prior: session.* dims (path_entropy, method_pattern,
+        // request_rate, session_age, etc.) are inherently per-request noisy and can't carry
+        // identity at allocation time. Until stability learning proves otherwise for THIS
+        // fingerprint, weight them low so they don't dominate cosine. Identity-rich dims
+        // (network, locale, header bag, transport) start at 1.0.
+        seedWeights = new float[dim];
+        for (var i = 0; i < dim; i++)
+            seedWeights[i] = 1.0f;
+        foreach (var slot in _store.Layout.Slots)
+        {
+            if (!slot.Name.StartsWith("session.", StringComparison.OrdinalIgnoreCase)) continue;
+            for (var i = slot.Offset; i < slot.Offset + slot.Width; i++)
+                seedWeights[i] = (float)_options.Weights.MinWeight;
+        }
+
         if (nearestArchetype is not null)
         {
             // Light blend: 70% observation, 30% archetype prior.
@@ -161,11 +176,10 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             for (var i = 0; i < dim; i++)
                 seedCentroid[i] = vector[i] * 0.7f + arch.Centroid[i] * 0.3f;
 
-            // Weights take the archetype's mask, clamped into the [min, max] band so even
-            // unmasked dims retain a tiny floor (no zero-weight columns the matcher can't move).
-            seedWeights = new float[dim];
+            // Add the archetype mask on top of the prior — dims the archetype asserts get
+            // additional weight beyond uniform.
             for (var i = 0; i < dim; i++)
-                seedWeights[i] = (float)Math.Clamp(arch.DimensionMask[i], _options.Weights.MinWeight, _options.Weights.MaxWeight);
+                seedWeights[i] += arch.DimensionMask[i];
 
             archetypeOrigin = arch.ArchetypeId;
             inferredType = arch.ArchetypeId;
@@ -173,11 +187,11 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         }
         else
         {
-            // No archetypes loaded: seed centroid from the observation, uniform weights.
             seedCentroid = (float[])vector.Clone();
-            seedWeights = new float[dim];
-            Array.Fill(seedWeights, 1.0f);
         }
+
+        IdentityWeightMath.RenormaliseAndClamp(
+            seedWeights, _options.Weights.MinWeight, _options.Weights.MaxWeight);
 
         var newFp = new Fingerprint
         {

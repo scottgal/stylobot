@@ -50,10 +50,13 @@ public sealed class BdfReplayTests
             $"{response.ScenarioName}: last request scored {last.Actual.BotProbability:F2}, expected bot");
 
         AssertSignalsFlowed(response.ScenarioName, last);
+        AssertFingerprintStableWithinScenario(response.ScenarioName, response);
 
         _output.WriteLine(
             $"{response.ScenarioName}: bot={last.Actual.IsBot} prob={last.Actual.BotProbability:F2} " +
-            $"band={last.Actual.RiskBand} name={last.Actual.BotName} signals={last.Actual.SignalCount}");
+            $"band={last.Actual.RiskBand} name={last.Actual.BotName} signals={last.Actual.SignalCount} " +
+            $"fp={last.Actual.IdentityFingerprintId?[..Math.Min(8, last.Actual.IdentityFingerprintId.Length)]} " +
+            $"client={last.Actual.IdentityClientType}");
     }
 
     [Theory]
@@ -75,10 +78,13 @@ public sealed class BdfReplayTests
             $"expected majority human. Last verdict: {last.Actual!.RiskBand} prob={last.Actual.BotProbability:F2}");
 
         AssertSignalsFlowed(response.ScenarioName, last);
+        AssertFingerprintStableWithinScenario(response.ScenarioName, response);
 
         _output.WriteLine(
             $"{response.ScenarioName}: humans={humanCount}/{response.Results.Count} " +
-            $"last band={last.Actual.RiskBand} signals={last.Actual.SignalCount}");
+            $"last band={last.Actual.RiskBand} signals={last.Actual.SignalCount} " +
+            $"fp={last.Actual.IdentityFingerprintId?[..Math.Min(8, last.Actual.IdentityFingerprintId.Length)]} " +
+            $"client={last.Actual.IdentityClientType}");
     }
 
     /// <summary>
@@ -98,6 +104,36 @@ public sealed class BdfReplayTests
         Assert.True(probes.TryGetValue(SignalKeys.UserAgentFamily, out var hasUaFamily) && hasUaFamily,
             $"{scenarioName}: {SignalKeys.UserAgentFamily} missing from ev.Signals — " +
             "DeterministicBotNameSynthesizer falls back to 'analysing' placeholder");
+    }
+
+    /// <summary>
+    ///     The metastable-fingerprint contract this rig defends: every request emits an
+    ///     identity.fingerprint_id (no holes in the pipeline), and identity stabilises by the
+    ///     end of the scenario — the LAST request must not allocate a new fingerprint. Earlier
+    ///     requests may shuffle across fingerprints while the matcher learns; what matters is
+    ///     that the system converges. If the last request still allocates new, identity isn't
+    ///     forming cohesively at all.
+    ///
+    ///     Skipped silently when Identity is disabled (the response carries no fingerprint id).
+    /// </summary>
+    private static void AssertFingerprintStableWithinScenario(string scenarioName, BdfReplayResponse response)
+    {
+        var withFingerprints = response.Results
+            .Where(r => r.Actual is { IdentityFingerprintId: not null })
+            .ToList();
+        if (withFingerprints.Count == 0) return; // Identity disabled in the host
+
+        // Every request must emit a fingerprint id. Holes mean the contributor failed silently.
+        var withoutIds = response.Results.Count(r => r.Actual is { IdentityFingerprintId: null });
+        Assert.True(withoutIds == 0,
+            $"{scenarioName}: {withoutIds}/{response.Results.Count} requests had no identity.fingerprint_id. " +
+            "FingerprintMatchContributor returned without emitting a fingerprint — check vector composition.");
+
+        // Last request must not allocate new — the shape has had the whole scenario to converge.
+        var last = withFingerprints[^1].Actual!;
+        Assert.False(last.IdentityIsNewFingerprint,
+            $"{scenarioName}: last request still allocated a new fingerprint after {response.Results.Count} requests. " +
+            "Either the vector composition is too request-variable, or LooseThreshold is too tight to ever match.");
     }
 
     private async Task<BdfReplayResponse?> ReplayAsync(string scenarioFile)
