@@ -5,6 +5,12 @@ known fingerprints. Pairs with `signature-coordinator-architecture.md` (which
 describes the sliding window itself) and `policy-system.md` (which describes
 how `SignatureCacheOptions` is bound per policy).
 
+> **6.4.7+:** the verdict cache currently keys on `PrimarySignature` (HMAC of IP + UA).
+> The metastable identity layer ([`identity-fingerprint-match.md`](identity-fingerprint-match.md))
+> resolves rotated identities to a stable `fingerprint_id`; composing
+> `identity.cached_bot_probability` into the gate so a rotated identity inherits its
+> prior verdict is **task #36** in the active task list.
+
 ## 1. The scaling thesis
 
 A bot fingerprint visiting 50 times in 5 minutes does not need 50 full pipeline

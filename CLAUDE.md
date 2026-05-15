@@ -410,4 +410,10 @@ Detailed docs in `Mostlylucid.BotDetection/docs/`:
 - `configuration.md` - Full options reference
 - `ai-detection.md` - Heuristic model and LLM escalation
 - `learning-and-reputation.md` - Adaptive learning system
+- `identity-fingerprint-match.md` (6.4.7+) - Metastable fingerprint identity layer (two-pass match, drift, calibration)
+- `fingerprint-verdict-cache.md` - Per-signature verdict cache and gate
 - `yarp-integration.md` - Reverse proxy setup
+
+Architecture specs in `docs/architecture/`:
+- `signal-contracts.md` - Foundation vs classifier contract; signal merge rules
+- `fingerprint-match.md` - Metastable identity full design (storage, vector composition, learning loop)
