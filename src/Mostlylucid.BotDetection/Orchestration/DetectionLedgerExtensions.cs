@@ -59,10 +59,20 @@ public static class DetectionLedgerExtensions
         var (riskBand, riskJustification) = DetermineRiskBand(botProbability, confidence, aiRan,
             earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory, ledgerBotType);
 
-        // Only set BotType/BotName if actually a bot
+        // PrimaryBotType stays gated on classification — it's a claim about WHAT KIND of bot
+        // ("this looks like a Scraper") and is only meaningful when classified as bot.
         var isActuallyBot = botProbability >= 0.5;
         var primaryBotType = isActuallyBot ? ParseBotType(ledger.BotType) : null;
-        var primaryBotName = isActuallyBot ? ledger.BotName : null;
+
+        // PrimaryBotName is NEVER gated — every fingerprint always has a name (verdict label
+        // and name are separate concerns). Priority: matcher-set identity.display_name (the
+        // persisted, drift-gated name) → ledger.BotName (UA contributor's known-bot name) →
+        // null (only if neither path produced one; rare in production with Identity enabled).
+        var displayNameFromSignal = preSignals.TryGetValue(SignalKeys.IdentityDisplayName, out var dnObj)
+            ? dnObj as string : null;
+        var primaryBotName = !string.IsNullOrEmpty(displayNameFromSignal)
+            ? displayNameFromSignal
+            : (isActuallyBot ? ledger.BotName : null);
 
         // Handle early exit
         if (ledger.EarlyExit && ledger.EarlyExitContribution != null)
@@ -153,7 +163,13 @@ public static class DetectionLedgerExtensions
         // reputation-pattern id ("ip:::ffff::/48") that FastPathReputation supplied.
         // Confirmed-bad and high threat still escalate.
         var primaryBotType = ParseBotType(exitContrib.BotType);
-        var primaryBotName = exitContrib.BotName;
+        // Prefer matcher-set identity.display_name (persisted, drift-gated) over the
+        // exit contribution's BotName when both are present. Same priority as the main path.
+        var earlyDisplayName = earlySignals.TryGetValue(SignalKeys.IdentityDisplayName, out var earlyDnObj)
+            ? earlyDnObj as string : null;
+        var primaryBotName = !string.IsNullOrEmpty(earlyDisplayName)
+            ? earlyDisplayName
+            : exitContrib.BotName;
         if (verdict is EarlyExitVerdict.VerifiedBadBot)
         {
             var friendlyContrib = FindFriendlyBotContribution(ledger);
@@ -164,7 +180,9 @@ public static class DetectionLedgerExtensions
                 earlyRiskBand = RiskBand.Low;
                 earlyRiskJustification = $"identified as {friendlyType} (friendly automation; reputation-cache override)";
                 primaryBotType = friendlyType;
-                if (!string.IsNullOrEmpty(friendlyContrib.BotName))
+                // Friendly-contributor BotName only overrides when display-name signal
+                // wasn't present (matcher didn't run, or no archetype matched).
+                if (!string.IsNullOrEmpty(friendlyContrib.BotName) && string.IsNullOrEmpty(earlyDisplayName))
                     primaryBotName = friendlyContrib.BotName;
             }
         }
