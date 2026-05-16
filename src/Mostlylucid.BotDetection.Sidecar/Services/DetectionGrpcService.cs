@@ -10,9 +10,19 @@ namespace Mostlylucid.BotDetection.Sidecar.Services;
 public sealed class DetectionGrpcService : Proto.DetectionService.DetectionServiceBase
 {
     private readonly BlackboardOrchestrator _orchestrator;
+    private readonly SidecarOptions _options;
+    private readonly TemplateOptions _templateOptions;
     private static readonly FluidParser Parser = new();
 
-    public DetectionGrpcService(BlackboardOrchestrator orchestrator) => _orchestrator = orchestrator;
+    public DetectionGrpcService(BlackboardOrchestrator orchestrator, SidecarOptions options)
+    {
+        _orchestrator = orchestrator;
+        _options = options;
+        // Bound execution for caller-supplied Liquid templates: MaxSteps caps loop
+        // iterations (and therefore CPU and output size) so a hostile template cannot
+        // turn RenderWidget into a denial-of-service vector.
+        _templateOptions = new TemplateOptions { MaxSteps = options.MaxRenderSteps };
+    }
 
     public override async Task<Proto.DetectResponse> Detect(Proto.DetectRequest request, ServerCallContext context)
     {
@@ -23,6 +33,10 @@ public sealed class DetectionGrpcService : Proto.DetectionService.DetectionServi
 
     public override async Task<Proto.DetectBatchResponse> DetectBatch(Proto.DetectBatchRequest request, ServerCallContext context)
     {
+        if (request.Requests.Count > _options.MaxBatchSize)
+            throw new RpcException(new Status(StatusCode.InvalidArgument,
+                $"batch too large: {request.Requests.Count} requests, maximum is {_options.MaxBatchSize}"));
+
         var batch = new Proto.DetectBatchResponse();
         foreach (var req in request.Requests)
         {
@@ -38,10 +52,18 @@ public sealed class DetectionGrpcService : Proto.DetectionService.DetectionServi
         if (string.IsNullOrEmpty(request.Template))
             return new Proto.RenderWidgetResponse { Success = false, Error = "template is required" };
 
+        if (request.Template.Length > _options.MaxTemplateLength)
+            return new Proto.RenderWidgetResponse
+            {
+                Success = false,
+                Error = $"template too large: {request.Template.Length} characters, " +
+                        $"maximum is {_options.MaxTemplateLength}",
+            };
+
         if (!Parser.TryParse(request.Template, out var template, out var error))
             return new Proto.RenderWidgetResponse { Success = false, Error = error };
 
-        var templateContext = new TemplateContext();
+        var templateContext = new TemplateContext(_templateOptions);
 
         if (request.Verdict is { } v)
         {
@@ -59,8 +81,17 @@ public sealed class DetectionGrpcService : Proto.DetectionService.DetectionServi
         foreach (var kv in request.Vars)
             templateContext.SetValue(kv.Key, kv.Value);
 
-        var html = await template.RenderAsync(templateContext);
-        return new Proto.RenderWidgetResponse { Html = html, Success = true };
+        try
+        {
+            var html = await template.RenderAsync(templateContext);
+            return new Proto.RenderWidgetResponse { Html = html, Success = true };
+        }
+        catch (Exception ex)
+        {
+            // Render-time failure — most importantly the MaxSteps limit being hit.
+            // Surface it as a failed render rather than an unhandled RPC fault.
+            return new Proto.RenderWidgetResponse { Success = false, Error = $"render failed: {ex.Message}" };
+        }
     }
 
     private static Microsoft.AspNetCore.Http.HttpContext BuildHttpContext(Proto.DetectRequest r) =>

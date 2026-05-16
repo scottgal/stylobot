@@ -1,15 +1,20 @@
 version: "3.9"
 
 # Sidecar pattern: StyloBot runs as a lightweight detection API alongside your app.
-# Your app calls it per-request via gRPC (port 5090) or REST (/api/v1/detect).
+# Your app calls it per-request via gRPC (port 5090) or REST (port 5091).
 # No reverse proxy, no header injection - your app drives detection explicitly.
 #
 # Usage:
-#   STYLOBOT_API_KEY=changeme docker compose -f docker-compose.sidecar.yml up
+#   STYLOBOT_API_KEY=your-secret docker compose -f docker-compose.sidecar.yml up
 #
 # Then call from your app:
-#   gRPC:  host=stylobot-sidecar:5090
-#   REST:  POST http://stylobot-sidecar:5090/api/v1/detect
+#   gRPC:  host=stylobot-sidecar:5090   (metadata x-sb-api-key: <STYLOBOT_API_KEY>)
+#   REST:  POST http://stylobot-sidecar:5091/api/v1/detect   (header X-SB-Api-Key)
+#
+# The sidecar binds loopback only by default. Here it runs as its own service on
+# the Compose network, so it must bind all interfaces (STYLOBOT_BIND=any) - which
+# requires an API key. To co-locate the sidecar in your app's container instead
+# (loopback, no key needed) see docs/sidecar-deployment.md.
 
 services:
   stylobot-sidecar:
@@ -17,20 +22,23 @@ services:
     restart: unless-stopped
     environment:
       STYLOBOT_PORT: "5090"
-      # API key required for REST /api/v1/* endpoints.
-      # gRPC is network-isolated (loopback or internal network only).
-      BotDetection__ApiKeys__0__Key: "${STYLOBOT_API_KEY:-changeme}"
-      BotDetection__ApiKeys__0__Name: "app"
+      # Reachable across the Compose network -> bind all interfaces + require a key.
+      STYLOBOT_BIND: "any"
+      # API key: 'app' is the (non-secret) id; the value is the secret callers present.
+      BotDetection__ApiKeys__app__Key: "${STYLOBOT_API_KEY:-changeme}"
+      BotDetection__ApiKeys__app__Name: "app"
       BotDetection__BotThreshold: "0.7"
       BotDetection__DefaultActionPolicyName: "logonly"
     ports:
-      # Only expose externally if your app is not on the same Docker network.
-      # For same-network apps, remove this and use service name as hostname.
+      # Only needed if callers run outside this Compose network. For same-network
+      # apps, remove this and use the service name (stylobot-sidecar) as hostname.
       - "127.0.0.1:5090:5090"
+      - "127.0.0.1:5091:5091"
     volumes:
       - stylobot-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5090/health"]
+      # Port 5090 speaks HTTP/2 only, so curl needs --http2-prior-knowledge.
+      test: ["CMD", "curl", "-fsS", "--http2-prior-knowledge", "http://localhost:5090/health"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -46,7 +54,7 @@ services:
       # gRPC endpoint (primary - binary protobuf, lowest latency)
       STYLOBOT_GRPC_URL: "http://stylobot-sidecar:5090"
       # REST endpoint (for SDKs/languages without gRPC)
-      STYLOBOT_API_URL: "http://stylobot-sidecar:5090"
+      STYLOBOT_API_URL: "http://stylobot-sidecar:5091"
       STYLOBOT_API_KEY: "${STYLOBOT_API_KEY:-changeme}"
 
 volumes:
