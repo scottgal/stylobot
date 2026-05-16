@@ -32,40 +32,76 @@ public sealed class DeterministicBotNameSynthesizer : IBotNameSynthesizer
 
     private static string GenerateName(IReadOnlyDictionary<string, object?> signals)
     {
-        var family = GetString(signals, "ua.family");
-        var botName = GetString(signals, "ua.bot_name");
-        var botType = GetString(signals, "ua.bot_type");
-        var intent = GetString(signals, "intent.category");
-        var threatBand = GetString(signals, "intent.threat_band");
         var signature = GetString(signals, "signature.primary");
         var country = GetString(signals, "geo.country_code");
 
-        // Known bot name from UA parsing -- highest confidence signal
+        // Priority 1: known bot name from UA parsing (highest confidence).
+        var botName = GetString(signals, "ua.bot_name");
         if (!string.IsNullOrEmpty(botName) && botName != "unknown")
             return Unique(botName, signature, country);
 
-        // Build from highest-signal evidence
-        var behavior = GetBehaviorAdjective(signals);
-        var tool = GetToolNoun(family, botType, intent);
+        // Priority 2: matched archetype name + drift variance term.
+        // This is the path most visitors take when Identity:Enabled = true.
+        var archetypeName = GetString(signals, "identity.archetype_name");
+        if (!string.IsNullOrEmpty(archetypeName))
+        {
+            var variance = GetVarianceTerm(signals);
+            var composed = string.IsNullOrEmpty(variance) ? archetypeName : $"{archetypeName} ({variance})";
+            return Unique(composed, signature, country);
+        }
 
-        if (!string.IsNullOrEmpty(behavior) && !string.IsNullOrEmpty(tool))
-            return Unique($"{behavior} {tool}", signature, country);
-
-        if (!string.IsNullOrEmpty(tool))
-            return Unique(tool, signature, country);
-
-        if (!string.IsNullOrEmpty(threatBand) && threatBand != "None")
-            return Unique($"{threatBand}-threat {botType ?? "client"}", signature, country);
-
-        if (!string.IsNullOrEmpty(botType))
-            return Unique(botType, signature, country);
-
-        // Temporary label from whatever we have -- the LLM will replace this
-        // with a proper centroid-derived name once it processes the signature
+        // Priority 3: UA family fallback (Identity disabled, or first request before match).
+        // Humans on this path get e.g. "Chrome (US:abcd)" instead of "Automated Bot".
+        var family = GetString(signals, "ua.family");
         if (!string.IsNullOrEmpty(family))
-            return Unique(family, signature, country);
+        {
+            var variance = GetVarianceTerm(signals);
+            var composed = string.IsNullOrEmpty(variance) ? family : $"{family} ({variance})";
+            return Unique(composed, signature, country);
+        }
 
+        // Priority 4: cold state, no UA info at all.
         return Unique("analysing", signature, country);
+    }
+
+    /// <summary>
+    ///     Returns a single variance term describing how this fingerprint deviates from its
+    ///     matched centroid, derived from the drift-top-slot signal. The slot name maps to a
+    ///     human-readable label; categories ("network", "hdr", "locale", "tool") fall through
+    ///     to a generic label class when the specific slot is unmapped.
+    ///
+    ///     Returns null when no drift signal is present — the synthesizer then emits a plain
+    ///     archetype/family name with no parenthetical decoration.
+    /// </summary>
+    private static string? GetVarianceTerm(IReadOnlyDictionary<string, object?> signals)
+    {
+        var slot = GetString(signals, "identity.drift_top_slot");
+        if (string.IsNullOrEmpty(slot)) return null;
+
+        var country = GetString(signals, "geo.country_code");
+        return slot switch
+        {
+            "network.country" when !string.IsNullOrEmpty(country) => $"from {country}",
+            "network.country" => "geo shift",
+            "network.asn" => "new ASN",
+            "network.is_datacenter" => "datacenter",
+            "network.is_vpn" => "VPN",
+            "network.is_tor" => "Tor",
+            "locale.accept_language_primary" or "locale.accept_language_count" => "language shift",
+            "hdr.accept" or "hdr.accept_encoding_ordered" => "stripped headers",
+            "hdr.header_order_hash" or "hdr.header_case_pattern" => "reordered headers",
+            "hdr.upgrade_insecure_requests" or "hdr.dnt" or "hdr.sec_gpc" => "privacy headers",
+            var s when s.StartsWith("hdr.sec_ch_ua_", StringComparison.OrdinalIgnoreCase) => "missing client hints",
+            var s when s.StartsWith("tool.", StringComparison.OrdinalIgnoreCase) => "tooled",
+            _ => GetString(signals, "identity.drift_top_category") switch
+            {
+                "network" => "network drift",
+                "hdr" => "header drift",
+                "locale" => "locale drift",
+                "tool" => "tooled",
+                _ => "drifted"
+            }
+        };
     }
 
     /// <summary>
@@ -80,85 +116,6 @@ public sealed class DeterministicBotNameSynthesizer : IBotNameSynthesizer
         if (!string.IsNullOrEmpty(signature) && signature.Length >= 4) parts.Add(signature[..4]);
 
         return parts.Count > 0 ? $"{baseName} ({string.Join(":", parts)})" : baseName;
-    }
-
-    private static string GetBehaviorAdjective(IReadOnlyDictionary<string, object?> signals)
-    {
-        var burstRatio = GetDouble(signals, "waveform.burst_ratio");
-        var pageRate = GetDouble(signals, "waveform.page_rate");
-        var pathDiversity = GetDouble(signals, "waveform.path_diversity");
-        var velocityMag = GetDouble(signals, "session.velocity_magnitude");
-        var assetRatio = GetDouble(signals, "waveform.asset_ratio");
-
-        // High velocity between sessions = rotating/shifting
-        if (velocityMag > 0.5) return "Rotating";
-
-        // Very high request rate = rapid
-        if (pageRate > 20) return "Rapid";
-
-        // No assets loaded = headless/automated
-        if (assetRatio < 0.01 && pageRate > 2) return "Headless";
-
-        // Low path diversity + high rate = targeted
-        if (pathDiversity < 0.2 && pageRate > 5) return "Targeted";
-
-        // High burst ratio = bursty
-        if (burstRatio > 0.5) return "Bursty";
-
-        // High path diversity = exploratory
-        if (pathDiversity > 0.8) return "Exploratory";
-
-        return "Automated";
-    }
-
-    private static string GetToolNoun(string? family, string? botType, string? intent)
-    {
-        // Map intent to noun
-        var intentNoun = intent?.ToLowerInvariant() switch
-        {
-            "scanning" => "Scanner",
-            "scraping" => "Scraper",
-            "exploitation" or "attacking" => "Attacker",
-            "reconnaissance" => "Prober",
-            "monitoring" => "Monitor",
-            "abuse" => "Abuser",
-            "browsing" => null, // Don't name browsers
-            _ => null
-        };
-
-        // Map bot type to noun
-        var typeNoun = botType?.ToLowerInvariant() switch
-        {
-            "tool" => "Tool",
-            "scraper" => "Scraper",
-            "crawler" => "Crawler",
-            "searchengine" => "Search Crawler",
-            "socialmediabot" => "Social Bot",
-            "monitoringbot" => "Monitor",
-            "maliciousbot" => "Bot",
-            "aibot" => "AI Crawler",
-            _ => null
-        };
-
-        // Map UA family to noun
-        var familyNoun = family?.ToLowerInvariant() switch
-        {
-            "curl" => "cURL Client",
-            "python-requests" or "python" => "Python Bot",
-            "go-http-client" or "go" => "Go Client",
-            "java" => "Java Client",
-            "axios" or "node-fetch" or "node" => "Node.js Bot",
-            "scrapy" => "Scrapy Crawler",
-            "httpclient" => "HTTP Client",
-            "wget" => "Wget Client",
-            "libwww-perl" => "Perl Bot",
-            "ruby" => "Ruby Client",
-            "php" => "PHP Client",
-            _ => null
-        };
-
-        // Priority: intent > family > type
-        return intentNoun ?? familyNoun ?? typeNoun ?? "Bot";
     }
 
     private static string? GenerateDescription(IReadOnlyDictionary<string, object?> signals)

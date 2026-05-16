@@ -3,7 +3,10 @@ using Mostlylucid.BotDetection.Services;
 namespace Mostlylucid.BotDetection.Test.Services;
 
 /// <summary>
-///     Tests for DeterministicBotNameSynthesizer - generates meaningful names from detection signals.
+///     Synthesizer contract: every visitor (bot or human) gets a derived display name. Four
+///     priorities — known bot name, matched archetype + drift variance, UA family fallback,
+///     "analysing" cold-state. The bot-only "Automated Bot" composition that used to fire for
+///     humans is gone; this file pins the new contract.
 /// </summary>
 public class DeterministicBotNameTests
 {
@@ -15,12 +18,14 @@ public class DeterministicBotNameTests
         Assert.True(_synthesizer.IsReady);
     }
 
+    // ─── Priority 1: known bot name ────────────────────────────────────
+
     [Theory]
     [InlineData("curl", "curl")]
     [InlineData("Scrapy", "Scrapy")]
     [InlineData("python-requests", "python-requests")]
     [InlineData("Googlebot", "Googlebot")]
-    public async Task KnownBotName_UsedDirectly(string botName, string expected)
+    public async Task KnownBotName_UsedDirectly(string botName, string expectedPrefix)
     {
         var signals = new Dictionary<string, object?>
         {
@@ -30,84 +35,183 @@ public class DeterministicBotNameTests
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
-        Assert.Equal(expected, name);
+        Assert.NotNull(name);
+        Assert.StartsWith(expectedPrefix, name);
     }
 
     [Fact]
-    public async Task UnknownBot_GeneratesDescriptiveName()
+    public async Task UnknownBotName_FallsThroughToArchetypeOrFamily()
     {
         var signals = new Dictionary<string, object?>
         {
-            ["ua.bot_name"] = null,
-            ["ua.bot_type"] = "Scraper",
-            ["ua.family"] = "python-requests",
-            ["intent.category"] = "scraping",
-            ["waveform.page_rate"] = 25.0,
-            ["waveform.asset_ratio"] = 0.0
+            ["ua.bot_name"] = "unknown", // explicitly the "unknown" sentinel
+            ["ua.family"] = "python-requests"
+        };
+
+        var name = await _synthesizer.SynthesizeBotNameAsync(signals);
+
+        Assert.StartsWith("python-requests", name);
+    }
+
+    // ─── Priority 2: archetype name + variance ─────────────────────────
+
+    [Fact]
+    public async Task ArchetypeName_UsedAsBase_WhenPresent()
+    {
+        var signals = new Dictionary<string, object?>
+        {
+            ["identity.archetype_name"] = "Chrome on Windows",
+            ["ua.family"] = "Chrome",
+            ["geo.country_code"] = "US"
         };
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
         Assert.NotNull(name);
-        Assert.NotEqual("Unknown", name);
-        Assert.NotEqual("unknown", name);
-        // Should contain a meaningful descriptor
-        Assert.True(name!.Length > 3, $"Name should be descriptive, got '{name}'");
+        Assert.StartsWith("Chrome on Windows", name);
+        Assert.DoesNotContain("Automated", name);
+        Assert.DoesNotContain("Bot", name);
     }
 
     [Fact]
-    public async Task HighVelocity_GetsRotatingPrefix()
+    public async Task ArchetypeName_PlusCountryDrift_ComposesFromCountry()
     {
         var signals = new Dictionary<string, object?>
         {
-            ["ua.bot_name"] = null,
-            ["ua.bot_type"] = "Scraper",
-            ["session.velocity_magnitude"] = 0.8,
-            ["intent.category"] = "scraping"
+            ["identity.archetype_name"] = "Chrome on Windows",
+            ["identity.drift_top_slot"] = "network.country",
+            ["identity.drift_top_category"] = "network",
+            ["geo.country_code"] = "JP"
         };
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
-        Assert.Contains("Rotating", name);
+        Assert.Contains("Chrome on Windows", name);
+        Assert.Contains("from JP", name);
     }
 
     [Fact]
-    public async Task NoAssets_GetsHeadlessPrefix()
+    public async Task ArchetypeName_PlusToolDrift_ComposesTooledLabel()
     {
         var signals = new Dictionary<string, object?>
         {
-            ["ua.bot_name"] = null,
-            ["ua.bot_type"] = "Tool",
-            ["waveform.asset_ratio"] = 0.0,
-            ["waveform.page_rate"] = 10.0,
-            ["ua.family"] = "python"
+            ["identity.archetype_name"] = "Chrome on Windows",
+            ["identity.drift_top_slot"] = "tool.x_requested_with",
+            ["identity.drift_top_category"] = "tool"
         };
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
-        Assert.Contains("Headless", name);
+        Assert.Contains("Chrome on Windows", name);
+        Assert.Contains("tooled", name);
     }
 
     [Fact]
-    public async Task ScanningIntent_GetsScannerNoun()
+    public async Task ArchetypeName_PlusClientHintDrift_ComposesMissingClientHints()
     {
         var signals = new Dictionary<string, object?>
         {
-            ["ua.bot_name"] = null,
-            ["intent.category"] = "scanning"
+            ["identity.archetype_name"] = "Chrome on Windows",
+            ["identity.drift_top_slot"] = "hdr.sec_ch_ua_brands_ordered",
+            ["identity.drift_top_category"] = "hdr"
         };
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
-        Assert.Contains("Scanner", name);
+        Assert.Contains("missing client hints", name);
     }
+
+    [Fact]
+    public async Task ArchetypeName_PlusUnknownSlot_FallsBackToCategoryLabel()
+    {
+        var signals = new Dictionary<string, object?>
+        {
+            ["identity.archetype_name"] = "Safari on iOS",
+            ["identity.drift_top_slot"] = "network.some_future_dim",
+            ["identity.drift_top_category"] = "network"
+        };
+
+        var name = await _synthesizer.SynthesizeBotNameAsync(signals);
+
+        Assert.Contains("network drift", name);
+    }
+
+    [Fact]
+    public async Task ArchetypeName_NoDriftSignal_NoVarianceParenthetical()
+    {
+        var signals = new Dictionary<string, object?>
+        {
+            ["identity.archetype_name"] = "Chrome on Windows"
+        };
+
+        var name = await _synthesizer.SynthesizeBotNameAsync(signals);
+
+        Assert.StartsWith("Chrome on Windows", name);
+        // Unique() may still append "(country:sigprefix)" when geo/sig are present; assert no
+        // drift label by checking specific labels rather than parenthesis presence.
+        Assert.DoesNotContain("from ", name);
+        Assert.DoesNotContain("tooled", name);
+        Assert.DoesNotContain("drifted", name);
+        Assert.DoesNotContain("missing client hints", name);
+    }
+
+    // ─── Priority 3: UA family fallback (Identity off, or first request) ──
+
+    [Fact]
+    public async Task Human_GetsFamilyName_WhenNoArchetypeAndNoBotEvidence()
+    {
+        var signals = new Dictionary<string, object?>
+        {
+            ["ua.family"] = "Firefox",
+            ["geo.country_code"] = "GB"
+        };
+
+        var name = await _synthesizer.SynthesizeBotNameAsync(signals);
+
+        Assert.NotNull(name);
+        Assert.StartsWith("Firefox", name);
+        Assert.DoesNotContain("Automated", name);
+        Assert.DoesNotContain("Bot", name);
+    }
+
+    [Fact]
+    public async Task Human_NeverNamedAutomatedBot()
+    {
+        // Regression: previously a Chrome visitor would synthesize as "Automated Bot".
+        var signals = new Dictionary<string, object?>
+        {
+            ["ua.family"] = "Chrome",
+            ["ua.bot_name"] = "",
+            ["ua.bot_type"] = "",
+            ["intent.category"] = "browsing"
+        };
+
+        var name = await _synthesizer.SynthesizeBotNameAsync(signals);
+
+        Assert.NotEqual("Automated Bot", name);
+        Assert.DoesNotMatch(new System.Text.RegularExpressions.Regex(@"^Automated\s+Bot"), name);
+    }
+
+    // ─── Priority 4: cold state ────────────────────────────────────────
+
+    [Fact]
+    public async Task EmptySignals_ReturnsAnalysing()
+    {
+        var signals = new Dictionary<string, object?>();
+
+        var name = await _synthesizer.SynthesizeBotNameAsync(signals);
+
+        Assert.NotNull(name);
+        Assert.StartsWith("analysing", name);
+    }
+
+    // ─── Detailed (name + description) ─────────────────────────────────
 
     [Fact]
     public async Task SynthesizeDetailed_ReturnsNameAndDescription()
     {
         var signals = new Dictionary<string, object?>
         {
-            ["ua.bot_name"] = null,
             ["ua.family"] = "curl",
             ["ua.bot_type"] = "Tool",
             ["intent.category"] = "scanning",
@@ -119,17 +223,5 @@ public class DeterministicBotNameTests
         Assert.NotNull(name);
         Assert.NotNull(desc);
         Assert.Contains("curl", desc, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task EmptySignals_ReturnsGenericName()
-    {
-        var signals = new Dictionary<string, object?>();
-
-        var name = await _synthesizer.SynthesizeBotNameAsync(signals);
-
-        Assert.NotNull(name);
-        // Should still produce something, not null or empty
-        Assert.True(name!.Length > 0);
     }
 }
