@@ -48,27 +48,45 @@ StyloBot runs in your own infrastructure. It knows what a real page-load sequenc
 
 ## Quick start
 
-**macOS (Homebrew)**
+**macOS (Homebrew — recommended)**
 ```bash
 brew install scottgal/stylobot/stylobot
 stylobot 5080 http://localhost:3000        # starts in demo mode (observe only)
 stylobot 5080 http://localhost:3000 --mode production   # enable blocking
 ```
+Homebrew strips macOS's quarantine flag automatically. If you'd rather download the tarball, see the macOS first-run note in [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md).
 
-**Linux (apt - Debian/Ubuntu)**
+**Linux (apt - Debian/Ubuntu — recommended)**
 ```bash
 curl -1sLf 'https://dl.cloudsmith.io/public/mostlylucid/stylobot/setup.deb.sh' | sudo bash
 sudo apt update && sudo apt install stylobot
 stylobot 5080 http://localhost:3000
 stylobot genkey   # generate a secure HMAC key for production
 ```
+The apt repo is signed (managed by Cloudsmith); `apt update` verifies the repo signature on every fetch.
 
-**Linux (manual / ARM64)**
+**Linux (manual tarball)**
 ```bash
-# Download from GitHub Releases: stylobot-linux-x64.tar.gz or stylobot-linux-arm64.tar.gz
+# Download from GitHub Releases
+VER=X.Y.Z
+curl -L -O https://github.com/scottgal/stylobot/releases/download/allbot-v${VER}/stylobot-linux-x64.tar.gz
+
+# Verify provenance (proves this binary was built from this repo's workflow)
+gh attestation verify stylobot-linux-x64.tar.gz --owner scottgal
+
 tar xzf stylobot-linux-x64.tar.gz && chmod +x stylobot && sudo mv stylobot /usr/local/bin/
 stylobot 5080 http://localhost:3000
 ```
+
+**macOS (manual tarball)**
+```bash
+VER=X.Y.Z
+curl -L -O https://github.com/scottgal/stylobot/releases/download/allbot-v${VER}/stylobot-osx-arm64.tar.gz
+tar xzf stylobot-osx-arm64.tar.gz && cd stylobot-osx-arm64
+./clear-quarantine.sh                # strip the download quarantine flag (one-time)
+./stylobot 5080 http://localhost:3000
+```
+Or `brew install scottgal/stylobot/stylobot` and skip the quarantine dance.
 
 **Docker (gateway - transparent proxy in front of your app)**
 ```bash

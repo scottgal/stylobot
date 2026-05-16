@@ -12,9 +12,10 @@ on:
         default: '1.0.0'
 
 permissions:
-  contents: write   # Needed to create releases
-  id-token: write   # Needed for Azure OIDC federation with Trusted Signing
-  actions: write    # Needed to dispatch update-homebrew.yml workflow
+  contents: write       # Needed to create releases
+  id-token: write       # Azure OIDC for Windows signing + sigstore OIDC for SLSA attestations
+  attestations: write   # Required by actions/attest-build-provenance
+  actions: write        # Needed to dispatch update-homebrew.yml workflow
 
 jobs:
   build-binaries:
@@ -188,9 +189,57 @@ jobs:
           stylobot 5080 https://www.example.com --tunnel
           stylobot 5080 https://www.example.com --mode production
 
+        macOS first-run note:
+          Browsers add com.apple.quarantine to downloaded files. The bundled
+          native libs (libe_sqlite3.dylib) ship ad-hoc signed, and Gatekeeper
+          refuses to dlopen quarantined ad-hoc dylibs ("library load disallowed
+          by system policy"). Two options after extracting the tarball:
+
+            ./clear-quarantine.sh        # bundled helper
+            xattr -dr com.apple.quarantine .   # same thing, one-liner
+
+          Proper Developer-ID-signed + notarized releases land before v7.
+          Until then this one-time strip is the cleanest workaround.
+          Or use Homebrew: brew install scottgal/stylobot/stylobot
+
         Full docs: https://github.com/scottgal/stylobot
 
         READMEEOF
+
+        # macOS only: ship a strip-quarantine helper next to the binary.
+        # Users still have to invoke it (Gatekeeper blocks running anything
+        # quarantined first), but removes the "what command do I type?" friction.
+        if [ "${{ runner.os }}" = "macOS" ]; then
+          cat > ../../dist/clear-quarantine.sh << 'SCRIPTEOF'
+        #!/usr/bin/env bash
+        # Strips com.apple.quarantine from this directory so macOS Gatekeeper
+        # will dlopen the bundled native libs. Run once after unpacking the
+        # tarball: ./clear-quarantine.sh
+        set -e
+        DIR="$(cd "$(dirname "$0")" && pwd)"
+        xattr -dr com.apple.quarantine "$DIR" 2>/dev/null || true
+        echo "Cleared com.apple.quarantine on $DIR"
+        echo "You can now run: ./stylobot --help"
+        SCRIPTEOF
+          chmod +x ../../dist/clear-quarantine.sh
+        fi
+
+        # macOS only: ship a one-line strip-quarantine helper next to the binary.
+        # Users still have to run it (Gatekeeper bars us from running anything
+        # inside the tarball before they clear the flag), but it removes the
+        # "what command do I type?" friction.
+        if [[ "${{ runner.os }}" == "macOS" ]]; then
+          cat > ../../dist/clear-quarantine.sh << 'SCRIPTEOF'
+        #!/usr/bin/env bash
+        # Strips com.apple.quarantine from this directory so macOS Gatekeeper
+        # will dlopen the bundled native libs. Run once after unpacking.
+        set -e
+        DIR="$(cd "$(dirname "$0")" && pwd)"
+        xattr -dr com.apple.quarantine "$DIR"
+        echo "Cleared quarantine on $DIR"
+        SCRIPTEOF
+          chmod +x ../../dist/clear-quarantine.sh
+        fi
 
         cd ../../dist
 
@@ -242,6 +291,10 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.get_version.outputs.VERSION }}
+    # Surface secret presence as a regular env var so step-level if: can read
+    # it. Secrets cannot be referenced directly in step-level if: conditions.
+    env:
+      HAS_GPG_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY != '' }}
 
     steps:
     - name: Checkout code
@@ -376,6 +429,31 @@ jobs:
       run: |
         sha256sum * > SHA256SUMS.txt
         cat SHA256SUMS.txt
+
+    # SLSA Build Provenance — keyless sigstore attestation linking each tarball
+    # back to this exact workflow run + commit. Verifies with:
+    #   gh attestation verify stylobot-linux-x64.tar.gz --owner scottgal
+    # Free, no secrets needed; uses GitHub's OIDC + sigstore Rekor transparency log.
+    - name: Attest build provenance
+      uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+      with:
+        subject-path: 'release-assets/*'
+
+    # GPG-sign the SHA256SUMS file so users can verify both checksum-correctness
+    # and provenance with a long-lived release key. Guarded by secret presence:
+    # this step is a no-op until RELEASE_GPG_PRIVATE_KEY is populated (see
+    # docs/RELEASE_SIGNING.md for the key-generation walkthrough).
+    - name: Sign checksums (GPG)
+      if: env.HAS_GPG_KEY == 'true'
+      working-directory: release-assets
+      env:
+        RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+        RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+      run: |
+        echo "$RELEASE_GPG_PRIVATE_KEY" | gpg --batch --import
+        echo "$RELEASE_GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback \
+          --passphrase-fd 0 --armor --detach-sign SHA256SUMS.txt
+        ls -la SHA256SUMS.txt*
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
