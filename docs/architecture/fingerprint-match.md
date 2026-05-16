@@ -623,6 +623,45 @@ IdentityArchetypeRegistry          (loaded from YAML at startup, refreshed
 
 Each component owns one node in the loop. None reach across; data passes through DB rows. Restarting any one of them resumes the loop from where its last persisted output left off.
 
+## Slow-path coordinator
+
+The matcher's Pass 2 + correction-write + observation-record + EWMA-update path is the actual cost of identity work. Pass 1 (cache hits, L1 confirm wins) is sub-ms; Pass 2 needs the vector search and the store writes. Under burst — legitimate flash crowd, or an adversary deliberately tripping Pass 2 on every request — running Pass 2 in parallel for a single fingerprint produces N×CPU and N×SQLite-write contention for one verdict that should serve all of them. Worse, an adversary who understands the gate semantics can engineer requests to live in the ambiguity band, keeping the slow path saturated while the fast path emits low-confidence verdicts on the current request.
+
+`IdentityProcessingCoordinator` is the bounded queue that gates the slow path. Pass 1 (cache hits, L1 confirm wins) does NOT touch this coordinator; verdicts continue to serve in microseconds. The coordinator only gates Pass 2 (when an L1 candidate exists to fall back to) and on-demand drift verification.
+
+Four layered defences:
+
+**Layer 1 — Keyed serialisation per fingerprint id.** At most one slow-path operation in flight per fp. Subsequent requests for the same fp arriving within `CoalesceWindowMs` of an in-flight call are *coalesced* — they receive a "shed" outcome and the matcher falls back to the L1 candidate's identity verdict. Older in-flight calls (>CoalesceWindowMs) cause new arrivals to skip the queue entirely and use the fast-path default. This eliminates duplicate Pass 2 invocations and serialises correction writes / observation inserts per fp so SQLite never sees concurrent updates to the same row.
+
+**Layer 2 — Priority scheduling.** Single global priority queue rather than per-fp queues, so risky work jumps the line. Item priority is the fingerprint's risk score (cached_bot_probability for known fps) plus an aging boost so low-priority work can't be starved indefinitely. Operator-triggered work (`OperatorReverify`, `OperatorAiOpinion` from the Identities dashboard) gets a +100 priority bias and bypasses the breaker — a "Re-verify" click always runs, even under sustained pressure.
+
+**Layer 3 — Admission control.** Per-fp cap on queued items (`MaxQueuedPerFingerprint`, default 4) plus a global queue depth cap (`MaxQueueDepth`, default 10000) with drop-oldest backpressure. Under sustained burst from one fp the freshest few requests set the verdict for all; older queued items resolve as `SheddedQueueFull` and their callers fall back to the fast-path default. The drop-oldest semantics match the verdict cache's "one verdict serves many" intent.
+
+**Layer 4 — Circuit breaker.** When global queue depth stays above `BreakerTripThreshold` (default 80%) for `BreakerTripHoldSeconds` (default 5s), the breaker opens. New non-operator slow-path work returns `SheddedBreakerOpen` immediately; the matcher falls back to L1 verdicts. Auto-resets when depth drops below `BreakerResetThreshold` (default 30%) for `BreakerResetHoldSeconds` (default 10s). Both transitions require sustained conditions to avoid flapping.
+
+The breaker matters because the slow path is a finite resource. Under adversarial burst, the right behaviour is to **fail open to the fast path**, not block requests. The fast path keeps serving cached or default verdicts at sub-ms; the dashboard surfaces shed events via `identity.slow_path_shed` so operators see the degradation rather than silent failure.
+
+Worker pool: `WorkerCount` (default 4) parallel workers pull from the priority queue. Per-fp ordering is enforced by an in-flight tracker — a worker dequeueing an item whose fp is already in flight requeues it with a small priority penalty and continues. WorkerCount=1 makes the dispatch strictly serial (deterministic, useful for tests); higher counts give parallelism across fingerprints (essential for the manual AI opinion path which can take seconds via the LLM call).
+
+Caller contract: the matcher only routes Pass 2 through the coordinator when an L1 candidate exists (so the shed fallback path has a verdict to emit). For first-time identities (no L1 binding), Pass 2 runs INLINE — concurrent allocations may produce duplicate fps (loser becomes an orphan, `fingerprint_keys` upsert resolves to one of them), but every request still emits a fingerprint id, which is the load-bearing invariant.
+
+## Ambiguity-persistence meta-signal
+
+The boundary-probing defence. An adversary who understands the two-pass match can engineer requests to live in the ambiguity band — just novel enough to trip Pass 2 on every request, knowing the slow path is always one request behind the fast path's emitted verdict. The cluster-inheritance / entity-family fallback closes most of that gap, but a probe-the-boundary attacker is specifically engineered to NOT cluster cleanly, so cluster fallback doesn't catch them.
+
+The fix: aggregate the ambiguity-band events into a per-fingerprint signal that flags persistent boundary-probing as bot behaviour in its own right. Repeated slow-path triggering is itself a behavioural shape, and a rare one for legitimate traffic.
+
+Implementation:
+- `fingerprints.ambiguity_persistence` (REAL, 0..1) — EWMA-smoothed fraction of recent matches for this fp that landed in the ambiguity band.
+- Each match outcome bumps the EWMA: ambiguity events (Pass 2 correction, rotation candidate, L1 confirm fail, allocation) push toward 1; clean L1 confirm successes push toward 0.
+- The bump uses `UPDATE … RETURNING` for an atomic single-roundtrip read of the post-EWMA value. Concurrent writers serialise at the SQLite layer (no lost updates).
+- When the post-bump value crosses `AmbiguityProbingThreshold` (default 0.4), the matcher emits `identity.ambiguity_probing = true` as a positive bot signal. Downstream classifiers can apply a flat probability bias on top.
+- Always emits `identity.ambiguity_persistence` (the raw value) so the dashboard and the verdict cache can see the EWMA without thresholding.
+
+The signal composes with the slow-path coordinator: even when the breaker is tripped under adversarial burst, the EWMA bump still happens on every request (the bump is a single UPDATE — fast). So the matcher's fast path keeps recording the boundary-probing pattern even when slow-path enrichment is shed. The adversary loses the "always one request behind" advantage they get when the slow path is the only thing watching for the pattern.
+
+The Identities dashboard surfaces the value as a colour-banded "Ambig" column (red ≥40%, amber ≥20%, muted otherwise) so operators triaging a fingerprint can spot the boundary-probing pattern at a glance — a fingerprint with high ambiguity_persistence + low correction_count is the classic engineered-to-stay-ambiguous signal.
+
 ## What this replaces
 
 - The HMAC(IP+UA) PrimarySignature stops being the identity key. It remains as the per-request fingerprint and as the Pass 1 lookup key.

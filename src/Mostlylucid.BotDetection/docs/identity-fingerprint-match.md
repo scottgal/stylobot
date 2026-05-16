@@ -140,13 +140,46 @@ The system infers client type from observed behaviour. There is no manual taggin
 - **Doesn't replace** session vectors (see `behavioral-analysis.md`). Sessions remain the per-visit behavioural unit; identity is the cross-visit anchor those sessions hang off.
 - **Doesn't replace** anonymous entity resolution. Entity resolution still runs the merge / split / convergence operations; it now has a stronger fingerprint identity to anchor on.
 
-## Planned UI (task #38)
+## Slow-path coordinator
 
-The dashboard "Identities" tab will surface per-fingerprint:
-- The centroid as an 8-axis behavioural radar
-- Observations-in-window count (so an operator can see how much fresh data the next absorption will fold)
-- Manual re-verify button (forces an L2 check immediately, skipping the TTL gate)
-- Manual AI/LLM-opinion button (runs the slow-path classifier and updates the cached verdict live)
+The fast path (cache hits, L1 confirm wins) is sub-ms and never touches the coordinator. The coordinator gates only the SLOW work — Pass 2 vector search, correction writes, observation absorption, EWMA updates, on-demand drift verification — so under burst the fast path never blocks; it falls through to cached or default verdicts.
+
+Four layered defences:
+- **Keyed serialisation per fingerprint id** — at most one slow-path operation in flight per fp; bursts that match an in-flight call coalesce, and the matcher falls back to the L1 candidate's verdict
+- **Priority scheduling** — global priority queue ordered by risk score with aging boost; high-risk fingerprints (already-suspicious, ambiguity-probing, drift-flagged) preempt; operator-triggered work (Re-verify / Run AI from the dashboard) always runs first and bypasses the breaker
+- **Admission control** — per-fp queued cap plus global queue depth cap with drop-oldest backpressure; the freshest few requests under sustained burst set the verdict for all
+- **Circuit breaker** — when the global queue stays >80% full for 5s, new non-operator work sheds and callers fall back to the fast-path default; auto-resets when depth drops below 30% for 10s; degradation surfaces as `identity.slow_path_shed` and `X-StyloBot-VerdictSource: identity-cache` headers so operators see the state, not silent failure
+
+Worker pool size is configurable (`Coordinator.WorkerCount`, default 4); 1 makes dispatch strictly serial. Per-fp ordering is enforced by an in-flight tracker — a worker dequeueing an item whose fp is already in flight requeues with a small priority penalty.
+
+## Ambiguity-persistence meta-signal (anti-boundary-probing)
+
+An adversary who understands the gate semantics can engineer requests to live in the *ambiguity band* — just novel enough to trip Pass 2 every time, knowing the slow path is always one request behind the fast path's emitted verdict. Cluster-inheritance fallback closes most of that gap, but a probe-the-boundary attacker is engineered to NOT cluster cleanly.
+
+The fingerprint row carries an EWMA-smoothed `ambiguity_persistence` value, bumped on every match outcome:
+- L1 confirm success → pushes toward 0 (this fp is settled)
+- L1 confirm fail / Pass 2 correction / rotation candidate / new allocation → pushes toward 1 (this fp keeps living in the ambiguity zone)
+
+When the value crosses `Drift.AmbiguityProbingThreshold` (default 0.4), the matcher emits `identity.ambiguity_probing = true` as a positive bot signal. Even when the slow-path coordinator is shedding under adversarial burst, the EWMA bump still happens on every request (a single atomic UPDATE…RETURNING). So the matcher's fast path keeps recording the boundary-probing pattern even when slow-path enrichment is shed — the adversary loses the "always one request behind" advantage.
+
+Surfaces in the Identities dashboard as a colour-banded "Ambig" column (red ≥40%, amber ≥20%, muted otherwise). A fingerprint with high ambiguity_persistence + low correction_count is the classic engineered-to-stay-ambiguous signal.
+
+## Identities dashboard tab (shipped in 6.4.7)
+
+Surfaces every metastable fingerprint with the columns an operator needs to triage drift candidates and boundary-probers:
+- Fingerprint id (short) + archetype origin badge
+- Inferred client type + confidence
+- Total observation count
+- **Unabsorbed observation count** — the freshness budget the next absorption tick will fold
+- Correction count (Pass-2-corrects-Pass-1 events)
+- **Ambig %** — colour-banded boundary-probing score (see above)
+- Cached verdict (probability + risk band)
+- Last verified, last seen
+- Two action buttons:
+  - **Re-verify** — `POST /api/identities/{id}/reverify` runs `FingerprintDriftService.VerifyOneAsync` on demand (skips the `CachedScoreTtlSeconds` gate, bumps `cached_score_updated_at`, returns the row HTML for HTMX swap). Routed through the slow-path coordinator with `OperatorReverify` priority — always runs even when the breaker is open.
+  - **Run AI** — `POST /api/identities/{id}/run-ai` invokes `IdentityAiOpinionService` which builds a prompt from the fingerprint's metadata, sends it to the registered `ILlmProvider`, parses the JSON reply, and updates `cached_bot_probability` + `cached_risk_band` live. Returns the row HTML; status surfaces as `X-StyloBot-AiOpinion-Status` header (one of `ok`, `identity-disabled`, `not-found`, `no-llm-provider`, `llm-not-ready`, `llm-error`, `parse-error`).
+
+Sorted by unabsorbed-count desc so drift candidates float to the top.
 
 ## Operating notes
 
