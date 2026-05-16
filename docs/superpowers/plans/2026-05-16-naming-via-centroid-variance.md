@@ -276,9 +276,413 @@ EOF
 
 ---
 
-## Phase 2 — Rewrite the synthesizer into a universal variance composer
+## Phase 2 — REVISED: drift-analysis variance composer
 
-### Task 2.1: Specify the new naming contract via tests
+> **Revision (2026-05-16, after user clarification):** Variance is not a set of hand-coded rules (`if velocity > 0.5 then Rotating`). It is **per-slot scaled distance** between the fingerprint's identity vector and the matched archetype's centroid, weighted by the calibrated per-dimension weights from `IdentityWeightCalibrationService` (Fisher-derived). The slot with the largest scaled distance IS the distinguishing feature. The slot's name maps to a human-readable label.
+>
+> **Why this is better:** It generalises. Any future named slot (a new TLS dim, a new client-hint header, a new tool tell) automatically participates in naming without code changes. The synthesizer's variance branch becomes a slot-name → label dictionary, not a chain of `if velocity > X` rules. It is also exactly the same shape of math the matcher uses, so naming and matching share an intuition.
+>
+> The original Phase 2 tasks below are SUPERSEDED. Use the revised tasks here.
+
+### Task 2.0: Add per-slot drift signal keys
+
+**Files:**
+- Modify: `src/Mostlylucid.BotDetection/Models/DetectionContext.cs`
+
+- [ ] **Step 2.0.1: Add three new signal-key constants**
+
+In the `Identity` block of `SignalKeys`, after `IdentityArchetypeDominantCountry`:
+
+```csharp
+    /// <summary>string?: name of the layout slot with the largest scaled distance between the observed identity vector and the matched archetype's centroid (e.g. "network.country", "hdr.sec_ch_ua_brands_ordered"). Written by FingerprintMatchContributor after match. Null when no archetype matched.</summary>
+    public const string IdentityDriftTopSlot = "identity.drift_top_slot";
+
+    /// <summary>double: Fisher-weighted L2 distance for the top-drift slot (lower = closer to centroid). Range loosely 0..N depending on slot width.</summary>
+    public const string IdentityDriftTopScore = "identity.drift_top_score";
+
+    /// <summary>string?: coarse category prefix of the top-drift slot ("network", "locale", "hdr", "tool", "tls", "behaviour"). Lets the synthesizer map drift to a label class without parsing the full slot name.</summary>
+    public const string IdentityDriftTopCategory = "identity.drift_top_category";
+```
+
+- [ ] **Step 2.0.2: Commit**
+
+```bash
+git add src/Mostlylucid.BotDetection/Models/DetectionContext.cs
+git commit -m "feat(identity): add drift-top-slot signal keys"
+```
+
+---
+
+### Task 2.1: Add per-slot scaled-distance helper to `IdentityWeightMath`
+
+**Files:**
+- Modify: `src/Mostlylucid.BotDetection/Identity/IdentityWeightMath.cs`
+- Test: `src/Mostlylucid.BotDetection.Test/Identity/IdentityWeightMathDriftTests.cs` (create)
+
+- [ ] **Step 2.1.1: Write the failing test**
+
+```csharp
+public class IdentityWeightMathDriftTests
+{
+    [Fact]
+    public void TopDriftSlot_ReturnsSlotWithLargestScaledDistance()
+    {
+        var layout = IdentityVectorLayout.DefaultV1();
+        var dim = layout.Dimension;
+        var centroid = new float[dim];
+        var observed = new float[dim];
+        var weights = Enumerable.Repeat(1.0f, dim).ToArray();
+
+        // Inject a unit deviation in one slot — say "network.country" (offset/width per layout).
+        var countrySlot = layout.FindSlot("network.country")!;
+        for (var i = countrySlot.Offset; i < countrySlot.Offset + countrySlot.Width; i++)
+            observed[i] = 1.0f;
+
+        var result = IdentityWeightMath.TopDriftSlot(observed, centroid, weights, layout);
+
+        Assert.NotNull(result);
+        Assert.Equal("network.country", result!.Value.SlotName);
+        Assert.True(result.Value.Score > 0);
+    }
+
+    [Fact]
+    public void TopDriftSlot_ReturnsNull_WhenVectorsIdentical()
+    {
+        var layout = IdentityVectorLayout.DefaultV1();
+        var v = new float[layout.Dimension];
+        var w = Enumerable.Repeat(1.0f, layout.Dimension).ToArray();
+
+        Assert.Null(IdentityWeightMath.TopDriftSlot(v, v, w, layout));
+    }
+
+    [Fact]
+    public void TopDriftSlot_RespectsWeights()
+    {
+        // Two slots deviate equally; the one with higher weight should win.
+        var layout = IdentityVectorLayout.DefaultV1();
+        var dim = layout.Dimension;
+        var centroid = new float[dim];
+        var observed = new float[dim];
+        var weights = Enumerable.Repeat(1.0f, dim).ToArray();
+
+        var slotA = layout.FindSlot("network.country")!;
+        var slotB = layout.FindSlot("network.asn")!;
+
+        for (var i = slotA.Offset; i < slotA.Offset + slotA.Width; i++) observed[i] = 1.0f;
+        for (var i = slotB.Offset; i < slotB.Offset + slotB.Width; i++) observed[i] = 1.0f;
+
+        // Boost slot B's weight so it should win the tie.
+        for (var i = slotB.Offset; i < slotB.Offset + slotB.Width; i++) weights[i] = 10.0f;
+
+        var result = IdentityWeightMath.TopDriftSlot(observed, centroid, weights, layout);
+
+        Assert.NotNull(result);
+        Assert.Equal("network.asn", result!.Value.SlotName);
+    }
+}
+```
+
+- [ ] **Step 2.1.2: Add `TopDriftSlot` to `IdentityWeightMath`**
+
+```csharp
+    public readonly record struct DriftResult(string SlotName, double Score, string Category);
+
+    /// <summary>
+    ///     Returns the slot with the largest weighted L2 distance between observed and centroid,
+    ///     where each dimension's contribution is squared-difference times that dimension's weight.
+    ///     This is the per-slot analogue of the Mahalanobis distance the matcher uses globally;
+    ///     here we surface WHICH slot is drifting, not just the global drift magnitude.
+    ///     Returns null when vectors are identical or inputs are length-mismatched.
+    /// </summary>
+    public static DriftResult? TopDriftSlot(
+        ReadOnlySpan<float> observed,
+        ReadOnlySpan<float> centroid,
+        ReadOnlySpan<float> weights,
+        IdentityVectorLayout layout)
+    {
+        if (observed.Length != centroid.Length || observed.Length != weights.Length) return null;
+        if (observed.Length != layout.Dimension) return null;
+
+        string? bestSlot = null;
+        var bestScore = 0.0;
+        foreach (var slot in layout.Slots)
+        {
+            var score = 0.0;
+            for (var i = slot.Offset; i < slot.Offset + slot.Width; i++)
+            {
+                var diff = observed[i] - centroid[i];
+                score += diff * diff * weights[i];
+            }
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestSlot = slot.Name;
+            }
+        }
+        if (bestSlot is null) return null;
+
+        var category = bestSlot.IndexOf('.') is var dot and > 0 ? bestSlot[..dot] : bestSlot;
+        return new DriftResult(bestSlot, bestScore, category);
+    }
+```
+
+- [ ] **Step 2.1.3: Run, commit**
+
+```bash
+dotnet test src/Mostlylucid.BotDetection.Test --filter "FullyQualifiedName~IdentityWeightMathDriftTests"
+```
+
+Commit:
+
+```bash
+git add src/Mostlylucid.BotDetection/Identity/IdentityWeightMath.cs \
+        src/Mostlylucid.BotDetection.Test/Identity/IdentityWeightMathDriftTests.cs
+git commit -m "feat(identity): per-slot drift analysis via Fisher-weighted L2"
+```
+
+---
+
+### Task 2.2: `FingerprintMatchContributor` writes drift signals after match
+
+**Files:**
+- Modify: `src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/FingerprintMatchContributor.cs`
+- Test: `src/Mostlylucid.BotDetection.Orchestration.Tests/Unit/Identity/FingerprintMatchContributorDriftTests.cs` (create)
+
+The matched-fingerprint branch already has the observation vector and the matched archetype's centroid in scope. Add a drift computation right after the archetype-name signal write from Task 1.3, gated on weights availability.
+
+- [ ] **Step 2.2.1: Write failing tests**
+
+```csharp
+public class FingerprintMatchContributorDriftTests
+{
+    [Fact]
+    public async Task Match_WithCountryDrift_WritesNetworkCountrySlot()
+    {
+        // Archetype centroid matches "chrome-desktop" baseline (DE country slot).
+        // Observation has US in the country slot.
+        var (state, contributor) = BuildHarness();
+        SeedArchetypeWithDominantCountry("chrome-desktop", "DE");
+        var observation = BuildObservedVectorWithCountry("US");
+        state.WriteSignal(SignalKeys.IdentityVector, observation);
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        Assert.Equal("network.country", state.GetSignal<string>(SignalKeys.IdentityDriftTopSlot));
+        Assert.Equal("network", state.GetSignal<string>(SignalKeys.IdentityDriftTopCategory));
+        Assert.True(state.GetSignal<double>(SignalKeys.IdentityDriftTopScore) > 0);
+    }
+
+    [Fact]
+    public async Task Match_WithNoDrift_DoesNotWriteDriftSignals()
+    {
+        var (state, contributor) = BuildHarness();
+        SeedArchetype("chrome-desktop", centroid: BuildBaseVector());
+        state.WriteSignal(SignalKeys.IdentityVector, BuildBaseVector()); // identical
+
+        await contributor.ContributeAsync(state, CancellationToken.None);
+
+        Assert.Null(state.GetSignal<string>(SignalKeys.IdentityDriftTopSlot));
+    }
+}
+```
+
+- [ ] **Step 2.2.2: Add the drift computation**
+
+In `FingerprintMatchContributor`, in both the new-fingerprint and matched-fingerprint branches, after the archetype-name signal write:
+
+```csharp
+        if (matchedArchetype is not null)
+        {
+            var observed = GetObservedVector(state); // existing helper
+            var weights = _calibration.CurrentGlobalWeights ?? Enumerable.Repeat(1.0f, observed.Length).ToArray();
+            var drift = IdentityWeightMath.TopDriftSlot(observed, matchedArchetype.Centroid, weights, _layout);
+            if (drift is not null && drift.Value.Score > _options.DriftEpsilon)
+            {
+                state.WriteSignal(SignalKeys.IdentityDriftTopSlot, drift.Value.SlotName);
+                state.WriteSignal(SignalKeys.IdentityDriftTopCategory, drift.Value.Category);
+                state.WriteSignal(SignalKeys.IdentityDriftTopScore, drift.Value.Score);
+            }
+        }
+```
+
+`DriftEpsilon` is a new option (default 0.05) that prevents tiny float noise from naming everyone "drifting".
+
+- [ ] **Step 2.2.3: Run, commit**
+
+```bash
+dotnet test src/Mostlylucid.BotDetection.Orchestration.Tests --filter "FullyQualifiedName~FingerprintMatchContributorDriftTests"
+```
+
+Commit:
+
+```bash
+git add src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/FingerprintMatchContributor.cs \
+        src/Mostlylucid.BotDetection/Identity/IdentityOptions.cs \
+        src/Mostlylucid.BotDetection.Orchestration.Tests/Unit/Identity/FingerprintMatchContributorDriftTests.cs
+git commit -m "feat(identity): emit drift-top-slot signals after match"
+```
+
+---
+
+### Task 2.3: Synthesizer composes name from archetype + drift slot
+
+**Files:**
+- Modify: `src/Mostlylucid.BotDetection/Services/DeterministicBotNameSynthesizer.cs`
+- Test: `src/Mostlylucid.BotDetection.Test/Services/DeterministicBotNameTests.cs`
+
+**Slot-to-label dictionary** (the only piece of human authoring):
+
+| Slot category | Slot name | Label template |
+|---|---|---|
+| network | `network.country` | `"from {geo.country_code}"` |
+| network | `network.asn` | `"new ASN"` |
+| network | `network.is_datacenter` | `"datacenter"` |
+| network | `network.is_vpn` | `"VPN"` |
+| network | `network.is_tor` | `"Tor"` |
+| locale | `locale.accept_language_primary` | `"language shift"` |
+| hdr | `hdr.accept` / `hdr.accept_encoding_ordered` | `"stripped headers"` |
+| hdr | `hdr.sec_ch_ua_*` | `"missing client hints"` |
+| hdr | `hdr.upgrade_insecure_requests` / `hdr.dnt` / `hdr.sec_gpc` | `"privacy headers"` |
+| hdr | `hdr.header_order_hash` / `hdr.header_case_pattern` | `"reordered headers"` |
+| tool | any `tool.*` | `"tooled"` |
+| (fallback) | any other | `"drifted"` |
+
+- [ ] **Step 2.3.1: Add the synthesizer logic**
+
+Replace `GetVarianceTerm` from the original (superseded) Phase 2 with:
+
+```csharp
+    private static string? GetVarianceTerm(IReadOnlyDictionary<string, object?> signals)
+    {
+        var slot = GetString(signals, "identity.drift_top_slot");
+        if (string.IsNullOrEmpty(slot)) return null;
+
+        // Slot-specific labels first; fall through to category, then a generic fallback.
+        var country = GetString(signals, "geo.country_code");
+        return slot switch
+        {
+            "network.country" when !string.IsNullOrEmpty(country) => $"from {country}",
+            "network.country" => "geo shift",
+            "network.asn" => "new ASN",
+            "network.is_datacenter" => "datacenter",
+            "network.is_vpn" => "VPN",
+            "network.is_tor" => "Tor",
+            "locale.accept_language_primary" or "locale.accept_language_count" => "language shift",
+            "hdr.accept" or "hdr.accept_encoding_ordered" => "stripped headers",
+            "hdr.header_order_hash" or "hdr.header_case_pattern" => "reordered headers",
+            "hdr.upgrade_insecure_requests" or "hdr.dnt" or "hdr.sec_gpc" => "privacy headers",
+            var s when s.StartsWith("hdr.sec_ch_ua_", StringComparison.OrdinalIgnoreCase) => "missing client hints",
+            var s when s.StartsWith("tool.", StringComparison.OrdinalIgnoreCase) => "tooled",
+            _ => GetString(signals, "identity.drift_top_category") switch
+            {
+                "network" => "network drift",
+                "hdr" => "header drift",
+                "locale" => "locale drift",
+                "tool" => "tooled",
+                _ => "drifted"
+            }
+        };
+    }
+```
+
+- [ ] **Step 2.3.2: Rewrite tests around drift signals (not hand-coded thresholds)**
+
+Replace the variance-composition tests from the superseded Phase 2 with:
+
+```csharp
+[Fact]
+public async Task ArchetypeName_PlusDriftSlot_ComposesVarianceLabel()
+{
+    var signals = new Dictionary<string, object?>
+    {
+        ["identity.archetype_name"] = "Chrome on Windows",
+        ["identity.drift_top_slot"] = "network.country",
+        ["identity.drift_top_category"] = "network",
+        ["geo.country_code"] = "JP"
+    };
+
+    var name = await _synthesizer.SynthesizeBotNameAsync(signals);
+
+    Assert.Contains("Chrome on Windows", name);
+    Assert.Contains("from JP", name);
+}
+
+[Fact]
+public async Task UnknownSlot_FallsBackToCategoryLabel()
+{
+    var signals = new Dictionary<string, object?>
+    {
+        ["identity.archetype_name"] = "Safari on iOS",
+        ["identity.drift_top_slot"] = "network.some_future_dim",
+        ["identity.drift_top_category"] = "network"
+    };
+
+    var name = await _synthesizer.SynthesizeBotNameAsync(signals);
+
+    Assert.Contains("network drift", name);
+}
+
+[Fact]
+public async Task ToolSlotDrift_GetsTooledLabel()
+{
+    var signals = new Dictionary<string, object?>
+    {
+        ["identity.archetype_name"] = "Chrome on Windows",
+        ["identity.drift_top_slot"] = "tool.x_requested_with",
+        ["identity.drift_top_category"] = "tool"
+    };
+
+    var name = await _synthesizer.SynthesizeBotNameAsync(signals);
+
+    Assert.Contains("tooled", name);
+}
+
+[Fact]
+public async Task NoDriftSignal_ProducesPlainArchetypeName()
+{
+    var signals = new Dictionary<string, object?>
+    {
+        ["identity.archetype_name"] = "Chrome on Windows"
+    };
+
+    var name = await _synthesizer.SynthesizeBotNameAsync(signals);
+
+    Assert.StartsWith("Chrome on Windows", name);
+    Assert.DoesNotContain("(", name.Replace($" (US:", "")); // no parenthetical variance
+}
+```
+
+The original `HighVelocity_GetsRotatingPrefix`, `NoAssets_GetsHeadlessPrefix` and `ScanningIntent_GetsScannerNoun` tests stay green only if the synthesizer keeps a small back-compat path for bot-only signals. Decide whether to keep those signals as a second-priority drift source or delete those tests when the matcher path becomes authoritative. Default: delete them — drift is the new contract.
+
+- [ ] **Step 2.3.3: Commit**
+
+```bash
+git add src/Mostlylucid.BotDetection/Services/DeterministicBotNameSynthesizer.cs \
+        src/Mostlylucid.BotDetection.Test/Services/DeterministicBotNameTests.cs
+git commit -m "$(cat <<'EOF'
+feat(naming): variance composer reads drift-top-slot signals
+
+Replaces the hand-coded `if velocity > X` variance rules with a
+slot-name → label dictionary keyed on identity.drift_top_slot. The
+top-drift slot itself is computed by FingerprintMatchContributor as
+the named slot with the largest Fisher-weighted L2 distance between
+the observed identity vector and the matched archetype's centroid.
+Adding a new named slot to the vector layout automatically participates
+in naming without synthesizer changes; only the label dictionary needs
+extending when a new category should get a distinct label.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Original Phase 2 tasks (SUPERSEDED, kept for context)
+
+The tasks below predate the drift-analysis clarification. They documented a hand-coded variance pipeline (`velocity_magnitude > 0.5` → `"Rotating"`, etc.). The revised tasks above replace them entirely; this section stays as audit trail.
+
+### Task 2.1 [SUPERSEDED]: Specify the new naming contract via tests
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.Test/Services/DeterministicBotNameTests.cs`
