@@ -81,7 +81,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
                 vector, l1Candidate.Centroid, confirmComposed);
             if (confirmScore >= _options.Match.MergeThreshold)
             {
-                EmitConfirmedSignals(state, l1Candidate, confirmScore, primarySig);
+                EmitConfirmedSignals(state, vector, l1Candidate, confirmScore, primarySig);
                 await _store.RecordObservationAsync(l1Candidate.FingerprintId, vector, cancellationToken);
                 // Clean L1 confirm = non-ambiguity event; pulls EWMA toward 0.
                 await BumpAmbiguityAsync(state, l1Candidate.FingerprintId, isAmbiguous: false, cancellationToken);
@@ -111,7 +111,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
             // Shed: fall back to the L1 candidate's identity verdict.
             state.WriteSignal(SignalKeys.IdentitySlowPathShed, dispatchOutcome.ToString());
-            EmitConfirmedSignals(state, l1Candidate, matchScore: 0.0, primarySig);
+            EmitConfirmedSignals(state, vector, l1Candidate, matchScore: 0.0, primarySig);
             return Array.Empty<DetectionContribution>();
         }
 
@@ -161,7 +161,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             // re-key fingerprint_keys to point at Pass 2's winner.
             var isCorrection = l1Candidate is not null
                 && !string.Equals(l1Candidate.FingerprintId, best.FingerprintId, StringComparison.OrdinalIgnoreCase);
-            EmitConfirmedSignals(state, best, bestScore, primarySig, isCorrection: isCorrection);
+            EmitConfirmedSignals(state, vector, best, bestScore, primarySig, isCorrection: isCorrection);
             await _store.RecordObservationAsync(best.FingerprintId, vector, cancellationToken);
 
             if (isCorrection)
@@ -192,7 +192,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         if (best is not null && bestScore >= _options.Match.LooseThreshold)
         {
             // Rotation candidate band: assign to the candidate, observe-and-drift, signal it.
-            EmitConfirmedSignals(state, best, bestScore, primarySig, rotationCandidate: true);
+            EmitConfirmedSignals(state, vector, best, bestScore, primarySig, rotationCandidate: true);
             await _store.RecordObservationAsync(best.FingerprintId, vector, cancellationToken);
             // Rotation-band match = ambiguity event by definition.
             await BumpAmbiguityAsync(state, best.FingerprintId, isAmbiguous: true, cancellationToken);
@@ -283,13 +283,16 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         if (archetypeOrigin is not null)
             state.WriteSignal(SignalKeys.IdentityClientTypeOrigin, archetypeOrigin);
 
+        WriteArchetypeSignals(state, vector, nearestArchetype?.Archetype);
+
         // New-fingerprint allocation = ambiguity event by definition (no L1 baseline matched).
         await BumpAmbiguityAsync(state, newId, isAmbiguous: true, cancellationToken);
         return true;
     }
 
-    private static void EmitConfirmedSignals(
+    private void EmitConfirmedSignals(
         BlackboardState state,
+        float[] vector,
         Fingerprint matched,
         double matchScore,
         string primarySignature,
@@ -308,6 +311,33 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         state.WriteSignal(SignalKeys.IdentityCachedBotProbability, matched.CachedBotProbability);
         if (matched.CachedRiskBand is not null)
             state.WriteSignal(SignalKeys.IdentityCachedRiskBand, matched.CachedRiskBand);
+
+        WriteArchetypeSignals(state, vector, _archetypes.TryGetById(matched.InferredClientType));
+    }
+
+    /// <summary>
+    ///     Writes the archetype display-name signal and (when global weights are available)
+    ///     the per-slot top-drift signals. The synthesizer reads these to compose
+    ///     <c>"&lt;archetype.Name&gt; (&lt;variance term&gt;?)"</c>. No-op when no archetype
+    ///     matched, or when the top-slot drift is below <c>Match.DriftEpsilon</c> (prevents
+    ///     tiny float-noise drift naming every fingerprint as "drifted").
+    /// </summary>
+    private void WriteArchetypeSignals(BlackboardState state, float[] vector, IdentityArchetype? archetype)
+    {
+        if (archetype is null) return;
+        state.WriteSignal(SignalKeys.IdentityArchetypeName, archetype.Name);
+        if (!string.IsNullOrEmpty(archetype.Description))
+            state.WriteSignal(SignalKeys.IdentityArchetypeDescription, archetype.Description);
+
+        var weights = _globalWeights.Current
+            ?? Enumerable.Repeat(1.0f, vector.Length).ToArray();
+        var drift = IdentityWeightMath.TopDriftSlot(vector, archetype.Centroid, weights, _store.Layout);
+        if (drift is not null && drift.Value.Score > _options.Match.DriftEpsilon)
+        {
+            state.WriteSignal(SignalKeys.IdentityDriftTopSlot, drift.Value.SlotName);
+            state.WriteSignal(SignalKeys.IdentityDriftTopCategory, drift.Value.Category);
+            state.WriteSignal(SignalKeys.IdentityDriftTopScore, drift.Value.Score);
+        }
     }
 
     /// <summary>
