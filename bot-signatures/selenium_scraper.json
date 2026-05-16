@@ -1,0 +1,157 @@
+{
+  "scenarioName": "selenium_scraper",
+  "scenario": "This bot is detected as a scraper using SeleniumHQ/4.15.0.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "SeleniumHQ/4.15.0 (Headless; Chrome/120.0)",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 10,
+    "delayAfterMs": {
+      "min": 20,
+      "max": 150
+    },
+    "pauseAfterBurstMs": {
+      "min": 500,
+      "max": 2000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "SeleniumHQ/4.15.0 (Headless; Chrome/120.0)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "SeleniumHQ/4.15.0 (Headless; Chrome/120.0)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "SeleniumHQ/4.15.0 (Headless; Chrome/120.0)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "SeleniumHQ/4.15.0 (Headless; Chrome/120.0)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "SeleniumHQ/4.15.0 (Headless; Chrome/120.0)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "SeleniumHQ/4.15.0 (Headless; Chrome/120.0)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=3",
+      "headers": {
+        "User-Agent": "SeleniumHQ/4.15.0 (Headless; Chrome/120.0)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 200,
+      "weight": 0.35
+    },
+    {
+      "signal": "hit_admin_api",
+      "op": "=",
+      "value": true,
+      "weight": 0.25
+    },
+    {
+      "signal": "hit_sensitive_paths",
+      "op": "=",
+      "value": false,
+      "weight": 0.25
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms",
+    "adminHit": "/admin",
+    "sensitivePaths": [
+      "/api/data?page=1",
+      "/api/data?page=2",
+      "/api/data?page=3"
+    ]
+  },
+  "reasoning": "This bot uses SeleniumHQ/4.15.0 and is detected as a scraper based on its userAgent, minimal header completeness, lack of Accept-Language and Sec-Fetch-* headers, use of HEAD requests, enumeration of /api/data pages, missing cookies, and the absence of natural navigation and referer chains."
+}

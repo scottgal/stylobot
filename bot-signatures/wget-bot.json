@@ -1,0 +1,109 @@
+{
+  "scenarioName": "wget-bot",
+  "scenario": "Detects a bot using wget/1.21.4 as user-agent.",
+  "confidence": 0.9,
+  "clientProfile": {
+    "userAgent": "wget/1.21.4",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 5,
+    "delayAfterMs": {
+      "min": 10,
+      "max": 300
+    },
+    "pauseAfterBurstMs": {
+      "min": 2000,
+      "max": 4000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "wget/1.21.4"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api",
+      "headers": {
+        "User-Agent": "wget/1.21.4"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "wget/1.21.4"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "wget/1.21.4"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Bot",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p50",
+      "op": "\u003C",
+      "value": 10,
+      "weight": 0.4
+    },
+    {
+      "signal": "retry_count_after_max_requests",
+      "op": "\u003E",
+      "value": 2,
+      "weight": 0.3
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "This bot uses wget/1.21.4 as user-agent and is likely a scraper or indexer."
+}

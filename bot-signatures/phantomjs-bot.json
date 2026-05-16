@@ -1,0 +1,104 @@
+{
+  "scenarioName": "phantomjs-bot",
+  "scenario": "A bot using PhantomJS to scrape pages with minimal headers and a high burst rate.",
+  "confidence": 0.9,
+  "clientProfile": {
+    "userAgent": "PhantomJS/2.1.1",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 30,
+    "delayAfterMs": {
+      "min": 50,
+      "max": 200
+    },
+    "pauseAfterBurstMs": {
+      "min": 1500,
+      "max": 4000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "PhantomJS/2.1.1"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api",
+      "headers": {
+        "User-Agent": "PhantomJS/2.1.1"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "PhantomJS/2.1.1"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any status error"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "PhantomJS/2.1.1"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any status error"
+    }
+  ],
+  "labels": [
+    "Bot",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 100,
+      "weight": 0.4
+    },
+    {
+      "signal": "burst_requests",
+      "op": "\u003E",
+      "value": 20,
+      "weight": 0.3
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C100ms",
+    "burstRequests": "\u003E20"
+  },
+  "reasoning": "This bot uses PhantomJS to perform high-burst requests on critical paths and admin endpoints without including full browser headers or cookies, which makes it highly suspicious."
+}

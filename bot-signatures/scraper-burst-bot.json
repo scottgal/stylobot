@@ -1,0 +1,113 @@
+{
+  "scenarioName": "scraper-burst-bot",
+  "scenario": "A low-interaction scraper bot that utilizes Apache-HttpClient/4.5.14 (Java/17.0.9) to perform high-frequency requests on a website.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "Apache-HttpClient/4.5.14 (Java/17.0.9)",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 20,
+    "delayAfterMs": {
+      "min": 10,
+      "max": 30
+    },
+    "pauseAfterBurstMs": {
+      "min": 500,
+      "max": 2000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302,
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302,
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Apache-HttpClient/4.5.14 (Java/17.0.9)"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 30,
+      "weight": 0.4
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C30ms"
+  },
+  "reasoning": "This bot uses HEAD requests for admin pages and API data pagination to quickly scan a website."
+}

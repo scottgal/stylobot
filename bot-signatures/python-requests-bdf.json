@@ -1,0 +1,113 @@
+{
+  "scenarioName": "python-requests-bdf",
+  "scenario": "A bot/scraper using python-requests/2.31.0 with specific behavior patterns.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "python-requests/2.31.0",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 10,
+    "delayAfterMs": {
+      "min": 20,
+      "max": 150
+    },
+    "pauseAfterBurstMs": {
+      "min": 500,
+      "max": 2000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatusAny": [
+        200,
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatusAny": [
+        200,
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatusAny": [
+        200,
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=3",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0"
+      },
+      "expectedStatusAny": [
+        403,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 4xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 200,
+      "weight": 0.35
+    },
+    {
+      "signal": "requestInterval",
+      "op": "\u003C",
+      "value": "burst \u003C150ms",
+      "weight": 0.70
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "The bot/scraper uses python-requests/2.31.0 to access various endpoints, including the root path and admin pages, while also enumerating API paths and testing different HTTP methods."
+}

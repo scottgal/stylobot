@@ -1,0 +1,106 @@
+{
+  "scenarioName": "go-http-client-bot",
+  "scenario": "A bot/scraper using Go-http-client/2.0 with minimal client profile and custom timing.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "Go-http-client/2.0",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 10,
+    "delayAfterMs": {
+      "min": 20,
+      "max": 150
+    },
+    "pauseAfterBurstMs": {
+      "min": 500,
+      "max": 2000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 4xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 4xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 4xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 200,
+      "weight": 0.35
+    },
+    {
+      "signal": "headers_present",
+      "op": "not_in",
+      "values": [
+        "Accept-Language",
+        "Sec-Fetch-*"
+      ],
+      "weight": 0.3
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "This bot uses Go-http-client/2.0 with minimal client profile and custom timing, checking /admin, /api/data and enumerating paginated data paths."
+}

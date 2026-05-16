@@ -1,0 +1,80 @@
+{
+  "scenarioName": "headlesschrome_120_botscraper",
+  "scenario": "A bot/scraper with a realistic User-Agent and behavior.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "HeadlessChrome/120.0.6099.109",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 10,
+    "delayAfterMs": {
+      "min": 20,
+      "max": 150
+    },
+    "pauseAfterBurstMs": {
+      "min": 500,
+      "max": 2000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        200,
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        200,
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "HeadlessChrome/120.0.6099.109"
+      },
+      "expectedStatusAny": [
+        200,
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 200,
+      "weight": 0.35
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "This bot/scraper includes a minimal header completeness check and skips robots.txt for realistic behavior."
+}

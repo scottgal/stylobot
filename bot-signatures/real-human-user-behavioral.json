@@ -1,0 +1,56 @@
+{
+  "scenarioName": "real-human-user-behavioral",
+  "scenario": "Real human user exhibiting natural browsing behavior.",
+  "confidence": 0.15,
+  "clientProfile": {
+    "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+    "cookieMode": "sticky",
+    "headerCompleteness": "full",
+    "clientHintsPresent": true,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 3,
+    "delayAfterMs": {
+      "min": 2000,
+      "max": 15000
+    },
+    "pauseAfterBurstMs": {
+      "min": 5000,
+      "max": 20000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+        "Accept-Language": "en-US,en;q=0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "browsing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Human",
+    "NaturalBrowsing"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003E",
+      "value": 3000,
+      "weight": 0.35
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 2-15s"
+  },
+  "reasoning": "This user\u0027s behavior matches a real human\u0027s natural browsing pattern, with full browser headers, a sticky cookie jar, and variable timing."
+}

@@ -1,0 +1,97 @@
+{
+  "scenarioName": "iphone-user-browsing",
+  "scenario": "A real human user accessing a web page using an iPhone with iOS 17_2.",
+  "confidence": 0.9,
+  "clientProfile": {
+    "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+    "cookieMode": "sticky",
+    "headerCompleteness": "full",
+    "clientHintsPresent": true,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 3,
+    "delayAfterMs": {
+      "min": 2000,
+      "max": 15000
+    },
+    "pauseAfterBurstMs": {
+      "min": 5000,
+      "max": 20000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+        "Accept-Language": "en-US,en;q=0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "browsing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "browsing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatusAny": [
+        200
+      ],
+      "expectedOutcome": "browsing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1"
+      },
+      "expectedStatusAny": [
+        200
+      ],
+      "expectedOutcome": "browsing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Human",
+    "NaturalBrowsing"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003E",
+      "value": 3000,
+      "weight": 0.35
+    },
+    {
+      "signal": "requestInterval",
+      "op": "=",
+      "value": "variable 2-15s",
+      "weight": 0.4
+    }
+  ],
+  "reasoning": "This signature represents a real human user accessing a web page using an iPhone with iOS 17_2, following natural browsing patterns and displaying full browser headers and cookies."
+}

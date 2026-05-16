@@ -1,0 +1,109 @@
+{
+  "scenarioName": "wget-bot-scraper",
+  "scenario": "A bot/scraper identified by client-agent \u0027wget/1.21.4\u0027",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "wget/1.21.4",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 10,
+    "delayAfterMs": {
+      "min": 20,
+      "max": 150
+    },
+    "pauseAfterBurstMs": {
+      "min": 500,
+      "max": 2000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "wget/1.21.4"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api",
+      "headers": {
+        "User-Agent": "wget/1.21.4"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "wget/1.21.4"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "wget/1.21.4"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302,
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 200,
+      "weight": 0.35
+    },
+    {
+      "signal": "requestInterval",
+      "op": "=",
+      "value": "burst \u003C150ms",
+      "weight": 0.65
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "This bot/scraper uses wget/1.21.4 as its client-agent and exhibits critical behaviors for bots, including frequent HEAD requests to admin and API endpoints, enumeration of paginated data, and missing Accept-Language and Sec-Fetch-* headers."
+}

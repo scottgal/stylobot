@@ -1,0 +1,92 @@
+{
+  "scenarioName": "real-human-content-interaction",
+  "scenario": "Real human user interacting with content on a website.",
+  "confidence": 0.15,
+  "clientProfile": {
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "cookieMode": "sticky",
+    "headerCompleteness": "full",
+    "clientHintsPresent": true,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 3,
+    "delayAfterMs": {
+      "min": 2000,
+      "max": 15000
+    },
+    "pauseAfterBurstMs": {
+      "min": 5000,
+      "max": 20000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "expectedStatusAny": [
+        403
+      ],
+      "expectedOutcome": "browsing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "browsing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "browsing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Human",
+    "NaturalBrowsing"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003E",
+      "value": 3000,
+      "weight": 0.35
+    },
+    {
+      "signal": "clientHintsPresent",
+      "op": "=",
+      "value": true,
+      "weight": 0.25
+    },
+    {
+      "signal": "robotsConsulted",
+      "op": "=",
+      "value": true,
+      "weight": 0.1
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 2-30s"
+  },
+  "reasoning": "Real human user engaging with content on a website."
+}

@@ -485,7 +485,6 @@ nupkgs/
 signing/
 test-suites/
 test-bdf-scenarios/
-bot-signatures/
 demo/
 .claude/
 src/Mostlylucid.BotDetection.Demo/hnsw-index/

@@ -1,0 +1,115 @@
+{
+  "scenarioName": "bot-scraper-libwww-perl",
+  "scenario": "A bot using libwww-perl/6.67 to scrape the website by requesting various paths and headers.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "libwww-perl/6.67",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": false
+  },
+  "timingProfile": {
+    "burstRequests": 10,
+    "delayAfterMs": {
+      "min": 20,
+      "max": 150
+    },
+    "pauseAfterBurstMs": {
+      "min": 500,
+      "max": 2000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        403,
+        404
+      ],
+      "expectedOutcome": "notIndexed",
+      "successCondition": "any status"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        403,
+        404
+      ],
+      "expectedOutcome": "notIndexed",
+      "successCondition": "any status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "notIndexed",
+      "successCondition": "any status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "libwww-perl/6.67"
+      },
+      "expectedStatusAny": [
+        403,
+        404,
+        429
+      ],
+      "expectedOutcome": "notIndexed",
+      "successCondition": "any status"
+    }
+  ],
+  "labels": [
+    "Bot",
+    "Scraper"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 200,
+      "weight": 0.35
+    },
+    {
+      "signal": "burstRequests",
+      "op": "\u003E=",
+      "value": 10,
+      "weight": 0.45
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "The bot uses libwww-perl/6.67 with minimal headers and a burst of requests to access various paths, including sensitive ones like /admin and /api."
+}

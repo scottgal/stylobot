@@ -1,0 +1,67 @@
+{
+  "scenarioName": "natural-browsing-windows10",
+  "scenario": "Real human user on Windows 10 using Chrome/120.0.0.0 Edg/120.0.0.0, following natural browsing behavior.",
+  "confidence": 0.85,
+  "clientProfile": {
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+    "cookieMode": "sticky",
+    "headerCompleteness": "full",
+    "clientHintsPresent": true,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 5,
+    "delayAfterMs": {
+      "min": 3000,
+      "max": 12000
+    },
+    "pauseAfterBurstMs": {
+      "min": 6000,
+      "max": 24000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+        "Accept-Language": "en-US,en;q=0.9"
+      },
+      "expectedStatusAny": [
+        200,
+        301,
+        302
+      ],
+      "expectedOutcome": "browsing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Human",
+    "NaturalBrowsing"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003E",
+      "value": 4000,
+      "weight": 0.55
+    },
+    {
+      "signal": "num_requests_per_1m",
+      "op": "\u003C",
+      "value": 20,
+      "weight": 0.3
+    }
+  ],
+  "patterns": {
+    "requestInterval": "variable 2-30s",
+    "pathPatterns": [
+      "^/$",
+      "/about$",
+      "/contact$"
+    ]
+  },
+  "reasoning": "A real human user on Windows 10 using Chrome/120.0.0.0 Edg/120.0.0.0 is expected to navigate naturally, follow clear paths, and exhibit typical browser behaviors."
+}

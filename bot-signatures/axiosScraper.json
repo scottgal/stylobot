@@ -1,0 +1,101 @@
+{
+  "scenarioName": "axiosScraper",
+  "scenario": "Axios-based scraping bot with minimal client-side user-agent and header completeness.",
+  "confidence": 0.90,
+  "clientProfile": {
+    "userAgent": "axios/1.6.2",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 15,
+    "delayAfterMs": {
+      "min": 30,
+      "max": 240
+    },
+    "pauseAfterBurstMs": {
+      "min": 600,
+      "max": 3000
+    }
+  },
+  "requests": [
+    {
+      "method": "HEAD",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatusAny": [
+        200,
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatusAny": [
+        200,
+        403,
+        429
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/sensitive/path",
+      "headers": {
+        "User-Agent": "axios/1.6.2"
+      },
+      "expectedStatusAny": [
+        200,
+        403
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 180,
+      "weight": 0.40
+    },
+    {
+      "signal": "num_requests_burst",
+      "op": "\u003E",
+      "value": 10,
+      "weight": 0.30
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C240ms"
+  },
+  "reasoning": "This bot uses Axios for scraping with a minimal user-agent and header completeness. It checks robots.txt, targets /admin, /api, and sensitive paths. Missing Accept-Language and Sec-Fetch-* headers are used occasionally. The bot uses HEAD before GET to avoid indexing issues."
+}

@@ -1,0 +1,138 @@
+{
+  "scenarioName": "python-urllib-bots",
+  "scenario": "A scraper/bot using Python\u0027s urllib to access web pages",
+  "confidence": 0.9,
+  "clientProfile": {
+    "userAgent": "python-urllib/3.11",
+    "cookieMode": "none",
+    "headerCompleteness": "minimal",
+    "clientHintsPresent": false,
+    "robotsConsulted": true
+  },
+  "timingProfile": {
+    "burstRequests": 15,
+    "delayAfterMs": {
+      "min": 20,
+      "max": 180
+    },
+    "pauseAfterBurstMs": {
+      "min": 1000,
+      "max": 3000
+    }
+  },
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/admin",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data?page=3",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=1",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=2",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/data?page=3",
+      "headers": {
+        "User-Agent": "python-urllib/3.11"
+      },
+      "expectedStatusAny": [
+        200,
+        404
+      ],
+      "expectedOutcome": "indexing",
+      "successCondition": "any 2xx"
+    }
+  ],
+  "labels": [
+    "Scraper",
+    "RobotsIgnore"
+  ],
+  "evidence": [
+    {
+      "signal": "interval_ms_p95",
+      "op": "\u003C",
+      "value": 180,
+      "weight": 0.4
+    },
+    {
+      "signal": "num_requests",
+      "op": "\u003E=",
+      "value": 7,
+      "weight": 0.3
+    }
+  ],
+  "patterns": {
+    "requestInterval": "burst \u003C150ms"
+  },
+  "reasoning": "This scraper/bot exhibits behavior consistent with bots using Python\u0027s urllib, including multiple requests to different pages within a short burst time and a focus on specific API endpoints. The minimal headers and lack of Accept-Language or Sec-Fetch-* headers also indicate it might be a bot."
+}
