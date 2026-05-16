@@ -106,6 +106,15 @@ public sealed class IdentityMatchOptions
 
     /// <summary>Minimum width-normalised top-slot score required before the matcher writes the drift-top-slot signals. Below this, a small float-noise drift would name every fingerprint as "drifted". Default 0.05.</summary>
     public double DriftEpsilon { get; set; } = 0.05;
+
+    /// <summary>
+    ///     Drift threshold that triggers a display-name recompute + persist on a matched
+    ///     fingerprint. Names are stable across requests; only when drift exceeds this
+    ///     significantly-higher bar (default 0.20, 4x DriftEpsilon) does the matcher
+    ///     regenerate the name and write it to the fingerprint row. Float noise must not
+    ///     move names.
+    /// </summary>
+    public double SignificantDriftEpsilon { get; set; } = 0.20;
 }
 
 public sealed class IdentityWeightsOptions

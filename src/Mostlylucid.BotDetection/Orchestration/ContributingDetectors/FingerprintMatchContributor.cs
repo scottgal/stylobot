@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 
 namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
@@ -253,6 +254,23 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         IdentityWeightMath.RenormaliseAndClamp(
             seedWeights, _options.Weights.MinWeight, _options.Weights.MaxWeight);
 
+        // Write the identity signals first so the name composer can read the archetype name +
+        // drift signals it depends on.
+        state.WriteSignal(SignalKeys.IdentityFingerprintId, newId);
+        state.WriteSignal(SignalKeys.IdentityIsNewFingerprint, true);
+        state.WriteSignal(SignalKeys.IdentityMatchScore, 0.0);
+        state.WriteSignal(SignalKeys.IdentityClientType, inferredType);
+        state.WriteSignal(SignalKeys.IdentityClientTypeConfidence, inferredConfidence);
+        if (archetypeOrigin is not null)
+            state.WriteSignal(SignalKeys.IdentityClientTypeOrigin, archetypeOrigin);
+
+        WriteArchetypeSignals(state, vector, nearestArchetype?.Archetype);
+
+        // Compose the display name from the now-populated signals + the new fingerprint id
+        // (used as the cold-state Priority 4 fallback when even the UA contributor is silent).
+        var signalsForCompose = state.Signals.ToDictionary(s => s.Key, s => (object?)s.Value);
+        var displayName = FingerprintNameComposer.Compose(signalsForCompose, newId);
+
         var newFp = new Fingerprint
         {
             FingerprintId = newId,
@@ -271,19 +289,13 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             InferredTypeChangedAt = now,
             CachedBotProbability = 0.0,
             CachedRiskBand = null,
-            CachedScoreUpdatedAt = null
+            CachedScoreUpdatedAt = null,
+            DisplayName = displayName,
+            DisplayNameUpdatedAt = now
         };
         await _store.InsertFingerprintAsync(newFp, primarySig, cancellationToken);
 
-        state.WriteSignal(SignalKeys.IdentityFingerprintId, newId);
-        state.WriteSignal(SignalKeys.IdentityIsNewFingerprint, true);
-        state.WriteSignal(SignalKeys.IdentityMatchScore, 0.0);
-        state.WriteSignal(SignalKeys.IdentityClientType, newFp.InferredClientType);
-        state.WriteSignal(SignalKeys.IdentityClientTypeConfidence, newFp.InferredTypeConfidence);
-        if (archetypeOrigin is not null)
-            state.WriteSignal(SignalKeys.IdentityClientTypeOrigin, archetypeOrigin);
-
-        WriteArchetypeSignals(state, vector, nearestArchetype?.Archetype);
+        state.WriteSignal(SignalKeys.IdentityDisplayName, displayName);
 
         // New-fingerprint allocation = ambiguity event by definition (no L1 baseline matched).
         await BumpAmbiguityAsync(state, newId, isAmbiguous: true, cancellationToken);
@@ -312,19 +324,20 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         if (matched.CachedRiskBand is not null)
             state.WriteSignal(SignalKeys.IdentityCachedRiskBand, matched.CachedRiskBand);
 
-        WriteArchetypeSignals(state, vector, _archetypes.TryGetById(matched.InferredClientType));
+        var drift = WriteArchetypeSignals(state, vector, _archetypes.TryGetById(matched.InferredClientType));
+        EmitDisplayNameSignal(state, vector, matched, drift);
     }
 
     /// <summary>
     ///     Writes the archetype display-name signal and (when global weights are available)
-    ///     the per-slot top-drift signals. The synthesizer reads these to compose
-    ///     <c>"&lt;archetype.Name&gt; (&lt;variance term&gt;?)"</c>. No-op when no archetype
-    ///     matched, or when the top-slot drift is below <c>Match.DriftEpsilon</c> (prevents
-    ///     tiny float-noise drift naming every fingerprint as "drifted").
+    ///     the per-slot top-drift signals. Returns the drift result so callers can use it
+    ///     for the significant-drift gate (e.g. <see cref="EmitDisplayNameSignal"/>). No-op
+    ///     and returns null when no archetype matched.
     /// </summary>
-    private void WriteArchetypeSignals(BlackboardState state, float[] vector, IdentityArchetype? archetype)
+    private DriftResult? WriteArchetypeSignals(
+        BlackboardState state, float[] vector, IdentityArchetype? archetype)
     {
-        if (archetype is null) return;
+        if (archetype is null) return null;
         state.WriteSignal(SignalKeys.IdentityArchetypeName, archetype.Name);
         if (!string.IsNullOrEmpty(archetype.Description))
             state.WriteSignal(SignalKeys.IdentityArchetypeDescription, archetype.Description);
@@ -337,6 +350,54 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             state.WriteSignal(SignalKeys.IdentityDriftTopSlot, drift.Value.SlotName);
             state.WriteSignal(SignalKeys.IdentityDriftTopCategory, drift.Value.Category);
             state.WriteSignal(SignalKeys.IdentityDriftTopScore, drift.Value.Score);
+        }
+        return drift;
+    }
+
+    /// <summary>
+    ///     Writes <see cref="SignalKeys.IdentityDisplayName"/> for a matched fingerprint.
+    ///     Three paths:
+    ///     <list type="number">
+    ///         <item><c>matched.DisplayName</c> is non-empty: write the persisted name
+    ///             directly. Most matches take this path — names are stable.</item>
+    ///         <item><c>matched.DisplayName</c> is empty (row migrated from before the
+    ///             column existed): compose from current signals + lazy-backfill persist
+    ///             (fire-and-forget — don't block the request on the write).</item>
+    ///         <item>Drift score exceeds <c>Match.SignificantDriftEpsilon</c> AND the
+    ///             recomposed name differs from the persisted one: significant behavioural
+    ///             drift, update the persisted name + write the new signal. Per-request
+    ///             <c>DriftEpsilon</c> (0.05) gates the drift-label emission;
+    ///             <c>SignificantDriftEpsilon</c> (0.20, 4x) gates the name update so float
+    ///             noise doesn't churn names.</item>
+    ///     </list>
+    /// </summary>
+    private void EmitDisplayNameSignal(
+        BlackboardState state, float[] vector, Fingerprint matched,
+        DriftResult? drift)
+    {
+        // Path 1: stable persisted name, no significant drift.
+        if (!string.IsNullOrEmpty(matched.DisplayName)
+            && (drift is null || drift.Value.Score <= _options.Match.SignificantDriftEpsilon))
+        {
+            state.WriteSignal(SignalKeys.IdentityDisplayName, matched.DisplayName);
+            return;
+        }
+
+        // Path 2 + 3: compose a fresh name from current signals.
+        var signalsForCompose = state.Signals.ToDictionary(s => s.Key, s => (object?)s.Value);
+        var freshName = FingerprintNameComposer.Compose(signalsForCompose, matched.FingerprintId);
+        state.WriteSignal(SignalKeys.IdentityDisplayName, freshName);
+
+        // Persist if either: row was migrated (empty DisplayName) OR significant drift
+        // produced a different name. Idempotent no-op if the names match.
+        var shouldPersist = string.IsNullOrEmpty(matched.DisplayName)
+            || (drift is not null && drift.Value.Score > _options.Match.SignificantDriftEpsilon
+                && !string.Equals(freshName, matched.DisplayName, StringComparison.Ordinal));
+        if (shouldPersist)
+        {
+            // Fire-and-forget. Consistent with how other matcher writes (RecordObservationAsync
+            // when called from EmitConfirmedSignals indirectly) avoid blocking the request path.
+            _ = _store.UpdateDisplayNameAsync(matched.FingerprintId, freshName, DateTime.UtcNow, CancellationToken.None);
         }
     }
 

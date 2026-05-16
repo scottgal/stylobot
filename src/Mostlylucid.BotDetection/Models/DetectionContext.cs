@@ -547,6 +547,16 @@ public static class SignalKeys
     /// <summary>string?: coarse category prefix of the top-drift slot ("network", "locale", "hdr", "tool", etc.). Lets the synthesizer map drift to a label class without parsing the full slot name.</summary>
     public const string IdentityDriftTopCategory = "identity.drift_top_category";
 
+    /// <summary>
+    ///     string: the fingerprint's persisted display name. Stable across requests; the
+    ///     matcher writes this on every match by reading the persisted name on the matched
+    ///     <c>Fingerprint</c> row (or by computing + persisting it on first allocation, and
+    ///     on the significant-drift recompute path). The aggregator's <c>PrimaryBotName</c>
+    ///     reads from here so the response header / dashboard surface always carry a name —
+    ///     never empty, regardless of bot/human classification.
+    /// </summary>
+    public const string IdentityDisplayName = "identity.display_name";
+
     /// <summary>bool: transport-layer dims are zero on what should be TLS-fronted traffic.</summary>
     public const string ConfigWarningCleartextHttp = "config.warning.cleartext_http";
 
