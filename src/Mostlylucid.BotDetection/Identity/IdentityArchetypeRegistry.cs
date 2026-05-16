@@ -42,6 +42,21 @@ public sealed class IdentityArchetypeRegistry
     }
 
     /// <summary>
+    ///     Lookup by archetype id (case-insensitive). Returns null when the id is null, empty,
+    ///     or not present in the registry. Used by <see cref="FingerprintMatchContributor"/>
+    ///     to resolve a matched fingerprint's <c>InferredClientType</c> to a display name
+    ///     without iterating <see cref="All"/> on every match.
+    /// </summary>
+    public IdentityArchetype? TryGetById(string? archetypeId)
+    {
+        if (string.IsNullOrEmpty(archetypeId)) return null;
+        foreach (var a in _archetypes)
+            if (string.Equals(a.ArchetypeId, archetypeId, StringComparison.OrdinalIgnoreCase))
+                return a;
+        return null;
+    }
+
+    /// <summary>
     ///     Brute-force scan: cosine of <paramref name="vector"/> against every archetype.
     ///     Archetype set is small (tens of entries), so the scan is fast and needs no index.
     ///     Returns null if no archetypes are loaded.
