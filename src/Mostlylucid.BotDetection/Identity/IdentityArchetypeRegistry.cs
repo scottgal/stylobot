@@ -59,7 +59,11 @@ public sealed class IdentityArchetypeRegistry
     /// <summary>
     ///     Brute-force scan: cosine of <paramref name="vector"/> against every archetype.
     ///     Archetype set is small (tens of entries), so the scan is fast and needs no index.
-    ///     Returns null if no archetypes are loaded.
+    ///     Returns null if no archetypes are loaded. Always returns the nearest by cosine
+    ///     regardless of score — callers that want a minimum-score gate apply it on the
+    ///     returned <see cref="ArchetypeMatch.Score"/> (e.g. the matcher gates name signal
+    ///     emission via <c>Match.MinArchetypeMatchScore</c> without changing the seeding
+    ///     behaviour the rest of the pipeline relies on).
     /// </summary>
     public ArchetypeMatch? FindNearest(float[] vector)
     {

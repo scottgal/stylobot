@@ -264,7 +264,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         if (archetypeOrigin is not null)
             state.WriteSignal(SignalKeys.IdentityClientTypeOrigin, archetypeOrigin);
 
-        WriteArchetypeSignals(state, vector, nearestArchetype?.Archetype);
+        WriteArchetypeSignals(state, vector, nearestArchetype?.Archetype, nearestArchetype?.Score ?? 0.0);
 
         // Compose the display name from the now-populated signals + the new fingerprint id
         // (used as the cold-state Priority 4 fallback when even the UA contributor is silent).
@@ -324,7 +324,10 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         if (matched.CachedRiskBand is not null)
             state.WriteSignal(SignalKeys.IdentityCachedRiskBand, matched.CachedRiskBand);
 
-        var drift = WriteArchetypeSignals(state, vector, _archetypes.TryGetById(matched.InferredClientType));
+        var drift = WriteArchetypeSignals(
+            state, vector,
+            _archetypes.TryGetById(matched.InferredClientType),
+            matched.InferredTypeConfidence);
         EmitDisplayNameSignal(state, vector, matched, drift);
     }
 
@@ -333,11 +336,20 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     ///     the per-slot top-drift signals. Returns the drift result so callers can use it
     ///     for the significant-drift gate (e.g. <see cref="EmitDisplayNameSignal"/>). No-op
     ///     and returns null when no archetype matched.
+    ///
+    ///     The <paramref name="matchScore"/> gates name + drift emission via
+    ///     <c>Match.MinArchetypeMatchScore</c>: sparse/synthetic vectors that happen to be
+    ///     "nearest" to some archetype by noise shouldn't be labelled as that archetype. The
+    ///     archetype still passes through for fingerprint-centroid seeding (the caller decides
+    ///     whether to use it), but the visible name signal stays absent below threshold —
+    ///     the composer falls through to UA family + OS characterization instead.
     /// </summary>
     private DriftResult? WriteArchetypeSignals(
-        BlackboardState state, float[] vector, IdentityArchetype? archetype)
+        BlackboardState state, float[] vector, IdentityArchetype? archetype, double matchScore)
     {
         if (archetype is null) return null;
+        if (matchScore < _options.Match.MinArchetypeMatchScore) return null;
+
         state.WriteSignal(SignalKeys.IdentityArchetypeName, archetype.Name);
         if (!string.IsNullOrEmpty(archetype.Description))
             state.WriteSignal(SignalKeys.IdentityArchetypeDescription, archetype.Description);

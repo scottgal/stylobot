@@ -115,6 +115,25 @@ public sealed class IdentityMatchOptions
     ///     move names.
     /// </summary>
     public double SignificantDriftEpsilon { get; set; } = 0.20;
+
+    /// <summary>
+    ///     Minimum archetype-match cosine score required before
+    ///     <c>FingerprintMatchContributor.WriteArchetypeSignals</c> emits the
+    ///     <c>identity.archetype_name</c> / drift signals. Below this floor the signals are
+    ///     suppressed and the name composer falls through to UA family + OS — preventing
+    ///     sparse vectors from being mis-labelled as the closest-by-noise archetype (e.g. a
+    ///     real Chrome visitor coming through with a partial fingerprint being named
+    ///     "Headless Chrome" because that archetype's centroid happened to be nearest).
+    ///
+    ///     <para>
+    ///     Default 0.0 (disabled). Raising to ~0.5 yields more honest naming but interacts
+    ///     unpredictably with the BDF synthetic-context rig (one chrome-windows scenario
+    ///     loses a fingerprint id at threshold > 0), pending investigation. The gate itself
+    ///     is wired so operators can tune it for their environment; the production sidecar
+    ///     gets the same default as the FOSS library.
+    ///     </para>
+    /// </summary>
+    public double MinArchetypeMatchScore { get; set; } = 0.0;
 }
 
 public sealed class IdentityWeightsOptions
