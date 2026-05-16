@@ -6,6 +6,7 @@ WORKDIR /src
 COPY Stylobot.Gateway/Stylobot.Gateway.csproj Stylobot.Gateway/
 COPY Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj Mostlylucid.BotDetection/
 COPY Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj Mostlylucid.BotDetection.UI/
+COPY Mostlylucid.BotDetection.OpenApi/Mostlylucid.BotDetection.OpenApi.csproj Mostlylucid.BotDetection.OpenApi/
 COPY Mostlylucid.BotDetection.Llm/Mostlylucid.BotDetection.Llm.csproj Mostlylucid.BotDetection.Llm/
 COPY Mostlylucid.BotDetection.Llm.LlamaSharp/Mostlylucid.BotDetection.Llm.LlamaSharp.csproj Mostlylucid.BotDetection.Llm.LlamaSharp/
 COPY Mostlylucid.Common/Mostlylucid.Common.csproj Mostlylucid.Common/
@@ -22,6 +23,7 @@ COPY Mostlylucid.BotDetection/ Mostlylucid.BotDetection/
 COPY Mostlylucid.BotDetection.Llm/ Mostlylucid.BotDetection.Llm/
 COPY Mostlylucid.BotDetection.Llm.LlamaSharp/ Mostlylucid.BotDetection.Llm.LlamaSharp/
 COPY Mostlylucid.BotDetection.UI/ Mostlylucid.BotDetection.UI/
+COPY Mostlylucid.BotDetection.OpenApi/ Mostlylucid.BotDetection.OpenApi/
 COPY Mostlylucid.Common/ Mostlylucid.Common/
 COPY Mostlylucid.GeoDetection/ Mostlylucid.GeoDetection/
 COPY Mostlylucid.GeoDetection.Contributor/ Mostlylucid.GeoDetection.Contributor/

@@ -6,6 +6,7 @@ WORKDIR /src
 COPY ["Mostlylucid.BotDetection.Demo/Mostlylucid.BotDetection.Demo.csproj", "Mostlylucid.BotDetection.Demo/"]
 COPY ["Mostlylucid.BotDetection/Mostlylucid.BotDetection.csproj", "Mostlylucid.BotDetection/"]
 COPY ["Mostlylucid.BotDetection.UI/Mostlylucid.BotDetection.UI.csproj", "Mostlylucid.BotDetection.UI/"]
+COPY ["Mostlylucid.BotDetection.OpenApi/Mostlylucid.BotDetection.OpenApi.csproj", "Mostlylucid.BotDetection.OpenApi/"]
 COPY ["Mostlylucid.BotDetection.ApiHolodeck/Mostlylucid.BotDetection.ApiHolodeck.csproj", "Mostlylucid.BotDetection.ApiHolodeck/"]
 COPY ["Mostlylucid.GeoDetection/Mostlylucid.GeoDetection.csproj", "Mostlylucid.GeoDetection/"]
 COPY ["Mostlylucid.GeoDetection.Contributor/Mostlylucid.GeoDetection.Contributor.csproj", "Mostlylucid.GeoDetection.Contributor/"]

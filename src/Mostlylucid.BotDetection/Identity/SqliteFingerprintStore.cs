@@ -730,6 +730,54 @@ public sealed class SqliteFingerprintStore
     }
 
     /// <summary>
+    ///     Test-only utility: truncates every identity table so a BDF rig can replay
+    ///     scenarios against a deterministic clean state. Returns per-table row counts
+    ///     deleted. Vec0 mirror tables are also truncated when the extension loaded.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, int>> TruncateAllAsync(CancellationToken ct = default)
+    {
+        await EnsureInitialisedAsync(ct);
+        var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        await using var conn = await OpenConnectionWithVecAsync(ct);
+        await using var tx = (SqliteTransaction)await conn.BeginTransactionAsync(ct);
+
+        var tables = new[]
+        {
+            "fingerprint_corrections",
+            "fingerprint_observations",
+            "fingerprint_keys",
+            "fingerprints",
+            "identity_dimension_weights",
+            "identity_archetypes"
+        };
+        foreach (var table in tables)
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = $"DELETE FROM {table}";
+            counts[table] = await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        if (_vecAvailable)
+        {
+            foreach (var vecTable in new[] { "observations_vec", "fingerprints_vec" })
+            {
+                try
+                {
+                    await using var cmd = conn.CreateCommand();
+                    cmd.Transaction = tx;
+                    cmd.CommandText = $"DELETE FROM {vecTable}";
+                    await cmd.ExecuteNonQueryAsync(ct);
+                }
+                catch (SqliteException) { /* table may not exist if vec0 schema not created */ }
+            }
+        }
+
+        await tx.CommitAsync(ct);
+        return counts;
+    }
+
+    /// <summary>
     ///     Atomically EWMA-updates the per-fingerprint ambiguity-persistence value and
     ///     returns the post-update value. <paramref name="isAmbiguityEvent"/> = true pushes
     ///     toward 1 (Pass 2 correction, rotation candidate, L1 confirm fail, allocation),

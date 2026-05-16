@@ -125,7 +125,26 @@ public static class BdfReplayEndpoints
             .Produces<BdfReplayResponse>()
             .Produces(StatusCodes.Status400BadRequest);
 
+        group.MapPost("/reset-identity", ResetIdentityStore)
+            .WithName("ResetIdentityStore")
+            .WithMetadata(new Attributes.BotPolicyAttribute("default") { BlockThreshold = 0.95 })
+            .WithSummary("Truncate the identity store so BDF replay scenarios start from a clean state");
+
         return group;
+    }
+
+    /// <summary>
+    ///     Truncates every identity table on the running fingerprint store so a BDF rig
+    ///     can run each scenario against a deterministic clean state. Returns the count
+    ///     of rows deleted from each table for the test rig's confirmation. Cheap because
+    ///     identity tables are tiny in tests; only suitable for test/dev use.
+    /// </summary>
+    private static async Task<IResult> ResetIdentityStore(
+        Identity.SqliteFingerprintStore store,
+        CancellationToken ct)
+    {
+        var counts = await store.TruncateAllAsync(ct);
+        return Results.Ok(counts);
     }
 
     private static async Task<IResult> ReplayBdf(
@@ -165,6 +184,17 @@ public static class BdfReplayEndpoints
         var falsePositives = 0;
         var falseNegatives = 0;
         var matches = 0;
+
+        // BDF replay's intent is to exercise the full detection pipeline on every request
+        // — measuring detection accuracy, signal flow, and identity stability. The verdict
+        // cache's Skip path bypasses the matcher entirely once a primary signature has a
+        // confident cached verdict, which would (correctly, in production) mask the per-
+        // request behaviour the rig is trying to assert on. Disable the cache for replay so
+        // every request runs the full waveform.
+        var replayPolicy = Policies.DetectionPolicy.Default with
+        {
+            SignatureCache = Policies.DetectionPolicy.Default.SignatureCache with { Enabled = false }
+        };
 
         for (var i = 0; i < requests.Count; i++)
         {
@@ -214,7 +244,7 @@ public static class BdfReplayEndpoints
             try
             {
                 evidence = await orchestrator.DetectWithPolicyAsync(
-                    syntheticContext, Policies.DetectionPolicy.Default, httpContext.RequestAborted);
+                    syntheticContext, replayPolicy, httpContext.RequestAborted);
             }
             catch (Exception ex)
             {

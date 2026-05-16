@@ -142,6 +142,17 @@ public sealed class BdfReplayTests
         var bdfBody = await File.ReadAllBytesAsync(scenarioFile);
 
         using var client = new HttpClient { BaseAddress = new Uri(_demo.BaseUrl), Timeout = TimeSpan.FromSeconds(60) };
+
+        // Reset the identity store before each scenario. The Demo persists fingerprints
+        // across requests by design; without a reset, scenario N inherits the fingerprints
+        // scenarios 1..N-1 created and the per-scenario stability assertions become
+        // ordering-dependent. Truncating gives every scenario a clean slate.
+        using (var resetResp = await client.PostAsync("/bot-detection/bdf-replay/reset-identity", new StringContent("")))
+        {
+            Assert.True(resetResp.IsSuccessStatusCode,
+                $"Identity reset failed: {(int)resetResp.StatusCode} {resetResp.ReasonPhrase}");
+        }
+
         using var content = new ByteArrayContent(bdfBody);
         content.Headers.ContentType = new("application/json");
 
