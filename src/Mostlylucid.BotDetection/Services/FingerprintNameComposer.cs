@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.Services;
@@ -22,13 +23,24 @@ namespace Mostlylucid.BotDetection.Services;
 internal static class FingerprintNameComposer
 {
     /// <summary>
-    ///     Compose a display name from request signals. Pass <paramref name="fingerprintId"/>
-    ///     when calling from the matcher so the cold-state branch can use a short id prefix
-    ///     instead of "analysing".
+    ///     Compose a display name from request signals.
+    ///     <para>
+    ///     <paramref name="fingerprintId"/> when present feeds the cold-state Priority 4
+    ///     fallback ("unknown abc123de") in place of "analysing".
+    ///     </para>
+    ///     <para>
+    ///     <paramref name="userAgent"/> lets Priority 3 self-rescue when the UA contributor
+    ///     hasn't run yet (the matcher at priority 6 fires before UserAgent at priority 10,
+    ///     so <c>ua.family</c> / <c>user_agent.os</c> signals are absent at compose time).
+    ///     When the signals are missing but a UA string is available, we parse it via
+    ///     <see cref="UserAgentParser"/> directly so Chrome on Windows visitors get the
+    ///     expected "Chrome on Windows (US:abcd)" name from request 1.
+    ///     </para>
     /// </summary>
     public static string Compose(
-        IReadOnlyDictionary<string, object?> signals,
-        string? fingerprintId = null)
+        IReadOnlyDictionary<string, object> signals,
+        string? fingerprintId = null,
+        string? userAgent = null)
     {
         var signature = GetString(signals, SignalKeys.PrimarySignature);
         var country = GetString(signals, SignalKeys.GeoCountryCode);
@@ -47,22 +59,26 @@ internal static class FingerprintNameComposer
             return Unique(composed, signature, country);
         }
 
-        // Priority 3: UA family + OS characterization. Identity off, or first-seen client
-        // without a matching archetype. Composes "Chrome on Windows" when both are available;
-        // falls back to family alone when OS is unknown.
+        // Priority 3: UA family + OS characterization. Reads the signals first; falls back
+        // to parsing the supplied UA string when signals are absent (matcher hot path runs
+        // before UserAgentContributor).
         var family = GetString(signals, SignalKeys.UserAgentFamily);
-        if (!string.IsNullOrEmpty(family))
+        var os = GetString(signals, SignalKeys.UserAgentOs);
+        if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(userAgent))
+            family = UserAgentParser.Parse(userAgent).Family;
+        if (string.IsNullOrEmpty(os) && !string.IsNullOrEmpty(userAgent))
+            os = UserAgentParser.ExtractOs(userAgent);
+
+        if (!string.IsNullOrEmpty(family) && family != "Other")
         {
-            var os = GetString(signals, SignalKeys.UserAgentOs);
             var composed = !string.IsNullOrEmpty(os) ? $"{family} on {os}" : family;
             var variance = GetVarianceTerm(signals);
             if (!string.IsNullOrEmpty(variance)) composed = $"{composed} ({variance})";
             return Unique(composed, signature, country);
         }
 
-        // Priority 4: last-resort id-prefix label. Hit when even the UA contributor produced
-        // nothing (cold-start, missing UA header). Better than "analysing" because the prefix
-        // at least identifies which fingerprint this is.
+        // Priority 4: last-resort id-prefix label. Better than "analysing" because the
+        // prefix at least identifies which fingerprint this is.
         if (!string.IsNullOrEmpty(fingerprintId))
             return Unique($"unknown {fingerprintId[..Math.Min(8, fingerprintId.Length)]}", signature, country);
 
@@ -74,7 +90,7 @@ internal static class FingerprintNameComposer
     ///     matched centroid, derived from the drift-top-slot signal. Returns null when no
     ///     drift signal is present.
     /// </summary>
-    public static string? GetVarianceTerm(IReadOnlyDictionary<string, object?> signals)
+    public static string? GetVarianceTerm(IReadOnlyDictionary<string, object> signals)
     {
         var slot = GetString(signals, SignalKeys.IdentityDriftTopSlot);
         if (string.IsNullOrEmpty(slot)) return null;
@@ -118,6 +134,9 @@ internal static class FingerprintNameComposer
         return parts.Count > 0 ? $"{baseName} ({string.Join(":", parts)})" : baseName;
     }
 
-    private static string? GetString(IReadOnlyDictionary<string, object?> signals, string key)
+    internal static string? GetString(IReadOnlyDictionary<string, object> signals, string key)
         => signals.TryGetValue(key, out var v) && v is string s && !string.IsNullOrEmpty(s) ? s : null;
+
+    internal static double GetDouble(IReadOnlyDictionary<string, object> signals, string key)
+        => signals.TryGetValue(key, out var v) && v is double d ? d : 0;
 }

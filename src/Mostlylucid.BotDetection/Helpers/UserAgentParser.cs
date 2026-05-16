@@ -58,6 +58,26 @@ public static class UserAgentParser
         return ("Other", null);
     }
 
+    /// <summary>
+    ///     Extract the OS family from a User-Agent string. Returns one of
+    ///     "Windows", "macOS", "Linux", "iOS", "Android", or null when no recognised
+    ///     OS token is present. Non-PII; intended for the display-name composer.
+    /// </summary>
+    public static string? ExtractOs(string ua)
+    {
+        if (string.IsNullOrEmpty(ua)) return null;
+        if (ua.Contains("Windows", StringComparison.OrdinalIgnoreCase)) return "Windows";
+        // iOS check before macOS — iPhone/iPad UAs contain "Mac OS X" too.
+        if (ua.Contains("iPhone", StringComparison.OrdinalIgnoreCase)
+            || ua.Contains("iPad", StringComparison.OrdinalIgnoreCase)
+            || ua.Contains("iPod", StringComparison.OrdinalIgnoreCase)) return "iOS";
+        if (ua.Contains("Android", StringComparison.OrdinalIgnoreCase)) return "Android";
+        if (ua.Contains("Mac OS X", StringComparison.OrdinalIgnoreCase)
+            || ua.Contains("Macintosh", StringComparison.OrdinalIgnoreCase)) return "macOS";
+        if (ua.Contains("Linux", StringComparison.OrdinalIgnoreCase)) return "Linux";
+        return null;
+    }
+
     private static string? ExtractVersion(string ua, string token)
     {
         var idx = ua.IndexOf(token, StringComparison.Ordinal);

@@ -1,3 +1,5 @@
+using Mostlylucid.BotDetection.Models;
+
 namespace Mostlylucid.BotDetection.Services;
 
 /// <summary>
@@ -17,44 +19,48 @@ public sealed class DeterministicBotNameSynthesizer : IBotNameSynthesizer
     public Task<string?> SynthesizeBotNameAsync(
         IReadOnlyDictionary<string, object?> signals,
         CancellationToken ct = default)
-        => Task.FromResult<string?>(FingerprintNameComposer.Compose(signals));
+        => Task.FromResult<string?>(FingerprintNameComposer.Compose(StripNulls(signals)));
 
     public Task<(string? Name, string? Description)> SynthesizeDetailedAsync(
         IReadOnlyDictionary<string, object?> signals,
         string? context = null,
         CancellationToken ct = default)
     {
-        var name = FingerprintNameComposer.Compose(signals);
-        var desc = GenerateDescription(signals);
+        var clean = StripNulls(signals);
+        var name = FingerprintNameComposer.Compose(clean);
+        var desc = GenerateDescription(clean);
         return Task.FromResult<(string?, string?)>((name, desc));
     }
 
-    private static string? GenerateDescription(IReadOnlyDictionary<string, object?> signals)
+    /// <summary>
+    ///     Adapt the interface's nullable-value dictionary to the composer's non-nullable
+    ///     shape. The interface predates the composer; the matcher (hot path) passes
+    ///     <c>state.Signals</c> directly. The async LLM-fallback path that uses this
+    ///     synthesizer pays one copy at the boundary instead.
+    /// </summary>
+    private static IReadOnlyDictionary<string, object> StripNulls(IReadOnlyDictionary<string, object?> signals)
+        => signals.Where(kv => kv.Value is not null).ToDictionary(kv => kv.Key, kv => kv.Value!);
+
+    private static string? GenerateDescription(IReadOnlyDictionary<string, object> signals)
     {
         var parts = new List<string>();
 
-        var family = GetString(signals, "ua.family");
+        var family = FingerprintNameComposer.GetString(signals, SignalKeys.UserAgentFamily);
         if (!string.IsNullOrEmpty(family))
             parts.Add($"User-Agent family: {family}");
 
-        var intent = GetString(signals, "intent.category");
+        var intent = FingerprintNameComposer.GetString(signals, SignalKeys.IntentCategory);
         if (!string.IsNullOrEmpty(intent))
             parts.Add($"Intent: {intent}");
 
-        var pageRate = GetDouble(signals, "waveform.page_rate");
+        var pageRate = FingerprintNameComposer.GetDouble(signals, "waveform.page_rate");
         if (pageRate > 0)
             parts.Add($"Request rate: {pageRate:F1} pages/min");
 
-        var assetRatio = GetDouble(signals, "waveform.asset_ratio");
+        var assetRatio = FingerprintNameComposer.GetDouble(signals, "waveform.asset_ratio");
         if (assetRatio < 0.01)
             parts.Add("No static assets loaded (headless behavior)");
 
         return parts.Count > 0 ? string.Join(". ", parts) + "." : null;
     }
-
-    private static string? GetString(IReadOnlyDictionary<string, object?> signals, string key)
-        => signals.TryGetValue(key, out var v) && v is string s && !string.IsNullOrEmpty(s) ? s : null;
-
-    private static double GetDouble(IReadOnlyDictionary<string, object?> signals, string key)
-        => signals.TryGetValue(key, out var v) && v is double d ? d : 0;
 }

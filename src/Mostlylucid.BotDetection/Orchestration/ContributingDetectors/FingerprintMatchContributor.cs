@@ -11,11 +11,8 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     Foundation Match-step contributor that runs the two-pass fingerprint match — Pass 1 point
 ///     lookup, Pass 2 vector cosine via <see cref="IIdentityAnchorIndex"/> — and writes the
 ///     resulting identity.* signals so every downstream consumer sees the same fingerprint id.
-///
-///     Initial implementation: allocation + match outcome signals. Per-fingerprint weight learning,
-///     stability learning, drift verification, archetype seeding, and cached score updates land in
-///     subsequent slices. The store schema and signal contract are stable; later slices add
-///     producers, not new shapes.
+///     Also persists per-fingerprint display names, weight learning, archetype seeding, and
+///     drift-gated re-computes.
 ///
 ///     Dormant unless <c>BotDetectionOptions.Identity.Enabled</c> is true.
 ///
@@ -268,8 +265,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
         // Compose the display name from the now-populated signals + the new fingerprint id
         // (used as the cold-state Priority 4 fallback when even the UA contributor is silent).
-        var signalsForCompose = state.Signals.ToDictionary(s => s.Key, s => (object?)s.Value);
-        var displayName = FingerprintNameComposer.Compose(signalsForCompose, newId);
+        var displayName = FingerprintNameComposer.Compose(state.Signals, newId, state.UserAgent);
 
         var newFp = new Fingerprint
         {
@@ -396,8 +392,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         }
 
         // Path 2 + 3: compose a fresh name from current signals.
-        var signalsForCompose = state.Signals.ToDictionary(s => s.Key, s => (object?)s.Value);
-        var freshName = FingerprintNameComposer.Compose(signalsForCompose, matched.FingerprintId);
+        var freshName = FingerprintNameComposer.Compose(state.Signals, matched.FingerprintId, state.UserAgent);
         state.WriteSignal(SignalKeys.IdentityDisplayName, freshName);
 
         // Persist if either: row was migrated (empty DisplayName) OR significant drift

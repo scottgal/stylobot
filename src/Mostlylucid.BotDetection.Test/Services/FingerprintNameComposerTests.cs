@@ -12,7 +12,7 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_Priority1_KnownBotName()
     {
-        var name = FingerprintNameComposer.Compose(new Dictionary<string, object?>
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.bot_name"] = "Googlebot",
             ["ua.family"] = "Googlebot"
@@ -24,7 +24,7 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_Priority2_ArchetypeName_BeatsFamily()
     {
-        var name = FingerprintNameComposer.Compose(new Dictionary<string, object?>
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["identity.archetype_name"] = "Chrome Desktop",
             ["ua.family"] = "Chrome"
@@ -36,7 +36,7 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_Priority2_ArchetypeName_DecoratedWithVariance()
     {
-        var name = FingerprintNameComposer.Compose(new Dictionary<string, object?>
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["identity.archetype_name"] = "Chrome Desktop",
             ["identity.drift_top_slot"] = "network.country",
@@ -51,7 +51,7 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_Priority3_FamilyPlusOs_WhenBothAvailable()
     {
-        var name = FingerprintNameComposer.Compose(new Dictionary<string, object?>
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Firefox",
             ["user_agent.os"] = "Linux",
@@ -64,7 +64,7 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_Priority3_FamilyAlone_WhenOsMissing()
     {
-        var name = FingerprintNameComposer.Compose(new Dictionary<string, object?>
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Safari",
             ["geo.country_code"] = "US"
@@ -78,7 +78,7 @@ public class FingerprintNameComposerTests
     public void Compose_Priority4_FingerprintIdPrefix_WhenNoUa()
     {
         var name = FingerprintNameComposer.Compose(
-            new Dictionary<string, object?>(),
+            new Dictionary<string, object>(),
             fingerprintId: "abc123def456ghi");
 
         Assert.Contains("abc123de", name);
@@ -87,7 +87,7 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_Priority4_Analysing_WhenNoUaAndNoFingerprintId()
     {
-        var name = FingerprintNameComposer.Compose(new Dictionary<string, object?>());
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>());
         Assert.Equal("analysing", name);
     }
 
@@ -98,10 +98,10 @@ public class FingerprintNameComposerTests
         // elsewhere is "fingerprints always have a name" — this is the load-bearing invariant.
         foreach (var signals in new[]
         {
-            new Dictionary<string, object?>(),
-            new Dictionary<string, object?> { ["ua.bot_name"] = "" },
-            new Dictionary<string, object?> { ["ua.family"] = "" },
-            new Dictionary<string, object?> { ["identity.archetype_name"] = "" },
+            new Dictionary<string, object>(),
+            new Dictionary<string, object> { ["ua.bot_name"] = "" },
+            new Dictionary<string, object> { ["ua.family"] = "" },
+            new Dictionary<string, object> { ["identity.archetype_name"] = "" },
         })
         {
             var name = FingerprintNameComposer.Compose(signals);
@@ -112,7 +112,7 @@ public class FingerprintNameComposerTests
     [Fact]
     public void Compose_UniqueSuffix_AppendsCountryAndSigPrefix()
     {
-        var name = FingerprintNameComposer.Compose(new Dictionary<string, object?>
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Chrome",
             ["user_agent.os"] = "Windows",

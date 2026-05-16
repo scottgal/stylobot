@@ -65,14 +65,9 @@ public static class DetectionLedgerExtensions
         var primaryBotType = isActuallyBot ? ParseBotType(ledger.BotType) : null;
 
         // PrimaryBotName is NEVER gated — every fingerprint always has a name (verdict label
-        // and name are separate concerns). Priority: matcher-set identity.display_name (the
-        // persisted, drift-gated name) → ledger.BotName (UA contributor's known-bot name) →
-        // null (only if neither path produced one; rare in production with Identity enabled).
-        var displayNameFromSignal = preSignals.TryGetValue(SignalKeys.IdentityDisplayName, out var dnObj)
-            ? dnObj as string : null;
-        var primaryBotName = !string.IsNullOrEmpty(displayNameFromSignal)
-            ? displayNameFromSignal
-            : (isActuallyBot ? ledger.BotName : null);
+        // and name are separate concerns). Prefer the matcher-set identity.display_name
+        // (persisted, drift-gated) over the ledger's UA-derived name.
+        var primaryBotName = ResolveDisplayName(preSignals, isActuallyBot ? ledger.BotName : null);
 
         // Handle early exit
         if (ledger.EarlyExit && ledger.EarlyExitContribution != null)
@@ -163,13 +158,7 @@ public static class DetectionLedgerExtensions
         // reputation-pattern id ("ip:::ffff::/48") that FastPathReputation supplied.
         // Confirmed-bad and high threat still escalate.
         var primaryBotType = ParseBotType(exitContrib.BotType);
-        // Prefer matcher-set identity.display_name (persisted, drift-gated) over the
-        // exit contribution's BotName when both are present. Same priority as the main path.
-        var earlyDisplayName = earlySignals.TryGetValue(SignalKeys.IdentityDisplayName, out var earlyDnObj)
-            ? earlyDnObj as string : null;
-        var primaryBotName = !string.IsNullOrEmpty(earlyDisplayName)
-            ? earlyDisplayName
-            : exitContrib.BotName;
+        var primaryBotName = ResolveDisplayName(earlySignals, exitContrib.BotName);
         if (verdict is EarlyExitVerdict.VerifiedBadBot)
         {
             var friendlyContrib = FindFriendlyBotContribution(ledger);
@@ -180,9 +169,10 @@ public static class DetectionLedgerExtensions
                 earlyRiskBand = RiskBand.Low;
                 earlyRiskJustification = $"identified as {friendlyType} (friendly automation; reputation-cache override)";
                 primaryBotType = friendlyType;
-                // Friendly-contributor BotName only overrides when display-name signal
-                // wasn't present (matcher didn't run, or no archetype matched).
-                if (!string.IsNullOrEmpty(friendlyContrib.BotName) && string.IsNullOrEmpty(earlyDisplayName))
+                // The friendly-contributor BotName only overrides when the matcher's
+                // display name signal wasn't present, so a matched archetype name wins.
+                if (!string.IsNullOrEmpty(friendlyContrib.BotName)
+                    && !earlySignals.ContainsKey(SignalKeys.IdentityDisplayName))
                     primaryBotName = friendlyContrib.BotName;
             }
         }
@@ -211,6 +201,19 @@ public static class DetectionLedgerExtensions
             ThreatScore = earlyThreatScore,
             ThreatBand = earlyThreatBand
         };
+    }
+
+    /// <summary>
+    ///     Returns the matcher-set <c>identity.display_name</c> when present, otherwise the
+    ///     caller's UA-derived fallback. Used by both the main and early-exit aggregator
+    ///     paths so the priority rule lives in one place.
+    /// </summary>
+    private static string? ResolveDisplayName(
+        IReadOnlyDictionary<string, object> signals, string? fallback)
+    {
+        var fromSignal = signals.TryGetValue(SignalKeys.IdentityDisplayName, out var v)
+            ? v as string : null;
+        return !string.IsNullOrEmpty(fromSignal) ? fromSignal : fallback;
     }
 
     private static (double ThreatScore, ThreatBand Band) ExtractThreatScore(
