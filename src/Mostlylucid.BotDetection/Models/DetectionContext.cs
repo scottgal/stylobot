@@ -529,6 +529,15 @@ public static class SignalKeys
     /// <summary>bool: this request's centroid update flipped inferred_client_type to a different archetype.</summary>
     public const string IdentityClientTypeDrift = "identity.client_type_drift";
 
+    /// <summary>string: human-readable display name of the matched archetype (e.g. "Chrome on Windows", "python-requests"). Written by FingerprintMatchContributor whenever a match resolves to an archetype.</summary>
+    public const string IdentityArchetypeName = "identity.archetype_name";
+
+    /// <summary>string?: optional descriptive text for the matched archetype. Written by FingerprintMatchContributor when present on the archetype.</summary>
+    public const string IdentityArchetypeDescription = "identity.archetype_description";
+
+    /// <summary>string?: dominant country code observed across the archetype's descendants. Used by the variance composer to detect geo-divergent fingerprints.</summary>
+    public const string IdentityArchetypeDominantCountry = "identity.archetype_dominant_country";
+
     /// <summary>bool: transport-layer dims are zero on what should be TLS-fronted traffic.</summary>
     public const string ConfigWarningCleartextHttp = "config.warning.cleartext_http";
 
