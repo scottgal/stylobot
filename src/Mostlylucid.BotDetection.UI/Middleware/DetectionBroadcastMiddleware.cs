@@ -168,8 +168,9 @@ public partial class DetectionBroadcastMiddleware
                                     && detection.CountryCode != "XX" && detection.CountryCode != "LOCAL")
                     await hubContext.Clients.All.BroadcastAttackArc(detection.CountryCode, detection.RiskBand ?? "Low");
 
-                // Feed signature to SignatureDescriptionService for LLM name/description synthesis
-                if (signatureDescriptionService != null && detection.IsBot &&
+                // Feed signature to SignatureDescriptionService for name/description synthesis.
+                // Humans flow through the same pipeline — naming is no longer a bot-only concern.
+                if (signatureDescriptionService != null &&
                     !string.IsNullOrEmpty(detection.PrimarySignature) && evidence.Signals is { Count: > 0 })
                 {
                     var nullableSignals = evidence.Signals.ToDictionary(
@@ -357,7 +358,7 @@ public partial class DetectionBroadcastMiddleware
         var upstreamCountry = context.Request.Headers["X-Bot-Detection-Country"].FirstOrDefault()
                               ?? ResolveCountryFromHeaders(context);
 
-        var botType = result.IsBot ? result.BotType?.ToString() : null;
+        var botType = result.BotType?.ToString();
 
         var importantSignals = ParseUpstreamSignals(context);
         EnrichProtocol(context, importantSignals);
@@ -375,7 +376,7 @@ public partial class DetectionBroadcastMiddleware
             Confidence = detectionConfidence,
             RiskBand = riskBand,
             BotType = botType,
-            BotName = result.IsBot ? result.BotName : null,
+            BotName = result.BotName,
             Action = context.Request.Headers["X-Bot-Detection-Action"].FirstOrDefault() ?? "Allow",
             PolicyName = "upstream",
             Method = context.Request.Method,
