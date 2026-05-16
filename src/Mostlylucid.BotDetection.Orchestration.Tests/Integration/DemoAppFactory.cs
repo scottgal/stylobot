@@ -89,8 +89,14 @@ public sealed class DemoAppFactory : IAsyncLifetime
 }
 
 /// <summary>
-///     xUnit collection definition to share the Demo app server across all Puppeteer test classes.
-///     All test classes using [Collection("DemoApp")] share a single server instance.
+///     xUnit collection definition to share the Demo app server across all test classes
+///     that use it. <c>DisableParallelization = true</c> is essential: BDF replay
+///     scenarios share one Demo instance and reset the identity store between scenarios.
+///     Without serialisation, theory cases run concurrently against the same process,
+///     one scenario's <c>/reset-identity</c> races with another scenario's
+///     <c>/replay</c> requests, and identity emission becomes flaky (1/N requests miss
+///     <c>identity.fingerprint_id</c> as the matcher's per-call store reads see a
+///     transiently-empty fingerprints.db mid-reset).
 /// </summary>
-[CollectionDefinition("DemoApp")]
+[CollectionDefinition("DemoApp", DisableParallelization = true)]
 public class DemoAppCollection : ICollectionFixture<DemoAppFactory>;
