@@ -103,6 +103,9 @@ public sealed class IdentityMatchOptions
 
     /// <summary>Number of dims listed in identity.rotation_dimensions when in the rotation band.</summary>
     public int RotationDimensionsTopK { get; set; } = 5;
+
+    /// <summary>Minimum width-normalised top-slot score required before the matcher writes the drift-top-slot signals. Below this, a small float-noise drift would name every fingerprint as "drifted". Default 0.05.</summary>
+    public double DriftEpsilon { get; set; } = 0.05;
 }
 
 public sealed class IdentityWeightsOptions

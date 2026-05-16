@@ -538,6 +538,15 @@ public static class SignalKeys
     /// <summary>string?: dominant country code observed across the archetype's descendants. Used by the variance composer to detect geo-divergent fingerprints.</summary>
     public const string IdentityArchetypeDominantCountry = "identity.archetype_dominant_country";
 
+    /// <summary>string?: name of the layout slot with the largest width-normalised Fisher-weighted L2 distance between the observed identity vector and the matched archetype's centroid (e.g. "network.country", "hdr.sec_ch_ua_brands_ordered"). Written by FingerprintMatchContributor after a match. Null when no archetype matched or drift is below DriftEpsilon.</summary>
+    public const string IdentityDriftTopSlot = "identity.drift_top_slot";
+
+    /// <summary>double: width-normalised Fisher-weighted squared distance for the top-drift slot. Lower = closer to centroid. Width normalisation prevents wide LSH slots from auto-winning purely on dimension count.</summary>
+    public const string IdentityDriftTopScore = "identity.drift_top_score";
+
+    /// <summary>string?: coarse category prefix of the top-drift slot ("network", "locale", "hdr", "tool", etc.). Lets the synthesizer map drift to a label class without parsing the full slot name.</summary>
+    public const string IdentityDriftTopCategory = "identity.drift_top_category";
+
     /// <summary>bool: transport-layer dims are zero on what should be TLS-fronted traffic.</summary>
     public const string ConfigWarningCleartextHttp = "config.warning.cleartext_http";
 
