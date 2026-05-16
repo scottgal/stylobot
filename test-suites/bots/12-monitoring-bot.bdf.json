@@ -1,0 +1,16 @@
+{
+  "scenarioName": "monitoring-bot",
+  "description": "Uptime monitoring bots (UptimeRobot, Pingdom). Declared bots - should be correctly detected as bots. Policy (GoodBot allow-list) determines blocking; detection must flag them.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0+(compatible; UptimeRobot/2.0; http://www.uptimerobot.com/)",
+        "Accept": "text/html"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.6, "riskBand": "Medium" }
+    }
+  ]
+}

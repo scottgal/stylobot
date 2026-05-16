@@ -1,0 +1,52 @@
+{
+  "scenarioName": "python-requests-scraper",
+  "description": "python-requests scraper: triggers UserAgent, Header (no browser fingerprint). Classic data scraping pattern.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0",
+        "Accept-Encoding": "gzip, deflate",
+        "Accept": "*/*",
+        "Connection": "keep-alive"
+      },
+      "delayAfter": 0.1,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/posts?page=1",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0",
+        "Accept-Encoding": "gzip, deflate",
+        "Accept": "*/*",
+        "Connection": "keep-alive"
+      },
+      "delayAfter": 0.08,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/posts?page=2",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0",
+        "Accept-Encoding": "gzip, deflate",
+        "Accept": "*/*"
+      },
+      "delayAfter": 0.08,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/posts?page=3",
+      "headers": {
+        "User-Agent": "python-requests/2.31.0",
+        "Accept-Encoding": "gzip, deflate",
+        "Accept": "*/*"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    }
+  ]
+}

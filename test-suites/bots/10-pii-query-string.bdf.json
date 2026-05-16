@@ -1,0 +1,36 @@
+{
+  "scenarioName": "pii-query-string",
+  "description": "PII in query strings: SSN, credit card, email in URL params. Triggers PiiQueryString detector.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/lookup?ssn=123-45-6789",
+      "headers": {
+        "User-Agent": "python-requests/2.28.0",
+        "Accept": "application/json"
+      },
+      "delayAfter": 0.1,
+      "expectedDetection": { "isBot": true, "botProbability": 0.85, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/payment?card=4111111111111111&cvv=123&exp=12/25",
+      "headers": {
+        "User-Agent": "python-requests/2.28.0",
+        "Accept": "application/json"
+      },
+      "delayAfter": 0.1,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/search?dob=1985-03-15&name=John+Smith",
+      "headers": {
+        "User-Agent": "python-requests/2.28.0",
+        "Accept": "application/json"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.8, "riskBand": "High" }
+    }
+  ]
+}

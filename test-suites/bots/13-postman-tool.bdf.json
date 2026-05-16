@@ -1,0 +1,31 @@
+{
+  "scenarioName": "postman-tool",
+  "description": "Postman developer tool: PostmanRuntime UA, no browser headers. Correctly detected as tool/bot. Whether to block is a policy decision; detection must flag it.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/users",
+      "headers": {
+        "User-Agent": "PostmanRuntime/7.36.1",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive"
+      },
+      "delayAfter": 1.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.7, "riskBand": "Medium" }
+    },
+    {
+      "method": "POST",
+      "path": "/api/users",
+      "headers": {
+        "User-Agent": "PostmanRuntime/7.36.1",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Content-Type": "application/json",
+        "Connection": "keep-alive"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.7, "riskBand": "Medium" }
+    }
+  ]
+}

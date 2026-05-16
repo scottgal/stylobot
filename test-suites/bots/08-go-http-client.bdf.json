@@ -1,0 +1,46 @@
+{
+  "scenarioName": "go-http-client-scraper",
+  "description": "Go HTTP client scraper: Go-http-client UA, minimal headers, machine-speed requests. Triggers UserAgent + Header detectors.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0",
+        "Accept-Encoding": "gzip"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0",
+        "Accept-Encoding": "gzip"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/posts",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0",
+        "Accept-Encoding": "gzip"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/products",
+      "headers": {
+        "User-Agent": "Go-http-client/2.0",
+        "Accept-Encoding": "gzip"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "scenarioName": "adv-fp-text-browser",
+  "description": "ADVERSARIAL FALSE POSITIVE: w3m/lynx text browser - legitimate user, minimal headers, no JavaScript. These are real accessibility tools used by real people. Must NOT be blocked.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Lynx/2.8.9rel.1 libwww-FM/2.14 SSL-MM/1.4.1 OpenSSL/1.1.1k",
+        "Accept": "text/html, text/plain, text/sgml, */*;q=0.01",
+        "Accept-Language": "en",
+        "Accept-Encoding": "gzip, compress"
+      },
+      "delayAfter": 3.0,
+      "expectedDetection": { "isBot": false, "botProbability": 0.5, "riskBand": "Medium" }
+    },
+    {
+      "method": "GET",
+      "path": "/about",
+      "headers": {
+        "User-Agent": "Lynx/2.8.9rel.1 libwww-FM/2.14 SSL-MM/1.4.1 OpenSSL/1.1.1k",
+        "Accept": "text/html, text/plain, text/sgml, */*;q=0.01",
+        "Accept-Language": "en",
+        "Accept-Encoding": "gzip, compress"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": false, "botProbability": 0.5, "riskBand": "Medium" }
+    }
+  ]
+}

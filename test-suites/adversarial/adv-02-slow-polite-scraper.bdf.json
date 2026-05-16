@@ -1,0 +1,112 @@
+{
+  "scenarioName": "adv-slow-polite-scraper",
+  "description": "ADVERSARIAL: Slow polite scraper with full Chrome headers + human-paced delays. BDF replay CANNOT catch this - no real TLS/H2 fingerprint available. In production, TLS fingerprint mismatch (curl JA3 vs Chrome JA3) catches it. Expectations reflect replay limitations: requests are borderline not-bot. Production sensitivity: high.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Ch-Ua": "\"Google Chrome\";v=\"131\", \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"",
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": "\"macOS\"",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1"
+      },
+      "delayAfter": 1.4,
+      "expectedDetection": {
+        "isBot": false,
+        "botProbability": 0.4,
+        "riskBand": "Low"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/products",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Ch-Ua": "\"Google Chrome\";v=\"131\", \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"",
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": "\"macOS\"",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Referer": "http://localhost:5080/"
+      },
+      "delayAfter": 2.1,
+      "expectedDetection": {
+        "isBot": false,
+        "botProbability": 0.4,
+        "riskBand": "Low"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/products?page=1",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "Referer": "http://localhost:5080/products"
+      },
+      "delayAfter": 0.9,
+      "expectedDetection": {
+        "isBot": false,
+        "botProbability": 0.4,
+        "riskBand": "Low"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/products?page=2",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "Referer": "http://localhost:5080/products"
+      },
+      "delayAfter": 0.9,
+      "expectedDetection": {
+        "isBot": false,
+        "botProbability": 0.4,
+        "riskBand": "Low"
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/products?page=3",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
+        "Referer": "http://localhost:5080/products"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": {
+        "isBot": false,
+        "botProbability": 0.4,
+        "riskBand": "Low"
+      }
+    }
+  ]
+}

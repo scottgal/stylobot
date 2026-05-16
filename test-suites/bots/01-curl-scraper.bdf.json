@@ -1,0 +1,45 @@
+{
+  "scenarioName": "curl-scraper",
+  "description": "curl scraper: triggers UserAgent (curl UA), Header (missing browser headers), CacheBehavior (no cache headers). Should be high-confidence bot.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "curl/8.7.1",
+        "Accept": "*/*"
+      },
+      "delayAfter": 0.05,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/posts",
+      "headers": {
+        "User-Agent": "curl/8.7.1",
+        "Accept": "*/*"
+      },
+      "delayAfter": 0.05,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/users",
+      "headers": {
+        "User-Agent": "curl/8.7.1",
+        "Accept": "*/*"
+      },
+      "delayAfter": 0.05,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/sitemap.xml",
+      "headers": {
+        "User-Agent": "curl/8.7.1"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    }
+  ]
+}

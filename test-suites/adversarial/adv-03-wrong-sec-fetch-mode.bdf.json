@@ -1,0 +1,56 @@
+{
+  "scenarioName": "adv-wrong-sec-fetch-mode",
+  "description": "ADVERSARIAL: Bot with correct Sec-Fetch headers but wrong mode for the request type. Uses Sec-Fetch-Mode: navigate for API JSON calls (real browser would use cors/no-cors). Triggers Inconsistency detector.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Ch-Ua": "\"Google Chrome\";v=\"131\"",
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": "\"Windows\"",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none"
+      },
+      "delayAfter": 0.05,
+      "expectedDetection": { "isBot": true, "botProbability": 0.6, "riskBand": "Medium" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/users",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Ch-Ua": "\"Google Chrome\";v=\"131\"",
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin"
+      },
+      "delayAfter": 0.05,
+      "expectedDetection": { "isBot": true, "botProbability": 0.65, "riskBand": "Medium" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/posts",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.65, "riskBand": "Medium" }
+    }
+  ]
+}

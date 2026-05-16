@@ -1,0 +1,46 @@
+{
+  "scenarioName": "ai-scrapers",
+  "description": "AI training scrapers: GPTBot, ClaudeBot, CCBot, Amazonbot, PerplexityBot. Triggers AiScraper detector.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.0; +https://openai.com/gptbot)",
+        "Accept": "text/html,application/xhtml+xml"
+      },
+      "delayAfter": 0.5,
+      "expectedDetection": { "isBot": true, "botProbability": 0.85, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/blog/post-1",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +https://anthropic.com/claude-bot)",
+        "Accept": "text/html"
+      },
+      "delayAfter": 0.4,
+      "expectedDetection": { "isBot": true, "botProbability": 0.85, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/blog/post-2",
+      "headers": {
+        "User-Agent": "CCBot/2.0 (https://commoncrawl.org/faq/)",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+      },
+      "delayAfter": 0.6,
+      "expectedDetection": { "isBot": true, "botProbability": 0.85, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/about",
+      "headers": {
+        "User-Agent": "Amazonbot/0.1 (+https://developer.amazon.com/support/amazonbot)",
+        "Accept": "text/html"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.85, "riskBand": "High" }
+    }
+  ]
+}

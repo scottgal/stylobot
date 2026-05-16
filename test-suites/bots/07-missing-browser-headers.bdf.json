@@ -1,0 +1,39 @@
+{
+  "scenarioName": "missing-browser-headers",
+  "description": "Bot pretending to be Chrome but missing Sec-Fetch-*, Sec-Ch-Ua-* client hints, and no Accept-Language (key browser tell). Detection builds over multiple requests via BehavioralWaveform + Inconsistency. First 2 requests are borderline; detection firms up by request 3.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br"
+      },
+      "delayAfter": 0.2,
+      "expectedDetection": { "isBot": false, "botProbability": 0.4, "riskBand": "Low" }
+    },
+    {
+      "method": "GET",
+      "path": "/blog",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml",
+        "Accept-Encoding": "gzip, deflate, br"
+      },
+      "delayAfter": 0.15,
+      "expectedDetection": { "isBot": false, "botProbability": 0.4, "riskBand": "Low" }
+    },
+    {
+      "method": "GET",
+      "path": "/contact",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "text/html",
+        "Accept-Encoding": "gzip, deflate, br"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.6, "riskBand": "Medium" }
+    }
+  ]
+}

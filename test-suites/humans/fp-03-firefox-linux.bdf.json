@@ -1,0 +1,38 @@
+{
+  "scenarioName": "fp-firefox-linux-human",
+  "description": "FALSE POSITIVE PREVENTION: Firefox on Linux - developer workstation browsing. Full browser headers, natural timing. Must NOT be blocked.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Upgrade-Insecure-Requests": "1"
+      },
+      "delayAfter": 0.9,
+      "expectedDetection": { "isBot": false, "botProbability": 0.35, "riskBand": "Low" }
+    },
+    {
+      "method": "GET",
+      "path": "/docs",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Referer": "http://localhost:5080/"
+      },
+      "delayAfter": 2.3,
+      "expectedDetection": { "isBot": false, "botProbability": 0.35, "riskBand": "Low" }
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "scenarioName": "adv-fp-rss-reader",
+  "description": "ADVERSARIAL FALSE POSITIVE: Feedly RSS reader fetching feed. Declares itself, predictable timing, minimal headers. Legitimate service - should NOT be blocked as malicious. May be detected as GoodBot.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/feed.xml",
+      "headers": {
+        "User-Agent": "Feedly/1.0 (+http://www.feedly.com/fetcher.html; 10 subscribers; like FeedFetcher-Google)",
+        "Accept": "application/rss+xml, application/rdf+xml, application/atom+xml, application/xml, text/xml",
+        "Accept-Encoding": "gzip"
+      },
+      "delayAfter": 3600.0,
+      "expectedDetection": { "isBot": false, "botProbability": 0.5, "riskBand": "Medium" }
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "scenarioName": "rapid-api-scraper",
+  "description": "Machine-speed API scraper: consistent 20ms timing, predictable paths, no behavioral variation. Triggers Behavioral + Heuristic detectors.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/items?page=1",
+      "headers": {
+        "User-Agent": "axios/1.6.0",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Encoding": "gzip, compress, deflate, br"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.85, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/items?page=2",
+      "headers": {
+        "User-Agent": "axios/1.6.0",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Encoding": "gzip, compress, deflate, br"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.85, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/items?page=3",
+      "headers": {
+        "User-Agent": "axios/1.6.0",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Encoding": "gzip, compress, deflate, br"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.85, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/items?page=4",
+      "headers": {
+        "User-Agent": "axios/1.6.0",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Encoding": "gzip, compress, deflate, br"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.85, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/items?page=5",
+      "headers": {
+        "User-Agent": "axios/1.6.0",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Encoding": "gzip, compress, deflate, br"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.85, "riskBand": "High" }
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "scenarioName": "security-tools",
+  "description": "Security scanner tools: Nikto, sqlmap, Nuclei, dirb. Triggers SecurityTool and Haxxor detectors.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.00 (Nikto/2.1.6) (Evasions:None) (Test:002811)"
+      },
+      "delayAfter": 0.02,
+      "expectedDetection": { "isBot": true, "botProbability": 0.95, "riskBand": "VeryHigh" }
+    },
+    {
+      "method": "GET",
+      "path": "/index.php?id=1' OR '1'='1",
+      "headers": {
+        "User-Agent": "sqlmap/1.7.8#stable (https://sqlmap.org)"
+      },
+      "delayAfter": 0.01,
+      "expectedDetection": { "isBot": true, "botProbability": 0.95, "riskBand": "VeryHigh" }
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Nuclei - Open-source project (github.com/projectdiscovery/nuclei)"
+      },
+      "delayAfter": 0.01,
+      "expectedDetection": { "isBot": true, "botProbability": 0.95, "riskBand": "VeryHigh" }
+    },
+    {
+      "method": "GET",
+      "path": "/.env",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (compatible; ZGrab/0.x)"
+      },
+      "delayAfter": 0.0,
+      "expectedDetection": { "isBot": true, "botProbability": 0.95, "riskBand": "VeryHigh" }
+    }
+  ]
+}

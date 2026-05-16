@@ -483,7 +483,6 @@ stylobot-react/
 logs/
 nupkgs/
 signing/
-test-suites/
 test-bdf-scenarios/
 demo/
 .claude/
