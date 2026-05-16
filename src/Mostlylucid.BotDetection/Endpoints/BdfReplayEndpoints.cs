@@ -266,7 +266,10 @@ public static class BdfReplayEndpoints
                 [Models.SignalKeys.PrimarySignature] = signals.ContainsKey(Models.SignalKeys.PrimarySignature),
                 [Models.SignalKeys.UserAgentBotName] = signals.ContainsKey(Models.SignalKeys.UserAgentBotName),
                 [Models.SignalKeys.UserAgentBotType] = signals.ContainsKey(Models.SignalKeys.UserAgentBotType),
-                [Models.SignalKeys.UserAgentFamily]  = signals.ContainsKey(Models.SignalKeys.UserAgentFamily)
+                [Models.SignalKeys.UserAgentFamily]  = signals.ContainsKey(Models.SignalKeys.UserAgentFamily),
+                // Foundation signal asserted by the synthesizer's archetype-name branch.
+                // Only meaningful when Identity:Enabled = true; absent at every-request when off.
+                [Models.SignalKeys.IdentityArchetypeName] = signals.ContainsKey(Models.SignalKeys.IdentityArchetypeName)
             };
 
             // Identity match outputs (null when Identity.Enabled = false)
