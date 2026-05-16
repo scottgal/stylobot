@@ -379,6 +379,12 @@ public static class StyloBotDashboardServiceExtensions
         // Detection middleware
         app.UseBotDetection();
 
+        // URL-rewrite (signal-injection) middleware. No-op unless
+        // BotDetection:UrlRewrite:Enabled is true. Sits right after detection so
+        // every downstream handler — dashboard, MVC, YARP — sees the rewritten
+        // query string. See UrlRewriteSignalsMiddleware for the security model.
+        app.UseBotDetectionUrlRewrite();
+
         if (options?.Enabled == true)
         {
             // Dashboard UI middleware

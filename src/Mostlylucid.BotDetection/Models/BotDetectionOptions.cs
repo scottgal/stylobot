@@ -546,6 +546,16 @@ public class BotDetectionOptions
     public IdentityOptions Identity { get; set; } = new();
 
     /// <summary>
+    ///     URL rewrite: inject detection signals as query params on the forwarded
+    ///     request (in addition to the headers <c>AddBotDetectionHeaders</c> already
+    ///     emits). Lets CDNs cache per-signal natively — GB humans, US humans, and
+    ///     bots hit separate cache entries by URL alone, no <c>Vary</c> needed.
+    ///     Disabled by default — flip via <c>BotDetection:UrlRewrite:Enabled</c>.
+    ///     See docs/url-rewrite-signals.md.
+    /// </summary>
+    public UrlRewriteOptions UrlRewrite { get; set; } = new();
+
+    /// <summary>
     ///     Enable database WAL mode for better concurrent access (SQLite only).
     ///     Recommended for production.
     /// </summary>
@@ -4026,4 +4036,117 @@ public sealed class SelfMaintenanceOptions
         HighPerformanceMode    = true,
         LearningQueueDepth     = 500,
     };
+}
+
+/// <summary>
+///     URL rewrite: inject detection signals as query params on the forwarded
+///     request, so CDNs can cache per-signal without a <c>Vary</c> header. Designed
+///     to be added at the gateway hop (after detection has run) so the upstream
+///     origin and any intermediate CDN see the signals baked into the URL.
+///
+///     <para>
+///     <b>Security model.</b> The integrity of upstream decisions made from
+///     these params depends on three guarantees, all enforced here:
+///     </para>
+///     <list type="bullet">
+///         <item>
+///             <b>Strip-existing</b> (<see cref="StripExisting"/>, default true)
+///             removes any inbound param whose name matches <see cref="Prefix"/>
+///             so a client cannot pre-populate <c>sb_country=US</c> before the
+///             signed set is added. Disabling this is a bypass and must be done
+///             only when the upstream does its own validation.
+///         </item>
+///         <item>
+///             <b>HMAC signing</b> (<see cref="Sign"/>, default true) binds the
+///             param set to <c>BotDetection:SignatureHashKey</c>. Upstream must
+///             reject requests whose <c>sb_sig</c> doesn't match. Disabling
+///             this means downstream tiers can be lied to.
+///         </item>
+///         <item>
+///             <b>Explicit scope</b>. Every path that flows through here MUST
+///             appear in <see cref="PathPatterns"/> (or <see cref="ApplyTo"/> is
+///             <see cref="UrlRewriteScope.All"/>). Anything in
+///             <see cref="PathExclusions"/> will NOT carry signed signals — so if
+///             your upstream still trusts inbound <c>sb_*</c> on those paths,
+///             you've created a bypass. Either don't exclude, or have the
+///             upstream strip unsigned <c>sb_*</c> on excluded paths.
+///         </item>
+///     </list>
+///     See <c>docs/url-rewrite-signals.md</c> for the full threat model and
+///     end-to-end verification recipe.
+/// </summary>
+public sealed class UrlRewriteOptions
+{
+    /// <summary>Master switch — false means the projection helper is a no-op.</summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    ///     Prefix for every emitted param. Keeps StyloBot's signals namespaced and
+    ///     makes the strip-existing pass surgical instead of accidentally torching
+    ///     the origin's own params.
+    /// </summary>
+    public string Prefix { get; set; } = "sb_";
+
+    /// <summary>
+    ///     Which signals to project. Names match the canonical short forms used by
+    ///     <c>AddBotDetectionHeaders</c> — <c>is_bot</c>, <c>probability</c>,
+    ///     <c>risk_band</c>, <c>country</c>, <c>is_vpn</c>, <c>is_datacenter</c>,
+    ///     <c>fingerprint_id</c>, <c>client_type</c>, <c>action</c>,
+    ///     <c>threat_score</c>, <c>threat_band</c>, <c>bot_type</c>.
+    /// </summary>
+    public List<string> Signals { get; set; } = new()
+    {
+        "country", "is_bot", "probability", "risk_band", "is_datacenter", "is_vpn"
+    };
+
+    /// <summary>
+    ///     HMAC-sign the projected param set with <c>SignatureHashKey</c>. Upstreams
+    ///     reject any request whose <c>sb_sig</c> doesn't match — defends against
+    ///     a client crafting their own params to spoof signals.
+    ///     <b>Disabling this lets downstream tiers be lied to by anyone who can
+    ///     reach the gateway URL.</b> Only set false if every consumer of these
+    ///     params has its own out-of-band auth.
+    /// </summary>
+    public bool Sign { get; set; } = true;
+
+    /// <summary>
+    ///     Before adding ours, strip any incoming params already using <see cref="Prefix"/>.
+    ///     Prevents a client from pre-populating their own <c>sb_country=US</c>
+    ///     before the signed set lands.
+    ///     <b>Disabling this is a direct bypass</b> — leave true unless the
+    ///     upstream re-validates the signature itself and rejects on mismatch.
+    /// </summary>
+    public bool StripExisting { get; set; } = true;
+
+    /// <summary>
+    ///     Scope: <c>all</c> applies to every forwarded request; <c>patterns</c> uses
+    ///     <see cref="PathPatterns"/> / <see cref="PathExclusions"/>.
+    /// </summary>
+    public UrlRewriteScope ApplyTo { get; set; } = UrlRewriteScope.Patterns;
+
+    /// <summary>
+    ///     Path patterns to include. Supports <c>/prefix/*</c> (StartsWithSegments)
+    ///     and <c>*.ext</c> (EndsWith) and exact paths. Only used when
+    ///     <see cref="ApplyTo"/> is <see cref="UrlRewriteScope.Patterns"/>.
+    /// </summary>
+    public List<string> PathPatterns { get; set; } = new() { "/api/*" };
+
+    /// <summary>
+    ///     Path patterns to exclude. Same shape as <see cref="PathPatterns"/>.
+    ///     <b>Empty by default — exclusions are a security knob and are not
+    ///     pre-populated.</b> The include set in <see cref="PathPatterns"/>
+    ///     already constrains scope, so the only reason to add an exclusion is
+    ///     a path that matches an include but where you explicitly do NOT want
+    ///     signed signals injected (e.g. a webhook that hashes its own body).
+    ///     Anything you exclude is a path where downstream tiers will see
+    ///     unsigned (or no) <c>sb_*</c> params — if those tiers trust inbound
+    ///     params, you've created a bypass. Audit upstream before adding entries.
+    /// </summary>
+    public List<string> PathExclusions { get; set; } = new();
+}
+
+public enum UrlRewriteScope
+{
+    All,
+    Patterns,
 }
