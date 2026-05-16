@@ -30,6 +30,23 @@ public sealed record Fingerprint
     ///     values reveal boundary-probing — see task #42.
     /// </summary>
     public double AmbiguityPersistence { get; init; }
+
+    /// <summary>
+    ///     Human-readable display name. Generated once at allocation via
+    ///     <c>FingerprintNameComposer.Compose</c> from the matched archetype + UA
+    ///     characterization. Updated only when drift exceeds <c>Match.SignificantDriftEpsilon</c>.
+    ///     Empty for rows migrated from before the column existed; the matcher backfills on
+    ///     next match. The contract elsewhere is "every fingerprint always has a name" — this
+    ///     field's default is empty only to support migration, never as a runtime steady state.
+    /// </summary>
+    public string DisplayName { get; init; } = "";
+
+    /// <summary>
+    ///     UTC timestamp when <see cref="DisplayName"/> was last computed. Used by the
+    ///     significant-drift path to decide whether enough has changed to warrant a recompute,
+    ///     and surfaced to the dashboard as a freshness signal.
+    /// </summary>
+    public DateTime DisplayNameUpdatedAt { get; init; }
 }
 
 /// <summary>

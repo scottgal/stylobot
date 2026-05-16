@@ -243,7 +243,8 @@ public sealed class SqliteFingerprintStore
                    observation_count, correction_count, first_seen, last_seen, quality,
                    archetype_origin, inferred_client_type, inferred_type_confidence,
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
-                   cached_score_updated_at, ambiguity_persistence
+                   cached_score_updated_at, ambiguity_persistence,
+                   display_name, display_name_updated_at
               FROM fingerprints WHERE fingerprint_id = @id
             """;
         cmd.Parameters.AddWithValue("@id", fingerprintId);
@@ -268,13 +269,15 @@ public sealed class SqliteFingerprintStore
                     observation_count, correction_count, first_seen, last_seen, quality,
                     archetype_origin, inferred_client_type, inferred_type_confidence,
                     inferred_type_changed_at, cached_bot_probability, cached_risk_band,
-                    cached_score_updated_at, ambiguity_persistence
+                    cached_score_updated_at, ambiguity_persistence,
+                    display_name, display_name_updated_at
                 ) VALUES (
                     @id, @centroid, @maturity, @weights, @members,
                     @observations, @corrections, @first_seen, @last_seen, @quality,
                     @origin, @inferred_type, @inferred_conf,
                     @inferred_changed, @cached_prob, @cached_band,
-                    @cached_updated, @ambiguity
+                    @cached_updated, @ambiguity,
+                    @display_name, @display_name_updated
                 )
                 """;
             cmd.Parameters.AddWithValue("@id", fp.FingerprintId);
@@ -296,6 +299,9 @@ public sealed class SqliteFingerprintStore
             cmd.Parameters.AddWithValue("@cached_updated",
                 (object?)fp.CachedScoreUpdatedAt?.ToString("O") ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@ambiguity", fp.AmbiguityPersistence);
+            cmd.Parameters.AddWithValue("@display_name", fp.DisplayName ?? "");
+            cmd.Parameters.AddWithValue("@display_name_updated",
+                fp.DisplayNameUpdatedAt == default ? "" : fp.DisplayNameUpdatedAt.ToString("O"));
             await cmd.ExecuteNonQueryAsync(ct);
         }
 
@@ -341,6 +347,34 @@ public sealed class SqliteFingerprintStore
         cmd.Parameters.AddWithValue("@sig", primarySignature);
         cmd.Parameters.AddWithValue("@id", fingerprintId);
         cmd.Parameters.AddWithValue("@now", now);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    ///     Updates a fingerprint's display name and timestamp. Called from
+    ///     <c>FingerprintMatchContributor</c> on two paths: (1) lazy backfill when a row
+    ///     migrated from before the column existed is matched and its <c>DisplayName</c>
+    ///     is empty; (2) significant-drift recompute (drift score above
+    ///     <c>Match.SignificantDriftEpsilon</c>). Idempotent; no-op when the row doesn't
+    ///     exist.
+    /// </summary>
+    public async Task UpdateDisplayNameAsync(
+        string fingerprintId, string displayName, DateTime updatedAt, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(fingerprintId)) return;
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE fingerprints
+               SET display_name = @name,
+                   display_name_updated_at = @ts
+             WHERE fingerprint_id = @id
+            """;
+        cmd.Parameters.AddWithValue("@name", displayName ?? "");
+        cmd.Parameters.AddWithValue("@ts", updatedAt.ToString("O"));
+        cmd.Parameters.AddWithValue("@id", fingerprintId);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -610,7 +644,8 @@ public sealed class SqliteFingerprintStore
                    observation_count, correction_count, first_seen, last_seen, quality,
                    archetype_origin, inferred_client_type, inferred_type_confidence,
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
-                   cached_score_updated_at, ambiguity_persistence
+                   cached_score_updated_at, ambiguity_persistence,
+                   display_name, display_name_updated_at
               FROM fingerprints
             """;
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -664,7 +699,8 @@ public sealed class SqliteFingerprintStore
                    observation_count, correction_count, first_seen, last_seen, quality,
                    archetype_origin, inferred_client_type, inferred_type_confidence,
                    inferred_type_changed_at, cached_bot_probability, cached_risk_band,
-                   cached_score_updated_at, ambiguity_persistence
+                   cached_score_updated_at, ambiguity_persistence,
+                   display_name, display_name_updated_at
               FROM fingerprints
              WHERE observation_count > 0
                AND (cached_score_updated_at IS NULL OR cached_score_updated_at < @cutoff)
@@ -1006,7 +1042,11 @@ public sealed class SqliteFingerprintStore
         CachedScoreUpdatedAt = reader.IsDBNull(16)
             ? null
             : DateTime.Parse(reader.GetString(16), null, System.Globalization.DateTimeStyles.RoundtripKind),
-        AmbiguityPersistence = reader.GetDouble(17)
+        AmbiguityPersistence = reader.GetDouble(17),
+        DisplayName = reader.GetString(18),
+        DisplayNameUpdatedAt = string.IsNullOrEmpty(reader.GetString(19))
+            ? default
+            : DateTime.Parse(reader.GetString(19), null, System.Globalization.DateTimeStyles.RoundtripKind)
     };
 
     /// <summary>

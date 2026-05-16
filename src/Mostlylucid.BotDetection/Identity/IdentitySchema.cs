@@ -28,7 +28,9 @@ internal static class IdentitySchema
             cached_bot_probability      REAL NOT NULL DEFAULT 0,
             cached_risk_band            TEXT,
             cached_score_updated_at     TEXT,
-            ambiguity_persistence       REAL NOT NULL DEFAULT 0
+            ambiguity_persistence       REAL NOT NULL DEFAULT 0,
+            display_name                TEXT NOT NULL DEFAULT '',
+            display_name_updated_at     TEXT NOT NULL DEFAULT ''
         );
 
         CREATE TABLE IF NOT EXISTS fingerprint_keys (
@@ -109,6 +111,10 @@ internal static class IdentitySchema
     {
         await TryAddColumnAsync(conn,
             "ALTER TABLE fingerprints ADD COLUMN ambiguity_persistence REAL NOT NULL DEFAULT 0", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN display_name TEXT NOT NULL DEFAULT ''", ct);
+        await TryAddColumnAsync(conn,
+            "ALTER TABLE fingerprints ADD COLUMN display_name_updated_at TEXT NOT NULL DEFAULT ''", ct);
     }
 
     private static async Task TryAddColumnAsync(SqliteConnection conn, string sql, CancellationToken ct)
