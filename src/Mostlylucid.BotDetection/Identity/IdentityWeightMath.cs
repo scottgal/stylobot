@@ -1,6 +1,13 @@
 namespace Mostlylucid.BotDetection.Identity;
 
 /// <summary>
+///     One named slot's drift score from the matched archetype's centroid, plus the slot's
+///     coarse category prefix (the substring before the first '.'). Returned by
+///     <see cref="IdentityWeightMath.TopDriftSlot"/>.
+/// </summary>
+internal readonly record struct DriftResult(string SlotName, double Score, string Category);
+
+/// <summary>
 ///     Pure-function helpers for the per-fingerprint weight vector. Both learning signals
 ///     (corrections and stability) call through here so the renormalisation and clamp rules are
 ///     applied identically. See docs/architecture/fingerprint-match.md.
@@ -188,5 +195,46 @@ internal static class IdentityWeightMath
         for (var d = 0; d < dim; d++)
             refined[d] = (float)((1 - alpha) * archetypeCentroid[d] + alpha * mean[d]);
         return refined;
+    }
+
+    /// <summary>
+    ///     Returns the named layout slot with the largest weighted L2 distance between observed
+    ///     and centroid, normalised by slot width so wide LSH slots do not auto-win purely on
+    ///     dimension count (especially pre-calibration when all weights are uniform). Per-dim
+    ///     contribution is (observed - centroid)² × weight; the slot's total is divided by
+    ///     slot.Width.
+    ///
+    ///     Returns null when vectors are identical, lengths mismatch, or the layout dimension
+    ///     does not equal the vector length.
+    /// </summary>
+    public static DriftResult? TopDriftSlot(
+        ReadOnlySpan<float> observed,
+        ReadOnlySpan<float> centroid,
+        ReadOnlySpan<float> weights,
+        IdentityVectorLayout layout)
+    {
+        if (observed.Length != centroid.Length || observed.Length != weights.Length) return null;
+        if (observed.Length != layout.Dimension) return null;
+
+        string? bestSlot = null;
+        var bestScore = 0.0;
+        foreach (var slot in layout.Slots)
+        {
+            var score = 0.0;
+            for (var i = slot.Offset; i < slot.Offset + slot.Width; i++)
+            {
+                var diff = observed[i] - centroid[i];
+                score += diff * diff * weights[i];
+            }
+            if (slot.Width > 0) score /= slot.Width;
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestSlot = slot.Name;
+            }
+        }
+        if (bestSlot is null) return null;
+        var dot = bestSlot.IndexOf('.');
+        return new DriftResult(bestSlot, bestScore, dot > 0 ? bestSlot[..dot] : bestSlot);
     }
 }
