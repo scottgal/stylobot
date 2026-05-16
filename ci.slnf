@@ -24,7 +24,8 @@
       "src/Mostlylucid.BotDetection.ApiHolodeck/Mostlylucid.BotDetection.ApiHolodeck.csproj",
       "src/Mostlylucid.BotDetection.Api/Mostlylucid.BotDetection.Api.csproj",
       "src/Mostlylucid.BotDetection.Api.Tests/Mostlylucid.BotDetection.Api.Tests.csproj",
-      "src/Mostlylucid.BotDetection.Llm/Mostlylucid.BotDetection.Llm.csproj"
+      "src/Mostlylucid.BotDetection.Llm/Mostlylucid.BotDetection.Llm.csproj",
+      "src/Mostlylucid.BotDetection.Sidecar/Mostlylucid.BotDetection.Sidecar.csproj"
     ]
   }
 }

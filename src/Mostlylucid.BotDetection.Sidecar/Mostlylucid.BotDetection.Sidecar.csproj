@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <OutputType>Exe</OutputType>
     <RootNamespace>Mostlylucid.BotDetection.Sidecar</RootNamespace>
+    <AssemblyName>stylobot-sidecar</AssemblyName>
     <!-- Trim unused middleware for smaller binary. Requires compatible dependencies. -->
     <!-- <PublishTrimmed>true</PublishTrimmed> -->
   </PropertyGroup>

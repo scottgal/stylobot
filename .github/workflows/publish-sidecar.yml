@@ -1,0 +1,265 @@
+name: Publish StyloBot Sidecar
+
+# Publishes the detection sidecar two ways, as part of the main allbot-v* release:
+#   1. A multi-arch Docker image  -> docker.io/scottgal/stylobot-sidecar
+#   2. Self-contained single-file binaries attached to the GitHub Release
+#      (one file you can run as-is or COPY into your app's own container).
+on:
+  push:
+    tags:
+      - 'allbot-v*'
+      - 'sidecar-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0 or 1.0.0-preview1)'
+        required: true
+        default: '1.0.0-preview1'
+
+permissions:
+  contents: write       # attach binaries to the release
+  id-token: write       # sigstore OIDC for SLSA attestations
+  attestations: write   # actions/attest-build-provenance
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: scottgal/stylobot-sidecar
+
+jobs:
+  # --- version -----------------------------------------------------------------
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.VERSION }}
+      is_prerelease: ${{ steps.get_version.outputs.IS_PRERELEASE }}
+      tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
+    steps:
+      - name: Extract version
+        id: get_version
+        env:
+          GIT_REF: ${{ github.ref }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
+            TAG_NAME="sidecar-v${VERSION}"
+          else
+            TAG="${GIT_REF#refs/tags/}"
+            TAG_NAME="$TAG"
+            VERSION="${TAG#allbot-v}"
+            VERSION="${VERSION#sidecar-v}"
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "::error::Invalid version: '$VERSION'. Expected semver (e.g. 1.0.0 or 1.0.0-preview1)"
+            exit 1
+          fi
+          if [[ "$VERSION" == *"-"* ]]; then IS_PRERELEASE="true"; else IS_PRERELEASE="false"; fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "TAG_NAME=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "Publishing sidecar $VERSION (tag: $TAG_NAME, prerelease: $IS_PRERELEASE)"
+
+  # --- tests -------------------------------------------------------------------
+  test:
+    name: Sidecar tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build sidecar
+        run: dotnet build src/Mostlylucid.BotDetection.Sidecar/Mostlylucid.BotDetection.Sidecar.csproj --configuration Release
+      - name: Run sidecar tests
+        run: |
+          dotnet test src/Mostlylucid.BotDetection.Test/Mostlylucid.BotDetection.Test.csproj \
+            --configuration Release \
+            --filter "FullyQualifiedName~Sidecar" \
+            --verbosity normal
+
+  # --- docker image ------------------------------------------------------------
+  docker:
+    name: Build and push Docker image
+    runs-on: ubuntu-latest
+    needs: [version, test]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ needs.version.outputs.version }}
+            type=raw,value=latest,enable=${{ needs.version.outputs.is_prerelease == 'false' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ./src/Mostlylucid.BotDetection.Sidecar/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.version.outputs.version }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # --- self-contained binaries -------------------------------------------------
+  build-binaries:
+    name: Build ${{ matrix.runtime }}
+    runs-on: ${{ matrix.os }}
+    needs: [version, test]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            runtime: linux-x64
+            file-ext: ''
+          - os: ubuntu-latest
+            runtime: linux-arm64
+            file-ext: ''
+          - os: windows-latest
+            runtime: win-x64
+            file-ext: '.exe'
+          - os: windows-latest
+            runtime: win-arm64
+            file-ext: '.exe'
+          - os: macos-latest
+            runtime: osx-x64
+            file-ext: ''
+          - os: macos-latest
+            runtime: osx-arm64
+            file-ext: ''
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Self-contained single-file (not Native AOT): the sidecar's gRPC server
+      # and the Fluid template engine are not guaranteed AOT-clean, and a working
+      # cross-platform binary matters more here than shaving the last few MB.
+      - name: Publish ${{ matrix.runtime }}
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          dotnet publish src/Mostlylucid.BotDetection.Sidecar/Mostlylucid.BotDetection.Sidecar.csproj \
+            --configuration Release \
+            --runtime ${{ matrix.runtime }} \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:Version="$VERSION" \
+            --output ./publish/${{ matrix.runtime }}
+
+      - name: Create distribution package
+        shell: bash
+        run: |
+          mkdir -p ./dist
+          cp ./publish/${{ matrix.runtime }}/stylobot-sidecar${{ matrix.file-ext }} ./dist/
+          cp sdk/proto/detection.proto ./dist/
+          cat > ./dist/README.txt << 'EOF'
+          StyloBot detection sidecar
+          ==========================
+
+          A self-contained single-file binary. No .NET runtime required. Run it
+          next to your app - same pod, same host, or the same container.
+
+          Quick start:
+            ./stylobot-sidecar                       # gRPC :5090 + REST :5091, loopback only
+
+          Key environment variables:
+            STYLOBOT_PORT            gRPC listen port (default 5090)
+            STYLOBOT_GRPC_ONLY=true  gRPC only, no REST surface
+            STYLOBOT_BIND=any        bind all interfaces (needs API keys; see below)
+            STYLOBOT_ALLOW_INSECURE  permit exposed + unauthenticated (not recommended)
+
+          The sidecar binds loopback only by default. To reach it across a
+          network set STYLOBOT_BIND=any and configure at least one API key:
+            BotDetection__ApiKeys__<your-secret-key>__Name=app
+          gRPC callers then send it as the "x-sb-api-key" metadata header;
+          REST callers send the "X-SB-Api-Key" HTTP header.
+
+          detection.proto is included for generating gRPC stubs in your language.
+
+          Full docs: https://github.com/scottgal/stylobot
+          EOF
+
+          cd ./dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a -tzip ../stylobot-sidecar-${{ matrix.runtime }}.zip *
+          else
+            tar czf ../stylobot-sidecar-${{ matrix.runtime }}.tar.gz *
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stylobot-sidecar-${{ matrix.runtime }}
+          path: |
+            stylobot-sidecar-${{ matrix.runtime }}.zip
+            stylobot-sidecar-${{ matrix.runtime }}.tar.gz
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # --- attach binaries to the release -----------------------------------------
+  release:
+    name: Attach binaries to release
+    runs-on: ubuntu-latest
+    needs: [version, build-binaries]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release-assets/ \;
+          cd release-assets
+          sha256sum * > stylobot-sidecar-SHA256SUMS.txt
+          ls -lh
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: 'release-assets/stylobot-sidecar-*.tar.gz,release-assets/stylobot-sidecar-*.zip'
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        with:
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          tag_name: ${{ needs.version.outputs.tag_name }}
+          prerelease: ${{ needs.version.outputs.is_prerelease }}
+          append_body: true
+          body: |
+
+            ### Detection sidecar
+
+            Self-contained single-file binaries (`stylobot-sidecar-*`) and a
+            multi-arch Docker image (`scottgal/stylobot-sidecar:${{ needs.version.outputs.version }}`).
+            Run it next to your app - same pod, host, or container.
+          files: |
+            release-assets/*
+          fail_on_unmatched_files: true
