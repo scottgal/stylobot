@@ -8,6 +8,16 @@ namespace Mostlylucid.BotDetection.Models;
 public class ApiKeyConfig
 {
     /// <summary>
+    ///     The secret value callers present - gRPC <c>x-sb-api-key</c> metadata or the
+    ///     REST <c>X-SB-Api-Key</c> header. When null or empty, the dictionary key of
+    ///     this entry in <see cref="BotDetectionOptions.ApiKeys"/> is used as the secret.
+    ///     Set this explicitly when the secret should come from a secret store: the
+    ///     dictionary key then becomes a stable, non-sensitive identifier and the secret
+    ///     itself stays out of configuration keys (e.g. a Kubernetes <c>secretKeyRef</c>).
+    /// </summary>
+    public string? Key { get; set; }
+
+    /// <summary>
     ///     Human-readable name for this key (e.g., "CI Pipeline", "Claude Test Harness").
     /// </summary>
     public string Name { get; set; } = string.Empty;

@@ -149,6 +149,34 @@ git tag allbot-v1.0.0
 git push origin allbot-v1.0.0
 ```
 
+## StyloBot Sidecar Release
+
+**Workflow:** `publish-sidecar.yml`
+
+Publishes the detection sidecar two ways, as part of the main `allbot-v*` release:
+
+1. A multi-arch Docker image to Docker Hub (`scottgal/stylobot-sidecar`)
+2. Self-contained single-file binaries (Linux/Windows/macOS, x64 + ARM64)
+   attached to the GitHub Release. The binary is one file with no runtime
+   dependency, so it can run as the image or be `COPY`-d into your app's
+   container to co-locate the sidecar with your app.
+
+### Trigger
+
+```bash
+# As part of the all-in-one release
+git tag allbot-v1.0.0
+git push origin allbot-v1.0.0
+
+# Or sidecar-only
+git tag sidecar-v1.0.0
+git push origin sidecar-v1.0.0
+```
+
+The binaries are **self-contained but not Native AOT** (the gRPC server and the
+Fluid template engine are not guaranteed AOT-clean), so they are larger than the
+AOT Console binaries but build reliably on every platform.
+
 ## NuGet Package Releases
 
 **Workflow:** `publish-botdetection.yml`, `publish-geodetection.yml`, etc.

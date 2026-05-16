@@ -30,11 +30,13 @@ public sealed class InMemoryApiKeyStore : IApiKeyStore
         _logger = logger;
         _options = options.Value;
 
-        // Pre-compute UTF8 bytes for all configured keys
+        // Pre-compute UTF8 bytes for all configured keys. The secret is the explicit
+        // ApiKeyConfig.Key when set, otherwise the dictionary key (the entry id).
         _keyLookup = new Dictionary<string, (byte[], string, ApiKeyConfig)>();
         foreach (var (keyId, config) in _options.ApiKeys)
         {
-            var keyBytes = Encoding.UTF8.GetBytes(keyId);
+            var secret = string.IsNullOrEmpty(config.Key) ? keyId : config.Key;
+            var keyBytes = Encoding.UTF8.GetBytes(secret);
             _keyLookup[keyId] = (keyBytes, keyId, config);
         }
 
