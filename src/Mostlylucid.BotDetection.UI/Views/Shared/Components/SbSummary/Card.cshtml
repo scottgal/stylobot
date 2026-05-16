@@ -2,7 +2,9 @@
 @{
     var extraClass = (string?)ViewBag.CssClass;
     var isBot = Model.HasData && Model.IsBot;
-    var label = Model.HasData ? (isBot ? (Model.BotName ?? Model.BotType ?? "Bot") : "Human") : "Unknown";
+    var label = Model.HasData
+        ? (Model.BotName ?? Model.BotType ?? (isBot ? "Bot" : "Visitor"))
+        : "Unknown";
     var pct = Model.HasData ? (int)Math.Round(Model.BotProbability * 100) : 0;
     var risk = Model.HasData ? Model.RiskBand : "Unknown";
     var riskLower = risk.ToLowerInvariant();

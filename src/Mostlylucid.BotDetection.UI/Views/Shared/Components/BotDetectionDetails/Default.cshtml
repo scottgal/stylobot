@@ -71,10 +71,7 @@
     <!-- Recommendation Explanation -->
     <div class="bot-detection-recommendation-detail">
         <span class="recommendation-reason">@recommendedAction.Item2</span>
-        @if (!string.IsNullOrEmpty(Model.BotName))
-        {
-            <span class="recommendation-bot"> | Identified: <strong>@Model.BotName</strong></span>
-        }
+        <span class="recommendation-bot"> | Identified: <strong>@(Model.BotName ?? Model.BotType ?? "Visitor")</strong></span>
     </div>
 
     <!-- Top Reasons (always visible, compact) -->

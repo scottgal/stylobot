@@ -6,7 +6,7 @@
     var riskBand = Model.HasData ? Model.RiskBand : "Unknown";
     var riskLower = riskBand.ToLowerInvariant();
     var typeClass = isBot ? "sb-badge--bot" : "sb-badge--human";
-    var label = isBot ? (Model.BotName ?? Model.BotType ?? "Bot") : "Human";
+    var label = Model.BotName ?? Model.BotType ?? (isBot ? "Bot" : "Visitor");
     var icon = isBot ? "\U0001F916" : "\U0001F464";
 
     var classes = $"sb-badge {typeClass} sb-badge--risk-{riskLower}";

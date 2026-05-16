@@ -52,7 +52,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@(Model.Found ? (Model.BotName ?? "Signature") : "Not Found") - StyloBot</title>
+    <title>@(Model.Found ? (Model.BotName ?? Model.BotType ?? (Model.SignatureId.Length > 12 ? Model.SignatureId[..12] : Model.SignatureId)) : "Not Found") - StyloBot</title>
     <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css" />
     <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/daisyui.min.css" />
     <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/boxicons.min.css" />
@@ -160,7 +160,7 @@ else
         {
             <img src="@FlagUrl(Model.CountryCode!)" alt="@Model.CountryCode" class="w-6 h-4 object-cover rounded-sm" />
         }
-        <h1 class="text-lg font-bold text-base-content">@(Model.BotName ?? "Unknown Bot")</h1>
+        <h1 class="text-lg font-bold text-base-content">@(Model.BotName ?? Model.BotType ?? (Model.SignatureId.Length > 12 ? Model.SignatureId[..12] : Model.SignatureId))</h1>
         @{
             var (badgeText, badgeBg) = Model.BotProbability switch
             {
