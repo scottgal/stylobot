@@ -2,6 +2,7 @@ using Mostlylucid.BotDetection.Api;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.UI.Adapters.Remote;
 using Mostlylucid.BotDetection.UI.Extensions;
+using Stylobot.Ui;
 
 // stylobot-ui: the dashboard-host product. Two modes, picked at startup via
 // StyloBot:Source:Pull:Type:
@@ -51,6 +52,11 @@ if (isRemote)
         dashboard.Enabled = true;
         dashboard.BasePath = "/stylobot";
     });
+
+    // Live invalidation relay - opens a SignalR client connection to the gateway's
+    // /api/v1/hub and forwards beacons into the local hub so the browser refreshes
+    // on detection events. No-op when Source:Live:Type != SignalR.
+    builder.Services.AddHostedService<SignalRBeaconRelay>();
 }
 else
 {

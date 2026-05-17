@@ -12,6 +12,7 @@ using Mostlylucid.BotDetection.Console.Services;
 using Mostlylucid.BotDetection.Console.Transforms;
 using Mostlylucid.BotDetection.Api;
 using Mostlylucid.BotDetection.Extensions;
+using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Llm.Cloud.Extensions;
 using Mostlylucid.BotDetection.Llm.LlamaSharp.Extensions;
@@ -589,6 +590,21 @@ try
             return 1;
         }
         builder.Services.AddStyloBotApi(opts => opts.EnableOpenApi = false);
+
+        // Persistence backend: stores detections + serves the REST read endpoints with
+        // real data, runs DashboardSummaryBroadcaster, exposes the SignalR hub for live
+        // invalidation beacons. Pin the hub path to /api/v1/hub so it sits inside the
+        // versioned API namespace rather than at /stylobot/hub.
+        builder.Services.AddSingleton(new Mostlylucid.BotDetection.UI.Configuration.StyloBotDashboardOptions
+        {
+            Enabled = true,
+            HubPath = "/api/v1/hub",
+            // Gateway auth is via X-SB-Api-Key on the SignalR negotiate request, not
+            // dashboard auth; the hub's OnConnectedAsync allows when no other policy is
+            // configured (see StyloBotDashboardHub.IsAuthorizedAsync).
+            AllowUnauthenticatedAccess = true
+        });
+        builder.Services.AddBotDetectionPersistence();
     }
 
     builder.Services.AddOpenTelemetry()
@@ -702,6 +718,10 @@ try
     {
         app.UseAuthentication();
         app.UseAuthorization();
+        // Persists detections to the event store + broadcasts SignalR invalidation beacons.
+        // Without this the read endpoints would always return empty - the gateway has no
+        // place to write detection data.
+        app.UseBotDetectionPersistence();
         app.MapStyloBotApi();
     }
 

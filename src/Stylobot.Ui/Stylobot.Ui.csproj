@@ -17,6 +17,13 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <!-- SignalR client for the live-feed relay (remote mode listens to the gateway's
+             hub and re-broadcasts beacons into the local hub so browser HTMX listeners
+             pick them up). -->
+        <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.8" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.Api\Mostlylucid.BotDetection.Api.csproj" />
