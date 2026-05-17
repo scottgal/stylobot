@@ -111,8 +111,11 @@ public class ThrottleActionPolicy : IActionPolicy
                 // a longer back-off than the per-request delay - the "throttle-status" policy
                 // wants a fast 429 response but a meaningful "wait 60s" hint for the client.
                 // Falls back to delay-derived behaviour when unset for backwards-compat.
-                var retryAfter = _options.RetryAfterSeconds ?? Math.Ceiling(delay / 1000.0);
-                context.Response.Headers.TryAdd("Retry-After", retryAfter.ToString());
+                // RFC 7231 requires an integer; format invariantly so European locales don't
+                // emit "60,0" and break the header.
+                var retryAfter = (int)Math.Ceiling(_options.RetryAfterSeconds ?? delay / 1000.0);
+                context.Response.Headers.TryAdd("Retry-After",
+                    retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
         }
 

@@ -308,12 +308,9 @@ public static class DetectionLedgerExtensions
         // Friendly bot types (search engines, fediverse link previewers, monitoring,
         // explicitly-verified good bots) get pinned to Low even when probability is
         // near the AI-clamp ceiling. Threat / confirmed-bad still escalate below.
-        var isFriendlyBotType = botType is BotType.SearchEngine
-            or BotType.SocialMediaBot
-            or BotType.MonitoringBot
-            or BotType.GoodBot
-            or BotType.VerifiedBot;
-        if (isFriendlyBotType && !isConfirmedBad && threatScore < 0.55)
+        if (BotTypeClassification.IsFriendly(botType)
+            && !isConfirmedBad
+            && threatScore < BotTypeClassification.FriendlyThreatGate)
         {
             var label = botType.ToString();
             return (RiskBand.Low, $"identified as {label} (friendly automation)");
@@ -467,12 +464,7 @@ public static class DetectionLedgerExtensions
         {
             if (string.IsNullOrEmpty(contrib.BotType) || contrib.ConfidenceDelta <= 0)
                 continue;
-            var parsed = ParseBotType(contrib.BotType);
-            if (parsed is BotType.SearchEngine
-                or BotType.SocialMediaBot
-                or BotType.MonitoringBot
-                or BotType.GoodBot
-                or BotType.VerifiedBot)
+            if (BotTypeClassification.IsFriendly(ParseBotType(contrib.BotType)))
                 return contrib;
         }
         return null;

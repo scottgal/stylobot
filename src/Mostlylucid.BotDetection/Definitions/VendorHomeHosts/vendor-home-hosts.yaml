@@ -1,0 +1,56 @@
+description: |
+  Hostnames that appear inside friendly-bot User-Agent headers as documentation
+  references (e.g. `+https://openai.com/gptbot` in GPTBot's UA) rather than
+  per-instance identifiers. The UserAgentDiscriminator extracts the URL hostname
+  from a UA to differentiate clustering bots (Mastodon instances etc.); when the
+  hostname is in this list we surface no discriminator because the URL is a
+  constant vendor home, not a per-deployment identifier.
+
+  Entries are bare registrable hostnames - no `www.` prefix (stripped before
+  lookup), no path, no `@`. Match is case-insensitive.
+
+  Adding a host here means "the bot name alone is the identity" for any UA
+  whose embedded URL resolves to this hostname.
+
+hosts:
+  # OpenAI family - GPTBot, ChatGPT-User, OAI-SearchBot all carry openai.com URLs
+  - openai.com
+
+  # Anthropic - ClaudeBot, Claude-Web
+  - anthropic.com
+
+  # Perplexity
+  - perplexity.ai
+
+  # Meta family - FacebookExternalHit, Facebot (URL path is /externalhit_uatext.php;
+  # the host portion is bare facebook.com)
+  - facebook.com
+
+  # Other social unfurlers whose UAs carry a constant home URL
+  - linkedin.com
+  - api.slack.com
+  - discordapp.com
+  - discord.com
+  - telegram.org
+
+  # Major search engines (Googlebot etc. carry documentation URLs)
+  - google.com
+  - developers.google.com
+  - bing.com
+  - yandex.com
+  - duckduckgo.com
+  - apple.com
+  - applebot.apple.com
+  - baidu.com
+
+  # Monitoring services
+  - pingdom.com
+  - uptimerobot.com
+  - site24x7.com
+  - betteruptime.com
+
+  # Newsfeed readers
+  - feedly.com
+  - newsblur.com
+  - inoreader.com
+  - newsify.co

@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using Mostlylucid.BotDetection.Compliance;
 using Mostlylucid.BotDetection.Definitions.BotPatterns;
+using Mostlylucid.BotDetection.Definitions.VendorHomeHosts;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Orchestration.Manifests;
 using Mostlylucid.BotDetection.Services;
@@ -46,6 +47,9 @@ internal static class VYamlBootstrap
         // Bot patterns
         BotPatternFile.__RegisterVYamlFormatter();
         BotPatternEntry.__RegisterVYamlFormatter();
+
+        // Vendor-home hosts (UserAgentDiscriminator skiplist)
+        VendorHomeHostsFile.__RegisterVYamlFormatter();
 
         // Identity archetypes
         IdentityArchetypeYaml.__RegisterVYamlFormatter();

@@ -644,13 +644,9 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             // them give up; a 429 with Retry-After tells them to back off and try later,
             // which is what we actually want from legitimate previewers.
             if (string.IsNullOrEmpty(triggeredActionPolicyName)
-                && result.PrimaryBotType is BotType.SocialMediaBot
-                    or BotType.MonitoringBot
-                    or BotType.SearchEngine
-                    or BotType.GoodBot
-                    or BotType.VerifiedBot
+                && BotTypeClassification.IsFriendly(result.PrimaryBotType)
                 && result.BotProbability >= _fullOptions.BotThreshold
-                && result.ThreatScore < 0.55)
+                && result.ThreatScore < BotTypeClassification.FriendlyThreatGate)
             {
                 triggeredActionPolicyName = "throttle-status";
                 _logger.LogInformation(

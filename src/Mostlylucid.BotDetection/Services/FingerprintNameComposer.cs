@@ -23,6 +23,15 @@ namespace Mostlylucid.BotDetection.Services;
 internal static class FingerprintNameComposer
 {
     /// <summary>
+    ///     Suffix appended to the displayed name when VerifiedBotContributor flagged the
+    ///     claim as spoofed (UA says Googlebot but IP isn't in Google's published range)
+    ///     or the rDNS resolved to a host that doesn't match the claimed identity. The
+    ///     marker is part of the public name surface - dashboards and CLIs read for it
+    ///     to colour-code or filter; do not change it without coordinating with consumers.
+    /// </summary>
+    public const string SpoofedMarker = " (!)";
+
+    /// <summary>
     ///     Compose a display name from request signals.
     ///     <para>
     ///     <paramref name="fingerprintId"/> when present feeds the cold-state Priority 4
@@ -63,7 +72,7 @@ internal static class FingerprintNameComposer
             var rawUa = GetString(signals, SignalKeys.UserAgent) ?? userAgent;
             var discriminator = UserAgentDiscriminator.ExtractDiscriminator(rawUa);
             var composed = string.IsNullOrEmpty(discriminator) ? botName : $"{botName} {discriminator}";
-            if (IsSpoofedClaim(signals)) composed += " (!)";
+            if (IsSpoofedClaim(signals)) composed += SpoofedMarker;
             return Unique(composed, signature, country);
         }
 

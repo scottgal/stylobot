@@ -1,4 +1,7 @@
+using System.Reflection;
 using System.Text.RegularExpressions;
+using Mostlylucid.BotDetection.Definitions.VendorHomeHosts;
+using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Helpers;
 
@@ -34,52 +37,32 @@ internal static class UserAgentDiscriminator
         @"\+?(https?://[^\s);>]+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    // Hosts that appear inside friendly-bot UAs as documentation references rather
-    // than per-instance identifiers. Adding a host here means we'll *not* surface
-    // it as a discriminator - the bot name alone is the identity. Match is on the
-    // registrable domain after `www.` stripping.
-    private static readonly HashSet<string> VendorHomeHosts = new(StringComparer.OrdinalIgnoreCase)
+    // Loaded once at first use from Definitions/VendorHomeHosts/vendor-home-hosts.yaml
+    // (embedded resource). Editing the list is a YAML change, not a code change - the
+    // YAML file's description block explains the membership criteria.
+    private static readonly Lazy<HashSet<string>> VendorHomeHosts = new(LoadHosts);
+
+    private static HashSet<string> LoadHosts()
     {
-        // OpenAI family - GPTBot, ChatGPT-User, OAI-SearchBot all carry openai.com URLs
-        "openai.com",
-        // Anthropic
-        "anthropic.com",
-        "claudebot@anthropic.com",
-        // Perplexity
-        "perplexity.ai",
-        // Meta family - FacebookExternalHit, Facebot
-        "facebook.com",
-        "www.facebook.com/externalhit_uatext.php",
-        // Other social unfurlers whose UAs carry a constant home URL
-        "linkedin.com",
-        "api.slack.com",
-        "discordapp.com",
-        "discord.com",
-        "telegram.org",
-        // Major search engines (Googlebot etc. carry documentation URLs)
-        "google.com",
-        "developers.google.com",
-        "bing.com",
-        "www.bing.com",
-        "yandex.com",
-        "duckduckgo.com",
-        "apple.com",
-        "applebot.apple.com",
-        "baidu.com",
-        // Monitoring services
-        "pingdom.com",
-        "www.pingdom.com",
-        "uptimerobot.com",
-        "www.uptimerobot.com",
-        "site24x7.com",
-        "betteruptime.com",
-        // Newsfeed readers
-        "feedly.com",
-        "www.feedly.com",
-        "newsblur.com",
-        "inoreader.com",
-        "newsify.co"
-    };
+        var assembly = typeof(UserAgentDiscriminator).Assembly;
+        var resourceName = assembly.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith("vendor-home-hosts.yaml", StringComparison.Ordinal));
+
+        if (resourceName is null)
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream is null)
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        var file = YamlSerializer.Deserialize<VendorHomeHostsFile>(ms.ToArray());
+
+        return file?.Hosts is { Count: > 0 }
+            ? new HashSet<string>(file.Hosts, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    }
 
     /// <summary>
     ///     Extracts the per-instance discriminator hostname from a User-Agent, or returns
@@ -103,6 +86,6 @@ internal static class UserAgentDiscriminator
         if (host.StartsWith("www.", StringComparison.OrdinalIgnoreCase))
             host = host[4..];
 
-        return VendorHomeHosts.Contains(host) ? null : host;
+        return VendorHomeHosts.Value.Contains(host) ? null : host;
     }
 }
