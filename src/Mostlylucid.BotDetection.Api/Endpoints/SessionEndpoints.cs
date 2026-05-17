@@ -15,7 +15,8 @@ public static class SessionEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/sessions")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("Sessions");
+            .WithTags("Sessions")
+            .WithApiBotPolicy();
 
         group.MapGet("/recent", HandleRecent).WithName("GetRecentSessions");
         group.MapGet("/{signature}", HandleBySignature).WithName("GetSessionsBySignature");

@@ -15,7 +15,8 @@ public static class LabelEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/labels")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("Labels");
+            .WithTags("Labels")
+            .WithApiBotPolicy();
 
         group.MapGet("", HandleList).WithName("GetLabels");
         group.MapGet("/counts", HandleCounts).WithName("GetLabelCounts");

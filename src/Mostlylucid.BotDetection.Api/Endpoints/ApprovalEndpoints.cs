@@ -15,7 +15,8 @@ public static class ApprovalEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/approvals")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("Approvals");
+            .WithTags("Approvals")
+            .WithApiBotPolicy();
 
         group.MapGet("", HandleList).WithName("GetApprovals");
         group.MapGet("/{signature}", HandleGet).WithName("GetApproval");

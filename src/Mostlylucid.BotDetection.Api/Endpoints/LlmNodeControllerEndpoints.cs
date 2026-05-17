@@ -14,7 +14,8 @@ internal static class LlmNodeControllerEndpoints
         this IEndpointRouteBuilder endpoints)
     {
         var group = endpoints.MapGroup("/api/v1/llm-nodes")
-            .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName);
+            .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
+            .WithApiBotPolicy();
 
         group.MapPost("/import", HandleImport);
         group.MapGet("/", HandleList);

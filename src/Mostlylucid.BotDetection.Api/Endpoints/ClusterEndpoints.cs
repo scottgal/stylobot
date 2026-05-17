@@ -15,7 +15,8 @@ public static class ClusterEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/clusters")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("Clusters");
+            .WithTags("Clusters")
+            .WithApiBotPolicy();
 
         group.MapGet("", HandleList).WithName("GetClusters");
         group.MapGet("/diagnostics", HandleDiagnostics).WithName("GetClusterDiagnostics");

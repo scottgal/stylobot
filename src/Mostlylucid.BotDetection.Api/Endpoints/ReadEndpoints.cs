@@ -16,7 +16,8 @@ public static class ReadEndpoints
     {
         var group = endpoints.MapGroup("/api/v1")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("Dashboard Data");
+            .WithTags("Dashboard Data")
+            .WithApiBotPolicy();
 
         group.MapGet("/detections", HandleDetections).WithName("GetDetections");
         group.MapGet("/signatures", HandleSignatures).WithName("GetSignatures");

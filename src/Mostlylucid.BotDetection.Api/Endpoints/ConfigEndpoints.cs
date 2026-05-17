@@ -15,7 +15,8 @@ public static class ConfigEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/config")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("Configuration");
+            .WithTags("Configuration")
+            .WithApiBotPolicy();
 
         group.MapGet("/manifests", HandleList).WithName("GetConfigManifests");
         group.MapGet("/manifests/{slug}", HandleGet).WithName("GetConfigManifest");

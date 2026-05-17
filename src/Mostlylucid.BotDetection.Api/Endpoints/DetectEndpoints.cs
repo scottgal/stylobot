@@ -15,7 +15,8 @@ public static class DetectEndpoints
     {
         var group = endpoints.MapGroup("/api/v1")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("Detection");
+            .WithTags("Detection")
+            .WithApiBotPolicy();
 
         group.MapPost("/detect", HandleDetect).WithName("Detect");
         group.MapPost("/detect/batch", HandleDetectBatch).WithName("DetectBatch");

@@ -15,7 +15,8 @@ public static class IdentityEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/fingerprints")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("Identities");
+            .WithTags("Identities")
+            .WithApiBotPolicy();
 
         group.MapGet("", HandleList).WithName("GetFingerprints");
         group.MapGet("/{fingerprintId}", HandleGet).WithName("GetFingerprint");

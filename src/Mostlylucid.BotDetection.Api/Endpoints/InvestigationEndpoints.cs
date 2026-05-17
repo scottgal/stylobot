@@ -16,7 +16,8 @@ public static class InvestigationEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/investigate")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("Investigation");
+            .WithTags("Investigation")
+            .WithApiBotPolicy();
 
         group.MapPost("", HandleInvestigate).WithName("Investigate");
         group.MapPost("/shape-search", HandleShapeSearch).WithName("InvestigateShapeSearch");

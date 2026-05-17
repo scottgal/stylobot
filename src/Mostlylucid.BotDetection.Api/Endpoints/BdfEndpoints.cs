@@ -16,7 +16,8 @@ public static class BdfEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/bdf")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("BDF Export");
+            .WithTags("BDF Export")
+            .WithApiBotPolicy();
 
         group.MapGet("/{signature}", HandleExport).WithName("ExportBdf");
 

@@ -16,7 +16,8 @@ public static class UserAgentEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/useragents")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("User Agents");
+            .WithTags("User Agents")
+            .WithApiBotPolicy();
 
         group.MapGet("/search", HandleSearch).WithName("SearchUserAgents");
 

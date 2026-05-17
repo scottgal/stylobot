@@ -15,7 +15,8 @@ public static class EndpointPinEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/endpoint-pins")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("Endpoint Pins");
+            .WithTags("Endpoint Pins")
+            .WithApiBotPolicy();
 
         group.MapGet("", HandleList).WithName("GetEndpointPins");
 

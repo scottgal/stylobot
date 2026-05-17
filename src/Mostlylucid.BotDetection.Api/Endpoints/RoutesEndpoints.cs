@@ -15,7 +15,8 @@ public static class RoutesEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/routes")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("Routes");
+            .WithTags("Routes")
+            .WithApiBotPolicy();
 
         group.MapGet("", HandleList)
             .WithName("ListRoutes");

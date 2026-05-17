@@ -1,6 +1,9 @@
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Models;
+using Mostlylucid.BotDetection.Attributes;
 
 namespace Mostlylucid.BotDetection.Api.Endpoints;
 
@@ -33,4 +36,18 @@ internal static class ApiEndpointHelpers
     /// <summary>Wrap a scalar payload in <see cref="SingleResponse{T}"/>.</summary>
     public static Ok<SingleResponse<T>> Single<T>(T data)
         => TypedResults.Ok(new SingleResponse<T> { Data = data, Meta = new ResponseMeta() });
+
+    /// <summary>
+    ///     High-block-threshold bot policy for machine-to-machine /api/v1/* surfaces. Mirrors
+    ///     the SignalR hub's BlockThreshold = 0.95 - API callers (stylobot-ui, sidecar clients,
+    ///     external integrations) ARE bot-like by definition (no browser UA, no client-side
+    ///     fingerprint, repeated polling), so the default block threshold would kill them
+    ///     unfairly. The gateway still scores + records the request; only the action policy
+    ///     is relaxed.
+    /// </summary>
+    public static RouteGroupBuilder WithApiBotPolicy(this RouteGroupBuilder group)
+    {
+        group.WithMetadata(new BotPolicyAttribute("default") { BlockThreshold = 0.95 });
+        return group;
+    }
 }

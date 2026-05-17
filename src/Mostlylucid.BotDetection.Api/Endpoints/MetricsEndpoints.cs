@@ -15,7 +15,8 @@ public static class MetricsEndpoints
     {
         var group = endpoints.MapGroup("/api/v1/metrics")
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
-            .WithTags("Metrics");
+            .WithTags("Metrics")
+            .WithApiBotPolicy();
 
         group.MapGet("/timeseries", HandleTimeseries)
             .WithName("GetMetricsTimeseries");
