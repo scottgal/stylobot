@@ -10,7 +10,7 @@ namespace Mostlylucid.BotDetection.Api.Auth;
 public class ApiKeyAuthenticationHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
     public const string SchemeName = "StyloBotApiKey";
-    private const string HeaderName = "X-SB-Api-Key";
+    public const string HeaderName = "X-SB-Api-Key";
 
     private readonly IApiKeyStore _apiKeyStore;
 

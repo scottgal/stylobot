@@ -26,25 +26,61 @@ public sealed class GatewayApiClient
     }
 
     /// <summary>
-    ///     GET an envelope-wrapped payload. Returns <c>default</c> on 404, throws on other
-    ///     non-success status codes so the caller can decide whether to swallow or surface.
+    ///     GET an envelope-wrapped payload. Returns <c>default</c> on 404 or on transport /
+    ///     deserialisation failure (logged as a warning), so the dashboard degrades to empty
+    ///     data when the gateway is unreachable instead of bubbling HTTP 500s to operators.
     /// </summary>
     public async Task<T?> GetEnvelopeAsync<T>(string path, CancellationToken ct = default)
     {
-        using var response = await _http.GetAsync(path, HttpCompletionOption.ResponseHeadersRead, ct);
-        if (response.StatusCode == HttpStatusCode.NotFound) return default;
-        response.EnsureSuccessStatusCode();
-        var envelope = await response.Content.ReadFromJsonAsync<RemoteEnvelope<T>>(ct);
-        return envelope is null ? default : envelope.Data;
+        try
+        {
+            using var response = await _http.GetAsync(path, HttpCompletionOption.ResponseHeadersRead, ct);
+            if (response.StatusCode == HttpStatusCode.NotFound) return default;
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Remote gateway returned {Status} for GET {Path}", (int)response.StatusCode, path);
+                return default;
+            }
+            var envelope = await response.Content.ReadFromJsonAsync<RemoteEnvelope<T>>(ct);
+            return envelope is null ? default : envelope.Data;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            _logger.LogWarning(ex, "Remote gateway call failed for GET {Path}", path);
+            return default;
+        }
     }
 
-    /// <summary>POST an envelope-wrapped payload (used by /api/v1/investigate).</summary>
+    /// <summary>POST an envelope-wrapped payload (used by /api/v1/investigate). Same failure semantics as <see cref="GetEnvelopeAsync"/>.</summary>
     public async Task<TResp?> PostEnvelopeAsync<TReq, TResp>(string path, TReq body, CancellationToken ct = default)
     {
-        using var response = await _http.PostAsJsonAsync(path, body, ct);
-        if (response.StatusCode == HttpStatusCode.NotFound) return default;
-        response.EnsureSuccessStatusCode();
-        var envelope = await response.Content.ReadFromJsonAsync<RemoteEnvelope<TResp>>(ct);
-        return envelope is null ? default : envelope.Data;
+        try
+        {
+            using var response = await _http.PostAsJsonAsync(path, body, ct);
+            if (response.StatusCode == HttpStatusCode.NotFound) return default;
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Remote gateway returned {Status} for POST {Path}", (int)response.StatusCode, path);
+                return default;
+            }
+            var envelope = await response.Content.ReadFromJsonAsync<RemoteEnvelope<TResp>>(ct);
+            return envelope is null ? default : envelope.Data;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            _logger.LogWarning(ex, "Remote gateway call failed for POST {Path}", path);
+            return default;
+        }
+    }
+
+    /// <summary>
+    ///     Convenience wrapper for the common <c>GetEnvelopeAsync&lt;List&lt;T&gt;&gt;</c> +
+    ///     <c>?? new List&lt;T&gt;()</c> pattern. Always returns a non-null collection so
+    ///     callers don't need to null-coalesce.
+    /// </summary>
+    public async Task<IReadOnlyList<T>> GetEnvelopeListAsync<T>(string path, CancellationToken ct = default)
+    {
+        var list = await GetEnvelopeAsync<List<T>>(path, ct);
+        return list ?? new List<T>();
     }
 }

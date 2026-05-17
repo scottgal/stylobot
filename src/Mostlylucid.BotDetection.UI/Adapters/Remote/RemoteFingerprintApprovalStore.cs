@@ -19,10 +19,7 @@ internal sealed class RemoteFingerprintApprovalStore : IFingerprintApprovalStore
         => await _api.GetEnvelopeAsync<ApprovalRecord>($"/api/v1/approvals/{Uri.EscapeDataString(signature)}", ct);
 
     public async Task<IReadOnlyList<ApprovalRecord>> ListRecentAsync(int limit = 50, CancellationToken ct = default)
-    {
-        var list = await _api.GetEnvelopeAsync<List<ApprovalRecord>>($"/api/v1/approvals?limit={limit}", ct);
-        return list ?? new List<ApprovalRecord>();
-    }
+        => await _api.GetEnvelopeListAsync<ApprovalRecord>($"/api/v1/approvals?limit={limit}", ct);
 
     public Task<ApprovalRecord> UpsertAsync(ApprovalRecord record, CancellationToken ct = default)
         => throw new NotSupportedException("Approval writes are not supported against a remote gateway.");

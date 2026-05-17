@@ -4,52 +4,45 @@ namespace Mostlylucid.BotDetection.UI.Adapters.Remote;
 
 /// <summary>
 ///     Read-only cluster surface that proxies to the gateway's <c>/api/v1/clusters</c>.
-///     The gateway's snapshot is authoritative; this adapter holds no state of its own.
-///     Calls are synchronous-looking against an async HTTP call - the dashboard's Clusters
-///     tab does these on render, so the operator sees a tiny gateway round-trip rather
-///     than stale local data. Cache rolls into <see cref="GatewayApiClient"/>'s HttpClient
-///     if needed (we don't enable HTTP caching here by default).
+///     Pure async; <see cref="IBotClusterReader"/> is async so the dashboard middleware
+///     awaits the HTTP round-trip instead of blocking thread-pool threads via
+///     <c>.GetAwaiter().GetResult()</c>.
+///
+///     <para>
+///     Holds a volatile cache of the last fetched snapshot. <see cref="Invalidate"/> is
+///     called by the SignalR invalidation relay when Phase 4 lands; until then the cache
+///     lives until the next process restart. Stale-data acceptable for a viewer-only
+///     dashboard.
+///     </para>
 /// </summary>
 internal sealed class RemoteBotClusterReader : IBotClusterReader
 {
     private readonly GatewayApiClient _api;
-    // Cached on first read so subsequent calls in the same render don't refetch. Cleared
-    // by the SignalR invalidation relay when the gateway broadcasts a cluster-change beacon.
     private volatile IReadOnlyList<BotCluster>? _clusters;
     private volatile BotClusterService.ClusterDiagnosticsSnapshot? _diagnostics;
 
     public RemoteBotClusterReader(GatewayApiClient api) => _api = api;
 
-    public IReadOnlyList<BotCluster> GetClusters()
+    public async Task<IReadOnlyList<BotCluster>> GetClustersAsync(CancellationToken ct = default)
     {
-        // Cluster reads come from sync code paths in the dashboard middleware; we block
-        // synchronously here, but each call only takes a small HTTP round-trip and the
-        // local cache shields subsequent calls in the same render.
-        return _clusters ??= FetchClustersAsync().GetAwaiter().GetResult();
+        if (_clusters is not null) return _clusters;
+        _clusters = await _api.GetEnvelopeListAsync<BotCluster>("/api/v1/clusters", ct);
+        return _clusters;
     }
 
-    public BotClusterService.ClusterDiagnosticsSnapshot GetDiagnostics()
+    public async Task<BotClusterService.ClusterDiagnosticsSnapshot> GetDiagnosticsAsync(CancellationToken ct = default)
     {
-        return _diagnostics ??= FetchDiagnosticsAsync().GetAwaiter().GetResult();
+        if (_diagnostics is not null) return _diagnostics;
+        var diag = await _api.GetEnvelopeAsync<BotClusterService.ClusterDiagnosticsSnapshot>(
+            "/api/v1/clusters/diagnostics", ct);
+        _diagnostics = diag ?? BotClusterService.ClusterDiagnosticsSnapshot.Empty;
+        return _diagnostics;
     }
 
-    /// <summary>Called by the SignalR invalidation relay to drop cached snapshots.</summary>
+    /// <summary>Called by the SignalR invalidation relay (Phase 4) to drop cached snapshots.</summary>
     internal void Invalidate()
     {
         _clusters = null;
         _diagnostics = null;
-    }
-
-    private async Task<IReadOnlyList<BotCluster>> FetchClustersAsync()
-    {
-        var list = await _api.GetEnvelopeAsync<List<BotCluster>>("/api/v1/clusters");
-        return list ?? new List<BotCluster>();
-    }
-
-    private async Task<BotClusterService.ClusterDiagnosticsSnapshot> FetchDiagnosticsAsync()
-    {
-        var diag = await _api.GetEnvelopeAsync<BotClusterService.ClusterDiagnosticsSnapshot>(
-            "/api/v1/clusters/diagnostics");
-        return diag ?? BotClusterService.ClusterDiagnosticsSnapshot.Empty;
     }
 }

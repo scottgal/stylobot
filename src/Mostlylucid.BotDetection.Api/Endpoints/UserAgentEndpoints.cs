@@ -10,10 +10,6 @@ using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.Api.Endpoints;
 
-/// <summary>
-///     UA-family search for the dashboard's User Agents tab. Wraps
-///     <see cref="IDashboardEventStore.SearchUserAgentsAsync"/>.
-/// </summary>
 public static class UserAgentEndpoints
 {
     public static IEndpointRouteBuilder MapUserAgentEndpoints(this IEndpointRouteBuilder endpoints)
@@ -33,11 +29,6 @@ public static class UserAgentEndpoints
         int limit = 20)
     {
         var results = await store.SearchUserAgentsAsync(query, Math.Min(limit, 100));
-        return TypedResults.Ok(new PaginatedResponse<UserAgentSearchResult>
-        {
-            Data = results,
-            Pagination = new PaginationInfo { Offset = 0, Limit = limit, Total = results.Count },
-            Meta = new ResponseMeta()
-        });
+        return ApiEndpointHelpers.Paginated<UserAgentSearchResult>(results, limit);
     }
 }

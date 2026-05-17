@@ -13,10 +13,7 @@ internal sealed class RemotePinnedEndpointStore : IPinnedEndpointStore
     public RemotePinnedEndpointStore(GatewayApiClient api) => _api = api;
 
     public async Task<IReadOnlyList<PinnedEndpoint>> GetAllAsync(CancellationToken ct = default)
-    {
-        var list = await _api.GetEnvelopeAsync<List<PinnedEndpoint>>("/api/v1/endpoint-pins", ct);
-        return list ?? new List<PinnedEndpoint>();
-    }
+        => await _api.GetEnvelopeListAsync<PinnedEndpoint>("/api/v1/endpoint-pins", ct);
 
     public Task<PinnedEndpoint?> AddAsync(string method, string path, bool isHoneypot, string? note, CancellationToken ct = default)
         => throw new NotSupportedException("Endpoint-pin writes are not supported against a remote gateway.");

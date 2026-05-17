@@ -564,6 +564,18 @@ try
     // detections / signatures / clusters / etc. over HTTP.
     if (enableApi)
     {
+        // Fail fast if --enable-api is set but no API keys are configured. Without keys,
+        // ApiKeyAuthenticationHandler rejects every request - the API surface would be
+        // mapped and unreachable, which is the worst combination (operator thinks it's
+        // working until the first real call fails 401).
+        var apiKeysSection = builder.Configuration.GetSection("StyloBot:ApiKeys");
+        if (!apiKeysSection.Exists() || !apiKeysSection.GetChildren().Any())
+        {
+            Console.Error.WriteLine(
+                "FATAL: --enable-api requires at least one entry under StyloBot:ApiKeys " +
+                "in appsettings.json (or via env vars / user secrets). Configure a key and restart.");
+            return 1;
+        }
         builder.Services.AddStyloBotApi(opts => opts.EnableOpenApi = false);
     }
 

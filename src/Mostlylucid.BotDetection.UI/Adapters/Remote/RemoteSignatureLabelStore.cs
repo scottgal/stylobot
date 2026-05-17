@@ -21,8 +21,7 @@ internal sealed class RemoteSignatureLabelStore : ISignatureLabelStore
         var path = since.HasValue
             ? $"/api/v1/labels?since={Uri.EscapeDataString(since.Value.ToString("o"))}&limit={limit}"
             : $"/api/v1/labels?limit={limit}";
-        var list = await _api.GetEnvelopeAsync<List<SignatureLabel>>(path, ct);
-        return list ?? new List<SignatureLabel>();
+        return await _api.GetEnvelopeListAsync<SignatureLabel>(path, ct);
     }
 
     public async Task<IReadOnlyDictionary<SignatureLabelKind, int>> GetCountsAsync(CancellationToken ct = default)

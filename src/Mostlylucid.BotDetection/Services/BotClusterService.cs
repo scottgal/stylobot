@@ -154,17 +154,28 @@ public class BotClusterService : BackgroundService, IBotClusterReader
     }
 
     /// <summary>
-    ///     Get all discovered clusters.
+    ///     Get all discovered clusters. Sync overload kept for internal callers (background
+    ///     compaction, snapshot rebuild) that want a cheap in-memory read; async overload
+    ///     satisfies <see cref="IBotClusterReader"/>.
     /// </summary>
     public IReadOnlyList<BotCluster> GetClusters()
     {
         return _snapshot.Clusters.Values.ToList();
     }
 
+    /// <inheritdoc cref="GetClusters"/>
+    public Task<IReadOnlyList<BotCluster>> GetClustersAsync(CancellationToken ct = default)
+        => Task.FromResult(GetClusters());
+
     /// <summary>
-    ///     Get the latest clustering diagnostics for operator visibility.
+    ///     Get the latest clustering diagnostics for operator visibility. Sync overload
+    ///     kept for internal callers; async overload satisfies <see cref="IBotClusterReader"/>.
     /// </summary>
     public ClusterDiagnosticsSnapshot GetDiagnostics() => _diagnostics;
+
+    /// <inheritdoc cref="GetDiagnostics"/>
+    public Task<ClusterDiagnosticsSnapshot> GetDiagnosticsAsync(CancellationToken ct = default)
+        => Task.FromResult(_diagnostics);
 
     /// <summary>
     ///     Get cached spectral features for a signature, if available.

@@ -9,11 +9,6 @@ using Mostlylucid.BotDetection.Data;
 
 namespace Mostlylucid.BotDetection.Api.Endpoints;
 
-/// <summary>
-///     Read-only fingerprint-approval surface for remote dashboards. Wraps
-///     <see cref="IFingerprintApprovalStore"/>. Write paths (Upsert / Revoke / token
-///     generation) stay local to the gateway that owns the approvals database.
-/// </summary>
 public static class ApprovalEndpoints
 {
     public static IEndpointRouteBuilder MapApprovalEndpoints(this IEndpointRouteBuilder endpoints)
@@ -33,16 +28,9 @@ public static class ApprovalEndpoints
         int limit = 50,
         CancellationToken ct = default)
     {
-        if (store is null)
-            return TypedResults.Problem("Approval store not enabled.", statusCode: 503);
-
+        if (store is null) return ApiEndpointHelpers.StoreUnavailable("Approval store");
         var records = await store.ListRecentAsync(Math.Min(limit, 200), ct);
-        return TypedResults.Ok(new PaginatedResponse<ApprovalRecord>
-        {
-            Data = records,
-            Pagination = new PaginationInfo { Offset = 0, Limit = limit, Total = records.Count },
-            Meta = new ResponseMeta()
-        });
+        return ApiEndpointHelpers.Paginated(records, limit);
     }
 
     private static async Task<Results<Ok<SingleResponse<ApprovalRecord>>, NotFound, ProblemHttpResult>> HandleGet(
@@ -50,15 +38,9 @@ public static class ApprovalEndpoints
         [FromServices] IFingerprintApprovalStore? store,
         CancellationToken ct = default)
     {
-        if (store is null)
-            return TypedResults.Problem("Approval store not enabled.", statusCode: 503);
-
+        if (store is null) return ApiEndpointHelpers.StoreUnavailable("Approval store");
         var record = await store.GetAsync(signature, ct);
         if (record is null) return TypedResults.NotFound();
-        return TypedResults.Ok(new SingleResponse<ApprovalRecord>
-        {
-            Data = record,
-            Meta = new ResponseMeta()
-        });
+        return ApiEndpointHelpers.Single(record);
     }
 }

@@ -9,11 +9,6 @@ using Mostlylucid.BotDetection.Orchestration.Manifests;
 
 namespace Mostlylucid.BotDetection.Api.Endpoints;
 
-/// <summary>
-///     Read-only manifest surface for remote dashboards. Wraps
-///     <see cref="IConfigEditorService"/>. The write surface (PUT override / DELETE revert)
-///     stays on the dashboard middleware that owns the local filesystem.
-/// </summary>
 public static class ConfigEndpoints
 {
     public static IEndpointRouteBuilder MapConfigEndpoints(this IEndpointRouteBuilder endpoints)
@@ -28,34 +23,23 @@ public static class ConfigEndpoints
         return endpoints;
     }
 
-    private static Results<Ok<PaginatedResponse<DetectorManifestSummary>>, ProblemHttpResult> HandleList(
-        [FromServices] IConfigEditorService? editor)
+    private static async Task<Results<Ok<PaginatedResponse<DetectorManifestSummary>>, ProblemHttpResult>> HandleList(
+        [FromServices] IConfigEditorService? editor,
+        CancellationToken ct = default)
     {
-        if (editor is null)
-            return TypedResults.Problem("Config editor service not enabled.", statusCode: 503);
-
-        var manifests = editor.ListManifests();
-        return TypedResults.Ok(new PaginatedResponse<DetectorManifestSummary>
-        {
-            Data = manifests,
-            Pagination = new PaginationInfo { Offset = 0, Limit = manifests.Count, Total = manifests.Count },
-            Meta = new ResponseMeta()
-        });
+        if (editor is null) return ApiEndpointHelpers.StoreUnavailable("Config editor service");
+        var manifests = await editor.ListManifestsAsync(ct);
+        return ApiEndpointHelpers.Paginated(manifests, manifests.Count);
     }
 
-    private static Results<Ok<SingleResponse<DetectorManifestDocument>>, NotFound, ProblemHttpResult> HandleGet(
+    private static async Task<Results<Ok<SingleResponse<DetectorManifestDocument>>, NotFound, ProblemHttpResult>> HandleGet(
         string slug,
-        [FromServices] IConfigEditorService? editor)
+        [FromServices] IConfigEditorService? editor,
+        CancellationToken ct = default)
     {
-        if (editor is null)
-            return TypedResults.Problem("Config editor service not enabled.", statusCode: 503);
-
-        var doc = editor.GetManifest(slug);
+        if (editor is null) return ApiEndpointHelpers.StoreUnavailable("Config editor service");
+        var doc = await editor.GetManifestAsync(slug, ct);
         if (doc is null) return TypedResults.NotFound();
-        return TypedResults.Ok(new SingleResponse<DetectorManifestDocument>
-        {
-            Data = doc,
-            Meta = new ResponseMeta()
-        });
+        return ApiEndpointHelpers.Single(doc);
     }
 }

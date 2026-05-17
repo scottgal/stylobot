@@ -23,10 +23,7 @@ internal sealed class RemoteShapeSearchStore : IShapeSearchStore
     }
 
     public async Task<IReadOnlyList<InvestigationPreset>> GetPresetsAsync(CancellationToken ct = default)
-    {
-        var list = await _api.GetEnvelopeAsync<List<InvestigationPreset>>("/api/v1/investigate/presets", ct);
-        return list ?? new List<InvestigationPreset>();
-    }
+        => await _api.GetEnvelopeListAsync<InvestigationPreset>("/api/v1/investigate/presets", ct);
 
     private static InvestigationResult EmptyResult() => new()
     {

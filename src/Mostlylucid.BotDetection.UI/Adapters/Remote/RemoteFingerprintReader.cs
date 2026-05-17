@@ -13,10 +13,7 @@ internal sealed class RemoteFingerprintReader : IFingerprintReader
     public RemoteFingerprintReader(GatewayApiClient api) => _api = api;
 
     public async Task<IReadOnlyList<Fingerprint>> ListFingerprintsAsync(CancellationToken ct = default)
-    {
-        var list = await _api.GetEnvelopeAsync<List<Fingerprint>>("/api/v1/fingerprints", ct);
-        return list ?? new List<Fingerprint>();
-    }
+        => await _api.GetEnvelopeListAsync<Fingerprint>("/api/v1/fingerprints", ct);
 
     public async Task<Fingerprint?> GetFingerprintAsync(string fingerprintId, CancellationToken ct = default)
         => await _api.GetEnvelopeAsync<Fingerprint>(

@@ -31,8 +31,13 @@ if (string.IsNullOrEmpty(builder.Configuration["urls"])
     builder.WebHost.UseUrls("http://127.0.0.1:5095");
 }
 
-var sourceType = builder.Configuration["StyloBot:Source:Pull:Type"] ?? "rest";
-var isRemote = string.Equals(sourceType, "rest", StringComparison.OrdinalIgnoreCase);
+// Default to remote: stylobot-ui is intended as a network-hosted viewer. Operators
+// who want single-host detection + dashboard should use stylobot-all instead.
+var sourceTypeRaw = builder.Configuration["StyloBot:Source:Pull:Type"];
+var sourceType = Enum.TryParse<DashboardSourceType>(sourceTypeRaw, ignoreCase: true, out var parsed)
+    ? parsed
+    : DashboardSourceType.Rest;
+var isRemote = sourceType == DashboardSourceType.Rest;
 
 if (isRemote)
 {

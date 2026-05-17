@@ -902,7 +902,7 @@ public class StyloBotDashboardMiddleware
             YourDetection = BuildYourDetectionPartialModel(context),
             Countries = BuildCountriesModel("total", "desc", 1, 20, countriesData),
             Endpoints = BuildEndpointsModel("total", "desc", 1, 20, endpointsData),
-            Clusters = BuildClustersModel(context),
+            Clusters = await BuildClustersModelAsync(context),
             UserAgents = BuildUserAgentsModel("all", "requests", "desc", 1, 25, allUserAgents),
             TopBots = BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
             Sessions = await BuildSessionsModel(context),
@@ -911,7 +911,7 @@ public class StyloBotDashboardMiddleware
             // Only build the editor model when the operator is on the Configuration tab --
             // listing all 30+ embedded manifests on every dashboard render is wasteful.
             Configuration = tab.Equals("configuration", StringComparison.OrdinalIgnoreCase)
-                ? BuildConfigurationModel(context)
+                ? await BuildConfigurationModelAsync(context)
                 : null,
             // Only run investigation queries when the operator is on the Investigate tab.
             Investigation = investigationVm,
@@ -1698,7 +1698,7 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        var clusters = clusterService.GetClusters()
+        var clusters = (await clusterService.GetClustersAsync(context.RequestAborted))
             .Select(cl => new
             {
                 clusterId = cl.ClusterId,
@@ -2745,7 +2745,7 @@ public class StyloBotDashboardMiddleware
     /// <summary>Render the Configuration tab partial. Lazy-loads Monaco from CDN once it boots.</summary>
     private async Task ServeConfigurationPartialAsync(HttpContext context)
     {
-        var model = BuildConfigurationModel(context);
+        var model = await BuildConfigurationModelAsync(context);
         if (model is null)
         {
             // No editor service registered - show a friendly empty state instead of a 500.
@@ -2770,7 +2770,7 @@ public class StyloBotDashboardMiddleware
     ///     registered (defensive - should always be present once <c>AddBotDetection()</c>
     ///     has run, but the dashboard may be hosted in trimmed configurations).
     /// </summary>
-    private ConfigurationEditorModel? BuildConfigurationModel(HttpContext context)
+    private async Task<ConfigurationEditorModel?> BuildConfigurationModelAsync(HttpContext context)
     {
         var editor = context.RequestServices.GetService<IConfigEditorService>();
         if (editor is null) return null;
@@ -2787,7 +2787,7 @@ public class StyloBotDashboardMiddleware
         return new ConfigurationEditorModel
         {
             BasePath = _options.BasePath.TrimEnd('/'),
-            Detectors = editor.ListManifests(),
+            Detectors = await editor.ListManifestsAsync(context.RequestAborted),
             IsCommercialLicensed = commercial,
             ReadOnly = !canEdit
         };
@@ -2807,7 +2807,7 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body,
-            new { detectors = editor.ListManifests() }, CamelCaseJson);
+            new { detectors = await editor.ListManifestsAsync(context.RequestAborted) }, CamelCaseJson);
     }
 
     /// <summary><c>GET /api/config/schema</c> - JSON Schema for Monaco's YAML model binding.</summary>
@@ -2860,7 +2860,7 @@ public class StyloBotDashboardMiddleware
 
     private async Task ServeConfigManifestGetAsync(HttpContext context, IConfigEditorService editor, string slug)
     {
-        var doc = editor.GetManifest(slug);
+        var doc = await editor.GetManifestAsync(slug, context.RequestAborted);
         if (doc is null)
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;
@@ -3145,7 +3145,7 @@ public class StyloBotDashboardMiddleware
     /// <summary>Render the clusters list partial.</summary>
     private async Task ServeClustersPartialAsync(HttpContext context)
     {
-        var model = BuildClustersModel(context);
+        var model = await BuildClustersModelAsync(context);
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/_ClustersList.cshtml", model, context);
@@ -3933,7 +3933,7 @@ public class StyloBotDashboardMiddleware
                 "visitors" => await RenderVisitorPartialAsync(context, q),
                 "countries" => await RenderCountryPartialAsync(context, q),
                 "endpoints" => await RenderEndpointPartialAsync(context, q),
-                "clusters" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_ClustersList.cshtml", BuildClustersModel(context)),
+                "clusters" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_ClustersList.cshtml", await BuildClustersModelAsync(context)),
                 "useragents" => await RenderUaPartialAsync(context, q),
                 "topbots" or "top-visitors" or "live-visitors" => await RenderPartialAsync(context, "/Views/Shared/Components/SbTopBots/Default.cshtml", BuildTopBotsModelFromQuery(widgetId, q)),
                 "sessions" => await RenderPartialAsync(context, "/Views/Shared/Components/SbSessionsList/Default.cshtml", await BuildSessionsModel(context)),
@@ -4808,12 +4808,17 @@ public class StyloBotDashboardMiddleware
         };
     }
 
-    private ClustersListModel BuildClustersModel(HttpContext context)
+    private async Task<ClustersListModel> BuildClustersModelAsync(HttpContext context)
     {
         var clusterService = context.RequestServices.GetService(typeof(IBotClusterReader))
             as IBotClusterReader;
 
-        var clusters = clusterService?.GetClusters()
+        var ct = context.RequestAborted;
+        var rawClusters = clusterService is null
+            ? Array.Empty<BotCluster>()
+            : await clusterService.GetClustersAsync(ct);
+
+        var clusters = rawClusters
             .Select(cl => new ClusterViewModel
             {
                 ClusterId = cl.ClusterId,
@@ -4828,19 +4833,19 @@ public class StyloBotDashboardMiddleware
                 DominantIntent = cl.DominantIntent,
                 AverageThreatScore = Math.Round(cl.AverageThreatScore, 3)
             })
-            .ToList() ?? [];
+            .ToList();
 
         return new ClustersListModel
         {
             Clusters = clusters,
-            Diagnostics = clusterService == null ? null : BuildClusterDiagnosticsModel(clusterService),
+            Diagnostics = clusterService == null ? null : await BuildClusterDiagnosticsModelAsync(clusterService, ct),
             BasePath = _options.BasePath.TrimEnd('/')
         };
     }
 
-    private static ClusterDiagnosticsViewModel BuildClusterDiagnosticsModel(IBotClusterReader clusterService)
+    private static async Task<ClusterDiagnosticsViewModel> BuildClusterDiagnosticsModelAsync(IBotClusterReader clusterService, CancellationToken ct)
     {
-        var diagnostics = clusterService.GetDiagnostics();
+        var diagnostics = await clusterService.GetDiagnosticsAsync(ct);
         return new ClusterDiagnosticsViewModel
         {
             Algorithm = diagnostics.Algorithm,

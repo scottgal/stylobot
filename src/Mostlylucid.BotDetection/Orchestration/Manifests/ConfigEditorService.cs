@@ -39,14 +39,17 @@ namespace Mostlylucid.BotDetection.Orchestration.Manifests;
 /// </summary>
 public interface IConfigEditorService
 {
-    /// <summary>List all editable detector manifests with their override status.</summary>
-    IReadOnlyList<DetectorManifestSummary> ListManifests();
+    /// <summary>
+    ///     List all editable detector manifests with their override status. Async so the
+    ///     remote implementation can do HTTP I/O without blocking thread-pool threads.
+    /// </summary>
+    Task<IReadOnlyList<DetectorManifestSummary>> ListManifestsAsync(CancellationToken ct = default);
 
     /// <summary>
     ///     Fetch the editor view for a single manifest: embedded YAML, override YAML (if any),
     ///     and the "effective" YAML the editor seeds with. Returns null when slug is unknown.
     /// </summary>
-    DetectorManifestDocument? GetManifest(string slug);
+    Task<DetectorManifestDocument?> GetManifestAsync(string slug, CancellationToken ct = default);
 }
 
 // Not sealed: remote-mode dashboards register a HTTP-backed IConfigEditorService instead
@@ -79,6 +82,14 @@ public class ConfigEditorService : IConfigEditorService
         _loader = loader;
         _logger = logger;
     }
+
+    /// <inheritdoc cref="ListManifests"/>
+    public Task<IReadOnlyList<DetectorManifestSummary>> ListManifestsAsync(CancellationToken ct = default)
+        => Task.FromResult(ListManifests());
+
+    /// <inheritdoc cref="GetManifest"/>
+    public Task<DetectorManifestDocument?> GetManifestAsync(string slug, CancellationToken ct = default)
+        => Task.FromResult(GetManifest(slug));
 
     /// <summary>List all editable detector manifests with their override status.</summary>
     public IReadOnlyList<DetectorManifestSummary> ListManifests()

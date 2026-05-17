@@ -38,9 +38,9 @@ public static class RemoteDashboardServiceExtensions
         this IServiceCollection services,
         DashboardSourceOptions options)
     {
-        if (options.Pull.Type != "rest")
+        if (options.Pull.Type != DashboardSourceType.Rest)
             throw new InvalidOperationException(
-                $"AddStyloBotDashboardRemote requires Pull.Type = 'rest', got '{options.Pull.Type}'.");
+                $"AddStyloBotDashboardRemote requires Pull.Type = Rest, got '{options.Pull.Type}'.");
         if (string.IsNullOrWhiteSpace(options.Pull.Url))
             throw new InvalidOperationException("StyloBot:Source:Pull:Url is required in rest mode.");
 
@@ -50,8 +50,10 @@ public static class RemoteDashboardServiceExtensions
         {
             http.BaseAddress = new Uri(options.Pull.Url!.TrimEnd('/') + "/");
             if (!string.IsNullOrEmpty(options.Pull.ApiKey))
+                // Matches Mostlylucid.BotDetection.Api.Auth.ApiKeyAuthenticationHandler.HeaderName
+                // (kept as a literal here because UI cannot reference Api - that would cycle).
                 http.DefaultRequestHeaders.Add("X-SB-Api-Key", options.Pull.ApiKey);
-            http.Timeout = TimeSpan.FromSeconds(30);
+            http.Timeout = TimeSpan.FromSeconds(options.Pull.TimeoutSeconds);
         });
 
         // Remote store registrations - go in BEFORE AddStyloBotDashboard so the TryAdd

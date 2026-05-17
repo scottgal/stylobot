@@ -9,11 +9,6 @@ using Mostlylucid.BotDetection.Data;
 
 namespace Mostlylucid.BotDetection.Api.Endpoints;
 
-/// <summary>
-///     Read-only pinned-endpoint surface for remote dashboards. Wraps
-///     <see cref="IPinnedEndpointStore"/>. Write paths (Add / Remove) stay local to the
-///     gateway that owns the pins database.
-/// </summary>
 public static class EndpointPinEndpoints
 {
     public static IEndpointRouteBuilder MapEndpointPinEndpoints(this IEndpointRouteBuilder endpoints)
@@ -31,15 +26,8 @@ public static class EndpointPinEndpoints
         [FromServices] IPinnedEndpointStore? store,
         CancellationToken ct = default)
     {
-        if (store is null)
-            return TypedResults.Problem("Pinned-endpoint store not enabled.", statusCode: 503);
-
+        if (store is null) return ApiEndpointHelpers.StoreUnavailable("Pinned-endpoint store");
         var pins = await store.GetAllAsync(ct);
-        return TypedResults.Ok(new PaginatedResponse<PinnedEndpoint>
-        {
-            Data = pins,
-            Pagination = new PaginationInfo { Offset = 0, Limit = pins.Count, Total = pins.Count },
-            Meta = new ResponseMeta()
-        });
+        return ApiEndpointHelpers.Paginated(pins, pins.Count);
     }
 }

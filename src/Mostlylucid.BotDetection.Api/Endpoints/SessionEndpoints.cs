@@ -9,11 +9,6 @@ using Mostlylucid.BotDetection.Data;
 
 namespace Mostlylucid.BotDetection.Api.Endpoints;
 
-/// <summary>
-///     Read-only session surface for remote dashboards. Wraps <see cref="ISessionStore"/>.
-///     Sessions are the primary behavioural unit; the dashboard's Sessions tab + the
-///     per-signature drill-in both go through these endpoints in remote mode.
-/// </summary>
 public static class SessionEndpoints
 {
     public static IEndpointRouteBuilder MapSessionEndpoints(this IEndpointRouteBuilder endpoints)
@@ -34,16 +29,9 @@ public static class SessionEndpoints
         bool? isBot = null,
         CancellationToken ct = default)
     {
-        if (store is null)
-            return TypedResults.Problem("Session store not enabled.", statusCode: 503);
-
+        if (store is null) return ApiEndpointHelpers.StoreUnavailable("Session store");
         var sessions = await store.GetRecentSessionsAsync(Math.Min(limit, 200), isBot, ct);
-        return TypedResults.Ok(new PaginatedResponse<PersistedSession>
-        {
-            Data = sessions,
-            Pagination = new PaginationInfo { Offset = 0, Limit = limit, Total = sessions.Count },
-            Meta = new ResponseMeta()
-        });
+        return ApiEndpointHelpers.Paginated(sessions, limit);
     }
 
     private static async Task<Results<Ok<PaginatedResponse<PersistedSession>>, ProblemHttpResult>> HandleBySignature(
@@ -52,15 +40,8 @@ public static class SessionEndpoints
         int limit = 20,
         CancellationToken ct = default)
     {
-        if (store is null)
-            return TypedResults.Problem("Session store not enabled.", statusCode: 503);
-
+        if (store is null) return ApiEndpointHelpers.StoreUnavailable("Session store");
         var sessions = await store.GetSessionsAsync(signature, Math.Min(limit, 100), ct);
-        return TypedResults.Ok(new PaginatedResponse<PersistedSession>
-        {
-            Data = sessions,
-            Pagination = new PaginationInfo { Offset = 0, Limit = limit, Total = sessions.Count },
-            Meta = new ResponseMeta()
-        });
+        return ApiEndpointHelpers.Paginated(sessions, limit);
     }
 }

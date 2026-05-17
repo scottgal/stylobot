@@ -10,13 +10,6 @@ using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.Api.Endpoints;
 
-/// <summary>
-///     Unified investigation surface: filter detections by entity (signature, country,
-///     path, ua_family, ip, fingerprint) and get a cross-associated rollup. Backs the
-///     dashboard's Investigate tab in remote mode. Shape-search and presets are
-///     optional commercial surfaces - the endpoints 503 cleanly when the
-///     <see cref="IShapeSearchStore"/> isn't registered.
-/// </summary>
 public static class InvestigationEndpoints
 {
     public static IEndpointRouteBuilder MapInvestigationEndpoints(this IEndpointRouteBuilder endpoints)
@@ -36,44 +29,23 @@ public static class InvestigationEndpoints
         InvestigationFilter filter,
         [FromServices] IDashboardEventStore store,
         CancellationToken ct = default)
-    {
-        var result = await store.GetInvestigationAsync(filter, ct);
-        return TypedResults.Ok(new SingleResponse<InvestigationResult>
-        {
-            Data = result,
-            Meta = new ResponseMeta()
-        });
-    }
+        => ApiEndpointHelpers.Single(await store.GetInvestigationAsync(filter, ct));
 
     private static async Task<Results<Ok<SingleResponse<InvestigationResult>>, ProblemHttpResult>> HandleShapeSearch(
         ShapeSearchFilter filter,
         [FromServices] IShapeSearchStore? store,
         CancellationToken ct = default)
     {
-        if (store is null)
-            return TypedResults.Problem("Shape search not enabled.", statusCode: 503);
-
-        var result = await store.SearchByShapeAsync(filter, ct);
-        return TypedResults.Ok(new SingleResponse<InvestigationResult>
-        {
-            Data = result,
-            Meta = new ResponseMeta()
-        });
+        if (store is null) return ApiEndpointHelpers.StoreUnavailable("Shape search");
+        return ApiEndpointHelpers.Single(await store.SearchByShapeAsync(filter, ct));
     }
 
     private static async Task<Results<Ok<PaginatedResponse<InvestigationPreset>>, ProblemHttpResult>> HandlePresets(
         [FromServices] IShapeSearchStore? store,
         CancellationToken ct = default)
     {
-        if (store is null)
-            return TypedResults.Problem("Shape search not enabled.", statusCode: 503);
-
+        if (store is null) return ApiEndpointHelpers.StoreUnavailable("Shape search");
         var presets = await store.GetPresetsAsync(ct);
-        return TypedResults.Ok(new PaginatedResponse<InvestigationPreset>
-        {
-            Data = presets,
-            Pagination = new PaginationInfo { Offset = 0, Limit = presets.Count, Total = presets.Count },
-            Meta = new ResponseMeta()
-        });
+        return ApiEndpointHelpers.Paginated(presets, presets.Count);
     }
 }
