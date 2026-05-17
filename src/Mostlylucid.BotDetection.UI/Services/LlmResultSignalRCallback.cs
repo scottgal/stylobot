@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Hubs;
 
@@ -9,24 +10,33 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     Broadcasts background LLM classification results via SignalR
 ///     and writes names/descriptions back to the server-side caches
 ///     so HTMX partial re-renders pick up the new data.
+///     Also propagates the LLM-derived name to <see cref="SqliteFingerprintStore"/>
+///     so the matcher's persisted display name (and therefore the CLI / response
+///     header surface) picks up the better name on subsequent requests.
 /// </summary>
 public class LlmResultSignalRCallback : ILlmResultCallback
 {
     private readonly IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> _hubContext;
     private readonly SignatureAggregateCache _signatureCache;
     private readonly VisitorListCache _visitorCache;
+    private readonly IDashboardEventStore _eventStore;
+    private readonly SqliteFingerprintStore? _fingerprintStore;
     private readonly ILogger<LlmResultSignalRCallback> _logger;
 
     public LlmResultSignalRCallback(
         ILogger<LlmResultSignalRCallback> logger,
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
         SignatureAggregateCache signatureCache,
-        VisitorListCache visitorCache)
+        VisitorListCache visitorCache,
+        IDashboardEventStore eventStore,
+        SqliteFingerprintStore? fingerprintStore = null)
     {
         _logger = logger;
         _hubContext = hubContext;
         _signatureCache = signatureCache;
         _visitorCache = visitorCache;
+        _eventStore = eventStore;
+        _fingerprintStore = fingerprintStore;
     }
 
     public async Task OnLlmResultAsync(string requestId, string primarySignature, string description, CancellationToken ct = default)
@@ -38,7 +48,14 @@ public class LlmResultSignalRCallback : ILlmResultCallback
 
     public async Task OnSignatureDescriptionAsync(string signature, string name, string description, CancellationToken ct = default)
     {
-        // Write back to caches FIRST so the subsequent HTMX re-render picks up the new name
+        // Persist to BOTH SQLite stores first. The in-memory caches are derived state; on
+        // restart, only what's in SQLite survives.
+        await _eventStore.UpdateSignatureBotNameAsync(signature, name, description, ct);
+        if (_fingerprintStore is not null)
+            await _fingerprintStore.UpdateDisplayNameForSignatureAsync(signature, name, DateTime.UtcNow, ct);
+
+        // Then update in-memory caches so the next HTMX re-render picks up the new name
+        // without needing to read from SQLite.
         _signatureCache.ApplyBotName(signature, name, description);
 
         var visitor = _visitorCache.Get(signature);

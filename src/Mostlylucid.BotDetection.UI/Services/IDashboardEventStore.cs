@@ -19,6 +19,15 @@ public interface IDashboardEventStore
     Task<DashboardSignatureEvent> AddSignatureAsync(DashboardSignatureEvent signature);
 
     /// <summary>
+    ///     Updates the persisted bot name + description on the signature row, after the
+    ///     async LLM-naming pipeline produces a richer name than the original UA-derived
+    ///     one. Called from <c>ILlmResultCallback.OnSignatureDescriptionAsync</c>; pairs
+    ///     with <c>SqliteFingerprintStore.UpdateDisplayNameForSignatureAsync</c> so both
+    ///     persistent stores stay in sync. No-op when the signature isn't present.
+    /// </summary>
+    Task UpdateSignatureBotNameAsync(string signature, string name, string? description, CancellationToken ct = default);
+
+    /// <summary>
     ///     Get recent detections with optional filtering.
     /// </summary>
     Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null, CancellationToken ct = default);

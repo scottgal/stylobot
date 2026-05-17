@@ -378,6 +378,21 @@ public sealed class SqliteFingerprintStore
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>
+    ///     Update the display name on whichever fingerprint <paramref name="primarySignature"/>
+    ///     currently maps to. One-shot helper for downstream consumers (the LLM-result callback,
+    ///     dashboard "rename" controls) that have a signature in hand but not a fingerprint id.
+    ///     Idempotent; no-op when the signature isn't bound to any fingerprint.
+    /// </summary>
+    public async Task UpdateDisplayNameForSignatureAsync(
+        string primarySignature, string displayName, DateTime updatedAt, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(primarySignature)) return;
+        var fingerprintId = await LookupFingerprintIdAsync(primarySignature, ct);
+        if (fingerprintId is null) return;
+        await UpdateDisplayNameAsync(fingerprintId, displayName, updatedAt, ct);
+    }
+
     /// <summary>Append an unabsorbed observation row.</summary>
     public async Task RecordObservationAsync(string fingerprintId, float[] vector, CancellationToken ct = default)
     {

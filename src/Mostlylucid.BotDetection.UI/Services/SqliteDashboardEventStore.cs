@@ -294,6 +294,33 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         }
     }
 
+    public async Task UpdateSignatureBotNameAsync(string signature, string name, string? description, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(signature) || string.IsNullOrEmpty(name)) return;
+        await EnsureInitializedAsync(ct);
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            await using var conn = new SqliteConnection(_connectionString);
+            await conn.OpenAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                UPDATE signatures
+                   SET bot_name = @name,
+                       narrative = COALESCE(@desc, narrative)
+                 WHERE signature = @sig
+                """;
+            cmd.Parameters.AddWithValue("@sig", signature);
+            cmd.Parameters.AddWithValue("@name", name);
+            cmd.Parameters.AddWithValue("@desc", (object?)description ?? DBNull.Value);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
     public async Task<List<DashboardDetectionEvent>> GetDetectionsAsync(DashboardFilter? filter = null, CancellationToken ct = default)
     {
         await EnsureInitializedAsync(ct);
