@@ -3,8 +3,10 @@ name: Publish Mostlylucid.BotDetection
 on:
   push:
     tags:
+      # Per-package tag only. The combined allbot-v* tag is handled by
+      # publish-all.yml's publish-botdetection job - having both fire double-publishes
+      # AND trips NuGet's trusted-publisher policy.
       - 'botdetection-v*.*.*'
-      - 'allbot-v*.*.*'
   workflow_dispatch:
 
 permissions:

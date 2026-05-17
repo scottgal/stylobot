@@ -3,8 +3,11 @@ name: Publish src/Mostlylucid.GeoDetection
 on:
   push:
     tags:
+      # Per-package tag only. The combined allbot-v* tag is handled by
+      # publish-all.yml's publish-geodetection job - having both fire double-publishes
+      # AND trips NuGet's trusted-publisher policy (which only whitelists publish-all.yml
+      # for the Mostlylucid.GeoDetection package).
       - 'geodetection-v*.*.*'
-      - 'allbot-v*.*.*'
   workflow_dispatch:
     inputs:
       version:
