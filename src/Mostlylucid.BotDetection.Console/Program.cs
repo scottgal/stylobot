@@ -34,6 +34,17 @@ Batteries.Init();
 // Parse command-line arguments
 var cmdArgs = Environment.GetCommandLineArgs();
 
+// -d / --daemon: shorthand for the `start` subcommand. Forks to background and exits.
+// Existing `stylobot start` subcommand still works; -d is the common-case ergonomic
+// flag operators expect on a CLI ("run in the background").
+if (cmdArgs.Any(a => a.Equals("-d", StringComparison.OrdinalIgnoreCase)
+                  || a.Equals("--daemon", StringComparison.OrdinalIgnoreCase)))
+{
+    return DaemonCommands.Start(cmdArgs.Where(a =>
+        !a.Equals("-d", StringComparison.OrdinalIgnoreCase) &&
+        !a.Equals("--daemon", StringComparison.OrdinalIgnoreCase)).ToArray());
+}
+
 // Route subcommands: stop, status, logs don't need the full server startup
 var firstArg = cmdArgs.Length > 1 ? cmdArgs[1].ToLowerInvariant() : null;
 switch (firstArg)
@@ -83,6 +94,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine();
     Console.WriteLine("  Commands:");
     Console.WriteLine("    stylobot start <port> <upstream> [opts]     Start as background daemon");
+    Console.WriteLine("    stylobot <port> <upstream> -d              Same, shorter (-d / --daemon)");
     Console.WriteLine("    stylobot stop                               Stop the running daemon");
     Console.WriteLine("    stylobot status                             Check if daemon is running");
     Console.WriteLine("    stylobot logs                               Show recent log output");
