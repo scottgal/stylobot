@@ -35,6 +35,15 @@ Batteries.Init();
 // Parse command-line arguments
 var cmdArgs = Environment.GetCommandLineArgs();
 
+// --output-config <filename>: dump the effective BotDetection configuration to
+// disk and exit. Aids editing - operators get a fully-populated tree (defaults +
+// any overrides from appsettings / env / CLI) instead of having to grep the source.
+var outputConfigPath = ConfigOutputCommand.TryGetOutputPath(cmdArgs);
+if (outputConfigPath is not null)
+{
+    return ConfigOutputCommand.WriteConfig(outputConfigPath, cmdArgs);
+}
+
 // -d / --daemon: shorthand for the `start` subcommand. Forks to background and exits.
 // Existing `stylobot start` subcommand still works; -d is the common-case ergonomic
 // flag operators expect on a CLI ("run in the background").
@@ -96,6 +105,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
     Console.WriteLine("  Commands:");
     Console.WriteLine("    stylobot start <port> <upstream> [opts]     Start as background daemon");
     Console.WriteLine("    stylobot <port> <upstream> -d              Same, shorter (-d / --daemon)");
+    Console.WriteLine("    stylobot --output-config <file>            Dump effective config to <file>");
     Console.WriteLine("    stylobot stop                               Stop the running daemon");
     Console.WriteLine("    stylobot status                             Check if daemon is running");
     Console.WriteLine("    stylobot logs                               Show recent log output");
