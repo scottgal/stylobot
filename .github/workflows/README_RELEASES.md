@@ -196,17 +196,15 @@ git push origin allbot-v1.0.0
 Configure `ReverseProxy:Routes` in appsettings to drive upstream routing.
 Not Native AOT for the same reason as `stylobot-ui`.
 
-## StyloBot Sidecar Release
+## StyloBot Sidecar Docker Release
 
 **Workflow:** `publish-sidecar.yml`
 
-Publishes the detection sidecar two ways, as part of the main `allbot-v*` release:
-
-1. A multi-arch Docker image to Docker Hub (`scottgal/stylobot-sidecar`)
-2. Self-contained single-file binaries (Linux/Windows/macOS, x64 + ARM64)
-   attached to the GitHub Release. The binary is one file with no runtime
-   dependency, so it can run as the image or be `COPY`-d into your app's
-   container to co-locate the sidecar with your app.
+Publishes the detection sidecar Docker image (`scottgal/stylobot-sidecar`) to
+Docker Hub. Triggered by `allbot-v*` or `sidecar-v*` tags. **Docker image only**
+- the self-contained binaries for the sidecar live in the extensions release
+(see below) so all three "extension" deployment shapes are downloadable from
+one place with their own per-product checksums.
 
 ### Trigger
 
@@ -220,9 +218,46 @@ git tag sidecar-v1.0.0
 git push origin sidecar-v1.0.0
 ```
 
-The binaries are **self-contained but not Native AOT** (the gRPC server and the
-Fluid template engine are not guaranteed AOT-clean), so they are larger than the
-AOT Console binaries but build reliably on every platform.
+## StyloBot Extensions Release (sidecar + ui + all binaries)
+
+**Workflow:** `publish-extensions.yml`
+
+Produces a **dedicated GitHub Release page** at the `extensions-v{version}` tag
+containing self-contained single-file binaries for all three deployment-shape
+extensions:
+
+- `stylobot-sidecar-*` &mdash; detection-only sidecar (gRPC + REST, no UI/YARP)
+- `stylobot-ui-*` &mdash; remote dashboard viewer (REST + SignalR client)
+- `stylobot-all-*` &mdash; YARP gateway + detection + dashboard in one process
+
+Each product gets:
+- 6 archives: linux x64/arm64, win x64/arm64, osx x64/arm64
+- Its own README.txt inside the archive
+- Its **own** SHA256SUMS file (`stylobot-sidecar-SHA256SUMS.txt`,
+  `stylobot-ui-SHA256SUMS.txt`, `stylobot-all-SHA256SUMS.txt`) so someone
+  pulling only one product can verify without downloading the whole set
+- SLSA build provenance attestation (sigstore-signed)
+
+The release is **separate** from the main `allbot-v*` NuGet release page so
+the NuGet release notes aren't drowned in platform binaries.
+
+### Trigger
+
+```bash
+# Combined with the all-in-one NuGet release (most common):
+git tag allbot-v1.0.0
+git push origin allbot-v1.0.0
+# -> publish-all.yml publishes NuGet at allbot-v1.0.0 release
+# -> publish-extensions.yml publishes binaries at extensions-v1.0.0 release
+
+# Or extensions-only (when only the binaries changed):
+git tag extensions-v1.0.0
+git push origin extensions-v1.0.0
+```
+
+The binaries are **self-contained but not Native AOT** (Razor/SignalR/YARP/
+Fluid aren't guaranteed AOT-clean), so they are larger than the AOT Console
+binaries but build reliably on every platform.
 
 ## NuGet Package Releases
 

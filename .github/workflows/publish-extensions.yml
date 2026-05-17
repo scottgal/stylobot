@@ -1,0 +1,448 @@
+name: Publish StyloBot Extensions
+
+# Builds the three "extension" binaries - sidecar, ui, and all-in-one - and
+# attaches them to a dedicated GitHub Release at the extensions-v{version} tag.
+# Kept separate from the main allbot-v* NuGet release so the NuGet release page
+# isn't polluted with platform binaries and so the extensions have their own
+# per-product SHA256SUMS.
+#
+# Each product (stylobot-sidecar, stylobot-ui, stylobot-all) is built as a
+# self-contained single-file binary for six runtimes (linux x64/arm64,
+# win x64/arm64, osx x64/arm64) and bundled into its own archive with a
+# README.txt and a product-specific SHA256SUMS.txt.
+
+on:
+  push:
+    tags:
+      - 'extensions-v*'
+      - 'allbot-v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0 or 1.0.0-preview1)'
+        required: true
+        default: '1.0.0-preview1'
+
+permissions:
+  contents: write       # create extensions-v* tag + attach binaries
+  id-token: write       # sigstore OIDC for SLSA attestations
+  attestations: write   # actions/attest-build-provenance
+
+jobs:
+  # --- version -----------------------------------------------------------------
+  # Both workflow_dispatch.inputs.version and github.ref (tag refs) are
+  # passed through env: + bash variables and validated against a strict semver
+  # regex before being echoed to $GITHUB_OUTPUT.
+  version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.VERSION }}
+      is_prerelease: ${{ steps.get_version.outputs.IS_PRERELEASE }}
+      tag_name: ${{ steps.get_version.outputs.TAG_NAME }}
+    steps:
+      - name: Extract version
+        id: get_version
+        env:
+          GIT_REF: ${{ github.ref }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            TAG="${GIT_REF#refs/tags/}"
+            VERSION="${TAG#allbot-v}"
+            VERSION="${VERSION#extensions-v}"
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "::error::Invalid version: '$VERSION'. Expected semver (e.g. 1.0.0 or 1.0.0-preview1)"
+            exit 1
+          fi
+          TAG_NAME="extensions-v${VERSION}"
+          if [[ "$VERSION" == *"-"* ]]; then IS_PRERELEASE="true"; else IS_PRERELEASE="false"; fi
+          echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "IS_PRERELEASE=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "Extensions release $VERSION will be attached to $TAG_NAME (prerelease: $IS_PRERELEASE)"
+
+  # --- sidecar binaries --------------------------------------------------------
+  build-sidecar:
+    name: sidecar / ${{ matrix.runtime }}
+    runs-on: ${{ matrix.os }}
+    needs: [version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  runtime: linux-x64,   file-ext: ''     }
+          - { os: ubuntu-latest,  runtime: linux-arm64, file-ext: ''     }
+          - { os: windows-latest, runtime: win-x64,     file-ext: '.exe' }
+          - { os: windows-latest, runtime: win-arm64,   file-ext: '.exe' }
+          - { os: macos-latest,   runtime: osx-x64,     file-ext: ''     }
+          - { os: macos-latest,   runtime: osx-arm64,   file-ext: ''     }
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Self-contained single-file (not Native AOT): see publish-sidecar.yml
+      # rationale - gRPC + Fluid aren't guaranteed AOT-clean.
+      - name: Publish sidecar
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          dotnet publish src/Mostlylucid.BotDetection.Sidecar/Mostlylucid.BotDetection.Sidecar.csproj \
+            --configuration Release \
+            --runtime "$RUNTIME" \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:Version="$VERSION" \
+            --output "./publish/$RUNTIME"
+
+      - name: Package
+        shell: bash
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+          FILE_EXT: ${{ matrix.file-ext }}
+          RUNNER_OS_NAME: ${{ runner.os }}
+        run: |
+          mkdir -p ./dist
+          cp "./publish/$RUNTIME/stylobot-sidecar$FILE_EXT" ./dist/
+          cp sdk/proto/detection.proto ./dist/
+          cat > ./dist/README.txt << 'EOF'
+          StyloBot detection sidecar
+          ==========================
+
+          Low-surface-area detection-only build: detector pipeline + gRPC server
+          + REST /detect endpoint + auth. Same engine as the main stylobot
+          binary; dashboard, Razor views, SignalR hub, OIDC, simulation packs,
+          and YARP proxy are stripped out.
+
+          Self-contained single-file binary. No .NET runtime required. Run it
+          next to your app - same pod, same host, or the same container.
+
+          Quick start:
+            ./stylobot-sidecar                       # gRPC :5090 + REST :5091, loopback only
+
+          Key environment variables:
+            STYLOBOT_PORT            gRPC listen port (default 5090)
+            STYLOBOT_GRPC_ONLY=true  gRPC only, no REST surface
+            STYLOBOT_BIND=any        bind all interfaces (needs API keys; see below)
+            STYLOBOT_ALLOW_INSECURE  permit exposed + unauthenticated (not recommended)
+
+          The sidecar binds loopback only by default. To reach it across a
+          network set STYLOBOT_BIND=any and configure at least one API key:
+            BotDetection__ApiKeys__<your-secret-key>__Name=app
+          gRPC callers send it as the "x-sb-api-key" metadata header; REST
+          callers send the "X-SB-Api-Key" HTTP header.
+
+          detection.proto is included for generating gRPC stubs in your language.
+
+          Full docs: https://github.com/scottgal/stylobot
+          EOF
+
+          cd ./dist
+          if [ "$RUNNER_OS_NAME" = "Windows" ]; then
+            7z a -tzip "../stylobot-sidecar-$RUNTIME.zip" *
+          else
+            tar czf "../stylobot-sidecar-$RUNTIME.tar.gz" *
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stylobot-sidecar-${{ matrix.runtime }}
+          path: |
+            stylobot-sidecar-${{ matrix.runtime }}.zip
+            stylobot-sidecar-${{ matrix.runtime }}.tar.gz
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # --- ui binaries -------------------------------------------------------------
+  build-ui:
+    name: ui / ${{ matrix.runtime }}
+    runs-on: ${{ matrix.os }}
+    needs: [version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  runtime: linux-x64,   file-ext: ''     }
+          - { os: ubuntu-latest,  runtime: linux-arm64, file-ext: ''     }
+          - { os: windows-latest, runtime: win-x64,     file-ext: '.exe' }
+          - { os: windows-latest, runtime: win-arm64,   file-ext: '.exe' }
+          - { os: macos-latest,   runtime: osx-x64,     file-ext: ''     }
+          - { os: macos-latest,   runtime: osx-arm64,   file-ext: ''     }
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Razor + SignalR + dynamic JSON aren't AOT-clean. Self-contained
+      # single-file gives us cross-platform binaries that just run.
+      - name: Publish ui
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          dotnet publish src/Stylobot.Ui/Stylobot.Ui.csproj \
+            --configuration Release \
+            --runtime "$RUNTIME" \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:Version="$VERSION" \
+            --output "./publish/$RUNTIME"
+
+      - name: Package
+        shell: bash
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+          FILE_EXT: ${{ matrix.file-ext }}
+          RUNNER_OS_NAME: ${{ runner.os }}
+        run: |
+          mkdir -p ./dist
+          cp "./publish/$RUNTIME/stylobot-ui$FILE_EXT" ./dist/
+          cp src/Stylobot.Ui/appsettings.json ./dist/
+          cat > ./dist/README.txt << 'EOF'
+          StyloBot UI (remote viewer)
+          ===========================
+
+          Hosted dashboard for a remote stylobot gateway. Pure REST + SignalR
+          client - reads nothing locally. Point it at a stylobot gateway
+          started with --enable-api and it renders the dashboard at /_stylobot.
+
+          Self-contained single-file binary. No .NET runtime required.
+
+          Quick start:
+            ./stylobot-ui                            # listens on :5095
+
+          Configure the remote gateway in appsettings.json (or env vars):
+            StyloBot:Source:Pull:Type=rest
+            StyloBot:Source:Pull:Rest:BaseUrl=https://your-gateway.example.com
+            StyloBot:Source:Pull:Rest:ApiKey=<your-X-SB-Api-Key>
+            StyloBot:Source:Live:Type=signalr   # optional, for live event stream
+
+          Dashboard: http://localhost:5095/_stylobot
+
+          Full docs: https://github.com/scottgal/stylobot
+          EOF
+
+          cd ./dist
+          if [ "$RUNNER_OS_NAME" = "Windows" ]; then
+            7z a -tzip "../stylobot-ui-$RUNTIME.zip" *
+          else
+            tar czf "../stylobot-ui-$RUNTIME.tar.gz" *
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stylobot-ui-${{ matrix.runtime }}
+          path: |
+            stylobot-ui-${{ matrix.runtime }}.zip
+            stylobot-ui-${{ matrix.runtime }}.tar.gz
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # --- all-in-one binaries -----------------------------------------------------
+  build-all:
+    name: all / ${{ matrix.runtime }}
+    runs-on: ${{ matrix.os }}
+    needs: [version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  runtime: linux-x64,   file-ext: ''     }
+          - { os: ubuntu-latest,  runtime: linux-arm64, file-ext: ''     }
+          - { os: windows-latest, runtime: win-x64,     file-ext: '.exe' }
+          - { os: windows-latest, runtime: win-arm64,   file-ext: '.exe' }
+          - { os: macos-latest,   runtime: osx-x64,     file-ext: ''     }
+          - { os: macos-latest,   runtime: osx-arm64,   file-ext: ''     }
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # YARP + dashboard + SignalR + Razor: not AOT-clean. Self-contained
+      # single-file is the right shape for a one-process deployment.
+      - name: Publish all-in-one
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          dotnet publish src/Stylobot.All/Stylobot.All.csproj \
+            --configuration Release \
+            --runtime "$RUNTIME" \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:Version="$VERSION" \
+            --output "./publish/$RUNTIME"
+
+      - name: Package
+        shell: bash
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+          FILE_EXT: ${{ matrix.file-ext }}
+          RUNNER_OS_NAME: ${{ runner.os }}
+        run: |
+          mkdir -p ./dist
+          cp "./publish/$RUNTIME/stylobot-all$FILE_EXT" ./dist/
+          cp src/Stylobot.All/appsettings.json ./dist/
+          cat > ./dist/README.txt << 'EOF'
+          StyloBot All-in-One
+          ===================
+
+          YARP reverse proxy + detection pipeline + dashboard in a single
+          process. Simplest deployment shape - one binary in front of your
+          app, no separate sidecar or UI container.
+
+          Self-contained single-file binary. No .NET runtime required.
+
+          Quick start:
+            ./stylobot-all                           # listens on :8080
+
+          Configure upstream routing in appsettings.json under ReverseProxy:
+            ReverseProxy:Routes:default:Match:Path=/{**catch-all}
+            ReverseProxy:Routes:default:ClusterId=upstream
+            ReverseProxy:Clusters:upstream:Destinations:app:Address=http://your-app:5000/
+
+          Dashboard: http://localhost:8080/_stylobot
+
+          Full docs: https://github.com/scottgal/stylobot
+          EOF
+
+          cd ./dist
+          if [ "$RUNNER_OS_NAME" = "Windows" ]; then
+            7z a -tzip "../stylobot-all-$RUNTIME.zip" *
+          else
+            tar czf "../stylobot-all-$RUNTIME.tar.gz" *
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stylobot-all-${{ matrix.runtime }}
+          path: |
+            stylobot-all-${{ matrix.runtime }}.zip
+            stylobot-all-${{ matrix.runtime }}.tar.gz
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # --- attach binaries to the extensions release ------------------------------
+  # Per-product SHA256SUMS files. Keeping them separate (rather than one
+  # combined SHA256SUMS) lets someone who only downloads, say, the sidecar
+  # binaries verify them without having to fetch the entire set first.
+  release:
+    name: Attach binaries to extensions release
+    runs-on: ubuntu-latest
+    needs: [version, build-sidecar, build-ui, build-all]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" \) -exec cp {} release-assets/ \;
+          cd release-assets
+          ( ls stylobot-sidecar-*.zip stylobot-sidecar-*.tar.gz 2>/dev/null | xargs -r sha256sum ) > stylobot-sidecar-SHA256SUMS.txt
+          ( ls stylobot-ui-*.zip      stylobot-ui-*.tar.gz      2>/dev/null | xargs -r sha256sum ) > stylobot-ui-SHA256SUMS.txt
+          ( ls stylobot-all-*.zip     stylobot-all-*.tar.gz     2>/dev/null | xargs -r sha256sum ) > stylobot-all-SHA256SUMS.txt
+          ls -lh
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: 'release-assets/stylobot-*.tar.gz,release-assets/stylobot-*.zip'
+
+      - name: Create / update extensions GitHub Release
+        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
+        with:
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          tag_name: ${{ needs.version.outputs.tag_name }}
+          name: StyloBot Extensions ${{ needs.version.outputs.version }}
+          prerelease: ${{ needs.version.outputs.is_prerelease }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            ## StyloBot Extensions ${{ needs.version.outputs.version }}
+
+            Cross-platform self-contained binaries for the three deployment
+            shapes that aren't NuGet packages. Each has its own README,
+            its own archive, and its own SHA256SUMS.
+
+            Companion to the main [`allbot-v${{ needs.version.outputs.version }}`](https://github.com/scottgal/stylobot/releases/tag/allbot-v${{ needs.version.outputs.version }})
+            NuGet release.
+
+            ---
+
+            ### `stylobot-sidecar` &mdash; detection-only sidecar
+
+            Detector pipeline + gRPC server + REST `/detect` + auth. No
+            dashboard, no Razor, no YARP. Co-locate next to your app.
+
+            - `stylobot-sidecar-linux-x64.tar.gz`
+            - `stylobot-sidecar-linux-arm64.tar.gz`
+            - `stylobot-sidecar-osx-x64.tar.gz`
+            - `stylobot-sidecar-osx-arm64.tar.gz`
+            - `stylobot-sidecar-win-x64.zip`
+            - `stylobot-sidecar-win-arm64.zip`
+            - `stylobot-sidecar-SHA256SUMS.txt`
+
+            Docker: `scottgal/stylobot-sidecar:${{ needs.version.outputs.version }}`
+
+            ---
+
+            ### `stylobot-ui` &mdash; remote dashboard viewer
+
+            Hosted dashboard. Pure REST + SignalR client against a stylobot
+            gateway started with `--enable-api`. Reads nothing locally.
+
+            - `stylobot-ui-linux-x64.tar.gz`
+            - `stylobot-ui-linux-arm64.tar.gz`
+            - `stylobot-ui-osx-x64.tar.gz`
+            - `stylobot-ui-osx-arm64.tar.gz`
+            - `stylobot-ui-win-x64.zip`
+            - `stylobot-ui-win-arm64.zip`
+            - `stylobot-ui-SHA256SUMS.txt`
+
+            Docker: `scottgal/stylobot-ui:${{ needs.version.outputs.version }}`
+
+            ---
+
+            ### `stylobot-all` &mdash; YARP gateway + detection + dashboard in one process
+
+            Single-binary deployment: reverse proxy in front of your app,
+            with the detection pipeline and the dashboard included.
+
+            - `stylobot-all-linux-x64.tar.gz`
+            - `stylobot-all-linux-arm64.tar.gz`
+            - `stylobot-all-osx-x64.tar.gz`
+            - `stylobot-all-osx-arm64.tar.gz`
+            - `stylobot-all-win-x64.zip`
+            - `stylobot-all-win-arm64.zip`
+            - `stylobot-all-SHA256SUMS.txt`
+
+            Docker: `scottgal/stylobot-all:${{ needs.version.outputs.version }}`
+          files: |
+            release-assets/*
+          fail_on_unmatched_files: true
