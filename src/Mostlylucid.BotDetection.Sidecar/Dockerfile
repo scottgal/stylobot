@@ -10,15 +10,19 @@
 #   COPY --from=scottgal/stylobot-sidecar:latest /usr/local/bin/stylobot-sidecar /usr/local/bin/
 
 # --- build -------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
-ARG TARGETARCH
+# Native AOT publish needs clang + zlib. Drop --platform=$BUILDPLATFORM so
+# buildx targets the native arch under QEMU per platform - cross-compile AOT
+# from x64 to arm64 would need a second toolchain (gcc-aarch64-linux-gnu,
+# arm64 zlib, lld) and is brittle.
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 ARG VERSION=0.0.0
 WORKDIR /src
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends clang zlib1g-dev \
+ && rm -rf /var/lib/apt/lists/*
 COPY . .
-RUN RID="linux-$(case "$TARGETARCH" in amd64) echo x64;; arm64) echo arm64;; *) echo "$TARGETARCH";; esac)" \
- && dotnet publish src/Mostlylucid.BotDetection.Sidecar/Mostlylucid.BotDetection.Sidecar.csproj \
+RUN dotnet publish src/Mostlylucid.BotDetection.Sidecar/Mostlylucid.BotDetection.Sidecar.csproj \
       --configuration Release \
-      --runtime "$RID" \
       --self-contained true \
       -p:PublishSingleFile=true \
       -p:Version="$VERSION" \

@@ -67,6 +67,16 @@ jobs:
           echo "Extensions release $VERSION will be attached to $TAG_NAME (prerelease: $IS_PRERELEASE)"
 
   # --- sidecar binaries --------------------------------------------------------
+  # Sidecar is Native AOT (~36MB). Every entry uses a runner that natively
+  # matches its target architecture so the AOT linker doesn't need to
+  # cross-compile (cross-RID AOT needs a second toolchain that's brittle to
+  # set up in CI):
+  #   linux-x64    -> ubuntu-latest      (x64, install clang + zlib)
+  #   linux-arm64  -> ubuntu-22.04-arm   (native arm64 runner)
+  #   win-x64      -> windows-latest     (x64, MSVC preinstalled)
+  #   win-arm64    -> windows-11-arm     (native arm64 runner)
+  #   osx-x64      -> macos-13           (last Intel mac runner)
+  #   osx-arm64    -> macos-latest       (M-series)
   build-sidecar:
     name: sidecar / ${{ matrix.runtime }}
     runs-on: ${{ matrix.os }}
@@ -75,12 +85,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,  runtime: linux-x64,   file-ext: ''     }
-          - { os: ubuntu-latest,  runtime: linux-arm64, file-ext: ''     }
-          - { os: windows-latest, runtime: win-x64,     file-ext: '.exe' }
-          - { os: windows-latest, runtime: win-arm64,   file-ext: '.exe' }
-          - { os: macos-latest,   runtime: osx-x64,     file-ext: ''     }
-          - { os: macos-latest,   runtime: osx-arm64,   file-ext: ''     }
+          - { os: ubuntu-latest,    runtime: linux-x64,   file-ext: ''     }
+          - { os: ubuntu-22.04-arm, runtime: linux-arm64, file-ext: ''     }
+          - { os: windows-latest,   runtime: win-x64,     file-ext: '.exe' }
+          - { os: windows-11-arm,   runtime: win-arm64,   file-ext: '.exe' }
+          - { os: macos-13,         runtime: osx-x64,     file-ext: ''     }
+          - { os: macos-latest,     runtime: osx-arm64,   file-ext: ''     }
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -90,8 +100,17 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      # Self-contained single-file (not Native AOT): see publish-sidecar.yml
-      # rationale - gRPC + Fluid aren't guaranteed AOT-clean.
+      # Linux AOT needs clang + zlib for ILCompiler's platform linker.
+      # macOS Xcode + Windows MSVC are preinstalled on GH runners.
+      - name: Install AOT prerequisites (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang zlib1g-dev
+
+      # Native AOT publish - csproj's PublishAot=true wins. Ships the 36MB
+      # native binary, same shape as the Docker image.
       - name: Publish sidecar
         shell: bash
         env:
@@ -102,7 +121,6 @@ jobs:
             --configuration Release \
             --runtime "$RUNTIME" \
             --self-contained true \
-            -p:PublishSingleFile=true \
             -p:Version="$VERSION" \
             --output "./publish/$RUNTIME"
 
@@ -125,8 +143,8 @@ jobs:
           binary; dashboard, Razor views, SignalR hub, OIDC, simulation packs,
           and YARP proxy are stripped out.
 
-          Self-contained single-file binary. No .NET runtime required. Run it
-          next to your app - same pod, same host, or the same container.
+          Native AOT binary (~36MB). No .NET runtime required. Run it next to
+          your app - same pod, same host, or the same container.
 
           Quick start:
             ./stylobot-sidecar                       # gRPC :5090 + REST :5091, loopback only
