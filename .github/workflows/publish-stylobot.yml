@@ -434,8 +434,15 @@ jobs:
     # back to this exact workflow run + commit. Verifies with:
     #   gh attestation verify stylobot-linux-x64.tar.gz --owner scottgal
     # Free, no secrets needed; uses GitHub's OIDC + sigstore Rekor transparency log.
+    # continue-on-error: sigstore.dev's Rekor service has periodic timeouts
+    # (the action's tlog fetch is hardcoded at 10s) that we can't fix from
+    # here. Provenance is a nice-to-have for users running `gh attestation
+    # verify`; SHA256SUMS + optional GPG signature cover bit integrity. A
+    # flaky sigstore must not block the release. Re-run the workflow if the
+    # attestation badge is wanted.
     - name: Attest build provenance
       uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+      continue-on-error: true
       with:
         subject-path: 'release-assets/*'
 
