@@ -698,6 +698,15 @@ public static class ServiceCollectionExtensions
 
         // Bot cluster detection - discovers bot products and coordinated campaigns
         services.TryAddSingleton<CountryReputationTracker>();
+        services.TryAddSingleton<SqliteClusterStore>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<SqliteClusterStore>>();
+            var dbPath = sp.GetRequiredService<IOptions<BotDetectionOptions>>().Value.DatabasePath
+                ?? Path.Combine(AppContext.BaseDirectory, "botdetection.db");
+            var basePath = Path.GetDirectoryName(dbPath) ?? AppContext.BaseDirectory;
+            var connStr = $"Data Source={Path.Combine(basePath, "clusters.db")};Cache=Shared";
+            return new SqliteClusterStore(connStr, logger);
+        });
         services.TryAddSingleton<BotClusterService>();
         services.AddHostedService(sp => sp.GetRequiredService<BotClusterService>());
         // Signature convergence - merges/splits related signatures (same IP, rotating UAs)

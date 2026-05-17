@@ -46,6 +46,8 @@ public class BotClusterService : BackgroundService
     private readonly MarkovTracker? _markovTracker;
     private readonly AdaptiveSimilarityWeighter? _adaptiveWeighter;
     private readonly UaProfileStore? _uaProfileStore;
+    private readonly SqliteClusterStore? _clusterStore;
+    private int _hydrated;
 
     private bool BehaviouralAxisActive => _options.EnableBehaviouralVectorAxis && _fingerprintStore is not null;
 
@@ -70,7 +72,8 @@ public class BotClusterService : BackgroundService
         MarkovTracker? markovTracker = null,
         AdaptiveSimilarityWeighter? adaptiveWeighter = null,
         UaProfileStore? uaProfileStore = null,
-        PipelineLoadSensor? loadSensor = null)
+        PipelineLoadSensor? loadSensor = null,
+        SqliteClusterStore? clusterStore = null)
     {
         _logger = logger;
         _options = options.Value.Cluster;
@@ -81,11 +84,45 @@ public class BotClusterService : BackgroundService
         _adaptiveWeighter = adaptiveWeighter;
         _uaProfileStore = uaProfileStore;
         _loadSensor = loadSensor;
+        _clusterStore = clusterStore;
 
         if (BehaviouralAxisActive)
             _logger.LogInformation(
                 "Behavioural-vector axis enabled for clustering (source: metastable centroids, weight={Weight:F2})",
                 _options.BehaviouralVectorWeight);
+    }
+
+    /// <summary>
+    ///     Restore the cluster snapshot from <see cref="SqliteClusterStore"/> if available.
+    ///     Idempotent; only runs once per process. Called from <c>ExecuteAsync</c> before
+    ///     the first Leiden cycle so users keep their existing cluster labels (especially
+    ///     LLM-derived ones) across restarts.
+    /// </summary>
+    private async Task HydrateFromStoreAsync(CancellationToken ct)
+    {
+        if (_clusterStore is null) return;
+        if (Interlocked.Exchange(ref _hydrated, 1) == 1) return;
+        try
+        {
+            var persisted = await _clusterStore.LoadAllAsync(ct);
+            if (persisted.Count == 0) return;
+            var newClusters = persisted.ToDictionary(c => c.ClusterId);
+            var sigMap = new Dictionary<string, string>();
+            foreach (var c in persisted)
+                foreach (var sig in c.MemberSignatures)
+                    sigMap[sig] = c.ClusterId;
+            _snapshot = new ClusterSnapshot(
+                newClusters.ToFrozenDictionary(),
+                sigMap.ToFrozenDictionary(),
+                _snapshot.SpectralCache); // spectral cache is purely operational, fine to leave empty
+            _logger.LogInformation(
+                "BotClusterService hydrated {Count} clusters from persisted store on startup",
+                persisted.Count);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Cluster snapshot hydration failed; starting from empty");
+        }
     }
 
     /// <summary>
@@ -162,6 +199,11 @@ public class BotClusterService : BackgroundService
             newClusters.ToFrozenDictionary(),
             snapshot.SignatureToCluster,
             snapshot.SpectralCache);
+
+        // Write-through to SQLite so the LLM-derived label survives restart. The
+        // in-memory snapshot is the fast lookup; SQLite is the source of truth.
+        if (_clusterStore is not null)
+            _ = _clusterStore.UpdateLabelAsync(clusterId, label, description, CancellationToken.None);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -175,6 +217,10 @@ public class BotClusterService : BackgroundService
             _options.ClusterIntervalSeconds,
             _options.SimilarityThreshold,
             _options.MinBotDetectionsToTrigger);
+
+        // Restore the cluster snapshot from SQLite before the first Leiden cycle so users
+        // keep their existing clusters (including LLM-derived labels) across restarts.
+        await HydrateFromStoreAsync(stoppingToken);
 
         // Wait a bit before first run to let the system warm up
         try { await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken); }
@@ -367,6 +413,14 @@ public class BotClusterService : BackgroundService
             newClusters.ToFrozenDictionary(),
             newSignatureToCluster.ToFrozenDictionary(),
             spectralBuilder.ToFrozenDictionary());
+
+        // Write-through to SQLite so the full cluster set survives restart. Cluster
+        // discovery is expensive (full Leiden cycle on the signature graph); on the
+        // next start we hydrate from this snapshot rather than waiting another cycle
+        // for the first set of clusters to reappear. Fire-and-forget — the in-memory
+        // snapshot is already authoritative for hot reads.
+        if (_clusterStore is not null)
+            _ = _clusterStore.ReplaceAllAsync(newClusters.Values.ToList(), CancellationToken.None);
 
         var productCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotProduct);
         var networkCount = newClusters.Values.Count(c => c.Type == BotClusterType.BotNetwork);
