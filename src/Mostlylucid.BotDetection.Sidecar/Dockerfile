@@ -24,7 +24,6 @@ COPY . .
 RUN dotnet publish src/Mostlylucid.BotDetection.Sidecar/Mostlylucid.BotDetection.Sidecar.csproj \
       --configuration Release \
       --self-contained true \
-      -p:PublishSingleFile=true \
       -p:Version="$VERSION" \
       --output /app
 

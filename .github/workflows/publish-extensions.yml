@@ -75,7 +75,7 @@ jobs:
   #   linux-arm64  -> ubuntu-22.04-arm   (native arm64 runner)
   #   win-x64      -> windows-latest     (x64, MSVC preinstalled)
   #   win-arm64    -> windows-11-arm     (native arm64 runner)
-  #   osx-x64      -> macos-13           (last Intel mac runner)
+  #   osx-x64      -> macos-15-intel     (Intel mac runner; macos-13 was removed Dec 2025)
   #   osx-arm64    -> macos-latest       (M-series)
   build-sidecar:
     name: sidecar / ${{ matrix.runtime }}
@@ -89,7 +89,7 @@ jobs:
           - { os: ubuntu-22.04-arm, runtime: linux-arm64, file-ext: ''     }
           - { os: windows-latest,   runtime: win-x64,     file-ext: '.exe' }
           - { os: windows-11-arm,   runtime: win-arm64,   file-ext: '.exe' }
-          - { os: macos-13,         runtime: osx-x64,     file-ext: ''     }
+          - { os: macos-15-intel,   runtime: osx-x64,     file-ext: ''     }
           - { os: macos-latest,     runtime: osx-arm64,   file-ext: ''     }
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -391,7 +391,9 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
-          subject-path: 'release-assets/stylobot-*.tar.gz,release-assets/stylobot-*.zip'
+          subject-path: |
+            release-assets/stylobot-*.tar.gz
+            release-assets/stylobot-*.zip
 
       - name: Create / update extensions GitHub Release
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
