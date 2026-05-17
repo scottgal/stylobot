@@ -1,0 +1,122 @@
+name: Publish Stylobot UI Docker Image
+
+on:
+  push:
+    tags:
+      - 'ui-v*'
+      - 'allbot-v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: docker.io
+  IMAGE_NAME: scottgal/stylobot-ui
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Validate version input
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if ! [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "::error::Invalid version format: '$INPUT_VERSION'. Expected semver (e.g., 1.0.0 or 1.0.0-alpha1)"
+            exit 1
+          fi
+
+      - name: Extract version and date
+        id: get_version
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="$INPUT_VERSION"
+          else
+            TAG=${GITHUB_REF#refs/tags/}
+            if [[ "$TAG" == ui-v* ]]; then
+              VERSION=${TAG#ui-v}
+            else
+              VERSION=${TAG#allbot-v}
+            fi
+          fi
+          DATE=$(date +%Y%m%d)
+          if [[ "$VERSION" == *"-"* ]]; then
+            IS_PRERELEASE="true"
+          else
+            IS_PRERELEASE="false"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "DATE=$DATE" >> $GITHUB_OUTPUT
+          echo "IS_PRERELEASE=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION (date: $DATE, prerelease: $IS_PRERELEASE)"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.get_version.outputs.VERSION }}
+            type=raw,value=${{ steps.get_version.outputs.DATE }}
+            type=raw,value=latest,enable=${{ steps.get_version.outputs.IS_PRERELEASE == 'false' }}
+          labels: |
+            org.opencontainers.image.title=Stylobot UI
+            org.opencontainers.image.description=Hosted dashboard for a remote stylobot gateway. REST + SignalR client.
+            org.opencontainers.image.vendor=Mostlylucid
+            org.opencontainers.image.version=${{ steps.get_version.outputs.VERSION }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ./src
+          file: ./src/Stylobot.Ui/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_VERSION=${{ steps.get_version.outputs.VERSION }}
+
+      - name: Create summary
+        run: |
+          echo "## Stylobot UI Docker Image Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.get_version.outputs.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Quick Start (remote viewer)" >> $GITHUB_STEP_SUMMARY
+          echo "Point at a remote stylobot gateway started with --enable-api." >> $GITHUB_STEP_SUMMARY
+          echo "Dashboard at http://localhost:5095/_stylobot." >> $GITHUB_STEP_SUMMARY

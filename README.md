@@ -484,3 +484,7 @@ scripts/                                Load tests, Docker compose, build toolin
 ## License
 
 [The Unlicense](https://unlicense.org/) FOSS core is public domain. Commercial features licensed separately.
+
+## Third-party dependencies
+
+See [ATTRIBUTIONS.md](ATTRIBUTIONS.md) for the full list of OSS projects StyloBot is built on, with links to their source repos and the project files where they're consumed.

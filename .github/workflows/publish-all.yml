@@ -431,12 +431,96 @@ jobs:
         DIGEST: ${{ steps.demo-build.outputs.digest }}
       run: cosign sign --yes scottgal/stylobot-demo@${DIGEST}
 
+  # Publish Stylobot UI Docker image (dashboard host - remote viewer of a gateway)
+  publish-stylobot-ui:
+    needs: validate-version
+    if: needs.validate-version.outputs.components == 'all' || needs.validate-version.outputs.components == 'docker-only'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Build and push
+      id: ui-build
+      uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      with:
+        context: ./src
+        file: ./src/Stylobot.Ui/Dockerfile
+        push: true
+        tags: |
+          scottgal/stylobot-ui:${{ needs.validate-version.outputs.version }}
+          scottgal/stylobot-ui:latest
+        platforms: linux/amd64,linux/arm64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Install cosign
+      uses: sigstore/cosign-installer@v3
+
+    - name: Sign Stylobot UI Docker image
+      env:
+        DIGEST: ${{ steps.ui-build.outputs.digest }}
+      run: cosign sign --yes scottgal/stylobot-ui@${DIGEST}
+
+  # Publish Stylobot All-in-One Docker image (gateway + dashboard in one process)
+  publish-stylobot-all:
+    needs: validate-version
+    if: needs.validate-version.outputs.components == 'all' || needs.validate-version.outputs.components == 'docker-only'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+    - name: Build and push
+      id: all-build
+      uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+      with:
+        context: ./src
+        file: ./src/Stylobot.All/Dockerfile
+        push: true
+        tags: |
+          scottgal/stylobot-all:${{ needs.validate-version.outputs.version }}
+          scottgal/stylobot-all:latest
+        platforms: linux/amd64,linux/arm64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Install cosign
+      uses: sigstore/cosign-installer@v3
+
+    - name: Sign Stylobot All Docker image
+      env:
+        DIGEST: ${{ steps.all-build.outputs.digest }}
+      run: cosign sign --yes scottgal/stylobot-all@${DIGEST}
+
   # Console binaries + release handled by publish-stylobot.yml (also triggers on allbot-v*)
 
   # Summary
   summary:
     if: always()
-    needs: [validate-version, publish-botdetection, publish-common, publish-geodetection, publish-botdetection-ui, publish-geodetection-contributor, publish-botdetection-api, publish-botdetection-llm, publish-botdetection-holodeck, publish-botdetection-llm-holodeck, publish-gateway, publish-demo]
+    needs: [validate-version, publish-botdetection, publish-common, publish-geodetection, publish-botdetection-ui, publish-geodetection-contributor, publish-botdetection-api, publish-botdetection-llm, publish-botdetection-holodeck, publish-botdetection-llm-holodeck, publish-gateway, publish-demo, publish-stylobot-ui, publish-stylobot-all]
     runs-on: ubuntu-latest
     steps:
     - name: Create summary
@@ -450,6 +534,8 @@ jobs:
         echo "| GeoDetection NuGet | ${{ needs.publish-geodetection.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Gateway Docker | ${{ needs.publish-gateway.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Demo Docker | ${{ needs.publish-demo.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Stylobot UI Docker | ${{ needs.publish-stylobot-ui.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Stylobot All-in-One Docker | ${{ needs.publish-stylobot-all.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "| BotDetection.UI NuGet | ${{ needs.publish-botdetection-ui.result }} |" >> $GITHUB_STEP_SUMMARY
         echo "| BotDetection.UI.PostgreSQL NuGet | (commercial repo) |" >> $GITHUB_STEP_SUMMARY
         echo "| GeoDetection.Contributor NuGet | ${{ needs.publish-geodetection-contributor.result }} |" >> $GITHUB_STEP_SUMMARY

@@ -149,6 +149,53 @@ git tag allbot-v1.0.0
 git push origin allbot-v1.0.0
 ```
 
+## Stylobot UI Docker Release
+
+**Workflow:** `publish-stylobot-ui.yml`
+
+Builds and publishes the dashboard-host image to Docker Hub
+(`scottgal/stylobot-ui`). The UI image runs a pure REST + SignalR client
+against a remote `stylobot` gateway started with `--enable-api`. Reads
+nothing locally; designed to be hosted inside a network as a viewer.
+
+### Trigger
+
+```bash
+# UI-only release
+git tag ui-v1.0.0
+git push origin ui-v1.0.0
+
+# Or as part of the all-in-one allbot tag
+git tag allbot-v1.0.0
+git push origin allbot-v1.0.0
+```
+
+Not Native AOT (the dashboard pipeline needs Razor / SignalR / dynamic JSON
+reflection); not packable as NuGet (ships as a container only).
+
+## Stylobot All-in-One Docker Release
+
+**Workflow:** `publish-stylobot-all.yml`
+
+Builds and publishes the all-in-one image to Docker Hub
+(`scottgal/stylobot-all`). YARP gateway + detection + dashboard in one
+process. One container, simplest deployment.
+
+### Trigger
+
+```bash
+# All-in-one-only release
+git tag all-v1.0.0
+git push origin all-v1.0.0
+
+# Or as part of the all-in-one allbot tag
+git tag allbot-v1.0.0
+git push origin allbot-v1.0.0
+```
+
+Configure `ReverseProxy:Routes` in appsettings to drive upstream routing.
+Not Native AOT for the same reason as `stylobot-ui`.
+
 ## StyloBot Sidecar Release
 
 **Workflow:** `publish-sidecar.yml`
