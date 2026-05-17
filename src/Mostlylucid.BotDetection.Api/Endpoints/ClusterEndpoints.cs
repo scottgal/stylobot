@@ -17,8 +17,8 @@ public static class ClusterEndpoints
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
             .WithTags("Clusters");
 
-        group.MapGet("", HandleList).WithName("GetClusters").WithOpenApi();
-        group.MapGet("/diagnostics", HandleDiagnostics).WithName("GetClusterDiagnostics").WithOpenApi();
+        group.MapGet("", HandleList).WithName("GetClusters");
+        group.MapGet("/diagnostics", HandleDiagnostics).WithName("GetClusterDiagnostics");
 
         return endpoints;
     }

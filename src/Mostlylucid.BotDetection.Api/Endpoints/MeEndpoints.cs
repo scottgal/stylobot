@@ -15,8 +15,7 @@ public static class MeEndpoints
         endpoints.MapGet("/api/v1/me", HandleMe)
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
             .WithName("GetMe")
-            .WithTags("Account")
-            .WithOpenApi();
+            .WithTags("Account");
 
         return endpoints;
     }

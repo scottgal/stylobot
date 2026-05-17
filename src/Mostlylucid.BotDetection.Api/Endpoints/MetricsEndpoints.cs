@@ -18,12 +18,10 @@ public static class MetricsEndpoints
             .WithTags("Metrics");
 
         group.MapGet("/timeseries", HandleTimeseries)
-            .WithName("GetMetricsTimeseries")
-            .WithOpenApi();
+            .WithName("GetMetricsTimeseries");
 
         group.MapGet("/latest", HandleLatest)
-            .WithName("GetMetricsLatest")
-            .WithOpenApi();
+            .WithName("GetMetricsLatest");
 
         return endpoints;
     }

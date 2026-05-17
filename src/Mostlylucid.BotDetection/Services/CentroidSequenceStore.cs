@@ -275,7 +275,7 @@ public sealed class CentroidSequenceStore
         {
             foreach (var chain in chains)
             {
-                var json = JsonSerializer.Serialize(chain);
+                var json = JsonSerializer.Serialize(chain, Data.BotDetectionJsonSerializerContext.Default.CentroidSequence);
                 await using var cmd = conn.CreateCommand();
                 cmd.Transaction = (SqliteTransaction)tx;
                 cmd.CommandText = """
@@ -313,7 +313,7 @@ public sealed class CentroidSequenceStore
         {
             try
             {
-                var chain = JsonSerializer.Deserialize<CentroidSequence>(reader.GetString(0));
+                var chain = JsonSerializer.Deserialize(reader.GetString(0), Data.BotDetectionJsonSerializerContext.Default.CentroidSequence);
                 if (chain != null)
                 {
                     if (chain.CentroidId == "global")

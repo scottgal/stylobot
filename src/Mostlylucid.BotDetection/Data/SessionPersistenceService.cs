@@ -123,8 +123,8 @@ public sealed class SessionPersistenceService : BackgroundService
             AvgBotProbability = 0, // Filled by contributor
             AvgConfidence = 0,
             RiskBand = "Unknown",
-            TransitionCountsJson = JsonSerializer.Serialize(transitionCounts),
-            PathsJson = JsonSerializer.Serialize(paths),
+            TransitionCountsJson = JsonSerializer.Serialize(transitionCounts, BotDetectionJsonSerializerContext.Default.DictionaryStringInt32),
+            PathsJson = JsonSerializer.Serialize(paths, BotDetectionJsonSerializerContext.Default.ListString),
             ErrorCount = errorCount,
             TimingEntropy = ComputeTimingEntropy(requests),
             HeaderHashesJson = snapshot.HeaderHashesJson,

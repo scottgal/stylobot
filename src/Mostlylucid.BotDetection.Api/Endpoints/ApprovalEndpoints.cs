@@ -17,8 +17,8 @@ public static class ApprovalEndpoints
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
             .WithTags("Approvals");
 
-        group.MapGet("", HandleList).WithName("GetApprovals").WithOpenApi();
-        group.MapGet("/{signature}", HandleGet).WithName("GetApproval").WithOpenApi();
+        group.MapGet("", HandleList).WithName("GetApprovals");
+        group.MapGet("/{signature}", HandleGet).WithName("GetApproval");
 
         return endpoints;
     }

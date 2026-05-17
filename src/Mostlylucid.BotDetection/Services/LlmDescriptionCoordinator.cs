@@ -91,6 +91,10 @@ public sealed class LlmDescriptionCoordinator : IAsyncDisposable
     /// </summary>
     public (int Pending, int Active, int Completed, int Failed) GetStats() => _atom.Stats();
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "ProcessClusterAsync is reflective by design (loose-coupled LLM provider); the LLM cluster-description feature is JIT-only.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("AOT", "IL3050",
+        Justification = "ProcessClusterAsync uses dynamic dispatch; LLM-augmented clustering is a JIT-only feature.")]
     private async Task ProcessAsync(LlmDescriptionRequest req, CancellationToken ct)
     {
         try
@@ -133,6 +137,8 @@ public sealed class LlmDescriptionCoordinator : IAsyncDisposable
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("Calls GetLlmProvider + GenerateClusterDescriptionAsync; both reflective.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode("Routes to GenerateClusterDescriptionAsync which dispatches dynamically.")]
     private async Task ProcessClusterAsync(LlmDescriptionRequest req, CancellationToken ct)
     {
         if (req.Cluster == null || req.ClusterMembers == null)
@@ -168,6 +174,13 @@ public sealed class LlmDescriptionCoordinator : IAsyncDisposable
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Uses dynamic dispatch + Type.GetType to loose-couple to ILlmProvider; only " +
+        "exercised when the Llm assembly is loaded. AOT builds without LLM features wired " +
+        "never reach this code path.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "dynamic dispatch requires the C# runtime binder; LLM-augmented clustering is a " +
+        "JIT-only feature.")]
     private async Task<ClusterDescriptionResult?> GenerateClusterDescriptionAsync(
         dynamic provider,
         BotCluster cluster,
@@ -278,6 +291,10 @@ public sealed class LlmDescriptionCoordinator : IAsyncDisposable
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Resolves ILlmProvider via Type.GetType to keep the Llm assembly an optional " +
+        "runtime dependency. AOT builds that don't load the Llm assembly silently get a " +
+        "null provider here.")]
     private object? GetLlmProvider()
     {
         if (_llmProvider != null) return _llmProvider;

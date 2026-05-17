@@ -54,7 +54,7 @@ public class SignatureContributor : ContributingDetectorBase, IFoundationContrib
 
             var headerHashes = _headerHashCollector.CollectHashes(state.HttpContext.Request);
             if (headerHashes.Count > 0)
-                state.WriteSignal(SignalKeys.HeaderHashes, JsonSerializer.Serialize(headerHashes));
+                state.WriteSignal(SignalKeys.HeaderHashes, JsonSerializer.Serialize(headerHashes, Data.BotDetectionJsonSerializerContext.Default.DictionaryStringString));
         }
         catch (Exception ex)
         {

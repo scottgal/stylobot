@@ -103,6 +103,10 @@ public class LlmClassificationCoordinator : BackgroundService
         return true;
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "Dispatches to ProcessRequestAsync which is reflective by design; LLM classification is JIT-only.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("AOT", "IL3050",
+        Justification = "Reflective LLM dispatch; not AOT-compatible.")]
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("LlmClassificationCoordinator started (capacity={Capacity}, sequential processing)",
@@ -138,6 +142,11 @@ public class LlmClassificationCoordinator : BackgroundService
         _logger.LogInformation("LlmClassificationCoordinator stopped");
     }
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Loose-couples ClassificationService + ILlmProvider via Type.GetType + reflective " +
+        "method invoke; LLM classification is a JIT-only feature.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Reflective method invoke against ClassifyAsync; not AOT-compatible.")]
     private async Task ProcessRequestAsync(LlmClassificationRequest request, CancellationToken ct)
     {
         _logger.LogDebug("Processing LLM classification for {RequestId}", request.RequestId);

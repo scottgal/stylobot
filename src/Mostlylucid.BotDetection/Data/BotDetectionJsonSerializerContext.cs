@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.Data;
 
@@ -37,6 +38,12 @@ namespace Mostlylucid.BotDetection.Data;
 // Common User Agent types
 [JsonSerializable(typeof(List<JsonElement>))]
 [JsonSerializable(typeof(JsonElement))]
+// Persisted-state types serialised into SQLite columns by the various stores
+[JsonSerializable(typeof(CentroidSequence))]
+[JsonSerializable(typeof(Dictionary<string, int>))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(JsonElement[]))]
+[JsonSerializable(typeof(double[]))]
 internal partial class BotDetectionJsonSerializerContext : JsonSerializerContext
 {
 }

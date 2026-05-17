@@ -279,7 +279,7 @@ public partial class CommonUserAgentService : BackgroundService, ICommonUserAgen
                 TypeInfoResolver = BotDetectionJsonSerializerContext.Default
             };
 
-            var items = JsonSerializer.Deserialize<List<JsonElement>>(json, options);
+            var items = JsonSerializer.Deserialize(json, BotDetectionJsonSerializerContext.Default.ListJsonElement);
             if (items == null) return new List<CommonUserAgent>();
 
             var result = new List<CommonUserAgent>();

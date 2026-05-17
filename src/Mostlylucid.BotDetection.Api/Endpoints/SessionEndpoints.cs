@@ -17,8 +17,8 @@ public static class SessionEndpoints
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
             .WithTags("Sessions");
 
-        group.MapGet("/recent", HandleRecent).WithName("GetRecentSessions").WithOpenApi();
-        group.MapGet("/{signature}", HandleBySignature).WithName("GetSessionsBySignature").WithOpenApi();
+        group.MapGet("/recent", HandleRecent).WithName("GetRecentSessions");
+        group.MapGet("/{signature}", HandleBySignature).WithName("GetSessionsBySignature");
 
         return endpoints;
     }

@@ -227,7 +227,7 @@ public sealed class SqliteChallengeStore : IChallengeStore, IAsyncDisposable
             }
 
             var puzzlesJson = reader.GetString(4);
-            var puzzleData = JsonSerializer.Deserialize<JsonElement[]>(puzzlesJson);
+            var puzzleData = JsonSerializer.Deserialize(puzzlesJson, Data.BotDetectionJsonSerializerContext.Default.JsonElementArray);
             var puzzles = puzzleData?.Select(p => new PuzzleSeed(
                 Convert.FromBase64String(p.GetProperty("seed").GetString()!),
                 p.GetProperty("zeros").GetInt32()
@@ -276,7 +276,7 @@ public sealed class SqliteChallengeStore : IChallengeStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("@dur", result.TotalSolveDurationMs);
             cmd.Parameters.AddWithValue("@workers", result.ReportedWorkerCount);
             cmd.Parameters.AddWithValue("@count", result.PuzzleCount);
-            cmd.Parameters.AddWithValue("@timings", JsonSerializer.Serialize(result.PuzzleTimingsMs, JsonOpts));
+            cmd.Parameters.AddWithValue("@timings", JsonSerializer.Serialize(result.PuzzleTimingsMs, Data.BotDetectionJsonSerializerContext.Default.DoubleArray));
             cmd.Parameters.AddWithValue("@jitter", result.TimingJitter);
             cmd.Parameters.AddWithValue("@at", result.VerifiedAt.ToString("O"));
             cmd.ExecuteNonQuery();
@@ -316,7 +316,7 @@ public sealed class SqliteChallengeStore : IChallengeStore, IAsyncDisposable
         }
 
         var timingsJson = reader.GetString(reader.GetOrdinal("puzzle_timings_json"));
-        var timings = JsonSerializer.Deserialize<double[]>(timingsJson) ?? [];
+        var timings = JsonSerializer.Deserialize(timingsJson, Data.BotDetectionJsonSerializerContext.Default.DoubleArray) ?? [];
 
         var result = new ChallengeVerificationResult
         {

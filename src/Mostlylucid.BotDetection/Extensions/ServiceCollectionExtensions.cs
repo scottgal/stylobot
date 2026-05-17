@@ -959,7 +959,11 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ICompliancePackProvider>(sp =>
         {
             var configuration = sp.GetService<Microsoft.Extensions.Configuration.IConfiguration>();
-            var compliancePackId = configuration?.GetValue<string>("BotDetection:CompliancePack") ?? "balanced-default";
+            // Indexer instead of GetValue<string> - the indexer is trim-safe; GetValue<T>
+            // triggers IL2026 because it would have to reflect over T's members for non-primitive
+            // types. For a plain string key the difference is academic, but it keeps the AOT
+            // publish clean of the only remaining own-code IL warning.
+            var compliancePackId = configuration?["BotDetection:CompliancePack"] ?? "balanced-default";
             return new InMemoryCompliancePackProvider(
                 compliancePackId,
                 sp.GetRequiredService<ILogger<InMemoryCompliancePackProvider>>());

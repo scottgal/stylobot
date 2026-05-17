@@ -158,6 +158,10 @@ public class AnomalySaverService : BackgroundService
     ///     Flushes the batch buffer to file.
     ///     SHORT window: buffer is cleared immediately after write (entries don't linger).
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "Dispatches to WriteToFileAsync which is reflective by design for the anomaly export feature.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("AOT", "IL3050",
+        Justification = "DetectionEvent JSON write requires runtime type inspection of object-typed signals.")]
     private async Task FlushBatchAsync(CancellationToken cancellationToken)
     {
         if (_batchBuffer.Count == 0) return;
@@ -189,6 +193,12 @@ public class AnomalySaverService : BackgroundService
     /// <summary>
     ///     Writes events to file (newline-delimited JSON).
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "DetectionEvent contains heterogeneous Signal dictionary serialised reflectively; " +
+        "this writer is opt-in (StyloBot:Persistence:AnomalyLogPath) and not exercised by " +
+        "the default AOT detection path.")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "Per-row Serialize<DetectionEvent> requires runtime type inspection of object-typed signal values.")]
     private async Task WriteToFileAsync(
         string filePath,
         List<DetectionEvent> events,

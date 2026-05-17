@@ -17,8 +17,8 @@ public static class ConfigEndpoints
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
             .WithTags("Configuration");
 
-        group.MapGet("/manifests", HandleList).WithName("GetConfigManifests").WithOpenApi();
-        group.MapGet("/manifests/{slug}", HandleGet).WithName("GetConfigManifest").WithOpenApi();
+        group.MapGet("/manifests", HandleList).WithName("GetConfigManifests");
+        group.MapGet("/manifests/{slug}", HandleGet).WithName("GetConfigManifest");
 
         return endpoints;
     }

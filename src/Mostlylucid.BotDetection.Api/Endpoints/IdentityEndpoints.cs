@@ -17,10 +17,10 @@ public static class IdentityEndpoints
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
             .WithTags("Identities");
 
-        group.MapGet("", HandleList).WithName("GetFingerprints").WithOpenApi();
-        group.MapGet("/{fingerprintId}", HandleGet).WithName("GetFingerprint").WithOpenApi();
-        group.MapGet("/unabsorbed-counts", HandleUnabsorbedCounts).WithName("GetFingerprintUnabsorbedCounts").WithOpenApi();
-        group.MapGet("/{fingerprintId}/unabsorbed-count", HandleUnabsorbedCount).WithName("GetFingerprintUnabsorbedCount").WithOpenApi();
+        group.MapGet("", HandleList).WithName("GetFingerprints");
+        group.MapGet("/{fingerprintId}", HandleGet).WithName("GetFingerprint");
+        group.MapGet("/unabsorbed-counts", HandleUnabsorbedCounts).WithName("GetFingerprintUnabsorbedCounts");
+        group.MapGet("/{fingerprintId}/unabsorbed-count", HandleUnabsorbedCount).WithName("GetFingerprintUnabsorbedCount");
 
         return endpoints;
     }

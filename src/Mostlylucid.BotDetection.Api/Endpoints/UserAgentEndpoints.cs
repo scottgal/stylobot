@@ -18,7 +18,7 @@ public static class UserAgentEndpoints
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
             .WithTags("User Agents");
 
-        group.MapGet("/search", HandleSearch).WithName("SearchUserAgents").WithOpenApi();
+        group.MapGet("/search", HandleSearch).WithName("SearchUserAgents");
 
         return endpoints;
     }

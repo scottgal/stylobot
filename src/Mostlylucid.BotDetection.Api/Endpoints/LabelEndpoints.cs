@@ -17,9 +17,9 @@ public static class LabelEndpoints
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
             .WithTags("Labels");
 
-        group.MapGet("", HandleList).WithName("GetLabels").WithOpenApi();
-        group.MapGet("/counts", HandleCounts).WithName("GetLabelCounts").WithOpenApi();
-        group.MapGet("/{signature}", HandleGetLatest).WithName("GetLabelLatest").WithOpenApi();
+        group.MapGet("", HandleList).WithName("GetLabels");
+        group.MapGet("/counts", HandleCounts).WithName("GetLabelCounts");
+        group.MapGet("/{signature}", HandleGetLatest).WithName("GetLabelLatest");
 
         return endpoints;
     }

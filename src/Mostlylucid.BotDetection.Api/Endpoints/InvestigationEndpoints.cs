@@ -18,9 +18,9 @@ public static class InvestigationEndpoints
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
             .WithTags("Investigation");
 
-        group.MapPost("", HandleInvestigate).WithName("Investigate").WithOpenApi();
-        group.MapPost("/shape-search", HandleShapeSearch).WithName("InvestigateShapeSearch").WithOpenApi();
-        group.MapGet("/presets", HandlePresets).WithName("GetInvestigationPresets").WithOpenApi();
+        group.MapPost("", HandleInvestigate).WithName("Investigate");
+        group.MapPost("/shape-search", HandleShapeSearch).WithName("InvestigateShapeSearch");
+        group.MapGet("/presets", HandlePresets).WithName("GetInvestigationPresets");
 
         return endpoints;
     }

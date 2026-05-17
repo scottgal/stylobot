@@ -18,16 +18,16 @@ public static class ReadEndpoints
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
             .WithTags("Dashboard Data");
 
-        group.MapGet("/detections", HandleDetections).WithName("GetDetections").WithOpenApi();
-        group.MapGet("/signatures", HandleSignatures).WithName("GetSignatures").WithOpenApi();
-        group.MapGet("/summary", HandleSummary).WithName("GetSummary").WithOpenApi();
-        group.MapGet("/timeseries", HandleTimeseries).WithName("GetTimeseries").WithOpenApi();
-        group.MapGet("/countries", HandleCountries).WithName("GetCountries").WithOpenApi();
-        group.MapGet("/countries/{code}", HandleCountryDetail).WithName("GetCountryDetail").WithOpenApi();
-        group.MapGet("/endpoints", HandleEndpoints).WithName("GetEndpoints").WithOpenApi();
-        group.MapGet("/endpoints/{method}/{**path}", HandleEndpointDetail).WithName("GetEndpointDetail").WithOpenApi();
-        group.MapGet("/topbots", HandleTopBots).WithName("GetTopBots").WithOpenApi();
-        group.MapGet("/threats", HandleThreats).WithName("GetThreats").WithOpenApi();
+        group.MapGet("/detections", HandleDetections).WithName("GetDetections");
+        group.MapGet("/signatures", HandleSignatures).WithName("GetSignatures");
+        group.MapGet("/summary", HandleSummary).WithName("GetSummary");
+        group.MapGet("/timeseries", HandleTimeseries).WithName("GetTimeseries");
+        group.MapGet("/countries", HandleCountries).WithName("GetCountries");
+        group.MapGet("/countries/{code}", HandleCountryDetail).WithName("GetCountryDetail");
+        group.MapGet("/endpoints", HandleEndpoints).WithName("GetEndpoints");
+        group.MapGet("/endpoints/{method}/{**path}", HandleEndpointDetail).WithName("GetEndpointDetail");
+        group.MapGet("/topbots", HandleTopBots).WithName("GetTopBots");
+        group.MapGet("/threats", HandleThreats).WithName("GetThreats");
 
         return endpoints;
     }

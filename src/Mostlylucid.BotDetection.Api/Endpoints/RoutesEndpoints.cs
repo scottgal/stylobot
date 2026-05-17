@@ -18,16 +18,13 @@ public static class RoutesEndpoints
             .WithTags("Routes");
 
         group.MapGet("", HandleList)
-            .WithName("ListRoutes")
-            .WithOpenApi();
+            .WithName("ListRoutes");
 
         group.MapPut("/name", HandleSetName)
-            .WithName("SetRouteName")
-            .WithOpenApi();
+            .WithName("SetRouteName");
 
         group.MapDelete("/name", HandleRemoveName)
-            .WithName("RemoveRouteName")
-            .WithOpenApi();
+            .WithName("RemoveRouteName");
 
         return endpoints;
     }

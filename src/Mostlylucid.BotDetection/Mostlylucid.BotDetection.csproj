@@ -22,15 +22,19 @@
         <TargetFrameworks>net10.0</TargetFrameworks>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 
-        <!-- AOT/trim warnings are real - the codebase has ~310 JsonSerializer.Deserialize<T>
-             call sites using reflection. Hot path (REST API + YAML loaders + detection
-             pipeline) is AOT-clean; cold paths (BotListFetcher external IP-range fetches,
-             BrowserTokenService, YarpSignatureWriter, dashboard event store) will throw
-             at runtime in AOT mode until each call is rewired to a source-generated
-             JsonSerializerContext. Suppressing here so consumers don't see scary warnings
-             until that work lands. -->
+        <!-- AOT/trim posture: every own-code call site is either source-generated or
+             explicitly annotated with [RequiresUnreferencedCode] / [RequiresDynamicCode] /
+             UnconditionalSuppressMessage at the function that opts into reflective behaviour
+             (LLM coordinators, anomaly export, signal projection, GeoLocation duck-typing).
+             AOT publish of the Sidecar is clean of own-code IL warnings; the remaining ~11
+             warnings are third-party (Serilog single-file warnings, VYaml rollup, IL3000 on
+             Serilog.Settings.Configuration). -->
         <IsTrimmable>false</IsTrimmable>
-        <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
+        <!-- Source-generate the IConfiguration -> TOptions binders so BindConfiguration<T>
+             and Configure<T> calls don't require RequiresDynamicCode at runtime. Kills the
+             ~25 IL2026 / IL3050 warnings the Options binder would otherwise emit per AOT
+             publish. Introduced in .NET 8. -->
+        <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
         <UserSecretsId>0c2c1992-7d5d-4581-ada1-8af3d1aee8fc</UserSecretsId>
     </PropertyGroup>
     <PropertyGroup>

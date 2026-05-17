@@ -110,8 +110,8 @@ public sealed class SessionAtomizerService : BackgroundService
                     AvgProcessingTimeMs  = group.Average(r => r.ProcessingMs),
                     ErrorCount           = group.Count(r => r.StatusCode is >= 400 and < 600),
                     TimingEntropy        = ComputeTimingEntropy(group),
-                    TransitionCountsJson = JsonSerializer.Serialize(transitionCounts),
-                    PathsJson            = JsonSerializer.Serialize(paths),
+                    TransitionCountsJson = JsonSerializer.Serialize(transitionCounts, Data.BotDetectionJsonSerializerContext.Default.DictionaryStringInt32),
+                    PathsJson            = JsonSerializer.Serialize(paths, Data.BotDetectionJsonSerializerContext.Default.ListString),
                 };
 
                 var sessionId = await _store.AddSessionAsync(session, ct);

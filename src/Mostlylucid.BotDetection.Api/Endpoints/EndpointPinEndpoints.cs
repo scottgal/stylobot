@@ -17,7 +17,7 @@ public static class EndpointPinEndpoints
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
             .WithTags("Endpoint Pins");
 
-        group.MapGet("", HandleList).WithName("GetEndpointPins").WithOpenApi();
+        group.MapGet("", HandleList).WithName("GetEndpointPins");
 
         return endpoints;
     }

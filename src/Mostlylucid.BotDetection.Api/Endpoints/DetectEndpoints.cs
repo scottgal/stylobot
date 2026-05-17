@@ -17,8 +17,8 @@ public static class DetectEndpoints
             .RequireAuthorization(ApiKeyAuthenticationHandler.SchemeName)
             .WithTags("Detection");
 
-        group.MapPost("/detect", HandleDetect).WithName("Detect").WithOpenApi();
-        group.MapPost("/detect/batch", HandleDetectBatch).WithName("DetectBatch").WithOpenApi();
+        group.MapPost("/detect", HandleDetect).WithName("Detect");
+        group.MapPost("/detect/batch", HandleDetectBatch).WithName("DetectBatch");
 
         return endpoints;
     }

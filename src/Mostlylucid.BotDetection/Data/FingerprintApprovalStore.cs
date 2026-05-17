@@ -162,7 +162,7 @@ public sealed class SqliteFingerprintApprovalStore : IFingerprintApprovalStore, 
                     revoked_by = NULL
                 """;
             cmd.Parameters.AddWithValue("@sig", record.Signature);
-            cmd.Parameters.AddWithValue("@dims", JsonSerializer.Serialize(record.LockedDimensions, JsonOptions));
+            cmd.Parameters.AddWithValue("@dims", JsonSerializer.Serialize(record.LockedDimensions, BotDetectionJsonSerializerContext.Default.DictionaryStringString));
             cmd.Parameters.AddWithValue("@just", record.Justification);
             cmd.Parameters.AddWithValue("@by", record.ApprovedBy);
             cmd.Parameters.AddWithValue("@at", record.ApprovedAt.ToString("O"));
@@ -317,7 +317,7 @@ public sealed class SqliteFingerprintApprovalStore : IFingerprintApprovalStore, 
     private static ApprovalRecord ReadApproval(SqliteDataReader reader)
     {
         var dimsJson = reader.GetString(reader.GetOrdinal("locked_dimensions_json"));
-        var dims = JsonSerializer.Deserialize<Dictionary<string, string>>(dimsJson, JsonOptions)
+        var dims = JsonSerializer.Deserialize(dimsJson, BotDetectionJsonSerializerContext.Default.DictionaryStringString)
                    ?? new Dictionary<string, string>();
 
         return new ApprovalRecord

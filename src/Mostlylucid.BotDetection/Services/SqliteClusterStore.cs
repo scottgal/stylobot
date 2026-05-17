@@ -167,7 +167,7 @@ public sealed class SqliteClusterStore
                     ins.Parameters.AddWithValue("@intent", (object?)c.DominantIntent ?? DBNull.Value);
                     ins.Parameters.AddWithValue("@threat", c.AverageThreatScore);
                     ins.Parameters.AddWithValue("@members",
-                        JsonSerializer.Serialize(c.MemberSignatures, JsonOptions));
+                        JsonSerializer.Serialize(c.MemberSignatures, Data.BotDetectionJsonSerializerContext.Default.ListString));
                     ins.Parameters.AddWithValue("@updated", now);
                     await ins.ExecuteNonQueryAsync(ct);
                 }
@@ -222,7 +222,7 @@ public sealed class SqliteClusterStore
         var membersJson = r.GetString(15);
         var members = string.IsNullOrEmpty(membersJson)
             ? new List<string>()
-            : JsonSerializer.Deserialize<List<string>>(membersJson, JsonOptions) ?? new();
+            : JsonSerializer.Deserialize(membersJson, Data.BotDetectionJsonSerializerContext.Default.ListString) ?? new();
         return new BotCluster
         {
             ClusterId = r.GetString(0),

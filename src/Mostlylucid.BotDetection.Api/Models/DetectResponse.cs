@@ -109,6 +109,14 @@ internal static class SignalProjection
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Heterogeneous object dictionary serialised via SerializeToElement; this is the " +
+        "deliberate boundary between the blackboard and the API response. Bypasses source " +
+        "generation by design because signal values are runtime-typed. AOT publishes that " +
+        "exercise the detect endpoint must accept that some custom signal types may fail " +
+        "to serialise (caught and dropped per-key in the catch below).")]
+    [System.Diagnostics.CodeAnalysis.RequiresDynamicCode(
+        "JsonSerializer.SerializeToElement(object) requires runtime type inspection.")]
     public static IReadOnlyDictionary<string, JsonElement> Project(IReadOnlyDictionary<string, object> signals)
     {
         if (signals is null || signals.Count == 0)
@@ -132,6 +140,10 @@ internal static class SignalProjection
 
 public partial record DetectResponse
 {
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "SignalProjection.Project is intentionally reflection-based; the runtime catches per-signal serialisation failures.")]
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("AOT", "IL3050",
+        Justification = "Heterogeneous object dictionary requires runtime type inspection by design.")]
     private static IReadOnlyDictionary<string, JsonElement> ProjectSignals(IReadOnlyDictionary<string, object> signals)
         => SignalProjection.Project(signals);
 }

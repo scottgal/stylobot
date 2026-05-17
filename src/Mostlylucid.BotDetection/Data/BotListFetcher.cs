@@ -128,7 +128,7 @@ public partial class BotListFetcher : IBotListFetcher
             try
             {
                 var json = await client.GetStringAsync(sources.IsBot.Url, cancellationToken);
-                var patterns = JsonSerializer.Deserialize<List<string>>(json, JsonOptions);
+                var patterns = JsonSerializer.Deserialize(json, BotDetectionJsonSerializerContext.Default.ListString);
                 if (patterns != null)
                 {
                     var validCount = 0;
@@ -163,7 +163,7 @@ public partial class BotListFetcher : IBotListFetcher
             try
             {
                 var json = await client.GetStringAsync(sources.CrawlerUserAgents.Url, cancellationToken);
-                var crawlers = JsonSerializer.Deserialize<List<CrawlerEntry>>(json, JsonOptions);
+                var crawlers = JsonSerializer.Deserialize(json, BotDetectionJsonSerializerContext.Default.ListCrawlerEntry);
                 if (crawlers != null)
                 {
                     var validCount = 0;
@@ -257,7 +257,7 @@ public partial class BotListFetcher : IBotListFetcher
             try
             {
                 var awsJson = await client.GetStringAsync(sources.AwsIpRanges.Url, cancellationToken);
-                var awsData = JsonSerializer.Deserialize<AwsIpRangesResponse>(awsJson, JsonOptions);
+                var awsData = JsonSerializer.Deserialize(awsJson, BotDetectionJsonSerializerContext.Default.AwsIpRangesResponse);
                 if (awsData?.Prefixes != null)
                 {
                     var validCount = 0;
@@ -292,7 +292,7 @@ public partial class BotListFetcher : IBotListFetcher
             try
             {
                 var gcpJson = await client.GetStringAsync(sources.GcpIpRanges.Url, cancellationToken);
-                var gcpData = JsonSerializer.Deserialize<GcpIpRangesResponse>(gcpJson, JsonOptions);
+                var gcpData = JsonSerializer.Deserialize(gcpJson, BotDetectionJsonSerializerContext.Default.GcpIpRangesResponse);
                 if (gcpData?.Prefixes != null)
                 {
                     var validCount = 0;
@@ -345,7 +345,7 @@ public partial class BotListFetcher : IBotListFetcher
             try
             {
                 var azureJson = await client.GetStringAsync(sources.AzureIpRanges.Url, cancellationToken);
-                var azureData = JsonSerializer.Deserialize<AzureIpRangesResponse>(azureJson, JsonOptions);
+                var azureData = JsonSerializer.Deserialize(azureJson, BotDetectionJsonSerializerContext.Default.AzureIpRangesResponse);
                 if (azureData?.Values != null)
                 {
                     var validCount = 0;
@@ -522,7 +522,7 @@ public partial class BotListFetcher : IBotListFetcher
             try
             {
                 var json = await client.GetStringAsync(sources.ScannerUserAgents.Url, cancellationToken);
-                var entries = JsonSerializer.Deserialize<List<ScannerUserAgentEntry>>(json, JsonOptions);
+                var entries = JsonSerializer.Deserialize(json, BotDetectionJsonSerializerContext.Default.ListScannerUserAgentEntry);
 
                 if (entries != null)
                 {

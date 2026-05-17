@@ -53,6 +53,8 @@ public sealed class MultiFactorSignatureService
     ///     types without weakening detection - the PrimarySignature (IP+UA) anchors the
     ///     match, and secondary factors are only inherited, never fabricated.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026",
+        Justification = "Calls ExtractCountryCode which duck-types HttpContext.Items[\"GeoLocation\"] reflectively. Safe in AOT - silently returns null when the geo middleware isn't loaded.")]
     public MultiFactorSignatures GenerateSignatures(HttpContext httpContext)
     {
         var ip = httpContext.Connection.RemoteIpAddress?.ToString();
@@ -390,6 +392,10 @@ public sealed class MultiFactorSignatureService
     ///     Country code (e.g. "US", "CN") is NOT PII - it's a coarse geographic signal
     ///     more resistant to IP rotation than IP-based signatures.
     /// </summary>
+    [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(
+        "Duck-types HttpContext.Items[\"GeoLocation\"] via reflection to read CountryCode " +
+        "without taking a hard reference on Mostlylucid.GeoDetection. AOT builds without " +
+        "the geo middleware silently return null.")]
     private static string? ExtractCountryCode(HttpContext httpContext)
     {
         // GeoRoutingMiddleware stores GeoLocation in Items["GeoLocation"]
