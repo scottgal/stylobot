@@ -49,6 +49,12 @@
 
     <ItemGroup>
         <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
+        <!-- Api is referenced even though the gateway only opts in via the
+             enable-api flag; the reference is conditional-by-runtime, not
+             conditional-by-build, so this always pulls in the API surface. Same
+             transitive UI dependency the AOT Sidecar already ships, so this
+             doesn't break the AOT publish. -->
+        <ProjectReference Include="..\Mostlylucid.BotDetection.Api\Mostlylucid.BotDetection.Api.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.Ollama\Mostlylucid.BotDetection.Llm.Ollama.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.Cloud\Mostlylucid.BotDetection.Llm.Cloud.csproj" />
         <ProjectReference Include="..\Mostlylucid.BotDetection.Llm.LlamaSharp\Mostlylucid.BotDetection.Llm.LlamaSharp.csproj" />

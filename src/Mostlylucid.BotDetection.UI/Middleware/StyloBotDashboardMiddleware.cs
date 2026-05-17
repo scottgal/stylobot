@@ -1688,8 +1688,8 @@ public class StyloBotDashboardMiddleware
 
     private async Task ServeClustersApiAsync(HttpContext context)
     {
-        var clusterService = context.RequestServices.GetService(typeof(BotClusterService))
-            as BotClusterService;
+        var clusterService = context.RequestServices.GetService(typeof(IBotClusterReader))
+            as IBotClusterReader;
 
         if (clusterService == null)
         {
@@ -2772,7 +2772,7 @@ public class StyloBotDashboardMiddleware
     /// </summary>
     private ConfigurationEditorModel? BuildConfigurationModel(HttpContext context)
     {
-        var editor = context.RequestServices.GetService<ConfigEditorService>();
+        var editor = context.RequestServices.GetService<IConfigEditorService>();
         if (editor is null) return null;
 
         // Reuse the shared license-status logic so the upsell rail's gating matches what
@@ -2802,7 +2802,7 @@ public class StyloBotDashboardMiddleware
     /// <summary><c>GET /api/config/manifests</c> - list every editable detector + override status.</summary>
     private async Task ServeConfigManifestsListAsync(HttpContext context)
     {
-        var editor = context.RequestServices.GetService<ConfigEditorService>();
+        var editor = context.RequestServices.GetService<IConfigEditorService>();
         if (editor is null) { context.Response.StatusCode = 503; return; }
 
         context.Response.ContentType = "application/json";
@@ -2826,20 +2826,31 @@ public class StyloBotDashboardMiddleware
     /// </summary>
     private async Task ServeConfigManifestApiAsync(HttpContext context, string slug)
     {
-        var editor = context.RequestServices.GetService<ConfigEditorService>();
-        if (editor is null) { context.Response.StatusCode = 503; return; }
+        // Reads go through the interface (remote-substitutable); writes need the concrete
+        // class. Remote-mode hosts register only IConfigEditorService, so the concrete
+        // resolution returns null and PUT/DELETE 503 cleanly.
+        var reader = context.RequestServices.GetService<IConfigEditorService>();
+        if (reader is null) { context.Response.StatusCode = 503; return; }
 
         switch (context.Request.Method)
         {
             case "GET":
-                await ServeConfigManifestGetAsync(context, editor, slug);
+                await ServeConfigManifestGetAsync(context, reader, slug);
                 break;
             case "PUT":
-                await ServeConfigManifestPutAsync(context, editor, slug);
+            {
+                var writer = context.RequestServices.GetService<ConfigEditorService>();
+                if (writer is null) { context.Response.StatusCode = 503; return; }
+                await ServeConfigManifestPutAsync(context, writer, slug);
                 break;
+            }
             case "DELETE":
-                await ServeConfigManifestDeleteAsync(context, editor, slug);
+            {
+                var writer = context.RequestServices.GetService<ConfigEditorService>();
+                if (writer is null) { context.Response.StatusCode = 503; return; }
+                await ServeConfigManifestDeleteAsync(context, writer, slug);
                 break;
+            }
             default:
                 context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
                 context.Response.Headers["Allow"] = "GET, PUT, DELETE";
@@ -2847,7 +2858,7 @@ public class StyloBotDashboardMiddleware
         }
     }
 
-    private async Task ServeConfigManifestGetAsync(HttpContext context, ConfigEditorService editor, string slug)
+    private async Task ServeConfigManifestGetAsync(HttpContext context, IConfigEditorService editor, string slug)
     {
         var doc = editor.GetManifest(slug);
         if (doc is null)
@@ -3232,7 +3243,7 @@ public class StyloBotDashboardMiddleware
 
     private async Task<Models.IdentitiesListModel> BuildIdentitiesModelAsync(HttpContext context, int page, int pageSize)
     {
-        var store = context.RequestServices.GetService<BotDetection.Identity.SqliteFingerprintStore>();
+        var store = context.RequestServices.GetService<BotDetection.Identity.IFingerprintReader>();
         var optionsAccessor = context.RequestServices.GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>();
         var enabled = optionsAccessor?.Value.Identity.Enabled ?? false;
         if (store is null || !enabled)
@@ -3373,7 +3384,7 @@ public class StyloBotDashboardMiddleware
     {
         // Targeted O(1) lookup — no full-table scan or page-N enumeration. Two queries:
         // the fingerprint row + a focused unabsorbed-obs count for that one id.
-        var store = context.RequestServices.GetService<BotDetection.Identity.SqliteFingerprintStore>();
+        var store = context.RequestServices.GetService<BotDetection.Identity.IFingerprintReader>();
         if (store is null)
         {
             context.Response.StatusCode = 503;
@@ -4799,8 +4810,8 @@ public class StyloBotDashboardMiddleware
 
     private ClustersListModel BuildClustersModel(HttpContext context)
     {
-        var clusterService = context.RequestServices.GetService(typeof(BotClusterService))
-            as BotClusterService;
+        var clusterService = context.RequestServices.GetService(typeof(IBotClusterReader))
+            as IBotClusterReader;
 
         var clusters = clusterService?.GetClusters()
             .Select(cl => new ClusterViewModel
@@ -4827,7 +4838,7 @@ public class StyloBotDashboardMiddleware
         };
     }
 
-    private static ClusterDiagnosticsViewModel BuildClusterDiagnosticsModel(BotClusterService clusterService)
+    private static ClusterDiagnosticsViewModel BuildClusterDiagnosticsModel(IBotClusterReader clusterService)
     {
         var diagnostics = clusterService.GetDiagnostics();
         return new ClusterDiagnosticsViewModel

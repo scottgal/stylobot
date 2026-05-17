@@ -401,8 +401,12 @@ public static class ServiceCollectionExtensions
 
         // Editor service used by the dashboard's Configuration tab to list/read/write
         // detector manifest overrides. Reads embedded manifests from this assembly + writes
-        // to the same directory the override source watches.
+        // to the same directory the override source watches. Both interface and concrete are
+        // registered: the dashboard middleware resolves IConfigEditorService for reads
+        // (substitutable with a remote impl), the concrete for writes.
         services.TryAddSingleton<Orchestration.Manifests.ConfigEditorService>();
+        services.TryAddSingleton<Orchestration.Manifests.IConfigEditorService>(
+            sp => sp.GetRequiredService<Orchestration.Manifests.ConfigEditorService>());
 
         // Register individual detectors
         // Each detector is responsible for one detection strategy
@@ -571,6 +575,11 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton(sp => Identity.IdentityVectorLayout.DefaultV1());
         services.TryAddSingleton<Identity.IdentityVectorEncoder>();
         services.TryAddSingleton<Identity.SqliteFingerprintStore>();
+        // Surface the read-only fingerprint interface so the dashboard / REST endpoints
+        // resolve it without depending on the concrete store - swapped for a HTTP-backed
+        // impl in remote-mode dashboard hosts.
+        services.TryAddSingleton<Identity.IFingerprintReader>(
+            sp => sp.GetRequiredService<Identity.SqliteFingerprintStore>());
         // Anchor index: vec0 wrapper that dispatches to brute force when sqlite-vec didn't
         // load. Both impls registered as concrete types so the wrapper can fall back per-call.
         services.TryAddSingleton<Identity.BruteForceIdentityAnchorIndex>();
@@ -709,6 +718,9 @@ public static class ServiceCollectionExtensions
         });
         services.TryAddSingleton<BotClusterService>();
         services.AddHostedService(sp => sp.GetRequiredService<BotClusterService>());
+        // Expose the read-only slice so the dashboard / REST endpoints resolve via interface
+        // (remote-mode hosts substitute a HTTP-backed impl).
+        services.TryAddSingleton<IBotClusterReader>(sp => sp.GetRequiredService<BotClusterService>());
         // Signature convergence - merges/splits related signatures (same IP, rotating UAs)
         services.TryAddSingleton<SignatureConvergenceService>();
         services.AddHostedService(sp => sp.GetRequiredService<SignatureConvergenceService>());

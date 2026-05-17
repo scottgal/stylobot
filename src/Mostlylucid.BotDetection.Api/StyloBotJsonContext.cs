@@ -1,9 +1,14 @@
 using System.Text.Json.Serialization;
 using Mostlylucid.BotDetection.Api.Models;
 using Mostlylucid.BotDetection.Api.Endpoints;
+using Mostlylucid.BotDetection.Data;
+using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Llm.Tunnel;
 using Mostlylucid.BotDetection.MonitoringPacks;
+using Mostlylucid.BotDetection.Orchestration.Manifests;
+using Mostlylucid.BotDetection.Services;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.Api;
 
@@ -84,6 +89,62 @@ namespace Mostlylucid.BotDetection.Api;
 [JsonSerializable(typeof(SingleResponse<DashboardSummary>))]
 [JsonSerializable(typeof(SingleResponse<DashboardCountryDetail>))]
 [JsonSerializable(typeof(SingleResponse<DashboardEndpointDetail>))]
+
+// Cluster surface
+[JsonSerializable(typeof(BotCluster))]
+[JsonSerializable(typeof(PaginatedResponse<BotCluster>))]
+[JsonSerializable(typeof(BotClusterService.ClusterDiagnosticsSnapshot))]
+[JsonSerializable(typeof(SingleResponse<BotClusterService.ClusterDiagnosticsSnapshot>))]
+
+// Label surface
+[JsonSerializable(typeof(SignatureLabel))]
+[JsonSerializable(typeof(PaginatedResponse<SignatureLabel>))]
+[JsonSerializable(typeof(SingleResponse<SignatureLabel>))]
+[JsonSerializable(typeof(IReadOnlyDictionary<SignatureLabelKind, int>))]
+[JsonSerializable(typeof(SingleResponse<IReadOnlyDictionary<SignatureLabelKind, int>>))]
+
+// Approval surface
+[JsonSerializable(typeof(ApprovalRecord))]
+[JsonSerializable(typeof(PaginatedResponse<ApprovalRecord>))]
+[JsonSerializable(typeof(SingleResponse<ApprovalRecord>))]
+
+// Endpoint-pin surface
+[JsonSerializable(typeof(PinnedEndpoint))]
+[JsonSerializable(typeof(PaginatedResponse<PinnedEndpoint>))]
+
+// Session surface
+[JsonSerializable(typeof(PersistedSession))]
+[JsonSerializable(typeof(PaginatedResponse<PersistedSession>))]
+
+// User-agent search surface
+[JsonSerializable(typeof(UserAgentSearchResult))]
+[JsonSerializable(typeof(PaginatedResponse<UserAgentSearchResult>))]
+
+// Investigation surface
+[JsonSerializable(typeof(InvestigationFilter))]
+[JsonSerializable(typeof(InvestigationResult))]
+[JsonSerializable(typeof(SingleResponse<InvestigationResult>))]
+[JsonSerializable(typeof(ShapeSearchFilter))]
+[JsonSerializable(typeof(InvestigationPreset))]
+[JsonSerializable(typeof(PaginatedResponse<InvestigationPreset>))]
+
+// BDF export surface
+[JsonSerializable(typeof(BdfExportDocument))]
+[JsonSerializable(typeof(SingleResponse<BdfExportDocument>))]
+
+// Configuration surface
+[JsonSerializable(typeof(DetectorManifestSummary))]
+[JsonSerializable(typeof(PaginatedResponse<DetectorManifestSummary>))]
+[JsonSerializable(typeof(DetectorManifestDocument))]
+[JsonSerializable(typeof(SingleResponse<DetectorManifestDocument>))]
+
+// Identity surface
+[JsonSerializable(typeof(Fingerprint))]
+[JsonSerializable(typeof(PaginatedResponse<Fingerprint>))]
+[JsonSerializable(typeof(SingleResponse<Fingerprint>))]
+[JsonSerializable(typeof(IReadOnlyDictionary<string, int>))]
+[JsonSerializable(typeof(SingleResponse<IReadOnlyDictionary<string, int>>))]
+[JsonSerializable(typeof(SingleResponse<int>))]
 public partial class StyloBotJsonContext : JsonSerializerContext
 {
 }

@@ -17,7 +17,7 @@ namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 ///     is dormant; the Razor view renders an explainer instead of a table in that case.
 /// </summary>
 public class SbIdentitiesListViewComponent(
-    SqliteFingerprintStore store,
+    IFingerprintReader store,
     IOptions<BotDetectionOptions> options,
     StyloBotDashboardOptions dashboardOptions)
     : ViewComponent

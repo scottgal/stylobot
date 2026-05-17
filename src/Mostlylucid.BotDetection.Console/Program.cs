@@ -10,6 +10,7 @@ using Mostlylucid.BotDetection.Console.Logging;
 using Mostlylucid.BotDetection.Console.Models;
 using Mostlylucid.BotDetection.Console.Services;
 using Mostlylucid.BotDetection.Console.Transforms;
+using Mostlylucid.BotDetection.Api;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Llm.Cloud.Extensions;
@@ -237,6 +238,14 @@ var skipDependencyChecks = cmdArgs.Any(a =>
     a.Equals("--skip-dependencies-check", StringComparison.OrdinalIgnoreCase)
     || a.Equals("--no-deps-check", StringComparison.OrdinalIgnoreCase)
     || a.Equals("--skip-deps", StringComparison.OrdinalIgnoreCase));
+
+// --enable-api (default OFF for minimal surface area): when set, exposes the
+// /api/v1/* REST endpoints (detect + the full dashboard read surface) so a remote
+// stylobot-ui can be pointed at this gateway. Without it the gateway is a pure
+// reverse-proxy + detection host with no operational endpoints beyond /health.
+// Auth is via X-SB-Api-Key (StyloBot:ApiKeys appsettings section).
+var enableApi = cmdArgs.Any(a =>
+    a.Equals("--enable-api", StringComparison.OrdinalIgnoreCase));
 
 // Note: there is no --enable-monitoring flag here because the Console binary
 // is a reverse-proxy + detection host without a dashboard. The ASP.NET
@@ -549,6 +558,15 @@ try
     });
 
     builder.Services.AddBotDetectionTelemetry();
+
+    // Opt-in REST API surface. Off by default - the gateway's day job is detection
+    // + proxying; the API is for stylobot-ui hosts that need to read this gateway's
+    // detections / signatures / clusters / etc. over HTTP.
+    if (enableApi)
+    {
+        builder.Services.AddStyloBotApi(opts => opts.EnableOpenApi = false);
+    }
+
     builder.Services.AddOpenTelemetry()
         .WithMetrics(metrics => metrics
             .AddAspNetCoreInstrumentation()
@@ -653,6 +671,15 @@ try
 
     // Health check endpoint (AOT-compatible) - mapped BEFORE YARP to avoid being proxied
     app.MapGet("/health", () => Results.Text("{\"status\":\"healthy\"}", "application/json"));
+
+    // REST API surface (opt-in via --enable-api). Maps /api/v1/* before YARP so the
+    // proxy never sees those requests. Auth enforced per-route by ApiKeyAuthenticationHandler.
+    if (enableApi)
+    {
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapStyloBotApi();
+    }
 
     app.MapPrometheusScrapingEndpoint("/metrics");
 

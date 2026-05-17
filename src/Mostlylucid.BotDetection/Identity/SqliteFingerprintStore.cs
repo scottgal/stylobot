@@ -11,7 +11,10 @@ namespace Mostlylucid.BotDetection.Identity;
 ///     Holds nothing in memory beyond per-call state; durable concurrency is owned by SQLite
 ///     itself (WAL when enabled). Writes batched at the call site.
 /// </summary>
-public sealed class SqliteFingerprintStore
+// Not sealed: remote-mode dashboards register a HTTP-backed IFingerprintReader instead
+// of this concrete type. Base class continues to own the write path (centroid updates,
+// observation absorption, score caching) which remote viewers never call.
+public class SqliteFingerprintStore : IFingerprintReader
 {
     private readonly ILogger<SqliteFingerprintStore> _logger;
     private readonly string _connectionString;

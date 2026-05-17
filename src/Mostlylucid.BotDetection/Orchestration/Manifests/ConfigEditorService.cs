@@ -31,7 +31,28 @@ namespace Mostlylucid.BotDetection.Orchestration.Manifests;
 ///     <c>vim</c> on the same file, which is the FOSS promise.
 ///     </para>
 /// </summary>
-public sealed class ConfigEditorService
+/// <summary>
+///     Read-only slice of <see cref="ConfigEditorService"/> consumed by the dashboard
+///     middleware and by remote-mode dashboard hosts. Split out so a remote
+///     implementation can satisfy reads over HTTP without dragging in the write path's
+///     file-system / override / atomic-replace dependencies.
+/// </summary>
+public interface IConfigEditorService
+{
+    /// <summary>List all editable detector manifests with their override status.</summary>
+    IReadOnlyList<DetectorManifestSummary> ListManifests();
+
+    /// <summary>
+    ///     Fetch the editor view for a single manifest: embedded YAML, override YAML (if any),
+    ///     and the "effective" YAML the editor seeds with. Returns null when slug is unknown.
+    /// </summary>
+    DetectorManifestDocument? GetManifest(string slug);
+}
+
+// Not sealed: remote-mode dashboards register a HTTP-backed IConfigEditorService instead
+// of this concrete type. The base class continues to own the write path (override save,
+// revert, atomic file replace) which remote viewers never call.
+public class ConfigEditorService : IConfigEditorService
 {
     private const string DetectorYamlSuffix = ".detector.yaml";
     private const string DetectorsSubDir = "detectors";

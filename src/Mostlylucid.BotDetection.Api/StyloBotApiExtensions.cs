@@ -59,6 +59,16 @@ public static class StyloBotApiExtensions
         endpoints.MapMetricsEndpoints();
         endpoints.MapMetricsSnapshotEndpoints();
         endpoints.MapRoutesEndpoints();
+        endpoints.MapClusterEndpoints();
+        endpoints.MapLabelEndpoints();
+        endpoints.MapApprovalEndpoints();
+        endpoints.MapEndpointPinEndpoints();
+        endpoints.MapSessionEndpoints();
+        endpoints.MapUserAgentEndpoints();
+        endpoints.MapInvestigationEndpoints();
+        endpoints.MapBdfEndpoints();
+        endpoints.MapConfigEndpoints();
+        endpoints.MapIdentityEndpoints();
 
         if (options.EnableOpenApi)
         {

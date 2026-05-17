@@ -32,7 +32,7 @@ namespace Mostlylucid.BotDetection.Services;
 ///
 ///     Clustering is triggered either by a timer or when enough new bot detections accumulate.
 /// </summary>
-public class BotClusterService : BackgroundService
+public class BotClusterService : BackgroundService, IBotClusterReader
 {
     // Immutable snapshots swapped atomically via volatile reference
     private volatile ClusterSnapshot _snapshot = ClusterSnapshot.Empty;
