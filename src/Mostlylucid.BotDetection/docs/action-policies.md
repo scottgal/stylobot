@@ -184,13 +184,28 @@ These policies are available without configuration:
 
 ### Throttle Policies
 
-| Name                  | Delay       | Description             | Learning Impact    |
-|-----------------------|-------------|-------------------------|--------------------|
-| `throttle`            | 500-5000ms  | Moderate, risk-scaled   | Moderate bot label |
-| `throttle-gentle`     | 200-1000ms  | High jitter             | Weak bot label     |
-| `throttle-moderate`   | 500-5000ms  | Risk-scaled             | Moderate bot label |
-| `throttle-aggressive` | 1-30s       | Exponential backoff     | Strong bot label   |
-| `throttle-stealth`    | 500-10000ms | No headers, high jitter | Moderate bot label |
+| Name                   | Delay       | Status / Headers                                                  | Description                                                | Learning Impact    |
+|------------------------|-------------|-------------------------------------------------------------------|------------------------------------------------------------|--------------------|
+| `throttle`             | 500-5000ms  | Continues after delay                                             | Moderate, risk-scaled                                      | Moderate bot label |
+| `throttle-gentle`      | 200-1000ms  | Continues after delay                                             | High jitter                                                | Weak bot label     |
+| `throttle-moderate`    | 500-5000ms  | Continues after delay                                             | Risk-scaled                                                | Moderate bot label |
+| `throttle-aggressive`  | 1-30s       | Continues after delay                                             | Exponential backoff                                        | Strong bot label   |
+| `throttle-stealth`     | 500-10000ms | Continues after delay, **no** headers                             | High jitter; bot can't tell it was throttled               | Moderate bot label |
+| `throttle-tools`       | 500-15000ms | **HTTP 429** + Retry-After (delay-derived) + exponential backoff  | For curl/wget/python-requests; tools auto-slow             | Strong bot label   |
+| `throttle-status`      | 0-200ms     | **HTTP 429** + **Retry-After: 60** (fixed)                        | Friendly-bot soft path: fast 429, "back off, retry later"  | Weak bot label     |
+| `throttle-escalating`  | 200-30000ms | Continues after delay, exponential ×3                             | Repeated offenders climb to 30s; first hit ~200ms          | Strong bot label   |
+
+#### `throttle-status` and friendly bots
+
+`throttle-status` is the "informational rate-limit" path for **friendly clustering bots** — the canonical case is a fediverse link-preview stampede where 50 Mastodon instances all hit the same URL within a second when someone shares it. Blocking them with `403` makes well-behaved previewers give up entirely; a `429` with a `Retry-After: 60` header tells them to back off and retry, which is what we actually want.
+
+The orchestrator routes friendly bot types (`SocialMediaBot`, `MonitoringBot`, `SearchEngine`, `GoodBot`, `VerifiedBot`) through `throttle-status` automatically when:
+
+- No other policy fired for this request, AND
+- `BotProbability >= BotThreshold` (would have been blocked otherwise), AND
+- `ThreatScore < 0.55` (not also doing shady stuff while pretending to be friendly).
+
+The friendly-bot set + threat gate are defined once in `Models/BotTypeClassification.cs`. To opt out per-detection-policy, set `TriggeredActionPolicyName` explicitly in a transition — anything non-empty wins over the auto-route.
 
 ### Challenge Policies
 

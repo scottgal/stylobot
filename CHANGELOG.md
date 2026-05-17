@@ -5,6 +5,32 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 6.5.1
+
+### Added — Friendly clustering bots (`throttle-status` + per-instance naming)
+
+The fediverse stampede problem: when someone shares a URL on Mastodon, 50 federated instances all hit the same URL within a second to render link previews. Each instance is well-behaved individually, but in aggregate it looks like an attack — and blocking with `403` makes them give up entirely. This release adds a polite path for that and similar friendly clustering bots (search engines, monitoring, GoodBot, VerifiedBot).
+
+- **`throttle-status` action policy**. Fast (50ms) HTTP 429 response with `Retry-After: 60` header. The new `RetryAfterSeconds` option on `ThrottleActionOptions` decouples the advertised back-off interval from the per-request delay so a policy can return quickly and still hint at a meaningful wait. RFC 7231 integer formatting under invariant culture so the header is never `Retry-After: 60,0` in European locales.
+- **Friendly-bot routing in the orchestrator**. When no other policy fired AND `PrimaryBotType` is in the friendly set (`SocialMediaBot`, `MonitoringBot`, `SearchEngine`, `GoodBot`, `VerifiedBot`) AND probability is over `BotThreshold` AND `ThreatScore < 0.55`, route through `throttle-status` instead of the default block/tarpit. The friendly set + threat-gate constant live in one place (`Models/BotTypeClassification.cs`) so the existing risk-band logic in `DetectionLedgerExtensions` shares the same source of truth.
+- **Per-instance UA discriminator naming**. New `UserAgentDiscriminator` extracts the per-deployment hostname from the RFC 7231 `+https://host/` product-comment convention used by every fediverse server (Mastodon, Pleroma, Misskey, Calckey, Akkoma, Pixelfed, Lemmy, Friendica, Hubzilla, PeerTube). `FingerprintNameComposer` Priority 1 now produces `"Mastodon mastodon.social"` instead of one giant `"Mastodon"` pile — a stampede shows as N distinct signatures on the dashboard. The vendor-home skiplist (openai.com, facebook.com, google.com, etc.) lives in `Definitions/VendorHomeHosts/vendor-home-hosts.yaml` as an embedded resource; editing the list is a YAML change, not a code change.
+- **`(!)` deceptive-bot marker**. When `VerifiedBotContributor` flags `verifiedbot.spoofed` (UA claims a verifiable bot identity but IP isn't in the published range) or `verifiedbot.rdns_mismatch`, the displayed name picks up the ` (!)` suffix (e.g. `Googlebot (!)`) so an operator scanning the dashboard sees the impersonation attempt immediately. Marker is a public constant on `FingerprintNameComposer.SpoofedMarker` for downstream filtering.
+
+### Fixed — Native AOT runtime errors
+
+Two bugs the published AOT sidecar binary hit on Mac during the 6.5.0 rollout:
+
+- **`SimulationPackLoader` failed with `MissingMethodException` on `DictionaryFormatter<string,string>`**. `VYamlBootstrap` registered every closed-generic dictionary formatter SimulationPack needs except this one. Under AOT, `BuiltinResolver` fell back to `Activator.CreateInstance` on the unregistered closed generic, which has no parameterless constructor emitted by the ILCompiler because nothing statically referenced it. Added the missing registration.
+- **`DetectorConfigProvider.MergeTiming` NRE on every detector trip → circuit-breaker opened after one second of traffic**. Under AOT, VYaml's source-generated deserializer only assigns properties whose keys are present in the YAML and bypasses the C# property initializer `= new()` that would otherwise default sub-defaults to non-null instances. A manifest without a `timing:` subkey left `DetectorDefaults.Timing` null, and `MergeTiming` threw on the first `yaml.TimeoutMs` access. Added `yaml ??= new()` to all four merge methods (Weights / Confidence / Timing / Features) and widened the parameter to nullable.
+
+### Added — Extensions release (cross-platform binaries)
+
+The three "extension" deployment binaries (`stylobot-sidecar`, `stylobot-ui`, `stylobot-all`) now ship as cross-platform self-contained binaries attached to a dedicated `extensions-v{version}` GitHub Release — separate from the main `allbot-v*` NuGet release so the NuGet release page isn't polluted with platform binaries.
+
+- **`publish-extensions.yml` workflow**. Six runtimes per product (linux x64/arm64, win x64/arm64, osx x64/arm64), each as a self-contained archive with its own README and its own SHA256SUMS file (`stylobot-sidecar-SHA256SUMS.txt`, `stylobot-ui-SHA256SUMS.txt`, `stylobot-all-SHA256SUMS.txt`) so someone pulling only one product can verify without downloading the whole set. SLSA build provenance attestation via sigstore.
+- **Native ARM runners for AOT cross-arch**. `stylobot-sidecar` is Native AOT (~37MB); the matrix uses `ubuntu-22.04-arm` and `windows-11-arm` so AOT compilation runs natively per-arch instead of cross-compiling (which would need a second toolchain per OS). Linux jobs `apt-get install clang zlib1g-dev` for the ILCompiler platform linker; macOS Xcode and Windows MSVC are preinstalled.
+- **Sidecar Dockerfile fix**. The 6.5.0 `<PublishAot>true</PublishAot>` switch in the sidecar csproj started failing the Docker build with "Platform linker not found" because `mcr.microsoft.com/dotnet/sdk:10.0` lacks clang. Dockerfile now installs `clang zlib1g-dev` and drops `--platform=$BUILDPLATFORM` so buildx runs the SDK image natively under QEMU per target arch (no cross-toolchain needed).
+
 ## [Unreleased] - 6.5.0
 
 ### Added — Remote-mode dashboard (`stylobot-ui` as HTTP viewer)

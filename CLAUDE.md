@@ -260,9 +260,24 @@ builder.Services.AddStyloBotDashboard(builder.Configuration);
 Separation of detection (WHAT) from response (HOW):
 - `block` - HTTP 403
 - `throttle-stealth` - Silent delay
+- `throttle-tools` - HTTP 429 + Retry-After (delay-derived) + exponential backoff (for curl/wget/etc.)
+- `throttle-status` - Fast HTTP 429 + fixed `Retry-After: 60` (informational). Orchestrator auto-routes friendly bot types (`SocialMediaBot`, `MonitoringBot`, `SearchEngine`, `GoodBot`, `VerifiedBot`) through this when probability > threshold and `ThreatScore < 0.55` — the fediverse link-preview stampede case. Set `TriggeredActionPolicyName` explicitly in a transition to opt out. Friendly set + threat-gate constant live in `Models/BotTypeClassification.cs`.
 - `challenge` - CAPTCHA/proof-of-work
 - `redirect-honeypot` - Trap redirect
 - `logonly` - Shadow mode
+
+### Naming surface
+`FingerprintNameComposer` produces the display name. Two extension points worth knowing:
+- **Per-instance discriminator**: `UserAgentDiscriminator.ExtractDiscriminator` pulls the hostname from the RFC 7231 `+https://host/` product-comment used by fediverse servers and some AI scrapers. Result is appended to the Priority 1 name (e.g. `Mastodon mastodon.social`). The vendor-home skiplist (openai.com, google.com, etc.) lives in `Definitions/VendorHomeHosts/vendor-home-hosts.yaml` as an embedded resource — edit the YAML, not the code.
+- **Deceptive-claim marker**: When `VerifiedBotContributor` flags `verifiedbot.spoofed` or `verifiedbot.rdns_mismatch`, the composer appends `FingerprintNameComposer.SpoofedMarker` (` (!)`) to the name. Downstream consumers can filter on the constant.
+
+### Daemon mode (production execution path)
+The `stylobot` CLI runs **foreground by default** so demos and CI behave predictably, but production deployments must use daemon mode. Three equivalent invocations:
+- `stylobot 5080 http://upstream -d` (short)
+- `stylobot 5080 http://upstream --daemon`
+- `stylobot start 5080 http://upstream`
+
+Double-forks, writes a PID file, returns. `stylobot stop` SIGTERMs the running daemon; `stylobot status` checks the PID + hits `/health` (non-zero exit on missing daemon). systemd unit shape: `Type=forking` + `PIDFile=` + `ExecStart=stylobot ... -d`. Don't add `-d` to `docker run` — containers run foreground by design and the container runtime supervises.
 
 ### HttpContext Extensions
 ```csharp

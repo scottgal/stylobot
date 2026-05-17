@@ -151,6 +151,45 @@ Dashboard at `/stylobot`. Detection at `~150µs` per request from first request.
 
 ---
 
+## Running as a daemon (production)
+
+The foreground commands in [Quick start](#quick-start) are for kicking the tyres — they hold the terminal and die when you close the SSH session. **In production, `stylobot` runs as a background daemon under a process manager.** That's the path the Homebrew formula, the Debian package, and every Docker image take internally.
+
+The CLI exposes daemon control directly:
+
+```bash
+stylobot 5080 http://localhost:3000 -d        # fork to background, write PID file, return
+stylobot status                               # check the daemon + hit /health
+stylobot stop                                 # SIGTERM the running daemon
+
+# Long form (equivalent):
+stylobot start 5080 http://localhost:3000     # same as -d
+stylobot 5080 http://localhost:3000 --daemon  # same as -d
+```
+
+When run with `-d` / `--daemon` / `start`:
+- The process double-forks and detaches from the controlling terminal.
+- A PID file is written so `stop` / `status` can find it later.
+- Logs go to stdout/stderr — under systemd/launchd these are journaled. Outside a process manager, redirect (`> stylobot.log 2>&1`).
+- `stylobot status` returns non-zero if the daemon isn't running, so it composes with shell health checks.
+
+Daemon mode is opt-in, not the default — running `stylobot 5080 http://localhost:3000` without `-d` stays foreground so demos and CI runs aren't surprised by a backgrounded process. Don't add `-d` to `docker run` invocations either; containers run in the foreground by design and the orchestrator (Docker / Kubernetes / systemd-resolved) handles supervision.
+
+Under systemd, the recommended unit looks like:
+
+```ini
+[Service]
+Type=forking
+PIDFile=/var/run/stylobot/stylobot.pid
+ExecStart=/usr/bin/stylobot 5080 http://localhost:3000 -d
+ExecStop=/usr/bin/stylobot stop
+Restart=on-failure
+```
+
+(`Type=forking` because `-d` double-forks; the unit waits for the parent to exit and reads the PID file.)
+
+---
+
 ## Core capabilities
 
 - **Content sequence detection**: tracks the natural document/asset/API page-load order per fingerprint. Bots hitting APIs directly, or at machine speed (<20ms inter-request), diverge from the expected human chain and get flagged. Centroid freshness suppresses false positives during deploys by detecting ETag changes and divergence rate spikes
