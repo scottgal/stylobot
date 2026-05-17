@@ -50,12 +50,20 @@ internal static class FingerprintNameComposer
         // Lemmy, etc.), append the instance hostname so a fediverse link-preview stampede
         // shows as N distinct signatures ("Mastodon mastodon.social", "Mastodon mas.to")
         // rather than one giant pile that looks like a single misbehaving client.
+        //
+        // Deceptive bots: when the UA claims a verifiable identity (Googlebot, Bingbot,
+        // GPTBot, etc.) but the IP didn't match the vendor's published range or the
+        // rDNS lookup failed, VerifiedBotContributor flags VerifiedBotSpoofed=true.
+        // We surface that with a "(!)" marker in the displayed name so an operator
+        // scanning the dashboard immediately sees the deception attempt instead of
+        // the bot blending in with legitimate Googlebot traffic.
         var botName = GetString(signals, SignalKeys.UserAgentBotName);
         if (!string.IsNullOrEmpty(botName) && botName != "unknown")
         {
             var rawUa = GetString(signals, SignalKeys.UserAgent) ?? userAgent;
             var discriminator = UserAgentDiscriminator.ExtractDiscriminator(rawUa);
             var composed = string.IsNullOrEmpty(discriminator) ? botName : $"{botName} {discriminator}";
+            if (IsSpoofedClaim(signals)) composed += " (!)";
             return Unique(composed, signature, country);
         }
 
@@ -148,4 +156,13 @@ internal static class FingerprintNameComposer
 
     internal static double GetDouble(IReadOnlyDictionary<string, object> signals, string key)
         => signals.TryGetValue(key, out var v) && v is double d ? d : 0;
+
+    private static bool IsSpoofedClaim(IReadOnlyDictionary<string, object> signals)
+    {
+        return GetBool(signals, SignalKeys.VerifiedBotSpoofed)
+               || GetBool(signals, SignalKeys.VerifiedBotRdnsMismatch);
+    }
+
+    private static bool GetBool(IReadOnlyDictionary<string, object> signals, string key)
+        => signals.TryGetValue(key, out var v) && v is bool b && b;
 }

@@ -122,4 +122,69 @@ public class FingerprintNameComposerTests
 
         Assert.Contains("US:abcd", name);
     }
+
+    [Fact]
+    public void Compose_Priority1_AppendsInstanceDiscriminator_FromFediverseUa()
+    {
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.bot_name"] = "Mastodon",
+            ["ua.raw"] = "http.rb/5.2 (Mastodon/4.2.1; +https://mastodon.social/)"
+        });
+
+        Assert.Contains("Mastodon mastodon.social", name);
+    }
+
+    [Fact]
+    public void Compose_Priority1_NoDiscriminator_ForVendorHomeUrl()
+    {
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.bot_name"] = "GPTBot",
+            ["ua.raw"] = "Mozilla/5.0 (compatible; GPTBot/1.0; +https://openai.com/gptbot)"
+        });
+
+        // No discriminator suffix - openai.com is a vendor-home reference, not an instance
+        Assert.StartsWith("GPTBot", name);
+        Assert.DoesNotContain("openai.com", name);
+    }
+
+    [Fact]
+    public void Compose_Priority1_AppendsDeceptiveMarker_WhenSpoofedClaim()
+    {
+        // UA says Googlebot but VerifiedBotContributor flagged the IP as spoofed
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.bot_name"] = "Googlebot",
+            ["verifiedbot.spoofed"] = true
+        });
+
+        Assert.Contains("Googlebot", name);
+        Assert.Contains("(!)", name);
+    }
+
+    [Fact]
+    public void Compose_Priority1_AppendsDeceptiveMarker_OnRdnsMismatch()
+    {
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.bot_name"] = "Bingbot",
+            ["verifiedbot.rdns_mismatch"] = true
+        });
+
+        Assert.Contains("(!)", name);
+    }
+
+    [Fact]
+    public void Compose_Priority1_NoDeceptiveMarker_WhenVerified()
+    {
+        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
+        {
+            ["ua.bot_name"] = "Googlebot",
+            ["verifiedbot.confirmed"] = true,
+            ["verifiedbot.spoofed"] = false
+        });
+
+        Assert.DoesNotContain("(!)", name);
+    }
 }
