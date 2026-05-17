@@ -250,45 +250,4 @@ public class FingerprintNameComposerTests
         Assert.False(FingerprintNameComposer.IsFallback("Mastodon mastodon.social"));
     }
 
-    // --- FirstSeen timestamp: distinguishes fingerprints sharing the same base name -----
-
-    [Fact]
-    public void Compose_AppendsFirstSeenTimestamp_WhenProvided()
-    {
-        // 2025-11-25 13:25 UTC → "251125-1325"
-        var ts = new DateTime(2025, 11, 25, 13, 25, 0, DateTimeKind.Utc);
-        var name = FingerprintNameComposer.Compose(
-            new Dictionary<string, object> { ["ua.bot_name"] = "Mastodon" },
-            firstSeen: ts);
-
-        Assert.Contains("Mastodon 251125-1325", name);
-    }
-
-    [Fact]
-    public void Compose_FirstSeenTimestamp_DistinguishesIdenticalBaseNames()
-    {
-        var ts1 = new DateTime(2025, 11, 25, 13, 25, 0, DateTimeKind.Utc);
-        var ts2 = new DateTime(2025, 11, 25, 14, 30, 0, DateTimeKind.Utc);
-        var signals = new Dictionary<string, object> { ["ua.bot_name"] = "Mastodon" };
-
-        var first = FingerprintNameComposer.Compose(signals, firstSeen: ts1);
-        var second = FingerprintNameComposer.Compose(signals, firstSeen: ts2);
-
-        // Two distinct fingerprints both producing "Mastodon" base must differ in display
-        Assert.NotEqual(first, second);
-    }
-
-    [Fact]
-    public void Compose_FirstSeenTimestamp_NotAppendedToFallback()
-    {
-        // Priority-4 fallback doesn't go through AppendFirstSeen (the "unknown xxx" prefix
-        // already identifies the fingerprint; adding a timestamp would be redundant).
-        var ts = new DateTime(2025, 11, 25, 13, 25, 0, DateTimeKind.Utc);
-        var name = FingerprintNameComposer.Compose(
-            new Dictionary<string, object>(),
-            fingerprintId: "abc123de",
-            firstSeen: ts);
-
-        Assert.DoesNotContain("251125", name);
-    }
 }

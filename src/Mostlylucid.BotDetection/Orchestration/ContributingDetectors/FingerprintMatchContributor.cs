@@ -263,17 +263,16 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
         WriteArchetypeSignals(state, vector, nearestArchetype?.Archetype, nearestArchetype?.Score ?? 0.0);
 
-        // Compose the display name from the now-populated signals. firstSeen stamps the
-        // name with the per-fingerprint creation time so two visitors with the same base
-        // name (e.g. two Mastodon instances when the UA carries no +URL discriminator)
-        // produce visually distinct names. The cold-state Priority 4 fallback uses the
-        // fingerprint id when even the UA contributor is silent.
+        // Compose the display name from the now-populated signals. The cold-state
+        // Priority 4 fallback uses the fingerprint id when even the UA contributor
+        // is silent. Same-name collisions (two Mastodon instances etc.) are not
+        // disambiguated here - that's the display layer's job (variant N suffix in
+        // the sidebar / dashboard); first-seen / last-seen render as columns alongside.
         var displayName = FingerprintNameComposer.Compose(
             state.Signals,
             fingerprintId: newId,
             userAgent: state.UserAgent,
-            previousName: null,
-            firstSeen: now);
+            previousName: null);
 
         // Don't persist a Priority-4 fallback ("analysing" / "unknown xxx"): next request
         // would see the empty DisplayName, Path 2+3 in EmitDisplayNameSignal would
@@ -409,14 +408,12 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         // Path 2 + 3: compose a fresh name from current signals. Pass matched.DisplayName
         // as previousName for hysteresis (Compose returns previousName if the fresh result
         // would be a Priority-4 fallback - stops "Chrome" → "analysing" → "Chrome" churn
-        // when signal presence varies request-to-request). Pass matched.FirstSeen so the
-        // timestamp suffix matches the persisted name and recomposed names stay byte-stable.
+        // when signal presence varies request-to-request).
         var freshName = FingerprintNameComposer.Compose(
             state.Signals,
             fingerprintId: matched.FingerprintId,
             userAgent: state.UserAgent,
-            previousName: string.IsNullOrEmpty(matched.DisplayName) ? null : matched.DisplayName,
-            firstSeen: matched.FirstSeen);
+            previousName: string.IsNullOrEmpty(matched.DisplayName) ? null : matched.DisplayName);
         state.WriteSignal(SignalKeys.IdentityDisplayName, freshName);
 
         // Persist if: row had no display name AND we now have a real one (avoid persisting

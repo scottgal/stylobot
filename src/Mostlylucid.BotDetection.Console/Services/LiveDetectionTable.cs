@@ -121,6 +121,7 @@ public sealed class LiveDetectionTableService : BackgroundService
         public double LastThreatScore;
         public bool IsBot;
         public int Requests;
+        public DateTime FirstSeen;
         public DateTime LastSeen;
 
         /// <summary>
@@ -251,6 +252,7 @@ public sealed class LiveDetectionTableService : BackgroundService
                         LastThreatScore = entry.ThreatScore,
                         IsBot = entry.Verdict == "BOT",
                         Requests = 1,
+                        FirstSeen = entry.Timestamp,
                         LastSeen = entry.Timestamp,
                         Ewma = entry.BotProbability,
                         BotName = entry.BotName,
@@ -357,8 +359,17 @@ public sealed class LiveDetectionTableService : BackgroundService
         lines++;
 
         // ── Line 2: Column headers ────────────────────────────────────────────
-        var wide = w >= 100;
-        var sideW = wide ? 30 : 0;
+        // Sidebar sizing is tiered: the fingerprint column is the critical surface
+        // for operators (each row is one identified actor), so on wide terminals
+        // we spend close to half the width on it. Three regimes:
+        //   <100 cols : no sidebar (terminal too narrow to split)
+        //   100-140   : compact 30-wide (legacy layout - name + posterior only)
+        //   >=140     : extended ~half-width (adds last-seen + request count so
+        //               the operator sees fingerprints visibly updating)
+        var sideW = w >= 140 ? Math.Clamp(w / 2, 50, 80)
+                  : w >= 100 ? 30
+                  : 0;
+        var wide = sideW > 0;
         var feedW = wide ? w - sideW - 1 : w;
 
         // SrcMark(1) + Time(8) + Path + Δ%(5) + Rsk(3) + Int(3) + Act(6) + Lat(5) = path consumes the rest
@@ -376,7 +387,24 @@ public sealed class LiveDetectionTableService : BackgroundService
         if (wide)
         {
             sb.Append(C.Dim + "\u2502" + C.R);
-            sb.Append(C.Dim + VPad(" Top Fingerprints", sideW - 1) + C.R);
+            // Column header for the extended layout matches the row budget in
+            // BuildSideLines: bullet(1)+sp(1)+name(width-30)+sp(2)+pct(4)+sp(2)+
+            // first(5)+sp(2)+last(5)+sp(2)+reqs(4). Compact layout keeps the legacy
+            // single-title row.
+            if (sideW - 1 >= 50)
+            {
+                var sideHdrNameW = Math.Max(20, (sideW - 1) - 30);
+                var sideHdr = " " + VPad("Fingerprint", sideHdrNameW)
+                    + "  " + VPadL("%", 4)
+                    + "  " + VPadL("first", 5)
+                    + "  " + VPadL("last", 5)
+                    + "  " + VPadL("req", 4);
+                sb.Append(C.Dim + sideHdr + C.R);
+            }
+            else
+            {
+                sb.Append(C.Dim + VPad(" Top Fingerprints", sideW - 1) + C.R);
+            }
         }
         sb.Append("\x1b[K\n");
         lines++;
@@ -504,6 +532,23 @@ public sealed class LiveDetectionTableService : BackgroundService
         return $"{ms / 1000.0:F1}s";                                   // e.g. 1.2s
     }
 
+    /// <summary>
+    ///     Compact relative-time format for the fingerprint sidebar's first-seen /
+    ///     last-seen columns. Tops out at 5 chars: "now", "12s", "5m", "2h", "3d".
+    ///     Negatives clamp to "now". Right-aligned by the caller via VPadL.
+    /// </summary>
+    internal static string FormatAgo(TimeSpan elapsed)
+    {
+        var s = (int)elapsed.TotalSeconds;
+        if (s <= 1) return "now";
+        if (s < 60) return $"{s}s";
+        var m = s / 60;
+        if (m < 60) return $"{m}m";
+        var h = m / 60;
+        if (h < 48) return $"{h}h";
+        return $"{h / 24}d";
+    }
+
     /// <summary>Compact 2-3 char abbreviation for the risk band with a colour.</summary>
     private static (string Text, string Colour) FormatRiskCell(RiskBand r) => r switch
     {
@@ -567,6 +612,32 @@ public sealed class LiveDetectionTableService : BackgroundService
         if (fps.Count == 0)
             Row(C.Dim + "  none yet" + C.R);
         else
+        {
+            // Extended layout fires when the sidebar is wide enough (\u226550) to fit
+            // first-seen + last-seen + request-count without crushing the name. The
+            // last-seen column ticks visibly as new requests arrive, so the operator
+            // can SEE a fingerprint converging in real time. First-seen + variant
+            // suffix together disambiguate distinct fingerprints that compose to the
+            // same base name (e.g. two Mastodon instances when the UA has no +URL).
+            var extended = width >= 50;
+            // Column budgets in the extended layout (header row pre-computes the same):
+            //   bullet(1) sp(1) name(width-30) sp(2) pct(4) sp(2) first(5) sp(2) last(5) sp(2) reqs(4)
+            var nameW = extended ? Math.Max(20, width - 30) : 23;
+            var now = DateTime.UtcNow;
+
+            // Same-name collision disambiguation. The composer leaves it to the display
+            // layer because the right label depends on local context: when two distinct
+            // fingerprints both produce "Mastodon" (no +URL discriminator in the UA),
+            // the *first* one keeps the bare name and subsequent ones get " variant N".
+            // Ordered by FirstSeen so "variant 1" is the older fingerprint - stable
+            // across renders even as new ones arrive.
+            var byName = fps
+                .GroupBy(kv => !string.IsNullOrEmpty(kv.Value.BotName)
+                    ? kv.Value.BotName!
+                    : (kv.Key.Length > 10 ? kv.Key[^10..] : kv.Key))
+                .ToDictionary(g => g.Key,
+                    g => g.OrderBy(kv => kv.Value.FirstSeen).Select(kv => kv.Key).ToList());
+
             foreach (var (sig, stat) in fps)
             {
                 var bulletCol = stat.Ewma > 0.5 ? C.Red : C.Green;
@@ -574,21 +645,39 @@ public sealed class LiveDetectionTableService : BackgroundService
                 // Prefer the orchestrator's identified BotName (Mastodon, googlebot, curl, ...)
                 // over the trailing hash slice. Falls back to the hash for unidentified
                 // fingerprints (anonymous humans, unrecognised tools).
-                var label = !string.IsNullOrEmpty(stat.BotName)
+                var baseLabel = !string.IsNullOrEmpty(stat.BotName)
                     ? stat.BotName!
                     : (sig.Length > 10 ? sig[^10..] : sig);
+                var siblings = byName[baseLabel];
+                var label = siblings.Count > 1
+                    ? $"{baseLabel} variant {siblings.IndexOf(sig) + 1}"
+                    : baseLabel;
                 var posterior = $"{stat.Ewma * 100:F0}%";
-                // Layout: bullet(1) + space(1) + label(23) + space(1) + posterior(5) = 31
-                // visible chars. Sidebar is 29 wide so the trailing posterior tightens
-                // against the divider, which is fine. Sparkline + explicit risk band
-                // dropped to free room for the composer-derived name (which can run
-                // to ~28 chars for "Chrome on Windows (US:abcd)"). Posterior colour
-                // (red >50%, green otherwise) carries the same signal.
-                var line = bullet + C.R
-                    + " " + VPad(label, 23)
-                    + " " + bulletCol + VPadL(posterior, 5) + C.R;
+
+                string line;
+                if (extended)
+                {
+                    var firstSeen = FormatAgo(now - stat.FirstSeen);
+                    var lastSeen = FormatAgo(now - stat.LastSeen);
+                    var reqs = stat.Requests.ToString();
+                    line = bullet + C.R
+                        + " " + VPad(label, nameW)
+                        + "  " + bulletCol + VPadL(posterior, 4) + C.R
+                        + "  " + C.Dim + VPadL(firstSeen, 5) + C.R
+                        + "  " + C.Dim + VPadL(lastSeen, 5) + C.R
+                        + "  " + C.Dim + VPadL(reqs, 4) + C.R;
+                }
+                else
+                {
+                    // Compact (30-wide) layout: name + posterior only, as before.
+                    // bullet(1) + space(1) + label(23) + space(1) + posterior(5) = 31.
+                    line = bullet + C.R
+                        + " " + VPad(label, 23)
+                        + " " + bulletCol + VPadL(posterior, 5) + C.R;
+                }
                 Row(line);
             }
+        }
 
         Divider();
 

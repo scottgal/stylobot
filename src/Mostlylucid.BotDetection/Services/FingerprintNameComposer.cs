@@ -1,4 +1,3 @@
-using System.Globalization;
 using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
 
@@ -33,15 +32,6 @@ internal static class FingerprintNameComposer
     public const string SpoofedMarker = " (!)";
 
     /// <summary>
-    ///     Per-fingerprint timestamp format appended to names whose base would otherwise
-    ///     collide for distinct fingerprints (e.g. two Mastodon instances both producing
-    ///     just "Mastodon"). 10 chronologically-sortable digits, yyMMddHHmm, UTC. The
-    ///     hyphen between date + time keeps it readable: "Mastodon 251125-1325" =
-    ///     2025-11-25 13:25 UTC.
-    /// </summary>
-    private const string FirstSeenFormat = "yyMMdd-HHmm";
-
-    /// <summary>
     ///     Compose a display name from request signals.
     ///     <para>
     ///     <paramref name="fingerprintId"/> when present feeds the cold-state Priority 4
@@ -56,12 +46,6 @@ internal static class FingerprintNameComposer
     ///     expected "Chrome on Windows" name from request 1.
     ///     </para>
     ///     <para>
-    ///     <paramref name="firstSeen"/> stamps the name with a per-fingerprint creation
-    ///     time so two visitors with the same base name (e.g. two different Mastodon
-    ///     instances when the UA carries no +URL discriminator) still produce visually
-    ///     distinct names. Each fingerprint has its own FirstSeen, so collisions resolve.
-    ///     </para>
-    ///     <para>
     ///     <paramref name="previousName"/> drives the hysteresis rule that stops names
     ///     flickering between "analysing" and "Chrome on Windows" request-to-request. If
     ///     the fresh compose would be a Priority-4 fallback ("analysing" / "unknown xxx")
@@ -69,17 +53,23 @@ internal static class FingerprintNameComposer
     ///     Path 2+3 recompose (in <c>EmitDisplayNameSignal</c>) passes the persisted
     ///     <c>Fingerprint.DisplayName</c> here.
     ///     </para>
+    ///     <para>
+    ///     Same-name collisions between distinct fingerprints (e.g. two Mastodon instances
+    ///     when the UA carries no <c>+URL</c> discriminator) are NOT disambiguated here.
+    ///     The display layer (CLI sidebar, dashboard list) appends a "variant N" suffix
+    ///     when it sees duplicate base names; first-seen / last-seen render as separate
+    ///     columns so the name stays clean.
+    ///     </para>
     /// </summary>
     public static string Compose(
         IReadOnlyDictionary<string, object> signals,
         string? fingerprintId = null,
         string? userAgent = null,
-        string? previousName = null,
-        DateTime? firstSeen = null)
+        string? previousName = null)
     {
         var signature = GetString(signals, SignalKeys.PrimarySignature);
         var country = GetString(signals, SignalKeys.GeoCountryCode);
-        var fresh = ComposeFresh(signals, fingerprintId, userAgent, firstSeen, signature, country);
+        var fresh = ComposeFresh(signals, fingerprintId, userAgent, signature, country);
 
         // Hysteresis: if the fresh compose would be a Priority-4 fallback ("analysing" /
         // "unknown xxx") but we have a previous non-fallback name, keep the previous one.
@@ -95,7 +85,6 @@ internal static class FingerprintNameComposer
         IReadOnlyDictionary<string, object> signals,
         string? fingerprintId,
         string? userAgent,
-        DateTime? firstSeen,
         string? signature,
         string? country)
     {
@@ -118,7 +107,6 @@ internal static class FingerprintNameComposer
             var discriminator = UserAgentDiscriminator.ExtractDiscriminator(rawUa);
             var composed = string.IsNullOrEmpty(discriminator) ? botName : $"{botName} {discriminator}";
             if (IsSpoofedClaim(signals)) composed += SpoofedMarker;
-            composed = AppendFirstSeen(composed, firstSeen);
             return Unique(composed, signature, country);
         }
 
@@ -128,7 +116,6 @@ internal static class FingerprintNameComposer
         {
             var variance = GetVarianceTerm(signals);
             var composed = string.IsNullOrEmpty(variance) ? archetypeName : $"{archetypeName} ({variance})";
-            composed = AppendFirstSeen(composed, firstSeen);
             return Unique(composed, signature, country);
         }
 
@@ -147,7 +134,6 @@ internal static class FingerprintNameComposer
             var composed = !string.IsNullOrEmpty(os) ? $"{family} on {os}" : family;
             var variance = GetVarianceTerm(signals);
             if (!string.IsNullOrEmpty(variance)) composed = $"{composed} ({variance})";
-            composed = AppendFirstSeen(composed, firstSeen);
             return Unique(composed, signature, country);
         }
 
@@ -222,11 +208,6 @@ internal static class FingerprintNameComposer
         if (!string.IsNullOrEmpty(signature) && signature.Length >= 4) parts.Add(signature[..4]);
         return parts.Count > 0 ? $"{baseName} ({string.Join(":", parts)})" : baseName;
     }
-
-    private static string AppendFirstSeen(string baseName, DateTime? firstSeen)
-        => firstSeen is { } ts
-            ? $"{baseName} {ts.ToUniversalTime().ToString(FirstSeenFormat, CultureInfo.InvariantCulture)}"
-            : baseName;
 
     internal static string? GetString(IReadOnlyDictionary<string, object> signals, string key)
         => signals.TryGetValue(key, out var v) && v is string s && !string.IsNullOrEmpty(s) ? s : null;
