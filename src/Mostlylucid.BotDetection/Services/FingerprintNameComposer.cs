@@ -1,3 +1,4 @@
+using System.Globalization;
 using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Models;
 
@@ -32,6 +33,15 @@ internal static class FingerprintNameComposer
     public const string SpoofedMarker = " (!)";
 
     /// <summary>
+    ///     Per-fingerprint timestamp format appended to names whose base would otherwise
+    ///     collide for distinct fingerprints (e.g. two Mastodon instances both producing
+    ///     just "Mastodon"). 10 chronologically-sortable digits, yyMMddHHmm, UTC. The
+    ///     hyphen between date + time keeps it readable: "Mastodon 251125-1325" =
+    ///     2025-11-25 13:25 UTC.
+    /// </summary>
+    private const string FirstSeenFormat = "yyMMdd-HHmm";
+
+    /// <summary>
     ///     Compose a display name from request signals.
     ///     <para>
     ///     <paramref name="fingerprintId"/> when present feeds the cold-state Priority 4
@@ -43,17 +53,52 @@ internal static class FingerprintNameComposer
     ///     so <c>ua.family</c> / <c>user_agent.os</c> signals are absent at compose time).
     ///     When the signals are missing but a UA string is available, we parse it via
     ///     <see cref="UserAgentParser"/> directly so Chrome on Windows visitors get the
-    ///     expected "Chrome on Windows (US:abcd)" name from request 1.
+    ///     expected "Chrome on Windows" name from request 1.
+    ///     </para>
+    ///     <para>
+    ///     <paramref name="firstSeen"/> stamps the name with a per-fingerprint creation
+    ///     time so two visitors with the same base name (e.g. two different Mastodon
+    ///     instances when the UA carries no +URL discriminator) still produce visually
+    ///     distinct names. Each fingerprint has its own FirstSeen, so collisions resolve.
+    ///     </para>
+    ///     <para>
+    ///     <paramref name="previousName"/> drives the hysteresis rule that stops names
+    ///     flickering between "analysing" and "Chrome on Windows" request-to-request. If
+    ///     the fresh compose would be a Priority-4 fallback ("analysing" / "unknown xxx")
+    ///     but the previous compose found a real name, the previous wins. The matcher's
+    ///     Path 2+3 recompose (in <c>EmitDisplayNameSignal</c>) passes the persisted
+    ///     <c>Fingerprint.DisplayName</c> here.
     ///     </para>
     /// </summary>
     public static string Compose(
         IReadOnlyDictionary<string, object> signals,
         string? fingerprintId = null,
-        string? userAgent = null)
+        string? userAgent = null,
+        string? previousName = null,
+        DateTime? firstSeen = null)
     {
         var signature = GetString(signals, SignalKeys.PrimarySignature);
         var country = GetString(signals, SignalKeys.GeoCountryCode);
+        var fresh = ComposeFresh(signals, fingerprintId, userAgent, firstSeen, signature, country);
 
+        // Hysteresis: if the fresh compose would be a Priority-4 fallback ("analysing" /
+        // "unknown xxx") but we have a previous non-fallback name, keep the previous one.
+        // Stops the visible name from churning when signal presence varies request-to-
+        // request (matcher runs at priority 6, before UserAgentContributor at priority 10,
+        // so the first compose for a brand-new fingerprint often lacks ua.family).
+        if (IsFallback(fresh) && !string.IsNullOrEmpty(previousName) && !IsFallback(previousName))
+            return previousName;
+        return fresh;
+    }
+
+    private static string ComposeFresh(
+        IReadOnlyDictionary<string, object> signals,
+        string? fingerprintId,
+        string? userAgent,
+        DateTime? firstSeen,
+        string? signature,
+        string? country)
+    {
         // Priority 1: known bot name from UA parsing. When the UA carries a per-instance
         // discriminator (the +URL comment convention used by Mastodon, Pleroma, Misskey,
         // Lemmy, etc.), append the instance hostname so a fediverse link-preview stampede
@@ -73,6 +118,7 @@ internal static class FingerprintNameComposer
             var discriminator = UserAgentDiscriminator.ExtractDiscriminator(rawUa);
             var composed = string.IsNullOrEmpty(discriminator) ? botName : $"{botName} {discriminator}";
             if (IsSpoofedClaim(signals)) composed += SpoofedMarker;
+            composed = AppendFirstSeen(composed, firstSeen);
             return Unique(composed, signature, country);
         }
 
@@ -82,6 +128,7 @@ internal static class FingerprintNameComposer
         {
             var variance = GetVarianceTerm(signals);
             var composed = string.IsNullOrEmpty(variance) ? archetypeName : $"{archetypeName} ({variance})";
+            composed = AppendFirstSeen(composed, firstSeen);
             return Unique(composed, signature, country);
         }
 
@@ -100,6 +147,7 @@ internal static class FingerprintNameComposer
             var composed = !string.IsNullOrEmpty(os) ? $"{family} on {os}" : family;
             var variance = GetVarianceTerm(signals);
             if (!string.IsNullOrEmpty(variance)) composed = $"{composed} ({variance})";
+            composed = AppendFirstSeen(composed, firstSeen);
             return Unique(composed, signature, country);
         }
 
@@ -109,6 +157,21 @@ internal static class FingerprintNameComposer
             return Unique($"unknown {fingerprintId[..Math.Min(8, fingerprintId.Length)]}", signature, country);
 
         return Unique("analysing", signature, country);
+    }
+
+    /// <summary>
+    ///     True when <paramref name="composedName"/> is a Priority-4 fallback ("analysing"
+    ///     or "unknown xxx" prefix) - either form is the "we don't know yet" sentinel and
+    ///     should never overwrite a real name. Strips the Unique() country/sig parens
+    ///     before testing the base.
+    /// </summary>
+    public static bool IsFallback(string composedName)
+    {
+        if (string.IsNullOrEmpty(composedName)) return true;
+        var paren = composedName.IndexOf(" (", StringComparison.Ordinal);
+        var baseName = paren > 0 ? composedName[..paren] : composedName;
+        return baseName == "analysing"
+            || baseName.StartsWith("unknown ", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -159,6 +222,11 @@ internal static class FingerprintNameComposer
         if (!string.IsNullOrEmpty(signature) && signature.Length >= 4) parts.Add(signature[..4]);
         return parts.Count > 0 ? $"{baseName} ({string.Join(":", parts)})" : baseName;
     }
+
+    private static string AppendFirstSeen(string baseName, DateTime? firstSeen)
+        => firstSeen is { } ts
+            ? $"{baseName} {ts.ToUniversalTime().ToString(FirstSeenFormat, CultureInfo.InvariantCulture)}"
+            : baseName;
 
     internal static string? GetString(IReadOnlyDictionary<string, object> signals, string key)
         => signals.TryGetValue(key, out var v) && v is string s && !string.IsNullOrEmpty(s) ? s : null;

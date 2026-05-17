@@ -187,4 +187,108 @@ public class FingerprintNameComposerTests
 
         Assert.DoesNotContain("(!)", name);
     }
+
+    // --- Hysteresis: never let Priority-4 fallback replace a real previous name ---------
+
+    [Fact]
+    public void Compose_Hysteresis_PreviousNameWins_WhenFreshIsAnalysing()
+    {
+        // No UA, no signals - fresh would be Priority-4 "analysing". Previous was real.
+        var name = FingerprintNameComposer.Compose(
+            new Dictionary<string, object>(),
+            fingerprintId: null,
+            userAgent: null,
+            previousName: "Chrome on Windows");
+
+        Assert.Equal("Chrome on Windows", name);
+    }
+
+    [Fact]
+    public void Compose_Hysteresis_PreviousNameWins_WhenFreshIsUnknownIdPrefix()
+    {
+        var name = FingerprintNameComposer.Compose(
+            new Dictionary<string, object>(),
+            fingerprintId: "abc123de4567",
+            userAgent: null,
+            previousName: "Firefox on Linux");
+
+        Assert.Equal("Firefox on Linux", name);
+    }
+
+    [Fact]
+    public void Compose_Hysteresis_FreshWins_WhenItIsNotFallback()
+    {
+        // Fresh has real signals - we upgrade past the previous "analysing".
+        var name = FingerprintNameComposer.Compose(
+            new Dictionary<string, object> { ["ua.family"] = "Chrome", ["user_agent.os"] = "Windows" },
+            previousName: "analysing");
+
+        Assert.Contains("Chrome on Windows", name);
+    }
+
+    [Fact]
+    public void Compose_Hysteresis_FreshWins_WhenBothAreFallback()
+    {
+        // Both fallback - fresh wins (no information to prefer either way).
+        var name = FingerprintNameComposer.Compose(
+            new Dictionary<string, object>(),
+            fingerprintId: "abc123de",
+            previousName: "analysing");
+
+        Assert.Contains("unknown abc123de", name);
+    }
+
+    [Fact]
+    public void IsFallback_RecognisesAnalysingAndUnknownPrefix()
+    {
+        Assert.True(FingerprintNameComposer.IsFallback("analysing"));
+        Assert.True(FingerprintNameComposer.IsFallback("analysing (US:abcd)"));
+        Assert.True(FingerprintNameComposer.IsFallback("unknown abc123de"));
+        Assert.True(FingerprintNameComposer.IsFallback("unknown abc123de (US:abcd)"));
+        Assert.False(FingerprintNameComposer.IsFallback("Chrome on Windows"));
+        Assert.False(FingerprintNameComposer.IsFallback("Chrome on Windows (US:abcd)"));
+        Assert.False(FingerprintNameComposer.IsFallback("Mastodon mastodon.social"));
+    }
+
+    // --- FirstSeen timestamp: distinguishes fingerprints sharing the same base name -----
+
+    [Fact]
+    public void Compose_AppendsFirstSeenTimestamp_WhenProvided()
+    {
+        // 2025-11-25 13:25 UTC → "251125-1325"
+        var ts = new DateTime(2025, 11, 25, 13, 25, 0, DateTimeKind.Utc);
+        var name = FingerprintNameComposer.Compose(
+            new Dictionary<string, object> { ["ua.bot_name"] = "Mastodon" },
+            firstSeen: ts);
+
+        Assert.Contains("Mastodon 251125-1325", name);
+    }
+
+    [Fact]
+    public void Compose_FirstSeenTimestamp_DistinguishesIdenticalBaseNames()
+    {
+        var ts1 = new DateTime(2025, 11, 25, 13, 25, 0, DateTimeKind.Utc);
+        var ts2 = new DateTime(2025, 11, 25, 14, 30, 0, DateTimeKind.Utc);
+        var signals = new Dictionary<string, object> { ["ua.bot_name"] = "Mastodon" };
+
+        var first = FingerprintNameComposer.Compose(signals, firstSeen: ts1);
+        var second = FingerprintNameComposer.Compose(signals, firstSeen: ts2);
+
+        // Two distinct fingerprints both producing "Mastodon" base must differ in display
+        Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    public void Compose_FirstSeenTimestamp_NotAppendedToFallback()
+    {
+        // Priority-4 fallback doesn't go through AppendFirstSeen (the "unknown xxx" prefix
+        // already identifies the fingerprint; adding a timestamp would be redundant).
+        var ts = new DateTime(2025, 11, 25, 13, 25, 0, DateTimeKind.Utc);
+        var name = FingerprintNameComposer.Compose(
+            new Dictionary<string, object>(),
+            fingerprintId: "abc123de",
+            firstSeen: ts);
+
+        Assert.DoesNotContain("251125", name);
+    }
 }

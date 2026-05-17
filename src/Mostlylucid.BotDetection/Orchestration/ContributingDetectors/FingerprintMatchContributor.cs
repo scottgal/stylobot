@@ -263,9 +263,24 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
         WriteArchetypeSignals(state, vector, nearestArchetype?.Archetype, nearestArchetype?.Score ?? 0.0);
 
-        // Compose the display name from the now-populated signals + the new fingerprint id
-        // (used as the cold-state Priority 4 fallback when even the UA contributor is silent).
-        var displayName = FingerprintNameComposer.Compose(state.Signals, newId, state.UserAgent);
+        // Compose the display name from the now-populated signals. firstSeen stamps the
+        // name with the per-fingerprint creation time so two visitors with the same base
+        // name (e.g. two Mastodon instances when the UA carries no +URL discriminator)
+        // produce visually distinct names. The cold-state Priority 4 fallback uses the
+        // fingerprint id when even the UA contributor is silent.
+        var displayName = FingerprintNameComposer.Compose(
+            state.Signals,
+            fingerprintId: newId,
+            userAgent: state.UserAgent,
+            previousName: null,
+            firstSeen: now);
+
+        // Don't persist a Priority-4 fallback ("analysing" / "unknown xxx"): next request
+        // would see the empty DisplayName, Path 2+3 in EmitDisplayNameSignal would
+        // recompose (potentially picking up the UA family this time), and the dashboard
+        // would settle on a real name. Persisting "analysing" would short-circuit Path 1
+        // and lock the visible name to the fallback until significant drift fired.
+        var persistedDisplayName = FingerprintNameComposer.IsFallback(displayName) ? "" : displayName;
 
         var newFp = new Fingerprint
         {
@@ -286,7 +301,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             CachedBotProbability = 0.0,
             CachedRiskBand = null,
             CachedScoreUpdatedAt = null,
-            DisplayName = displayName,
+            DisplayName = persistedDisplayName,
             DisplayNameUpdatedAt = now
         };
         await _store.InsertFingerprintAsync(newFp, primarySig, cancellationToken);
@@ -391,15 +406,28 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             return;
         }
 
-        // Path 2 + 3: compose a fresh name from current signals.
-        var freshName = FingerprintNameComposer.Compose(state.Signals, matched.FingerprintId, state.UserAgent);
+        // Path 2 + 3: compose a fresh name from current signals. Pass matched.DisplayName
+        // as previousName for hysteresis (Compose returns previousName if the fresh result
+        // would be a Priority-4 fallback - stops "Chrome" → "analysing" → "Chrome" churn
+        // when signal presence varies request-to-request). Pass matched.FirstSeen so the
+        // timestamp suffix matches the persisted name and recomposed names stay byte-stable.
+        var freshName = FingerprintNameComposer.Compose(
+            state.Signals,
+            fingerprintId: matched.FingerprintId,
+            userAgent: state.UserAgent,
+            previousName: string.IsNullOrEmpty(matched.DisplayName) ? null : matched.DisplayName,
+            firstSeen: matched.FirstSeen);
         state.WriteSignal(SignalKeys.IdentityDisplayName, freshName);
 
-        // Persist if either: row was migrated (empty DisplayName) OR significant drift
-        // produced a different name. Idempotent no-op if the names match.
-        var shouldPersist = string.IsNullOrEmpty(matched.DisplayName)
+        // Persist if: row had no display name AND we now have a real one (avoid persisting
+        // fallbacks - see allocation path comment) OR significant drift produced a different
+        // real name. Hysteresis already prevents fresh from being worse than matched, so
+        // any string-difference here means an upgrade or a meaningful drift change.
+        var freshIsFallback = FingerprintNameComposer.IsFallback(freshName);
+        var shouldPersist = !freshIsFallback && (
+            string.IsNullOrEmpty(matched.DisplayName)
             || (drift is not null && drift.Value.Score > _options.Match.SignificantDriftEpsilon
-                && !string.Equals(freshName, matched.DisplayName, StringComparison.Ordinal));
+                && !string.Equals(freshName, matched.DisplayName, StringComparison.Ordinal)));
         if (shouldPersist)
         {
             // Fire-and-forget. Consistent with how other matcher writes (RecordObservationAsync
