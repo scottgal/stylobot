@@ -7,9 +7,32 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>Mostlylucid.BotDetection.Sidecar</RootNamespace>
     <AssemblyName>stylobot-sidecar</AssemblyName>
-    <!-- Trim unused middleware for smaller binary. Requires compatible dependencies. -->
+    <!-- Native AOT is the goal (would drop the binary from 131MB self-contained to ~51MB,
+         matching the stylobot Console binary). Verified it BUILDS clean: gRPC + Fluid are
+         AOT-fine in their current versions, contrary to the previous workflow comment.
+         The blocker is the Minimal API endpoints in Mostlylucid.BotDetection.Api: every
+         `Results.Ok(model)` call requires a JsonSerializerContext source-generated for the
+         response types, otherwise System.Text.Json falls back to reflection and the host
+         fails to bind the pipeline at startup. Adding the contexts + JsonSourceGeneration
+         Options + ConfigureHttpJsonOptions wiring across all API endpoints is the next
+         step toward AOT. Until then we ship self-contained-single-file (131MB) and rely
+         on the wwwroot strip below to keep the publish directory honest. -->
+    <!-- <PublishAot>true</PublishAot> -->
     <!-- <PublishTrimmed>true</PublishTrimmed> -->
   </PropertyGroup>
+
+  <!-- Headless gRPC + REST service; doesn't serve the dashboard. The Mostlylucid.BotDetection.Api
+       reference transitively pulls Mostlylucid.BotDetection.UI for IDashboardEventStore /
+       IRouteCatalogService, which drags in the dashboard's wwwroot static web assets:
+       DaisyUI 2MB, ApexCharts 517KB, Boxicons fonts 426KB, Tailwind 111KB, jsvectormap/htmx/
+       alpine/signalr/world-merc - ~4.7MB total of dashboard frontend the sidecar never
+       serves. Strip wwwroot after publish. The proper fix is extracting persistence out of
+       the UI project so the API doesn't drag wwwroot in to begin with - see
+       docs/superpowers/plans/ for that work. -->
+  <Target Name="RemoveDashboardWebAssets" AfterTargets="Publish">
+    <RemoveDir Directories="$(PublishDir)wwwroot" />
+    <Message Text="Removed transitive dashboard wwwroot from sidecar publish output" Importance="high" />
+  </Target>
 
   <ItemGroup>
     <PackageReference Include="Fluid.Core" Version="2.31.0" />
