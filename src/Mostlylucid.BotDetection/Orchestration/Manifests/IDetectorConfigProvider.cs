@@ -182,8 +182,15 @@ public sealed class DetectorConfigProvider : IDetectorConfigProvider
         };
     }
 
-    private static WeightDefaults MergeWeights(WeightDefaults yaml, IConfigurationSection config)
+    // VYaml's source-generated formatters only assign properties whose keys are
+    // present in the YAML, so a manifest that omits e.g. `timing:` leaves
+    // DetectorDefaults.Timing at the deserialized default - which is null under
+    // AOT (the property initializer `= new()` only runs in the regular C#
+    // constructor path that VYaml bypasses). Null-coalesce each sub-defaults
+    // before dereferencing so a missing manifest section doesn't NRE.
+    private static WeightDefaults MergeWeights(WeightDefaults? yaml, IConfigurationSection config)
     {
+        yaml ??= new WeightDefaults();
         return new WeightDefaults
         {
             Base = config.GetValue<double?>("Base") ?? yaml.Base,
@@ -194,8 +201,9 @@ public sealed class DetectorConfigProvider : IDetectorConfigProvider
         };
     }
 
-    private static ConfidenceDefaults MergeConfidence(ConfidenceDefaults yaml, IConfigurationSection config)
+    private static ConfidenceDefaults MergeConfidence(ConfidenceDefaults? yaml, IConfigurationSection config)
     {
+        yaml ??= new ConfidenceDefaults();
         return new ConfidenceDefaults
         {
             Neutral = config.GetValue<double?>("Neutral") ?? yaml.Neutral,
@@ -208,8 +216,9 @@ public sealed class DetectorConfigProvider : IDetectorConfigProvider
         };
     }
 
-    private static TimingDefaults MergeTiming(TimingDefaults yaml, IConfigurationSection config)
+    private static TimingDefaults MergeTiming(TimingDefaults? yaml, IConfigurationSection config)
     {
+        yaml ??= new TimingDefaults();
         return new TimingDefaults
         {
             TimeoutMs = config.GetValue<int?>("TimeoutMs") ?? yaml.TimeoutMs,
@@ -219,8 +228,9 @@ public sealed class DetectorConfigProvider : IDetectorConfigProvider
         };
     }
 
-    private static FeatureDefaults MergeFeatures(FeatureDefaults yaml, IConfigurationSection config)
+    private static FeatureDefaults MergeFeatures(FeatureDefaults? yaml, IConfigurationSection config)
     {
+        yaml ??= new FeatureDefaults();
         return new FeatureDefaults
         {
             DetailedLogging = config.GetValue<bool?>("DetailedLogging") ?? yaml.DetailedLogging,

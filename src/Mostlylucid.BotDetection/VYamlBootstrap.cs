@@ -109,6 +109,7 @@ internal static class VYamlBootstrap
         GeneratedResolver.Register(new DictionaryFormatter<string, EscalationRule>());
         GeneratedResolver.Register(new DictionaryFormatter<string, LaneConfig>());
         GeneratedResolver.Register(new DictionaryFormatter<string, object>());
+        GeneratedResolver.Register(new DictionaryFormatter<string, string>());
 
         YamlSerializer.DefaultOptions = new YamlSerializerOptions
         {
