@@ -5,7 +5,56 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 6.4.7
+## [Unreleased] - 6.5.0
+
+### Added — Remote-mode dashboard (`stylobot-ui` as HTTP viewer)
+
+`stylobot-ui` was previously a self-detecting binary that read its own local SQLite, which is the wrong design for a dashboard meant to be hosted inside a network as a viewer. This release reframes it as a config-driven REST client of a remote `stylobot` gateway: every dashboard read goes over `/api/v1/*` with `X-SB-Api-Key` auth, write paths are absent because the viewer never produces detections. `stylobot-all` stays single-process with local SQLite (correct topology for that binary), and the gateway gains an opt-in `--enable-api` flag so it can act as the data source.
+
+- **`--enable-api` flag on `stylobot` gateway** (Console). Off by default (preserves the small-surface posture). When on: maps the full `/api/v1/*` REST surface + the SignalR invalidation hub at `/api/v1/hub` + runs `DashboardSummaryBroadcaster` and `DetectionBroadcastMiddleware` so the read endpoints serve real data. Fails fast at startup if no `StyloBot:ApiKeys` are configured.
+- **Full REST parity for the dashboard.** Ten new endpoint files in `Mostlylucid.BotDetection.Api/Endpoints/`: clusters, labels, approvals, endpoint-pins, sessions, useragents/search, investigate (+ shape-search + presets), bdf export, config manifests, fingerprints (+ unabsorbed counts). All return existing store POCOs verbatim so the matching `Remote*` stores deserialise 1:1. Every response DTO + envelope variant registered in `StyloBotJsonContext` for AOT.
+- **Three interface extractions for substitutability.** `IConfigEditorService` (was sealed `ConfigEditorService`), `IFingerprintReader` (was sealed `SqliteFingerprintStore`), `IBotClusterReader` (added to existing `BotClusterService`). Cluster + Config interfaces are async so the dashboard middleware awaits HTTP I/O instead of blocking thread-pool threads via `.GetAwaiter().GetResult()`. Concrete classes keep their sync methods for internal callers and add async overloads via `Task.FromResult`. Four middleware sites + the `SbIdentitiesListViewComponent` ctor switched to interface dispatch.
+- **Eight `Remote*` store implementations** in `Mostlylucid.BotDetection.UI/Adapters/Remote/`: `RemoteDashboardEventStore`, `RemoteSessionStore`, `RemoteSignatureLabelStore`, `RemoteFingerprintApprovalStore`, `RemotePinnedEndpointStore`, `RemoteShapeSearchStore`, `RemoteFingerprintReader`, `RemoteConfigEditorService`, `RemoteBotClusterReader`. Shared `GatewayApiClient` typed `HttpClient` + `RemoteEnvelope<T>` deserialisation helper handle the HTTP plumbing. Write methods throw `NotSupportedException`; remote-viewer write paths never run because the concrete (writer) types aren't registered alongside.
+- **SignalR live-feed relay.** `SignalRBeaconRelay` background service in `Stylobot.Ui` opens a `HubConnection` to the gateway's `/api/v1/hub`, sends `X-SB-Api-Key`, auto-reconnects, and forwards `BroadcastInvalidation` + `BroadcastAttackArc` beacons into the local `IHubContext<StyloBotDashboardHub>`. End-to-end: gateway detection → gateway hub beacon → relay → local hub → browser HTMX → `Remote*` store → gateway REST → render.
+- **`AddStyloBotDashboardRemote(IConfiguration)` extension** wires the typed `HttpClient` (base URL + API-key header + `TimeoutSeconds`) and registers every `Remote*` impl ahead of the local `TryAddSingleton` fallbacks. Bound from `StyloBot:Source:Pull` (`Type: rest|local`, `Url`, `ApiKey`, `TimeoutSeconds`) and `StyloBot:Source:Live` (`Type: signalr|none`, `Url`).
+- **`DashboardSourceType` + `DashboardLiveFeedType` enums** replace the previous `"rest"`/`"local"` magic strings.
+
+### Added — New binaries
+
+- **`Stylobot.Ui`** (`src/Stylobot.Ui/`) — dashboard-host product. Loopback bind by default (`http://127.0.0.1:5095`). Dockerfile, not packable, not AOT (Razor + SignalR + dynamic JSON need reflection). Prints the dashboard URL + the active mode (remote/local) at startup.
+- **`Stylobot.All`** (`src/Stylobot.All/`) — YARP gateway + detection + dashboard in one process. Binds `0.0.0.0:8080`. ReverseProxy config in appsettings drives upstream routing; with no routes it still runs and self-monitors. Dockerfile, not packable, not AOT.
+
+### Added — CLI ergonomics
+
+- **`-d` / `--daemon` shorthand** for the existing `stylobot start` subcommand. Operators expect the standard CLI shape `stylobot <port> <upstream> -d` to fork to background; existing `start` subcommand still works. Wraps `DaemonCommands.Start` after stripping the flag.
+- **`--output-config <file>`** dumps the effective `BotDetectionOptions` tree to disk in `appsettings.json` shape so operators don't have to grep the source for valid keys + default values. Loads the same config sources `WebApplicationBuilder` would (appsettings.json + appsettings.{Env}.json + env vars + CLI args). AOT-clean via dedicated `ConfigOutputJsonContext` source-generated `JsonTypeInfo`.
+
+### Changed — Naming pipeline (humans get names too)
+
+`DetectionLedgerExtensions.ResolveDisplayName` now falls through to `FingerprintNameComposer.Compose` when neither the matcher-set `identity.display_name` signal nor a ledger `BotName` is present. Keeps the "every visitor always has a name" invariant working when the metastable identity layer is off (`Identity:Enabled = false` default). Humans surface as `"Chrome on Windows (US:abcd)"` rather than null.
+
+### Changed — CLI dashboard layout
+
+`LiveDetectionTable` in `Mostlylucid.BotDetection.Console`: widened the fingerprint label column to 23 chars so composer-derived names fit; dropped the sparkline + risk-band columns (posterior colour already encodes the same signal); grew the list to fill available rows; collapsed the Config block to a one-liner.
+
+### Changed — Native AOT path (sidecar 131MB → 36MB)
+
+Replaced YamlDotNet (+ silently-broken `Vecc.YamlDotNet.Analyzers.StaticGenerator`) with **VYaml** across every YAML-loaded model (`DetectorManifest` family, `PipelineManifest`, `BotPatternFile`/`Entry`, `UaProfileFile`/`Entry`, `SimulationPack` family, `CompliancePack` family, `IdentityArchetypeYaml`). Each marked `partial` + `[YamlObject(NamingConvention.SnakeCase)]`; eight loaders rewired from `IDeserializer` to `YamlSerializer.Deserialize<T>(utf8Bytes)`; `ManifestYamlContext` deleted. `VYamlBootstrap` module initializer explicitly calls every `__RegisterVYamlFormatter()` (trimming would otherwise strip the methods the reflective `GeneratedResolver` looks up) and pre-instantiates `ListFormatter<T>` / `DictionaryFormatter<K, V>` closed generics our models use (defeats AOT-incompatible `Activator.CreateInstance + MakeGenericType` in VYaml's `StandardResolver`).
+
+REST surface made AOT-clean independently: every endpoint in `Mostlylucid.BotDetection.Api` converted to `TypedResults<T>` with concrete `Ok<T>` / `Results<T1, T2>` return types so `RequestDelegateFactory` can statically resolve `JsonTypeInfo`. New `StyloBotJsonContext` covers every response type; `ConfigureHttpJsonOptions` inserts it ahead of the reflection resolver chain. `EnableRequestDelegateGenerator` wired on the API csproj.
+
+Sidecar publishes at **37MB** AOT (down from 131MB self-contained-single-file), boots cleanly, serves `/api/v1/detect` and `/_sb/metrics/snapshot`. Console gateway with `--enable-api` publishes at 59MB AOT (8MB cost for the Api + UI transitive dependency).
+
+### Fixed — Graceful gateway-unreachable handling
+
+`GatewayApiClient.GetEnvelopeAsync` / `PostEnvelopeAsync` now catch `HttpRequestException`, `TaskCanceledException`, and `JsonException`; they log a warning and return default instead of bubbling HTTP 500 to the dashboard user. A gateway maintenance window shows empty panels with a logged warning, not a stack trace.
+
+### Removed — `Mostlylucid.BotDetection.Demo` retained but no longer documented as the "dashboard host"
+
+The Demo project stays as the dev test bench (controllers + test endpoints + mock LLM). Production dashboard hosting moves to the new `Stylobot.Ui` (remote viewer) or `Stylobot.All` (single-process) binaries — both ship with Dockerfiles and aren't NuGet packages.
+
+
+## [6.4.7]
 
 ### Removed — ONNX text embeddings; clustering uses metastable centroids
 

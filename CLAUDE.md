@@ -67,8 +67,11 @@ dotnet pack src/Mostlylucid.BotDetection -c Release
 | `Mostlylucid.BotDetection.Llm.Cloud` | Anthropic, OpenAI, Gemini LLM providers |
 | `Mostlylucid.BotDetection.Llm.Holodeck` | LLM-powered dynamic honeypot response generation |
 | `Mostlylucid.BotDetection.Llm.Tunnel` | GPU tunnel relay -route cloud LLM inference to a local GPU via Cloudflare tunnel |
-| `Mostlylucid.BotDetection.Demo` | Interactive demo with all detectors |
-| `Mostlylucid.BotDetection.Console` | Standalone gateway/proxy console |
+| `Mostlylucid.BotDetection.Demo` | Dev test bench (controllers + test endpoints + mock LLM) |
+| `Mostlylucid.BotDetection.Console` | `stylobot` gateway / proxy console (AOT, 35MB). `--enable-api` exposes `/api/v1/*` + SignalR hub at `/api/v1/hub` |
+| `Mostlylucid.BotDetection.Sidecar` | `stylobot-sidecar` headless gRPC + REST detection (AOT, 37MB) |
+| `Stylobot.Ui` | `stylobot-ui` dashboard host. Remote (REST viewer of a gateway) or local mode via `StyloBot:Source:Pull:Type`. Not AOT. |
+| `Stylobot.All` | `stylobot-all` gateway + detection + dashboard in one process. Not AOT. |
 | `Mostlylucid.BotDetection.Benchmarks` | YAML-driven BenchmarkDotNet harness |
 | `Stylobot.Gateway` | Docker-first YARP reverse proxy |
 | `Mostlylucid.GeoDetection` | Geographic routing (MaxMind, ip-api) |
@@ -229,7 +232,22 @@ builder.Services.AddSimpleBotDetection();
 
 // With LLM escalation (requires Ollama, default model: gemma4)
 builder.Services.AddAdvancedBotDetection("http://localhost:11434", "gemma4");
+
+// Remote dashboard viewer (Stylobot.Ui in rest mode): reads everything from a
+// remote stylobot gateway's /api/v1/* + relays SignalR beacons into the local hub.
+// The Remote* impls in UI/Adapters/Remote/ are registered BEFORE AddStyloBotDashboard
+// so the TryAdd fallbacks (SqliteDashboardEventStore etc.) skip themselves.
+builder.Services.AddStyloBotDashboardRemote(builder.Configuration);
+builder.Services.AddStyloBotDashboard(builder.Configuration);
+// Plus SignalRBeaconRelay HostedService for the live feed.
 ```
+
+### Binary topology
+
+- **`stylobot` (Console)** — edge gateway. Default surface is detection + reverse-proxy. `--enable-api` opts into the `/api/v1/*` REST surface + SignalR invalidation hub at `/api/v1/hub`. Fails fast if `StyloBot:ApiKeys` is empty when `--enable-api` is set. `-d` / `--daemon` shorthand for the existing `start` subcommand. `--output-config <file>` dumps the effective `BotDetectionOptions` for editing.
+- **`stylobot-sidecar`** — headless gRPC + REST detection sidecar. App calls per-request; loopback hop.
+- **`stylobot-ui` (`Stylobot.Ui`)** — dashboard host. `StyloBot:Source:Pull:Type = rest` (default) reads from a remote gateway; `local` runs detection + local SQLite store (typically only useful for development). `StyloBot:Source:Live:Type = signalr` connects to the gateway hub for live invalidation beacons; `none` is poll-only.
+- **`stylobot-all` (`Stylobot.All`)** — YARP gateway + detection + dashboard in one process. Single-host topology.
 
 ## Key Patterns
 

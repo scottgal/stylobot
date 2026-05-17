@@ -105,6 +105,32 @@ docker run --rm -p 5090:5090 \
 # gRPC: localhost:5090  |  REST: POST localhost:5090/api/v1/detect
 ```
 
+**Docker (all-in-one — gateway + dashboard for the simplest deployment)**
+
+`stylobot-all` bundles YARP detection proxy and the dashboard into one process. One container, hit `/_stylobot` for the dashboard, point YARP at your upstream via `ReverseProxy:Routes` in appsettings.
+
+```bash
+docker run --rm -p 8080:8080 scottgal/stylobot-all:latest
+# Dashboard: http://localhost:8080/_stylobot   |  Proxy + detection on the same port
+```
+
+**Docker (dashboard viewer — `stylobot-ui` against a remote gateway)**
+
+`stylobot-ui` is the dashboard-host product. It runs *next to* a `stylobot` gateway (started with `--enable-api`) and proxies every dashboard read over HTTP. Hosted inside your network with local-only access; nothing leaves the LAN.
+
+```bash
+# 1. Run the gateway with the API enabled (one or more X-SB-Api-Key entries required)
+stylobot 5080 http://your-app:3000 --enable-api
+
+# 2. Run stylobot-ui pointed at the gateway
+docker run --rm -p 5095:8080 \
+  -e StyloBot__Source__Pull__Url=http://host.docker.internal:5080 \
+  -e StyloBot__Source__Pull__ApiKey=SB-... \
+  -e StyloBot__Source__Live__Url=http://host.docker.internal:5080/api/v1/hub \
+  scottgal/stylobot-ui:latest
+# Dashboard: http://localhost:5095/_stylobot (read-only viewer; gateway owns data + writes)
+```
+
 **NuGet (embed as ASP.NET Core middleware)**
 ```bash
 dotnet add package mostlylucid.botdetection
@@ -327,14 +353,26 @@ Mostlylucid.BotDetection/              Core detection library (NuGet)
 Mostlylucid.BotDetection.UI/           Dashboard + SignalR hub (NuGet)
 Mostlylucid.BotDetection.Api/          Public REST API
 Mostlylucid.BotDetection.Llm.Tunnel/   GPU tunnel relay
-Mostlylucid.BotDetection.Console/      Standalone CLI (6 platforms)
+Mostlylucid.BotDetection.Console/      Standalone CLI / gateway (6 platforms, AOT, --enable-api)
+Mostlylucid.BotDetection.Sidecar/      Headless sidecar (gRPC + REST, AOT)
 Stylobot.Gateway/                       Docker YARP reverse proxy
+Stylobot.Ui/                            Dashboard host (rest/local mode, not AOT)
+Stylobot.All/                           Gateway + dashboard in one process (not AOT)
 sdk/node/                               Node.js SDK (core, node, elements packages)
 bot-signatures/                         BDF replay test signatures
 test-bdf-scenarios/                     BDF replay test scenarios
 docs/                                   Architecture, specs, security review
 scripts/                                Load tests, Docker compose, build tooling
 ```
+
+### Binary topology
+
+| Binary | Role | Detection | Dashboard | AOT | When |
+|---|---|---|---|---|---|
+| `stylobot` (Console) | Gateway / reverse-proxy | yes | no (`--enable-api` exposes REST + SignalR hub) | yes (35MB) | Edge gateway. Minimal surface; pair with `stylobot-ui` for the dashboard. |
+| `stylobot-sidecar` | gRPC + REST detection sidecar | yes | no | yes (37MB) | App calls a per-request detect; loopback. |
+| `stylobot-ui` | Dashboard host | no | yes | no | Hosted inside a network as the dashboard for a remote `stylobot` gateway. Loopback bind by default. |
+| `stylobot-all` | Gateway + dashboard | yes | yes | no | One container, simplest deployment. Trades binary size for "it just works". |
 
 ## Documentation
 

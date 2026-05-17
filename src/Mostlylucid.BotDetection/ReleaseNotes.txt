@@ -1,3 +1,47 @@
+6.5.0
+
+Remote-mode dashboard + new binaries:
+
+- stylobot-ui (Stylobot.Ui): dashboard host that reads everything from a remote
+  stylobot gateway's /api/v1/* over HTTP. Designed to be hosted inside a network
+  as a viewer with local-only access. Configurable via StyloBot:Source:Pull:Type
+  (rest|local) and StyloBot:Source:Live:Type (signalr|none).
+
+- stylobot-all (Stylobot.All): YARP gateway + detection + dashboard in one
+  process. One container, simplest deployment.
+
+- stylobot (Console gateway) --enable-api flag: opts into the /api/v1/* REST
+  surface + SignalR invalidation hub at /api/v1/hub. Off by default to preserve
+  the small-surface posture. Fails fast at startup if no StyloBot:ApiKeys are
+  configured.
+
+- 10 new /api/v1/* endpoints: clusters, labels, approvals, endpoint-pins,
+  sessions, useragents/search, investigate (+ shape-search + presets), bdf
+  export, config manifests, fingerprints (+ unabsorbed counts).
+
+- IConfigEditorService, IFingerprintReader, IBotClusterReader interfaces
+  extracted from concrete classes so remote HTTP-backed adapters can substitute.
+
+- SignalR live-feed relay: stylobot-ui opens a HubConnection to the gateway's
+  /api/v1/hub and forwards invalidation beacons into the local hub so browsers
+  refresh on detection events end-to-end.
+
+- CLI: -d / --daemon shorthand for the start subcommand;
+  --output-config <file> dumps the effective BotDetectionOptions to disk in
+  appsettings.json shape for editing.
+
+- Naming: ResolveDisplayName falls through to FingerprintNameComposer so
+  humans always get a derived display name ("Chrome on Windows (US:abcd)")
+  even when the metastable identity layer is off.
+
+- AOT: sidecar publishes at 37MB (down from 131MB self-contained-single-file)
+  after the VYaml + TypedResults + RequestDelegateGenerator work; Console
+  gateway with --enable-api publishes at 59MB AOT.
+
+See CHANGELOG.md for the full 6.5.0 entry.
+
+---
+
 3.5.0
 
 UI Components, Dashboard Enhancements & Hardening:
