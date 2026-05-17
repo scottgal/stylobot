@@ -204,16 +204,26 @@ public static class DetectionLedgerExtensions
     }
 
     /// <summary>
-    ///     Returns the matcher-set <c>identity.display_name</c> when present, otherwise the
-    ///     caller's UA-derived fallback. Used by both the main and early-exit aggregator
-    ///     paths so the priority rule lives in one place.
+    ///     Resolves the display name for this visitor with three-level fallback:
+    ///     <list type="number">
+    ///         <item>Matcher-set <c>identity.display_name</c> signal (present when
+    ///             <c>Identity:Enabled = true</c> - persisted, drift-gated).</item>
+    ///         <item>Caller-supplied UA-derived fallback (the ledger's <c>BotName</c>,
+    ///             populated by classifier contributions for bots).</item>
+    ///         <item>Pure-function composition via <see cref="FingerprintNameComposer.Compose"/>
+    ///             over the merged signals. Keeps the "every visitor always has a name"
+    ///             invariant working even when the metastable identity layer is off, so
+    ///             humans surface as "Chrome on Windows (US:abcd)" rather than null.</item>
+    ///     </list>
     /// </summary>
     private static string? ResolveDisplayName(
         IReadOnlyDictionary<string, object> signals, string? fallback)
     {
         var fromSignal = signals.TryGetValue(SignalKeys.IdentityDisplayName, out var v)
             ? v as string : null;
-        return !string.IsNullOrEmpty(fromSignal) ? fromSignal : fallback;
+        if (!string.IsNullOrEmpty(fromSignal)) return fromSignal;
+        if (!string.IsNullOrEmpty(fallback)) return fallback;
+        return Services.FingerprintNameComposer.Compose(signals);
     }
 
     private static (double ThreatScore, ThreatBand Band) ExtractThreatScore(

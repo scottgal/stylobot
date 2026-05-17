@@ -1,8 +1,8 @@
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Definitions;
 
@@ -15,14 +15,10 @@ public class DefinitionLoader
     private readonly ILogger<DefinitionLoader>? _logger;
     private readonly Dictionary<string, JsonElement> _rawDefinitions = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ResolvedDefinition> _resolved = new(StringComparer.OrdinalIgnoreCase);
-    private readonly IDeserializer _yamlDeserializer;
 
     public DefinitionLoader(ILogger<DefinitionLoader>? logger = null)
     {
         _logger = logger;
-        _yamlDeserializer = new DeserializerBuilder()
-            .WithNamingConvention(UnderscoredNamingConvention.Instance)
-            .Build();
     }
 
     /// <summary>
@@ -91,11 +87,13 @@ public class DefinitionLoader
     {
         try
         {
-            var yamlObject = _yamlDeserializer.Deserialize<Dictionary<string, object>>(yaml);
-            if (yamlObject == null) return;
+            // VYaml's dynamic deserialization returns nested Dictionary<object, object?> and List<object?>.
+            // Top-level mapping comes back as Dictionary<object, object?>; route through that and extract
+            // the "policies" key as another Dictionary<object, object?>.
+            var rootObj = YamlSerializer.Deserialize<dynamic>(Encoding.UTF8.GetBytes(yaml));
+            if (rootObj is not Dictionary<object, object?> yamlRoot) return;
 
-            // Look for "policies" key (YAML format) or iterate root keys (JSON-like format)
-            if (yamlObject.TryGetValue("policies", out var policiesObj) && policiesObj is Dictionary<object, object> policies)
+            if (yamlRoot.TryGetValue("policies", out var policiesObj) && policiesObj is Dictionary<object, object?> policies)
             {
                 foreach (var kvp in policies)
                 {
@@ -122,10 +120,10 @@ public class DefinitionLoader
         return value switch
         {
             null => null,
-            Dictionary<object, object> dict => dict.ToDictionary(
+            Dictionary<object, object?> dict => dict.ToDictionary(
                 kvp => kvp.Key?.ToString() ?? "",
                 kvp => ConvertToJsonCompatible(kvp.Value)),
-            List<object> list => list.Select(ConvertToJsonCompatible).ToList(),
+            List<object?> list => list.Select(ConvertToJsonCompatible).ToList(),
             _ => value
         };
     }

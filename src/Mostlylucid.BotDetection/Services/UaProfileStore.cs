@@ -2,9 +2,7 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Mostlylucid.BotDetection.Models;
-using Mostlylucid.BotDetection.Orchestration.Manifests;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Services;
 
@@ -107,15 +105,9 @@ public sealed class UaProfileStore
         }
 
         using var stream = assembly.GetManifestResourceStream(resourceName)!;
-        using var reader = new StreamReader(stream);
-
-        var deserializer = new DeserializerBuilder()
-            .WithNamingConvention(UnderscoredNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
-            .Build();
-
-        var yaml = reader.ReadToEnd();
-        var file = deserializer.Deserialize<UaProfileFile>(yaml);
+        using var ms = new MemoryStream();
+        stream.CopyTo(ms);
+        var file = YamlSerializer.Deserialize<UaProfileFile>(ms.ToArray());
         if (file?.Profiles == null)
             return (new Dictionary<string, LiveCentroid>(), new Dictionary<string, string>());
 
@@ -153,12 +145,14 @@ public sealed class UaProfileStore
 }
 
 // Internal YAML model types - exposed at namespace level so ManifestYamlContext can register them.
-internal sealed class UaProfileFile
+[VYaml.Annotations.YamlObject(VYaml.Annotations.NamingConvention.SnakeCase)]
+internal sealed partial class UaProfileFile
 {
     public List<UaProfileEntry>? Profiles { get; set; }
 }
 
-internal sealed class UaProfileEntry
+[VYaml.Annotations.YamlObject(VYaml.Annotations.NamingConvention.SnakeCase)]
+internal sealed partial class UaProfileEntry
 {
     public string? Family { get; set; }
     public string? Tier { get; set; }
@@ -166,7 +160,8 @@ internal sealed class UaProfileEntry
     public Dictionary<string, CentroidDimensionEntry> Dimensions { get; set; } = [];
 }
 
-internal sealed class CentroidDimensionEntry
+[VYaml.Annotations.YamlObject(VYaml.Annotations.NamingConvention.SnakeCase)]
+internal sealed partial class CentroidDimensionEntry
 {
     public double Mean { get; set; }
     public double Weight { get; set; } = 1.0;

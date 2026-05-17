@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>preview</LangVersion>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <OutputType>Exe</OutputType>
+        <AssemblyName>stylobot-ui</AssemblyName>
+        <RootNamespace>Stylobot.Ui</RootNamespace>
+        <!-- Not packable. Ships as a binary / Docker image, not a NuGet. -->
+        <IsPackable>false</IsPackable>
+        <!-- Not AOT. The dashboard pipeline (Razor, SignalR, dynamic JSON) needs the
+             full reflection toolkit. Trades binary size for "it just works". -->
+        <PublishAot>false</PublishAot>
+        <UserSecretsId>stylobot-ui-d8e9c4b3-2a1f-4c7e-9b5d-7e6f3a8c2d4b</UserSecretsId>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
+        <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
+        <ProjectReference Include="..\Mostlylucid.BotDetection.Api\Mostlylucid.BotDetection.Api.csproj" />
+    </ItemGroup>
+
+</Project>

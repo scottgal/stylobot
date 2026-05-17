@@ -3,8 +3,7 @@ using System.Reflection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.SimulationPacks;
 
@@ -152,11 +151,6 @@ public sealed class SimulationPackLoader : ISimulationPackRegistry
 
         _logger.LogInformation("Found {Count} simulation pack YAML resources", resourceNames.Count);
 
-        var deserializer = new DeserializerBuilder()
-            .WithNamingConvention(UnderscoredNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
-            .Build();
-
         foreach (var resourceName in resourceNames)
         {
             try
@@ -168,9 +162,9 @@ public sealed class SimulationPackLoader : ISimulationPackRegistry
                     continue;
                 }
 
-                using var reader = new StreamReader(stream);
-                var yaml = reader.ReadToEnd();
-                var pack = deserializer.Deserialize<SimulationPack>(yaml);
+                using var ms = new MemoryStream();
+                stream.CopyTo(ms);
+                var pack = YamlSerializer.Deserialize<SimulationPack>(ms.ToArray());
 
                 if (pack is null || string.IsNullOrWhiteSpace(pack.Id))
                 {

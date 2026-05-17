@@ -1,7 +1,6 @@
 using System.Reflection;
 using Microsoft.Extensions.Logging;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Identity;
 
@@ -85,10 +84,6 @@ public sealed class IdentityArchetypeRegistry
     private IReadOnlyList<IdentityArchetype> LoadFromEmbeddedResources()
     {
         var assembly = typeof(IdentityArchetypeRegistry).Assembly;
-        var deserializer = new DeserializerBuilder()
-            .WithNamingConvention(UnderscoredNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
-            .Build();
 
         var results = new List<IdentityArchetype>();
         foreach (var resourceName in assembly.GetManifestResourceNames())
@@ -102,8 +97,9 @@ public sealed class IdentityArchetypeRegistry
             {
                 using var stream = assembly.GetManifestResourceStream(resourceName);
                 if (stream is null) continue;
-                using var reader = new StreamReader(stream);
-                var dto = deserializer.Deserialize<IdentityArchetypeYaml>(reader);
+                using var ms = new MemoryStream();
+                stream.CopyTo(ms);
+                var dto = YamlSerializer.Deserialize<IdentityArchetypeYaml>(ms.ToArray());
                 if (dto is null || string.IsNullOrEmpty(dto.ArchetypeId)) continue;
 
                 var compiled = Compile(dto);
@@ -152,18 +148,21 @@ public sealed class IdentityArchetypeRegistry
         };
     }
 
-    private sealed class IdentityArchetypeYaml
-    {
-        public string? ArchetypeId { get; set; }
-        public string? Name { get; set; }
-        public string? Description { get; set; }
-        public string? ArchetypeKind { get; set; }
-        public Dictionary<string, IdentityArchetypeDimensionYaml>? Dimensions { get; set; }
-    }
+}
 
-    private sealed class IdentityArchetypeDimensionYaml
-    {
-        public object? Value { get; set; }
-        public double Confidence { get; set; } = 1.0;
-    }
+[VYaml.Annotations.YamlObject(VYaml.Annotations.NamingConvention.SnakeCase)]
+public sealed partial class IdentityArchetypeYaml
+{
+    public string? ArchetypeId { get; set; }
+    public string? Name { get; set; }
+    public string? Description { get; set; }
+    public string? ArchetypeKind { get; set; }
+    public Dictionary<string, IdentityArchetypeDimensionYaml>? Dimensions { get; set; }
+}
+
+[VYaml.Annotations.YamlObject(VYaml.Annotations.NamingConvention.SnakeCase)]
+public sealed partial class IdentityArchetypeDimensionYaml
+{
+    public object? Value { get; set; }
+    public double Confidence { get; set; } = 1.0;
 }

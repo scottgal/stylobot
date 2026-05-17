@@ -1,8 +1,6 @@
 using System.Reflection;
 using Microsoft.Extensions.Logging;
-using Mostlylucid.BotDetection.Orchestration.Manifests;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Definitions.BotPatterns;
 
@@ -58,10 +56,6 @@ public sealed class BotPatternLoader
     private List<BotPatternEntry> LoadFromEmbeddedResources()
     {
         var assembly = Assembly.GetExecutingAssembly();
-        var deserializer = new DeserializerBuilder()
-            .WithNamingConvention(UnderscoredNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
-            .Build();
 
         var resources = assembly.GetManifestResourceNames()
             .Where(n => n.Contains("Definitions.BotPatterns") && n.EndsWith(".bot-patterns.yaml"))
@@ -80,8 +74,9 @@ public sealed class BotPatternLoader
                     continue;
                 }
 
-                using var reader = new StreamReader(stream);
-                var file = deserializer.Deserialize<BotPatternFile>(reader);
+                using var ms = new MemoryStream();
+                stream.CopyTo(ms);
+                var file = YamlSerializer.Deserialize<BotPatternFile>(ms.ToArray());
                 if (file?.Patterns is { Count: > 0 })
                 {
                     all.AddRange(file.Patterns.Where(p => !string.IsNullOrEmpty(p.Pattern)));

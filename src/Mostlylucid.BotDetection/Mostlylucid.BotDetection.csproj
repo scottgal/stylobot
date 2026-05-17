@@ -22,12 +22,15 @@
         <TargetFrameworks>net10.0</TargetFrameworks>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
 
-        <!-- Not AOT/trimming compatible due to SQLite and dynamic JSON usage -->
+        <!-- AOT/trim warnings are real - the codebase has ~310 JsonSerializer.Deserialize<T>
+             call sites using reflection. Hot path (REST API + YAML loaders + detection
+             pipeline) is AOT-clean; cold paths (BotListFetcher external IP-range fetches,
+             BrowserTokenService, YarpSignatureWriter, dashboard event store) will throw
+             at runtime in AOT mode until each call is rewired to a source-generated
+             JsonSerializerContext. Suppressing here so consumers don't see scary warnings
+             until that work lands. -->
         <IsTrimmable>false</IsTrimmable>
         <NoWarn>$(NoWarn);IL2026;IL3050</NoWarn>
-        <!-- Third-party YAML generator currently throws CS8785 under the preview toolchain,
-             but generated output is not required for the runtime manifest parser. -->
-        <NoWarn>$(NoWarn);CS8785</NoWarn>
         <UserSecretsId>0c2c1992-7d5d-4581-ada1-8af3d1aee8fc</UserSecretsId>
     </PropertyGroup>
     <PropertyGroup>
@@ -72,11 +75,12 @@
              is a build-tool binary we don't execute at runtime; pinning to 7.3.1 clears the alert
              without affecting any shipped code. PrivateAssets=all stops this leaking into consumers. -->
         <PackageReference Include="NuGet.CommandLine" Version="7.6.0" PrivateAssets="all" />
-        <PackageReference Include="YamlDotNet" Version="17.1.0" />
-        <PackageReference Include="Vecc.YamlDotNet.Analyzers.StaticGenerator" Version="17.0.0">
-            <PrivateAssets>all</PrivateAssets>
-            <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
-        </PackageReference>
+        <!-- VYaml: AOT-native YAML parser via source generation. Replaced YamlDotNet +
+             Vecc.YamlDotNet.Analyzers.StaticGenerator after the latter failed silently
+             on init-only properties (CS8852 in generator output). VYaml's [YamlObject]
+             generates object-initializer-style construction so init/required are first
+             class. ~6x faster, ~1/50 heap allocations vs YamlDotNet. -->
+        <PackageReference Include="VYaml" Version="1.3.0" />
         <PackageReference Include="MinVer" Version="7.0.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

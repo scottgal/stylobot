@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Bridge;
@@ -22,17 +23,17 @@ public static class DetectEndpoints
         return endpoints;
     }
 
-    private static async Task<IResult> HandleDetect(
+    private static async Task<Ok<DetectResponse>> HandleDetect(
         DetectRequest request,
         BlackboardOrchestrator orchestrator,
         CancellationToken cancellationToken)
     {
         var httpContext = SyntheticHttpContext.FromDetectRequest(request);
         var evidence = await orchestrator.DetectAsync(httpContext, cancellationToken);
-        return Results.Ok(DetectResponse.FromEvidence(evidence));
+        return TypedResults.Ok(DetectResponse.FromEvidence(evidence));
     }
 
-    private static async Task<IResult> HandleDetectBatch(
+    private static async Task<Results<Ok<DetectResponse[]>, ProblemHttpResult>> HandleDetectBatch(
         DetectRequest[] requests,
         BlackboardOrchestrator orchestrator,
         StyloBotApiOptions apiOptions,
@@ -40,7 +41,7 @@ public static class DetectEndpoints
     {
         if (requests.Length > apiOptions.MaxBatchSize)
         {
-            return Results.Problem(
+            return TypedResults.Problem(
                 title: "Batch too large",
                 detail: $"Maximum batch size is {apiOptions.MaxBatchSize}, got {requests.Length}",
                 statusCode: 400,
@@ -55,6 +56,6 @@ public static class DetectEndpoints
             responses[i] = DetectResponse.FromEvidence(evidence);
         }
 
-        return Results.Ok(responses);
+        return TypedResults.Ok(responses);
     }
 }

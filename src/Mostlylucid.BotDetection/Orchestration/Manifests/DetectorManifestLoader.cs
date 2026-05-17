@@ -1,26 +1,16 @@
 using System.Reflection;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Orchestration.Manifests;
 
 /// <summary>
 /// Loads detector manifests from YAML files for dynamic composition.
-/// Uses source-generated YAML context for AOT compatibility.
+/// Uses VYaml source-generated deserializers for AOT compatibility.
 /// </summary>
 public sealed class DetectorManifestLoader
 {
-    private readonly IDeserializer _deserializer;
     private readonly Dictionary<string, DetectorManifest> _detectorManifests = new();
     private readonly Dictionary<string, PipelineManifest> _pipelineManifests = new();
-
-    public DetectorManifestLoader()
-    {
-        _deserializer = new DeserializerBuilder()
-            .WithNamingConvention(UnderscoredNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
-            .Build();
-    }
 
     /// <summary>
     /// Load all detector manifests from embedded resources.
@@ -32,14 +22,12 @@ public sealed class DetectorManifestLoader
             var assembly = Assembly.GetExecutingAssembly();
             var resourceNames = assembly.GetManifestResourceNames();
 
-            // Load detector manifests
             foreach (var resourceName in resourceNames.Where(n =>
                 n.EndsWith(".detector.yaml", StringComparison.OrdinalIgnoreCase)))
             {
                 LoadDetectorFromResource(assembly, resourceName);
             }
 
-            // Load pipeline manifests
             foreach (var resourceName in resourceNames.Where(n =>
                 n.EndsWith(".pipeline.yaml", StringComparison.OrdinalIgnoreCase)))
             {
@@ -49,7 +37,6 @@ public sealed class DetectorManifestLoader
         catch (Exception)
         {
             // Silently handle any errors during manifest loading
-            // The system can function without manifests
         }
 
         return _detectorManifests;
@@ -62,9 +49,9 @@ public sealed class DetectorManifestLoader
             using var stream = assembly.GetManifestResourceStream(resourceName);
             if (stream == null) return;
 
-            using var reader = new StreamReader(stream);
-            var yaml = reader.ReadToEnd();
-            var manifest = _deserializer.Deserialize<DetectorManifest>(yaml);
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            var manifest = YamlSerializer.Deserialize<DetectorManifest>(ms.ToArray());
 
             if (manifest != null)
             {
@@ -73,8 +60,7 @@ public sealed class DetectorManifestLoader
         }
         catch (Exception)
         {
-            // Silently skip manifests that fail to parse - they may have incompatible schema
-            // This allows the system to function even with partial manifest support
+            // Silently skip manifests that fail to parse
         }
     }
 
@@ -85,9 +71,9 @@ public sealed class DetectorManifestLoader
             using var stream = assembly.GetManifestResourceStream(resourceName);
             if (stream == null) return;
 
-            using var reader = new StreamReader(stream);
-            var yaml = reader.ReadToEnd();
-            var manifest = _deserializer.Deserialize<PipelineManifest>(yaml);
+            using var ms = new MemoryStream();
+            stream.CopyTo(ms);
+            var manifest = YamlSerializer.Deserialize<PipelineManifest>(ms.ToArray());
 
             if (manifest != null)
             {
@@ -108,11 +94,10 @@ public sealed class DetectorManifestLoader
         if (!Directory.Exists(directory))
             return _detectorManifests;
 
-        // Load detector manifests
         foreach (var file in Directory.GetFiles(directory, "*.detector.yaml", SearchOption.AllDirectories))
         {
-            var yaml = File.ReadAllText(file);
-            var manifest = _deserializer.Deserialize<DetectorManifest>(yaml);
+            var bytes = File.ReadAllBytes(file);
+            var manifest = YamlSerializer.Deserialize<DetectorManifest>(bytes);
 
             if (manifest != null)
             {
@@ -120,11 +105,10 @@ public sealed class DetectorManifestLoader
             }
         }
 
-        // Load pipeline manifests
         foreach (var file in Directory.GetFiles(directory, "*.pipeline.yaml", SearchOption.AllDirectories))
         {
-            var yaml = File.ReadAllText(file);
-            var manifest = _deserializer.Deserialize<PipelineManifest>(yaml);
+            var bytes = File.ReadAllBytes(file);
+            var manifest = YamlSerializer.Deserialize<PipelineManifest>(bytes);
 
             if (manifest != null)
             {

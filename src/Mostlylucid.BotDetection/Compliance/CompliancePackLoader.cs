@@ -1,18 +1,13 @@
 using System.Reflection;
+using System.Text;
 using Microsoft.Extensions.Logging;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Compliance;
 
 /// <summary>Loads compliance packs from embedded YAML resources.</summary>
 public sealed class CompliancePackLoader
 {
-    private static readonly IDeserializer Deserializer = new DeserializerBuilder()
-        .WithNamingConvention(UnderscoredNamingConvention.Instance)
-        .IgnoreUnmatchedProperties()
-        .Build();
-
     public static IReadOnlyList<CompliancePack> LoadEmbeddedPacks(ILogger? logger = null)
     {
         var assembly = typeof(CompliancePackLoader).Assembly;
@@ -26,9 +21,9 @@ public sealed class CompliancePackLoader
             try
             {
                 using var stream = assembly.GetManifestResourceStream(resourceName)!;
-                using var reader = new StreamReader(stream);
-                var yaml = reader.ReadToEnd();
-                var pack = Deserializer.Deserialize<CompliancePack>(yaml);
+                using var ms = new MemoryStream();
+                stream.CopyTo(ms);
+                var pack = YamlSerializer.Deserialize<CompliancePack>(ms.ToArray());
                 packs.Add(pack);
                 logger?.LogInformation("Loaded compliance pack: {PackId} ({PackName})", pack.Id, pack.Name);
             }
@@ -43,6 +38,6 @@ public sealed class CompliancePackLoader
 
     public static CompliancePack? LoadFromYaml(string yaml)
     {
-        return Deserializer.Deserialize<CompliancePack>(yaml);
+        return YamlSerializer.Deserialize<CompliancePack>(Encoding.UTF8.GetBytes(yaml));
     }
 }

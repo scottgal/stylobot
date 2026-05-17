@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -33,6 +34,14 @@ public static class StyloBotApiExtensions
         {
             services.AddOpenApi();
         }
+
+        // Insert the source-generated context AHEAD of the framework default so that
+        // Native AOT publishes don't need DefaultJsonTypeInfoResolver (which requires
+        // dynamic code). Reflection-based resolution still runs at index >0 for any
+        // type not in the context, which keeps the dev-time (non-AOT) build working
+        // identically.
+        services.ConfigureHttpJsonOptions(opts =>
+            opts.SerializerOptions.TypeInfoResolverChain.Insert(0, StyloBotJsonContext.Default));
 
         services.TryAddSingleton<ILlmNodeRegistry, InMemoryLlmNodeRegistry>();
 

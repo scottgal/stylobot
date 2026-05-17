@@ -7,18 +7,11 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>Mostlylucid.BotDetection.Sidecar</RootNamespace>
     <AssemblyName>stylobot-sidecar</AssemblyName>
-    <!-- Native AOT is the goal (would drop the binary from 131MB self-contained to ~51MB,
-         matching the stylobot Console binary). Verified it BUILDS clean: gRPC + Fluid are
-         AOT-fine in their current versions, contrary to the previous workflow comment.
-         The blocker is the Minimal API endpoints in Mostlylucid.BotDetection.Api: every
-         `Results.Ok(model)` call requires a JsonSerializerContext source-generated for the
-         response types, otherwise System.Text.Json falls back to reflection and the host
-         fails to bind the pipeline at startup. Adding the contexts + JsonSourceGeneration
-         Options + ConfigureHttpJsonOptions wiring across all API endpoints is the next
-         step toward AOT. Until then we ship self-contained-single-file (131MB) and rely
-         on the wwwroot strip below to keep the publish directory honest. -->
-    <!-- <PublishAot>true</PublishAot> -->
-    <!-- <PublishTrimmed>true</PublishTrimmed> -->
+    <!-- Native AOT. ~36MB binary (down from 131MB self-contained-single-file).
+         REST surface AOT-clean via TypedResults<T> + source-gen StyloBotJsonContext.
+         YAML AOT-clean via VYaml's [YamlObject] source-generated deserializers. -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <!-- Headless gRPC + REST service; doesn't serve the dashboard. The Mostlylucid.BotDetection.Api

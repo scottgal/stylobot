@@ -1,12 +1,20 @@
+using System.Text.Json;
 using Mostlylucid.BotDetection.Orchestration;
 
 namespace Mostlylucid.BotDetection.Api.Models;
 
-public sealed record DetectResponse
+public sealed partial record DetectResponse
 {
     public required VerdictDto Verdict { get; init; }
     public required IReadOnlyList<ReasonDto> Reasons { get; init; }
-    public required IReadOnlyDictionary<string, object> Signals { get; init; }
+    /// <summary>
+    ///     Per-request signal bag. Heterogeneous values are projected as
+    ///     <see cref="JsonElement"/> so the response is statically serializable (AOT-friendly):
+    ///     System.Text.Json never has to polymorphically resolve <c>object</c> at write time.
+    ///     Clients read concrete values via <c>JsonElement.GetString()</c> / <c>GetDouble()</c>
+    ///     / <c>GetBoolean()</c>.
+    /// </summary>
+    public required IReadOnlyDictionary<string, JsonElement> Signals { get; init; }
     public required MetaDto Meta { get; init; }
 
     public static DetectResponse FromEvidence(AggregatedEvidence evidence)
@@ -42,7 +50,7 @@ public sealed record DetectResponse
                     Impact = Math.Round(c.ConfidenceDelta, 4)
                 })
                 .ToList(),
-            Signals = evidence.Signals,
+            Signals = ProjectSignals(evidence.Signals),
             Meta = new MetaDto
             {
                 ProcessingTimeMs = Math.Round(evidence.TotalProcessingTimeMs, 2),
@@ -81,4 +89,49 @@ public sealed record MetaDto
     public string? PolicyName { get; init; }
     public required bool AiRan { get; init; }
     public string? RequestId { get; init; }
+}
+
+internal static class SignalProjection
+{
+    /// <summary>
+    ///     Convert the orchestrator's <c>IReadOnlyDictionary&lt;string, object&gt;</c> signal
+    ///     bag into a dictionary of <see cref="JsonElement"/> values. Each value is round-
+    ///     tripped through <c>JsonSerializer.SerializeToElement</c> using a non-source-gen
+    ///     options instance that handles the heterogeneous runtime types (bool, string,
+    ///     double, int, array, nested record). This single non-AOT path is the deliberate
+    ///     boundary between the orchestrator's <c>object</c>-typed blackboard and the API's
+    ///     statically typed response surface — every downstream serializer (the one the
+    ///     framework wires up for the endpoint response) sees only <c>JsonElement</c>.
+    /// </summary>
+    private static readonly JsonSerializerOptions ProjectionOptions = new()
+    {
+        WriteIndented = false,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    public static IReadOnlyDictionary<string, JsonElement> Project(IReadOnlyDictionary<string, object> signals)
+    {
+        if (signals is null || signals.Count == 0)
+            return new Dictionary<string, JsonElement>(0);
+        var projected = new Dictionary<string, JsonElement>(signals.Count, StringComparer.Ordinal);
+        foreach (var (k, v) in signals)
+        {
+            try
+            {
+                projected[k] = JsonSerializer.SerializeToElement(v, ProjectionOptions);
+            }
+            catch
+            {
+                // Defensive: a single un-serializable signal must not break the whole
+                // response. Drop it from the projection.
+            }
+        }
+        return projected;
+    }
+}
+
+public partial record DetectResponse
+{
+    private static IReadOnlyDictionary<string, JsonElement> ProjectSignals(IReadOnlyDictionary<string, object> signals)
+        => SignalProjection.Project(signals);
 }

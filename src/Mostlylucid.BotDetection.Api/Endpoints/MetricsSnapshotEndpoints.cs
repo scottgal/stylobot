@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Mostlylucid.BotDetection.MonitoringPacks;
@@ -10,15 +11,17 @@ public static class MetricsSnapshotEndpoints
 {
     public static IEndpointRouteBuilder MapMetricsSnapshotEndpoints(this IEndpointRouteBuilder endpoints)
     {
-        endpoints.MapGet("/_sb/metrics/snapshot", (HttpContext ctx) =>
-        {
-            var accumulator = ctx.RequestServices.GetService<GatewayMeterAccumulator>();
-            if (accumulator == null)
-                return Results.StatusCode(503);
-            return Results.Ok(accumulator.GetCurrentSnapshot());
-        })
-        .ExcludeFromDescription();
+        endpoints.MapGet("/_sb/metrics/snapshot", HandleSnapshot)
+            .ExcludeFromDescription();
 
         return endpoints;
+    }
+
+    private static Results<Ok<MetricSnapshotDto[]>, StatusCodeHttpResult> HandleSnapshot(HttpContext ctx)
+    {
+        var accumulator = ctx.RequestServices.GetService<GatewayMeterAccumulator>();
+        if (accumulator == null)
+            return TypedResults.StatusCode(503);
+        return TypedResults.Ok(accumulator.GetCurrentSnapshot());
     }
 }

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
@@ -31,7 +32,7 @@ public static class ReadEndpoints
         return endpoints;
     }
 
-    private static async Task<IResult> HandleDetections(
+    private static async Task<Ok<PaginatedResponse<DashboardDetectionEvent>>> HandleDetections(
         [FromServices] IDashboardEventStore store, int limit = 50, int offset = 0, bool? isBot = null, DateTime? since = null)
     {
         var filter = new DashboardFilter
@@ -39,33 +40,33 @@ public static class ReadEndpoints
             Limit = Math.Min(limit, 200), Offset = offset, IsBot = isBot, StartTime = since
         };
         var detections = await store.GetDetectionsAsync(filter);
-        return Results.Ok(new PaginatedResponse<object>
+        return TypedResults.Ok(new PaginatedResponse<DashboardDetectionEvent>
         {
-            Data = detections.Cast<object>().ToList(),
+            Data = detections,
             Pagination = new PaginationInfo { Offset = offset, Limit = limit, Total = detections.Count },
             Meta = new ResponseMeta()
         });
     }
 
-    private static async Task<IResult> HandleSignatures(
+    private static async Task<Ok<PaginatedResponse<DashboardSignatureEvent>>> HandleSignatures(
         [FromServices] IDashboardEventStore store, int limit = 100, int offset = 0, bool? isBot = null)
     {
         var signatures = await store.GetSignaturesAsync(limit, offset, isBot);
-        return Results.Ok(new PaginatedResponse<object>
+        return TypedResults.Ok(new PaginatedResponse<DashboardSignatureEvent>
         {
-            Data = signatures.Cast<object>().ToList(),
+            Data = signatures,
             Pagination = new PaginationInfo { Offset = offset, Limit = limit, Total = signatures.Count },
             Meta = new ResponseMeta()
         });
     }
 
-    private static async Task<IResult> HandleSummary([FromServices] IDashboardEventStore store)
+    private static async Task<Ok<SingleResponse<DashboardSummary>>> HandleSummary([FromServices] IDashboardEventStore store)
     {
         var summary = await store.GetSummaryAsync();
-        return Results.Ok(new SingleResponse<object> { Data = summary, Meta = new ResponseMeta() });
+        return TypedResults.Ok(new SingleResponse<DashboardSummary> { Data = summary, Meta = new ResponseMeta() });
     }
 
-    private static async Task<IResult> HandleTimeseries(
+    private static async Task<Ok<PaginatedResponse<DashboardTimeSeriesPoint>>> HandleTimeseries(
         [FromServices] IDashboardEventStore store, string interval = "5m", DateTime? since = null, DateTime? until = null)
     {
         var bucketSize = interval switch
@@ -77,73 +78,73 @@ public static class ReadEndpoints
         var start = since ?? DateTime.UtcNow.AddHours(-24);
         var end = until ?? DateTime.UtcNow;
         var timeseries = await store.GetTimeSeriesAsync(start, end, bucketSize);
-        return Results.Ok(new PaginatedResponse<object>
+        return TypedResults.Ok(new PaginatedResponse<DashboardTimeSeriesPoint>
         {
-            Data = timeseries.Cast<object>().ToList(),
+            Data = timeseries,
             Pagination = new PaginationInfo { Offset = 0, Limit = timeseries.Count, Total = timeseries.Count },
             Meta = new ResponseMeta()
         });
     }
 
-    private static async Task<IResult> HandleCountries(
+    private static async Task<Ok<PaginatedResponse<DashboardCountryStats>>> HandleCountries(
         [FromServices] IDashboardEventStore store, int limit = 20, DateTime? since = null, DateTime? until = null)
     {
         var countries = await store.GetCountryStatsAsync(limit, since, until);
-        return Results.Ok(new PaginatedResponse<object>
+        return TypedResults.Ok(new PaginatedResponse<DashboardCountryStats>
         {
-            Data = countries.Cast<object>().ToList(),
+            Data = countries,
             Pagination = new PaginationInfo { Offset = 0, Limit = limit, Total = countries.Count },
             Meta = new ResponseMeta()
         });
     }
 
-    private static async Task<IResult> HandleCountryDetail(
+    private static async Task<Results<Ok<SingleResponse<DashboardCountryDetail>>, NotFound>> HandleCountryDetail(
         string code, [FromServices] IDashboardEventStore store, DateTime? since = null, DateTime? until = null)
     {
         var detail = await store.GetCountryDetailAsync(code, since, until);
-        if (detail is null) return Results.NotFound();
-        return Results.Ok(new SingleResponse<object> { Data = detail, Meta = new ResponseMeta() });
+        if (detail is null) return TypedResults.NotFound();
+        return TypedResults.Ok(new SingleResponse<DashboardCountryDetail> { Data = detail, Meta = new ResponseMeta() });
     }
 
-    private static async Task<IResult> HandleEndpoints(
+    private static async Task<Ok<PaginatedResponse<DashboardEndpointStats>>> HandleEndpoints(
         [FromServices] IDashboardEventStore store, int limit = 50, DateTime? since = null, DateTime? until = null)
     {
         var eps = await store.GetEndpointStatsAsync(limit, since, until);
-        return Results.Ok(new PaginatedResponse<object>
+        return TypedResults.Ok(new PaginatedResponse<DashboardEndpointStats>
         {
-            Data = eps.Cast<object>().ToList(),
+            Data = eps,
             Pagination = new PaginationInfo { Offset = 0, Limit = limit, Total = eps.Count },
             Meta = new ResponseMeta()
         });
     }
 
-    private static async Task<IResult> HandleEndpointDetail(
+    private static async Task<Results<Ok<SingleResponse<DashboardEndpointDetail>>, NotFound>> HandleEndpointDetail(
         string method, string path, [FromServices] IDashboardEventStore store, DateTime? since = null, DateTime? until = null)
     {
         var detail = await store.GetEndpointDetailAsync(method, "/" + path, since, until);
-        if (detail is null) return Results.NotFound();
-        return Results.Ok(new SingleResponse<object> { Data = detail, Meta = new ResponseMeta() });
+        if (detail is null) return TypedResults.NotFound();
+        return TypedResults.Ok(new SingleResponse<DashboardEndpointDetail> { Data = detail, Meta = new ResponseMeta() });
     }
 
-    private static async Task<IResult> HandleTopBots(
+    private static async Task<Ok<PaginatedResponse<DashboardTopBotEntry>>> HandleTopBots(
         [FromServices] IDashboardEventStore store, int limit = 10, DateTime? since = null, DateTime? until = null)
     {
         var bots = await store.GetTopBotsAsync(limit, since, until);
-        return Results.Ok(new PaginatedResponse<object>
+        return TypedResults.Ok(new PaginatedResponse<DashboardTopBotEntry>
         {
-            Data = bots.Cast<object>().ToList(),
+            Data = bots,
             Pagination = new PaginationInfo { Offset = 0, Limit = limit, Total = bots.Count },
             Meta = new ResponseMeta()
         });
     }
 
-    private static async Task<IResult> HandleThreats(
+    private static async Task<Ok<PaginatedResponse<ThreatEntry>>> HandleThreats(
         [FromServices] IDashboardEventStore store, int limit = 20, DateTime? since = null, DateTime? until = null)
     {
         var threats = await store.GetThreatsAsync(limit, since, until);
-        return Results.Ok(new PaginatedResponse<object>
+        return TypedResults.Ok(new PaginatedResponse<ThreatEntry>
         {
-            Data = threats.Cast<object>().ToList(),
+            Data = threats,
             Pagination = new PaginationInfo { Offset = 0, Limit = limit, Total = threats.Count },
             Meta = new ResponseMeta()
         });

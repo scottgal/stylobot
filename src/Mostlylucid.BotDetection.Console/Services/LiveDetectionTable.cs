@@ -558,9 +558,11 @@ public sealed class LiveDetectionTableService : BackgroundService
         // spike), an 8-sample sparkline of recent observations so volatility shows
         // up as trend, and the latest risk band. Bullet colour reflects the EWMA.
         Section("Top Fingerprints");
+        var sidebarTail = _tunnelEnabled ? 3 : 2; // config one-liner (+ optional tunnel) + divider
+        var fpRows = Math.Max(totalRows - sidebarTail - 2 /* Section header + divider */, 4);
         var fps = _fingerprints
             .OrderByDescending(kv => kv.Value.LastSeen)
-            .Take(7)
+            .Take(fpRows)
             .ToList();
         if (fps.Count == 0)
             Row(C.Dim + "  none yet" + C.R);
@@ -576,41 +578,29 @@ public sealed class LiveDetectionTableService : BackgroundService
                     ? stat.BotName!
                     : (sig.Length > 10 ? sig[^10..] : sig);
                 var posterior = $"{stat.Ewma * 100:F0}%";
-                var spark = MicroSpark(stat.RecentScores, stat.RecentScoresCount);
-                var (rTxt, rCol) = FormatRiskCell(stat.LastRisk);
-                // Layout: " ● <sigtail-10> <post-4> <spark-8> <rsk-3>"
-                //        = 1+1+1+10+1+4+1+8+1+3 = 31, but sidebar width is ~29 so
-                // we squeeze the leading bullet padding to fit:
-                //          "●<sigtail-10> <post-4> <spark-8> <rsk-3>" = 1+10+1+4+1+8+1+3 = 29
+                // Layout: bullet(1) + space(1) + label(23) + space(1) + posterior(5) = 31
+                // visible chars. Sidebar is 29 wide so the trailing posterior tightens
+                // against the divider, which is fine. Sparkline + explicit risk band
+                // dropped to free room for the composer-derived name (which can run
+                // to ~28 chars for "Chrome on Windows (US:abcd)"). Posterior colour
+                // (red >50%, green otherwise) carries the same signal.
                 var line = bullet + C.R
-                    + VPad(label, 10)
-                    + " " + bulletCol + VPadL(posterior, 4) + C.R
-                    + " " + C.Blue + spark + C.R
-                    + " " + rCol + VPad(rTxt, 3) + C.R;
+                    + " " + VPad(label, 23)
+                    + " " + bulletCol + VPadL(posterior, 5) + C.R;
                 Row(line);
             }
 
         Divider();
 
-        // Top endpoints
-        Section("Endpoints");
-        var eps = _endpointHits.OrderByDescending(kv => kv.Value).Take(5).ToList();
-        if (eps.Count == 0)
-            Row(C.Dim + "  none yet" + C.R);
-        else
-            foreach (var (ep, count) in eps)
-                Row(C.Dim + " \u2192 " + C.R + VTrunc(ep, width - 8) + C.Dim + " " + count.ToString().PadLeft(4) + C.R);
-
-        Divider();
-
-        // Config
-        Section("Config");
-        Row(C.Dim + " listen  " + C.R + $"{scheme}://:{_port}");
-        Row(C.Dim + " policy  " + C.R + PolicyLabel(_policy));
+        // Config one-liner. Tunnel URL gets its own row only when enabled (it's the long
+        // element). The dedicated Section header and the separate listen/policy rows were
+        // collapsed: the operator already sees this info in the startup banner and dashboard
+        // URL print-out, and the row budget here is better spent on more fingerprints.
+        Row(" " + C.Dim + scheme + "://:" + _port + "  " + PolicyLabel(_policy) + C.R);
         if (_tunnelEnabled)
-            Row(C.Dim + " tunnel  " + C.R
+            Row(" " + C.Dim + "tunnel "
                 + (tunnelUrl != null
-                    ? C.Green + VTrunc(tunnelUrl.Replace("https://", ""), width - 10) + C.R
+                    ? C.Green + VTrunc(tunnelUrl.Replace("https://", ""), width - 9) + C.R
                     : C.Yellow + "connecting\u2026" + C.R));
 
         // Fill to totalRows

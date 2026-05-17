@@ -1,9 +1,9 @@
 using System.Reflection;
+using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
-using YamlDotNet.Core;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
+using VYaml.Parser;
+using VYaml.Serialization;
 
 namespace Mostlylucid.BotDetection.Orchestration.Manifests;
 
@@ -41,7 +41,6 @@ public sealed class ConfigEditorService
     private readonly FileSystemConfigurationOverrideSource _overrideSource;
     private readonly DetectorManifestLoader _loader;
     private readonly ILogger<ConfigEditorService> _logger;
-    private readonly IDeserializer _yamlDeserializer;
 
     /// <summary>
     ///     Cache of (slug → embedded YAML) populated once on first access. Embedded resources
@@ -58,10 +57,6 @@ public sealed class ConfigEditorService
         _overrideSource = overrideSource;
         _loader = loader;
         _logger = logger;
-        _yamlDeserializer = new DeserializerBuilder()
-            .WithNamingConvention(UnderscoredNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
-            .Build();
     }
 
     /// <summary>List all editable detector manifests with their override status.</summary>
@@ -147,12 +142,11 @@ public sealed class ConfigEditorService
         // override and have no way to revert.
         try
         {
-            _yamlDeserializer.Deserialize<DetectorManifest>(yaml);
+            YamlSerializer.Deserialize<DetectorManifest>(Encoding.UTF8.GetBytes(yaml));
         }
-        catch (YamlException yx)
+        catch (YamlParserException yx)
         {
-            return SaveResult.Failure(SaveOutcome.YamlInvalid,
-                error: yx.Message, line: yx.Start.Line, column: yx.Start.Column);
+            return SaveResult.Failure(SaveOutcome.YamlInvalid, error: yx.Message);
         }
         catch (Exception ex)
         {
@@ -259,8 +253,8 @@ public sealed class ConfigEditorService
                 var raw = reader.ReadToEnd();
 
                 DetectorManifest? parsed = null;
-                try { parsed = _yamlDeserializer.Deserialize<DetectorManifest>(raw); }
-                catch { /* malformed embedded manifest → still surface in list, just no metadata */ }
+                try { parsed = YamlSerializer.Deserialize<DetectorManifest>(Encoding.UTF8.GetBytes(raw)); }
+                catch { /* malformed embedded manifest -> still surface in list, just no metadata */ }
 
                 map[slug] = new EmbeddedManifestEntry(raw, parsed);
             }

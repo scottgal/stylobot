@@ -95,6 +95,9 @@ docker run --rm -p 8080:8080 -e DEFAULT_UPSTREAM=http://host.docker.internal:300
 ```
 
 **Docker (sidecar - detection API your app calls explicitly, gRPC + REST)**
+
+The sidecar is a deliberately low-surface-area build of the same detection engine, scoped to the sidecar topology: your app makes a per-request call (gRPC or REST), gets a verdict back, decides what to do with it. No dashboard, no Razor, no SignalR, no HTML — just the detector pipeline behind a thin auth + transport layer. Run it next to your app (same pod, same host, same container) so the network hop is loopback. The proto and the REST schema are stable; the binary is single-file and self-contained.
+
 ```bash
 docker run --rm -p 5090:5090 \
   -e BotDetection__ApiKeys__0__Key=changeme \

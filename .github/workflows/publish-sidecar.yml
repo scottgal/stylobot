@@ -182,8 +182,15 @@ jobs:
           StyloBot detection sidecar
           ==========================
 
-          A self-contained single-file binary. No .NET runtime required. Run it
-          next to your app - same pod, same host, or the same container.
+          A deliberately low-surface-area build of StyloBot, scoped to the
+          sidecar topology and nothing else. Same detection engine as the
+          main stylobot binary; the dashboard, Razor view layer, SignalR
+          hub, OIDC scaffolding, simulation packs, and YARP proxy are
+          stripped out. What's left: detector pipeline + gRPC server +
+          REST /detect endpoint + auth.
+
+          A self-contained single-file binary. No .NET runtime required. Run
+          it next to your app - same pod, same host, or the same container.
 
           Quick start:
             ./stylobot-sidecar                       # gRPC :5090 + REST :5091, loopback only

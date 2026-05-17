@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
@@ -31,16 +32,16 @@ public static class RoutesEndpoints
         return endpoints;
     }
 
-    private static async Task<IResult> HandleList(
+    private static async Task<Results<Ok<PaginatedResponse<RouteEntryDto>>, ProblemHttpResult>> HandleList(
         [FromServices] IRouteCatalogService? catalog,
         CancellationToken ct = default)
     {
         if (catalog is null)
-            return Results.Problem("Route catalog not enabled.", statusCode: 503);
+            return TypedResults.Problem("Route catalog not enabled.", statusCode: 503);
 
         var entries = await catalog.GetCatalogAsync(ct);
         var data = entries.Select(RouteEntryDto.FromEntry).ToList();
-        return Results.Ok(new PaginatedResponse<RouteEntryDto>
+        return TypedResults.Ok(new PaginatedResponse<RouteEntryDto>
         {
             Data = data,
             Pagination = new PaginationInfo { Offset = 0, Limit = data.Count, Total = data.Count },
@@ -48,43 +49,43 @@ public static class RoutesEndpoints
         });
     }
 
-    private static async Task<IResult> HandleSetName(
+    private static async Task<Results<NoContent, BadRequest<ApiError>, ProblemHttpResult>> HandleSetName(
         [FromServices] IRouteNameStore? store,
         [FromBody] SetRouteNameRequest body,
         HttpContext http,
         CancellationToken ct = default)
     {
         if (store is null)
-            return Results.Problem("Route catalog not enabled.", statusCode: 503);
+            return TypedResults.Problem("Route catalog not enabled.", statusCode: 503);
         if (string.IsNullOrWhiteSpace(body?.RouteKey))
-            return Results.BadRequest(new { error = "routeKey is required" });
+            return TypedResults.BadRequest(new ApiError("routeKey is required"));
         if (string.IsNullOrWhiteSpace(body.FriendlyName))
-            return Results.BadRequest(new { error = "friendlyName is required" });
+            return TypedResults.BadRequest(new ApiError("friendlyName is required"));
 
         var updatedBy = http.User.Identity?.Name ?? "api-key";
         try
         {
             await store.SetAsync(body.RouteKey, body.FriendlyName, body.Notes, updatedBy, ct);
-            return Results.NoContent();
+            return TypedResults.NoContent();
         }
         catch (ArgumentException ex)
         {
-            return Results.BadRequest(new { error = ex.Message });
+            return TypedResults.BadRequest(new ApiError(ex.Message));
         }
     }
 
-    private static async Task<IResult> HandleRemoveName(
+    private static async Task<Results<NoContent, BadRequest<ApiError>, ProblemHttpResult>> HandleRemoveName(
         [FromServices] IRouteNameStore? store,
         string routeKey,
         CancellationToken ct = default)
     {
         if (store is null)
-            return Results.Problem("Route catalog not enabled.", statusCode: 503);
+            return TypedResults.Problem("Route catalog not enabled.", statusCode: 503);
         if (string.IsNullOrWhiteSpace(routeKey))
-            return Results.BadRequest(new { error = "routeKey is required" });
+            return TypedResults.BadRequest(new ApiError("routeKey is required"));
 
         await store.RemoveAsync(routeKey, ct);
-        return Results.NoContent();
+        return TypedResults.NoContent();
     }
 }
 

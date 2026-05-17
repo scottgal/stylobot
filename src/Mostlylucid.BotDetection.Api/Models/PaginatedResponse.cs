@@ -24,3 +24,10 @@ public sealed record ResponseMeta
 {
     public DateTimeOffset GeneratedAt { get; init; } = DateTimeOffset.UtcNow;
 }
+
+/// <summary>
+///     Typed error payload for endpoints that previously returned anonymous
+///     <c>new { error = "..." }</c> objects. Anonymous types can't be source-generated,
+///     so the typed form is what makes the endpoints AOT-compatible.
+/// </summary>
+public sealed record ApiError(string Error);

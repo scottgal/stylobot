@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
 using Mostlylucid.BotDetection.Api.Models;
@@ -20,24 +21,33 @@ public static class MeEndpoints
         return endpoints;
     }
 
-    private static IResult HandleMe(HttpContext httpContext)
+    private static Results<Ok<SingleResponse<ApiKeyContextDto>>, ProblemHttpResult> HandleMe(HttpContext httpContext)
     {
         var keyContext = httpContext.Items["BotDetection.ApiKeyContext"] as ApiKeyContext;
         if (keyContext is null)
         {
-            return Results.Problem(title: "No API key context", statusCode: 401,
+            return TypedResults.Problem(title: "No API key context", statusCode: 401,
                 type: "https://stylobot.net/errors/no-api-key");
         }
 
-        return Results.Ok(new SingleResponse<object>
+        return TypedResults.Ok(new SingleResponse<ApiKeyContextDto>
         {
-            Data = new
-            {
-                keyContext.KeyName, keyContext.DisabledDetectors, keyContext.WeightOverrides,
-                keyContext.DetectionPolicyName, keyContext.ActionPolicyName, keyContext.Tags,
-                keyContext.DisablesAllDetectors
-            },
+            Data = ApiKeyContextDto.From(keyContext),
             Meta = new ResponseMeta()
         });
     }
+}
+
+public sealed record ApiKeyContextDto(
+    string KeyName,
+    IReadOnlyList<string> DisabledDetectors,
+    IReadOnlyDictionary<string, double> WeightOverrides,
+    string? DetectionPolicyName,
+    string? ActionPolicyName,
+    IReadOnlyList<string> Tags,
+    bool DisablesAllDetectors)
+{
+    public static ApiKeyContextDto From(ApiKeyContext c) => new(
+        c.KeyName, c.DisabledDetectors, c.WeightOverrides,
+        c.DetectionPolicyName, c.ActionPolicyName, c.Tags, c.DisablesAllDetectors);
 }

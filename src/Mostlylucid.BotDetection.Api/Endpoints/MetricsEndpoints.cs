@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Mostlylucid.BotDetection.Api.Auth;
@@ -27,7 +28,7 @@ public static class MetricsEndpoints
         return endpoints;
     }
 
-    private static async Task<IResult> HandleTimeseries(
+    private static async Task<Results<Ok<PaginatedResponse<MetricSnapshot>>, ProblemHttpResult>> HandleTimeseries(
         [FromServices] IMetricSnapshotStore? store,
         string packId = "aspnet-monitoring",
         string instrument = "botdetection.requests.total",
@@ -35,7 +36,7 @@ public static class MetricsEndpoints
         CancellationToken ct = default)
     {
         if (store is null)
-            return Results.Problem("Monitoring pack not enabled.", statusCode: 503);
+            return TypedResults.Problem("Monitoring pack not enabled.", statusCode: 503);
 
         var end = DateTime.UtcNow;
         var start = range switch
@@ -48,7 +49,7 @@ public static class MetricsEndpoints
         };
 
         var data = await store.GetTimeSeriesAsync(packId, instrument, start, end, ct);
-        return Results.Ok(new PaginatedResponse<MetricSnapshot>
+        return TypedResults.Ok(new PaginatedResponse<MetricSnapshot>
         {
             Data = data,
             Pagination = new PaginationInfo { Offset = 0, Limit = data.Count, Total = data.Count },
@@ -56,16 +57,16 @@ public static class MetricsEndpoints
         });
     }
 
-    private static async Task<IResult> HandleLatest(
+    private static async Task<Results<Ok<SingleResponse<IReadOnlyList<MetricSnapshot>>>, ProblemHttpResult>> HandleLatest(
         [FromServices] IMetricSnapshotStore? store,
         string packId = "aspnet-monitoring",
         CancellationToken ct = default)
     {
         if (store is null)
-            return Results.Problem("Monitoring pack not enabled.", statusCode: 503);
+            return TypedResults.Problem("Monitoring pack not enabled.", statusCode: 503);
 
         var data = await store.GetLatestSnapshotsAsync(packId, ct);
-        return Results.Ok(new SingleResponse<IReadOnlyList<MetricSnapshot>>
+        return TypedResults.Ok(new SingleResponse<IReadOnlyList<MetricSnapshot>>
         {
             Data = data,
             Meta = new ResponseMeta()
