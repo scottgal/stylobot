@@ -65,7 +65,14 @@ try
 
     // REST API (for callers that can't use gRPC: Node SDK, curl, etc.).
     if (!sidecar.GrpcOnly)
+    {
         builder.Services.AddStyloBotApi(opts => opts.EnableOpenApi = false);
+        // /health uses a sidecar-local HealthResponse DTO, so its JsonContext
+        // must be in the resolver chain alongside StyloBotJsonContext (wired by
+        // AddStyloBotApi). Insert at the front so it wins for HealthResponse.
+        builder.Services.ConfigureHttpJsonOptions(opts =>
+            opts.SerializerOptions.TypeInfoResolverChain.Insert(0, HealthJsonContext.Default));
+    }
 
     var app = builder.Build();
 
@@ -94,12 +101,13 @@ try
     app.MapGrpcService<DetectionGrpcService>();
     if (!sidecar.GrpcOnly)
         app.MapStyloBotApi();
-    app.MapGet("/health", () => Results.Ok(new
-       {
-           status = "healthy",
-           mode = sidecar.GrpcOnly ? "sidecar-grpc" : "sidecar",
-           port = sidecar.Port,
-       }))
+    // Anonymous-type response would need a JsonTypeInfo at AOT-publish time; use a
+    // concrete DTO (HealthResponse) wired into HealthJsonContext so the source generator
+    // emits the type info.
+    app.MapGet("/health", () => TypedResults.Ok(new HealthResponse(
+           Status: "healthy",
+           Mode: sidecar.GrpcOnly ? "sidecar-grpc" : "sidecar",
+           Port: sidecar.Port)))
        .AllowAnonymous();
 
     Log.Information("StyloBot sidecar starting: gRPC :{Port} ({Bind}){Rest}, auth {Auth}",
@@ -121,3 +129,13 @@ finally
 }
 
 return 0;
+
+/// <summary>
+///     Sidecar /health response. Concrete so the source generator emits
+///     <see cref="HealthJsonContext"/> type info for it - anonymous types would
+///     trip the AOT publish's NoMetadataForType check at first request.
+/// </summary>
+internal sealed record HealthResponse(string Status, string Mode, int Port);
+
+[System.Text.Json.Serialization.JsonSerializable(typeof(HealthResponse))]
+internal partial class HealthJsonContext : System.Text.Json.Serialization.JsonSerializerContext;
