@@ -106,8 +106,14 @@ public class ThrottleActionPolicy : IActionPolicy
             context.Response.Headers.TryAdd("X-Throttle-Policy", Name);
 
             if (_options.IncludeRetryAfter)
-                // Retry-After in seconds
-                context.Response.Headers.TryAdd("Retry-After", Math.Ceiling(delay / 1000.0).ToString());
+            {
+                // Retry-After in seconds. RetryAfterSeconds when set lets policies advertise
+                // a longer back-off than the per-request delay - the "throttle-status" policy
+                // wants a fast 429 response but a meaningful "wait 60s" hint for the client.
+                // Falls back to delay-derived behaviour when unset for backwards-compat.
+                var retryAfter = _options.RetryAfterSeconds ?? Math.Ceiling(delay / 1000.0);
+                context.Response.Headers.TryAdd("Retry-After", retryAfter.ToString());
+            }
         }
 
         // Apply the delay
@@ -282,6 +288,15 @@ public class ThrottleActionOptions
     public bool IncludeRetryAfter { get; set; } = true;
 
     /// <summary>
+    ///     Explicit Retry-After value in seconds, decoupled from the per-request delay.
+    ///     When null (default), Retry-After is derived from the actual delay (legacy
+    ///     behaviour). Set this for policies that want a fast response but advertise a
+    ///     long back-off - the throttle-status policy uses this to send a 429 in &lt;100ms
+    ///     while telling the client to wait 60s before retrying.
+    /// </summary>
+    public double? RetryAfterSeconds { get; set; }
+
+    /// <summary>
     ///     Creates options for a "gentle" throttle (short delays, high jitter).
     /// </summary>
     public static ThrottleActionOptions Gentle => new()
@@ -360,6 +375,30 @@ public class ThrottleActionOptions
         IncludeHeaders = true,
         IncludeRetryAfter = true
     };
+
+    /// <summary>
+    ///     Creates options for "status" throttle - the informational 429 path for friendly
+    ///     bots that cluster (fediverse link previewers, search engines exceeding rate, etc.).
+    ///     Fast response (no risk of timing out a federated link-preview fetch), explicit
+    ///     Retry-After of 60s, no exponential backoff (cluster retries come from different
+    ///     instances anyway). The 429 tells the bot it was rate-limited rather than blocked
+    ///     so it doesn't stop trying entirely - matters for legitimate previewers we WANT
+    ///     to see, just not all at once.
+    /// </summary>
+    public static ThrottleActionOptions Status => new()
+    {
+        BaseDelayMs = 50,
+        MinDelayMs = 0,
+        MaxDelayMs = 200,
+        JitterPercent = 0.5,
+        ScaleByRisk = false,
+        ReturnStatus = true,
+        StatusCode = 429,
+        IncludeHeaders = true,
+        IncludeRetryAfter = true,
+        RetryAfterSeconds = 60,
+        Message = "Rate limited - please retry after the Retry-After interval"
+    };
 }
 
 /// <summary>
@@ -420,6 +459,9 @@ public class ThrottleActionPolicyFactory : IActionPolicyFactory
 
         if (options.TryGetValue("IncludeRetryAfter", out var includeRetry))
             throttleOptions.IncludeRetryAfter = Convert.ToBoolean(includeRetry);
+
+        if (options.TryGetValue("RetryAfterSeconds", out var retryAfter) && retryAfter is not null)
+            throttleOptions.RetryAfterSeconds = Convert.ToDouble(retryAfter);
 
         return new ThrottleActionPolicy(name, throttleOptions, _logger);
     }

@@ -636,6 +636,28 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                     trigPolicyName, requestId, trigReason);
             }
 
+            // Friendly-bot soft-throttle: when no other policy fired and the request was
+            // about to be blocked (probability over threshold) but the bot type is a known-
+            // friendly category, route through throttle-status (informational 429 +
+            // Retry-After). The fediverse stampede case: 50 Mastodon instances all hit the
+            // same URL within a second for link previews - blocking them with 403 makes
+            // them give up; a 429 with Retry-After tells them to back off and try later,
+            // which is what we actually want from legitimate previewers.
+            if (string.IsNullOrEmpty(triggeredActionPolicyName)
+                && result.PrimaryBotType is BotType.SocialMediaBot
+                    or BotType.MonitoringBot
+                    or BotType.SearchEngine
+                    or BotType.GoodBot
+                    or BotType.VerifiedBot
+                && result.BotProbability >= _fullOptions.BotThreshold
+                && result.ThreatScore < 0.55)
+            {
+                triggeredActionPolicyName = "throttle-status";
+                _logger.LogInformation(
+                    "Friendly bot type {BotType} over threshold ({Prob:F2}) - routing through throttle-status for {RequestId}",
+                    result.PrimaryBotType, result.BotProbability, requestId);
+            }
+
             if (finalAction.HasValue || !string.IsNullOrEmpty(triggeredActionPolicyName))
                 result = result with
                 {

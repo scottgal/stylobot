@@ -153,6 +153,7 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
         RegisterPolicy(new ThrottleActionPolicy("throttle-aggressive", ThrottleActionOptions.Aggressive));
         RegisterPolicy(new ThrottleActionPolicy("throttle-stealth", ThrottleActionOptions.Stealth));
         RegisterPolicy(new ThrottleActionPolicy("throttle-tools", ThrottleActionOptions.Tools));
+        RegisterPolicy(new ThrottleActionPolicy("throttle-status", ThrottleActionOptions.Status));
         RegisterPolicy(new ThrottleActionPolicy("throttle-escalating", ThrottleActionOptions.Escalating));
 
         // Redirect policies

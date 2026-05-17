@@ -45,10 +45,19 @@ internal static class FingerprintNameComposer
         var signature = GetString(signals, SignalKeys.PrimarySignature);
         var country = GetString(signals, SignalKeys.GeoCountryCode);
 
-        // Priority 1: known bot name from UA parsing.
+        // Priority 1: known bot name from UA parsing. When the UA carries a per-instance
+        // discriminator (the +URL comment convention used by Mastodon, Pleroma, Misskey,
+        // Lemmy, etc.), append the instance hostname so a fediverse link-preview stampede
+        // shows as N distinct signatures ("Mastodon mastodon.social", "Mastodon mas.to")
+        // rather than one giant pile that looks like a single misbehaving client.
         var botName = GetString(signals, SignalKeys.UserAgentBotName);
         if (!string.IsNullOrEmpty(botName) && botName != "unknown")
-            return Unique(botName, signature, country);
+        {
+            var rawUa = GetString(signals, SignalKeys.UserAgent) ?? userAgent;
+            var discriminator = UserAgentDiscriminator.ExtractDiscriminator(rawUa);
+            var composed = string.IsNullOrEmpty(discriminator) ? botName : $"{botName} {discriminator}";
+            return Unique(composed, signature, country);
+        }
 
         // Priority 2: matched archetype name + variance term.
         var archetypeName = GetString(signals, SignalKeys.IdentityArchetypeName);
