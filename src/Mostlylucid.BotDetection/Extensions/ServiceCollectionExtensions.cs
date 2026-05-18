@@ -577,8 +577,29 @@ public static class ServiceCollectionExtensions
             c.Timeout = TimeSpan.FromSeconds(30);
             c.DefaultRequestHeaders.UserAgent.ParseAdd("StyloBot/threatintel");
         });
+        services.AddHttpClient<ThreatIntel.Providers.TorExitProvider>(c =>
+        {
+            c.Timeout = TimeSpan.FromSeconds(30);
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("StyloBot/threatintel");
+        });
+        services.AddHttpClient<ThreatIntel.Providers.CisaKevProvider>(c =>
+        {
+            c.Timeout = TimeSpan.FromSeconds(60);  // KEV is larger; allow more time
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("StyloBot/threatintel");
+        });
+        services.AddHttpClient<ThreatIntel.Providers.CloudRangesProvider>(c =>
+        {
+            c.Timeout = TimeSpan.FromSeconds(60);  // Aggregates many vendor feeds
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("StyloBot/threatintel");
+        });
         services.AddSingleton<ThreatIntel.IThreatIntelProvider>(sp =>
             sp.GetRequiredService<ThreatIntel.Providers.SpamhausDropProvider>());
+        services.AddSingleton<ThreatIntel.IThreatIntelProvider>(sp =>
+            sp.GetRequiredService<ThreatIntel.Providers.TorExitProvider>());
+        services.AddSingleton<ThreatIntel.IThreatIntelProvider>(sp =>
+            sp.GetRequiredService<ThreatIntel.Providers.CisaKevProvider>());
+        services.AddSingleton<ThreatIntel.IThreatIntelProvider>(sp =>
+            sp.GetRequiredService<ThreatIntel.Providers.CloudRangesProvider>());
         services.AddSingleton<IContributingDetector, ThreatIntelContributor>();
         // Wave 0 detectors (no dependencies - run first)
         // Unified signature - computes PrimarySignature + header hashes for all downstream detectors (priority 1)

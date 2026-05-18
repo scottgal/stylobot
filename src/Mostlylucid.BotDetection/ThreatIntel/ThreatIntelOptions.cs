@@ -51,6 +51,9 @@ public sealed class ThreatIntelOptions
 public sealed class ThreatIntelProviderOptions
 {
     public SpamhausDropOptions SpamhausDrop { get; set; } = new();
+    public TorExitOptions TorExit { get; set; } = new();
+    public CisaKevOptions CisaKev { get; set; } = new();
+    public CloudRangesOptions CloudRanges { get; set; } = new();
 }
 
 /// <summary>Privacy posture for live-provider lookups. See <see cref="ThreatIntelOptions.PrivacyMode"/>.</summary>
