@@ -31,6 +31,7 @@ internal sealed class TorExitProvider : ThreatIntelOfflineProviderBase
     public override TimeSpan RefreshInterval => TimeSpan.FromMinutes(_options.RefreshMinutes);
     protected override string Classification => "tor";
     protected override double HitConfidence => 0.85;
+    protected override IntelligenceSignalClass IntelClass => IntelligenceSignalClass.TorExit;
     protected override bool IsConfiguredEnabled => _options.Enabled;
 
     protected override async Task<IReadOnlyList<string>> FetchCidrsAsync(HttpClient http, CancellationToken ct)

@@ -30,6 +30,7 @@ internal sealed class SpamhausDropProvider : ThreatIntelOfflineProviderBase
     public override TimeSpan RefreshInterval => TimeSpan.FromHours(_options.RefreshHours);
     protected override string Classification => "malicious";
     protected override double HitConfidence => 0.95;
+    protected override IntelligenceSignalClass IntelClass => IntelligenceSignalClass.SuspiciousNetworkRange;
     protected override bool IsConfiguredEnabled => _options.Enabled;
 
     protected override async Task<IReadOnlyList<string>> FetchCidrsAsync(HttpClient http, CancellationToken ct)

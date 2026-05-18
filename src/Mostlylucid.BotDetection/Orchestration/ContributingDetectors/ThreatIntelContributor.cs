@@ -7,19 +7,30 @@ using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 
 /// <summary>
-///     Threat-intel enrichment contributor. Reads cached verdicts from
-///     <see cref="IThreatIntelCoordinator"/> for the client IP (and any CVE that
-///     <c>CveProbeContributor</c> / <c>CveFingerprintContributor</c> already extracted)
-///     and surfaces them as <c>threatintel.*</c> signals + a single risk-scaled
-///     contribution.
+///     Threat-intel evidence contributor. Reads cached verdicts from
+///     <see cref="IThreatIntelCoordinator"/> and projects them onto the
+///     blackboard as <c>threatintel.*</c> + <c>intel.*</c> + <c>endpoint.*</c>
+///     signals. Crucially, this is a <em>separate evidence lane</em> from
+///     behavioural detection - the contribution weight is modulated by
+///     <see cref="EndpointRiskClassifier">endpoint risk</see> so the same
+///     intel verdict acts very differently depending on what's being touched:
 ///
-///     <para>Runs at priority 7 - after <c>IpContributor</c> (12, gives us the
-///     resolved client IP) but the manifest's no-trigger setup means it just runs
-///     after IpContributor's signals are on the board. See
-///     <c>docs/architecture/threat-intel.md</c>.</para>
+///     <list type="bullet">
+///       <item>Static asset path → evidence only (no probability bump).</item>
+///       <item>Normal path → weak per-class additive evidence (default
+///         0.08-0.20, capped at <c>generic_max_confidence</c>).</item>
+///       <item>Sensitive path (login / admin / .env / .git / api/token / …) →
+///         strong modifier. <c>intel.hard_gate = true</c> signal lets the
+///         policy layer respond hard (challenge, throttle-status, block)
+///         without needing to interpret raw scores.</item>
+///     </list>
 ///
-///     <para>Short-circuits when the coordinator reports IsEnabled == false (FOSS
-///     default: every provider disabled). No per-request work, no signals emitted.</para>
+///     <para>This avoids two failure modes spec'd in
+///     <c>docs/architecture/threat-intel.md</c>: turning StyloBot into a dumb
+///     blacklist on a single CIDR-match (uniform additive weight on benign
+///     pages produces too many false positives), AND being too soft on a
+///     known-bad source probing <c>/wp-login.php</c> just because the
+///     behavioural score hasn't crossed a threshold yet.</para>
 /// </summary>
 public class ThreatIntelContributor : ConfiguredContributorBase
 {
@@ -43,43 +54,57 @@ public class ThreatIntelContributor : ConfiguredContributorBase
     public override int Priority => Manifest?.Priority ?? 7;
     public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
 
-    // Tunables from YAML defaults.parameters.
-    // threat_score_weight: scales threatintel.score into a BotContribution's confidence.
-    // kev_match_threat_floor: minimum threatintel.score when KEV matches an extracted CVE.
-    private double ThreatScoreWeight => GetParam("threat_score_weight", 0.6);
-    private double KevMatchThreatFloor => GetParam("kev_match_threat_floor", 0.7);
+    // Per-class additive weights for Normal endpoints. Operators tune via YAML
+    // defaults.parameters. Generic-case weights are deliberately weak so a single
+    // CIDR hit doesn't blanket-block benign traffic; the sensitive-endpoint path
+    // applies the multiplier below to give them real teeth.
+    private double WeightReputation             => GetParam("class_reputation_weight", 0.10);
+    private double WeightVulnerability          => GetParam("class_vulnerability_weight", 0.20);
+    private double WeightScannerInfrastructure  => GetParam("class_scanner_infra_weight", 0.12);
+    private double WeightExploitCampaign        => GetParam("class_exploit_campaign_weight", 0.25);
+    private double WeightKnownBadAutomation     => GetParam("class_known_bad_weight", 0.15);
+    private double WeightSuspiciousNetworkRange => GetParam("class_suspicious_netrange_weight", 0.10);
+    private double WeightCloudInfrastructure    => GetParam("class_cloud_weight", 0.0);    // identification only
+    private double WeightTorExit                => GetParam("class_tor_weight", 0.10);
+
+    /// <summary>Generic-case ceiling: even a stack of high-class hits can't pin past this on a Normal endpoint.</summary>
+    private double GenericMaxConfidence  => GetParam("generic_max_confidence", 0.35);
+
+    /// <summary>Multiplier applied to per-class weights when endpoint.risk = Sensitive.</summary>
+    private double SensitiveMultiplier   => GetParam("sensitive_endpoint_multiplier", 3.0);
+
+    /// <summary>Floor on threatintel.score when CISA KEV matches an extracted CVE on a Sensitive endpoint.</summary>
+    private double KevMatchSensitiveFloor => GetParam("kev_match_sensitive_floor", 0.85);
 
     public override Task<IReadOnlyList<DetectionContribution>> ContributeAsync(
         BlackboardState state,
         CancellationToken cancellationToken = default)
     {
+        // Endpoint risk is computed regardless of coordinator state - it's free
+        // information (one regex on the path) that downstream policy can use even
+        // when threat-intel itself is disabled.
+        var path = state.HttpContext?.Request?.Path.Value;
+        var risk = EndpointRiskClassifier.Classify(path);
+        state.WriteSignal(SignalKeys.EndpointRisk, risk.ToString());
+        state.WriteSignal(SignalKeys.EndpointRiskSensitive, risk == EndpointRisk.Sensitive);
+
         if (!_coordinator.IsEnabled)
             return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
 
-        var contributions = new List<DetectionContribution>();
         var verdicts = new List<ThreatIntelVerdict>(capacity: 4);
 
-        // IP lookup (the bread-and-butter case).
         if (state.Signals.TryGetValue(SignalKeys.ClientIp, out var ipObj) && ipObj is string ip && !string.IsNullOrEmpty(ip))
         {
             var ipSubject = new ThreatSubject(ThreatSubjectType.Ip, ip);
-            var ipVerdicts = _coordinator.Lookup(ipSubject);
-            foreach (var v in ipVerdicts) verdicts.Add(v);
+            foreach (var v in _coordinator.Lookup(ipSubject)) verdicts.Add(v);
 
-            // Background-enrichment hook for live providers. Pure cache miss: if no
-            // live-provider verdict came back (could be cold cache OR no live providers
-            // registered) AND a live provider exists for this subject type, queue it.
-            // Next request to the same IP picks up the cached verdict synchronously.
-            // No-op when no live providers are configured (FOSS default).
             if (_enrichmentQueue is not null && AnyLiveProviderSupports(ThreatSubjectType.Ip)
-                && !ipVerdicts.Any(v => IsLiveProvider(v.Provider)))
+                && !verdicts.Any(v => IsLiveProvider(v.Provider)))
             {
                 _enrichmentQueue.TryEnqueue(ipSubject);
             }
         }
 
-        // CVE lookup. CISA KEV provider answers here when CveProbe / CveFingerprint
-        // already extracted a CVE id. Skip GHSA-* advisories (KEV is CVE-only).
         var cveId = TryGetCveId(state);
         if (cveId is not null)
         {
@@ -90,33 +115,72 @@ public class ThreatIntelContributor : ConfiguredContributorBase
         if (verdicts.Count == 0)
             return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
 
-        EmitSignals(state, verdicts, cveId);
+        EmitSignals(state, verdicts, cveId, risk);
 
-        var topScore = 0.0;
-        ThreatIntelVerdict? top = null;
-        foreach (var v in verdicts)
-        {
-            if (v.Confidence > topScore) { topScore = v.Confidence; top = v; }
-        }
-
-        // KEV match against a known-exploited CVE: hold the score at a configurable
-        // floor so the verdict can't be drowned out by a single low-confidence offline
-        // hit. Operator controls the floor via threatintel.kev_match_threat_floor.
-        var kevHit = verdicts.Any(v => v.Classification == "kev");
-        if (kevHit && topScore < KevMatchThreatFloor) topScore = KevMatchThreatFloor;
-
-        if (topScore > 0 && top is not null)
-        {
-            var reason = $"{top.Provider} classified as {top.Classification}";
-            if (verdicts.Count > 1) reason += $" (+{verdicts.Count - 1} more)";
-            contributions.Add(BotContribution(
-                "ThreatIntel",
-                reason,
-                confidenceOverride: Math.Clamp(topScore * ThreatScoreWeight, 0.0, 1.0)));
-        }
-
+        var contributions = BuildContributions(verdicts, cveId, risk);
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
     }
+
+    private IReadOnlyList<DetectionContribution> BuildContributions(
+        List<ThreatIntelVerdict> verdicts, string? cveId, EndpointRisk risk)
+    {
+        if (risk == EndpointRisk.Static)
+        {
+            // Static asset path: emit signals only, no probability bump. The intel
+            // is still searchable in the dashboard but never blocks an image fetch.
+            return Array.Empty<DetectionContribution>();
+        }
+
+        // Per-class sum of weights, deduped per class so two providers in the same
+        // class don't double-count (Spamhaus DROP + Spamhaus EDROP both produce
+        // SuspiciousNetworkRange - we want one class hit, not two).
+        var classHits = new HashSet<IntelligenceSignalClass>();
+        var weight = 0.0;
+        ThreatIntelVerdict? top = null;
+        var topW = 0.0;
+        foreach (var v in verdicts)
+        {
+            if (!classHits.Add(v.IntelligenceClass)) continue;
+            var w = WeightFor(v.IntelligenceClass);
+            weight += w;
+            if (w > topW) { topW = w; top = v; }
+        }
+
+        if (risk == EndpointRisk.Sensitive)
+        {
+            weight = Math.Min(1.0, weight * SensitiveMultiplier);
+            // KEV at a sensitive endpoint earns the harder floor (this overlays the
+            // multiplier above; whichever is higher wins).
+            if (classHits.Contains(IntelligenceSignalClass.Vulnerability) && cveId is not null)
+                weight = Math.Max(weight, KevMatchSensitiveFloor);
+        }
+        else
+        {
+            weight = Math.Min(GenericMaxConfidence, weight);
+        }
+
+        if (weight <= 0 || top is null)
+            return Array.Empty<DetectionContribution>();
+
+        var reason = $"{top.Provider} {top.Classification} ({top.IntelligenceClass})";
+        if (classHits.Count > 1) reason += $" + {classHits.Count - 1} more class(es)";
+        if (risk == EndpointRisk.Sensitive) reason += " on sensitive endpoint";
+
+        return new[] { BotContribution("ThreatIntel", reason, confidenceOverride: weight) };
+    }
+
+    private double WeightFor(IntelligenceSignalClass cls) => cls switch
+    {
+        IntelligenceSignalClass.Reputation             => WeightReputation,
+        IntelligenceSignalClass.Vulnerability          => WeightVulnerability,
+        IntelligenceSignalClass.ScannerInfrastructure  => WeightScannerInfrastructure,
+        IntelligenceSignalClass.ExploitCampaign        => WeightExploitCampaign,
+        IntelligenceSignalClass.KnownBadAutomation     => WeightKnownBadAutomation,
+        IntelligenceSignalClass.SuspiciousNetworkRange => WeightSuspiciousNetworkRange,
+        IntelligenceSignalClass.CloudInfrastructure    => WeightCloudInfrastructure,
+        IntelligenceSignalClass.TorExit                => WeightTorExit,
+        _                                              => 0.05
+    };
 
     private bool AnyLiveProviderSupports(ThreatSubjectType type)
     {
@@ -135,7 +199,6 @@ public class ThreatIntelContributor : ConfiguredContributorBase
 
     private static string? TryGetCveId(BlackboardState state)
     {
-        // Honeypot probe match wins over fingerprint match (it's stronger evidence).
         if (state.Signals.TryGetValue(SignalKeys.CveProbeId, out var probeObj) && probeObj is string probe
             && probe.StartsWith("CVE-", StringComparison.OrdinalIgnoreCase))
             return probe.ToUpperInvariant();
@@ -145,28 +208,36 @@ public class ThreatIntelContributor : ConfiguredContributorBase
         return null;
     }
 
-    private static void EmitSignals(BlackboardState state, List<ThreatIntelVerdict> verdicts, string? cveId)
+    private static void EmitSignals(
+        BlackboardState state, List<ThreatIntelVerdict> verdicts, string? cveId, EndpointRisk risk)
     {
-        var max = 0.0;
+        var maxConfidence = 0.0;
         var classifications = new HashSet<string>(StringComparer.Ordinal);
         var providers = new HashSet<string>(StringComparer.Ordinal);
+        var classes = new HashSet<string>(StringComparer.Ordinal);
         var torFlag = false;
         string? kevMatch = null;
         foreach (var v in verdicts)
         {
-            if (v.Confidence > max) max = v.Confidence;
+            if (v.Confidence > maxConfidence) maxConfidence = v.Confidence;
             classifications.Add(v.Classification);
             providers.Add(v.Provider);
+            classes.Add(v.IntelligenceClass.ToString());
             if (v.Classification == "tor") torFlag = true;
             if (v.Classification == "kev" && cveId is not null) kevMatch = cveId;
-            // Per-provider signal so dashboards can filter by source.
             state.WriteSignal($"threatintel.{v.Provider}", v.Classification);
         }
-        state.WriteSignal(SignalKeys.ThreatIntelScore, max);
+        state.WriteSignal(SignalKeys.ThreatIntelScore, maxConfidence);
         state.WriteSignal(SignalKeys.ThreatIntelClassifications, string.Join(";", classifications));
         state.WriteSignal(SignalKeys.ThreatIntelProvidersHit, string.Join(";", providers));
         state.WriteSignal(SignalKeys.ThreatIntelTor, torFlag);
+        state.WriteSignal(SignalKeys.IntelClasses, string.Join(";", classes));
         if (kevMatch is not null)
             state.WriteSignal(SignalKeys.ThreatIntelKevMatch, kevMatch);
+        // Hard-gate convenience: intel evidence + risky surface in one signal so
+        // transitions can fire on a single boolean. Cloud-only verdicts don't
+        // qualify because CloudInfrastructure is identification, not risk.
+        var nonCloudHit = verdicts.Any(v => v.IntelligenceClass != IntelligenceSignalClass.CloudInfrastructure);
+        state.WriteSignal(SignalKeys.IntelHardGate, nonCloudHit && risk == EndpointRisk.Sensitive);
     }
 }

@@ -48,6 +48,9 @@ internal abstract class ThreatIntelOfflineProviderBase : IThreatIntelProvider
     /// <summary>Confidence emitted on a hit. Provider-specific (DROP = 0.95, EDROP = 0.9, etc.).</summary>
     protected virtual double HitConfidence => 0.9;
 
+    /// <summary>What kind of risk prior this provider's verdicts represent. Concrete providers override.</summary>
+    protected virtual IntelligenceSignalClass IntelClass => IntelligenceSignalClass.Unknown;
+
     /// <summary>Fetch + parse the upstream feed into a CIDR list. Each line is a CIDR string.</summary>
     protected abstract Task<IReadOnlyList<string>> FetchCidrsAsync(HttpClient http, CancellationToken ct);
 
@@ -64,6 +67,7 @@ internal abstract class ThreatIntelOfflineProviderBase : IThreatIntelProvider
             Provider = Name,
             Classification = Classification,
             Confidence = HitConfidence,
+            IntelligenceClass = IntelClass,
             ObservedUtc = _lastRefreshUtc,
             // ExpiresUtc unset: offline feeds rely on RefreshAsync to invalidate the
             // whole cache on swap, not per-verdict TTLs.

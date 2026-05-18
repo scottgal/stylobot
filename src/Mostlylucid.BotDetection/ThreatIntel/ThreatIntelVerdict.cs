@@ -27,6 +27,15 @@ public sealed record ThreatIntelVerdict
     /// </summary>
     public required string Classification { get; init; }
 
+    /// <summary>
+    ///     What <em>kind</em> of risk prior this is. Drives the contributor's
+    ///     per-class weighting separately from the scalar <see cref="Confidence"/>.
+    ///     Lets policy treat a Vulnerability verdict at a sensitive endpoint very
+    ///     differently from the same verdict at a static asset, without conflating
+    ///     "how confident is the provider" with "how dangerous is this signal".
+    /// </summary>
+    public IntelligenceSignalClass IntelligenceClass { get; init; } = IntelligenceSignalClass.Unknown;
+
     /// <summary>Normalised to [0,1]. Map vendor scores in the provider adapter.</summary>
     public double Confidence { get; init; }
 

@@ -68,6 +68,7 @@ internal sealed class CisaKevProvider : IThreatIntelProvider
             Provider = Name,
             Classification = "kev",
             Confidence = ransomware ? 0.95 : 0.7,
+            IntelligenceClass = IntelligenceSignalClass.Vulnerability,
             ObservedUtc = _lastRefreshUtc,
             ExpiresUtc = default,
             Metadata = new Dictionary<string, string>

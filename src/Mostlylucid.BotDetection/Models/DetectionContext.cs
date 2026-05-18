@@ -1431,6 +1431,27 @@ public static class SignalKeys
     /// <summary>String: CVE id matched by the CISA KEV provider (empty when no match).</summary>
     public const string ThreatIntelKevMatch = "threatintel.kev_match";
 
+    /// <summary>
+    ///     String: semicolon-joined unique intelligence classes that fired
+    ///     (e.g., <c>"Vulnerability;SuspiciousNetworkRange"</c>). Lets policy
+    ///     reason about <em>kind</em> of risk, not just a scalar score - a
+    ///     Vulnerability class at <c>/.env</c> gates differently from a
+    ///     CloudInfrastructure class at <c>/static/logo.png</c>.
+    /// </summary>
+    public const string IntelClasses = "intel.classes";
+
+    /// <summary>String: <c>"Static"</c>, <c>"Normal"</c>, or <c>"Sensitive"</c>. Derived from the request path.</summary>
+    public const string EndpointRisk = "endpoint.risk";
+
+    /// <summary>Boolean: shortcut for <c>endpoint.risk == "Sensitive"</c>. Lets transition rules read a single bool.</summary>
+    public const string EndpointRiskSensitive = "endpoint.risk_sensitive";
+
+    /// <summary>
+    ///     Boolean: at least one intelligence verdict AND the endpoint is sensitive.
+    ///     A natural transition trigger: <c>"intel evidence + risky surface"</c> in one signal.
+    /// </summary>
+    public const string IntelHardGate = "intel.hard_gate";
+
     // ==========================================
     // Privacy / PII Detection signals
     // Set by PiiQueryStringContributor when PII patterns detected in query strings

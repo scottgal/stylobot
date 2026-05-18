@@ -90,10 +90,33 @@ defaults:
     can_early_exit: false
     can_escalate: false
   parameters:
-    # Multiplier on threatintel.score before it becomes the BotContribution's
-    # confidence. 0.6 means a max provider Confidence of 0.95 (Spamhaus DROP hit)
-    # produces a contribution confidence of ~0.57 - meaningful but not pinning.
-    threat_score_weight: 0.6
-    # When CISA KEV matches an extracted CVE, hold the threatintel.score at this
-    # floor so a single offline-only hit can't drown out the KEV signal.
-    kev_match_threat_floor: 0.7
+    # Per-class additive weights for Normal endpoints. Threat-intel is a
+    # CONTEXTUAL PRIOR ("this request comes from a context where X is plausible"),
+    # not behavioural truth, so weights stay weak so a single CIDR-list hit on a
+    # benign page can't dominate the verdict. Operators tune these to match their
+    # tolerance for false positives at standard surfaces.
+    class_reputation_weight: 0.10              # AbuseIPDB / community-reported abuse
+    class_vulnerability_weight: 0.20           # CISA KEV / known-vulnerable infra
+    class_scanner_infra_weight: 0.12           # GreyNoise scanner / mass-scan infrastructure
+    class_exploit_campaign_weight: 0.25        # Identified active exploit campaign
+    class_known_bad_weight: 0.15               # Generic known-bad automation feeds
+    class_suspicious_netrange_weight: 0.10     # Spamhaus DROP / EDROP
+    class_cloud_weight: 0.0                    # CloudInfrastructure is identification, not risk
+    class_tor_weight: 0.10                     # Tor exit (privacy-protecting, not malicious)
+
+    # Generic-case ceiling: even a stack of high-class hits can't pin the
+    # contribution past this on a Normal endpoint. Keeps threat-intel from
+    # becoming a single-signal blacklist on benign pages.
+    generic_max_confidence: 0.35
+
+    # Multiplier applied to per-class weights when endpoint.risk = Sensitive
+    # (login, admin, .env, .git, api/token, checkout, …). Same intel verdict
+    # acts very differently at /admin/login vs /static/logo.png; this is where
+    # threat-intel earns its keep.
+    sensitive_endpoint_multiplier: 3.0
+
+    # Floor on the contribution confidence when CISA KEV matches an extracted
+    # CVE on a Sensitive endpoint. Override the per-class addition so the
+    # combination "known-exploited CVE + risky surface" always lands strong
+    # enough to trigger a hard policy action.
+    kev_match_sensitive_floor: 0.85

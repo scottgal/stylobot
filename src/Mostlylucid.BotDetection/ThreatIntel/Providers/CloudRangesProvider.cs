@@ -77,6 +77,7 @@ internal sealed class CloudRangesProvider : IThreatIntelProvider
                     Provider = Name,
                     Classification = $"cloud:{vendor}",
                     Confidence = 0.6,                       // identification, not maliciousness
+                    IntelligenceClass = IntelligenceSignalClass.CloudInfrastructure,
                     ObservedUtc = _lastRefreshUtc,
                     ExpiresUtc = default,
                     Metadata = new Dictionary<string, string> { ["vendor"] = vendor }
