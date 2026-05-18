@@ -269,7 +269,16 @@ public static class BdfReplayEndpoints
                 [Models.SignalKeys.UserAgentFamily]  = signals.ContainsKey(Models.SignalKeys.UserAgentFamily),
                 // Foundation signal asserted by the synthesizer's archetype-name branch.
                 // Only meaningful when Identity:Enabled = true; absent at every-request when off.
-                [Models.SignalKeys.IdentityArchetypeName] = signals.ContainsKey(Models.SignalKeys.IdentityArchetypeName)
+                [Models.SignalKeys.IdentityArchetypeName] = signals.ContainsKey(Models.SignalKeys.IdentityArchetypeName),
+                // Threat-intel signals. EndpointRisk + EndpointRiskSensitive only land when
+                // ThreatIntel:Enabled = true (the contributor short-circuits otherwise) - the
+                // probe is False in that case, which is the right read for downstream tooling
+                // that wants "does the request path get any risk modulation?".
+                [Models.SignalKeys.EndpointRisk] = signals.ContainsKey(Models.SignalKeys.EndpointRisk),
+                [Models.SignalKeys.EndpointRiskSensitive] = signals.ContainsKey(Models.SignalKeys.EndpointRiskSensitive),
+                [Models.SignalKeys.ThreatIntelScore] = signals.ContainsKey(Models.SignalKeys.ThreatIntelScore),
+                [Models.SignalKeys.IntelClasses] = signals.ContainsKey(Models.SignalKeys.IntelClasses),
+                [Models.SignalKeys.IntelHardGate] = signals.ContainsKey(Models.SignalKeys.IntelHardGate)
             };
 
             // Identity match outputs (null when Identity.Enabled = false)
