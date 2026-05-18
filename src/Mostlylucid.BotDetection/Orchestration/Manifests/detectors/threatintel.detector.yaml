@@ -1,0 +1,99 @@
+# Threat-intel enrichment - reads cached verdicts from IThreatIntelCoordinator
+# and emits threatintel.* signals + a risk-scaled contribution. Hot-path safe:
+# every lookup hits in-memory caches populated by ThreatIntelRefreshService.
+# FOSS default posture: every provider disabled, master switch off - operator
+# opts in per-provider. See docs/architecture/threat-intel.md.
+name: ThreatIntelContributor
+priority: 7   # After IpContributor (12) so request.ip is on the board; before Heuristic (10 wave)
+enabled: true # Contributor is always registered; short-circuits when coordinator IsEnabled=false
+description: Cross-references IPs + CVEs against offline + live threat-intel providers
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: threatintel
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request after IpContributor has resolved the client IP
+      signal_pattern: request.ip.*
+
+  required_signals:
+    - request.ip
+
+  optional_signals:
+    - cve.probe.id           # written by CveProbeContributor on honeypot match
+    - cve.top_advisory_id    # written by CveFingerprintContributor on shape match
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: ThreatIntel risk contribution (Bot, confidence scaled by threat_score_weight)
+    - type: botdetection.threatintel_signal
+      description: Per-provider verdicts + aggregated score / classifications
+
+  signals:
+    - key: threatintel.score
+      entity_type: number
+      salience: 0.9
+      description: Max Confidence across all hit providers (0..1)
+    - key: threatintel.classifications
+      entity_type: string
+      salience: 0.7
+      description: Semicolon-joined unique classifications (malicious;tor;cloud:aws)
+    - key: threatintel.providers_hit
+      entity_type: string
+      salience: 0.5
+      description: Semicolon-joined provider names that returned a verdict
+    - key: threatintel.tor
+      entity_type: boolean
+      salience: 0.7
+      description: True if any provider classified the IP as a Tor exit
+    - key: threatintel.kev_match
+      entity_type: string
+      salience: 0.95
+      description: CVE id when CISA KEV matched an extracted CVE
+
+emits:
+  - threatintel.score
+  - threatintel.classifications
+  - threatintel.providers_hit
+  - threatintel.tor
+  - threatintel.kev_match
+
+triggers: []  # Wave 0; no signal triggers
+
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.0
+    human_signal: 0.0
+    verified: 0.0
+    early_exit: 0.0
+  confidence:
+    bot_detected: 0.7      # Contribution confidence; threat_score_weight scales further
+    human_indicated: 0.0
+    strong_signal: 0.9
+    escalation_threshold: 0.7
+  timing:
+    timeout_ms: 5          # In-memory lookups; must be fast
+  features:
+    detailed_logging: false
+    enable_cache: true
+    can_early_exit: false
+    can_escalate: false
+  parameters:
+    # Multiplier on threatintel.score before it becomes the BotContribution's
+    # confidence. 0.6 means a max provider Confidence of 0.95 (Spamhaus DROP hit)
+    # produces a contribution confidence of ~0.57 - meaningful but not pinning.
+    threat_score_weight: 0.6
+    # When CISA KEV matches an extracted CVE, hold the threatintel.score at this
+    # floor so a single offline-only hit can't drown out the KEV signal.
+    kev_match_threat_floor: 0.7

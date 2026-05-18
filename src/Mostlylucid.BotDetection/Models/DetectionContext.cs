@@ -1409,6 +1409,29 @@ public static class SignalKeys
     public const string SimulationPackMatch = "simulation.pack.match";
 
     // ==========================================
+    // Threat-intel enrichment signals
+    // Set by ThreatIntelContributor; reads cached verdicts from
+    // IThreatIntelCoordinator (offline providers: Spamhaus, Tor, KEV, cloud
+    // ranges; live providers: GreyNoise / AbuseIPDB in commercial). Hot-path
+    // safe - all lookups hit in-memory caches.
+    // ==========================================
+
+    /// <summary>Double in [0,1]: max Confidence across all providers that returned a verdict.</summary>
+    public const string ThreatIntelScore = "threatintel.score";
+
+    /// <summary>String: semicolon-joined unique classifications (e.g., "malicious;tor").</summary>
+    public const string ThreatIntelClassifications = "threatintel.classifications";
+
+    /// <summary>String: semicolon-joined names of providers that returned a verdict.</summary>
+    public const string ThreatIntelProvidersHit = "threatintel.providers_hit";
+
+    /// <summary>Boolean: true if any provider classified the IP as tor.</summary>
+    public const string ThreatIntelTor = "threatintel.tor";
+
+    /// <summary>String: CVE id matched by the CISA KEV provider (empty when no match).</summary>
+    public const string ThreatIntelKevMatch = "threatintel.kev_match";
+
+    // ==========================================
     // Privacy / PII Detection signals
     // Set by PiiQueryStringContributor when PII patterns detected in query strings
     // ==========================================

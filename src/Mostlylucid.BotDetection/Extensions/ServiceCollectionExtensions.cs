@@ -564,6 +564,22 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<VerifiedBotRegistry>();
         services.AddHostedService(sp => sp.GetRequiredService<VerifiedBotRegistry>());
         services.AddSingleton<IContributingDetector, VerifiedBotContributor>();
+        // Threat-intel enrichment (priority 7) - reads cached verdicts from
+        // IThreatIntelCoordinator (offline pack: Spamhaus, Tor, KEV, cloud ranges).
+        // FOSS default: coordinator IsEnabled=false (master switch off + every
+        // provider disabled) - contributor registered but short-circuits with no work.
+        // Operator opts in by flipping BotDetection:ThreatIntel:Enabled = true AND
+        // enabling the providers they want. See docs/architecture/threat-intel.md.
+        services.TryAddSingleton<ThreatIntel.IThreatIntelCoordinator, ThreatIntel.ThreatIntelCoordinator>();
+        services.AddHostedService<ThreatIntel.ThreatIntelRefreshService>();
+        services.AddHttpClient<ThreatIntel.Providers.SpamhausDropProvider>(c =>
+        {
+            c.Timeout = TimeSpan.FromSeconds(30);
+            c.DefaultRequestHeaders.UserAgent.ParseAdd("StyloBot/threatintel");
+        });
+        services.AddSingleton<ThreatIntel.IThreatIntelProvider>(sp =>
+            sp.GetRequiredService<ThreatIntel.Providers.SpamhausDropProvider>());
+        services.AddSingleton<IContributingDetector, ThreatIntelContributor>();
         // Wave 0 detectors (no dependencies - run first)
         // Unified signature - computes PrimarySignature + header hashes for all downstream detectors (priority 1)
         services.AddSingleton<IContributingDetector, SignatureContributor>();

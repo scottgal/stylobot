@@ -128,6 +128,13 @@ public class BotDetectionOptions
     public BackgroundEnrichmentOptions BackgroundEnrichment { get; set; } = new();
 
     /// <summary>
+    ///     Threat-intel enrichment (Spamhaus, Tor exit, CISA KEV, cloud ranges, etc.).
+    ///     FOSS default: every provider disabled, master switch off - the operator
+    ///     opts in per-provider. See <c>docs/architecture/threat-intel.md</c>.
+    /// </summary>
+    public ThreatIntel.ThreatIntelOptions ThreatIntel { get; set; } = new();
+
+    /// <summary>
     ///     Licensing options. Control plane reads <c>Licensing.Domains</c> to populate the
     ///     <c>DomainEntitlementValidator</c> at startup; an empty list = OSS / unconfigured =
     ///     pass-through (no enforcement, no warnings, dashboard shows the muted "no license" line).
