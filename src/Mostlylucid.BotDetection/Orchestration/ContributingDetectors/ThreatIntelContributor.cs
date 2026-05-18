@@ -80,16 +80,18 @@ public class ThreatIntelContributor : ConfiguredContributorBase
         BlackboardState state,
         CancellationToken cancellationToken = default)
     {
-        // Endpoint risk is computed regardless of coordinator state - it's free
-        // information (one regex on the path) that downstream policy can use even
-        // when threat-intel itself is disabled.
+        // Short-circuit ASAP when threat-intel is disabled (FOSS default) - skips
+        // the regex on the path, two WriteSignal calls, and the rest of the pipeline.
+        // endpoint.risk + endpoint.risk_sensitive only fire when at least one intel
+        // provider is configured, which keeps the disabled-state cost at "one
+        // boolean check + Task.FromResult".
+        if (!_coordinator.IsEnabled)
+            return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
+
         var path = state.HttpContext?.Request?.Path.Value;
         var risk = EndpointRiskClassifier.Classify(path);
         state.WriteSignal(SignalKeys.EndpointRisk, risk.ToString());
         state.WriteSignal(SignalKeys.EndpointRiskSensitive, risk == EndpointRisk.Sensitive);
-
-        if (!_coordinator.IsEnabled)
-            return Task.FromResult<IReadOnlyList<DetectionContribution>>(Array.Empty<DetectionContribution>());
 
         var verdicts = new List<ThreatIntelVerdict>(capacity: 4);
 
@@ -99,7 +101,7 @@ public class ThreatIntelContributor : ConfiguredContributorBase
             foreach (var v in _coordinator.Lookup(ipSubject)) verdicts.Add(v);
 
             if (_enrichmentQueue is not null && AnyLiveProviderSupports(ThreatSubjectType.Ip)
-                && !verdicts.Any(v => IsLiveProvider(v.Provider)))
+                && !HasLiveProviderVerdict(verdicts))
             {
                 _enrichmentQueue.TryEnqueue(ipSubject);
             }
@@ -190,6 +192,13 @@ public class ThreatIntelContributor : ConfiguredContributorBase
         return false;
     }
 
+    private bool HasLiveProviderVerdict(List<ThreatIntelVerdict> verdicts)
+    {
+        foreach (var v in verdicts)
+            if (IsLiveProvider(v.Provider)) return true;
+        return false;
+    }
+
     private bool IsLiveProvider(string providerName)
     {
         foreach (var p in _coordinator.Providers)
@@ -237,7 +246,15 @@ public class ThreatIntelContributor : ConfiguredContributorBase
         // Hard-gate convenience: intel evidence + risky surface in one signal so
         // transitions can fire on a single boolean. Cloud-only verdicts don't
         // qualify because CloudInfrastructure is identification, not risk.
-        var nonCloudHit = verdicts.Any(v => v.IntelligenceClass != IntelligenceSignalClass.CloudInfrastructure);
+        var nonCloudHit = false;
+        foreach (var v in verdicts)
+        {
+            if (v.IntelligenceClass != IntelligenceSignalClass.CloudInfrastructure)
+            {
+                nonCloudHit = true;
+                break;
+            }
+        }
         state.WriteSignal(SignalKeys.IntelHardGate, nonCloudHit && risk == EndpointRisk.Sensitive);
     }
 }

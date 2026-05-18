@@ -238,7 +238,7 @@ public sealed class CloudRangesOptions
     public Dictionary<string, CloudRangesSource> Sources { get; set; } = new()
     {
         ["aws"]        = new CloudRangesSource { Url = "https://ip-ranges.amazonaws.com/ip-ranges.json",                    Format = "aws-json" },
-        ["azure"]      = new CloudRangesSource { Url = "https://download.microsoft.com/download/7/1/D/71D86715-5596-4529-9B13-DA13A5DE5B63/ServiceTags_Public_20260518.json", Format = "azure-json" },
+        ["azure"]      = new CloudRangesSource { Url = "https://download.microsoft.com/download/7/1/D/71D86715-5596-4529-9B13-DA13A5DE5B63/ServiceTags_Public.json", Format = "azure-json" },
         ["gcp"]        = new CloudRangesSource { Url = "https://www.gstatic.com/ipranges/cloud.json",                       Format = "gcp-json" },
         ["cloudflare"] = new CloudRangesSource { Url = "https://www.cloudflare.com/ips-v4",                                 Format = "cidr-text" },
         ["fastly"]     = new CloudRangesSource { Url = "https://api.fastly.com/public-ip-list",                             Format = "fastly-json" }

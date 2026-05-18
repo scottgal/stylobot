@@ -137,7 +137,11 @@ BotDetection:
             Format: aws-json
           azure:
             Enabled: true
-            Url: https://download.microsoft.com/download/7/1/D/71D86715-5596-4529-9B13-DA13A5DE5B63/ServiceTags_Public_20260518.json
+            # Note: Microsoft rotates the dated ServiceTags_Public_YYYYMMDD.json file
+            # weekly. The undated URL below is the stable redirect target; if the
+            # operator mirrors internally, the mirror should follow the weekly
+            # rotation.
+            Url: https://download.microsoft.com/download/7/1/D/71D86715-5596-4529-9B13-DA13A5DE5B63/ServiceTags_Public.json
             Format: azure-json
           gcp:
             Enabled: true

@@ -43,6 +43,21 @@ public sealed class ThreatIntelOptions
     /// </summary>
     public int StaggerWindowSeconds { get; set; } = 300;
 
+    /// <summary>
+    ///     Bounded Channel capacity for the live-provider enrichment queue. Older
+    ///     entries get dropped under DropOldest when the queue is full. Sized for the
+    ///     "first request from each unique IP" volume the contributor enqueues; raise
+    ///     this if the dashboard reports sustained dropped count.
+    /// </summary>
+    public int EnrichmentQueueCapacity { get; set; } = 500;
+
+    /// <summary>
+    ///     Per-subject hard cap on live-provider enrichment. The enrichment service
+    ///     cancels a vendor fetch this long after picking it off the queue. Should
+    ///     comfortably exceed the slowest reasonable vendor latency.
+    /// </summary>
+    public int EnrichmentTimeoutSeconds { get; set; } = 10;
+
     /// <summary>Per-provider option blocks.</summary>
     public ThreatIntelProviderOptions Providers { get; set; } = new();
 }

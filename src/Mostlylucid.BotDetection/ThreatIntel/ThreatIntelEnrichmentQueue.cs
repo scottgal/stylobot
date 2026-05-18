@@ -1,6 +1,8 @@
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.ThreatIntel;
 
@@ -18,16 +20,21 @@ namespace Mostlylucid.BotDetection.ThreatIntel;
 /// </summary>
 public sealed class ThreatIntelEnrichmentQueue
 {
-    private readonly Channel<ThreatSubject> _channel = Channel.CreateBounded<ThreatSubject>(
-        new BoundedChannelOptions(500)
-        {
-            FullMode = BoundedChannelFullMode.DropOldest,
-            SingleReader = true,
-            SingleWriter = false
-        });
-
+    private readonly Channel<ThreatSubject> _channel;
     private long _enqueued;
     private long _dropped;
+
+    public ThreatIntelEnrichmentQueue(IOptions<BotDetectionOptions> options)
+    {
+        var capacity = Math.Max(1, options.Value.ThreatIntel.EnrichmentQueueCapacity);
+        _channel = Channel.CreateBounded<ThreatSubject>(
+            new BoundedChannelOptions(capacity)
+            {
+                FullMode = BoundedChannelFullMode.DropOldest,
+                SingleReader = true,
+                SingleWriter = false
+            });
+    }
 
     /// <summary>Approximate depth at the moment of the call.</summary>
     public int Depth => _channel.Reader.Count;
@@ -67,14 +74,17 @@ internal sealed class ThreatIntelEnrichmentService : BackgroundService
     private readonly ThreatIntelEnrichmentQueue _queue;
     private readonly IThreatIntelCoordinator _coordinator;
     private readonly ILogger<ThreatIntelEnrichmentService> _logger;
+    private readonly TimeSpan _perSubjectTimeout;
 
     public ThreatIntelEnrichmentService(
         ThreatIntelEnrichmentQueue queue,
         IThreatIntelCoordinator coordinator,
+        IOptions<BotDetectionOptions> options,
         ILogger<ThreatIntelEnrichmentService> logger)
     {
         _queue = queue;
         _coordinator = coordinator;
+        _perSubjectTimeout = TimeSpan.FromSeconds(Math.Max(1, options.Value.ThreatIntel.EnrichmentTimeoutSeconds));
         _logger = logger;
     }
 
@@ -93,7 +103,9 @@ internal sealed class ThreatIntelEnrichmentService : BackgroundService
             return;
         }
 
-        _logger.LogInformation("ThreatIntelEnrichmentService started (queue capacity=500, single-reader)");
+        _logger.LogInformation(
+            "ThreatIntelEnrichmentService started (per-subject cap={Timeout}, single-reader)",
+            _perSubjectTimeout);
 
         try
         {
@@ -102,12 +114,14 @@ internal sealed class ThreatIntelEnrichmentService : BackgroundService
                 try
                 {
                     using var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-                    cts.CancelAfter(TimeSpan.FromSeconds(10));   // per-subject hard cap
+                    cts.CancelAfter(_perSubjectTimeout);
                     await _coordinator.EnrichAsync(subject, cts.Token);
                 }
                 catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
                 {
-                    _logger.LogDebug("ThreatIntel enrichment for {Subject} timed out (10s cap)", subject);
+                    _logger.LogDebug(
+                        "ThreatIntel enrichment for {Subject} timed out ({Timeout} cap)",
+                        subject, _perSubjectTimeout);
                 }
                 catch (Exception ex)
                 {

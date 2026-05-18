@@ -149,9 +149,39 @@ internal sealed class ThreatIntelRefreshService : BackgroundService
         }
         catch (Exception ex)
         {
+            // Loops are restarted with exponential backoff so a single bad day at
+            // an upstream feed doesn't permanently silence the provider until
+            // host restart. Cap restart delay at 1 hour. Provider's RefreshAsync
+            // has its own catch-and-log so most failures don't reach this handler;
+            // an exception making it here is something the inner try/catch missed
+            // (e.g. an OOM, a contract violation in the parser).
             _logger.LogError(ex,
-                "Threat-intel refresh loop for {Provider} crashed; loop will not restart until host restart",
+                "Threat-intel refresh loop for {Provider} crashed; restarting with backoff",
                 provider.Name);
+
+            var backoff = TimeSpan.FromSeconds(30);
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(backoff, ct);
+                    await provider.RefreshAsync(subject: null, ct);
+                    // First successful refresh after a crash: resume normal cadence.
+                    await RunLoopAsync(provider, TimeSpan.Zero, ct);
+                    return;
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception inner)
+                {
+                    backoff = TimeSpan.FromTicks(Math.Min(TimeSpan.FromHours(1).Ticks, backoff.Ticks * 2));
+                    _logger.LogWarning(inner,
+                        "Threat-intel refresh loop for {Provider} still failing; next attempt in {Backoff}",
+                        provider.Name, backoff);
+                }
+            }
         }
     }
 }

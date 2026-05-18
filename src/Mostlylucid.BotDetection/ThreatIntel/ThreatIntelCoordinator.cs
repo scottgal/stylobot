@@ -21,8 +21,26 @@ internal sealed class ThreatIntelCoordinator : IThreatIntelCoordinator
         ILogger<ThreatIntelCoordinator> logger)
     {
         _providers = providers?.ToArray() ?? [];
-        _enabled = options.Value.ThreatIntel.Enabled && _providers.Count > 0;
+        var ti = options.Value.ThreatIntel;
+        _enabled = ti.Enabled && _providers.Count > 0;
         _logger = logger;
+
+        // PrivacyMode is config-surface for a guarantee no provider currently
+        // implements. An operator setting redacted-ip / hash / offline-only would
+        // expect raw IPs not to leave the host, but the live provider base has no
+        // hook for it yet. Fail loud at startup so the compliance assumption is
+        // never silently broken. Drop this check when live providers actually
+        // honour the mode.
+        if (_enabled
+            && ti.PrivacyMode != ThreatIntelPrivacyMode.Ip
+            && _providers.Any(p => p.Mode == ThreatIntelMode.Live))
+        {
+            throw new NotSupportedException(
+                $"BotDetection:ThreatIntel:PrivacyMode = {ti.PrivacyMode} is configured but no live " +
+                "provider currently honours it; raw IPs would still be sent to vendor APIs. Either " +
+                "set PrivacyMode=Ip, disable all live providers, or upgrade to a build that " +
+                "implements the requested mode.");
+        }
     }
 
     public bool IsEnabled => _enabled;

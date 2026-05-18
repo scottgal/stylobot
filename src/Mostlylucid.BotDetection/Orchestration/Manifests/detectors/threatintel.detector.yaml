@@ -67,6 +67,10 @@ emits:
   - threatintel.providers_hit
   - threatintel.tor
   - threatintel.kev_match
+  - intel.classes              # semicolon-joined IntelligenceSignalClass names
+  - intel.hard_gate            # intel hit + sensitive endpoint (one bool for transitions)
+  - endpoint.risk              # Static | Normal | Sensitive
+  - endpoint.risk_sensitive    # bool shortcut
 
 triggers: []  # Wave 0; no signal triggers
 

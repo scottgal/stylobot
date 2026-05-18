@@ -98,6 +98,21 @@ public class ThreatIntelLiveProviderBaseTests
         Assert.Equal(2, status.CacheSize);
     }
 
+    [Fact]
+    public async Task Breaker_NeedsMinSampleSizeBeforeTripping()
+    {
+        // 4 failures is below the min-sample floor of 5; breaker stays closed.
+        var p = new TestProvider(quota: 100) { ThrowEveryFetch = true };
+        for (var i = 0; i < 4; i++)
+            await p.RefreshAsync(new ThreatSubject(ThreatSubjectType.Ip, $"1.0.0.{i}"), default);
+
+        Assert.Null(p.GetStatus().BreakerOpenUntilUtc);
+
+        // 5th failure crosses the floor and trips it.
+        await p.RefreshAsync(new ThreatSubject(ThreatSubjectType.Ip, "1.0.0.99"), default);
+        Assert.NotNull(p.GetStatus().BreakerOpenUntilUtc);
+    }
+
     private sealed class TestProvider : ThreatIntelLiveProviderBase
     {
         public int FetchCalls;

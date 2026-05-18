@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.Services;
 
 namespace Mostlylucid.BotDetection.ThreatIntel;
 
@@ -26,7 +27,10 @@ internal abstract class ThreatIntelLiveProviderBase : IThreatIntelProvider
 {
     private readonly HttpClient _http;
     private readonly ILogger _logger;
-    private readonly ConcurrentDictionary<string, CachedVerdict> _cache = new(StringComparer.Ordinal);
+    // BoundedCache: caps memory at MaxCacheEntries with LRU eviction, TTL-evicts
+    // expired entries on get. Was previously an unbounded ConcurrentDictionary
+    // which would grow O(unique IPs) under scanning traffic.
+    private readonly BoundedCache<string, ThreatIntelVerdict> _cache;
     private readonly ConcurrentDictionary<string, Task<ThreatIntelVerdict?>> _inFlight = new(StringComparer.Ordinal);
 
     // Quota state. _quotaDateUtc is the wall-clock date the counter applies to;
@@ -35,18 +39,28 @@ internal abstract class ThreatIntelLiveProviderBase : IThreatIntelProvider
     private DateTime _quotaDateUtc = DateTime.UtcNow.Date;
     private int _quotaUsed;
 
-    // Circuit-breaker state. _errorTimestamps holds the start-of-minute timestamp
-    // for each error in the trailing window; over-threshold trips _breakerOpenUntil.
+    // Circuit-breaker state. Both queues hold timestamps for the trailing window;
+    // _attemptTimestamps is the denominator, _errorTimestamps the numerator. They
+    // get trimmed together on every recorded attempt so the error-rate computation
+    // sees only attempts within the last BreakerWindow.
     private readonly object _breakerLock = new();
+    private readonly Queue<DateTime> _attemptTimestamps = new();
     private readonly Queue<DateTime> _errorTimestamps = new();
-    private int _attemptsInWindow;
     private DateTime _breakerOpenUntil = DateTime.MinValue;
 
     protected ThreatIntelLiveProviderBase(HttpClient http, ILogger logger)
     {
         _http = http;
         _logger = logger;
+        _cache = new BoundedCache<string, ThreatIntelVerdict>(maxSize: MaxCacheEntries, defaultTtl: CacheTtl);
     }
+
+    /// <summary>
+    ///     Cap on the per-subject result cache. Default 10k; under scanning traffic
+    ///     with rotating IPs this puts a hard ceiling on memory growth. LRU eviction
+    ///     handled by <see cref="BoundedCache{TKey, TValue}"/>.
+    /// </summary>
+    protected virtual int MaxCacheEntries => 10_000;
 
     public abstract string Name { get; }
     public ThreatIntelMode Mode => ThreatIntelMode.Live;
@@ -82,10 +96,7 @@ internal abstract class ThreatIntelLiveProviderBase : IThreatIntelProvider
     public ThreatIntelVerdict? TryLookup(ThreatSubject subject)
     {
         if (!SupportedSubjects.Contains(subject.Type)) return null;
-        if (!_cache.TryGetValue(subject.Value, out var entry)) return null;
-        // ExpiresUtc on the cached verdict is checked by the coordinator on read;
-        // the cache itself just stores what FetchAsync produced.
-        return entry.Verdict;
+        return _cache.TryGet(subject.Value, out var verdict) ? verdict : null;
     }
 
     public async Task RefreshAsync(ThreatSubject? subject, CancellationToken cancellationToken)
@@ -114,7 +125,7 @@ internal abstract class ThreatIntelLiveProviderBase : IThreatIntelProvider
             var verdict = await task;
             if (verdict is not null)
             {
-                _cache[key] = new CachedVerdict(verdict, DateTime.UtcNow.Add(CacheTtl));
+                _cache.Set(key, verdict, CacheTtl);
             }
             _lastSuccessfulFetchUtc = DateTime.UtcNow;
             // Successful refresh: record the attempt for the breaker but no error.
@@ -166,33 +177,38 @@ internal abstract class ThreatIntelLiveProviderBase : IThreatIntelProvider
         lock (_breakerLock)
         {
             var now = DateTime.UtcNow;
-            // Trim window
-            var cutoff = now.AddMinutes(-1);
+            var cutoff = now.Subtract(BreakerWindow);
+
+            // Both queues hold ordered timestamps; trim everything older than the window.
+            while (_attemptTimestamps.Count > 0 && _attemptTimestamps.Peek() < cutoff)
+                _attemptTimestamps.Dequeue();
             while (_errorTimestamps.Count > 0 && _errorTimestamps.Peek() < cutoff)
                 _errorTimestamps.Dequeue();
-            _attemptsInWindow = Math.Max(_attemptsInWindow, _errorTimestamps.Count);
-            // Bump attempts counter (reset every minute via Min on next pass below)
-            _attemptsInWindow++;
+
+            _attemptTimestamps.Enqueue(now);
             if (error) _errorTimestamps.Enqueue(now);
 
-            // Breaker decision: need at least 5 attempts in the window to evaluate
-            // rate (otherwise a single error spikes 100%). Spec calls this out as
-            // a defence against premature trips on low traffic.
-            if (_attemptsInWindow >= 5 && _errorTimestamps.Count > 0)
+            // Need a minimum sample size before computing a rate - a single error in
+            // a 1-attempt window spikes 100% and would trip every breaker on the
+            // first vendor hiccup. 5 attempts is the floor.
+            if (_attemptTimestamps.Count >= 5 && _errorTimestamps.Count > 0)
             {
-                var rate = (double)_errorTimestamps.Count / _attemptsInWindow;
+                var rate = (double)_errorTimestamps.Count / _attemptTimestamps.Count;
                 if (rate >= BreakerErrorRate)
                 {
                     _breakerOpenUntil = now.Add(BreakerOpenDuration);
                     _logger.LogWarning(
-                        "{Provider}: circuit breaker OPEN until {Until:O} (error rate {Rate:P0} over last minute)",
-                        Name, _breakerOpenUntil, rate);
+                        "{Provider}: circuit breaker OPEN until {Until:O} (error rate {Rate:P0} over last {Window:F0}s)",
+                        Name, _breakerOpenUntil, rate, BreakerWindow.TotalSeconds);
+                    _attemptTimestamps.Clear();
                     _errorTimestamps.Clear();
-                    _attemptsInWindow = 0;
                 }
             }
         }
     }
+
+    /// <summary>Rolling window for the breaker's error-rate computation.</summary>
+    protected virtual TimeSpan BreakerWindow => TimeSpan.FromMinutes(1);
 
     /// <summary>Quota + breaker diagnostics for dashboards. Returns a snapshot, no lock held by the caller.</summary>
     public ProviderStatus GetStatus()
@@ -204,6 +220,11 @@ internal abstract class ThreatIntelLiveProviderBase : IThreatIntelProvider
         int errorsInWindow;
         lock (_breakerLock)
         {
+            // Trim before snapshotting so the dashboard sees the live window, not
+            // accumulated history from before the last refresh tick.
+            var cutoff = DateTime.UtcNow.Subtract(BreakerWindow);
+            while (_errorTimestamps.Count > 0 && _errorTimestamps.Peek() < cutoff)
+                _errorTimestamps.Dequeue();
             openUntil = _breakerOpenUntil;
             errorsInWindow = _errorTimestamps.Count;
         }
@@ -223,5 +244,4 @@ internal abstract class ThreatIntelLiveProviderBase : IThreatIntelProvider
         };
     }
 
-    private sealed record CachedVerdict(ThreatIntelVerdict Verdict, DateTime ExpiresUtc);
 }
