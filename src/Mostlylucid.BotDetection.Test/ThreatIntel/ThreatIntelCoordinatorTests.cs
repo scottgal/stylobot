@@ -136,5 +136,13 @@ public class ThreatIntelCoordinatorTests
             Interlocked.Increment(ref RefreshCalls);
             return Task.CompletedTask;
         }
+
+        public ProviderStatus GetStatus() => new()
+        {
+            Provider = Name,
+            Mode = Mode,
+            Enabled = true,
+            RefreshInterval = RefreshInterval
+        };
     }
 }

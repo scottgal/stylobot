@@ -39,4 +39,50 @@ public interface IThreatIntelProvider
     ///     stale-cache situations and to compute the per-provider stagger offset.
     /// </summary>
     TimeSpan RefreshInterval { get; }
+
+    /// <summary>
+    ///     Diagnostic snapshot for dashboards. Allocation-light, no locks held by
+    ///     the caller, no I/O. Live providers populate quota + breaker fields;
+    ///     offline providers leave them at their defaults.
+    /// </summary>
+    ProviderStatus GetStatus();
+}
+
+/// <summary>
+///     Unified per-provider snapshot for the dashboard threat-intel tab. Both
+///     offline and live providers produce this shape; vendor-specific fields
+///     (quota, breaker) are optional and live providers fill them in.
+/// </summary>
+public sealed record ProviderStatus
+{
+    public required string Provider { get; init; }
+    public required ThreatIntelMode Mode { get; init; }
+    public required bool Enabled { get; init; }
+
+    /// <summary>Number of entries in the in-memory cache after the most recent refresh.</summary>
+    public int CacheSize { get; init; }
+
+    /// <summary>UTC timestamp of the last successful refresh, or null if never refreshed.</summary>
+    public DateTime? LastRefreshUtc { get; init; }
+
+    /// <summary>How often the refresh service plans to call <see cref="IThreatIntelProvider.RefreshAsync"/>.</summary>
+    public TimeSpan RefreshInterval { get; init; }
+
+    /// <summary>True when the most recent refresh failed (cache still serves the previous result).</summary>
+    public bool LastRefreshFailed { get; init; }
+
+    /// <summary>Live providers: per-UTC-day call counter.</summary>
+    public int QuotaUsed { get; init; }
+
+    /// <summary>Live providers: per-UTC-day cap. 0 = quota disabled / not applicable.</summary>
+    public int DailyQuota { get; init; }
+
+    /// <summary>Live providers: UTC date the quota counter applies to.</summary>
+    public DateTime? QuotaDateUtc { get; init; }
+
+    /// <summary>Live providers: when the circuit breaker opens until (past = closed).</summary>
+    public DateTime? BreakerOpenUntilUtc { get; init; }
+
+    /// <summary>Live providers: errors in the last 1-minute window.</summary>
+    public int ErrorsInWindow { get; init; }
 }

@@ -53,6 +53,11 @@ internal abstract class ThreatIntelLiveProviderBase : IThreatIntelProvider
     public abstract IReadOnlySet<ThreatSubjectType> SupportedSubjects { get; }
     public abstract TimeSpan RefreshInterval { get; }
 
+    /// <summary>Whether this provider is enabled in config. Concrete providers override.</summary>
+    protected virtual bool IsConfiguredEnabled => true;
+
+    private DateTime _lastSuccessfulFetchUtc;
+
     /// <summary>How long a successful verdict remains in the read cache.</summary>
     protected virtual TimeSpan CacheTtl => TimeSpan.FromHours(6);
 
@@ -111,6 +116,7 @@ internal abstract class ThreatIntelLiveProviderBase : IThreatIntelProvider
             {
                 _cache[key] = new CachedVerdict(verdict, DateTime.UtcNow.Add(CacheTtl));
             }
+            _lastSuccessfulFetchUtc = DateTime.UtcNow;
             // Successful refresh: record the attempt for the breaker but no error.
             RecordAttempt(error: false);
         }
@@ -189,7 +195,7 @@ internal abstract class ThreatIntelLiveProviderBase : IThreatIntelProvider
     }
 
     /// <summary>Quota + breaker diagnostics for dashboards. Returns a snapshot, no lock held by the caller.</summary>
-    public LiveProviderStatus GetStatus()
+    public ProviderStatus GetStatus()
     {
         int used;
         DateTime quotaDate;
@@ -201,29 +207,21 @@ internal abstract class ThreatIntelLiveProviderBase : IThreatIntelProvider
             openUntil = _breakerOpenUntil;
             errorsInWindow = _errorTimestamps.Count;
         }
-        return new LiveProviderStatus(
-            Provider: Name,
-            QuotaUsed: used,
-            DailyQuota: DailyQuota,
-            QuotaDateUtc: quotaDate,
-            CacheSize: _cache.Count,
-            BreakerOpenUntilUtc: openUntil,
-            ErrorsInWindow: errorsInWindow);
+        return new ProviderStatus
+        {
+            Provider = Name,
+            Mode = ThreatIntelMode.Live,
+            Enabled = IsConfiguredEnabled,
+            CacheSize = _cache.Count,
+            LastRefreshUtc = _lastSuccessfulFetchUtc == default ? null : _lastSuccessfulFetchUtc,
+            RefreshInterval = RefreshInterval,
+            QuotaUsed = used,
+            DailyQuota = DailyQuota,
+            QuotaDateUtc = quotaDate,
+            BreakerOpenUntilUtc = openUntil == default ? null : openUntil,
+            ErrorsInWindow = errorsInWindow
+        };
     }
 
     private sealed record CachedVerdict(ThreatIntelVerdict Verdict, DateTime ExpiresUtc);
 }
-
-/// <summary>
-///     Per-provider snapshot used by the dashboard's threat-intel tab. Surfaced
-///     by <see cref="ThreatIntelLiveProviderBase.GetStatus"/>; offline providers
-///     don't expose this (they don't have quota / breaker state).
-/// </summary>
-public sealed record LiveProviderStatus(
-    string Provider,
-    int QuotaUsed,
-    int DailyQuota,
-    DateTime QuotaDateUtc,
-    int CacheSize,
-    DateTime BreakerOpenUntilUtc,
-    int ErrorsInWindow);

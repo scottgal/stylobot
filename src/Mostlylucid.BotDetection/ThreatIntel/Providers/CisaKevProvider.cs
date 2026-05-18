@@ -40,6 +40,18 @@ internal sealed class CisaKevProvider : IThreatIntelProvider
     public ThreatIntelMode Mode => ThreatIntelMode.Offline;
     public IReadOnlySet<ThreatSubjectType> SupportedSubjects { get; } = new HashSet<ThreatSubjectType> { ThreatSubjectType.Cve };
     public TimeSpan RefreshInterval => TimeSpan.FromHours(_options.RefreshHours);
+    private bool _lastRefreshFailed;
+
+    public ProviderStatus GetStatus() => new()
+    {
+        Provider = Name,
+        Mode = Mode,
+        Enabled = _options.Enabled,
+        CacheSize = _cache?.Count ?? 0,
+        LastRefreshUtc = _lastRefreshUtc == default ? null : _lastRefreshUtc,
+        RefreshInterval = RefreshInterval,
+        LastRefreshFailed = _lastRefreshFailed
+    };
 
     public ThreatIntelVerdict? TryLookup(ThreatSubject subject)
     {
@@ -86,12 +98,14 @@ internal sealed class CisaKevProvider : IThreatIntelProvider
             }
             _cache = dict.ToFrozenDictionary(StringComparer.OrdinalIgnoreCase);
             _lastRefreshUtc = DateTime.UtcNow;
+            _lastRefreshFailed = false;
             _logger.LogInformation("{Provider}: loaded {Count} KEV entries (catalog {Version})",
                 Name, _cache.Count, catalog.CatalogVersion ?? "?");
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
+            _lastRefreshFailed = true;
             _logger.LogWarning(ex,
                 "{Provider}: refresh failed; keeping previous cache ({Count} entries, last refreshed {LastRefresh:O})",
                 Name, _cache?.Count ?? 0, _lastRefreshUtc);

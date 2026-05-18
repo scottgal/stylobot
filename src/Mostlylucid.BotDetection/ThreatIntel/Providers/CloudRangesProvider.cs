@@ -44,6 +44,24 @@ internal sealed class CloudRangesProvider : IThreatIntelProvider
     public IReadOnlySet<ThreatSubjectType> SupportedSubjects { get; } = new HashSet<ThreatSubjectType> { ThreatSubjectType.Ip };
     public TimeSpan RefreshInterval => TimeSpan.FromHours(_options.RefreshHours);
 
+    public ProviderStatus GetStatus()
+    {
+        var caches = _caches;
+        var total = caches?.Sum(c => c.Cache.Count) ?? 0;
+        return new ProviderStatus
+        {
+            Provider = Name,
+            Mode = Mode,
+            Enabled = _options.Enabled,
+            CacheSize = total,
+            LastRefreshUtc = _lastRefreshUtc == default ? null : _lastRefreshUtc,
+            RefreshInterval = RefreshInterval
+            // No per-source last-failed flag; CloudRanges already logs per-source failures
+            // and preserves prior caches per-vendor, so a single failure isn't load-bearing
+            // for the dashboard.
+        };
+    }
+
     public ThreatIntelVerdict? TryLookup(ThreatSubject subject)
     {
         if (subject.Type != ThreatSubjectType.Ip) return null;

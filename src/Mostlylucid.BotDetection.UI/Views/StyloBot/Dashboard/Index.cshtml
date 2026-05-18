@@ -231,6 +231,7 @@
             <a href="@TabUrl("identities")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("identities")">Identities</a>
             <a href="@TabUrl("clusters")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("clusters")">Clusters</a>
             <a href="@TabUrl("threats")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("threats")">Threats</a>
+            <a href="@TabUrl("threat-intel")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("threat-intel")">Threat Intel</a>
             <a href="@TabUrl("useragents")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("useragents")">User Agents</a>
             <a href="@TabUrl("routes")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("routes")">Routes</a>
             @foreach (var pack in Model.MonitoringPacks)
@@ -411,6 +412,10 @@
         else if (tab == "threats")
         {
             <sb-threats-list />
+        }
+        else if (tab == "threat-intel")
+        {
+            <sb-threat-intel-tab />
         }
         else if (tab == "useragents")
         {

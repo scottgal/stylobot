@@ -63,7 +63,8 @@ public class ThreatIntelLiveProviderBaseTests
 
         // GetStatus surfaces the open-until timestamp.
         var status = p.GetStatus();
-        Assert.True(status.BreakerOpenUntilUtc > DateTime.UtcNow);
+        Assert.NotNull(status.BreakerOpenUntilUtc);
+        Assert.True(status.BreakerOpenUntilUtc!.Value > DateTime.UtcNow);
     }
 
     [Fact]

@@ -1,0 +1,123 @@
+@using Mostlylucid.BotDetection.ThreatIntel
+@using Mostlylucid.BotDetection.UI.ViewComponents.Dashboard
+@model ThreatIntelTabModel
+@{
+    string ModeLabel(ThreatIntelMode m) => m switch
+    {
+        ThreatIntelMode.Live => "Live (API)",
+        _ => "Offline (feed)"
+    };
+
+    string EnabledColour(bool enabled) =>
+        enabled ? "var(--sb-color-success, #22c55e)" : "var(--sb-card-fg)";
+
+    string Ago(DateTime? utc)
+    {
+        if (utc is null) return "never";
+        var d = DateTime.UtcNow - utc.Value;
+        if (d.TotalSeconds < 60) return $"{(int)d.TotalSeconds}s ago";
+        if (d.TotalMinutes < 60) return $"{(int)d.TotalMinutes}m ago";
+        if (d.TotalHours < 48) return $"{(int)d.TotalHours}h ago";
+        return $"{(int)d.TotalDays}d ago";
+    }
+}
+<div id="threat-intel-tab" data-sb-widget="threat-intel">
+
+    <div class="text-[10px] font-semibold text-base-content/50 uppercase tracking-wider mb-3">Threat Intel</div>
+
+    @if (!Model.IsEnabled)
+    {
+        <div class="rounded-lg p-4 mb-4" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-sm font-semibold mb-1">Threat intel disabled</div>
+            <div class="text-xs text-base-content/60">
+                Set <code class="text-[11px] px-1 py-0.5 rounded bg-base-300/50">BotDetection:ThreatIntel:Enabled = true</code>
+                and turn on individual providers under
+                <code class="text-[11px] px-1 py-0.5 rounded bg-base-300/50">BotDetection:ThreatIntel:Providers:&lt;name&gt;:Enabled</code>.
+                See <code class="text-[11px] px-1 py-0.5 rounded bg-base-300/50">docs/architecture/threat-intel.md</code>.
+            </div>
+        </div>
+    }
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-[10px] text-base-content/50">Providers registered</div>
+            <div class="text-xl font-bold">@Model.Providers.Count</div>
+        </div>
+        <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-[10px] text-base-content/50">Enabled</div>
+            <div class="text-xl font-bold" style="color: @EnabledColour(Model.EnabledCount > 0)">@Model.EnabledCount</div>
+        </div>
+        <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-[10px] text-base-content/50">Offline / Live</div>
+            <div class="text-xl font-bold">@Model.OfflineCount / @Model.LiveCount</div>
+        </div>
+        <div class="p-3 rounded-lg" style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
+            <div class="text-[10px] text-base-content/50">Failed last refresh</div>
+            <div class="text-xl font-bold" style="color: @(Model.FailedCount > 0 ? "var(--sb-color-danger, #ef4444)" : "var(--sb-card-fg)")">@Model.FailedCount</div>
+        </div>
+    </div>
+
+    <div class="rounded-xl border overflow-hidden mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        <div class="flex items-center px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
+            <span class="text-[10px] font-semibold text-base-content/70">PROVIDERS</span>
+        </div>
+        <table class="w-full text-xs">
+            <thead>
+                <tr class="text-left text-[10px] text-base-content/50 uppercase">
+                    <th class="px-3 py-2">Provider</th>
+                    <th class="px-3 py-2">Mode</th>
+                    <th class="px-3 py-2">Enabled</th>
+                    <th class="px-3 py-2 text-right">Cache</th>
+                    <th class="px-3 py-2">Last refresh</th>
+                    <th class="px-3 py-2">Interval</th>
+                    <th class="px-3 py-2 text-right">Quota</th>
+                    <th class="px-3 py-2">Breaker</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var p in Model.Providers)
+                {
+                    <tr class="border-t" style="border-color: var(--sb-card-divider);">
+                        <td class="px-3 py-2 font-mono">@p.Provider</td>
+                        <td class="px-3 py-2">@ModeLabel(p.Mode)</td>
+                        <td class="px-3 py-2" style="color: @EnabledColour(p.Enabled)">@(p.Enabled ? "on" : "off")</td>
+                        <td class="px-3 py-2 text-right tabular-nums">@p.CacheSize.ToString("N0")</td>
+                        <td class="px-3 py-2">
+                            @Ago(p.LastRefreshUtc)
+                            @if (p.LastRefreshFailed)
+                            {
+                                <span class="ml-1 text-[10px] px-1 py-0.5 rounded bg-error/20 text-error">FAILED</span>
+                            }
+                        </td>
+                        <td class="px-3 py-2 text-base-content/60">
+                            @if (p.RefreshInterval.TotalMinutes < 60)
+                            { @($"{p.RefreshInterval.TotalMinutes:F0}m") }
+                            else
+                            { @($"{p.RefreshInterval.TotalHours:F0}h") }
+                        </td>
+                        <td class="px-3 py-2 text-right tabular-nums">
+                            @if (p.Mode == ThreatIntelMode.Live && p.DailyQuota > 0)
+                            { @($"{p.QuotaUsed}/{p.DailyQuota}") }
+                            else
+                            { <span class="text-base-content/30">—</span> }
+                        </td>
+                        <td class="px-3 py-2">
+                            @if (p.Mode != ThreatIntelMode.Live)
+                            { <span class="text-base-content/30">—</span> }
+                            else if (p.BreakerOpenUntilUtc is { } o && o > DateTime.UtcNow)
+                            { <span class="text-[10px] px-1 py-0.5 rounded bg-error/20 text-error">OPEN @Ago(o)</span> }
+                            else
+                            { <span class="text-[10px] px-1 py-0.5 rounded bg-success/20 text-success">closed</span> }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="text-[10px] text-base-content/40">
+        Per-provider URLs, refresh cadence and quotas are configured under
+        <code class="px-1 py-0.5 rounded bg-base-300/50">BotDetection:ThreatIntel:Providers:&lt;name&gt;</code>.
+        FOSS default: every provider disabled, master switch off — operator opts in per-provider.
+    </div>
+</div>

@@ -26,6 +26,22 @@ internal abstract class ThreatIntelOfflineProviderBase : IThreatIntelProvider
     public IReadOnlySet<ThreatSubjectType> SupportedSubjects { get; } = new HashSet<ThreatSubjectType> { ThreatSubjectType.Ip };
     public abstract TimeSpan RefreshInterval { get; }
 
+    /// <summary>Whether this provider is enabled in config. Concrete providers override.</summary>
+    protected virtual bool IsConfiguredEnabled => true;
+
+    private bool _lastRefreshFailed;
+
+    public ProviderStatus GetStatus() => new()
+    {
+        Provider = Name,
+        Mode = ThreatIntelMode.Offline,
+        Enabled = IsConfiguredEnabled,
+        CacheSize = _cache?.Count ?? 0,
+        LastRefreshUtc = _lastRefreshUtc == default ? null : _lastRefreshUtc,
+        RefreshInterval = RefreshInterval,
+        LastRefreshFailed = _lastRefreshFailed
+    };
+
     /// <summary>Fully-qualified classification label for verdicts this provider emits.</summary>
     protected abstract string Classification { get; }
 
@@ -64,6 +80,7 @@ internal abstract class ThreatIntelOfflineProviderBase : IThreatIntelProvider
             var next = new IpCidrCache(cidrs);
             _cache = next;
             _lastRefreshUtc = DateTime.UtcNow;
+            _lastRefreshFailed = false;
             _logger.LogInformation(
                 "{Provider}: loaded {Count} CIDR entries", Name, next.Count);
         }
@@ -75,6 +92,7 @@ internal abstract class ThreatIntelOfflineProviderBase : IThreatIntelProvider
         {
             // Keep the previous cache. Coordinator surfaces age via the dashboard so
             // operators can spot stale intel.
+            _lastRefreshFailed = true;
             _logger.LogWarning(ex,
                 "{Provider}: refresh failed; keeping previous cache ({Count} entries, last refreshed {LastRefresh:O})",
                 Name, _cache?.Count ?? 0, _lastRefreshUtc);
