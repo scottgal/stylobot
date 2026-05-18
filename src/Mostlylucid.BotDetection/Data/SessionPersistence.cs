@@ -260,6 +260,35 @@ public interface ISessionStore
     /// <summary>Get a single signature by ID.</summary>
     Task<PersistedSignature?> GetSignatureAsync(string signatureId, CancellationToken ct = default);
 
+    /// <summary>
+    ///     Follow the merge-history chain for <paramref name="requestedSignatureId"/> to
+    ///     the current canonical signature id, or return the input unchanged if no merge
+    ///     row exists. Cycle-safe (caps chain depth) and case-sensitive.
+    ///     <para>
+    ///     Used by <c>/signature/{id}</c> route handlers to 301-redirect when a signature
+    ///     has been merged into another (e.g. when convergence absorbs a child into a
+    ///     parent identity, or a commercial labelling flow canonicalises siblings). The
+    ///     FOSS upstream doesn't currently emit destructive merges so the read path is
+    ///     almost always a no-op, but the resolver MUST exist upstream so future writers
+    ///     (commercial labelling, manual merges via dashboard) can populate the table and
+    ///     the FOSS UI will redirect correctly.
+    ///     </para>
+    /// </summary>
+    Task<string> ResolveSignatureAsync(string requestedSignatureId, CancellationToken ct = default);
+
+    /// <summary>
+    ///     Record that <paramref name="oldSignatureId"/> has been merged into
+    ///     <paramref name="newSignatureId"/>. Subsequent calls to
+    ///     <see cref="ResolveSignatureAsync"/> with the old id return the new one.
+    ///     Idempotent: re-recording the same pair updates the timestamp.
+    ///     <paramref name="reason"/> is operator-facing ("convergence", "manual", etc.).
+    /// </summary>
+    Task RecordSignatureMergeAsync(
+        string oldSignatureId,
+        string newSignatureId,
+        string reason,
+        CancellationToken ct = default);
+
     /// <summary>Get top signatures by session count.</summary>
     Task<List<PersistedSignature>> GetTopSignaturesAsync(int limit = 20, bool? isBot = null, CancellationToken ct = default);
 

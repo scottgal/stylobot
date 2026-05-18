@@ -4063,6 +4063,29 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
+        // Resolve through the merge-history chain BEFORE rendering. If the requested
+        // signature was merged into another (convergence absorb, commercial labelling
+        // flow), 301-redirect to the canonical URL. Without this, a featured signature
+        // like Googlebot whose id ever shifted would 404 because GetSignatureAsync would
+        // miss; with it, the URL stays linkable forever. No-op on the FOSS upstream
+        // because no writer populates signature_merges yet, but the resolver MUST exist
+        // upstream so future writers (commercial labelling, manual merges from the
+        // dashboard) cause the right behaviour here without any other change.
+        var resolverStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.ISessionStore>();
+        if (resolverStore is not null)
+        {
+            var canonical = await resolverStore.ResolveSignatureAsync(decodedSignature, context.RequestAborted);
+            if (!string.IsNullOrEmpty(canonical)
+                && !string.Equals(canonical, decodedSignature, StringComparison.Ordinal))
+            {
+                var redirectBase = _options.BasePath.TrimEnd('/');
+                context.Response.Redirect(
+                    $"{redirectBase}/signature/{Uri.EscapeDataString(canonical)}",
+                    permanent: true);
+                return;
+            }
+        }
+
         var basePath = _options.BasePath.TrimEnd('/');
         var navBasePath = string.IsNullOrEmpty(_options.NavBasePath) ? _options.BasePath : _options.NavBasePath;
         navBasePath = navBasePath.TrimEnd('/');

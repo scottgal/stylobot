@@ -58,6 +58,16 @@ internal sealed class RemoteSessionStore : ISessionStore
     public Task<PersistedSignature?> GetSignatureAsync(string signatureId, CancellationToken ct = default)
         => throw new NotSupportedException("Signature reads via session store run gateway-side.");
 
+    // The remote viewer doesn't have its own merge table - the gateway owns the merge
+    // history. Resolve is a passthrough (return the input unchanged); if the gateway's
+    // /api/v1/* surface ever exposes a resolve endpoint, swap this for the typed HTTP
+    // call. RecordSignatureMergeAsync is a write path and stays unsupported here.
+    public Task<string> ResolveSignatureAsync(string requestedSignatureId, CancellationToken ct = default)
+        => Task.FromResult(requestedSignatureId);
+
+    public Task RecordSignatureMergeAsync(string oldSignatureId, string newSignatureId, string reason, CancellationToken ct = default)
+        => throw new NotSupportedException("Signature merge writes are owned by the gateway.");
+
     public Task<List<PersistedSignature>> GetTopSignaturesAsync(int limit = 20, bool? isBot = null, CancellationToken ct = default)
         => throw new NotSupportedException("Top-signature reads run gateway-side.");
 

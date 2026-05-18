@@ -217,6 +217,20 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
                 updated_at      INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_intc_updated ON intent_centroids(updated_at);
+
+            -- Merge-history forwarding table. Each row says "old_signature_id has been
+            -- merged into new_signature_id". Read path (ResolveSignatureAsync) follows
+            -- the chain so dashboard URLs survive a signature being absorbed. The FOSS
+            -- upstream doesn't currently emit destructive merges; the table exists so
+            -- commercial labelling flows + future manual-merge dashboard actions can
+            -- populate it and the FOSS UI 301-redirects without any other change.
+            CREATE TABLE IF NOT EXISTS signature_merges (
+                old_signature_id TEXT PRIMARY KEY,
+                new_signature_id TEXT NOT NULL,
+                reason           TEXT NOT NULL DEFAULT 'unknown',
+                merged_at        TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_sigm_new ON signature_merges(new_signature_id);
         """;
         await cmd.ExecuteNonQueryAsync(ct);
 
@@ -716,6 +730,86 @@ public sealed class SqliteSessionStore : ISessionStore, IAsyncDisposable
         cmd.Parameters.AddWithValue("@id", signatureId);
         await using var reader = await cmd.ExecuteReaderAsync(ct);
         return await reader.ReadAsync(ct) ? ReadSignature(reader) : null;
+    }
+
+    // Hard cap on the merge-chain walk. Cycles shouldn't happen (writer-side validation
+    // would reject A→B if B→A already exists), but a runaway chain from a buggy writer
+    // must never spin the SQL connection forever. 32 hops is far beyond anything a real
+    // labelling flow would produce.
+    private const int MaxMergeChainDepth = 32;
+
+    public async Task<string> ResolveSignatureAsync(string requestedSignatureId, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(requestedSignatureId)) return requestedSignatureId;
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        var current = requestedSignatureId;
+        // Track visited ids to short-circuit any accidentally-introduced cycle (should
+        // never fire; writer-side check in RecordSignatureMergeAsync rejects the cycle-
+        // creating row, but defence in depth costs nothing on the read path).
+        var visited = new HashSet<string>(StringComparer.Ordinal) { current };
+        for (var hops = 0; hops < MaxMergeChainDepth; hops++)
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT new_signature_id FROM signature_merges WHERE old_signature_id = @id";
+            cmd.Parameters.AddWithValue("@id", current);
+            var next = (string?)await cmd.ExecuteScalarAsync(ct);
+            if (string.IsNullOrEmpty(next) || string.Equals(next, current, StringComparison.Ordinal))
+                return current;
+            if (!visited.Add(next))
+            {
+                _logger.LogWarning(
+                    "Cycle detected in signature_merges starting at {Requested} (hit {Cycle} after {Hops} hops); returning last id before cycle",
+                    requestedSignatureId, next, hops);
+                return current;
+            }
+            current = next;
+        }
+        _logger.LogWarning(
+            "signature_merges chain for {Requested} exceeded {Max} hops; truncating at {Last}",
+            requestedSignatureId, MaxMergeChainDepth, current);
+        return current;
+    }
+
+    public async Task RecordSignatureMergeAsync(
+        string oldSignatureId, string newSignatureId, string reason, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(oldSignatureId) || string.IsNullOrEmpty(newSignatureId))
+            throw new ArgumentException("Both signature ids must be non-empty.");
+        if (string.Equals(oldSignatureId, newSignatureId, StringComparison.Ordinal))
+            throw new ArgumentException("Cannot merge a signature into itself.");
+
+        await EnsureInitializedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        // Cycle check: resolving the target must not lead back to the source. Without
+        // this, RecordSignatureMergeAsync("A","B") followed by RecordSignatureMergeAsync("B","A")
+        // would produce an infinite chain. Cheap check (typical depth = 1).
+        var targetResolved = await ResolveSignatureAsync(newSignatureId, ct);
+        if (string.Equals(targetResolved, oldSignatureId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Merging {oldSignatureId} into {newSignatureId} would create a cycle " +
+                $"(target already resolves to {oldSignatureId}).");
+        }
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO signature_merges (old_signature_id, new_signature_id, reason, merged_at)
+            VALUES (@old, @new, @reason, @merged_at)
+            ON CONFLICT(old_signature_id) DO UPDATE SET
+                new_signature_id = excluded.new_signature_id,
+                reason           = excluded.reason,
+                merged_at        = excluded.merged_at
+            """;
+        cmd.Parameters.AddWithValue("@old", oldSignatureId);
+        cmd.Parameters.AddWithValue("@new", newSignatureId);
+        cmd.Parameters.AddWithValue("@reason", string.IsNullOrEmpty(reason) ? "unknown" : reason);
+        cmd.Parameters.AddWithValue("@merged_at", DateTime.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync(ct);
     }
 
     public async Task<List<PersistedSignature>> GetTopSignaturesAsync(int limit = 20, bool? isBot = null, CancellationToken ct = default)
