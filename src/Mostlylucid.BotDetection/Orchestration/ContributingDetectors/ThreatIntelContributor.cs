@@ -24,16 +24,19 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 public class ThreatIntelContributor : ConfiguredContributorBase
 {
     private readonly IThreatIntelCoordinator _coordinator;
+    private readonly ThreatIntelEnrichmentQueue? _enrichmentQueue;
     private readonly ILogger<ThreatIntelContributor> _logger;
 
     public ThreatIntelContributor(
         ILogger<ThreatIntelContributor> logger,
         IDetectorConfigProvider configProvider,
-        IThreatIntelCoordinator coordinator)
+        IThreatIntelCoordinator coordinator,
+        ThreatIntelEnrichmentQueue? enrichmentQueue = null)
         : base(configProvider)
     {
         _logger = logger;
         _coordinator = coordinator;
+        _enrichmentQueue = enrichmentQueue;
     }
 
     public override string Name => "ThreatIntel";
@@ -59,8 +62,20 @@ public class ThreatIntelContributor : ConfiguredContributorBase
         // IP lookup (the bread-and-butter case).
         if (state.Signals.TryGetValue(SignalKeys.ClientIp, out var ipObj) && ipObj is string ip && !string.IsNullOrEmpty(ip))
         {
-            foreach (var v in _coordinator.Lookup(new ThreatSubject(ThreatSubjectType.Ip, ip)))
-                verdicts.Add(v);
+            var ipSubject = new ThreatSubject(ThreatSubjectType.Ip, ip);
+            var ipVerdicts = _coordinator.Lookup(ipSubject);
+            foreach (var v in ipVerdicts) verdicts.Add(v);
+
+            // Background-enrichment hook for live providers. Pure cache miss: if no
+            // live-provider verdict came back (could be cold cache OR no live providers
+            // registered) AND a live provider exists for this subject type, queue it.
+            // Next request to the same IP picks up the cached verdict synchronously.
+            // No-op when no live providers are configured (FOSS default).
+            if (_enrichmentQueue is not null && AnyLiveProviderSupports(ThreatSubjectType.Ip)
+                && !ipVerdicts.Any(v => IsLiveProvider(v.Provider)))
+            {
+                _enrichmentQueue.TryEnqueue(ipSubject);
+            }
         }
 
         // CVE lookup. CISA KEV provider answers here when CveProbe / CveFingerprint
@@ -101,6 +116,21 @@ public class ThreatIntelContributor : ConfiguredContributorBase
         }
 
         return Task.FromResult<IReadOnlyList<DetectionContribution>>(contributions);
+    }
+
+    private bool AnyLiveProviderSupports(ThreatSubjectType type)
+    {
+        foreach (var p in _coordinator.Providers)
+            if (p.Mode == ThreatIntelMode.Live && p.SupportedSubjects.Contains(type))
+                return true;
+        return false;
+    }
+
+    private bool IsLiveProvider(string providerName)
+    {
+        foreach (var p in _coordinator.Providers)
+            if (p.Name == providerName) return p.Mode == ThreatIntelMode.Live;
+        return false;
     }
 
     private static string? TryGetCveId(BlackboardState state)

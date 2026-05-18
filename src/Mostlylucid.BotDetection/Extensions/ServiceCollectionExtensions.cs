@@ -571,7 +571,9 @@ public static class ServiceCollectionExtensions
         // Operator opts in by flipping BotDetection:ThreatIntel:Enabled = true AND
         // enabling the providers they want. See docs/architecture/threat-intel.md.
         services.TryAddSingleton<ThreatIntel.IThreatIntelCoordinator, ThreatIntel.ThreatIntelCoordinator>();
+        services.TryAddSingleton<ThreatIntel.ThreatIntelEnrichmentQueue>();
         services.AddHostedService<ThreatIntel.ThreatIntelRefreshService>();
+        services.AddHostedService<ThreatIntel.ThreatIntelEnrichmentService>();
         services.AddHttpClient<ThreatIntel.Providers.SpamhausDropProvider>(c =>
         {
             c.Timeout = TimeSpan.FromSeconds(30);
