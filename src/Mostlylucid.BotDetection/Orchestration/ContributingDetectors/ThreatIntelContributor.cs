@@ -231,7 +231,7 @@ public class ThreatIntelContributor : ConfiguredContributorBase
             if (v.Confidence > maxConfidence) maxConfidence = v.Confidence;
             classifications.Add(v.Classification);
             providers.Add(v.Provider);
-            classes.Add(v.IntelligenceClass.ToString());
+            classes.Add(v.IntelligenceClass.ToWireString());
             if (v.Classification == "tor") torFlag = true;
             if (v.Classification == "kev" && cveId is not null) kevMatch = cveId;
             state.WriteSignal($"threatintel.{v.Provider}", v.Classification);

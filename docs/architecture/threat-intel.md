@@ -130,31 +130,18 @@ BotDetection:
       cloud-ranges:
         Enabled: false
         RefreshHours: 24
-        Sources:                  # one provider, per-vendor sources + URLs
-          aws:
-            Enabled: true
-            Url: https://ip-ranges.amazonaws.com/ip-ranges.json
-            Format: aws-json
-          azure:
-            Enabled: true
-            # Note: Microsoft rotates the dated ServiceTags_Public_YYYYMMDD.json file
-            # weekly. The undated URL below is the stable redirect target; if the
-            # operator mirrors internally, the mirror should follow the weekly
-            # rotation.
-            Url: https://download.microsoft.com/download/7/1/D/71D86715-5596-4529-9B13-DA13A5DE5B63/ServiceTags_Public.json
-            Format: azure-json
-          gcp:
-            Enabled: true
-            Url: https://www.gstatic.com/ipranges/cloud.json
-            Format: gcp-json
-          cloudflare:
-            Enabled: true
-            Url: https://www.cloudflare.com/ips-v4
-            Format: cidr-text
-          fastly:
-            Enabled: true
-            Url: https://api.fastly.com/public-ip-list
-            Format: fastly-json
+        # AWS / GCP / Azure / Cloudflare data comes from BotListFetcher's existing
+        # fetch (configure URLs under BotDetection:BotPatterns:DataSources:*). The
+        # Include* flags only control whether the data is exposed by THIS provider
+        # as a cloud:<vendor> classification.
+        IncludeAws: true
+        IncludeAzure: true
+        IncludeGcp: true
+        IncludeCloudflare: true
+        # Fastly isn't covered by BotListFetcher, so it's fetched directly.
+        Fastly:
+          Enabled: true
+          Url: https://api.fastly.com/public-ip-list
       greynoise:
         Enabled: false            # live: sends raw IP, requires opt-in
         ApiKey: ${GREYNOISE_API_KEY}
@@ -271,9 +258,9 @@ Two existing signals feed the KEV provider; no new CVE-extraction work needed:
 
 KEV provider does an exact lookup against either signal; on match, sets `threatintel.kev_match = <id>` and bumps `threatintel.score` to at least `kev_match_threat_floor` (default 0.7). GHSA-prefixed advisory ids are skipped (KEV is CVE-only).
 
-### Cloud-ranges provider: one for all, per-vendor config
+### Cloud-ranges provider: consume BotListFetcher for the shared four
 
-Single `CloudRangesProvider` with a per-vendor source list. Each vendor entry carries its own URL, parser kind, and enable flag. URLs are configurable so an operator running an internal mirror can point at it instead of fetching from the vendor directly.
+`BotListFetcher` already fetches AWS / GCP / Azure / Cloudflare ranges for the existing `request.ip.is_datacenter` signal. `CloudRangesProvider` consumes those via `IBotListFetcher.GetDatacenterIpRangesByVendorAsync` rather than re-fetching the same URLs in parallel. Fastly is the only cloud vendor `BotListFetcher` doesn't cover, so the provider fetches it directly.
 
 ```yaml
 ThreatIntel:
@@ -281,32 +268,18 @@ ThreatIntel:
     cloud-ranges:
       Enabled: false
       RefreshHours: 24
-      Sources:
-        aws:
-          Enabled: true
-          Url: https://ip-ranges.amazonaws.com/ip-ranges.json
-          Format: aws-json
-        azure:
-          Enabled: true
-          Url: https://download.microsoft.com/download/7/1/D/71D86715-5596-4529-9B13-DA13A5DE5B63/ServiceTags_Public_20260518.json
-          Format: azure-json
-        gcp:
-          Enabled: true
-          Url: https://www.gstatic.com/ipranges/cloud.json
-          Format: gcp-json
-        cloudflare:
-          Enabled: true
-          Url: https://www.cloudflare.com/ips-v4
-          Format: cidr-text
-        fastly:
-          Enabled: true
-          Url: https://api.fastly.com/public-ip-list
-          Format: fastly-json
+      IncludeAws: true        # surface AWS ranges as cloud:aws (data via BotListFetcher)
+      IncludeAzure: true      # surface Azure ranges as cloud:azure
+      IncludeGcp: true        # surface GCP ranges as cloud:gcp
+      IncludeCloudflare: true # surface Cloudflare ranges as cloud:cloudflare
+      Fastly:
+        Enabled: true
+        Url: https://api.fastly.com/public-ip-list
 ```
 
-`Format` selects the right parser internally; one provider class dispatches to the right format-handler per source. Lookup returns `cloud:<vendor>` (e.g. `cloud:aws`) as the classification so downstream signals can distinguish.
+URLs for the four shared vendors come from `BotDetection:BotPatterns:DataSources:*` (BotListFetcher's own config). To change a vendor URL or disable a vendor fetch, edit those settings - the change applies to both the existing datacenter-IP signal and this provider's classification. The `Include*` flags here only control whether each vendor's data is exposed by this provider as a `cloud:<vendor>` classification.
 
-Same shape applies to other multi-source providers (Spamhaus has DROP + EDROP URLs that should be configurable too).
+Lookup returns `cloud:<vendor>` (e.g. `cloud:aws`) as the classification + `IntelligenceClass = CloudInfrastructure` so the contributor knows this is identification, not malicious-network signal.
 
 ### Live-provider response shape (the "Huh?" question)
 

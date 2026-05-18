@@ -3,38 +3,46 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Models;
 
 namespace Mostlylucid.BotDetection.ThreatIntel.Providers;
 
 /// <summary>
-///     Aggregated cloud-provider IP-range lookup. One provider, per-vendor
-///     <see cref="CloudRangesOptions.Sources"/> config; classification returned
-///     as <c>cloud:&lt;vendor&gt;</c> (e.g. <c>cloud:aws</c>) so downstream
-///     consumers can distinguish without parsing the metadata.
+///     Aggregated cloud-provider IP-range lookup. Returns <c>cloud:&lt;vendor&gt;</c>
+///     classifications so downstream consumers can distinguish vendor identification
+///     from generic threat-intel.
 ///
-///     <para>Each source has its own URL + parser format - operators running an
-///     internal mirror can re-point any single vendor without touching the
-///     others. Format dispatch is per-source so adding a new cloud (say
-///     <c>oracle-json</c>) is a small parser-handler addition.</para>
+///     <para>For AWS / GCP / Azure / Cloudflare the provider <em>consumes</em>
+///     <see cref="IBotListFetcher.GetDatacenterIpRangesByVendorAsync"/> rather than
+///     re-fetching the upstream URLs - those are already pulled by
+///     <c>BotListUpdateService</c> for the <c>request.ip.is_datacenter</c> signal,
+///     and the duplicate fetch would have served no purpose. Fastly is the one
+///     vendor BotListFetcher doesn't cover, so this provider fetches it directly.</para>
+///
+///     <para>To change URLs / disable individual vendors for the four shared
+///     sources, edit <c>BotDetection:BotPatterns:DataSources:*</c> - those flags
+///     govern both BotListFetcher's existing detection use and this provider's
+///     classification use.</para>
 /// </summary>
 internal sealed class CloudRangesProvider : IThreatIntelProvider
 {
     private readonly HttpClient _http;
+    private readonly IBotListFetcher _botList;
     private readonly CloudRangesOptions _options;
     private readonly ILogger<CloudRangesProvider> _logger;
 
-    // Per-vendor caches. Classification is determined by which vendor's cache
-    // produced the hit, so we can't collapse this into a single shared cache.
     private volatile List<(string Vendor, IpCidrCache Cache)>? _caches;
     private DateTime _lastRefreshUtc;
 
     public CloudRangesProvider(
         HttpClient http,
+        IBotListFetcher botList,
         IOptions<BotDetectionOptions> options,
         ILogger<CloudRangesProvider> logger)
     {
         _http = http;
+        _botList = botList;
         _options = options.Value.ThreatIntel.Providers.CloudRanges;
         _logger = logger;
     }
@@ -56,9 +64,6 @@ internal sealed class CloudRangesProvider : IThreatIntelProvider
             CacheSize = total,
             LastRefreshUtc = _lastRefreshUtc == default ? null : _lastRefreshUtc,
             RefreshInterval = RefreshInterval
-            // No per-source last-failed flag; CloudRanges already logs per-source failures
-            // and preserves prior caches per-vendor, so a single failure isn't load-bearing
-            // for the dashboard.
         };
     }
 
@@ -76,7 +81,7 @@ internal sealed class CloudRangesProvider : IThreatIntelProvider
                 {
                     Provider = Name,
                     Classification = $"cloud:{vendor}",
-                    Confidence = 0.6,                       // identification, not maliciousness
+                    Confidence = 0.6,
                     IntelligenceClass = IntelligenceSignalClass.CloudInfrastructure,
                     ObservedUtc = _lastRefreshUtc,
                     ExpiresUtc = default,
@@ -89,127 +94,82 @@ internal sealed class CloudRangesProvider : IThreatIntelProvider
 
     public async Task RefreshAsync(ThreatSubject? subject, CancellationToken cancellationToken)
     {
-        var next = new List<(string, IpCidrCache)>(_options.Sources.Count);
-        foreach (var (vendor, source) in _options.Sources)
+        var next = new List<(string, IpCidrCache)>(5);
+
+        // 1. AWS / GCP / Azure / Cloudflare: read from BotListFetcher's cache.
+        // BotListUpdateService is already pulling these on its own schedule;
+        // re-fetching here would burn bandwidth for no extra coverage.
+        try
         {
-            if (!source.Enabled || string.IsNullOrEmpty(source.Url)) continue;
+            var byVendor = await _botList.GetDatacenterIpRangesByVendorAsync(cancellationToken);
+            foreach (var vendor in (string[])["aws", "gcp", "azure", "cloudflare"])
+            {
+                if (!IncludeVendor(vendor)) continue;
+                if (byVendor.TryGetValue(vendor, out var cidrs) && cidrs.Count > 0)
+                {
+                    next.Add((vendor, new IpCidrCache(cidrs)));
+                    _logger.LogInformation("{Provider}: loaded {Count} ranges for {Vendor} (via BotListFetcher)",
+                        Name, cidrs.Count, vendor);
+                }
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "{Provider}: BotListFetcher fetch failed; preserving any prior cloud-range caches",
+                Name);
+            // Preserve prior per-vendor caches across all four shared vendors so a single
+            // bad fetch from BotListFetcher doesn't blank the whole classification surface.
+            foreach (var vendor in (string[])["aws", "gcp", "azure", "cloudflare"])
+            {
+                var prior = _caches?.FirstOrDefault(c => c.Vendor == vendor);
+                if (prior?.Cache is not null) next.Add(prior.Value);
+            }
+        }
+
+        // 2. Fastly: dedicated fetch (BotListFetcher doesn't cover it).
+        if (_options.Fastly.Enabled && !string.IsNullOrEmpty(_options.Fastly.Url))
+        {
             try
             {
-                var body = await _http.GetStringAsync(source.Url, cancellationToken);
-                var cidrs = ParseByFormat(source.Format, body).ToList();
-                next.Add((vendor, new IpCidrCache(cidrs)));
-                _logger.LogInformation("{Provider}: loaded {Count} ranges for {Vendor} ({Format})",
-                    Name, cidrs.Count, vendor, source.Format);
+                var body = await _http.GetStringAsync(_options.Fastly.Url, cancellationToken);
+                var cidrs = ParseFastlyJson(body).ToList();
+                next.Add(("fastly", new IpCidrCache(cidrs)));
+                _logger.LogInformation("{Provider}: loaded {Count} ranges for fastly", Name, cidrs.Count);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "{Provider}: refresh failed for {Vendor} ({Url}); keeping any previous cache for this vendor",
-                    Name, vendor, source.Url);
-                // Preserve the prior entry for this vendor so a single flaky upstream
-                // doesn't blank the whole vendor's lookup until next successful tick.
-                var prior = _caches?.FirstOrDefault(c => c.Vendor == vendor);
+                    "{Provider}: fastly fetch failed; preserving any prior fastly cache", Name);
+                var prior = _caches?.FirstOrDefault(c => c.Vendor == "fastly");
                 if (prior?.Cache is not null) next.Add(prior.Value);
             }
         }
+
         _caches = next;
         _lastRefreshUtc = DateTime.UtcNow;
     }
 
-    /// <summary>
-    ///     Dispatches to the right per-vendor parser. Adding a new cloud vendor =
-    ///     one new case + one new parser method.
-    /// </summary>
-    internal static IEnumerable<string> ParseByFormat(string format, string body) => format switch
+    private bool IncludeVendor(string vendor) => vendor switch
     {
-        "aws-json"     => ParseAwsJson(body),
-        "azure-json"   => ParseAzureJson(body),
-        "gcp-json"     => ParseGcpJson(body),
-        "cidr-text"    => ParseCidrText(body),
-        "fastly-json"  => ParseFastlyJson(body),
-        _              => throw new NotSupportedException($"Unknown cloud-ranges format: {format}")
+        "aws"        => _options.IncludeAws,
+        "gcp"        => _options.IncludeGcp,
+        "azure"      => _options.IncludeAzure,
+        "cloudflare" => _options.IncludeCloudflare,
+        _            => false
     };
 
-    internal static IEnumerable<string> ParseAwsJson(string body)
-    {
-        var doc = JsonSerializer.Deserialize(body, CloudRangesJsonContext.Default.AwsRanges);
-        if (doc?.Prefixes is not null)
-            foreach (var p in doc.Prefixes) if (!string.IsNullOrEmpty(p.IpPrefix)) yield return p.IpPrefix;
-        if (doc?.Ipv6Prefixes is not null)
-            foreach (var p in doc.Ipv6Prefixes) if (!string.IsNullOrEmpty(p.Ipv6Prefix)) yield return p.Ipv6Prefix;
-    }
-
-    internal static IEnumerable<string> ParseAzureJson(string body)
-    {
-        var doc = JsonSerializer.Deserialize(body, CloudRangesJsonContext.Default.AzureServiceTags);
-        if (doc?.Values is null) yield break;
-        foreach (var tag in doc.Values)
-        {
-            if (tag.Properties?.AddressPrefixes is null) continue;
-            foreach (var p in tag.Properties.AddressPrefixes) yield return p;
-        }
-    }
-
-    internal static IEnumerable<string> ParseGcpJson(string body)
-    {
-        var doc = JsonSerializer.Deserialize(body, CloudRangesJsonContext.Default.GcpRanges);
-        if (doc?.Prefixes is null) yield break;
-        foreach (var p in doc.Prefixes)
-        {
-            if (!string.IsNullOrEmpty(p.Ipv4Prefix)) yield return p.Ipv4Prefix;
-            if (!string.IsNullOrEmpty(p.Ipv6Prefix)) yield return p.Ipv6Prefix;
-        }
-    }
-
+    /// <summary>
+    ///     Fastly's public-ip-list endpoint. <c>{ addresses: [v4...], ipv6_addresses: [v6...] }</c>.
+    ///     Internal so the parser-tests can exercise it without spinning up the provider.
+    /// </summary>
     internal static IEnumerable<string> ParseFastlyJson(string body)
     {
         var doc = JsonSerializer.Deserialize(body, CloudRangesJsonContext.Default.FastlyRanges);
         if (doc?.Addresses is not null) foreach (var a in doc.Addresses) yield return a;
         if (doc?.Ipv6Addresses is not null) foreach (var a in doc.Ipv6Addresses) yield return a;
-    }
-
-    internal static IEnumerable<string> ParseCidrText(string body)
-    {
-        foreach (var rawLine in body.Split('\n'))
-        {
-            var line = rawLine.Trim();
-            if (line.Length == 0 || line.StartsWith('#')) continue;
-            yield return line;
-        }
-    }
-
-    // === Per-vendor DTOs ===
-
-    internal sealed class AwsRanges
-    {
-        [JsonPropertyName("prefixes")] public List<AwsPrefix>? Prefixes { get; set; }
-        [JsonPropertyName("ipv6_prefixes")] public List<AwsIpv6Prefix>? Ipv6Prefixes { get; set; }
-    }
-    internal sealed class AwsPrefix { [JsonPropertyName("ip_prefix")] public string? IpPrefix { get; set; } }
-    internal sealed class AwsIpv6Prefix { [JsonPropertyName("ipv6_prefix")] public string? Ipv6Prefix { get; set; } }
-
-    internal sealed class AzureServiceTags
-    {
-        [JsonPropertyName("values")] public List<AzureTag>? Values { get; set; }
-    }
-    internal sealed class AzureTag
-    {
-        [JsonPropertyName("properties")] public AzureTagProperties? Properties { get; set; }
-    }
-    internal sealed class AzureTagProperties
-    {
-        [JsonPropertyName("addressPrefixes")] public List<string>? AddressPrefixes { get; set; }
-    }
-
-    internal sealed class GcpRanges
-    {
-        [JsonPropertyName("prefixes")] public List<GcpPrefix>? Prefixes { get; set; }
-    }
-    internal sealed class GcpPrefix
-    {
-        [JsonPropertyName("ipv4Prefix")] public string? Ipv4Prefix { get; set; }
-        [JsonPropertyName("ipv6Prefix")] public string? Ipv6Prefix { get; set; }
     }
 
     internal sealed class FastlyRanges
@@ -219,41 +179,45 @@ internal sealed class CloudRangesProvider : IThreatIntelProvider
     }
 }
 
-[JsonSerializable(typeof(CloudRangesProvider.AwsRanges))]
-[JsonSerializable(typeof(CloudRangesProvider.AzureServiceTags))]
-[JsonSerializable(typeof(CloudRangesProvider.GcpRanges))]
 [JsonSerializable(typeof(CloudRangesProvider.FastlyRanges))]
 internal partial class CloudRangesJsonContext : JsonSerializerContext;
 
-/// <summary>Per-vendor config for the cloud-ranges provider.</summary>
+/// <summary>
+///     Config for the cloud-ranges provider. AWS / GCP / Azure / Cloudflare are
+///     pulled via <see cref="IBotListFetcher"/> using its own URL config (under
+///     <c>BotDetection:BotPatterns:DataSources</c>) so a single fetch covers both
+///     the existing datacenter-IP signal and this provider's classification.
+///     The Include* flags only control whether the result is exposed as a
+///     <c>cloud:&lt;vendor&gt;</c> classification by this provider - they don't
+///     affect the underlying fetch.
+/// </summary>
 public sealed class CloudRangesOptions
 {
     /// <summary>Master enable flag for the provider as a whole. FOSS default: off.</summary>
     public bool Enabled { get; set; }
 
-    /// <summary>How often to refresh ALL sources. The orchestrator stagger applies on top of this.</summary>
+    /// <summary>How often to refresh. Stagger applies on top of this.</summary>
     public double RefreshHours { get; set; } = 24;
 
-    /// <summary>Per-vendor source configurations. Keyed on vendor name (aws/azure/gcp/cloudflare/fastly/...).</summary>
-    public Dictionary<string, CloudRangesSource> Sources { get; set; } = new()
-    {
-        ["aws"]        = new CloudRangesSource { Url = "https://ip-ranges.amazonaws.com/ip-ranges.json",                    Format = "aws-json" },
-        ["azure"]      = new CloudRangesSource { Url = "https://download.microsoft.com/download/7/1/D/71D86715-5596-4529-9B13-DA13A5DE5B63/ServiceTags_Public.json", Format = "azure-json" },
-        ["gcp"]        = new CloudRangesSource { Url = "https://www.gstatic.com/ipranges/cloud.json",                       Format = "gcp-json" },
-        ["cloudflare"] = new CloudRangesSource { Url = "https://www.cloudflare.com/ips-v4",                                 Format = "cidr-text" },
-        ["fastly"]     = new CloudRangesSource { Url = "https://api.fastly.com/public-ip-list",                             Format = "fastly-json" }
-    };
+    /// <summary>Surface AWS ranges as <c>cloud:aws</c>. Data comes from BotListFetcher.</summary>
+    public bool IncludeAws { get; set; } = true;
+
+    /// <summary>Surface Azure ranges as <c>cloud:azure</c>. Data comes from BotListFetcher.</summary>
+    public bool IncludeAzure { get; set; } = true;
+
+    /// <summary>Surface GCP ranges as <c>cloud:gcp</c>. Data comes from BotListFetcher.</summary>
+    public bool IncludeGcp { get; set; } = true;
+
+    /// <summary>Surface Cloudflare ranges as <c>cloud:cloudflare</c>. Data comes from BotListFetcher.</summary>
+    public bool IncludeCloudflare { get; set; } = true;
+
+    /// <summary>Fastly's public-ip-list endpoint. BotListFetcher doesn't cover Fastly, so this is fetched directly.</summary>
+    public FastlyRangesSource Fastly { get; set; } = new();
 }
 
-/// <summary>One vendor's source config inside <see cref="CloudRangesOptions.Sources"/>.</summary>
-public sealed class CloudRangesSource
+/// <summary>Per-vendor source config. Currently only Fastly needs its own URL (the others go through BotListFetcher).</summary>
+public sealed class FastlyRangesSource
 {
-    /// <summary>Per-source enable. Off by default - the parent CloudRangesOptions.Enabled gates the whole set first.</summary>
-    public bool Enabled { get; set; }
-
-    /// <summary>Fetch URL. Override for internal mirrors.</summary>
-    public string Url { get; set; } = "";
-
-    /// <summary>Parser format. Known: <c>aws-json</c>, <c>azure-json</c>, <c>gcp-json</c>, <c>cidr-text</c>, <c>fastly-json</c>.</summary>
-    public string Format { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+    public string Url { get; set; } = "https://api.fastly.com/public-ip-list";
 }

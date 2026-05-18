@@ -43,6 +43,37 @@ public enum IntelligenceSignalClass
 }
 
 /// <summary>
+///     Stable string mapping for <see cref="IntelligenceSignalClass"/>. Used by
+///     <c>ThreatIntelContributor</c> to format the <c>intel.classes</c> signal
+///     value so renaming an enum member doesn't silently break dashboard filters
+///     or policy transition rules that key on the wire string.
+///     <para>The mapping is fixed forever - dashboards, alerts, and external
+///     consumers can rely on these literal strings. Adding a new enum member
+///     requires adding a new mapping; renaming an existing member must NOT
+///     change its wire string.</para>
+/// </summary>
+public static class IntelligenceSignalClassExtensions
+{
+    /// <summary>
+    ///     Stable, snake-case wire representation. Returns <c>"unknown"</c> for
+    ///     enum values that don't have an explicit mapping (defends against
+    ///     future enum additions that forget to update this map).
+    /// </summary>
+    public static string ToWireString(this IntelligenceSignalClass cls) => cls switch
+    {
+        IntelligenceSignalClass.Reputation             => "reputation",
+        IntelligenceSignalClass.Vulnerability          => "vulnerability",
+        IntelligenceSignalClass.ScannerInfrastructure  => "scanner_infrastructure",
+        IntelligenceSignalClass.ExploitCampaign        => "exploit_campaign",
+        IntelligenceSignalClass.KnownBadAutomation     => "known_bad_automation",
+        IntelligenceSignalClass.SuspiciousNetworkRange => "suspicious_network_range",
+        IntelligenceSignalClass.CloudInfrastructure    => "cloud_infrastructure",
+        IntelligenceSignalClass.TorExit                => "tor_exit",
+        _                                              => "unknown"
+    };
+}
+
+/// <summary>
 ///     Coarse risk classification for the request's path. Drives how aggressively
 ///     the threat-intel contributor (and downstream policies) act on intelligence
 ///     verdicts. Derived in <see cref="EndpointRiskClassifier"/> from a small

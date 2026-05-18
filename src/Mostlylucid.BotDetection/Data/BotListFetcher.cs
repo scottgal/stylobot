@@ -24,9 +24,19 @@ public interface IBotListFetcher
 
     /// <summary>
     ///     Fetches datacenter IP ranges from all enabled sources (AWS, GCP, Azure, Cloudflare).
-    ///     Returns CIDR notation IP ranges.
+    ///     Returns CIDR notation IP ranges flattened across vendors.
     /// </summary>
     Task<List<string>> GetDatacenterIpRangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    ///     Same fetch as <see cref="GetDatacenterIpRangesAsync"/> but returns the CIDRs
+    ///     grouped by vendor (keys: <c>"aws"</c>, <c>"gcp"</c>, <c>"azure"</c>,
+    ///     <c>"cloudflare"</c>). Lets callers that need per-vendor classification
+    ///     (e.g. <c>CloudRangesProvider</c>) avoid issuing parallel duplicate HTTP
+    ///     fetches against the same URLs. Empty / missing vendor entries when a
+    ///     source is disabled or its fetch failed.
+    /// </summary>
+    Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetDatacenterIpRangesByVendorAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     ///     Fetches Matomo bot patterns with metadata (name, category, url).
@@ -243,17 +253,43 @@ public partial class BotListFetcher : IBotListFetcher
     /// </summary>
     public async Task<List<string>> GetDatacenterIpRangesAsync(CancellationToken cancellationToken = default)
     {
-        const string cacheKey = "bot_list_datacenter_ips";
+        var byVendor = await GetDatacenterIpRangesByVendorAsync(cancellationToken);
+        // Flatten + dedupe across vendors (one IP may appear in multiple lists - rare
+        // but possible at network borders). Order isn't meaningful for downstream
+        // consumers, so HashSet then ToList is fine.
+        var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (_, cidrs) in byVendor)
+            foreach (var cidr in cidrs)
+                unique.Add(cidr);
+        var result = unique.ToList();
+        if (result.Count == 0)
+        {
+            _logger.LogWarning("No IP ranges fetched from any source, using fallback ranges");
+            result = GetFallbackDatacenterRanges();
+        }
+        return result;
+    }
 
-        if (_cache.TryGetValue<List<string>>(cacheKey, out var cached) && cached != null) return cached;
+    public async Task<IReadOnlyDictionary<string, IReadOnlyList<string>>> GetDatacenterIpRangesByVendorAsync(
+        CancellationToken cancellationToken = default)
+    {
+        const string cacheKey = "bot_list_datacenter_ips_by_vendor";
+        if (_cache.TryGetValue<Dictionary<string, IReadOnlyList<string>>>(cacheKey, out var cached) && cached != null)
+            return cached;
 
-        var ranges = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var byVendor = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
         var sources = _options.DataSources;
         var client = _httpClientFactory.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(_options.ListDownloadTimeoutSeconds);
 
+        // Per-vendor accumulation: vendors that succeed land in byVendor; failures
+        // log a warning and leave the vendor key absent so callers can detect it.
+        var ranges = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         // Fetch AWS IP ranges
         if (sources.AwsIpRanges.Enabled && !string.IsNullOrEmpty(sources.AwsIpRanges.Url))
+        {
+            var aws = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 var awsJson = await client.GetStringAsync(sources.AwsIpRanges.Url, cancellationToken);
@@ -263,16 +299,8 @@ public partial class BotListFetcher : IBotListFetcher
                     var validCount = 0;
                     var invalidCount = 0;
                     foreach (var p in awsData.Prefixes.Where(p => !string.IsNullOrEmpty(p.IpPrefix)))
-                        if (IsValidCidr(p.IpPrefix!))
-                        {
-                            ranges.Add(p.IpPrefix!);
-                            validCount++;
-                        }
-                        else
-                        {
-                            invalidCount++;
-                        }
-
+                        if (IsValidCidr(p.IpPrefix!)) { aws.Add(p.IpPrefix!); validCount++; }
+                        else { invalidCount++; }
                     _logger.LogInformation(
                         "Fetched {ValidCount} valid AWS IP ranges from {Url} ({InvalidCount} rejected)",
                         validCount, sources.AwsIpRanges.Url, invalidCount);
@@ -286,9 +314,13 @@ public partial class BotListFetcher : IBotListFetcher
             {
                 _logger.LogWarning(ex, "Failed to fetch AWS IP ranges from {Url}", sources.AwsIpRanges.Url);
             }
+            if (aws.Count > 0) byVendor["aws"] = aws.ToList();
+        }
 
         // Fetch GCP IP ranges
         if (sources.GcpIpRanges.Enabled && !string.IsNullOrEmpty(sources.GcpIpRanges.Url))
+        {
+            var gcp = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 var gcpJson = await client.GetStringAsync(sources.GcpIpRanges.Url, cancellationToken);
@@ -301,31 +333,15 @@ public partial class BotListFetcher : IBotListFetcher
                     {
                         if (!string.IsNullOrEmpty(p.Ipv4Prefix))
                         {
-                            if (IsValidCidr(p.Ipv4Prefix))
-                            {
-                                ranges.Add(p.Ipv4Prefix);
-                                validCount++;
-                            }
-                            else
-                            {
-                                invalidCount++;
-                            }
+                            if (IsValidCidr(p.Ipv4Prefix)) { gcp.Add(p.Ipv4Prefix); validCount++; }
+                            else { invalidCount++; }
                         }
-
                         if (!string.IsNullOrEmpty(p.Ipv6Prefix))
                         {
-                            if (IsValidCidr(p.Ipv6Prefix))
-                            {
-                                ranges.Add(p.Ipv6Prefix);
-                                validCount++;
-                            }
-                            else
-                            {
-                                invalidCount++;
-                            }
+                            if (IsValidCidr(p.Ipv6Prefix)) { gcp.Add(p.Ipv6Prefix); validCount++; }
+                            else { invalidCount++; }
                         }
                     }
-
                     _logger.LogInformation(
                         "Fetched {ValidCount} valid GCP IP ranges from {Url} ({InvalidCount} rejected)",
                         validCount, sources.GcpIpRanges.Url, invalidCount);
@@ -339,9 +355,13 @@ public partial class BotListFetcher : IBotListFetcher
             {
                 _logger.LogWarning(ex, "Failed to fetch GCP IP ranges from {Url}", sources.GcpIpRanges.Url);
             }
+            if (gcp.Count > 0) byVendor["gcp"] = gcp.ToList();
+        }
 
         // Fetch Azure IP ranges (if configured - URL changes weekly)
         if (sources.AzureIpRanges.Enabled && !string.IsNullOrEmpty(sources.AzureIpRanges.Url))
+        {
+            var azure = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 var azureJson = await client.GetStringAsync(sources.AzureIpRanges.Url, cancellationToken);
@@ -353,16 +373,8 @@ public partial class BotListFetcher : IBotListFetcher
                     foreach (var value in azureData.Values)
                         if (value.Properties?.AddressPrefixes != null)
                             foreach (var prefix in value.Properties.AddressPrefixes)
-                                if (IsValidCidr(prefix))
-                                {
-                                    ranges.Add(prefix);
-                                    validCount++;
-                                }
-                                else
-                                {
-                                    invalidCount++;
-                                }
-
+                                if (IsValidCidr(prefix)) { azure.Add(prefix); validCount++; }
+                                else { invalidCount++; }
                     _logger.LogInformation(
                         "Fetched {ValidCount} valid Azure IP ranges from {Url} ({InvalidCount} rejected)",
                         validCount, sources.AzureIpRanges.Url, invalidCount);
@@ -376,83 +388,72 @@ public partial class BotListFetcher : IBotListFetcher
             {
                 _logger.LogWarning(ex, "Failed to fetch Azure IP ranges from {Url}", sources.AzureIpRanges.Url);
             }
+            if (azure.Count > 0) byVendor["azure"] = azure.ToList();
+        }
 
-        // Fetch Cloudflare IPv4 ranges
+        // Fetch Cloudflare ranges (v4 + v6 land under one "cloudflare" vendor key)
+        var cloudflare = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (sources.CloudflareIpv4.Enabled && !string.IsNullOrEmpty(sources.CloudflareIpv4.Url))
+        {
             try
             {
                 var cfIpv4 = await client.GetStringAsync(sources.CloudflareIpv4.Url, cancellationToken);
-                var lines = cfIpv4.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-                var validCount = 0;
-                var invalidCount = 0;
-                foreach (var line in lines.Where(l => !string.IsNullOrWhiteSpace(l)))
-                {
-                    var trimmed = line.Trim();
-                    if (IsValidCidr(trimmed))
-                    {
-                        ranges.Add(trimmed);
-                        validCount++;
-                    }
-                    else
-                    {
-                        invalidCount++;
-                    }
-                }
-
-                _logger.LogInformation(
-                    "Fetched {ValidCount} valid Cloudflare IPv4 ranges from {Url} ({InvalidCount} rejected)",
-                    validCount, sources.CloudflareIpv4.Url, invalidCount);
+                FillCidrsFromText(cfIpv4, cloudflare, sources.CloudflareIpv4.Url, "Cloudflare IPv4");
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to fetch Cloudflare IPv4 ranges from {Url}", sources.CloudflareIpv4.Url);
             }
-
-        // Fetch Cloudflare IPv6 ranges
+        }
         if (sources.CloudflareIpv6.Enabled && !string.IsNullOrEmpty(sources.CloudflareIpv6.Url))
+        {
             try
             {
                 var cfIpv6 = await client.GetStringAsync(sources.CloudflareIpv6.Url, cancellationToken);
-                var lines = cfIpv6.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-                var validCount = 0;
-                var invalidCount = 0;
-                foreach (var line in lines.Where(l => !string.IsNullOrWhiteSpace(l)))
-                {
-                    var trimmed = line.Trim();
-                    if (IsValidCidr(trimmed))
-                    {
-                        ranges.Add(trimmed);
-                        validCount++;
-                    }
-                    else
-                    {
-                        invalidCount++;
-                    }
-                }
-
-                _logger.LogInformation(
-                    "Fetched {ValidCount} valid Cloudflare IPv6 ranges from {Url} ({InvalidCount} rejected)",
-                    validCount, sources.CloudflareIpv6.Url, invalidCount);
+                FillCidrsFromText(cfIpv6, cloudflare, sources.CloudflareIpv6.Url, "Cloudflare IPv6");
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to fetch Cloudflare IPv6 ranges from {Url}", sources.CloudflareIpv6.Url);
             }
+        }
+        if (cloudflare.Count > 0) byVendor["cloudflare"] = cloudflare.ToList();
 
-        var result = ranges.ToList();
-
-        if (result.Count == 0)
+        if (byVendor.Count == 0)
         {
             _logger.LogWarning("No IP ranges fetched from any source, using fallback ranges");
-            result = GetFallbackDatacenterRanges();
+            byVendor["fallback"] = GetFallbackDatacenterRanges();
         }
         else
         {
-            _logger.LogInformation("Total unique datacenter IP ranges: {Count}", result.Count);
+            var total = byVendor.Sum(kv => kv.Value.Count);
+            _logger.LogInformation("Fetched datacenter IP ranges per vendor: {Counts} (total {Total})",
+                string.Join(", ", byVendor.Select(kv => $"{kv.Key}={kv.Value.Count}")), total);
         }
 
-        _cache.Set(cacheKey, result, CacheDuration);
-        return result;
+        _cache.Set(cacheKey, byVendor, CacheDuration);
+        return byVendor;
+    }
+
+    /// <summary>
+    ///     Parses a plain-text CIDR feed (Cloudflare's ips-v4 / ips-v6 format: one CIDR
+    ///     per line, optional comments). Adds valid entries to <paramref name="sink"/>;
+    ///     used for both Cloudflare blocks so the parser only lives in one place.
+    /// </summary>
+    private void FillCidrsFromText(string body, HashSet<string> sink, string sourceUrl, string label)
+    {
+        var lines = body.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        var validCount = 0;
+        var invalidCount = 0;
+        foreach (var line in lines.Where(l => !string.IsNullOrWhiteSpace(l)))
+        {
+            var trimmed = line.Trim();
+            if (IsValidCidr(trimmed)) { sink.Add(trimmed); validCount++; }
+            else { invalidCount++; }
+        }
+        _logger.LogInformation(
+            "Fetched {ValidCount} valid {Label} ranges from {Url} ({InvalidCount} rejected)",
+            validCount, label, sourceUrl, invalidCount);
     }
 
     /// <summary>
