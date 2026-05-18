@@ -110,28 +110,60 @@ BotDetection:
   ThreatIntel:
     Enabled: false                # master switch; FOSS default off
     PrivacyMode: ip               # ip | redacted-ip | hash | offline-only
+    BlockStartupOnFirstFetch: true     # when Enabled=true, wait for first fetch of each provider
+    StartupFetchTimeoutSeconds: 60     # per-provider; fail-fast on slow upstream
+    StaggerWindowSeconds: 300          # background refreshes spread across this window
     Providers:
       spamhaus-drop:
         Enabled: false            # offline, but still outbound - opt-in
+        Url: https://www.spamhaus.org/drop/drop.txt
+        EdropUrl: https://www.spamhaus.org/drop/edrop.txt   # change to an internal mirror if required
         RefreshHours: 12
       tor-exit:
         Enabled: false
+        Url: https://check.torproject.org/torbulkexitlist
         RefreshMinutes: 30
       cisa-kev:
         Enabled: false
+        Url: https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
         RefreshHours: 1
       cloud-ranges:
-        Enabled: false            # AWS + Azure + GCP + Cloudflare + Fastly bundled
+        Enabled: false
         RefreshHours: 24
+        Sources:                  # one provider, per-vendor sources + URLs
+          aws:
+            Enabled: true
+            Url: https://ip-ranges.amazonaws.com/ip-ranges.json
+            Format: aws-json
+          azure:
+            Enabled: true
+            Url: https://download.microsoft.com/download/7/1/D/71D86715-5596-4529-9B13-DA13A5DE5B63/ServiceTags_Public_20260518.json
+            Format: azure-json
+          gcp:
+            Enabled: true
+            Url: https://www.gstatic.com/ipranges/cloud.json
+            Format: gcp-json
+          cloudflare:
+            Enabled: true
+            Url: https://www.cloudflare.com/ips-v4
+            Format: cidr-text
+          fastly:
+            Enabled: true
+            Url: https://api.fastly.com/public-ip-list
+            Format: fastly-json
       greynoise:
         Enabled: false            # live: sends raw IP, requires opt-in
         ApiKey: ${GREYNOISE_API_KEY}
+        Url: https://api.greynoise.io/v3/community
         QuotaPerDay: 1000
       abuseipdb:
         Enabled: false
         ApiKey: ${ABUSEIPDB_API_KEY}
+        Url: https://api.abuseipdb.com/api/v2/check
         QuotaPerDay: 1000
 ```
+
+**Every URL is overridable.** Air-gapped / audit-restricted deployments can point each provider at an internal mirror. The defaults are the vendors' own canonical URLs.
 
 Coordinator behaviour when `ThreatIntel:Enabled = false`: the contributor short-circuits (`triggers` evaluate but `TryLookup` returns empty); offline feed refresh services don't start; no HTTP clients registered; the dashboard's threat-intel tab shows a one-line "Threat intel disabled - enable in config to start".
 
@@ -224,10 +256,133 @@ emits:
   - threatintel.kev_match
 ```
 
-## Open questions (call out before implementing)
+## Resolved design questions
 
-1. **CVE extraction**: `threatintel.kev_match` requires `CveProbeContributor` to write a `cveprobe.cve` signal first. Confirm that contributor already extracts CVE ids from probe paths (e.g. log4shell CVE-2021-44228 from `/?x=${jndi:...}`). If not, the KEV provider is decoupled from CveProbe and only matches when an explicit CVE shows up in the URL.
-2. **CISA KEV format**: ships as JSON Schema'd `vulnerabilities[]` array. Parsing via the existing `JsonSerializerContext` source generator pattern (AOT-clean).
-3. **Cloud ranges aggregation**: each vendor has its own format (AWS `ip-ranges.json`, Azure XML, GCP `cloud.json`, Cloudflare text). Need per-vendor parsers under one provider, or one provider per vendor? Recommend one provider per vendor for refresh-independence and metric attribution, fronted by a `CloudRangesContributor` umbrella.
-4. **Live provider response normalisation**: GreyNoise returns `classification: malicious|benign|unknown`, AbuseIPDB returns `abuseConfidenceScore: 0-100`. Map both into `ThreatIntelVerdict.Classification` + `.Confidence` via per-provider adapters; expose the raw response in `Metadata` for dashboards / debugging.
-5. **Bootstrap latency**: first run downloads ~10MB across the offline pack. Block service startup, or background-fetch + return empty cache until ready? Recommend background-fetch with empty cache (matches existing `BotListFetcher` behaviour — fallback patterns until first sync completes).
+### CVE extraction for KEV matching
+
+Two existing signals feed the KEV provider; no new CVE-extraction work needed:
+
+- `cve.probe.id` (e.g. `"CVE-2024-6386"`) — written by `CveProbeContributor` when a request matches a simulation-pack honeypot path. High confidence: the requester explicitly probed a known CVE path.
+- `cve.top_advisory_id` (e.g. `"CVE-2026-1234"` or `"GHSA-xxxx"`) — written by `CveFingerprintContributor` when the session shape matches a CVE-derived fingerprint. Lower confidence but earlier signal.
+
+KEV provider does an exact lookup against either signal; on match, sets `threatintel.kev_match = <id>` and bumps `threatintel.score` to at least `kev_match_threat_floor` (default 0.7). GHSA-prefixed advisory ids are skipped (KEV is CVE-only).
+
+### Cloud-ranges provider: one for all, per-vendor config
+
+Single `CloudRangesProvider` with a per-vendor source list. Each vendor entry carries its own URL, parser kind, and enable flag. URLs are configurable so an operator running an internal mirror can point at it instead of fetching from the vendor directly.
+
+```yaml
+ThreatIntel:
+  Providers:
+    cloud-ranges:
+      Enabled: false
+      RefreshHours: 24
+      Sources:
+        aws:
+          Enabled: true
+          Url: https://ip-ranges.amazonaws.com/ip-ranges.json
+          Format: aws-json
+        azure:
+          Enabled: true
+          Url: https://download.microsoft.com/download/7/1/D/71D86715-5596-4529-9B13-DA13A5DE5B63/ServiceTags_Public_20260518.json
+          Format: azure-json
+        gcp:
+          Enabled: true
+          Url: https://www.gstatic.com/ipranges/cloud.json
+          Format: gcp-json
+        cloudflare:
+          Enabled: true
+          Url: https://www.cloudflare.com/ips-v4
+          Format: cidr-text
+        fastly:
+          Enabled: true
+          Url: https://api.fastly.com/public-ip-list
+          Format: fastly-json
+```
+
+`Format` selects the right parser internally; one provider class dispatches to the right format-handler per source. Lookup returns `cloud:<vendor>` (e.g. `cloud:aws`) as the classification so downstream signals can distinguish.
+
+Same shape applies to other multi-source providers (Spamhaus has DROP + EDROP URLs that should be configurable too).
+
+### Live-provider response shape (the "Huh?" question)
+
+Each vendor returns data in its own format — GreyNoise sends `{classification: "malicious"|"benign"|"unknown", riot: bool, noise: bool}`, AbuseIPDB sends `{abuseConfidenceScore: 0-100, totalReports: int, ...}`, Shodan sends ports + tags. We need one common `ThreatIntelVerdict` shape regardless of provider.
+
+Resolution: each live provider class owns its own adapter — fetch, parse, project into the common verdict. Raw response goes into `ThreatIntelVerdict.Metadata` as string key/values so dashboards / debug views can show the vendor-native fields without the provider abstraction having to know about them.
+
+Worked example:
+
+```csharp
+// GreyNoise adapter projection
+var raw = await JsonSerializer.DeserializeAsync<GreyNoiseResponse>(stream, ...);
+return new ThreatIntelVerdict {
+    Provider = "greynoise",
+    Classification = raw.Classification switch {     // their term → our term
+        "malicious" => "malicious",
+        "benign"    => "benign",
+        _           => "noise"                       // unknown + RIOT both map here
+    },
+    Confidence = raw.Classification == "malicious" ? 0.9 :
+                 raw.Classification == "benign"    ? 0.1 : 0.5,
+    Metadata = new Dictionary<string, string> {
+        ["riot"] = raw.Riot.ToString(),
+        ["noise"] = raw.Noise.ToString(),
+        ["last_seen"] = raw.LastSeen,
+        // ... raw fields preserved for the dashboard
+    }
+};
+```
+
+### Bootstrap behaviour
+
+When `ThreatIntel:Enabled = true` AND at least one provider is enabled: **block startup until the first refresh of each enabled provider completes** (with a configurable per-provider timeout). Operator explicitly opted in, so a partial / empty intel cache at request 1 would be a footgun — they'd silently get worse detection than they expect.
+
+After bootstrap, refreshes run on a **staggered** schedule to avoid concurrent fetch spikes. Each provider's first post-bootstrap refresh fires at `now + Random(0..StaggerWindow)` then ticks at `RefreshInterval` from there. Default stagger window is 5 minutes, configurable.
+
+```yaml
+ThreatIntel:
+  BlockStartupOnFirstFetch: true            # FOSS default when ThreatIntel:Enabled = true
+  StartupFetchTimeoutSeconds: 60            # per provider; fail-fast on slow upstream
+  StaggerWindowSeconds: 300                 # background refresh spreads across this window
+  Providers:
+    spamhaus-drop:
+      Enabled: false
+      Url: https://www.spamhaus.org/drop/drop.txt
+      EdropUrl: https://www.spamhaus.org/drop/edrop.txt
+      RefreshHours: 12
+```
+
+Failure modes:
+
+- **Startup-fetch timeout**: log fatal + exit if `BlockStartupOnFirstFetch` is true (the operator asked for intel and we can't deliver it; don't lie about coverage). Override with `BlockStartupOnFirstFetch: false` to start anyway and let the cache populate eventually.
+- **Background-refresh failure**: log warning, keep previous cache, expose age via `threatintel.<provider>_age_hours` signal so the dashboard can flag stale intel.
+
+### CISA KEV format
+
+JSON at `https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json`. Shape:
+
+```json
+{
+  "title": "...",
+  "catalogVersion": "2026.05.18",
+  "dateReleased": "2026-05-18T...",
+  "count": 1234,
+  "vulnerabilities": [
+    {
+      "cveID": "CVE-2021-44228",
+      "vendorProject": "Apache",
+      "product": "Log4j2",
+      "vulnerabilityName": "Apache Log4j2 Remote Code Execution Vulnerability",
+      "dateAdded": "2021-12-10",
+      "shortDescription": "...",
+      "requiredAction": "...",
+      "dueDate": "2021-12-24",
+      "knownRansomwareCampaignUse": "Known",
+      "notes": "...",
+      "cwes": ["CWE-20", "CWE-400", "CWE-502"]
+    }
+  ]
+}
+```
+
+Parser: source-generated `JsonSerializerContext` over `KevCatalog` + `KevVulnerability` records. The lookup cache is a `FrozenDictionary<string, KevVulnerability>` keyed on `cveID` (uppercase normalised). `knownRansomwareCampaignUse == "Known"` lifts the verdict confidence from 0.7 to 0.95.
