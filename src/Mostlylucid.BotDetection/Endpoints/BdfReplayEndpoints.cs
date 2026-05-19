@@ -141,9 +141,15 @@ public static class BdfReplayEndpoints
     /// </summary>
     private static async Task<IResult> ResetIdentityStore(
         Identity.SqliteFingerprintStore store,
+        Identity.IdentityProcessingCoordinator coordinator,
         CancellationToken ct)
     {
         var counts = await store.TruncateAllAsync(ct);
+        // Clear the coordinator's in-memory coalesce dict alongside the DB truncate.
+        // Without this, a previous scenario's unresolved Pass 2 entries can shed a
+        // fresh allocation in the next scenario that happens to reuse a fingerprint
+        // id - producing the "1/N requests had no identity.fingerprint_id" flake.
+        coordinator.ResetInflight();
         return Results.Ok(counts);
     }
 

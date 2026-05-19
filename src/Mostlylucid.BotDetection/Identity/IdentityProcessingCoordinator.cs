@@ -102,6 +102,15 @@ public sealed class IdentityProcessingCoordinator : BackgroundService
 
     public bool BreakerOpen => _breakerOpenedAt is not null;
 
+    /// <summary>
+    ///     Test-only: clear in-memory coalesce state without affecting persisted
+    ///     fingerprints. The BDF replay rig calls this between scenarios alongside
+    ///     <c>SqliteFingerprintStore.TruncateAllAsync</c> so a previous scenario's
+    ///     unresolved Pass 2 entries can't shed a fresh allocation that happens to
+    ///     reuse a fingerprint id. Production code never calls this.
+    /// </summary>
+    public void ResetInflight() => _inflight.Clear();
+
     public IdentityCoordinatorDiagnostics GetDiagnostics() => new(
         QueueDepth: SnapshotQueueDepth(),
         InFlightCount: _inflight.Count,

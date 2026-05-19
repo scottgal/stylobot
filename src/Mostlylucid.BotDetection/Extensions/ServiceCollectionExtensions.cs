@@ -522,8 +522,18 @@ public static class ServiceCollectionExtensions
         // Register variance watchdog (singleton - per-signature observation history used by the verdict gate)
         services.TryAddSingleton<Services.VarianceWatchdog>();
 
-        // Register the signature verdict gate (singleton - thin decision wrapper over the coordinator)
-        services.TryAddSingleton<Services.SignatureVerdictGate>();
+        // Register the signature verdict gate (singleton - thin decision wrapper over the coordinator).
+        // Explicit factory so the optional IdentityVerdictLookup parameter actually gets resolved -
+        // the bare TryAddSingleton<T>() form relies on conventional constructor injection which
+        // does NOT honour C# default parameter values; it would supply null even when the lookup
+        // is registered. Without this factory the "metastable cached verdict alongside the
+        // per-signature aggregate" path documented around the IdentityVerdictLookup registration
+        // is silently dead.
+        services.TryAddSingleton<Services.SignatureVerdictGate>(sp =>
+            new Services.SignatureVerdictGate(
+                sp.GetRequiredService<SignatureCoordinator>(),
+                sp.GetRequiredService<ILogger<Services.SignatureVerdictGate>>(),
+                sp.GetService<Identity.IdentityVerdictLookup>()));
 
         // Register response coordinator (tracks response patterns for behavioral feedback)
         services.TryAddSingleton<ResponseCoordinator>();

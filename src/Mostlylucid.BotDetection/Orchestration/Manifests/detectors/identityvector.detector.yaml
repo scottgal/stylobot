@@ -1,0 +1,95 @@
+# Identity Vector Contributor - composes the metastable identity feature vector
+# from upstream signals (UA family/version, OS, country, ASN, header hashes,
+# protocol fingerprints) into the layout defined by IdentityVectorLayout.
+# Foundation contributor: inherits ContributingDetectorBase (no YAML config
+# parameters consumed via GetParam<T>), this manifest exists purely so the
+# manifest-driven tooling - --output-config dump, dashboard "signals this
+# detector emits", benchmark scenario filters - has the right read on what
+# this contributor produces. Hardcoded priority in the .cs file (5) and the
+# priority below MUST stay in sync.
+name: IdentityVectorContributor
+priority: 5  # Runs after SignatureContributor (1) + UserAgentContributor, before FingerprintMatchContributor (6)
+enabled: true
+description: Composes the identity feature vector used by the metastable fingerprint matcher
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: identity
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request after UA / IP / header signals have been computed
+      signal_pattern: identity.*
+
+  required_signals: []  # All inputs are best-effort; missing dims are filled with neutral values
+
+  optional_signals:
+    - ua.family
+    - user_agent.os
+    - geo.country_code
+    - ip.asn
+    - ip.is_datacenter
+    - hdr.*
+    - tls.ja3_hash
+    - h2.settings_fingerprint
+    - h3.transport_params
+
+output:
+  produces:
+    - type: botdetection.identity_vector
+      description: Per-request identity vector + quality score for the matcher
+
+  signals:
+    - key: identity.vector
+      entity_type: array
+      salience: 0.95
+      description: float[] in the layout defined by IdentityVectorLayout.DefaultV1
+    - key: identity.vector_quality
+      entity_type: number
+      salience: 0.6
+      description: Confidence in the vector - reduced when input signals were sparse
+
+triggers:
+  requires: []  # Wave 0 - runs alongside other foundation contributors
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_complete:
+    # Mirrors output.signals above. Descriptions are the LLM reasoning surface;
+    # an LLM explaining a flagged request should be able to read what each
+    # signal means without parsing the .cs.
+    - key: identity.vector
+      type: float_array
+      description: Composed identity feature vector (per IdentityVectorLayout.DefaultV1) - the input the matcher's weighted-cosine search runs against
+    - key: identity.vector_quality
+      type: double
+      description: Confidence in the vector (0..1) - reduced when input signals were sparse (no TLS detail, missing client hints) so the matcher can weight near-threshold scores accordingly
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 8
+  priority: 100
+
+# No defaults block: this contributor is ContributingDetectorBase, not
+# ConfiguredContributorBase, so it doesn't read parameters via GetParam<T>.
+# Vector composition rules + dim layout live in IdentityVectorLayout /
+# IdentityVectorEncoder and are not config-tunable - changing them would
+# invalidate every persisted fingerprint centroid.
+
+tags:
+  - foundation
+  - identity
+  - wave-0

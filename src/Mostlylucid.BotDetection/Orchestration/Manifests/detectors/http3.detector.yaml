@@ -37,18 +37,58 @@ output:
       description: HTTP/3 fingerprint analysis contribution
 
   signals:
-    - key: detection.http3.confidence
-      entity_type: number
-      salience: 0.75
-      description: Bot confidence from HTTP/3 fingerprint
-    - key: detection.http3.is_http3
+    # Signal keys here MUST match the strings written via state.WriteSignal in
+    # Http3FingerprintContributor.cs - the namespace is `h3.*`, not `detection.http3.*`.
+    # SignalKeys constants H3Protocol/H3ClientType/H3ZeroRtt/H3ConnectionMigrated
+    # all resolve to `h3.*` names.
+    - key: h3.is_http3
       entity_type: boolean
       salience: 0.6
-      description: Whether connection uses HTTP/3
-    - key: detection.http3.client_type
+      description: Connection uses HTTP/3
+    - key: h3.protocol
+      entity_type: string
+      salience: 0.6
+      description: HTTP/3 protocol identifier (SignalKeys.H3Protocol)
+    - key: h3.client_type
       entity_type: string
       salience: 0.9
-      description: Matched known QUIC client fingerprint name
+      description: Matched known QUIC client fingerprint name (SignalKeys.H3ClientType)
+    - key: h3.quic_version
+      entity_type: string
+      salience: 0.6
+      description: QUIC version (v1, v2, draft)
+    - key: h3.quic_v2
+      entity_type: boolean
+      salience: 0.4
+      description: Connection negotiated QUIC v2
+    - key: h3.transport_params
+      entity_type: string
+      salience: 0.8
+      description: QUIC transport parameter fingerprint
+    - key: h3.transport_fingerprint_unknown
+      entity_type: boolean
+      salience: 0.7
+      description: Transport-params fingerprint doesn't match any known client
+    - key: h3.zero_rtt
+      entity_type: boolean
+      salience: 0.5
+      description: 0-RTT resumption was used (SignalKeys.H3ZeroRtt)
+    - key: h3.connection_migrated
+      entity_type: boolean
+      salience: 0.5
+      description: QUIC connection migration occurred (SignalKeys.H3ConnectionMigrated)
+    - key: h3.spin_bit_disabled
+      entity_type: boolean
+      salience: 0.4
+      description: Client disabled the QUIC spin bit (privacy / Tor-style behaviour)
+    - key: h3.alt_svc_upgrade
+      entity_type: boolean
+      salience: 0.3
+      description: Connection arrived via Alt-Svc upgrade from H2
+    - key: h3.analysis_error
+      entity_type: string
+      salience: 0.2
+      description: Parser error
 
 triggers:
   requires: []  # No dependencies - runs first wave
@@ -60,34 +100,45 @@ emits:
     - detector.http3.started
 
   on_complete:
-    - key: detection.http3.confidence
-      type: double
-      description: Bot confidence from HTTP/3 fingerprint analysis
-      confidence_range: [0.0, 1.0]
-
-    - key: detection.http3.transport_params
-      type: string
-      description: QUIC transport parameter fingerprint
-
-    - key: detection.http3.quic_version
-      type: string
-      description: QUIC version (v1, v2, draft)
-
-    - key: detection.http3.is_http3
+    # Signal keys MUST match the strings written via state.WriteSignal in
+    # Http3FingerprintContributor.cs (namespace `h3.*`). Descriptions are the
+    # LLM reasoning surface - every signal carries its own.
+    - key: h3.is_http3
       type: bool
-      description: Whether connection uses HTTP/3
-
-    - key: detection.http3.client_type
+      description: Connection uses HTTP/3 over QUIC
+    - key: h3.protocol
       type: string
-      description: Matched known QUIC client fingerprint name if any
-
-    - key: detection.http3.zero_rtt
+      description: HTTP/3 protocol identifier negotiated for the request (SignalKeys.H3Protocol)
+    - key: h3.client_type
+      type: string
+      description: Matched known QUIC client fingerprint (SignalKeys.H3ClientType) - chrome-quic, firefox-quic, h3-go, etc.
+    - key: h3.quic_version
+      type: string
+      description: QUIC version negotiated (v1, v2, IETF draft)
+    - key: h3.quic_v2
       type: bool
-      description: Whether 0-RTT resumption was used
-
-    - key: detection.http3.connection_migrated
+      description: Connection negotiated QUIC v2 - distinguishes recent Chrome / Firefox builds from older clients
+    - key: h3.transport_params
+      type: string
+      description: QUIC transport-parameter fingerprint - the H3 equivalent of the H2 SETTINGS fingerprint
+    - key: h3.transport_fingerprint_unknown
       type: bool
-      description: Whether QUIC connection migration occurred
+      description: Transport-params fingerprint doesn't match any known client - new client or one trying to hide
+    - key: h3.zero_rtt
+      type: bool
+      description: 0-RTT resumption was used (SignalKeys.H3ZeroRtt) - common for repeat human visits, rare for first-touch crawls
+    - key: h3.connection_migrated
+      type: bool
+      description: QUIC connection migration occurred (SignalKeys.H3ConnectionMigrated) - mobile network changes; rare for automation
+    - key: h3.spin_bit_disabled
+      type: bool
+      description: Client disabled the QUIC spin bit - privacy-focused clients (Tor over QUIC, hardened browsers)
+    - key: h3.alt_svc_upgrade
+      type: bool
+      description: Connection arrived via Alt-Svc upgrade from HTTP/2 rather than direct QUIC negotiation
+    - key: h3.analysis_error
+      type: string
+      description: Parser error message - present when QUIC framing detail was malformed or unparseable
 
   on_failure:
     - detector.http3.failed

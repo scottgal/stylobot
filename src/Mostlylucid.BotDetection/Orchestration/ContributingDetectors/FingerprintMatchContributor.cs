@@ -59,8 +59,27 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     {
         var primarySig = state.GetSignal<string>(SignalKeys.PrimarySignature);
         var vector = state.Signals.TryGetValue(SignalKeys.IdentityVector, out var vecObj) ? vecObj as float[] : null;
-        if (string.IsNullOrEmpty(primarySig) || vector is null)
-            return Array.Empty<DetectionContribution>();
+        if (vector is null) return Array.Empty<DetectionContribution>();
+
+        // PrimarySignature can be empty for header-sparse requests (curl with only
+        // User-Agent and no Accept header, etc.) - SignatureContributor's
+        // MultiFactorSignatureService skips the WriteSignal when the result is empty.
+        // Without it the matcher would exit silently and the request would never get
+        // an identity.fingerprint_id, breaking the BDF stability assertion. Derive a
+        // stable fallback key from IP+UA so allocation + L1 lookup still work; the
+        // key is opaque (used purely as the store's primary index), not a security
+        // signature.
+        if (string.IsNullOrEmpty(primarySig))
+        {
+            var ua = state.UserAgent;
+            var ip = state.GetSignal<string>(SignalKeys.ClientIp) ?? string.Empty;
+            if (string.IsNullOrEmpty(ua) && string.IsNullOrEmpty(ip))
+                return Array.Empty<DetectionContribution>();
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            var bytes = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes($"fp-fallback:{ip}|{ua}"));
+            primarySig = Convert.ToHexString(bytes);
+            state.WriteSignal(SignalKeys.PrimarySignature, primarySig);
+        }
 
         await _store.EnsureInitialisedAsync(cancellationToken);
 
@@ -221,7 +240,28 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             seedWeights[i] = 1.0f;
         foreach (var slot in _store.Layout.Slots)
         {
-            if (!slot.Name.StartsWith("session.", StringComparison.OrdinalIgnoreCase)) continue;
+            // Three families of per-navigation volatile dims need MinWeight at
+            // allocation so the L1-confirm cosine survives normal cross-page
+            // header drift (otherwise the matcher allocates a fresh fingerprint
+            // on every page transition):
+            //
+            //   session.*                       - request-rate, age, path entropy,
+            //                                     referer host family. All per-page.
+            //   hdr.header_order_hash           - flips when a Referer is added /
+            //                                     Upgrade-Insecure-Requests drops on
+            //                                     the second page of a Firefox session.
+            //   hdr.sec_fetch_pattern           - "none" on initial load, "same-origin"
+            //                                     for subsequent same-origin navigations.
+            //                                     Browser-determined, not actor-volatile.
+            //   hdr.upgrade_insecure_requests   - emitted only on top-level navigations,
+            //                                     absent on subsequent same-origin reqs.
+            //
+            // Stability learning re-weights these as the fingerprint matures.
+            var isVolatile = slot.Name.StartsWith("session.", StringComparison.OrdinalIgnoreCase)
+                          || slot.Name.Equals("hdr.header_order_hash", StringComparison.OrdinalIgnoreCase)
+                          || slot.Name.Equals("hdr.sec_fetch_pattern", StringComparison.OrdinalIgnoreCase)
+                          || slot.Name.Equals("hdr.upgrade_insecure_requests", StringComparison.OrdinalIgnoreCase);
+            if (!isVolatile) continue;
             for (var i = slot.Offset; i < slot.Offset + slot.Width; i++)
                 seedWeights[i] = (float)_options.Weights.MinWeight;
         }

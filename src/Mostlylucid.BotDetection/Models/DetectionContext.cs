@@ -508,9 +508,6 @@ public static class SignalKeys
     /// </summary>
     public const string IdentityAmbiguityProbing = "identity.ambiguity_probing";
 
-    /// <summary>List of {dim_name, observed, expected}: dims that drifted on a rotation-band match.</summary>
-    public const string IdentityRotationDimensions = "identity.rotation_dimensions";
-
     /// <summary>double in [0,1]: EWMA of post-detection bot probability over recent observations of this fingerprint.</summary>
     public const string IdentityCachedBotProbability = "identity.cached_bot_probability";
 
@@ -526,17 +523,11 @@ public static class SignalKeys
     /// <summary>String: archetype_id the fingerprint was originally seeded from (lineage).</summary>
     public const string IdentityClientTypeOrigin = "identity.client_type_origin";
 
-    /// <summary>bool: this request's centroid update flipped inferred_client_type to a different archetype.</summary>
-    public const string IdentityClientTypeDrift = "identity.client_type_drift";
-
     /// <summary>string: human-readable display name of the matched archetype (e.g. "Chrome on Windows", "python-requests"). Written by FingerprintMatchContributor whenever a match resolves to an archetype.</summary>
     public const string IdentityArchetypeName = "identity.archetype_name";
 
     /// <summary>string?: optional descriptive text for the matched archetype. Written by FingerprintMatchContributor when present on the archetype.</summary>
     public const string IdentityArchetypeDescription = "identity.archetype_description";
-
-    /// <summary>string?: dominant country code observed across the archetype's descendants. Used by the variance composer to detect geo-divergent fingerprints.</summary>
-    public const string IdentityArchetypeDominantCountry = "identity.archetype_dominant_country";
 
     /// <summary>string?: name of the layout slot with the largest width-normalised Fisher-weighted L2 distance between the observed identity vector and the matched archetype's centroid (e.g. "network.country", "hdr.sec_ch_ua_brands_ordered"). Written by FingerprintMatchContributor after a match. Null when no archetype matched or drift is below DriftEpsilon.</summary>
     public const string IdentityDriftTopSlot = "identity.drift_top_slot";

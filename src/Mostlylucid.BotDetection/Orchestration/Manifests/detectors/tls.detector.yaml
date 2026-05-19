@@ -39,18 +39,50 @@ output:
       description: Detailed TLS fingerprint signals
 
   signals:
-    - key: detection.tls.confidence
-      entity_type: number
-      salience: 0.8
-      description: Bot confidence from TLS fingerprint
-    - key: detection.tls.ja3_hash
+    - key: tls.available
+      entity_type: boolean
+      salience: 0.3
+      description: TLS detail was available for this request (some hops strip it)
+    - key: tls.is_https
+      entity_type: boolean
+      salience: 0.4
+      description: Request was over HTTPS
+    - key: tls.behind_proxy
+      entity_type: boolean
+      salience: 0.2
+      description: TLS detail came via proxy headers (e.g. X-JA3-Hash)
+    - key: tls.ja3_hash
       entity_type: string
       salience: 0.9
       description: JA3 fingerprint hash
-    - key: detection.tls.known_fingerprint
+    - key: tls.ja3_string
+      entity_type: string
+      salience: 0.6
+      description: JA3 fingerprint string (pre-hash form)
+    - key: tls.cipher_suite
+      entity_type: string
+      salience: 0.7
+      description: Negotiated TLS cipher suite
+    - key: tls.fingerprint_known
       entity_type: boolean
       salience: 0.95
-      description: Whether fingerprint matches known pattern
+      description: JA3/JA4 matches a known browser or bot fingerprint
+    - key: tls.client_cert_present
+      entity_type: boolean
+      salience: 0.6
+      description: Client presented a TLS certificate (rare for browsers)
+    - key: tls.client_cert_issuer
+      entity_type: string
+      salience: 0.5
+      description: Issuer DN of the presented client certificate
+    - key: tls.error
+      entity_type: string
+      salience: 0.3
+      description: Parser / availability error message when TLS info couldn't be read
+    - key: user_agent.tls_protocol
+      entity_type: string
+      salience: 0.5
+      description: TLS protocol version negotiated for this request (SignalKeys.TlsProtocol)
 
 triggers:
   requires: []  # No dependencies - runs first wave
@@ -62,30 +94,44 @@ emits:
     - detector.tls.started
 
   on_complete:
-    - key: detection.tls.confidence
-      type: double
-      description: Bot confidence from TLS fingerprint analysis
-      confidence_range: [0.0, 1.0]
-
-    - key: detection.tls.ja3_hash
+    # Signal keys here MUST match the strings written via state.WriteSignal in
+    # TlsFingerprintContributor.cs - the manifest is the source of truth for
+    # tooling (--output-config, dashboard "what signals does this detector emit",
+    # benchmark scenario filters). Drift between this list and the .cs writes
+    # means tooling silently shows the wrong surface.
+    - key: tls.available
+      type: bool
+      description: TLS detail was available for this request
+    - key: tls.is_https
+      type: bool
+      description: Connection uses HTTPS
+    - key: tls.behind_proxy
+      type: bool
+      description: TLS detail came via proxy headers
+    - key: tls.ja3_hash
       type: string
       description: JA3 fingerprint hash
-
-    - key: detection.tls.protocol
+    - key: tls.ja3_string
       type: string
-      description: TLS protocol version
-
-    - key: detection.tls.cipher_suite
+      description: JA3 fingerprint string (pre-hash)
+    - key: tls.cipher_suite
       type: string
-      description: Negotiated cipher suite
-
-    - key: detection.tls.is_https
+      description: Negotiated TLS cipher suite
+    - key: tls.fingerprint_known
       type: bool
-      description: Whether connection uses HTTPS
-
-    - key: detection.tls.known_fingerprint
+      description: JA3/JA4 matches a known browser or bot fingerprint
+    - key: tls.client_cert_present
       type: bool
-      description: Whether fingerprint matches known bot or browser
+      description: Client presented a TLS certificate
+    - key: tls.client_cert_issuer
+      type: string
+      description: Issuer DN of the presented client certificate
+    - key: tls.error
+      type: string
+      description: Parser error message when TLS info couldn't be read
+    - key: user_agent.tls_protocol
+      type: string
+      description: TLS protocol version (SignalKeys.TlsProtocol)
 
   on_failure:
     - detector.tls.failed

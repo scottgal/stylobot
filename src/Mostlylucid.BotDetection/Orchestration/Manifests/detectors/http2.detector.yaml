@@ -36,18 +36,68 @@ output:
       description: HTTP/2 fingerprint analysis contribution
 
   signals:
-    - key: detection.http2.confidence
-      entity_type: number
-      salience: 0.75
-      description: Bot confidence from HTTP/2 fingerprint
-    - key: detection.http2.is_http2
+    # Signal keys here MUST match the strings written via state.WriteSignal in
+    # Http2FingerprintContributor.cs - the namespace is `h2.*`, not `detection.http2.*`.
+    - key: h2.is_http2
       entity_type: boolean
       salience: 0.6
-      description: Whether connection uses HTTP/2
-    - key: detection.http2.known_fingerprint
-      entity_type: string
+      description: Connection uses HTTP/2
+    - key: h2.is_http3
+      entity_type: boolean
+      salience: 0.6
+      description: Connection uses HTTP/3 (set by this contributor for cross-pivot)
+    - key: h2.behind_proxy
+      entity_type: boolean
+      salience: 0.3
+      description: HTTP/2 framing info came from a downstream proxy rather than the wire
+    - key: h2.settings_fingerprint
+      type: string
       salience: 0.9
-      description: Matched known fingerprint name
+      description: HTTP/2 SETTINGS frame fingerprint
+    - key: h2.pseudoheader_order
+      entity_type: string
+      salience: 0.8
+      description: Order of pseudo-headers (:method :authority :path :scheme)
+    - key: h2.stream_priority
+      entity_type: string
+      salience: 0.6
+      description: Stream priority pattern
+    - key: h2.uses_priority
+      entity_type: boolean
+      salience: 0.5
+      description: Client emitted PRIORITY frames
+    - key: h2.window_update_pattern
+      entity_type: string
+      salience: 0.4
+      description: WINDOW_UPDATE frame cadence pattern
+    - key: h2.window_update_count
+      entity_type: number
+      salience: 0.3
+      description: Number of WINDOW_UPDATE frames observed
+    - key: h2.push_enabled
+      entity_type: boolean
+      salience: 0.4
+      description: Client accepted server-push frames
+    - key: h2.preface_valid
+      entity_type: boolean
+      salience: 0.5
+      description: HTTP/2 connection preface matched RFC 7540
+    - key: h2.population_http2_rate
+      entity_type: number
+      salience: 0.3
+      description: Rolling % of HTTP/2 requests this fingerprint has produced
+    - key: h2.population_samples
+      entity_type: number
+      salience: 0.2
+      description: Sample count behind the population rate
+    - key: h2.fingerprint_unknown
+      entity_type: boolean
+      salience: 0.6
+      description: Settings fingerprint doesn't match any known browser / bot
+    - key: h2.analysis_error
+      entity_type: string
+      salience: 0.2
+      description: Parser error
 
 triggers:
   requires: []  # No dependencies - runs first wave
@@ -59,30 +109,55 @@ emits:
     - detector.http2.started
 
   on_complete:
-    - key: detection.http2.confidence
-      type: double
-      description: Bot confidence from HTTP/2 fingerprint analysis
-      confidence_range: [0.0, 1.0]
-
-    - key: detection.http2.settings_fingerprint
-      type: string
-      description: HTTP/2 SETTINGS frame fingerprint
-
-    - key: detection.http2.priority_pattern
-      type: string
-      description: Stream priority behavior pattern
-
-    - key: detection.http2.pseudoheader_order
-      type: string
-      description: Order of pseudo-headers (method, authority, path, scheme)
-
-    - key: detection.http2.is_http2
+    # Signal keys MUST match the strings written via state.WriteSignal in
+    # Http2FingerprintContributor.cs (namespace `h2.*`). Descriptions are the
+    # LLM reasoning surface - every signal carries its own so an LLM can
+    # explain what a flagged request looked like without parsing the .cs.
+    - key: h2.is_http2
       type: bool
-      description: Whether connection uses HTTP/2
-
-    - key: detection.http2.known_fingerprint
+      description: Connection uses HTTP/2 framing
+    - key: h2.is_http3
+      type: bool
+      description: Connection uses HTTP/3 (set here for cross-pivot when the H2 contributor sees the H3 upgrade)
+    - key: h2.behind_proxy
+      type: bool
+      description: HTTP/2 framing info came from a downstream proxy header rather than the wire
+    - key: h2.settings_fingerprint
       type: string
-      description: Matched known fingerprint name if any
+      description: HTTP/2 SETTINGS frame fingerprint - the most diagnostic single H2 signal for client identification
+    - key: h2.pseudoheader_order
+      type: string
+      description: Order of pseudo-headers (:method :authority :path :scheme) - browsers and HTTP/2 libraries pin distinct orderings
+    - key: h2.stream_priority
+      type: string
+      description: Stream priority pattern - browsers emit a characteristic priority tree; most automation does not
+    - key: h2.uses_priority
+      type: bool
+      description: Client emitted PRIORITY frames (rare outside real browsers)
+    - key: h2.window_update_pattern
+      type: string
+      description: WINDOW_UPDATE frame cadence pattern - cadence differs between Chrome, Firefox, Safari, curl-style clients
+    - key: h2.window_update_count
+      type: int
+      description: Number of WINDOW_UPDATE frames observed during the connection
+    - key: h2.push_enabled
+      type: bool
+      description: Client advertised acceptance of server-push frames in SETTINGS
+    - key: h2.preface_valid
+      type: bool
+      description: HTTP/2 connection preface matched RFC 7540 - malformed preface is a strong scripted-client indicator
+    - key: h2.population_http2_rate
+      type: double
+      description: Rolling % of HTTP/2 requests this fingerprint has produced (humans are mostly H2; tools are usually H1)
+    - key: h2.population_samples
+      type: int
+      description: Sample count behind h2.population_http2_rate so the LLM can weight low-evidence rates
+    - key: h2.fingerprint_unknown
+      type: bool
+      description: SETTINGS fingerprint doesn't match any known browser or bot - either a new client or one trying to hide
+    - key: h2.analysis_error
+      type: string
+      description: Parser error message - present when H2 detail was malformed or unparseable
 
   on_failure:
     - detector.http2.failed

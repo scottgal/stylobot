@@ -1,0 +1,233 @@
+# FingerprintMatchContributor - the metastable identity matcher
+#
+# Implements the two-pass match documented in
+# docs/architecture/fingerprint-match.md:
+#   L1 (Pass 1): IP+UA HMAC point lookup against fingerprint_keys
+#   L2 (Pass 2): weighted-cosine search via IIdentityAnchorIndex
+# On L1 confirm OR L2 match: emits identity.* signals + persists DisplayName.
+# On miss: allocates a new fingerprint, seeds centroid + per-fp weights.
+#
+# Foundation contributor: inherits ContributingDetectorBase (no GetParam<T>
+# config consumed), this manifest exists for the --output-config dump, the
+# dashboard's "signals this detector emits" listing, BDF probe enumeration
+# and the LLM reasoning surface (every signal carries a description).
+# Hardcoded priority in the .cs file (6) and the priority below MUST stay
+# in sync.
+
+name: FingerprintMatchContributor
+priority: 6  # After IdentityVectorContributor (5); before classifier contributors
+enabled: true
+description: Matches the request's identity vector to an existing fingerprint or allocates a new one (metastable identity layer)
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: identity
+
+taxonomy:
+  kind: sensor
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: Request with identity.vector already composed by IdentityVectorContributor
+      signal_pattern: identity.*
+
+  required_signals:
+    - identity.vector            # produced by IdentityVectorContributor (priority 5)
+    - signature.primary          # produced by SignatureContributor (priority 1)
+
+  optional_signals:
+    - identity.vector_quality
+
+output:
+  produces:
+    - type: botdetection.fingerprint
+      description: A persisted Fingerprint row plus the per-request identity.* signal set
+
+  signals:
+    # Core match outputs - written on every successful match or allocation
+    - key: identity.fingerprint_id
+      entity_type: string
+      salience: 0.95
+      description: Stable id of the fingerprint this request resolved to; downstream consumers (dashboard, REST API, broadcast) key on this
+    - key: identity.fingerprint_l1
+      entity_type: string
+      salience: 0.8
+      description: True when Pass 1 (IP+UA point lookup) hit and was confirmed by cosine; lets the LLM know whether the match was the fast or slow path
+    - key: identity.match_score
+      entity_type: number
+      salience: 0.9
+      description: Weighted-cosine score (0..1) between the request vector and the matched fingerprint's centroid; near-1 = stable visitor, near-LooseThreshold = rotation suspicion
+    - key: identity.is_new_fingerprint
+      entity_type: boolean
+      salience: 0.85
+      description: True when this request allocated a fresh fingerprint (no match); first-touch indicator
+    - key: identity.is_correction
+      entity_type: boolean
+      salience: 0.7
+      description: True when Pass 2 corrected an L1 confirm that misled - rare but high-signal (vector composition changed meaningfully across requests)
+    - key: identity.rotation_candidate
+      entity_type: boolean
+      salience: 0.85
+      description: True when the match landed in the rotation band (between LooseThreshold and MergeThreshold); the visitor is likely the same actor changing some identity dim (IP rotation, header tweak)
+    - key: identity.slow_path_shed
+      entity_type: boolean
+      salience: 0.5
+      description: True when IdentityProcessingCoordinator shed this request's Pass 2 due to load - the L1 result was used as-is without a Pass 2 confirm
+
+    # Archetype / display surface - written when the matched fingerprint resolves to a YAML archetype
+    - key: identity.client_type
+      entity_type: string
+      salience: 0.85
+      description: Archetype id this fingerprint currently most resembles (chrome-desktop, python-requests, etc.) - cached on the Fingerprint row
+    - key: identity.client_type_confidence
+      entity_type: number
+      salience: 0.8
+      description: Weighted-cosine score to the inferred archetype - distinguishes "obviously chrome" from "chrome-shaped but borderline"
+    - key: identity.client_type_origin
+      entity_type: string
+      salience: 0.6
+      description: Archetype id this fingerprint was originally seeded from at allocation; differs from current client_type when the fingerprint has drifted
+    - key: identity.archetype_name
+      entity_type: string
+      salience: 0.7
+      description: Human-readable display name of the matched archetype (Chrome on Windows, python-requests, etc.) - feeds the dashboard + the auto-name composer
+    - key: identity.archetype_description
+      entity_type: string
+      salience: 0.5
+      description: Free-text archetype description when the YAML carries one - additional LLM context for "what kind of visitor is this"
+    - key: identity.display_name
+      entity_type: string
+      salience: 0.7
+      description: The composed display name for this fingerprint (from FingerprintNameComposer + hysteresis + spoofed marker)
+
+    # Drift signals - emitted when an absorbed observation moves the centroid measurably
+    - key: identity.drift_top_slot
+      entity_type: string
+      salience: 0.85
+      description: Layout slot name with the largest width-normalised Fisher-weighted L2 distance vs the matched archetype (network.country, hdr.sec_ch_ua_*, etc.) - tells the LLM what changed
+    - key: identity.drift_top_score
+      entity_type: number
+      salience: 0.7
+      description: Width-normalised Fisher-weighted squared distance for the top-drift slot; lower = closer to centroid
+    - key: identity.drift_top_category
+      entity_type: string
+      salience: 0.7
+      description: Coarse category prefix of the top-drift slot (network, locale, hdr, tool) - lets the synthesizer map drift to a label class
+
+    # Cached posterior - reflects the per-fingerprint EWMA, available even on first-touch requests for this fingerprint
+    - key: identity.cached_bot_probability
+      entity_type: number
+      salience: 0.9
+      description: EWMA of post-detection bot probability over recent observations of this fingerprint; survives across requests
+    - key: identity.cached_risk_band
+      entity_type: string
+      salience: 0.85
+      description: Cached risk band derived from cached_bot_probability (VeryLow / Low / Medium / High / VeryHigh / Verified)
+
+    # Ambiguity-persistence (boundary-probing defence) - escalates when a fingerprint keeps landing in the rotation band
+    - key: identity.ambiguity_persistence
+      entity_type: number
+      salience: 0.6
+      description: EWMA of "this match was ambiguous" events for this fingerprint; > AmbiguityProbingThreshold flips the probing bool below
+    - key: identity.ambiguity_probing
+      entity_type: boolean
+      salience: 0.85
+      description: True when ambiguity_persistence has crossed threshold for this fingerprint - the actor is repeatedly probing the rotation boundary, treat as adversarial
+
+triggers:
+  requires: []
+  skip_when:
+    - detection.early_exit
+
+emits:
+  on_complete:
+    # Mirrors output.signals above. Verbose descriptions are the LLM
+    # reasoning surface and must stay per-signal.
+    - key: identity.fingerprint_id
+      type: string
+      description: Stable id of the matched / newly-allocated fingerprint - the canonical join key for downstream dashboards and entity resolution
+    - key: identity.fingerprint_l1
+      type: bool
+      description: True when Pass 1 (IP+UA point lookup) was confirmed
+    - key: identity.match_score
+      type: double
+      description: Weighted-cosine match score (0..1) against the chosen fingerprint's centroid
+    - key: identity.is_new_fingerprint
+      type: bool
+      description: First-touch indicator - this request allocated a brand-new fingerprint
+    - key: identity.is_correction
+      type: bool
+      description: Pass 2 corrected an L1 confirm that disagreed with the cosine search - rare but diagnostic
+    - key: identity.rotation_candidate
+      type: bool
+      description: Score landed in the rotation band - likely the same actor rotating an identity dim
+    - key: identity.slow_path_shed
+      type: bool
+      description: Coordinator dropped Pass 2 under load - L1 result used as-is
+    - key: identity.client_type
+      type: string
+      description: Archetype this fingerprint currently resembles
+    - key: identity.client_type_confidence
+      type: double
+      description: Cosine score to the inferred archetype
+    - key: identity.client_type_origin
+      type: string
+      description: Archetype this fingerprint was originally seeded from at allocation
+    - key: identity.archetype_name
+      type: string
+      description: Human-readable archetype name (e.g. "Chrome on Windows")
+    - key: identity.archetype_description
+      type: string
+      description: Free-text archetype description when the YAML carries one
+    - key: identity.display_name
+      type: string
+      description: Composed dashboard / CLI display name for this fingerprint
+    - key: identity.drift_top_slot
+      type: string
+      description: Layout slot with the largest drift distance vs the archetype
+    - key: identity.drift_top_score
+      type: double
+      description: Width-normalised Fisher-weighted squared distance for the top-drift slot
+    - key: identity.drift_top_category
+      type: string
+      description: Coarse category of the top-drift slot (network / locale / hdr / tool)
+    - key: identity.cached_bot_probability
+      type: double
+      description: EWMA of post-detection bot probability for this fingerprint
+    - key: identity.cached_risk_band
+      type: string
+      description: Risk band derived from cached_bot_probability
+    - key: identity.ambiguity_persistence
+      type: double
+      description: EWMA of rotation-band-ambiguous events for this fingerprint
+    - key: identity.ambiguity_probing
+      type: bool
+      description: Ambiguity-persistence has crossed threshold - treat as adversarial probing
+
+  on_failure:
+    - detector.identity.match_failed
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 4
+  priority: 95
+
+# No defaults block - ContributingDetectorBase, not ConfiguredContributorBase.
+# Match thresholds (MergeThreshold, LooseThreshold, SignificantDriftEpsilon,
+# AmbiguityProbingThreshold) live on BotDetectionOptions.Identity.Match and
+# are bound via the standard options pipeline, not the manifest defaults.
+
+tags:
+  - foundation
+  - identity
+  - wave-0
+  - matcher

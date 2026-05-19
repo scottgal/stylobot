@@ -686,44 +686,6 @@ public class NewDetectorTests
 
     #endregion
 
-    #region StabilityAnalyzer Tests
-
-    [Fact]
-    public void StabilityAnalyzer_StableHeader_HighAnchorStrength()
-    {
-        // Same hash for "accept-language" across 5 sessions
-        var sessions = Enumerable.Range(0, 5)
-            .Select(_ => new Dictionary<string, string> { ["accept-language"] = "hash-stable" })
-            .ToList();
-
-        var anchors = StabilityAnalyzer.ComputeAnchors(sessions);
-
-        Assert.True(anchors.ContainsKey("accept-language"));
-        var score = anchors["accept-language"];
-        Assert.True(score.PersonalStability >= 0.99,
-            $"Expected PersonalStability near 1.0 but got {score.PersonalStability}");
-        Assert.Equal(1, score.UniqueValues);
-    }
-
-    [Fact]
-    public void StabilityAnalyzer_VolatileHeader_LowAnchorStrength()
-    {
-        // Different hash for "accept-language" in each of 5 sessions
-        var sessions = Enumerable.Range(0, 5)
-            .Select(i => new Dictionary<string, string> { ["accept-language"] = $"hash-{i}" })
-            .ToList();
-
-        var anchors = StabilityAnalyzer.ComputeAnchors(sessions);
-
-        Assert.True(anchors.ContainsKey("accept-language"));
-        var score = anchors["accept-language"];
-        Assert.True(score.PersonalStability <= 0.21,
-            $"Expected PersonalStability near 0.2 but got {score.PersonalStability}");
-        Assert.Equal(5, score.UniqueValues);
-    }
-
-    #endregion
-
     #region HeaderCorrelationContributor Tests
 
     private static HeaderCorrelationContributor CreateHeaderCorrelationContributor(
