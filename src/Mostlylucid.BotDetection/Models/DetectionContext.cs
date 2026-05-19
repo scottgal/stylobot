@@ -210,7 +210,6 @@ public static class SignalKeys
     public const string UserAgentFamily = "ua.family";
     public const string UserAgentFamilyVersion = "ua.family_version";
 
-    public const string HeadersPresent = "headers.present";
     public const string HeadersMissing = "headers.missing";
     public const string HeadersSuspicious = "headers.suspicious";
 
@@ -252,19 +251,16 @@ public static class SignalKeys
     public const string IpAsnOrg = "ip.asn_org";
     public const string ProxyTopology = "proxy.topology";
 
-    public const string FingerprintHash = "fingerprint.hash";
     public const string FingerprintHeadlessScore = "fingerprint.headless_score";
     public const string FingerprintIntegrityScore = "fingerprint.integrity_score";
 
     // Stage 1 signals (behavioral)
     public const string BehavioralRateExceeded = "behavioral.rate_exceeded";
     public const string BehavioralAnomalyDetected = "behavioral.anomaly";
-    public const string BehavioralRequestCount = "behavioral.request_count";
 
     // Stage 1 signals (version age)
     public const string VersionAgeAnalyzed = "versionage.analyzed";
     public const string BrowserVersionAge = "versionage.browser_age";
-    public const string OsVersionAge = "versionage.os_age";
 
     // Stage 2 signals (meta-layers)
     public const string InconsistencyScore = "inconsistency.score";
@@ -549,7 +545,6 @@ public static class SignalKeys
     public const string IdentityDisplayName = "identity.display_name";
 
     /// <summary>bool: transport-layer dims are zero on what should be TLS-fronted traffic.</summary>
-    public const string ConfigWarningCleartextHttp = "config.warning.cleartext_http";
 
     // Periodicity Detection
     // ==========================================
@@ -683,31 +678,22 @@ public static class SignalKeys
     // ==========================================
 
     /// <summary>Double 0.0-1.0: cross-session campaign abuse score (log-scaled distinct signatures).</summary>
-    public const string AdTrafficCampaignAbuseScore = "adtraffic.campaign_abuse_score";
 
     /// <summary>Bool: signature arrived from more than N distinct campaigns in 24h (cookie stuffing).</summary>
-    public const string AdTrafficCookieStuffing = "adtraffic.cookie_stuffing";
 
     /// <summary>Bool: same click ID hash seen from multiple distinct signatures (click ID reuse).</summary>
-    public const string AdTrafficClickIdReuse = "adtraffic.click_id_reuse";
 
     /// <summary>Bool: source platform changed between sessions for this signature.</summary>
-    public const string AdTrafficAttributionChurn = "adtraffic.attribution_churn";
 
     /// <summary>String: IAB IVT class -- "GIVT" or "SIVT". Absent if traffic is legitimate.</summary>
-    public const string AdTrafficIvtClass = "adtraffic.ivt_class";
 
     /// <summary>True once AdTrafficContributor has run (gate for downstream triggers).</summary>
-    public const string AdTrafficChecked = "adtraffic.checked";
 
     /// <summary>Double 0.0-1.0: likelihood this form submission is fraudulent (conversion endpoints only).</summary>
-    public const string AdTrafficConversionRisk = "adtraffic.conversion_risk";
 
     /// <summary>Bool: conversion fraud confirmed -- score exceeded configured threshold.</summary>
-    public const string AdTrafficConversionFraud = "adtraffic.conversion_fraud";
 
     /// <summary>String: conversion endpoint pattern that matched (e.g. "/register").</summary>
-    public const string AdTrafficConversionEndpoint = "adtraffic.conversion_endpoint";
 
     // ==========================================
     // Cluster detection signals
@@ -753,7 +739,6 @@ public static class SignalKeys
     public const string ClusterPeakToAvg = "cluster.peak_to_avg";
 
     /// <summary>Double: Temporal correlation with other cluster members [0,1]. High = shared C2 timing</summary>
-    public const string ClusterTemporalCorrelation = "cluster.temporal_correlation";
 
     // ==========================================
     // Geographic and network classification signals
@@ -830,13 +815,10 @@ public static class SignalKeys
     public const string ConvergenceMergeConfidence = "convergence.merge_confidence";
 
     /// <summary>Boolean: Whether family members are coherent (no split candidates)</summary>
-    public const string ConvergenceIsCoherent = "convergence.is_coherent";
 
     /// <summary>Double: Average bot probability across all family members</summary>
-    public const string ConvergenceFamilyBotProbability = "convergence.family_bot_probability";
 
     /// <summary>Int: Total request count across all family members</summary>
-    public const string ConvergenceFamilyRequestCount = "convergence.family_request_count";
 
     // ==========================================
     // Response behavior signals
@@ -984,13 +966,10 @@ public static class SignalKeys
     public const string AtoCredentialStuffing = "ato.credential_stuffing";
 
     /// <summary>Boolean: username enumeration detected (many unique usernames from same source)</summary>
-    public const string AtoUsernameEnumeration = "ato.username_enumeration";
 
     /// <summary>Boolean: password spray detected (same password hash across many signatures)</summary>
-    public const string AtoPasswordSpray = "ato.password_spray";
 
     /// <summary>Boolean: phishing-sourced ATO detected (new fingerprint + immediate sensitive action)</summary>
-    public const string AtoPhishingTakeover = "ato.phishing_takeover";
 
     /// <summary>Boolean: geographic velocity anomaly (impossible travel between logins)</summary>
     public const string AtoGeoVelocity = "ato.geo_velocity";
@@ -1005,13 +984,11 @@ public static class SignalKeys
     public const string AtoRapidCredentialChange = "ato.rapid_credential_change";
 
     /// <summary>Boolean: session behavioral anomaly detected post-login</summary>
-    public const string AtoSessionAnomaly = "ato.session_anomaly";
 
     /// <summary>Int: number of failed login attempts in current window</summary>
     public const string AtoLoginFailedCount = "ato.login_failed_count";
 
     /// <summary>Int: number of unique username hashes seen in current window</summary>
-    public const string AtoUniqueUsernameCount = "ato.unique_username_count";
 
     /// <summary>Double: composite behavioral drift score (0.0-1.0), decay-adjusted</summary>
     public const string AtoDriftScore = "ato.drift_score";
@@ -1285,7 +1262,6 @@ public static class SignalKeys
     public const string IntentCategory = "intent.category";
 
     /// <summary>Boolean: true if LLM was used to classify this session's intent</summary>
-    public const string IntentLlmClassified = "intent.llm_classified";
 
     /// <summary>Double: highest similarity score from intent HNSW index</summary>
     public const string IntentSimilarityScore = "intent.similarity_score";
@@ -1348,13 +1324,10 @@ public static class SignalKeys
     // ==========================================
 
     /// <summary>Boolean: true when the request host did not match any licensed domain.</summary>
-    public const string LicenseDomainMismatch = "license.domain_mismatch";
 
     /// <summary>String: the mismatch classification - "mismatch", "mismatch_cloud_pool", or "no_host".</summary>
-    public const string LicenseDomainMismatchKind = "license.domain_mismatch_kind";
 
     /// <summary>String: the normalized request host that triggered the mismatch.</summary>
-    public const string LicenseRequestHost = "license.request_host";
 
     // ==========================================
     // CVE / Threat Intelligence signals
@@ -1550,10 +1523,8 @@ public static class SignalKeys
     // ==========================================
 
     /// <summary>String: detected CDN/proxy provider name (e.g., "cloudflare", "aws-alb")</summary>
-    public const string CdnProvider = "cdn.provider";
 
     /// <summary>String: header name used to extract the real client IP for this provider</summary>
-    public const string CdnRealIpHeader = "cdn.real_ip_header";
 
     // ==========================================
     // Headless automation framework signals

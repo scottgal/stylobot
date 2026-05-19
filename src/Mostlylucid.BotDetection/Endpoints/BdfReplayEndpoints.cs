@@ -425,15 +425,25 @@ public static class BdfReplayEndpoints
         return isMatch;
     }
 
+    // Single lock for the whole limiter: serialising the eviction path against
+    // GetOrAdd closes the window where a concurrent eviction could remove the
+    // entry another request just added for the same IP. Test-endpoint workload
+    // is light, contention cost is negligible.
+    private static readonly object RateLimitLock = new();
+
     private static bool CheckRateLimit(string clientIp, int maxPerMinute)
     {
         var now = DateTime.UtcNow;
+        List<DateTime> window;
 
-        if (RateLimitWindow.Count > MaxRateLimitEntries)
-            foreach (var key in RateLimitWindow.Keys.Take(MaxRateLimitEntries / 2))
-                RateLimitWindow.TryRemove(key, out _);
+        lock (RateLimitLock)
+        {
+            if (RateLimitWindow.Count > MaxRateLimitEntries)
+                foreach (var key in RateLimitWindow.Keys.Take(MaxRateLimitEntries / 2).ToList())
+                    RateLimitWindow.TryRemove(key, out _);
 
-        var window = RateLimitWindow.GetOrAdd(clientIp, _ => new List<DateTime>());
+            window = RateLimitWindow.GetOrAdd(clientIp, _ => new List<DateTime>());
+        }
 
         lock (window)
         {

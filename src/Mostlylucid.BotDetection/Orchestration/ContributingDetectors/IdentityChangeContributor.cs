@@ -141,23 +141,17 @@ public class IdentityChangeContributor : ConfiguredContributorBase, IFoundationC
         _logger.LogDebug("IdentityChange fp={Fp} score={Score:F2} reason={Reason}",
             fingerprintId.Length > 8 ? fingerprintId[..8] : fingerprintId, score, reason);
 
-        var signals = new Dictionary<string, object>
-        {
-            [SignalKeys.RiskSuspiciousChangeScore] = score,
-            [SignalKeys.RiskSuspiciousChangeReason] = reason
-        };
-
         // Indicator-only contribution: low confidence, scaled by the aggregate score.
-        // Commercial layers act on the risk.* signals directly via policy.
+        // Commercial layers act on the risk.* signals directly via policy. Signals are
+        // already on the blackboard via state.WriteSignal above - not duplicated into
+        // contribution.Signals (the orchestrator merges contribution signals back into
+        // the same dict, so doubling them up is idempotent waste).
         var contribution = BotContribution(
             "SurfaceDimShift",
             $"Matched fingerprint shifted surface dimensions: {reason}",
             confidenceOverride: ContributionConfidence * score,
             botType: BotType.Unknown.ToString());
 
-        return Task.FromResult<IReadOnlyList<DetectionContribution>>(new[]
-        {
-            contribution with { Signals = signals }
-        });
+        return Task.FromResult<IReadOnlyList<DetectionContribution>>(new[] { contribution });
     }
 }
