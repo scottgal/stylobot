@@ -1,0 +1,129 @@
+# Periodicity Contributor - temporal pattern analysis on per-signature
+# request timing. RESTORED on 2026-05-19 after the 2026-05-08 retirement
+# (commit c43f084) - the commit message claimed the encoder coverage was
+# sufficient but the periodicity.* signal surface was actually dead
+# (5 SignalKeys declared, 0 writers, dashboard had no temporal view).
+#
+# Periodicity is orthogonal to fingerprinting - it survives identity
+# rotation because the rotation pattern itself is detectable. Critical
+# for the API-key-theft case: a sudden change in calling cadence on the
+# same key is a periodicity-shift signal that no other detector covers.
+name: PeriodicityContributor
+priority: 25  # After waveform (3), before session vector (30)
+enabled: true
+description: Detects periodic patterns in request timing - fixed-interval polling, cron schedules, rotation cadence, hour-of-day concentration. Survives identity rotation because the rotation cadence itself is identifying.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: periodicity
+
+taxonomy:
+  kind: analyst
+  determinism: statistical
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request for temporal pattern analysis (needs at least min_requests history before analysis kicks in)
+      signal_pattern: signature.*
+
+  required_signals:
+    - signature.primary
+
+  optional_signals:
+    - waveform.timing_regularity_score
+    - sequence.on_track          # suppresses regularity-bot scoring for legit polling apps
+    - sequence.diverged          # amplifies regularity-bot scoring when content sequence is off
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Periodic-polling, cron-schedule, or natural-rhythm contribution
+
+  signals:
+    # Every signal carries a verbose description - the LLM reasoning surface
+    # needs to know what each metric means without parsing the .cs.
+    - key: periodicity.cv
+      entity_type: number
+      salience: 0.85
+      description: Coefficient of variation of inter-request intervals. CV near 0 = robotically regular (fixed polling). CV > ~0.8 = human-like irregularity. Computed over a sliding history of up to 200 requests per signature.
+    - key: periodicity.mean_interval
+      entity_type: number
+      salience: 0.6
+      description: Mean inter-request interval in seconds. Pair with CV for the full polling-rhythm read - "mean 30s, CV 0.02" is a textbook 30-second monitoring loop.
+    - key: periodicity.dominant_period
+      entity_type: number
+      salience: 0.85
+      description: Lag index of the autocorrelation peak across inter-request intervals. dominant_period × mean_interval ≈ the actor's underlying cycle in seconds (e.g. dominant_period=10 × mean=6s = 60s cron).
+    - key: periodicity.peak_strength
+      entity_type: number
+      salience: 0.9
+      description: Autocorrelation peak strength in [0,1]. peak_strength > 0.5 with dominant_period > 1 = cron-like schedule (textbook monitoring bot or scheduled-task signature).
+    - key: periodicity.hour_entropy
+      entity_type: number
+      salience: 0.85
+      description: Shannon entropy of hour-of-day distribution (0-4.58 = log2(24)). hour_entropy < 1.5 with > 20 requests = always active in the same few hours, classic cron job. Natural human rhythm sits in [2.0, 3.5].
+    - key: periodicity.temporal_concentration
+      entity_type: boolean
+      salience: 0.75
+      description: Convenience boolean for hour_entropy < 1.5 AND history >= 20 - tells transition rules "this signature is temporally concentrated" without re-doing the math.
+
+triggers: []
+
+emits:
+  on_complete:
+    # Mirrors output.signals - verbose descriptions kept on both sides
+    # because the LLM reasoning chain may consume either block.
+    - key: periodicity.cv
+      type: double
+      description: Coefficient of variation of inter-request intervals - the canonical "is this polling at a fixed interval" metric
+    - key: periodicity.mean_interval
+      type: double
+      description: Mean inter-request interval in seconds
+    - key: periodicity.dominant_period
+      type: int
+      description: Lag of the autocorrelation peak - multiply by mean_interval for the actual cycle length in seconds
+    - key: periodicity.peak_strength
+      type: double
+      description: Autocorrelation peak strength in [0,1] - how strong the cron-like signal is
+    - key: periodicity.hour_entropy
+      type: double
+      description: Shannon entropy of hour-of-day distribution - low = scheduled, mid = human, high = uniform
+    - key: periodicity.temporal_concentration
+      type: bool
+      description: Boolean shortcut for hour_entropy < 1.5 AND history >= 20
+
+  on_failure:
+    - detector.periodicity.failed
+
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 1.2
+    human_signal: 0.8
+
+  parameters:
+    # Coefficient of variation below this = suspicious regularity gate (the actual
+    # bot-contribution check uses < 0.15 for "fixed polling"; this threshold is the
+    # soft boundary for less-confident regularity)
+    regularity_bot_threshold: 0.7
+    # Confidence scalar for fixed-interval polling detection
+    regularity_bot_confidence: 0.35
+    # Confidence scalar for cron-like periodic schedule detection
+    cron_pattern_bot_confidence: 0.4
+    # Human rhythm confidence (negative = human signal)
+    human_rhythm_confidence: -0.15
+    # Minimum requests before analysis kicks in - below this the contributor
+    # emits NO signals (no false-positive cron-detection on a 3-request scenario)
+    min_requests: 10
+    # Maximum lag for autocorrelation search - bounded by intervals.Count / 2
+    max_lag: 50
+
+tags:
+  - temporal
+  - periodicity
+  - identity-rotation-defence
+  - api-key-theft-detection

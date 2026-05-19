@@ -722,7 +722,12 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Analysis.SessionStore>();
         services.TryAddSingleton<SessionEscalationService>();
         services.AddSingleton<IContributingDetector, SessionVectorContributor>();
-        // Periodicity detection retired - frequency fingerprinting covered by SessionVectorContributor
+        // Periodicity detection - temporal pattern analysis. Restored 2026-05-19 after
+        // the 2026-05-08 retirement (commit c43f084): the SessionVector frequency
+        // encoder runs internally but never exposes the periodicity.* signal surface
+        // that the dashboard and policy transitions consume. Critical for the
+        // API-key-theft case (sudden cadence change on the same signature).
+        services.AddSingleton<IContributingDetector, PeriodicityContributor>();
         // Reactive pattern detection - post-error client behavior (backoff, compliance, coordinated retry)
         services.TryAddSingleton<ReactiveSignalTracker>();
         services.AddSingleton<IContributingDetector, ReactivePatternContributor>();

@@ -284,7 +284,16 @@ public static class BdfReplayEndpoints
                 [Models.SignalKeys.EndpointRiskSensitive] = signals.ContainsKey(Models.SignalKeys.EndpointRiskSensitive),
                 [Models.SignalKeys.ThreatIntelScore] = signals.ContainsKey(Models.SignalKeys.ThreatIntelScore),
                 [Models.SignalKeys.IntelClasses] = signals.ContainsKey(Models.SignalKeys.IntelClasses),
-                [Models.SignalKeys.IntelHardGate] = signals.ContainsKey(Models.SignalKeys.IntelHardGate)
+                [Models.SignalKeys.IntelHardGate] = signals.ContainsKey(Models.SignalKeys.IntelHardGate),
+                // Periodicity signals. PeriodicityContributor needs >=10 requests in the
+                // signature's sliding history before any analysis runs, so short BDF
+                // scenarios typically probe False. Long-run BDF + production both write
+                // these. Critical for the API-key-theft case (sudden cadence change).
+                [Models.SignalKeys.PeriodicityCV] = signals.ContainsKey(Models.SignalKeys.PeriodicityCV),
+                [Models.SignalKeys.PeriodicityMeanInterval] = signals.ContainsKey(Models.SignalKeys.PeriodicityMeanInterval),
+                [Models.SignalKeys.PeriodicityDominantPeriod] = signals.ContainsKey(Models.SignalKeys.PeriodicityDominantPeriod),
+                [Models.SignalKeys.PeriodicityPeakStrength] = signals.ContainsKey(Models.SignalKeys.PeriodicityPeakStrength),
+                [Models.SignalKeys.PeriodicityHourEntropy] = signals.ContainsKey(Models.SignalKeys.PeriodicityHourEntropy)
             };
 
             // Identity match outputs (null when Identity.Enabled = false)
