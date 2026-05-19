@@ -17,7 +17,7 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///     contribution, but never gates policy on them at threshold. The commercial
 ///     API-protection feature layers alerting / blocking on top.
 /// </summary>
-public class IdentityChangeContributor : ConfiguredContributorBase
+public class IdentityChangeContributor : ConfiguredContributorBase, IFoundationContributor
 {
     private readonly ILogger<IdentityChangeContributor> _logger;
     private readonly FingerprintDimSnapshotCache _cache;
