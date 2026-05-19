@@ -4829,6 +4829,15 @@ public class StyloBotDashboardMiddleware
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
         var sessions = await sessionStore.GetRecentSessionsAsync(pageSize, isBot);
 
+        // Enrich BotName from the signature aggregate cache: sessions are written before the
+        // signature description pipeline resolves the bot's English name. Without this fallback,
+        // the sessions list renders raw signature ids ("DmSCDVKl5Hhm") instead of names ("wget").
+        string? ResolveBotName(string signature, string? storedName)
+        {
+            if (!string.IsNullOrEmpty(storedName)) return storedName;
+            return _signatureCache.TryGet(signature, out var agg) ? agg?.BotName : null;
+        }
+
         var entries = sessions.Select(s => new SessionListEntry
         {
             Id = s.Id,
@@ -4841,7 +4850,7 @@ public class StyloBotDashboardMiddleware
             AvgBotProbability = s.AvgBotProbability,
             RiskBand = s.RiskBand,
             Action = s.Action,
-            BotName = s.BotName,
+            BotName = ResolveBotName(s.Signature, s.BotName),
             CountryCode = s.CountryCode,
             ErrorCount = s.ErrorCount,
             TimingEntropy = s.TimingEntropy,

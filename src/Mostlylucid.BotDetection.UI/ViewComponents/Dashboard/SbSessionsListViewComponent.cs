@@ -3,11 +3,13 @@ using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Models;
+using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 
 public class SbSessionsListViewComponent(
     ISessionStore sessionStore,
+    SignatureAggregateCache signatureCache,
     IOptions<StyloBotDashboardOptions> options)
     : ViewComponent
 {
@@ -23,6 +25,17 @@ public class SbSessionsListViewComponent(
         var fetchCount = Math.Min((page * pageSize) + pageSize, 200);
         var allSessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot);
 
+        // PersistedSession.BotName is populated at session-end time and is often null because the
+        // bot's English name (e.g. "GPTBot", "wget") is resolved by the signature description
+        // pipeline AFTER the session row was written. Enrich the entry from the
+        // SignatureAggregateCache (which sees every detection and stores the resolved BotName)
+        // so the sessions list renders "GPTBot - 22 req" rather than "DmSCDVKl5Hhm - 22 req".
+        string? ResolveBotName(string signature, string? storedName)
+        {
+            if (!string.IsNullOrEmpty(storedName)) return storedName;
+            return signatureCache.TryGet(signature, out var agg) ? agg?.BotName : null;
+        }
+
         var allEntries = allSessions.Select(s => new SessionListEntry
         {
             Id = s.Id,
@@ -35,7 +48,7 @@ public class SbSessionsListViewComponent(
             AvgBotProbability = s.AvgBotProbability,
             RiskBand = s.RiskBand,
             Action = s.Action,
-            BotName = s.BotName,
+            BotName = ResolveBotName(s.Signature, s.BotName),
             CountryCode = s.CountryCode,
             ErrorCount = s.ErrorCount,
             TimingEntropy = s.TimingEntropy,

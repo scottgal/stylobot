@@ -405,6 +405,17 @@ public sealed class SbWidgetBatchMiddleware
         var sessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot);
         var totalCount = sessions.Count < maxFetch ? sessions.Count : maxFetch;
 
+        // Enrich BotName from the signature aggregate cache: PersistedSession.BotName is set at
+        // session-end time and is often null because the signature description pipeline names the
+        // bot AFTER the session row was written. Falling back to the cache (which sees every
+        // detection's resolved name) ensures the sessions list renders "GPTBot - 22 req" rather
+        // than "DmSCDVKl5Hhm - 22 req".
+        string? ResolveBotName(string signature, string? storedName)
+        {
+            if (!string.IsNullOrEmpty(storedName)) return storedName;
+            return _signatureCache.TryGet(signature, out var agg) ? agg?.BotName : null;
+        }
+
         var entries = sessions
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
@@ -420,7 +431,7 @@ public sealed class SbWidgetBatchMiddleware
             AvgBotProbability = s.AvgBotProbability,
             RiskBand = s.RiskBand,
             Action = s.Action,
-            BotName = s.BotName,
+            BotName = ResolveBotName(s.Signature, s.BotName),
             CountryCode = s.CountryCode,
             ErrorCount = s.ErrorCount,
             TimingEntropy = s.TimingEntropy,
