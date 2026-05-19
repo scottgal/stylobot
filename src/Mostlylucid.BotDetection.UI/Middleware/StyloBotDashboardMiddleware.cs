@@ -4113,6 +4113,15 @@ public class StyloBotDashboardMiddleware
 
         SignatureDetailModel model;
 
+        // Compute the 7×24 periodicity heatmap once for both model-build branches
+        // (cache-hit + cache-miss). Aggregates from the existing requests table;
+        // service returns null when unavailable so view-side null-handling renders
+        // the "no temporal data yet" empty state.
+        var heatmapService = context.RequestServices.GetService<Services.SignaturePeriodicityHeatmap>();
+        var heatmap = heatmapService is null
+            ? null
+            : await heatmapService.ComputeAsync(decodedSignature, windowDays: 30, ct: context.RequestAborted);
+
         if (_signatureCache.TryGet(decodedSignature, out var agg) && agg != null)
         {
             List<double>? sparkline;
@@ -4248,7 +4257,8 @@ public class StyloBotDashboardMiddleware
                 RecentDetections = recentDetections,
                 DetectorContributions = detectorContributions,
                 SignalCategories = signalCategories,
-                TunerEnabled = _options.EnableTuner
+                TunerEnabled = _options.EnableTuner,
+                PeriodicityHeatmap = heatmap
             };
         }
         else
@@ -4345,7 +4355,8 @@ public class StyloBotDashboardMiddleware
                         RecentDetections = recentDetections,
                         DetectorContributions = latestContributions,
                         SignalCategories = signalCategories,
-                        TunerEnabled = _options.EnableTuner
+                        TunerEnabled = _options.EnableTuner,
+                PeriodicityHeatmap = heatmap
                     };
                 }
                 else

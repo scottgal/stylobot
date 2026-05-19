@@ -288,6 +288,14 @@ public sealed class SignatureDetailModel
     ///     by the dashboard middleware. Only paid tiers with the <c>stylobot.tuner</c> feature enable this.
     /// </summary>
     public bool TunerEnabled { get; init; }
+
+    /// <summary>
+    ///     7×24 day/hour hit-count grid for this signature, aggregated from the
+    ///     requests table over a trailing window (default 30 days). Null when the
+    ///     query failed or returned no data; the view renders "no temporal data
+    ///     yet" in that case.
+    /// </summary>
+    public Mostlylucid.BotDetection.UI.Services.HeatmapResult? PeriodicityHeatmap { get; init; }
 }
 
 /// <summary>

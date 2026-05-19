@@ -217,6 +217,11 @@ public static class StyloBotDashboardServiceExtensions
         // BDF export service for generating BDF v2 documents from detection data
         services.AddSingleton<BdfExportService>();
 
+        // Periodicity heatmap aggregator - per-signature 7x24 day/hour grid for the
+        // signature detail page, aggregated on-demand from the requests table
+        // (no new schema). Renders "when does this actor hit me" at a glance.
+        services.AddSingleton<SignaturePeriodicityHeatmap>();
+
         // Pinned endpoint store - persists operator-added paths to SQLite
         services.TryAddSingleton<IPinnedEndpointStore, SqlitePinnedEndpointStore>();
 
