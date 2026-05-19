@@ -96,14 +96,19 @@ public partial class DetectionBroadcastMiddleware
                 upstreamObj is BotDetectionResult upstreamResult)
             {
                 var detection = BuildDetectionFromUpstream(context, upstreamResult);
-                // Always store and update caches regardless of source IP
+
+                // When configured, local-network traffic (loopback, RFC1918, link-local) is excluded
+                // from BOTH the event store and the live broadcast: local pings like /admin/alive,
+                // docker-internal health checks, and same-host curl probes should never count as
+                // observed bot/human traffic in dashboards or aggregates.
+                var options = optionsAccessor.Value;
+                var excludeLocal = options.ExcludeLocalIpFromBroadcast
+                                   && IsLocalIp(context.Connection.RemoteIpAddress);
+                if (excludeLocal) return;
+
                 var updatedSignature = await StoreDetectionAndSignatureAsync(context, detection, eventStore);
                 signatureAggregateCache.UpdateFromDetection(detection);
                 visitorListCache.Upsert(detection);
-
-                var options = optionsAccessor.Value;
-                if (options.ExcludeLocalIpFromBroadcast && IsLocalIp(context.Connection.RemoteIpAddress))
-                    return; // Skip SignalR broadcast only - DB and caches are already updated
 
                 // Beacon-only: signal which widgets need refreshing, never send full payloads
                 await hubContext.Clients.All.BroadcastInvalidation("signature");
@@ -143,15 +148,19 @@ public partial class DetectionBroadcastMiddleware
                 }
 
                 var detection = BuildDetectionFromEvidence(context, evidence);
-                var updatedSignature = await StoreDetectionAndSignatureAsync(context, detection, eventStore);
 
+                // Same local-IP exclusion as the upstream-result path above: drop the entire
+                // detection (no event-store write, no cache update, no broadcast) when the source
+                // is on a private/loopback network. Prevents /admin/alive style health-check
+                // pings from polluting dashboard counts.
+                var options = optionsAccessor.Value;
+                var excludeLocal = options.ExcludeLocalIpFromBroadcast
+                                   && IsLocalIp(context.Connection.RemoteIpAddress);
+                if (excludeLocal) return;
+
+                var updatedSignature = await StoreDetectionAndSignatureAsync(context, detection, eventStore);
                 signatureAggregateCache.UpdateFromDetection(detection);
                 visitorListCache.Upsert(detection);
-
-                // Filter out local/private IP detections from SignalR broadcast if configured
-                var options = optionsAccessor.Value;
-                if (options.ExcludeLocalIpFromBroadcast && IsLocalIp(context.Connection.RemoteIpAddress))
-                    return; // Skip broadcast only - DB and caches are already updated
                 await hubContext.Clients.All.BroadcastInvalidation("signature");
                 await hubContext.Clients.All.BroadcastInvalidation("summary");
 
