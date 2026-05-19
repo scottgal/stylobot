@@ -10,6 +10,7 @@ namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 public class SbSessionsListViewComponent(
     ISessionStore sessionStore,
     SignatureAggregateCache signatureCache,
+    IDashboardEventStore eventStore,
     IOptions<StyloBotDashboardOptions> options)
     : ViewComponent
 {
@@ -27,13 +28,24 @@ public class SbSessionsListViewComponent(
 
         // PersistedSession.BotName is populated at session-end time and is often null because the
         // bot's English name (e.g. "GPTBot", "wget") is resolved by the signature description
-        // pipeline AFTER the session row was written. Enrich the entry from the
-        // SignatureAggregateCache (which sees every detection and stores the resolved BotName)
-        // so the sessions list renders "GPTBot - 22 req" rather than "DmSCDVKl5Hhm - 22 req".
+        // pipeline AFTER the session row was written. Enrich the entry from two fallbacks:
+        // 1) SignatureAggregateCache (in-memory, fast, but empty across container restart);
+        // 2) dashboard_signatures table via IDashboardEventStore (persistent, survives restart).
+        var sigLookup = new Dictionary<string, string?>(StringComparer.Ordinal);
+        try
+        {
+            var recentSigs = await eventStore.GetSignaturesAsync(limit: 500);
+            foreach (var s in recentSigs)
+                sigLookup[s.PrimarySignature] = s.BotName;
+        }
+        catch { /* store unavailable - fall through to cache-only */ }
+
         string? ResolveBotName(string signature, string? storedName)
         {
             if (!string.IsNullOrEmpty(storedName)) return storedName;
-            return signatureCache.TryGet(signature, out var agg) ? agg?.BotName : null;
+            if (signatureCache.TryGet(signature, out var agg) && !string.IsNullOrEmpty(agg?.BotName))
+                return agg.BotName;
+            return sigLookup.TryGetValue(signature, out var name) ? name : null;
         }
 
         var allEntries = allSessions.Select(s => new SessionListEntry

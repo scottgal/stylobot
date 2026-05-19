@@ -4829,13 +4829,24 @@ public class StyloBotDashboardMiddleware
         bool? isBot = filter switch { "bot" => true, "human" => false, _ => null };
         var sessions = await sessionStore.GetRecentSessionsAsync(pageSize, isBot);
 
-        // Enrich BotName from the signature aggregate cache: sessions are written before the
-        // signature description pipeline resolves the bot's English name. Without this fallback,
-        // the sessions list renders raw signature ids ("DmSCDVKl5Hhm") instead of names ("wget").
+        // Enrich BotName via two fallbacks: in-memory cache (fast, empties on restart) then the
+        // persistent dashboard_signatures table (survives restart). Sessions are written before
+        // the signature description pipeline names the bot, so the column is usually null.
+        var sigLookup = new Dictionary<string, string?>(StringComparer.Ordinal);
+        try
+        {
+            var recentSigs = await _eventStore.GetSignaturesAsync(limit: 500);
+            foreach (var s in recentSigs)
+                sigLookup[s.PrimarySignature] = s.BotName;
+        }
+        catch { /* store unavailable - fall through to cache-only */ }
+
         string? ResolveBotName(string signature, string? storedName)
         {
             if (!string.IsNullOrEmpty(storedName)) return storedName;
-            return _signatureCache.TryGet(signature, out var agg) ? agg?.BotName : null;
+            if (_signatureCache.TryGet(signature, out var agg) && !string.IsNullOrEmpty(agg?.BotName))
+                return agg.BotName;
+            return sigLookup.TryGetValue(signature, out var name) ? name : null;
         }
 
         var entries = sessions.Select(s => new SessionListEntry
