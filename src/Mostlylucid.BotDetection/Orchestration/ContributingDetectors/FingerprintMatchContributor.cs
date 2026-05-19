@@ -26,6 +26,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     private readonly IdentityArchetypeRegistry _archetypes;
     private readonly IdentityGlobalWeightsCache _globalWeights;
     private readonly IdentityProcessingCoordinator _coordinator;
+    private readonly IdentityVectorEncoder _encoder;
     private readonly IdentityOptions _options;
     private readonly bool _enabled;
 
@@ -36,6 +37,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         IdentityArchetypeRegistry archetypes,
         IdentityGlobalWeightsCache globalWeights,
         IdentityProcessingCoordinator coordinator,
+        IdentityVectorEncoder encoder,
         IOptions<BotDetectionOptions> options)
     {
         _logger = logger;
@@ -44,6 +46,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         _archetypes = archetypes;
         _globalWeights = globalWeights;
         _coordinator = coordinator;
+        _encoder = encoder;
         _options = options.Value.Identity;
         _enabled = _options.Enabled;
     }
@@ -59,7 +62,18 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
     {
         var primarySig = state.GetSignal<string>(SignalKeys.PrimarySignature);
         var vector = state.Signals.TryGetValue(SignalKeys.IdentityVector, out var vecObj) ? vecObj as float[] : null;
-        if (vector is null) return Array.Empty<DetectionContribution>();
+        if (vector is null)
+        {
+            // Priority alone is not a sequencing barrier - the orchestrator runs all
+            // ready detectors in a wave in parallel. IdentityVectorContributor (5) and
+            // this contributor (6) both have empty trigger conditions, so they race in
+            // Wave 0. Adding a trigger here would defer us past early-exit gates and
+            // leave high-confidence-bot first requests with no fingerprint id; instead
+            // self-compute the vector via the shared encoder and publish it for any
+            // wave-mate that needs it.
+            vector = _encoder.Encode(IdentityVectorContributor.ComposeRawValues(state));
+            state.WriteSignal(SignalKeys.IdentityVector, vector);
+        }
 
         // PrimarySignature can be empty for header-sparse requests (curl with only
         // User-Agent and no Accept header, etc.) - SignatureContributor's

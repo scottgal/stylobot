@@ -58,9 +58,11 @@ public sealed class IdentityVectorContributor : ContributingDetectorBase, IFound
     /// <summary>
     ///     Pull every dimension's raw input from either an upstream signal (preferred) or directly
     ///     from the request when no signal exists yet. Anything missing stays absent and the encoder
-    ///     leaves its slot at 0.
+    ///     leaves its slot at 0. Internal so FingerprintMatchContributor can self-compute the
+    ///     vector as a fallback when the orchestrator schedules it in the same wave and the
+    ///     signal isn't there yet (avoids a "1/N requests had no identity.fingerprint_id" race).
     /// </summary>
-    private static Dictionary<string, object?> ComposeRawValues(BlackboardState state)
+    internal static Dictionary<string, object?> ComposeRawValues(BlackboardState state)
     {
         var ctx = state.HttpContext;
         var headers = ctx.Request.Headers;
