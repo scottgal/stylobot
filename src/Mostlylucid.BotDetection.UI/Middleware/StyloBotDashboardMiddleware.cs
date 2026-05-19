@@ -250,7 +250,16 @@ public class StyloBotDashboardMiddleware
             case "":
             case "index":
             case "index.html":
-                await ServeDashboardPageAsync(context);
+                if (_options.RenderPage)
+                {
+                    await ServeDashboardPageAsync(context);
+                }
+                else
+                {
+                    // Host MVC owns the dashboard root page. Middleware continues to serve the API,
+                    // SignalR hub, partials, and static assets under BasePath.
+                    await _next(context);
+                }
                 break;
 
             case "api/detections":
@@ -490,8 +499,16 @@ public class StyloBotDashboardMiddleware
                 break;
 
             case var p when p.StartsWith("signature/", StringComparison.OrdinalIgnoreCase):
-                // Use original relativePath (not lowercased) to preserve signature case
-                await ServeSignatureDetailAsync(context, relativePath.Substring("signature/".Length));
+                if (_options.RenderPage)
+                {
+                    // Use original relativePath (not lowercased) to preserve signature case
+                    await ServeSignatureDetailAsync(context, relativePath.Substring("signature/".Length));
+                }
+                else
+                {
+                    // Host MVC owns the signature detail page.
+                    await _next(context);
+                }
                 break;
 
             case "api/endpoint-pins":

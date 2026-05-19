@@ -494,6 +494,8 @@ public sealed class SessionDetailModel
     public long Id { get; init; }
     public required string Signature { get; init; }
     public required string BasePath { get; init; }
+    public string NavBasePath { get; init; } = "";
+    public string ResolvedNavBasePath => string.IsNullOrEmpty(NavBasePath) ? BasePath : NavBasePath;
     public required string CspNonce { get; init; }
     public required DateTime StartedAt { get; init; }
     public required DateTime EndedAt { get; init; }

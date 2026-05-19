@@ -2,6 +2,7 @@
 @model SessionDetailModel
 @{
     var bp = Model.BasePath;
+    var navBp = Model.ResolvedNavBasePath;
 
     string RiskColor(string risk) => risk switch {
         "VeryHigh" => "text-error",
@@ -49,7 +50,7 @@
                     (@Model.DurationMinutes.ToString("F1") min)
                 </p>
             </div>
-            <a href="@bp/signature/@Uri.EscapeDataString(Model.Signature)"
+            <a href="@navBp/signature/@Uri.EscapeDataString(Model.Signature)"
                class="btn btn-xs btn-ghost">View Signature &rarr;</a>
         </div>
 

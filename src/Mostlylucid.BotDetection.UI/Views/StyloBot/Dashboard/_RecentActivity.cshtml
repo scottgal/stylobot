@@ -102,10 +102,10 @@
                             var friendlyAction = ActionDisplayHelper.GetFriendlyName(v.Action);
                             <tr class="hover:bg-base-300/50 cursor-pointer transition-colors">
                                 <td class="py-0.5 text-base-content/50 whitespace-nowrap text-[10px]">
-                                    <a href="@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)">@v.TimeAgo</a>
+                                    <a href="@navBp/signature/@Uri.EscapeDataString(v.PrimarySignature)">@v.TimeAgo</a>
                                 </td>
                                 <td class="py-0.5 font-medium text-xs truncate max-w-[120px]" title="@(v.BotName ?? v.PrimarySignature)">
-                                    <a href="@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)" class="inline-flex items-center gap-1 hover:underline @(isLlmNamed ? "" : (v.IsBot ? "text-base-content/60 italic" : ""))">
+                                    <a href="@navBp/signature/@Uri.EscapeDataString(v.PrimarySignature)" class="inline-flex items-center gap-1 hover:underline @(isLlmNamed ? "" : (v.IsBot ? "text-base-content/60 italic" : ""))">
                                         @if (HasFlag(v.CountryCode))
                                         {
                                             <img src="@FlagUrl(v.CountryCode!)" alt="@v.CountryCode" class="w-5 h-3.5 object-cover rounded-sm inline" loading="lazy" />

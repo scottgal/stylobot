@@ -45,6 +45,21 @@ public sealed class StyloBotDashboardOptions
     public string HubPath { get; set; } = "/stylobot/hub";
 
     /// <summary>
+    ///     When true (default), the middleware renders the full dashboard page (HTML, head, body,
+    ///     navigation chrome) at the root of <see cref="BasePath" /> and at <c>{BasePath}/signature/{id}</c>.
+    ///     When false, those page routes fall through to host MVC routing so the host can render the
+    ///     dashboard body inside its own layout via the <c>&lt;bot-detection-dashboard /&gt;</c> and
+    ///     <c>&lt;bot-detection-signature /&gt;</c> tag-helpers. API endpoints, the SignalR hub, static
+    ///     assets, partials, and auth/setup routes always serve from this middleware regardless of this
+    ///     flag.
+    ///     <para>
+    ///     Default: true (preserves single-binary FOSS behaviour). Hosts integrating the dashboard
+    ///     inside their own chrome should set this to false.
+    ///     </para>
+    /// </summary>
+    public bool RenderPage { get; set; } = true;
+
+    /// <summary>
     ///     Whether to enable the dashboard.
     ///     Default: true
     /// </summary>
