@@ -17,7 +17,7 @@ namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 ///
 ///     Uses autocorrelation to detect dominant frequencies in the inter-request interval series.
 /// </summary>
-public class PeriodicityContributor : ConfiguredContributorBase, IFoundationContributor
+public class PeriodicityContributor : ConfiguredContributorBase
 {
     private readonly ILogger<PeriodicityContributor> _logger;
     private readonly IMemoryCache _cache;

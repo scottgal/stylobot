@@ -67,10 +67,19 @@ public sealed class SignaturePeriodicityHeatmap
             await using var reader = await cmd.ExecuteReaderAsync(ct);
             while (await reader.ReadAsync(ct))
             {
-                if (!DateTime.TryParse(reader.GetString(0), out var ts)) continue;
-                var local = ts.ToUniversalTime();
-                var dow = (int)local.DayOfWeek;       // 0 = Sunday … 6 = Saturday
-                var hour = local.Hour;                // 0 … 23
+                // Store writes ISO-8601 with the round-trip "O" format which carries a Z
+                // suffix; SQLite gives it back as a string. Parse with AssumeUniversal +
+                // AdjustToUniversal so a server in a non-UTC zone doesn't shift the bucket
+                // columns by its local offset.
+                if (!DateTime.TryParse(
+                        reader.GetString(0),
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal
+                            | System.Globalization.DateTimeStyles.AdjustToUniversal,
+                        out var ts))
+                    continue;
+                var dow = (int)ts.DayOfWeek;       // 0 = Sunday … 6 = Saturday
+                var hour = ts.Hour;                // 0 … 23
                 grid[dow, hour]++;
                 totalHits++;
                 if (grid[dow, hour] > maxValue) maxValue = grid[dow, hour];

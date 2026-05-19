@@ -61,6 +61,37 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         CancellationToken cancellationToken = default)
     {
         var primarySig = state.GetSignal<string>(SignalKeys.PrimarySignature);
+        // Belt-and-braces: seed a deterministic fallback fp id immediately so the
+        // "every request emits identity.fingerprint_id" contract holds even if the
+        // core path silently returns through an as-yet-undiscovered branch or the
+        // store I/O races with a concurrent /reset-identity (BDF rig integration
+        // scenario). The success path's EmitConfirmedSignals or RunPass2InternalAsync
+        // write overwrites this with the real id; failures and silent exits leave
+        // the fallback in place so downstream joins never lose the row.
+        SeedFallbackFingerprintId(state, primarySig);
+        try
+        {
+            return await ContributeCoreAsync(state, primarySig, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Pipeline-level cancellation: let it propagate so the orchestrator records
+            // the timeout normally; the seed id stays.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "FingerprintMatch threw mid-flight; fallback id remains: {Message}", ex.Message);
+            throw;
+        }
+    }
+
+    private async Task<IReadOnlyList<DetectionContribution>> ContributeCoreAsync(
+        BlackboardState state,
+        string? primarySig,
+        CancellationToken cancellationToken)
+    {
         var vector = state.Signals.TryGetValue(SignalKeys.IdentityVector, out var vecObj) ? vecObj as float[] : null;
         if (vector is null)
         {
@@ -69,10 +100,12 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             // this contributor (6) both have empty trigger conditions, so they race in
             // Wave 0. Adding a trigger here would defer us past early-exit gates and
             // leave high-confidence-bot first requests with no fingerprint id; instead
-            // self-compute the vector via the shared encoder and publish it for any
-            // wave-mate that needs it.
+            // self-compute the vector via the shared encoder and publish only if no one
+            // beat us to it (TryAdd via TryGetValue gate so the race-winner's overwrite
+            // doesn't waste a second Encode in the common path).
             vector = _encoder.Encode(IdentityVectorContributor.ComposeRawValues(state));
-            state.WriteSignal(SignalKeys.IdentityVector, vector);
+            if (!state.Signals.ContainsKey(SignalKeys.IdentityVector))
+                state.WriteSignal(SignalKeys.IdentityVector, vector);
         }
 
         // PrimarySignature can be empty for header-sparse requests (curl with only
@@ -364,6 +397,26 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         // New-fingerprint allocation = ambiguity event by definition (no L1 baseline matched).
         await BumpAmbiguityAsync(state, newId, isAmbiguous: true, cancellationToken);
         return true;
+    }
+
+    /// <summary>
+    ///     Seed a deterministic fingerprint id at function entry so the
+    ///     "every request emits identity.fingerprint_id" contract is unbreakable.
+    ///     The id is keyed on the primary signature when available (stable per
+    ///     surface) and on the request id otherwise, so downstream dashboard joins
+    ///     bucket correctly even on contributor failure or silent exit. Any
+    ///     successful match path overwrites this with the real id.
+    /// </summary>
+    private static void SeedFallbackFingerprintId(BlackboardState state, string? primarySig)
+    {
+        if (state.Signals.ContainsKey(SignalKeys.IdentityFingerprintId)) return;
+        var seed = string.IsNullOrEmpty(primarySig)
+            ? (state.RequestId ?? Guid.NewGuid().ToString("N"))
+            : primarySig;
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        var bytes = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes("fp-fallback:" + seed));
+        var fallbackId = Convert.ToHexString(bytes, 0, 16).ToLowerInvariant();
+        state.WriteSignal(SignalKeys.IdentityFingerprintId, fallbackId);
     }
 
     private void EmitConfirmedSignals(
