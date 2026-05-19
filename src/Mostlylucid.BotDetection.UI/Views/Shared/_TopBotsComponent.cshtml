@@ -135,14 +135,7 @@
             init() {
                 // Detect API base from page context
                 this.apiBase = this.$el.dataset.apiBase || window.__styloBotBasePath || '/_stylobot';
-
-                // Restore filter / sort / page state across SignalR-driven OOB re-renders.
-                // Without this, every invalidation beacon wipes the user's current view back
-                // to page 1, no country filter, default sort.
-                this._stateKey = 'sb:topbots:' + (this.$el.dataset.widgetId || 'default');
-                this._restoreState();
-
-                // If parent Alpine component has topBots data, use it (embedded composition)
+                // If parent Alpine component has topBots data, use it
                 if (this.$root && this.$root._x_dataStack) {
                     const parent = this.$root._x_dataStack.find(d => d.topBots);
                     if (parent && parent.topBots && parent.topBots.length > 0) {
@@ -151,35 +144,11 @@
                         return;
                     }
                 }
-                this.loadPage(this.currentPage);
-            },
-
-            _saveState() {
-                try {
-                    sessionStorage.setItem(this._stateKey, JSON.stringify({
-                        sortBy: this.sortBy,
-                        sortDir: this.sortDir,
-                        currentPage: this.currentPage,
-                        filterCountry: this.filterCountry
-                    }));
-                } catch (_) { /* sessionStorage may be unavailable; non-fatal */ }
-            },
-
-            _restoreState() {
-                try {
-                    const raw = sessionStorage.getItem(this._stateKey);
-                    if (!raw) return;
-                    const s = JSON.parse(raw);
-                    if (s.sortBy) this.sortBy = s.sortBy;
-                    if (s.sortDir) this.sortDir = s.sortDir;
-                    if (typeof s.currentPage === 'number' && s.currentPage > 0) this.currentPage = s.currentPage;
-                    if (typeof s.filterCountry === 'string') this.filterCountry = s.filterCountry;
-                } catch (_) { /* corrupt state; ignore */ }
+                this.loadPage(1);
             },
 
             async loadPage(page) {
                 this.currentPage = page;
-                this._saveState();
                 const params = new URLSearchParams({
                     page: page.toString(),
                     pageSize: this.pageSize.toString(),
@@ -229,7 +198,6 @@
                     this.sortBy = field;
                     this.sortDir = field === 'name' || field === 'country' ? 'asc' : 'desc';
                 }
-                this._saveState();
                 this.loadPage(1);
             },
 
