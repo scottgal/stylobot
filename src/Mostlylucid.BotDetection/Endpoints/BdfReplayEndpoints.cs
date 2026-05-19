@@ -142,6 +142,7 @@ public static class BdfReplayEndpoints
     private static async Task<IResult> ResetIdentityStore(
         Identity.SqliteFingerprintStore store,
         Identity.IdentityProcessingCoordinator coordinator,
+        Orchestration.ContributingDetectors.FingerprintDimSnapshotCache snapshotCache,
         CancellationToken ct)
     {
         var counts = await store.TruncateAllAsync(ct);
@@ -150,6 +151,11 @@ public static class BdfReplayEndpoints
         // fresh allocation in the next scenario that happens to reuse a fingerprint
         // id - producing the "1/N requests had no identity.fingerprint_id" flake.
         coordinator.ResetInflight();
+        // Same reasoning for the per-fingerprint dim-snapshot cache used by
+        // IdentityChangeContributor: after the DB truncate, fingerprint ids
+        // get reallocated from 1; without flushing, scenario N inherits
+        // scenario N-1's surface-dim baselines and trips spurious risk.* signals.
+        snapshotCache.Reset();
         return Results.Ok(counts);
     }
 
@@ -293,7 +299,17 @@ public static class BdfReplayEndpoints
                 [Models.SignalKeys.PeriodicityMeanInterval] = signals.ContainsKey(Models.SignalKeys.PeriodicityMeanInterval),
                 [Models.SignalKeys.PeriodicityDominantPeriod] = signals.ContainsKey(Models.SignalKeys.PeriodicityDominantPeriod),
                 [Models.SignalKeys.PeriodicityPeakStrength] = signals.ContainsKey(Models.SignalKeys.PeriodicityPeakStrength),
-                [Models.SignalKeys.PeriodicityHourEntropy] = signals.ContainsKey(Models.SignalKeys.PeriodicityHourEntropy)
+                [Models.SignalKeys.PeriodicityHourEntropy] = signals.ContainsKey(Models.SignalKeys.PeriodicityHourEntropy),
+                // Identity-change risk signals. Only fire when the matched fingerprint
+                // has a prior in-memory snapshot AND a surface dimension has shifted.
+                // FOSS stub for the commercial API-protection feature.
+                [Models.SignalKeys.RiskCountryChanged] = signals.ContainsKey(Models.SignalKeys.RiskCountryChanged),
+                [Models.SignalKeys.RiskCountryTransition] = signals.ContainsKey(Models.SignalKeys.RiskCountryTransition),
+                [Models.SignalKeys.RiskAsnChanged] = signals.ContainsKey(Models.SignalKeys.RiskAsnChanged),
+                [Models.SignalKeys.RiskUaFamilyChanged] = signals.ContainsKey(Models.SignalKeys.RiskUaFamilyChanged),
+                [Models.SignalKeys.RiskInfrastructureIntroduced] = signals.ContainsKey(Models.SignalKeys.RiskInfrastructureIntroduced),
+                [Models.SignalKeys.RiskSuspiciousChangeScore] = signals.ContainsKey(Models.SignalKeys.RiskSuspiciousChangeScore),
+                [Models.SignalKeys.RiskSuspiciousChangeReason] = signals.ContainsKey(Models.SignalKeys.RiskSuspiciousChangeReason)
             };
 
             // Identity match outputs (null when Identity.Enabled = false)

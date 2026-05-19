@@ -728,6 +728,12 @@ public static class ServiceCollectionExtensions
         // that the dashboard and policy transitions consume. Critical for the
         // API-key-theft case (sudden cadence change on the same signature).
         services.AddSingleton<IContributingDetector, PeriodicityContributor>();
+        // Identity-change risk indicator - surface-dim shift on a matched fingerprint.
+        // FOSS stub for the commercial API-protection feature: writes risk.* signals
+        // and a low-confidence indicator contribution. FOSS policy does not gate on
+        // the thresholds; commercial layers alerting / blocking on top.
+        services.TryAddSingleton<FingerprintDimSnapshotCache>();
+        services.AddSingleton<IContributingDetector, IdentityChangeContributor>();
         // Reactive pattern detection - post-error client behavior (backoff, compliance, coordinated retry)
         services.TryAddSingleton<ReactiveSignalTracker>();
         services.AddSingleton<IContributingDetector, ReactivePatternContributor>();

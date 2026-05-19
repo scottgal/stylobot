@@ -1,0 +1,140 @@
+# IdentityChange Contributor - surface-dimension shift detection on a matched
+# fingerprint. Stub for the commercial API-protection feature: alerting /
+# blocking on key-theft cadence shifts. FOSS writes the risk.* signals and a
+# low-confidence indicator contribution; FOSS policy does not gate on the
+# thresholds. Commercial layers do.
+#
+# Distinct from:
+#   - geo.change.*       per-IP geo drift, not per-fingerprint
+#   - AccountTakeover    needs authenticated user events, this works on anon FP
+#   - FingerprintMatch   handles the matching itself, this annotates the result
+name: IdentityChangeContributor
+priority: 30  # After FingerprintMatch (6), Ip (12), UA (10), Geo (20)
+enabled: true
+description: Flags suspicious shifts in the surface dimensions of a matched fingerprint - geo country, ASN, UA family, and the introduction of datacenter / Tor / VPN IP space. Indicator only; commercial API-protection layers thresholds and alerting on top.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: identitychange
+
+taxonomy:
+  kind: analyst
+  determinism: deterministic
+  persistence: ephemeral  # in-memory snapshot keyed on fingerprint_id (24h sliding TTL)
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request post-fingerprint-match - needs identity.fingerprint_id and at least one of (geo.country_code, ip.asn, ua.family).
+      signal_pattern: identity.*
+
+  required_signals:
+    - identity.fingerprint_id
+
+  optional_signals:
+    - geo.country_code
+    - ip.asn
+    - ua.family
+    - ip.is_datacenter
+    - geo.is_tor
+    - geo.is_vpn
+    - threatintel.tor
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: SurfaceDimShift contribution at low confidence when divergence detected; no contribution on stable / first-seen fingerprints.
+
+  signals:
+    # Every signal carries a verbose description - the LLM reasoning surface
+    # needs to know what each flag means without parsing the .cs.
+    - key: risk.country_changed
+      entity_type: boolean
+      salience: 0.85
+      description: True when this request's geo.country_code differs from the matched fingerprint's prior observation. Large geo jumps are the canonical "credentials shared with another party" signal - a genuine visitor very rarely teleports.
+    - key: risk.country_transition
+      entity_type: string
+      salience: 0.7
+      description: Human-readable "PREV_CC -> NEW_CC" transition, written only when risk.country_changed is true. Lets logs and dashboards render the change without re-joining state.
+    - key: risk.asn_changed
+      entity_type: boolean
+      salience: 0.7
+      description: True when this request's ip.asn differs from the matched fingerprint's prior observation. Even within the same country an ASN change can indicate rotation through proxies, VPN exits, or residential-proxy services.
+    - key: risk.ua_family_changed
+      entity_type: boolean
+      salience: 0.9
+      description: True when this request's ua.family differs from the matched fingerprint's prior observation. Very rare for genuine users (people don't switch browser families per request) - common for credential theft where the new caller's UA doesn't match the original visitor's.
+    - key: risk.infrastructure_introduced
+      entity_type: boolean
+      salience: 0.85
+      description: True when this request appears from datacenter / Tor / VPN IP space but prior observations did not. Often the first observable when an API key gets exfiltrated to a botnet or scraping farm.
+    - key: risk.suspicious_change_score
+      entity_type: number
+      salience: 0.8
+      description: Weighted aggregate of the above flags, clamped to [0,1]. Stays well under 1.0 even for "everything changed at once" - this is an indicator, not a verdict. FOSS does not gate policy on it directly; commercial layers thresholds and alerting on top.
+    - key: risk.suspicious_change_reason
+      entity_type: string
+      salience: 0.75
+      description: Human-readable summary of what changed - e.g. "country US -> RU; UA family Chrome -> python-requests". Empty when nothing changed; drives dashboard chips and log messages.
+
+triggers:
+  - signal_exists: identity.fingerprint_id
+
+emits:
+  on_complete:
+    # Mirrors output.signals - verbose descriptions on both sides because
+    # the LLM reasoning chain may consume either block.
+    - key: risk.country_changed
+      type: bool
+      description: True when this request's geo.country_code differs from the matched fingerprint's prior observation - "credentials are being used from somewhere new" signal.
+    - key: risk.country_transition
+      type: string
+      description: PREV_CC -> NEW_CC formatted transition when country changed - render-ready.
+    - key: risk.asn_changed
+      type: bool
+      description: True when this request's ip.asn differs from the matched fingerprint's prior observation - rotation-through-proxies signal.
+    - key: risk.ua_family_changed
+      type: bool
+      description: True when this request's ua.family differs from the matched fingerprint's prior observation - very strong "different caller using the same identity" signal.
+    - key: risk.infrastructure_introduced
+      type: bool
+      description: True when this request appears from datacenter / Tor / VPN but prior observations did not - infrastructure shift on the same identity.
+    - key: risk.suspicious_change_score
+      type: double
+      description: Weighted aggregate of the above flags in [0,1] - indicator only.
+    - key: risk.suspicious_change_reason
+      type: string
+      description: Human-readable summary of what changed; empty when nothing changed.
+
+  on_failure:
+    - detector.identitychange.failed
+
+defaults:
+  weights:
+    base: 1.0
+    bot_signal: 0.5    # indicator only, half the standard bot weight
+    human_signal: 0.0  # this contributor never emits human signal
+
+  parameters:
+    # Per-flag contribution to risk.suspicious_change_score (summed, clamped to 1.0).
+    # Calibration intent: UA family change is the loudest single signal (a different
+    # browser family on the same identity is almost never legitimate); country and
+    # infra introduction tie for second; ASN alone is the weakest because legitimate
+    # mobile-to-wifi handover changes ASN constantly.
+    country_change_weight: 0.35
+    asn_change_weight: 0.20
+    ua_family_change_weight: 0.30
+    infra_introduced_weight: 0.25
+    # Confidence scalar for the indicator contribution - final confidence is
+    # contribution_confidence * suspicious_change_score, so even "everything
+    # changed" caps the contribution at 0.2. FOSS deliberately does not block
+    # on this; commercial policy can override.
+    contribution_confidence: 0.2
+
+tags:
+  - identity
+  - risk
+  - api-key-theft-detection
+  - commercial-stub

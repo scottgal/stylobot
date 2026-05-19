@@ -1444,6 +1444,37 @@ public static class SignalKeys
     public const string IntelHardGate = "intel.hard_gate";
 
     // ==========================================
+    // Suspicious-change risk signals
+    // Set by IdentityChangeContributor when this request's surface dims (geo
+    // country, ASN, UA family, datacenter / Tor flags) diverge from the
+    // matched fingerprint's last observation. Indicator-only stub for the
+    // commercial API-protection feature (alerting / blocking on key-theft
+    // cadence shifts) - FOSS contributors write the signals; FOSS policy
+    // doesn't act on them at thresholds, commercial layers do.
+    // ==========================================
+
+    /// <summary>Boolean: this request's GeoCountryCode differs from the matched fingerprint's prior observation - large geo jumps are the canonical "credentials shared with another party" signal.</summary>
+    public const string RiskCountryChanged = "risk.country_changed";
+
+    /// <summary>String: "PREV_CC -> NEW_CC" formatted transition, written when RiskCountryChanged is true. Lets log lines and dashboards show the change without re-joining state.</summary>
+    public const string RiskCountryTransition = "risk.country_transition";
+
+    /// <summary>Boolean: this request's IpAsn differs from the matched fingerprint's prior observation - even within the same country, an ASN change can indicate rotation through proxies or VPN exits.</summary>
+    public const string RiskAsnChanged = "risk.asn_changed";
+
+    /// <summary>Boolean: this request's UserAgentFamily differs from the matched fingerprint's prior observation - very rare for genuine users, common for credential theft (the new caller's browser doesn't match the original visitor's).</summary>
+    public const string RiskUaFamilyChanged = "risk.ua_family_changed";
+
+    /// <summary>Boolean: this request appears from a datacenter / Tor IP but prior observations did not - infrastructure shift on the same identity, often the first observable when an API key gets exfiltrated to a botnet.</summary>
+    public const string RiskInfrastructureIntroduced = "risk.infrastructure_introduced";
+
+    /// <summary>Double in [0,1]: weighted aggregate of the above flags. Stays well under 1.0 even for "everything changed" - this is an indicator only; FOSS doesn't gate policy on it directly, commercial layers thresholds and alerting on top.</summary>
+    public const string RiskSuspiciousChangeScore = "risk.suspicious_change_score";
+
+    /// <summary>String: human-readable summary of what changed (e.g. "country US -> RU; UA family Chrome -> python-requests"). Empty when nothing changed. Drives the dashboard / log message.</summary>
+    public const string RiskSuspiciousChangeReason = "risk.suspicious_change_reason";
+
+    // ==========================================
     // Privacy / PII Detection signals
     // Set by PiiQueryStringContributor when PII patterns detected in query strings
     // ==========================================
