@@ -101,6 +101,40 @@ public class SbLiveUpdatesTagHelper : TagHelper
     var pending = {{}};
     var debounceTimer = null;
 
+    // General pattern: a widget the user is actively driving (filter click, sort header,
+    // page nav, any in-flight user-initiated HTMX request whose source sits inside that
+    // widget) WINS over SignalR-driven background refreshes. We track that set here and
+    // gate both directions:
+    //   - outgoing refresh requests skip user-active widgets (no stale params sent),
+    //   - incoming OOB swap responses targeting user-active widgets are refused (no
+    //     race where a SignalR refresh already in flight clobbers the just-clicked filter).
+    var userActiveWidgets = new Set();
+
+    function widgetForElt(elt) {{
+        if (!elt || !elt.closest) return null;
+        var root = elt.closest('[data-sb-widget]');
+        return root ? root.getAttribute('data-sb-widget') : null;
+    }}
+
+    document.body.addEventListener('htmx:beforeRequest', function(ev) {{
+        var wid = widgetForElt(ev.detail && ev.detail.elt);
+        if (wid) userActiveWidgets.add(wid);
+    }});
+
+    document.body.addEventListener('htmx:afterRequest', function(ev) {{
+        var wid = widgetForElt(ev.detail && ev.detail.elt);
+        if (wid) userActiveWidgets.delete(wid);
+    }});
+
+    document.body.addEventListener('htmx:beforeSwap', function(ev) {{
+        var target = ev.detail && ev.detail.target;
+        if (!target || !target.getAttribute) return;
+        var wid = target.getAttribute('data-sb-widget');
+        if (wid && userActiveWidgets.has(wid)) {{
+            ev.detail.shouldSwap = false;
+        }}
+    }});
+
     function invalidate(signal) {{
         var widgetMap = getWidgetMap();
         var widgets = widgetMap[signal] || [];
@@ -110,9 +144,11 @@ public class SbLiveUpdatesTagHelper : TagHelper
     }}
 
     function flush() {{
-        var ids = Object.keys(pending);
-        if (ids.length === 0) return;
+        var ids = Object.keys(pending).filter(function(id) {{
+            return !userActiveWidgets.has(id);
+        }});
         pending = {{}};
+        if (ids.length === 0) return;
 
         var qs = new URLSearchParams();
         qs.set('widgets', ids.join(','));
