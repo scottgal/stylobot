@@ -135,7 +135,7 @@ public sealed class SbWidgetBatchMiddleware
                 "endpoints" => await RenderEndpointsAsync(context, q),
                 "useragents" => await RenderUserAgentsAsync(context, q),
                 "sessions" => await RenderSessionsAsync(context, q),
-                "topbots" or "top-visitors" or "live-visitors" => await RenderTopBotsAsync(context, q, widgetId),
+                "topbots" or "top-visitors" or "live-visitors" or "live-activity" => await RenderTopBotsAsync(context, q, widgetId),
                 "threats" => await RenderThreatsAsync(context, q),
                 _ => ""
             };
@@ -518,7 +518,7 @@ public sealed class SbWidgetBatchMiddleware
             return widgetId switch
             {
                 "summary" => await BuildSummaryContextAsync(),
-                "topbots" or "top-visitors" or "live-visitors" => await BuildTopBotsContextAsync(),
+                "topbots" or "top-visitors" or "live-visitors" or "live-activity" => await BuildTopBotsContextAsync(),
                 "visitors" => BuildVisitorsContext(context),
                 "countries" => await BuildCountriesContextAsync(),
                 "endpoints" => await BuildEndpointsContextAsync(),

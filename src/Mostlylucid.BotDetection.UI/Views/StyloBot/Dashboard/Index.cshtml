@@ -356,11 +356,10 @@
                     </div>
                 </div>
 
-                <!-- LIVE ACTIVITY: a single 10-row list (was two 5-row lists -- merged because they
-                     showed the same column shape with different sort orders, which was visual
-                     redundancy disguised as two widgets). Sorted by most-recently-seen so the
-                     widget feels live; the user can change sort via the column headers inside the
-                     component itself. -->
+                <!-- Live Activity: SSR on first paint, refreshed in place by the SignalR
+                     invalidation pipeline -- data-sb-depends="signature,summary" on the widget
+                     root drives SbWidgetBatchMiddleware OOB swaps. Default sort is last-seen so
+                     the newest hit jumps to the top; column headers re-sort via HTMX. -->
                 <div class="flex flex-col gap-4">
                     <sb-top-bots filter="all" sort="lastseen" page-size="10" widget-id="live-activity" />
                 </div>

@@ -3955,7 +3955,7 @@ public class StyloBotDashboardMiddleware
                 "endpoints" => await RenderEndpointPartialAsync(context, q),
                 "clusters" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_ClustersList.cshtml", await BuildClustersModelAsync(context)),
                 "useragents" => await RenderUaPartialAsync(context, q),
-                "topbots" or "top-visitors" or "live-visitors" => await RenderPartialAsync(context, "/Views/Shared/Components/SbTopBots/Default.cshtml", BuildTopBotsModelFromQuery(widgetId, q)),
+                "topbots" or "top-visitors" or "live-visitors" or "live-activity" => await RenderPartialAsync(context, "/Views/Shared/Components/SbTopBots/Default.cshtml", BuildTopBotsModelFromQuery(widgetId, q)),
                 "sessions" => await RenderPartialAsync(context, "/Views/Shared/Components/SbSessionsList/Default.cshtml", await BuildSessionsModel(context)),
                 "recent" => await RenderRecentActivityPartialAsync(context),
                 "your-detection" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_YourDetection.cshtml", BuildYourDetectionPartialModel(context)),
