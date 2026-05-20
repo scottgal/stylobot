@@ -3997,7 +3997,7 @@ public class StyloBotDashboardMiddleware
                         page: WidgetRenderHelpers.QueryPage(q),
                         pageSize: WidgetRenderHelpers.QueryPageSize(q, 25),
                         filter: q["filter"].FirstOrDefault())),
-                "recent" => await RenderRecentActivityPartialAsync(context),
+                "recent" => await RenderRecentActivityPartialAsync(context, q),
                 "your-detection" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_YourDetection.cshtml", BuildYourDetectionPartialModel(context)),
                 _ => ""
             };
@@ -4076,15 +4076,26 @@ public class StyloBotDashboardMiddleware
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Shared/Components/SbEndpointsList/Default.cshtml", model, context);
     }
 
-    private async Task<string> RenderRecentActivityPartialAsync(HttpContext context)
+    private async Task<string> RenderRecentActivityPartialAsync(HttpContext context, IQueryCollection? q = null)
     {
+        q ??= context.Request.Query;
+        // Defaults must match the controller's SSR (Marketing DashboardController + FOSS
+        // dashboard Index.cshtml both use pageSize=24). Mismatched defaults here were
+        // the "loads with a LOT of results then instantly switches to a few" bug --
+        // SSR painted 24 rows, the first SignalR-driven OOB refresh replaced with 10.
+        var filter = q["filter"].FirstOrDefault() ?? "all";
+        var sortField = q["sort"].FirstOrDefault() ?? "lastSeen";
+        var sortDir = q["dir"].FirstOrDefault() ?? "desc";
+        var page = WidgetRenderHelpers.QueryPage(q);
+        var pageSize = WidgetRenderHelpers.QueryPageSize(q, 24);
+
         var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
-        var (items, totalCount, _, _) = visitorCache.GetFiltered("all", "lastSeen", "desc", 1, 10);
+        var (items, totalCount, _, _) = visitorCache.GetFiltered(filter, sortField, sortDir, page, pageSize);
         var model = new VisitorListModel
         {
             Visitors = items, Counts = visitorCache.GetCounts(),
-            Filter = "all", SortField = "lastSeen", SortDir = "desc",
-            Page = 1, PageSize = 10, TotalCount = totalCount,
+            Filter = filter, SortField = sortField, SortDir = sortDir,
+            Page = page, PageSize = pageSize, TotalCount = totalCount,
             BasePath = _options.BasePath.TrimEnd('/')
         };
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/StyloBot/Dashboard/_RecentActivity.cshtml", model, context);
@@ -4553,16 +4564,55 @@ public class StyloBotDashboardMiddleware
   --sb-signal-danger: var(--color-error);
 }}
 body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-height: 100vh; }}
+.brand-header {{
+  background: var(--color-base-200);
+  border-bottom: 1px solid color-mix(in oklch, var(--color-base-content) 10%, transparent);
+}}
 </style>
 </head>
 <body>
-<header class=""px-4 py-3 border-b"" style=""background: var(--color-base-200); border-color: var(--sb-card-divider);"">
+@* Same chrome as _SignatureDetail.cshtml -- both pages link the FOSS vendor CSS
+   bundle (no shared partial) so duplicating the markup keeps the two drill-down
+   surfaces visually identical. Drift here is the third-header bug the user has
+   called out twice already. *@
+<header class=""brand-header px-4 py-3"">
   <div class=""max-w-7xl mx-auto flex items-center justify-between"">
-    <a href=""{navBp}"" class=""text-lg font-black tracking-tight"" style=""font-family: 'Raleway', sans-serif;"">
-      <span style=""color: var(--sb-brand-muted); font-style: italic;"">stylo</span><span style=""color: var(--sb-brand-strong);"">bot</span>
-    </a>
-    <span class=""text-xs font-medium px-2 py-0.5 rounded-full"" style=""background: var(--sb-card-bg); color: var(--sb-brand-muted); border: 1px solid var(--sb-card-border);"">Endpoint Detail</span>
-    <a href=""{navBp}?tab=endpoints"" class=""text-xs text-base-content/50 hover:text-base-content"">All endpoints &rarr;</a>
+    <div class=""flex items-center gap-3"">
+      <a href=""{navBp}"" data-action=""smart-back"" class=""text-lg font-black tracking-tight"" style=""font-family: 'Raleway', sans-serif;"">
+        <span style=""color: var(--sb-brand-muted);"">stylo</span><span style=""color: var(--sb-brand-strong);"">bot</span>
+      </a>
+      <span class=""text-xs font-medium px-2 py-0.5 rounded-full"" style=""background: var(--sb-card-bg); color: var(--sb-brand-muted); border: 1px solid var(--sb-card-border);"">Endpoint Detail</span>
+    </div>
+    <div class=""flex items-center gap-3"">
+      <a href=""{navBp}?tab=endpoints"" class=""text-xs text-base-content/50 hover:text-base-content"">All endpoints &rarr;</a>
+      <select id=""sb-theme-picker"" class=""select select-bordered select-xs text-xs bg-base-100 relative z-50"">
+        <option value=""dark"" selected>Dark</option>
+        <option value=""light"">Light</option>
+        <option value=""dim"">Dim</option>
+        <option value=""night"">Night</option>
+        <option value=""dracula"">Dracula</option>
+        <option value=""synthwave"">Synthwave</option>
+        <option value=""nord"">Nord</option>
+        <option value=""cupcake"">Cupcake</option>
+        <option value=""forest"">Forest</option>
+        <option value=""luxury"">Luxury</option>
+        <option value=""coffee"">Coffee</option>
+      </select>
+      <script nonce=""{cspNonce}"">
+        (function(){{
+          var t=localStorage.getItem('sb-theme')||'dark';
+          var sel=document.getElementById('sb-theme-picker');
+          if(sel){{
+            var o=sel.querySelector('option[value=""'+t+'""]');
+            if(o)o.selected=true;
+            sel.addEventListener('change',function(){{
+              document.documentElement.setAttribute('data-theme',this.value);
+              try{{localStorage.setItem('sb-theme',this.value);}}catch(e){{}}
+            }});
+          }}
+        }})();
+      </script>
+    </div>
   </div>
 </header>
 <main class=""max-w-5xl mx-auto px-2 py-4"">

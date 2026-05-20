@@ -26,6 +26,7 @@
 <div id="recent-activity"
      data-sb-widget="recent"
      data-sb-depends="signature,summary"
+     data-sb-params="filter=@filter&sort=@Model.SortField&dir=@Model.SortDir&page=@Model.Page&pageSize=@Model.PageSize"
      hx-get="@bp/partials/recent?filter=@filter&sort=@Model.SortField&dir=@Model.SortDir&page=@Model.Page&pageSize=@Model.PageSize"
      hx-trigger="every 10s"
      hx-swap="outerHTML"
