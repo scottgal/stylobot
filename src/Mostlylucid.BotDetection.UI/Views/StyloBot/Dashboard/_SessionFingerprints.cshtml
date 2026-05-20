@@ -73,7 +73,9 @@
 @if (sessions.Count == 0)
 {
     <div class="text-xs text-base-content/40 text-center py-4">
-        No finalized sessions yet. Sessions persist after 30 minutes of inactivity.
+        No session activity for this signature yet -- neither in-flight nor finalised.
+        Sessions appear here the moment a request lands; finalised history is added when
+        a session goes idle for 30 minutes.
     </div>
 }
 else

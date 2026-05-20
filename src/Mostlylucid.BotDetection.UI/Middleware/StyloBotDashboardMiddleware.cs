@@ -3801,6 +3801,30 @@ public class StyloBotDashboardMiddleware
             };
         }).ToList();
 
+        // Behavioural History was a category error: it only showed FINALIZED sessions
+        // (i.e. ones idle for 30+ minutes), which meant a live-traffic operator with
+        // healthy ongoing sessions saw "No sessions yet" forever. Now we also include the
+        // current in-flight session (if any) at the head of the list, marked with a
+        // sentinel Id = -1 so the view can render it as a live row instead of a finalised
+        // history entry. State frequencies aren't fully computed until finalize, so we
+        // leave StateFreqs zero (radar shows as the inner-most dot); RequestCount + start
+        // time are enough for the operator to see "yes, this signature is active right now".
+        var inMemorySessions = context.RequestServices.GetService<BotDetection.Analysis.SessionStore>();
+        var inFlight = inMemorySessions?.GetCurrentSession(signature);
+        if (inFlight is { Count: > 0 })
+        {
+            entries.Insert(0, new Models.SessionFingerprintEntry
+            {
+                Id = -1,
+                StartedAt = inFlight[0].Timestamp.UtcDateTime,
+                IsBot = false,
+                RiskBand = "InFlight",
+                Probability = 0,
+                RequestCount = inFlight.Count,
+                StateFreqs = new float[10]
+            });
+        }
+
         var cspNonce = GetOrCreateCspNonce(context);
 
         var model = new Models.SessionFingerprintsModel
