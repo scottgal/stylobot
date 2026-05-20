@@ -33,9 +33,20 @@ You can put all the headers into a single rule — under "Modify request header"
 
 After deploy, hit any page from a modern browser. The signature detail card's TLS Version, HTTP Protocol etc. will populate from the new headers. Existing persisted signatures show historical (pre-rule) data; they update on next detection event for that signature.
 
-### Enterprise-only fields (not used by default)
+### Enterprise CF fields (commercial stylobot only)
 
-If you have Cloudflare Bot Management or Enterprise, additional fields are available — `cf.bot_management.score`, `cf.bot_management.ja3_hash`, `cf.bot_management.verified_bot`. Forward those as `X-Client-Bot-Score`, `X-Client-JA3`, `X-Client-Verified-Bot` if you want to feed them into detection later.
+Cloudflare Bot Management (Enterprise SKU) exposes signals the free tier cannot. The commercial stylobot plugin (`Stylobot.Commercial.GatewayPlugin`) registers a `CloudflareEnterpriseSignalEnricher` middleware that reads four additional headers and surfaces them as `HttpContext.Items` keys (`sb.cf.bot_score`, `sb.cf.verified_bot`, `sb.cf.ja3`, `sb.cf.ja4`) for downstream contributors.
+
+Configure four more dynamic-header Transform Rules in the same CF zone:
+
+| Header name | CF Enterprise expression | What it tells you |
+|---|---|---|
+| `X-Client-Bot-Score` | `cf.bot_management.score` | 1-99 (lower = more bot-like) — CF's own bot score |
+| `X-Client-Verified-Bot` | `cf.bot_management.verified_bot` | `true` for IP-verified vendor bots (Googlebot etc.) |
+| `X-Client-JA3` | `cf.bot_management.ja3_hash` | JA3 TLS handshake fingerprint |
+| `X-Client-JA4` | `cf.bot_management.ja4` | Newer JA4 fingerprint |
+
+These have no effect without the commercial plugin (`AddStyloBotCommercialPlugin`) — the FOSS gateway ignores them. With the commercial plugin in the pipeline, the values are exposed for detection contributors to consume (e.g. inflating bot probability when CF's score is ≤ 30, pinning to friendly when `verified_bot` is true).
 
 ## Caddy
 
