@@ -89,83 +89,12 @@
 </head>
 <body class="min-h-screen overflow-x-hidden" hx-headers='{"X-Requested-With": "XMLHttpRequest"}'>
 
-    @* Brand header. Mirrors the marketing _Layout.cshtml navbar so the dashboard reads
-       as the same site visually. Controlled by Model.RenderShell so a host that already
-       provides its own navbar (e.g. when this view ends up rendered inside an MVC layout
-       wrapper) can suppress this one and avoid doubling. *@
+    @* Brand header is now a SHARED partial used by both the marketing _Layout and this
+       page so the chrome stays byte-identical across the site. The RenderShell flag still
+       lets a host (commercial wrapper) suppress this when it already provides its own. *@
     @if (Model.RenderShell)
     {
-    <header id="sb-brand-header" class="sticky top-0 z-[9999] bg-base-100/95 backdrop-blur-md border-b border-base-300/70 shadow-sm">
-        <nav class="max-w-7xl mx-auto px-4 py-1.5">
-            <div class="flex items-center justify-between gap-3">
-                <a href="/" class="flex items-center gap-2.5 flex-shrink-0">
-                    <img src="/_content/Mostlylucid.BotDetection.UI/img/stylowall.svg" alt="stylobot Logo" class="h-10 w-auto" />
-                    <span class="text-lg hidden sm:inline font-bold" style="font-family: 'Raleway', sans-serif;">
-                        <span style="color: var(--sb-brand-muted); font-style: italic;">stylo</span><span style="color: var(--sb-brand-strong);">bot</span>
-                    </span>
-                </a>
-
-                <div class="hidden lg:flex items-center gap-5 text-sm">
-                    <a href="/" class="hover:text-base-content/80 text-base-content/60">Home</a>
-                    <a href="/threats" class="hover:text-base-content/80 text-base-content/60">Threats</a>
-                    <a href="/detectors" class="hover:text-base-content/80 text-base-content/60">Detectors</a>
-                    <a href="/open-source" class="hover:text-base-content/80 text-base-content/60">Open Source</a>
-                    <a href="/pricing" class="hover:text-base-content/80 text-base-content/60">Pricing</a>
-                    <a href="/docs" class="hover:text-base-content/80 text-base-content/60">Docs</a>
-                    <a href="/about" class="hover:text-base-content/80 text-base-content/60">About</a>
-                    <a href="@bp" class="font-semibold text-base-content">Dashboard</a>
-                </div>
-
-                <div class="flex items-center gap-2">
-                    <span id="sb-connection-status" class="w-2 h-2 rounded-full sb-disconnected" title="SignalR: disconnected"></span>
-                    @if (Model.License.Status == LicenseStatusKind.Unconfigured)
-                    {
-                        <a href="https://stylobot.net/pricing" target="_blank" rel="noopener"
-                           class="text-[10px] text-base-content/60 hover:text-base-content/80">
-                            OSS · upgrade →
-                        </a>
-                    }
-                    <select id="sb-theme-picker" class="select select-bordered select-xs text-xs bg-base-100 relative z-50">
-                        <option value="dark">Dark</option>
-                        <option value="light">Light</option>
-                        <option value="dim">Dim</option>
-                        <option value="night">Night</option>
-                        <option value="dracula">Dracula</option>
-                        <option value="synthwave">Synthwave</option>
-                        <option value="cyberpunk">Cyberpunk</option>
-                        <option value="nord">Nord</option>
-                        <option value="cupcake">Cupcake</option>
-                        <option value="bumblebee">Bumblebee</option>
-                        <option value="emerald">Emerald</option>
-                        <option value="corporate">Corporate</option>
-                        <option value="retro">Retro</option>
-                        <option value="forest">Forest</option>
-                        <option value="aqua">Aqua</option>
-                        <option value="luxury">Luxury</option>
-                        <option value="coffee">Coffee</option>
-                        <option value="sunset">Sunset</option>
-                        <option value="winter">Winter</option>
-                        <option value="lofi">Lo-Fi</option>
-                        <option value="black">Black</option>
-                    </select>
-                    <script nonce="@Model.CspNonce">
-                        (function(){
-                            var t=localStorage.getItem('sb-theme')||'dark';
-                            var sel=document.getElementById('sb-theme-picker');
-                            if(sel){
-                                var opt=sel.querySelector('option[value="'+t+'"]');
-                                if(opt)opt.selected=true;
-                                sel.addEventListener('change',function(){
-                                    document.documentElement.setAttribute('data-theme',this.value);
-                                    try{localStorage.setItem('sb-theme',this.value);}catch(e){}
-                                });
-                            }
-                        })();
-                    </script>
-                </div>
-            </div>
-        </nav>
-    </header>
+        @await Html.PartialAsync("_StylobotNavbar")
     }
 
     <!-- Main content -->

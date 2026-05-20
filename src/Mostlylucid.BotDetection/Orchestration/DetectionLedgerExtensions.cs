@@ -57,7 +57,8 @@ public static class DetectionLedgerExtensions
         var ledgerBotType = friendlyBotType ?? ParseBotType(ledger.BotType);
 
         var (riskBand, riskJustification) = DetermineRiskBand(botProbability, confidence, aiRan,
-            earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory, ledgerBotType);
+            earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory,
+            ledgerBotType, ledger.BotName);
 
         // PrimaryBotType stays gated on classification — it's a claim about WHAT KIND of bot
         // ("this looks like a Scraper") and is only meaningful when classified as bot.
@@ -298,17 +299,25 @@ public static class DetectionLedgerExtensions
         double botProbability, double confidence, bool aiRan,
         double threatScore, bool isConfirmedBad, int sessionRequestCount,
         string? intentCategory = null,
-        BotType? botType = null)
+        BotType? botType = null,
+        string? botName = null)
     {
         // Friendly bot types (search engines, fediverse link previewers, monitoring,
         // explicitly-verified good bots) get pinned to Low even when probability is
         // near the AI-clamp ceiling. Threat / confirmed-bad still escalate below.
-        if (BotTypeClassification.IsFriendly(botType)
-            && !isConfirmedBad
-            && threatScore < BotTypeClassification.FriendlyThreatGate)
+        // Two ways into this branch:
+        //   1. botType is in the friendly set (BotTypeClassification.IsFriendly).
+        //   2. botType propagation failed somewhere upstream and we got "Unknown" /
+        //      null, but botName matches a known-good UA (Googlebot, DuckDuckBot,
+        //      Bingbot, etc. -- defined in the YAML pattern files as bot_type:
+        //      SearchEngine). Without this fallback a YAML wiring bug surfaces as
+        //      a VeryHigh-risk DuckDuckBot row, which is the opposite of correct.
+        if (!isConfirmedBad && threatScore < BotTypeClassification.FriendlyThreatGate)
         {
-            var label = botType.ToString();
-            return (RiskBand.Low, $"identified as {label} (friendly automation)");
+            if (BotTypeClassification.IsFriendly(botType))
+                return (RiskBand.Low, $"identified as {botType} (friendly automation)");
+            if (!string.IsNullOrEmpty(botName) && BotTypeClassification.IsKnownFriendlyName(botName))
+                return (RiskBand.Low, $"identified as {botName} (friendly automation; bot_type {botType?.ToString() ?? "missing"})");
         }
 
         // Low confidence: not enough data to assess reliably

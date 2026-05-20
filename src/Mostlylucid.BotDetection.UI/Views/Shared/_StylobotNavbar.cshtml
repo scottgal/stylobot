@@ -1,0 +1,95 @@
+@*
+    Shared site-wide navbar for stylobot.net. ONE source of truth used by both:
+      - mostlylucid.stylobot.website/Views/Shared/_Layout.cshtml (marketing pages)
+      - Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/Index.cshtml (dashboard)
+
+    Lives in the FOSS UI project so both surfaces (which has the marketing site as a
+    consumer of the RCL) can render the same physical file via Razor's view-location
+    lookup. Anything specific to one surface (auth controls, Alpine state) stays in
+    that surface's _Layout / Index outside this partial.
+
+    Hardcoded /<route> hrefs rather than asp-controller tag helpers so this partial
+    works in both MVC-routed (marketing) and middleware-rendered (FOSS standalone)
+    contexts.
+*@
+@{
+    var cspNonce = Context.Items["CspNonce"]?.ToString() ?? "";
+    var activePath = Context.Request.Path.Value?.ToLowerInvariant() ?? "";
+    bool IsActive(string segment) =>
+        segment == "/" ? activePath == "/" || activePath == ""
+                       : activePath.StartsWith(segment, StringComparison.OrdinalIgnoreCase);
+    string NavClass(string segment) =>
+        IsActive(segment)
+            ? "font-semibold text-base-content"
+            : "text-base-content/60 hover:text-base-content/80";
+}
+<header class="sticky top-0 z-[9999] bg-base-100/95 backdrop-blur-md border-b border-base-300/70 shadow-sm">
+    <nav class="max-w-7xl mx-auto px-4 py-1.5">
+        <div class="flex items-center justify-between gap-3">
+            <a href="/" class="flex items-center gap-2.5 flex-shrink-0 no-underline">
+                <img src="/_content/Mostlylucid.BotDetection.UI/img/stylowall.svg" alt="stylobot Logo" class="h-10 w-auto logo-adaptive" />
+                <span class="text-lg hidden sm:inline brand-wordmark font-bold" style="font-family: 'Raleway', sans-serif;">
+                    <span class="stylo-text brand-italic" style="font-style: italic;">stylo</span><span class="bot-text">bot</span>
+                </span>
+            </a>
+
+            <div class="hidden lg:flex items-center gap-5 text-sm">
+                <a href="/" class="nav-link @NavClass("/")">Home</a>
+                <a href="/threats" class="nav-link @NavClass("/threats")">Threats</a>
+                <a href="/detectors" class="nav-link @NavClass("/detectors")">Detectors</a>
+                <a href="/open-source" class="nav-link @NavClass("/open-source")">Open Source</a>
+                <a href="/pricing" class="nav-link @NavClass("/pricing")">Pricing</a>
+                <a href="/docs" class="nav-link @NavClass("/docs")">Docs</a>
+                <a href="/about" class="nav-link @NavClass("/about")">About</a>
+                <a href="/dashboard" class="nav-link @NavClass("/dashboard")">Dashboard</a>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <span id="sb-connection-status" class="w-2 h-2 rounded-full sb-disconnected" title="SignalR: disconnected" style="display:inline-block"></span>
+                <a href="https://github.com/scottgal/stylobot" target="_blank" rel="noopener" class="btn btn-ghost btn-sm btn-square" aria-label="GitHub" title="View on GitHub">
+                    <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                </a>
+                <select id="sb-theme-picker" class="select select-bordered select-xs text-xs bg-base-100 relative z-50">
+                    <option value="dark">Dark</option>
+                    <option value="light">Light</option>
+                    <option value="dim">Dim</option>
+                    <option value="night">Night</option>
+                    <option value="dracula">Dracula</option>
+                    <option value="synthwave">Synthwave</option>
+                    <option value="cyberpunk">Cyberpunk</option>
+                    <option value="nord">Nord</option>
+                    <option value="cupcake">Cupcake</option>
+                    <option value="bumblebee">Bumblebee</option>
+                    <option value="emerald">Emerald</option>
+                    <option value="corporate">Corporate</option>
+                    <option value="retro">Retro</option>
+                    <option value="forest">Forest</option>
+                    <option value="aqua">Aqua</option>
+                    <option value="luxury">Luxury</option>
+                    <option value="coffee">Coffee</option>
+                    <option value="sunset">Sunset</option>
+                    <option value="winter">Winter</option>
+                    <option value="lofi">Lo-Fi</option>
+                    <option value="black">Black</option>
+                </select>
+                <script nonce="@cspNonce">
+                    (function(){
+                        var ALLOWED = new Set(['dark','light','dim','night','dracula','synthwave','cyberpunk','nord','cupcake','bumblebee','emerald','corporate','retro','forest','aqua','luxury','coffee','sunset','winter','lofi','black']);
+                        var saved = localStorage.getItem('sb-theme');
+                        var t = ALLOWED.has(saved) ? saved : 'dark';
+                        document.documentElement.setAttribute('data-theme', t);
+                        var sel = document.getElementById('sb-theme-picker');
+                        if (sel) {
+                            var opt = sel.querySelector('option[value="' + t + '"]');
+                            if (opt) opt.selected = true;
+                            sel.addEventListener('change', function() {
+                                document.documentElement.setAttribute('data-theme', this.value);
+                                try { localStorage.setItem('sb-theme', this.value); } catch (e) {}
+                            });
+                        }
+                    })();
+                </script>
+            </div>
+        </div>
+    </nav>
+</header>

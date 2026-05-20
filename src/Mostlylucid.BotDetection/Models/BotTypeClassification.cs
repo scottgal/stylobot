@@ -30,4 +30,48 @@ internal static class BotTypeClassification
         or BotType.MonitoringBot
         or BotType.GoodBot
         or BotType.VerifiedBot;
+
+    /// <summary>
+    ///     Name-level fallback used when bot_type propagation failed but the UA bot_name
+    ///     clearly identifies a known-good crawler. The set mirrors the search-engines /
+    ///     ai-scrapers / monitoring YAML pattern files' bot_name fields for entries that
+    ///     are explicitly classified as friendly. New friendly UAs must be added here too
+    ///     for the risk-band-pin to apply when bot_type ends up "Unknown" -- the YAML's
+    ///     bot_type field is the source of truth, this is a safety net.
+    /// </summary>
+    public static bool IsKnownFriendlyName(string botName)
+    {
+        if (string.IsNullOrEmpty(botName)) return false;
+        return botName switch
+        {
+            // Search engines (search-engines.bot-patterns.yaml)
+            "Googlebot" or "Bingbot" or "DuckDuckBot" or "Baidu Search" or "Yahoo Search"
+                or "Yandex Search" or "Sogou" or "Qwant" or "Mojeek" or "ChatGPT-User"
+                or "Brave Search" or "Kagi" or "PerplexityBot" => true,
+            // AI scrapers that have published vendor identities (subset of ai-scrapers.bot-patterns.yaml
+            // that's "good actor" in the operator's eyes -- excludes scrapers without a known vendor).
+            // Operators can opt these out via policy if they want to block AI training.
+            "GPTBot" or "OAI-SearchBot" or "ClaudeBot" or "Claude-Web" or "Gemini" or "Google-Extended"
+                or "anthropic-ai" or "cohere-ai" or "Amazonbot" or "Applebot" or "Applebot-Extended"
+                or "facebookexternalhit" or "FacebookBot" or "Meta-ExternalAgent" or "Meta-ExternalFetcher"
+                => true,
+            // Social media / link previewers (social-media.bot-patterns.yaml)
+            "Twitterbot" or "LinkedInBot" or "Slackbot" or "Discordbot" or "TelegramBot"
+                or "WhatsApp" or "Pinterest" or "RedditBot" or "Tumblr" or "SkypeUriPreview"
+                => true,
+            // Fediverse instances (variants like "Mastodon mastodon.social" all start with these
+            // prefixes; the FingerprintNameComposer appends instance domains as discriminator).
+            var s when s.StartsWith("Mastodon", StringComparison.OrdinalIgnoreCase)
+                    || s.StartsWith("Pleroma", StringComparison.OrdinalIgnoreCase)
+                    || s.StartsWith("Misskey", StringComparison.OrdinalIgnoreCase)
+                    || s.StartsWith("Lemmy", StringComparison.OrdinalIgnoreCase)
+                    || s.StartsWith("Pixelfed", StringComparison.OrdinalIgnoreCase)
+                    || s.StartsWith("Funkwhale", StringComparison.OrdinalIgnoreCase)
+                    => true,
+            // Monitoring (monitoring.bot-patterns.yaml subset)
+            "UptimeRobot" or "Pingdom" or "Datadog" or "NewRelic" or "Site24x7"
+                => true,
+            _ => false
+        };
+    }
 }
