@@ -590,9 +590,18 @@ public partial class DetectionBroadcastMiddleware
 
     private static void EnrichProtocol(HttpContext context, Dictionary<string, object> signals)
     {
-        // Prefer forwarded client protocol from reverse proxy (e.g., Caddy X-Client-Protocol header)
-        // because behind a proxy, context.Request.Protocol is always the upstream connection (HTTP/1.1)
-        var protocol = context.Request.Headers["X-Client-Protocol"].FirstOrDefault()
+        // Prefer forwarded client protocol from the edge proxy. Behind a CF tunnel /
+        // Caddy / similar, context.Request.Protocol always reads as the upstream's
+        // connection to the gateway (HTTP/1.1 by default), NOT the browser's actual
+        // protocol to the edge. Three header names checked in priority order:
+        //   - X-Client-HTTP-Version : Cloudflare Transform Rule injecting http.request.version
+        //   - X-Forwarded-Proto-Version : some operator setups normalise to this
+        //   - X-Client-Protocol : Caddy convention
+        // Fall through to Request.Protocol (the cloudflared/Caddy -> Kestrel hop)
+        // when none of those are present.
+        var protocol = context.Request.Headers["X-Client-HTTP-Version"].FirstOrDefault()
+                       ?? context.Request.Headers["X-Forwarded-Proto-Version"].FirstOrDefault()
+                       ?? context.Request.Headers["X-Client-Protocol"].FirstOrDefault()
                        ?? context.Request.Protocol;
         signals.TryAdd("request.protocol", protocol);
 
