@@ -18,6 +18,7 @@ public sealed class BotPatternLoader
         new(() => new BotPatternLoader());
 
     private readonly ILogger<BotPatternLoader>? _logger;
+    private Dictionary<string, string>? _botNameToTypeIndex;
 
     public BotPatternLoader(ILogger<BotPatternLoader>? logger = null)
     {
@@ -38,6 +39,34 @@ public sealed class BotPatternLoader
     /// <summary>Patterns with IP ranges URL or verified domains (for VerifiedBotRegistry).</summary>
     public IEnumerable<BotPatternEntry> VerifiablePatterns =>
         AllPatterns.Where(p => p.IpRangesUrl != null || p.VerifiedDomains is { Length: > 0 });
+
+    /// <summary>
+    ///     Returns the raw <see cref="BotPatternEntry.BotType"/> string for the given
+    ///     <paramref name="botName"/>, or null if no pattern matches. Used as a safety
+    ///     net by the risk-band determiner when bot_type propagation has failed but the
+    ///     persisted bot_name still matches a YAML entry. Match is case-insensitive and
+    ///     also accepts names with an appended discriminator (e.g. "Mastodon mastodon.social"
+    ///     resolves to "Mastodon" -- the FingerprintNameComposer appends instance hostnames
+    ///     for fediverse UAs that carry a +URL comment).
+    /// </summary>
+    public string? FindBotTypeByName(string? botName)
+    {
+        if (string.IsNullOrEmpty(botName)) return null;
+        var idx = _botNameToTypeIndex ??= BuildBotNameIndex();
+        if (idx.TryGetValue(botName, out var bt)) return bt;
+        var space = botName.IndexOf(' ');
+        if (space > 0 && idx.TryGetValue(botName[..space], out var bt2)) return bt2;
+        return null;
+    }
+
+    private Dictionary<string, string> BuildBotNameIndex()
+    {
+        var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in AllPatterns)
+            if (!string.IsNullOrEmpty(entry.BotName) && !string.IsNullOrEmpty(entry.BotType))
+                dict.TryAdd(entry.BotName, entry.BotType);
+        return dict;
+    }
 
     /// <summary>
     ///     Builds the legacy GoodBots dictionary from all loaded patterns.

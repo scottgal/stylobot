@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -307,17 +308,17 @@ public static class DetectionLedgerExtensions
         // near the AI-clamp ceiling. Threat / confirmed-bad still escalate below.
         // Two ways into this branch:
         //   1. botType is in the friendly set (BotTypeClassification.IsFriendly).
-        //   2. botType propagation failed somewhere upstream and we got "Unknown" /
-        //      null, but botName matches a known-good UA (Googlebot, DuckDuckBot,
-        //      Bingbot, etc. -- defined in the YAML pattern files as bot_type:
-        //      SearchEngine). Without this fallback a YAML wiring bug surfaces as
-        //      a VeryHigh-risk DuckDuckBot row, which is the opposite of correct.
+        //   2. botType propagation failed upstream and we got "Unknown" / null, but
+        //      botName matches a YAML pattern whose bot_type IS friendly. The YAML
+        //      pattern files are the single source of truth here -- without this
+        //      fallback a wiring bug surfaces as a VeryHigh-risk DuckDuckBot row.
         if (!isConfirmedBad && threatScore < BotTypeClassification.FriendlyThreatGate)
         {
             if (BotTypeClassification.IsFriendly(botType))
                 return (RiskBand.Low, $"identified as {botType} (friendly automation)");
-            if (!string.IsNullOrEmpty(botName) && BotTypeClassification.IsKnownFriendlyName(botName))
-                return (RiskBand.Low, $"identified as {botName} (friendly automation; bot_type {botType?.ToString() ?? "missing"})");
+            var yamlType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(botName));
+            if (BotTypeClassification.IsFriendly(yamlType))
+                return (RiskBand.Low, $"identified as {botName} (friendly automation; yaml bot_type {yamlType})");
         }
 
         // Low confidence: not enough data to assess reliably
