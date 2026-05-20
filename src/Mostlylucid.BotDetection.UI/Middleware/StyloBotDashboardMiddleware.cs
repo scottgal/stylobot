@@ -522,6 +522,17 @@ public class StyloBotDashboardMiddleware
                 }
                 break;
 
+            case "session":
+                if (_options.RenderPage)
+                {
+                    await ServeSessionDetailPageAsync(context);
+                }
+                else
+                {
+                    await _next(context);
+                }
+                break;
+
             case "api/endpoint-pins":
                 if (context.Request.Method == "GET")
                     await ServeEndpointPinsApiAsync(context);
@@ -3721,7 +3732,12 @@ public class StyloBotDashboardMiddleware
                 catch { }
             }
 
-            html.Append("<tr class=\"hover:bg-base-200/50\">");
+            // Row is a click-through to /dashboard/session?sig=...&id=... -- the new
+            // session detail page wraps _SessionDetail.cshtml with the shared navbar.
+            // Click delegation lives in the signature detail page's script block so
+            // the row can have data-href without an inline onclick handler (CSP-safe).
+            var sessionHref = $"{_options.BasePath.TrimEnd('/')}/session?sig={Uri.EscapeDataString(decodedSig)}&id={s.Id}";
+            html.Append($"<tr class=\"hover:bg-base-200/50 cursor-pointer\" data-href=\"{sessionHref}\">");
             html.Append($"<td class=\"py-1 text-[10px] text-base-content/50 whitespace-nowrap\">{s.StartedAt:MMM dd HH:mm}</td>");
             html.Append($"<td class=\"py-1 text-xs text-base-content/60\">{duration:F1}m</td>");
             html.Append($"<td class=\"py-1 text-right text-xs font-mono\">{s.RequestCount}</td>");
@@ -4596,6 +4612,109 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 </html>";
         context.Response.ContentType = "text/html";
         await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>
+    ///     Full-page wrapper for the session detail partial. Mirrors the signature +
+    ///     endpoint detail surfaces so Behavioral Sessions rows can be drilled into
+    ///     a dedicated page with the same shared navbar chrome.
+    /// </summary>
+    private async Task ServeSessionDetailPageAsync(HttpContext context)
+    {
+        var sig = context.Request.Query["sig"].FirstOrDefault();
+        var idStr = context.Request.Query["id"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(sig))
+        {
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsync("Missing sig parameter");
+            return;
+        }
+
+        var detailHtml = await RenderSessionDetailBodyAsync(context, sig, idStr);
+        var navbarHtml = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/_StylobotNavbar.cshtml", model: null!, context);
+        var cspNonce = context.Items.TryGetValue("CspNonce", out var n) && n is string ns ? ns : "";
+        var navBp = (string.IsNullOrEmpty(_options.NavBasePath) ? _options.BasePath : _options.NavBasePath).TrimEnd('/');
+        var sigEncoded = Uri.EscapeDataString(sig);
+        var pageTitle = "Session Detail -- StyloBot";
+
+        // Same shell as signature + endpoint detail. Brand-header rule defined inline
+        // so the page paints correctly off the FOSS vendor CSS bundle alone.
+        var html = $@"<!DOCTYPE html>
+<html lang=""en"" data-theme=""dark"">
+<head>
+<meta charset=""utf-8"" />
+<meta name=""viewport"" content=""width=device-width, initial-scale=1.0"" />
+<title>{System.Net.WebUtility.HtmlEncode(pageTitle)}</title>
+<link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css"" />
+<link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/boxicons.min.css"" />
+<link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/fonts.css"" />
+<script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js"" nonce=""{cspNonce}""></script>
+<script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/apexcharts.min.js"" nonce=""{cspNonce}""></script>
+<script nonce=""{cspNonce}"">(function(){{try{{var t=localStorage.getItem('sb-theme')||'dark';document.documentElement.setAttribute('data-theme',t);}}catch(e){{}}}})();</script>
+<style nonce=""{cspNonce}"">
+:root, [data-theme] {{
+  --sb-surface: var(--color-base-200);
+  --sb-card-bg: var(--color-base-100);
+  --sb-card-border: color-mix(in oklch, var(--color-base-content) 15%, transparent);
+  --sb-card-divider: color-mix(in oklch, var(--color-base-content) 8%, transparent);
+  --sb-brand-muted: color-mix(in oklch, var(--color-base-content) 55%, transparent);
+  --sb-brand-strong: var(--color-base-content);
+  --sb-signal-pos: var(--color-success);
+  --sb-signal-warn: var(--color-warning);
+  --sb-signal-danger: var(--color-error);
+}}
+body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-height: 100vh; }}
+</style>
+</head>
+<body>
+{navbarHtml}
+<div class=""max-w-7xl mx-auto px-4 py-1.5 text-[10px] text-base-content/40 flex items-center justify-between"">
+  <div>
+    <a href=""{navBp}"" data-action=""smart-back"" class=""hover:text-base-content/70"">&larr; Dashboard</a>
+    <span class=""mx-1"">/</span>
+    <a href=""{navBp}/signature/{sigEncoded}"" class=""hover:text-base-content/70"">Signature</a>
+    <span class=""mx-1"">/</span>
+    <span class=""text-base-content/60"">Session Detail</span>
+  </div>
+</div>
+<main class=""max-w-5xl mx-auto px-2 py-4"">
+{detailHtml}
+</main>
+</body>
+</html>";
+        context.Response.ContentType = "text/html";
+        await context.Response.WriteAsync(html);
+    }
+
+    private async Task<string> RenderSessionDetailBodyAsync(HttpContext context, string sig, string? idStr)
+    {
+        // Same capture-the-partial-writer trick endpoint detail uses, so the partial
+        // route's model build doesn't have to be duplicated.
+        var origPath = context.Request.Path;
+        var origQuery = context.Request.QueryString;
+        context.Request.Path = "/__internal-session-detail-render";
+        context.Request.QueryString = QueryString.Create(new[]
+        {
+            new KeyValuePair<string, string?>("sig", sig),
+            new KeyValuePair<string, string?>("id", idStr)
+        });
+        var origBody = context.Response.Body;
+        var sw = new System.IO.MemoryStream();
+        context.Response.Body = sw;
+        try
+        {
+            await ServeSessionDetailPartialAsync(context);
+            sw.Position = 0;
+            using var reader = new System.IO.StreamReader(sw);
+            return await reader.ReadToEndAsync();
+        }
+        finally
+        {
+            context.Response.Body = origBody;
+            context.Request.Path = origPath;
+            context.Request.QueryString = origQuery;
+        }
     }
 
     private async Task<string> RenderEndpointDetailBodyAsync(HttpContext context, string method, string path)
