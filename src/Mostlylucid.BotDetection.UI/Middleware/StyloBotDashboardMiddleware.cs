@@ -4539,6 +4539,10 @@ public class StyloBotDashboardMiddleware
         var cspNonce = context.Items.TryGetValue("CspNonce", out var n) && n is string ns ? ns : "";
         var navBp = (string.IsNullOrEmpty(_options.NavBasePath) ? _options.BasePath : _options.NavBasePath).TrimEnd('/');
         var pageTitle = $"{method} {path} -- StyloBot endpoint detail";
+        // Same chrome as _SignatureDetail.cshtml -- both pages link the FOSS vendor CSS
+        // bundle (no shared partial) so duplicating the markup keeps the two drill-down
+        // surfaces visually identical. Drift here is the third-header bug the user has
+        // called out twice already.
         var html = $@"<!DOCTYPE html>
 <html lang=""en"" data-theme=""dark"">
 <head>
@@ -4571,10 +4575,6 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 </style>
 </head>
 <body>
-@* Same chrome as _SignatureDetail.cshtml -- both pages link the FOSS vendor CSS
-   bundle (no shared partial) so duplicating the markup keeps the two drill-down
-   surfaces visually identical. Drift here is the third-header bug the user has
-   called out twice already. *@
 <header class=""brand-header px-4 py-3"">
   <div class=""max-w-7xl mx-auto flex items-center justify-between"">
     <div class=""flex items-center gap-3"">
