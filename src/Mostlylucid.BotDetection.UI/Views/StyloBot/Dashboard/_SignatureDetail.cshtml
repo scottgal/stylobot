@@ -115,12 +115,8 @@
 }
 else
 {
-    <!-- Breadcrumb -->
-    <div class="flex items-center gap-2 mb-4 text-xs text-base-content/50">
-        <a href="@navBp" class="hover:text-base-content/70">&larr; Dashboard</a>
-        <span>/</span>
-        <span class="text-base-content/70">Signature Detail</span>
-    </div>
+    @* Breadcrumb already rendered above the <main>, under the shared navbar.
+       The inner one duplicated it ("Dashboard / Signature Detail" showed twice). *@
 
     <!-- Header -->
     <div class="flex items-center gap-3 mb-2">

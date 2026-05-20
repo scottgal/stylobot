@@ -27,7 +27,12 @@
     <nav class="max-w-7xl mx-auto px-4 py-1.5">
         <div class="flex items-center justify-between gap-3">
             <a href="/" class="flex items-center gap-2.5 flex-shrink-0 no-underline">
-                <img src="/_content/Mostlylucid.BotDetection.UI/img/stylowall.svg" alt="stylobot Logo" class="h-10 w-auto logo-adaptive" />
+                @* Inline dimensions instead of h-10 w-auto: the FOSS-served pages link
+                   the Tailwind v4 vendor bundle, where daisyui's later @layer rules can
+                   beat utility classes in the cascade and leave the SVG at its natural
+                   size (~600px). The marketing site uses Tailwind v3 and renders fine
+                   off classes alone. Inline style is bulletproof either way. *@
+                <img src="/_content/Mostlylucid.BotDetection.UI/img/stylowall.svg" alt="stylobot Logo" class="logo-adaptive" style="height:2.5rem;width:auto;" />
                 <span class="text-lg hidden sm:inline brand-wordmark font-bold" style="font-family: 'Raleway', sans-serif;">
                     <span class="stylo-text brand-italic" style="font-style: italic;">stylo</span><span class="bot-text">bot</span>
                 </span>
