@@ -822,10 +822,10 @@ public class StyloBotDashboardMiddleware
             "base-uri 'self'",
             "frame-ancestors 'self'",
             "object-src 'none'",
-            // Country-flag thumbnails come from flagcdn.com (used by the visitor list,
-            // top-bots widget, recent activity, etc.). Without this the dashboard renders
-            // broken-image placeholders next to every country code.
-            "img-src 'self' data: https://flagcdn.com",
+            // Flag thumbnails are vendored locally (wwwroot/flags/<cc>.svg, MIT-licensed
+            // flag-icons set). No third-party image origins permitted -- this is a security
+            // product, and our own copy says "zero CDN dependencies".
+            "img-src 'self' data:",
             "font-src 'self' data:",
             $"style-src 'self' 'unsafe-inline'",
             $"script-src 'self' 'nonce-{cspNonce}'",

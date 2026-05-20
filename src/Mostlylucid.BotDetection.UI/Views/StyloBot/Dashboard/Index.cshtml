@@ -558,6 +558,19 @@
             var el = document.getElementById(containerId);
             if (!el || typeof jsVectorMap === 'undefined') return;
 
+            // Resolve theme variables once at construction. daisyui exposes its palette as
+            // CSS custom properties on :root -- pulling them here means the map adopts the
+            // active theme's accent on first paint instead of the old dead-grey defaults.
+            // (Re-theming on data-theme change is a follow-up: jsvectormap doesn't expose a
+            // public setRegionStyle API and re-instantiating costs the active series state.)
+            function themeVar(name, fallback) {
+                var v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+                return v || fallback;
+            }
+            var mapBase   = themeVar('--color-base-300', '#1e3a5f');
+            var mapStroke = themeVar('--color-base-content', '#3b82f6');
+            var mapHover  = themeVar('--color-primary', '#3b82f6');
+
             var map = new jsVectorMap({
                 selector: '#' + containerId,
                 map: 'world_merc',
@@ -566,13 +579,16 @@
                 showTooltip: true,
                 backgroundColor: 'transparent',
                 regionStyle: {
-                    initial: { fill: '#2a2e3a', stroke: '#3a3e4a', strokeWidth: 0.5 },
-                    hover: { fill: '#4a4e5a' }
+                    initial:  { fill: mapBase,   stroke: mapStroke, strokeWidth: 0.5, fillOpacity: 0.55 },
+                    hover:    { fill: mapHover,  fillOpacity: 0.75 },
+                    selected: { fill: mapHover,  fillOpacity: 0.9 }
                 },
                 series: {
                     regions: [{
                         attribute: 'fill',
-                        scale: { low: '#2dd4bf', mid: '#f59e0b', high: '#ef4444' },
+                        // Vivid traffic-density gradient: low traffic = teal, mid = amber, high = red.
+                        // Stays theme-independent so the heatmap reads consistently across light/dark.
+                        scale: { low: '#22d3ee', mid: '#f59e0b', high: '#ef4444' },
                         values: {},
                         min: 0, max: 1,
                         normalizeFunction: 'polynomial'

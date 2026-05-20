@@ -8,7 +8,7 @@
     var topCountries = Model.Countries.OrderByDescending(c => c.Value).Take(8).ToList();
     var maxCountryCount = topCountries.Count > 0 ? topCountries[0].Value : 1;
     bool HasFlag(string? code) => !string.IsNullOrEmpty(code) && code.Length == 2 && code != "XX";
-    string FlagUrl(string code) => $"https://flagcdn.com/w20/{code.ToLowerInvariant()}.png";
+    string FlagUrl(string code) => $"/_content/Mostlylucid.BotDetection.UI/flags/{code.ToLowerInvariant()}.svg";
 }
 <div class="p-4">
     <!-- Header -->

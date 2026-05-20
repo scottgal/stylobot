@@ -6,7 +6,7 @@
     var bp = Model.BasePath;
     var navBp = Model.ResolvedNavBasePath;
     bool HasFlag(string? code) => !string.IsNullOrEmpty(code) && code.Length == 2 && code != "XX";
-    string FlagUrl(string code) => $"https://flagcdn.com/w40/{code.ToLowerInvariant()}.png";
+    string FlagUrl(string code) => $"/_content/Mostlylucid.BotDetection.UI/flags/{code.ToLowerInvariant()}.svg";
 
     string RiskColor(string? risk) => risk switch
     {
