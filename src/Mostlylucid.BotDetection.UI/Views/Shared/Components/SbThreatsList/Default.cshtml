@@ -21,9 +21,10 @@
 
             @if (!Model.Threats.Any())
             {
-                <div class="text-center py-8 text-base-content/50">
-                    <p class="text-sm">No threat activity detected yet.</p>
-                    <p class="text-xs mt-1">CVE probes and honeypot engagements will appear here.</p>
+                <div class="text-center py-6 text-base-content/50">
+                    <p class="text-sm">No live threat activity detected yet.</p>
+                    <p class="text-xs mt-1">CVE probes and honeypot engagements will appear here.
+                        Meanwhile, the threat-intel feeds we ingest are listed below.</p>
                 </div>
             }
             else
@@ -112,5 +113,13 @@
                     })
             }
         </div>
+    </div>
+
+    @* Ingested threat-intel feeds always render below the live-detections list. So the
+       tab shows SOMETHING even when no live threats have been detected yet -- the operator
+       can see which feeds are loaded, how big each cache is, and when each one last refreshed.
+       The Threats tab is the right home for both: "what we've seen" + "what we've armed". *@
+    <div class="mt-4">
+        <sb-threat-intel-tab />
     </div>
 </div>
