@@ -1,5 +1,6 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Helpers
+@using Mostlylucid.BotDetection.UI.Services
 @model VisitorListModel
 @{
     var bp = Model.BasePath;
@@ -84,8 +85,8 @@
                                 ? (v.IsBot ? DeterministicBotName(v.PrimarySignature) : "Visitor")
                                 : v.BotType);
                             var isLlmNamed = v.BotName != null;
-                            var displayIntent = v.BotType ?? (v.IsBot ? DeterministicIntent(v.BotProbability) : "Human");
-                            var displayThreat = ResolvedThreat(v.ThreatBand, v.BotProbability, v.IsBot);
+                            var displayIntent = v.BotType ?? (v.IsBot ? BotDisplayHelpers.DeterministicIntent(v.BotProbability) : "Human");
+                            var displayThreat = BotDisplayHelpers.ResolvedThreat(v.ThreatBand, v.BotProbability, v.IsBot);
                             var probPct = (v.BotProbability * 100).ToString("F0");
                             var riskClass = v.RiskBand switch {
                                 "VeryHigh" or "High" => "text-error",
@@ -161,22 +162,5 @@
         if (string.IsNullOrEmpty(sig)) return "Bot";
         var h = Math.Abs(sig.GetHashCode());
         return $"{Adj[h % Adj.Length]} {Noun[(h / Adj.Length) % Noun.Length]}";
-    }
-
-    string DeterministicIntent(double prob) => prob switch {
-        >= 0.95 => "Automated",
-        >= 0.80 => "Scanner",
-        >= 0.60 => "Crawler",
-        _ => "Probe"
-    };
-
-    string ResolvedThreat(string? band, double prob, bool isBot) {
-        if (!string.IsNullOrEmpty(band) && band != "None") return band;
-        if (!isBot) return "";
-        return prob switch {
-            >= 0.95 => "High",
-            >= 0.75 => "Medium",
-            _ => "Low"
-        };
     }
 }
