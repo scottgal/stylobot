@@ -1,6 +1,27 @@
 @import "tailwindcss";
 @import "./sb-components.css";
 @plugin "daisyui" {
-  themes: light --default, dark;
+  themes:
+    dark --default,
+    light,
+    dim,
+    night,
+    dracula,
+    synthwave,
+    cyberpunk,
+    nord,
+    cupcake,
+    bumblebee,
+    emerald,
+    corporate,
+    retro,
+    forest,
+    aqua,
+    luxury,
+    coffee,
+    sunset,
+    winter,
+    lofi,
+    black;
 }
 @source "../../Views/**/*.cshtml";
