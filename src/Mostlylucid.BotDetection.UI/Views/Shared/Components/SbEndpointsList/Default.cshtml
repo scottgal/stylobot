@@ -81,7 +81,7 @@
                     <th class="py-1 text-right @ThClass("total") cursor-pointer" hx-get="@SortUrl("total")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Req@(Html.Raw(SortIcon("total")))</th>
                     <th class="py-1 text-right @ThClass("botrate") cursor-pointer" hx-get="@SortUrl("botrate")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Bot %@(Html.Raw(SortIcon("botrate")))</th>
                     <th class="py-1 text-right @ThClass("unique") cursor-pointer hidden sm:table-cell" hx-get="@SortUrl("unique")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Sigs@(Html.Raw(SortIcon("unique")))</th>
-                    <th class="py-1 text-right @ThClass("latency") cursor-pointer hidden md:table-cell" hx-get="@SortUrl("latency")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Ms@(Html.Raw(SortIcon("latency")))</th>
+                    <th class="py-1 text-right @ThClass("latency") cursor-pointer hidden md:table-cell" hx-get="@SortUrl("latency")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Avg / p95 ms (hover row for min and max)">Latency@(Html.Raw(SortIcon("latency")))</th>
                     <th class="py-1 text-right @ThClass("threat") cursor-pointer hidden md:table-cell" hx-get="@SortUrl("threat")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Threat@(Html.Raw(SortIcon("threat")))</th>
                     <th class="py-1 hidden lg:table-cell text-base-content/40">Policy</th>
                     <th class="py-1 text-xs" style="min-width:80px">Split</th>
@@ -111,7 +111,12 @@
                         <td class="py-1 text-right text-xs font-mono">@endpoint.TotalCount</td>
                         <td class="py-1 text-right text-xs font-bold @botClass">@((endpoint.BotRate * 100).ToString("F0"))%</td>
                         <td class="py-1 text-right text-xs font-mono hidden sm:table-cell">@endpoint.UniqueSignatures</td>
-                        <td class="py-1 text-right text-xs hidden md:table-cell">@endpoint.AvgProcessingTimeMs.ToString("F0")</td>
+                        <td class="py-1 text-right text-xs hidden md:table-cell font-mono tabular-nums"
+                            title="min @endpoint.MinProcessingTimeMs.ToString("F1") · avg @endpoint.AvgProcessingTimeMs.ToString("F1") · p95 @endpoint.P95ProcessingTimeMs.ToString("F1") · max @endpoint.MaxProcessingTimeMs.ToString("F1") ms">
+                            <span>@endpoint.AvgProcessingTimeMs.ToString("F0")</span>
+                            <span class="text-base-content/40">/</span>
+                            <span class="text-base-content/70">@endpoint.P95ProcessingTimeMs.ToString("F0")</span>
+                        </td>
                         <td class="py-1 text-right text-xs hidden md:table-cell">@endpoint.AvgThreatScore.ToString("F1")</td>
                         <td class="py-1 hidden lg:table-cell">
                             <div class="flex items-center gap-1">

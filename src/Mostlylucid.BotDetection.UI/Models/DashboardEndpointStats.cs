@@ -13,6 +13,9 @@ public sealed record DashboardEndpointStats
     public double BotRate { get; init; }
     public int UniqueSignatures { get; init; }
     public double AvgProcessingTimeMs { get; init; }
+    public double MinProcessingTimeMs { get; init; }
+    public double MaxProcessingTimeMs { get; init; }
+    public double P95ProcessingTimeMs { get; init; }
     public double AvgThreatScore { get; init; }
     public string? TopAction { get; init; }
     public string? DominantRiskBand { get; init; }
@@ -57,6 +60,9 @@ public sealed record DashboardEndpointDetail
     public double BotRate { get; init; }
     public int UniqueSignatures { get; init; }
     public double AvgProcessingTimeMs { get; init; }
+    public double MinProcessingTimeMs { get; init; }
+    public double MaxProcessingTimeMs { get; init; }
+    public double P95ProcessingTimeMs { get; init; }
     public double AvgThreatScore { get; init; }
     public required Dictionary<string, int> TopActions { get; init; }
     public required Dictionary<string, int> TopCountries { get; init; }

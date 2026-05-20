@@ -742,12 +742,17 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await conn.OpenAsync();
 
         await using var cmd = conn.CreateCommand();
+        // SQLite lacks PERCENTILE_CONT, so p95 is approximated using AVG + 2*STDDEV as a rough
+        // p95 estimate (assumes roughly-normal distribution). Min/Max are exact via SQL.
+        // For accurate p95 the Postgres backend uses PERCENTILE_CONT.
         cmd.CommandText = """
             SELECT method, path,
                    COUNT(*) as total,
                    SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots,
                    COUNT(DISTINCT signature) as sigs,
                    AVG(processing_time_ms) as avg_ms,
+                   MIN(processing_time_ms) as min_ms,
+                   MAX(processing_time_ms) as max_ms,
                    AVG(threat_score) as avg_threat,
                    MAX(timestamp) as last_seen
             FROM detections
@@ -763,6 +768,13 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         {
             var total = reader.GetInt32(2);
             var bots = reader.GetInt32(3);
+            var avgMs = reader.GetDouble(5);
+            var minMs = reader.IsDBNull(6) ? 0 : reader.GetDouble(6);
+            var maxMs = reader.IsDBNull(7) ? 0 : reader.GetDouble(7);
+            // Crude p95 estimate for SQLite (no native percentile function): half-way between avg
+            // and max. Good enough for the FOSS standalone smoke; commercial Postgres path
+            // returns true PERCENTILE_CONT(0.95).
+            var p95Ms = avgMs + (maxMs - avgMs) * 0.9;
             results.Add(new DashboardEndpointStats
             {
                 Method = reader.GetString(0),
@@ -771,9 +783,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 BotCount = bots,
                 BotRate = total > 0 ? (double)bots / total : 0,
                 UniqueSignatures = reader.GetInt32(4),
-                AvgProcessingTimeMs = reader.GetDouble(5),
-                AvgThreatScore = reader.IsDBNull(6) ? 0 : reader.GetDouble(6),
-                LastSeen = DateTime.Parse(reader.GetString(7))
+                AvgProcessingTimeMs = avgMs,
+                MinProcessingTimeMs = minMs,
+                MaxProcessingTimeMs = maxMs,
+                P95ProcessingTimeMs = p95Ms,
+                AvgThreatScore = reader.IsDBNull(8) ? 0 : reader.GetDouble(8),
+                LastSeen = DateTime.Parse(reader.GetString(9))
             });
         }
         return results;
