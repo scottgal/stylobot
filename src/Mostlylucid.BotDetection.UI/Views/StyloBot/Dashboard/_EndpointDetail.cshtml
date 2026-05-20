@@ -18,37 +18,103 @@
             Math.Round(p.LatencyScore, 1)
         });
     }
+
+    bool HasFlag(string? code) => !string.IsNullOrEmpty(code) && code.Length == 2 && code != "XX";
+    string FlagUrl(string code) => $"/_content/Mostlylucid.BotDetection.UI/flags/{code.ToLowerInvariant()}.svg";
+
+    string TimeAgo(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        if (span.TotalSeconds < 5) return "now";
+        if (span.TotalSeconds < 60) return $"{(int)span.TotalSeconds}s";
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours}h";
+        return $"{(int)span.TotalDays}d";
+    }
 }
-<div class="p-4">
+<div class="p-4" data-endpoint-detail>
     @if (!Model.Found)
     {
         <div class="text-xs text-base-content/40 text-center py-8">Endpoint detail not found</div>
     }
     else
     {
-        <div class="flex items-start justify-between gap-3">
-            <div>
-                <div class="text-[10px] uppercase tracking-wider text-base-content/40">@Model.Method</div>
-                <div class="text-sm font-bold break-all">@Model.Path</div>
+        @* Hero strip: method + path on the left, big bot rate % on the right. *@
+        <div class="flex items-start justify-between gap-3 pb-3 border-b border-base-300/40">
+            <div class="min-w-0">
+                <div class="flex items-center gap-2">
+                    <span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-base-300/60 font-semibold">@Model.Method</span>
+                    @if (!string.IsNullOrEmpty(Model.PolicyName))
+                    {
+                        <span class="badge badge-sm badge-ghost font-mono text-[10px]">@Model.PolicyName</span>
+                    }
+                    @if (Model.IsHoneypot)
+                    {
+                        <span class="badge badge-xs badge-warning">honeypot</span>
+                    }
+                    @if (Model.IsPinned)
+                    {
+                        <span class="badge badge-xs badge-info gap-1"><i class="bx bx-pin"></i>pinned</span>
+                    }
+                </div>
+                <div class="text-sm font-bold break-all mt-1" title="@Model.Path">@Model.Path</div>
             </div>
-            <div class="text-right">
-                <div class="text-lg font-bold">@((Model.BotRate * 100).ToString("F0"))%</div>
+            <div class="text-right shrink-0">
+                <div class="text-2xl font-bold @(Model.BotRate >= 0.5 ? "text-error" : Model.BotRate >= 0.25 ? "text-warning" : "text-success")">@((Model.BotRate * 100).ToString("F0"))%</div>
                 <div class="text-[10px] text-base-content/40">bot rate</div>
             </div>
         </div>
 
-        <div class="grid grid-cols-4 gap-2 mt-3 text-center">
-            <div><div class="text-sm font-bold">@Model.TotalCount</div><div class="text-[10px] text-base-content/40">Req</div></div>
-            <div><div class="text-sm font-bold text-error">@Model.BotCount</div><div class="text-[10px] text-base-content/40">Bots</div></div>
-            <div><div class="text-sm font-bold text-success">@Model.HumanCount</div><div class="text-[10px] text-base-content/40">Humans</div></div>
-            <div><div class="text-sm font-bold">@Model.UniqueSignatures</div><div class="text-[10px] text-base-content/40">Sigs</div></div>
+        @* Bot vs Human split bar -- visual proportion of the two traffic classes. *@
+        @if (Model.TotalCount > 0)
+        {
+            var humanPct = 100.0 * Model.HumanCount / Model.TotalCount;
+            var botPct = 100.0 * Model.BotCount / Model.TotalCount;
+            <div class="mt-3">
+                <div class="flex h-1.5 rounded overflow-hidden bg-base-300">
+                    <div class="bg-success" style="width: @humanPct.ToString("F1")%"></div>
+                    <div class="bg-error" style="width: @botPct.ToString("F1")%"></div>
+                </div>
+                <div class="flex items-center justify-between mt-1 text-[10px] text-base-content/50">
+                    <span><span class="inline-block w-1.5 h-1.5 rounded-full bg-success mr-1"></span>@Model.HumanCount humans</span>
+                    <span class="font-mono">@Model.TotalCount total · @Model.UniqueSignatures sigs</span>
+                    <span>@Model.BotCount bots <span class="inline-block w-1.5 h-1.5 rounded-full bg-error ml-1"></span></span>
+                </div>
+            </div>
+        }
+
+        @* Response times -- min / avg / p95 / max in a single strip. The user explicitly
+           asked for endpoint response-time stats; data already flows from
+           DashboardEndpointDetail through to the view. *@
+        <div class="mt-3 pt-3 border-t border-base-300/40">
+            <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-2">Response times</div>
+            <div class="grid grid-cols-4 gap-2 text-center">
+                <div>
+                    <div class="text-sm font-bold font-mono">@Model.MinProcessingTimeMs.ToString("F0")<span class="text-[9px] text-base-content/40">ms</span></div>
+                    <div class="text-[9px] text-base-content/40 uppercase tracking-wide">Min</div>
+                </div>
+                <div>
+                    <div class="text-sm font-bold font-mono">@Model.AvgProcessingTimeMs.ToString("F0")<span class="text-[9px] text-base-content/40">ms</span></div>
+                    <div class="text-[9px] text-base-content/40 uppercase tracking-wide">Avg</div>
+                </div>
+                <div>
+                    <div class="text-sm font-bold font-mono @(Model.P95ProcessingTimeMs >= 500 ? "text-warning" : "")">@Model.P95ProcessingTimeMs.ToString("F0")<span class="text-[9px] text-base-content/40">ms</span></div>
+                    <div class="text-[9px] text-base-content/40 uppercase tracking-wide">P95</div>
+                </div>
+                <div>
+                    <div class="text-sm font-bold font-mono @(Model.MaxProcessingTimeMs >= 1000 ? "text-error" : "")">@Model.MaxProcessingTimeMs.ToString("F0")<span class="text-[9px] text-base-content/40">ms</span></div>
+                    <div class="text-[9px] text-base-content/40 uppercase tracking-wide">Max</div>
+                </div>
+            </div>
         </div>
 
+        @* Behavioural profile radar -- bot vs human vs all on the same axes. Preserved
+           from the previous panel; it's the single most information-dense element here. *@
         @if (HasRadar)
         {
-            <div class="mt-4">
-                <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-2">Behavioral Profile</div>
-                <div id="@chartId" style="height:220px;"></div>
+            <div class="mt-3 pt-3 border-t border-base-300/40">
+                <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">Behavioural Profile</div>
+                <div id="@chartId" style="height: 200px;"></div>
                 <div class="flex items-center justify-center gap-4 mt-1 text-[10px] text-base-content/50">
                     @if (Model.BotProfile != null) { <span><span class="inline-block w-2 h-2 rounded-full bg-error mr-1"></span>Bot (@Model.BotProfile.SampleCount)</span> }
                     @if (Model.HumanProfile != null) { <span><span class="inline-block w-2 h-2 rounded-full bg-success mr-1"></span>Human (@Model.HumanProfile.SampleCount)</span> }
@@ -79,7 +145,7 @@
                 var labelColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)';
 
                 new ApexCharts(el, {
-                    chart: { type: 'radar', height: 220, toolbar: { show: false }, animations: { enabled: false }, background: 'transparent' },
+                    chart: { type: 'radar', height: 200, toolbar: { show: false }, animations: { enabled: false }, background: 'transparent' },
                     series: series,
                     colors: ['#f87272', '#36d399', '#38bdf8'],
                     xaxis: { categories: ['Probability', 'Confidence', 'Threat', 'Block %', 'Error %', 'Latency'] },
@@ -96,43 +162,166 @@
             </script>
         }
 
-        <div class="mt-4 text-xs flex items-center justify-between text-base-content/40">
-            <span>@Model.AvgProcessingTimeMs.ToString("F0")ms avg</span>
-            <span>Threat @Model.AvgThreatScore.ToString("F1")</span>
-        </div>
-
+        @* Most regular visitors. The user explicitly asked for this -- which signatures
+           hit this endpoint most. Click any row to drill into its signature detail. *@
         @if (Model.TopBots.Count > 0)
         {
-            <div class="mt-3">
-                <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">Top Bots</div>
-                @foreach (var bot in Model.TopBots.Take(5))
+            var navBp = Model.BasePath.TrimEnd('/');
+            <div class="mt-3 pt-3 border-t border-base-300/40">
+                <div class="flex items-center justify-between mb-1">
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/40">Most regular visitors</div>
+                    <div class="text-[9px] text-base-content/30">click to drill in</div>
+                </div>
+                <table class="table table-xs w-full">
+                    <thead>
+                        <tr class="text-[10px] uppercase tracking-wider text-base-content/40">
+                            <th class="py-1 w-5"></th>
+                            <th class="py-1">Visitor</th>
+                            <th class="py-1 text-right">Prob</th>
+                            <th class="py-1 text-right">Hits</th>
+                            <th class="py-1 text-right">Seen</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var bot in Model.TopBots.Take(10))
+                        {
+                            var probPct = (bot.BotProbability * 100).ToString("F0");
+                            var probClass = bot.RiskBand switch {
+                                "VeryHigh" or "High" => "text-error",
+                                "Medium" or "Elevated" => "text-warning",
+                                _ => "text-success"
+                            };
+                            var visitorName = bot.CustomBotName ?? bot.BotName ?? bot.BotType ?? bot.PrimarySignature;
+                            <tr class="hover:bg-base-300/40">
+                                <td class="py-1 w-5">
+                                    @if (HasFlag(bot.CountryCode))
+                                    {
+                                        <img src="@FlagUrl(bot.CountryCode!)" alt="@bot.CountryCode" class="w-4 h-3 rounded-sm" loading="lazy" />
+                                    }
+                                </td>
+                                <td class="py-1 truncate max-w-[180px]" title="@visitorName">
+                                    <a href="@navBp/signature/@Uri.EscapeDataString(bot.PrimarySignature)"
+                                       class="text-xs hover:underline">@visitorName</a>
+                                </td>
+                                <td class="py-1 text-right text-xs font-bold @probClass">@(probPct)%</td>
+                                <td class="py-1 text-right text-xs font-mono">@bot.HitCount</td>
+                                <td class="py-1 text-right text-[10px] text-base-content/40">@TimeAgo(bot.LastSeen)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+
+        @* Country distribution + risk band distribution as side-by-side compact lists. *@
+        @if (Model.TopCountries.Any() || Model.RiskBands.Any())
+        {
+            var totalForBars = Math.Max(1, Model.TotalCount);
+            <div class="mt-3 pt-3 border-t border-base-300/40 grid grid-cols-2 gap-4">
+                @if (Model.TopCountries.Any())
                 {
-                    <div class="flex items-center justify-between py-1 text-xs border-b border-base-300/40">
-                        <span class="truncate max-w-[180px]">@(bot.BotName ?? bot.PrimarySignature)</span>
-                        <span class="font-mono">@bot.HitCount</span>
+                    <div>
+                        <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">Countries</div>
+                        @foreach (var kvp in Model.TopCountries.OrderByDescending(x => x.Value).Take(5))
+                        {
+                            var pct = 100.0 * kvp.Value / totalForBars;
+                            <div class="flex items-center gap-2 py-0.5">
+                                @if (HasFlag(kvp.Key))
+                                {
+                                    <img src="@FlagUrl(kvp.Key)" alt="@kvp.Key" class="w-4 h-3 rounded-sm shrink-0" loading="lazy" />
+                                }
+                                else
+                                {
+                                    <span class="w-4 h-3 text-[8px] text-base-content/30">--</span>
+                                }
+                                <span class="text-[10px] font-mono w-6">@kvp.Key</span>
+                                <div class="flex-1 h-1 bg-base-300 rounded">
+                                    <div class="h-full bg-info rounded" style="width: @pct.ToString("F1")%"></div>
+                                </div>
+                                <span class="text-[10px] font-mono text-base-content/50 w-10 text-right">@kvp.Value</span>
+                            </div>
+                        }
+                    </div>
+                }
+
+                @if (Model.RiskBands.Any())
+                {
+                    <div>
+                        <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">Risk bands</div>
+                        @foreach (var kvp in Model.RiskBands.OrderByDescending(x => x.Value).Take(5))
+                        {
+                            var pct = 100.0 * kvp.Value / totalForBars;
+                            var rbColor = kvp.Key switch {
+                                "VeryHigh" or "High" => "bg-error",
+                                "Medium" or "Elevated" => "bg-warning",
+                                "Low" => "bg-success",
+                                _ => "bg-base-content/30"
+                            };
+                            <div class="flex items-center gap-2 py-0.5">
+                                <span class="text-[10px] font-mono w-14 truncate">@kvp.Key</span>
+                                <div class="flex-1 h-1 bg-base-300 rounded">
+                                    <div class="h-full @rbColor rounded" style="width: @pct.ToString("F1")%"></div>
+                                </div>
+                                <span class="text-[10px] font-mono text-base-content/50 w-10 text-right">@kvp.Value</span>
+                            </div>
+                        }
                     </div>
                 }
             </div>
         }
 
-        <div class="mt-4 pt-3 border-t border-base-300/40">
+        @* Recent detections timeline -- last N requests with status + verdict so the
+           operator can scrub through actual traffic that hit this endpoint. *@
+        @if (Model.RecentDetections.Count > 0)
+        {
+            <div class="mt-3 pt-3 border-t border-base-300/40">
+                <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">Recent activity</div>
+                <div class="max-h-48 overflow-y-auto">
+                    <table class="table table-xs w-full">
+                        <tbody>
+                            @foreach (var det in Model.RecentDetections.Take(15))
+                            {
+                                var verdictColor = det.IsBot ? "text-error" : "text-success";
+                                var statusColor = det.StatusCode switch {
+                                    >= 500 => "text-error",
+                                    >= 400 => "text-warning",
+                                    >= 300 => "text-info",
+                                    _ => "text-base-content/50"
+                                };
+                                <tr>
+                                    <td class="py-0.5 text-[10px] text-base-content/40 font-mono w-12">@TimeAgo(det.Timestamp)</td>
+                                    <td class="py-0.5 text-[10px] font-mono w-10 @verdictColor">@(det.IsBot ? "BOT" : "HUM")</td>
+                                    <td class="py-0.5 text-[10px] font-mono w-10 @statusColor">@(det.StatusCode == 0 ? "--" : det.StatusCode.ToString())</td>
+                                    <td class="py-0.5 text-[10px] font-mono">@((det.BotProbability * 100).ToString("F0"))%</td>
+                                    <td class="py-0.5 text-[10px] text-base-content/50 text-right">@det.ProcessingTimeMs.ToString("F0")ms</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        @* Protection -- policy + monitoring-pack coverage + pin / honeypot controls. *@
+        <div class="mt-3 pt-3 border-t border-base-300/40">
             <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-2">Protection</div>
 
-            <div class="flex items-center gap-2 mb-3">
-                <span class="text-xs text-base-content/60">Policy</span>
+            <div class="flex items-center gap-2 mb-3 text-xs">
+                <span class="text-base-content/60">Policy</span>
                 @if (!string.IsNullOrEmpty(Model.PolicyName))
                 {
-                    <span class="badge badge-sm badge-ghost font-mono text-xs">@Model.PolicyName</span>
+                    <span class="badge badge-sm badge-ghost font-mono">@Model.PolicyName</span>
                 }
                 else
                 {
-                    <span class="text-xs text-base-content/30">default</span>
+                    <span class="text-base-content/30">default</span>
                 }
+                <span class="text-base-content/40 ml-auto text-[10px]">Avg threat: @Model.AvgThreatScore.ToString("F1")</span>
             </div>
 
             @if (Model.PackCoverage.Count > 0)
             {
-                <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">Reaction Packs</div>
+                <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-1">Reaction packs</div>
                 <div class="space-y-1">
                     @foreach (var pack in Model.PackCoverage)
                     {
@@ -164,7 +353,7 @@
                 </div>
             }
 
-            @if (Model.IsPinned)
+            @if (Model.IsPinned && Model.PinId.HasValue)
             {
                 <div class="mt-3 flex items-center justify-between">
                     <div class="flex items-center gap-1 text-xs text-base-content/50">
@@ -175,16 +364,13 @@
                             <span class="badge badge-xs badge-warning ml-1">honeypot</span>
                         }
                     </div>
-                    @if (Model.PinId.HasValue)
-                    {
-                        <button class="btn btn-xs btn-ghost text-error/60 hover:text-error"
-                                hx-delete="@(Model.BasePath)/api/endpoint-pins/@Model.PinId"
-                                hx-confirm="Remove pin for @Model.Path?"
-                                hx-target="closest [data-endpoint-detail]"
-                                hx-swap="outerHTML">
-                            <i class="bx bx-unlink text-sm"></i>Unpin
-                        </button>
-                    }
+                    <button class="btn btn-xs btn-ghost text-error/60 hover:text-error"
+                            hx-delete="@(Model.BasePath)/api/endpoint-pins/@Model.PinId"
+                            hx-confirm="Remove pin for @Model.Path?"
+                            hx-target="closest [data-endpoint-detail]"
+                            hx-swap="outerHTML">
+                        <i class="bx bx-unlink text-sm"></i>Unpin
+                    </button>
                 </div>
             }
         </div>
