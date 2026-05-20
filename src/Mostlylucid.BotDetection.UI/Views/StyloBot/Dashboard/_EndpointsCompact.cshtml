@@ -25,8 +25,9 @@ else
             @foreach (var endpoint in Model.Endpoints)
             {
                 var botClass = endpoint.BotRate > 0.5 ? "text-error" : endpoint.BotRate > 0.2 ? "text-warning" : "text-success";
+                var detailHref = $"{bp}/endpoint?method={Uri.EscapeDataString(endpoint.Method)}&path={Uri.EscapeDataString(endpoint.Path)}";
                 <tr class="hover:bg-base-200/50 transition-colors cursor-pointer"
-                    data-action="navigate" data-href="@(bp)?tab=endpoints">
+                    data-action="navigate" data-href="@detailHref">
                     <td class="py-1 text-[10px] font-bold">@endpoint.Method</td>
                     <td class="py-1 text-xs font-medium max-w-[220px] truncate" title="@endpoint.Path">
                         @if (endpoint.IsPinned)

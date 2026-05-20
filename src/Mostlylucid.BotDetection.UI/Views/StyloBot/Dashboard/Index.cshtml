@@ -89,72 +89,82 @@
 </head>
 <body class="min-h-screen overflow-x-hidden" hx-headers='{"X-Requested-With": "XMLHttpRequest"}'>
 
-    @* Brand header. Controlled by Model.RenderShell so a host (e.g. the commercial
-       marketing site) can suppress the dashboard's own header and wrap the body in its
-       own _Layout's navbar instead -- ONE navbar across the site, not a copy. FOSS
-       standalone keeps the header (RenderShell defaults true). *@
+    @* Brand header. Mirrors the marketing _Layout.cshtml navbar so the dashboard reads
+       as the same site visually. Controlled by Model.RenderShell so a host that already
+       provides its own navbar (e.g. when this view ends up rendered inside an MVC layout
+       wrapper) can suppress this one and avoid doubling. *@
     @if (Model.RenderShell)
     {
-    <header id="sb-brand-header" class="brand-header px-4 py-3">
-        <div class="max-w-7xl mx-auto flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <a href="@bp" class="text-lg font-black tracking-tight" style="font-family: 'Raleway', sans-serif;">
-                    <span style="color: var(--sb-brand-muted);">stylo</span><span style="color: var(--sb-brand-strong);">bot</span>
+    <header id="sb-brand-header" class="sticky top-0 z-[9999] bg-base-100/95 backdrop-blur-md border-b border-base-300/70 shadow-sm">
+        <nav class="max-w-7xl mx-auto px-4 py-1.5">
+            <div class="flex items-center justify-between gap-3">
+                <a href="/" class="flex items-center gap-2.5 flex-shrink-0">
+                    <img src="/_content/Mostlylucid.BotDetection.UI/img/stylowall.svg" alt="stylobot Logo" class="h-10 w-auto" />
+                    <span class="text-lg hidden sm:inline font-bold" style="font-family: 'Raleway', sans-serif;">
+                        <span style="color: var(--sb-brand-muted); font-style: italic;">stylo</span><span style="color: var(--sb-brand-strong);">bot</span>
+                    </span>
                 </a>
-                <span class="text-xs font-medium px-2 py-0.5 rounded-full"
-                      style="background: var(--sb-card-bg); color: var(--sb-brand-muted); border: 1px solid var(--sb-card-border);">
-                    Dashboard
-                </span>
-                <span id="sb-connection-status" class="w-2 h-2 rounded-full sb-disconnected" title="SignalR: disconnected"></span>
-                @if (Model.License.Status == LicenseStatusKind.Unconfigured)
-                {
-                    <span class="text-[10px] text-base-content/60 ml-2">OSS tier</span>
-                    <a href="https://stylobot.net/pricing" target="_blank" rel="noopener"
-                       class="text-[10px] text-base-content/60 hover:text-base-content/80 ml-1">
-                        Compare paid tiers →
-                    </a>
-                }
+
+                <div class="hidden lg:flex items-center gap-5 text-sm">
+                    <a href="/" class="hover:text-base-content/80 text-base-content/60">Home</a>
+                    <a href="/threats" class="hover:text-base-content/80 text-base-content/60">Threats</a>
+                    <a href="/detectors" class="hover:text-base-content/80 text-base-content/60">Detectors</a>
+                    <a href="/open-source" class="hover:text-base-content/80 text-base-content/60">Open Source</a>
+                    <a href="/pricing" class="hover:text-base-content/80 text-base-content/60">Pricing</a>
+                    <a href="/docs" class="hover:text-base-content/80 text-base-content/60">Docs</a>
+                    <a href="/about" class="hover:text-base-content/80 text-base-content/60">About</a>
+                    <a href="@bp" class="font-semibold text-base-content">Dashboard</a>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <span id="sb-connection-status" class="w-2 h-2 rounded-full sb-disconnected" title="SignalR: disconnected"></span>
+                    @if (Model.License.Status == LicenseStatusKind.Unconfigured)
+                    {
+                        <a href="https://stylobot.net/pricing" target="_blank" rel="noopener"
+                           class="text-[10px] text-base-content/60 hover:text-base-content/80">
+                            OSS · upgrade →
+                        </a>
+                    }
+                    <select id="sb-theme-picker" class="select select-bordered select-xs text-xs bg-base-100 relative z-50">
+                        <option value="dark">Dark</option>
+                        <option value="light">Light</option>
+                        <option value="dim">Dim</option>
+                        <option value="night">Night</option>
+                        <option value="dracula">Dracula</option>
+                        <option value="synthwave">Synthwave</option>
+                        <option value="cyberpunk">Cyberpunk</option>
+                        <option value="nord">Nord</option>
+                        <option value="cupcake">Cupcake</option>
+                        <option value="bumblebee">Bumblebee</option>
+                        <option value="emerald">Emerald</option>
+                        <option value="corporate">Corporate</option>
+                        <option value="retro">Retro</option>
+                        <option value="forest">Forest</option>
+                        <option value="aqua">Aqua</option>
+                        <option value="luxury">Luxury</option>
+                        <option value="coffee">Coffee</option>
+                        <option value="sunset">Sunset</option>
+                        <option value="winter">Winter</option>
+                        <option value="lofi">Lo-Fi</option>
+                        <option value="black">Black</option>
+                    </select>
+                    <script nonce="@Model.CspNonce">
+                        (function(){
+                            var t=localStorage.getItem('sb-theme')||'dark';
+                            var sel=document.getElementById('sb-theme-picker');
+                            if(sel){
+                                var opt=sel.querySelector('option[value="'+t+'"]');
+                                if(opt)opt.selected=true;
+                                sel.addEventListener('change',function(){
+                                    document.documentElement.setAttribute('data-theme',this.value);
+                                    try{localStorage.setItem('sb-theme',this.value);}catch(e){}
+                                });
+                            }
+                        })();
+                    </script>
+                </div>
             </div>
-            <div class="flex items-center gap-2">
-                <select id="sb-theme-picker" class="select select-bordered select-xs text-xs bg-base-100 relative z-50">
-                    <option value="dark">Dark</option>
-                    <option value="light">Light</option>
-                    <option value="dim">Dim</option>
-                    <option value="night">Night</option>
-                    <option value="dracula">Dracula</option>
-                    <option value="synthwave">Synthwave</option>
-                    <option value="cyberpunk">Cyberpunk</option>
-                    <option value="nord">Nord</option>
-                    <option value="cupcake">Cupcake</option>
-                    <option value="bumblebee">Bumblebee</option>
-                    <option value="emerald">Emerald</option>
-                    <option value="corporate">Corporate</option>
-                    <option value="retro">Retro</option>
-                    <option value="forest">Forest</option>
-                    <option value="aqua">Aqua</option>
-                    <option value="luxury">Luxury</option>
-                    <option value="coffee">Coffee</option>
-                    <option value="sunset">Sunset</option>
-                    <option value="winter">Winter</option>
-                    <option value="lofi">Lo-Fi</option>
-                    <option value="black">Black</option>
-                </select>
-                <script nonce="@Model.CspNonce">
-                    (function(){
-                        var t=localStorage.getItem('sb-theme')||'dark';
-                        var sel=document.getElementById('sb-theme-picker');
-                        if(sel){
-                            var opt=sel.querySelector('option[value="'+t+'"]');
-                            if(opt)opt.selected=true;
-                            sel.addEventListener('change',function(){
-                                document.documentElement.setAttribute('data-theme',this.value);
-                                try{localStorage.setItem('sb-theme',this.value);}catch(e){}
-                            });
-                        }
-                    })();
-                </script>
-            </div>
-        </div>
+        </nav>
     </header>
     }
 
@@ -309,66 +319,62 @@
                 </div>
             }
 
-            <!-- HEADER ROW: Global threat map (left, wider) + Traffic over time (right).
-                 These take the top of the page because they're the at-a-glance view -- where
-                 traffic is coming from and the shape over time. Everything below is detail. -->
-            <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            <!-- HEADER ROW: charts on the left (map + traffic side-by-side, equal width,
+                 equal height -- 240px so they don't dominate the page); Live Activity on the
+                 right, stretched to the row height so it doesn't look like a stub. -->
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 items-stretch">
 
-                <!-- World map: 3/5 width -->
-                <div class="lg:col-span-3 rounded-xl border overflow-hidden command-map-container" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                    <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
-                        <div class="flex items-center gap-2">
-                            <span class="text-[10px] font-semibold text-base-content/70">GLOBAL THREAT MAP</span>
-                            <span class="text-[9px] px-1 py-0.5 rounded bg-error/20 text-error font-medium">LIVE</span>
-                            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "world-map")
+                <!-- LEFT COLUMN (3/4 of row): two charts side by side, equal width + height. -->
+                <div class="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="rounded-xl border overflow-hidden command-map-container" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                        <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
+                            <div class="flex items-center gap-2">
+                                <span class="text-[10px] font-semibold text-base-content/70">GLOBAL THREAT MAP</span>
+                                <span class="text-[9px] px-1 py-0.5 rounded bg-error/20 text-error font-medium">LIVE</span>
+                                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "world-map")
+                            </div>
+                        </div>
+                        <div id="command-map" class="relative" style="height: 240px;"></div>
+                    </div>
+
+                    <div class="rounded-xl border overflow-hidden" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                        <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
+                            <div class="flex items-center gap-1">
+                                <span class="text-[10px] font-semibold text-base-content/70">TRAFFIC OVER TIME</span>
+                                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "traffic-chart")
+                            </div>
+                            <span class="text-[9px] text-base-content/40">Last 6 hours</span>
+                        </div>
+                        <div class="p-2">
+                            <div id="time-chart" style="height: 210px;"></div>
                         </div>
                     </div>
-                    <div id="command-map" class="relative" style="height: 380px;"></div>
                 </div>
 
-                <!-- Traffic chart: 2/5 width -->
-                <div class="lg:col-span-2 rounded-xl border overflow-hidden" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                    <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
-                        <div class="flex items-center gap-1">
-                            <span class="text-[10px] font-semibold text-base-content/70">TRAFFIC OVER TIME</span>
-                            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "traffic-chart")
-                        </div>
-                        <span class="text-[9px] text-base-content/40">Last 6 hours</span>
-                    </div>
-                    <div class="p-2">
-                        <div id="time-chart" style="height: 350px;"></div>
-                    </div>
+                <!-- RIGHT COLUMN: Live Activity stretches the full row height (items-stretch on the
+                     outer grid + h-full on the card root via the FOSS widget). SSR on first paint,
+                     SignalR-refreshed via data-sb-depends. -->
+                <div class="lg:col-span-1 flex">
+                    <sb-top-bots filter="all" sort="lastseen" page-size="10" widget-id="live-activity" />
                 </div>
             </div>
 
-            <!-- SECONDARY: Endpoints under pressure + live visitor lists -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-
-                <!-- ENDPOINTS BY BOT PRESSURE: 2/3 width -->
-                <div class="lg:col-span-2">
-                    <div class="rounded-xl border overflow-hidden" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                        <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
-                            <div class="flex items-center gap-2">
-                                <span class="text-[10px] font-semibold text-base-content/70">ENDPOINTS BY BOT PRESSURE</span>
-                                <span class="text-[9px] px-1 py-0.5 rounded bg-error/20 text-error font-medium">LIVE</span>
-                            </div>
-                            <a href="@TabUrl("endpoints")" class="text-[9px] text-base-content/40 hover:text-base-content/60">All endpoints →</a>
-                        </div>
-                        <div id="overview-endpoints"
-                             hx-get="@bp/partials/endpoints-compact?pageSize=10&excludeStatic=true&sort=botrate&dir=desc"
-                             hx-trigger="load, every 15s"
-                             hx-swap="innerHTML">
-                            <div class="p-2 text-xs text-base-content/40 text-center py-4">Loading...</div>
-                        </div>
+            <!-- BELOW THE CHARTS: full-width endpoints list. Each row links to the endpoint
+                 detail page (not the endpoints tab) so the operator drills into the rich
+                 detail panel directly. -->
+            <div class="mt-4 rounded-xl border overflow-hidden" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-semibold text-base-content/70">ENDPOINTS BY BOT PRESSURE</span>
+                        <span class="text-[9px] px-1 py-0.5 rounded bg-error/20 text-error font-medium">LIVE</span>
                     </div>
+                    <a href="@TabUrl("endpoints")" class="text-[9px] text-base-content/40 hover:text-base-content/60">All endpoints →</a>
                 </div>
-
-                <!-- Live Activity: SSR on first paint, refreshed in place by the SignalR
-                     invalidation pipeline -- data-sb-depends="signature,summary" on the widget
-                     root drives SbWidgetBatchMiddleware OOB swaps. Default sort is last-seen so
-                     the newest hit jumps to the top; column headers re-sort via HTMX. -->
-                <div class="flex flex-col gap-4">
-                    <sb-top-bots filter="all" sort="lastseen" page-size="10" widget-id="live-activity" />
+                <div id="overview-endpoints"
+                     hx-get="@bp/partials/endpoints-compact?pageSize=10&excludeStatic=true&sort=botrate&dir=desc&drillToDetail=true"
+                     hx-trigger="load, every 15s"
+                     hx-swap="innerHTML">
+                    <div class="p-2 text-xs text-base-content/40 text-center py-4">Loading...</div>
                 </div>
             </div>
         }

@@ -287,13 +287,14 @@ public sealed class SbWidgetBatchMiddleware
     private TopBotsListModel BuildTopBotsModel(int page, int pageSize, string sortBy, string sortDir, string filter = "bots", string widgetId = "topbots")
     {
         var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir, filter: filter);
-        var pagedBots = allBots.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(allBots);
+        var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return new TopBotsListModel
         {
             Bots = pagedBots,
             Page = page,
             PageSize = pageSize,
-            TotalCount = allBots.Count,
+            TotalCount = grouped.Count,
             SortField = sortBy,
             SortDir = sortDir,
             BasePath = _options.BasePath.TrimEnd('/'),

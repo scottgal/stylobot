@@ -20,7 +20,7 @@
      data-sb-widget="@Model.WidgetId"
      data-sb-depends="signature,summary"
      data-sb-params="page=@Model.Page&sort=@Model.SortField&dir=@Model.SortDir&filter=@Model.Filter&widgetId=@Model.WidgetId&pageSize=@Model.PageSize"
-     class="card bg-base-200 transition-all duration-200">
+     class="card bg-base-200 transition-all duration-200 h-full w-full">
     <div class="card-body p-3">
         <div class="flex items-center gap-1 mb-1">
             <h3 class="text-sm font-bold text-base-content">
@@ -66,20 +66,13 @@
                         </tr>
                     </thead>
                     @{
-                        // Group rules per operator spec:
-                        //   * UA-pattern-match + verified bot identity (BotType in a known-bot
-                        //     category like SearchEngine / AiCrawler / Crawler) -> all rows
-                        //     converge on the SAME fingerprint via TryConvergeOnNamedBotAsync.
-                        //     COLLAPSE into one aggregate row: sum hits, earliest first-seen,
-                        //     latest last-seen, max probability. Operator-set CustomBotName
-                        //     is always trusted-identity too.
-                        //   * Tool UA matches (BotType = "Tool", e.g. curl / python-requests)
-                        //     share a UA family but each invocation is a different identity
-                        //     -- DON'T collapse; tools aren't a single actor.
-                        //   * Humans (BotType null / Unknown, synth name from DescriptiveBotName)
-                        //     are individuals -- DON'T collapse; disambiguate names via the
-                        //     first-seen timestamp loop below so each row reads uniquely.
-                        static bool IsGroupableIdentity(DashboardTopBotEntry b)
+                        // Identity grouping (verified-bot rows collapsed to one) happens at
+                        // model-build time in WidgetRenderHelpers.CollapseGroupableIdentities,
+                        // so Model.Bots already comes pre-grouped and pagination matches the
+                        // visible rows. The view only needs to disambiguate synth + tool names
+                        // that legitimately collide between distinct fingerprints (two "British
+                        // Visitor"s, two curl invocations, etc).
+                        static bool IsGroupableHere(DashboardTopBotEntry b)
                         {
                             if (b.CustomBotName != null) return true;
                             if (b.BotName == null) return false;
@@ -88,37 +81,12 @@
                                 && !string.Equals(b.BotType, "Unknown", StringComparison.OrdinalIgnoreCase);
                         }
 
-                        var grouped = new List<DashboardTopBotEntry>();
-                        foreach (var grp in Model.Bots
-                            .Where(IsGroupableIdentity)
-                            .GroupBy(b => b.CustomBotName ?? b.BotName, StringComparer.Ordinal))
-                        {
-                            var members = grp.ToList();
-                            if (members.Count == 1)
-                            {
-                                grouped.Add(members[0]);
-                                continue;
-                            }
-                            var canonical = members.OrderByDescending(b => b.LastSeen).First();
-                            grouped.Add(canonical with
-                            {
-                                HitCount = members.Sum(b => b.HitCount),
-                                FirstSeen = members.Min(b => b.FirstSeen == default ? DateTime.MaxValue : b.FirstSeen),
-                                LastSeen = members.Max(b => b.LastSeen),
-                                BotProbability = members.Max(b => b.BotProbability)
-                            });
-                        }
-                        grouped.AddRange(Model.Bots.Where(b => !IsGroupableIdentity(b)));
-                        grouped = grouped
-                            .OrderByDescending(b => b.LastSeen)
-                            .ToList();
-
                         var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
                         static string FormatFirstSeen(DateTime utc)
                             => utc == default ? "" : $"first seen {utc.ToLocalTime():HH:mm:ss}";
                     }
                     <tbody>
-                        @foreach (var bot in grouped)
+                        @foreach (var bot in Model.Bots)
                         {
                             var riskClass = bot.RiskBand switch {
                                 "VeryHigh" or "High" => "text-error",
@@ -131,9 +99,9 @@
                                 ?? (string.IsNullOrEmpty(bot.BotType) ? DescriptiveBotName(bot) : bot.BotType);
                             var displayName = baseDisplay;
                             // Synth + tool-UA names can still collide between distinct
-                            // fingerprints. Verified-identity rows are already deduped above,
-                            // so no decoration applies to them.
-                            if (!IsGroupableIdentity(bot) && seenNames.ContainsKey(baseDisplay))
+                            // fingerprints. Verified-identity rows are already deduped at the
+                            // model-build site, so no decoration applies to them.
+                            if (!IsGroupableHere(bot) && seenNames.ContainsKey(baseDisplay))
                             {
                                 var firstSeenMod = FormatFirstSeen(bot.FirstSeen);
                                 displayName = string.IsNullOrEmpty(firstSeenMod)

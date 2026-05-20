@@ -511,6 +511,17 @@ public class StyloBotDashboardMiddleware
                 }
                 break;
 
+            case "endpoint":
+                if (_options.RenderPage)
+                {
+                    await ServeEndpointDetailPageAsync(context);
+                }
+                else
+                {
+                    await _next(context);
+                }
+                break;
+
             case "api/endpoint-pins":
                 if (context.Request.Method == "GET")
                     await ServeEndpointPinsApiAsync(context);
@@ -4465,6 +4476,107 @@ public class StyloBotDashboardMiddleware
     }
 
     /// <summary>Render the endpoint detail panel partial.</summary>
+    /// <summary>
+    ///     Serve the full-page endpoint detail. Mirrors the /signature/{id} pattern -- minimal
+    ///     HTML shell wrapping the rich detail panel from _EndpointDetail.cshtml so the
+    ///     overview's endpoints list can drill into a real per-endpoint page (NOT the
+    ///     endpoints overview tab). Uses the same model builder as the HTMX partial route.
+    /// </summary>
+    private async Task ServeEndpointDetailPageAsync(HttpContext context)
+    {
+        var method = context.Request.Query["method"].FirstOrDefault();
+        var path = context.Request.Query["path"].FirstOrDefault();
+        if (string.IsNullOrWhiteSpace(method) || string.IsNullOrWhiteSpace(path))
+        {
+            context.Response.StatusCode = 400;
+            await context.Response.WriteAsync("Missing method or path parameter");
+            return;
+        }
+
+        // Reuse the partial -- it renders the detail body without an <html> shell. We wrap
+        // it here in the same shell the signature-detail page uses so theme + assets + nav
+        // are consistent across drill-down pages.
+        var detailHtml = await RenderEndpointDetailBodyAsync(context, method, path);
+        var cspNonce = context.Items.TryGetValue("CspNonce", out var n) && n is string ns ? ns : "";
+        var navBp = (string.IsNullOrEmpty(_options.NavBasePath) ? _options.BasePath : _options.NavBasePath).TrimEnd('/');
+        var pageTitle = $"{method} {path} -- StyloBot endpoint detail";
+        var html = $@"<!DOCTYPE html>
+<html lang=""en"" data-theme=""dark"">
+<head>
+<meta charset=""utf-8"" />
+<meta name=""viewport"" content=""width=device-width, initial-scale=1.0"" />
+<title>{System.Net.WebUtility.HtmlEncode(pageTitle)}</title>
+<link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css"" />
+<link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/boxicons.min.css"" />
+<link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/fonts.css"" />
+<script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js"" nonce=""{cspNonce}""></script>
+<script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/apexcharts.min.js"" nonce=""{cspNonce}""></script>
+<script nonce=""{cspNonce}"">(function(){{try{{var t=localStorage.getItem('sb-theme')||'dark';document.documentElement.setAttribute('data-theme',t);}}catch(e){{}}}})();</script>
+<style nonce=""{cspNonce}"">
+:root, [data-theme] {{
+  --sb-surface: var(--color-base-200);
+  --sb-card-bg: var(--color-base-100);
+  --sb-card-border: color-mix(in oklch, var(--color-base-content) 15%, transparent);
+  --sb-card-divider: color-mix(in oklch, var(--color-base-content) 8%, transparent);
+  --sb-brand-muted: color-mix(in oklch, var(--color-base-content) 55%, transparent);
+  --sb-brand-strong: var(--color-base-content);
+  --sb-signal-pos: var(--color-success);
+  --sb-signal-warn: var(--color-warning);
+  --sb-signal-danger: var(--color-error);
+}}
+body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-height: 100vh; }}
+</style>
+</head>
+<body>
+<header class=""px-4 py-3 border-b"" style=""background: var(--color-base-200); border-color: var(--sb-card-divider);"">
+  <div class=""max-w-7xl mx-auto flex items-center justify-between"">
+    <a href=""{navBp}"" class=""text-lg font-black tracking-tight"" style=""font-family: 'Raleway', sans-serif;"">
+      <span style=""color: var(--sb-brand-muted); font-style: italic;"">stylo</span><span style=""color: var(--sb-brand-strong);"">bot</span>
+    </a>
+    <span class=""text-xs font-medium px-2 py-0.5 rounded-full"" style=""background: var(--sb-card-bg); color: var(--sb-brand-muted); border: 1px solid var(--sb-card-border);"">Endpoint Detail</span>
+    <a href=""{navBp}?tab=endpoints"" class=""text-xs text-base-content/50 hover:text-base-content"">All endpoints &rarr;</a>
+  </div>
+</header>
+<main class=""max-w-5xl mx-auto px-2 py-4"">
+{detailHtml}
+</main>
+</body>
+</html>";
+        context.Response.ContentType = "text/html";
+        await context.Response.WriteAsync(html);
+    }
+
+    private async Task<string> RenderEndpointDetailBodyAsync(HttpContext context, string method, string path)
+    {
+        // Replicate the partial route's model build then render the partial to a string.
+        // Using a synthetic query so ServeEndpointDetailPartialAsync's internals don't need
+        // to be refactored -- we capture its writer output.
+        var origPath = context.Request.Path;
+        var origQuery = context.Request.QueryString;
+        context.Request.Path = "/__internal-endpoint-detail-render";
+        context.Request.QueryString = QueryString.Create(new[]
+        {
+            new KeyValuePair<string, string?>("method", method),
+            new KeyValuePair<string, string?>("path", path)
+        });
+        var origBody = context.Response.Body;
+        var sw = new System.IO.MemoryStream();
+        context.Response.Body = sw;
+        try
+        {
+            await ServeEndpointDetailPartialAsync(context);
+            sw.Position = 0;
+            using var reader = new System.IO.StreamReader(sw);
+            return await reader.ReadToEndAsync();
+        }
+        finally
+        {
+            context.Response.Body = origBody;
+            context.Request.Path = origPath;
+            context.Request.QueryString = origQuery;
+        }
+    }
+
     private async Task ServeEndpointDetailPartialAsync(HttpContext context)
     {
         var method = context.Request.Query["method"].FirstOrDefault();
@@ -4599,15 +4711,22 @@ public class StyloBotDashboardMiddleware
 
     private TopBotsListModel BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "default", string sortDir = "desc", string filter = "bots", string widgetId = "topbots")
     {
-        // Get all matching entries for accurate count, then take the page
+        // Pull every matching entry from the cache, then collapse groupable identities
+        // (verified-bot UAs converged to one canonical fingerprint) into single rows BEFORE
+        // paging. Without this, page counts referenced the pre-grouped signature count --
+        // a Live Activity widget showing 3 visual rows but claiming "page 1/4" because 40
+        // raw sigs collapsed into 10 grouped rows. TotalCount must match what the view
+        // actually renders, so the grouping moves here and the view consumes the result
+        // as-is.
         var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir, filter: filter);
-        var pagedBots = allBots.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(allBots);
+        var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return new TopBotsListModel
         {
             Bots = pagedBots,
             Page = page,
             PageSize = pageSize,
-            TotalCount = allBots.Count,
+            TotalCount = grouped.Count,
             SortField = sortBy,
             SortDir = sortDir,
             BasePath = _options.BasePath.TrimEnd('/'),
@@ -4615,6 +4734,7 @@ public class StyloBotDashboardMiddleware
             WidgetId = widgetId
         };
     }
+
 
     private TopBotsListModel BuildTopBotsModelFromQuery(string widgetId, IQueryCollection q)
     {

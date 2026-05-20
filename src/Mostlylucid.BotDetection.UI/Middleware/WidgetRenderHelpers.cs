@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Primitives;
+using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Middleware;
 
@@ -50,5 +51,43 @@ internal static class WidgetRenderHelpers
                + " hx-swap-oob=\"true\""
                + match.Groups[2].Value
                + html[(match.Index + match.Length)..];
+    }
+
+    /// <summary>
+    ///     Collapse rows that share a verified-bot identity name (matcher converged them
+    ///     onto one fingerprint, e.g. 26 source IPs all classed as Amazonbot) into a single
+    ///     aggregate row. Tool UAs (BotType="Tool"/"Unknown") and synth-named humans stay
+    ///     distinct -- they're different actors that just happen to share a UA family.
+    ///     Shared by every top-bots build site so the visible row count, pagination, and
+    ///     filter results all agree.
+    /// </summary>
+    public static List<DashboardTopBotEntry> CollapseGroupableIdentities(IReadOnlyList<DashboardTopBotEntry> source)
+    {
+        static bool IsGroupable(DashboardTopBotEntry b)
+        {
+            if (b.CustomBotName != null) return true;
+            if (b.BotName == null) return false;
+            return b.BotType is not null
+                && !string.Equals(b.BotType, "Tool", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(b.BotType, "Unknown", StringComparison.OrdinalIgnoreCase);
+        }
+
+        var output = new List<DashboardTopBotEntry>();
+        foreach (var grp in source.Where(IsGroupable)
+            .GroupBy(b => b.CustomBotName ?? b.BotName, StringComparer.Ordinal))
+        {
+            var members = grp.ToList();
+            if (members.Count == 1) { output.Add(members[0]); continue; }
+            var canonical = members.OrderByDescending(b => b.LastSeen).First();
+            output.Add(canonical with
+            {
+                HitCount = members.Sum(b => b.HitCount),
+                FirstSeen = members.Min(b => b.FirstSeen == default ? DateTime.MaxValue : b.FirstSeen),
+                LastSeen = members.Max(b => b.LastSeen),
+                BotProbability = members.Max(b => b.BotProbability)
+            });
+        }
+        output.AddRange(source.Where(b => !IsGroupable(b)));
+        return output.OrderByDescending(b => b.LastSeen).ToList();
     }
 }
