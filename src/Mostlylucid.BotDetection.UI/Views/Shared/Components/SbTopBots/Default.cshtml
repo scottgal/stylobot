@@ -71,16 +71,8 @@
                         // so Model.Bots already comes pre-grouped and pagination matches the
                         // visible rows. The view only needs to disambiguate synth + tool names
                         // that legitimately collide between distinct fingerprints (two "British
-                        // Visitor"s, two curl invocations, etc).
-                        static bool IsGroupableHere(DashboardTopBotEntry b)
-                        {
-                            if (b.CustomBotName != null) return true;
-                            if (b.BotName == null) return false;
-                            return b.BotType is not null
-                                && !string.Equals(b.BotType, "Tool", StringComparison.OrdinalIgnoreCase)
-                                && !string.Equals(b.BotType, "Unknown", StringComparison.OrdinalIgnoreCase);
-                        }
-
+                        // Visitor"s, two curl invocations, etc). Same predicate as the helper
+                        // uses so the two views stay in lockstep.
                         var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
                         static string FormatFirstSeen(DateTime utc)
                             => utc == default ? "" : $"first seen {utc.ToLocalTime():HH:mm:ss}";
@@ -101,7 +93,8 @@
                             // Synth + tool-UA names can still collide between distinct
                             // fingerprints. Verified-identity rows are already deduped at the
                             // model-build site, so no decoration applies to them.
-                            if (!IsGroupableHere(bot) && seenNames.ContainsKey(baseDisplay))
+                            if (!Mostlylucid.BotDetection.UI.Middleware.WidgetRenderHelpers.IsGroupableIdentity(bot)
+                                && seenNames.ContainsKey(baseDisplay))
                             {
                                 var firstSeenMod = FormatFirstSeen(bot.FirstSeen);
                                 displayName = string.IsNullOrEmpty(firstSeenMod)

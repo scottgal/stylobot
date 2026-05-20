@@ -63,17 +63,8 @@ internal static class WidgetRenderHelpers
     /// </summary>
     public static List<DashboardTopBotEntry> CollapseGroupableIdentities(IReadOnlyList<DashboardTopBotEntry> source)
     {
-        static bool IsGroupable(DashboardTopBotEntry b)
-        {
-            if (b.CustomBotName != null) return true;
-            if (b.BotName == null) return false;
-            return b.BotType is not null
-                && !string.Equals(b.BotType, "Tool", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(b.BotType, "Unknown", StringComparison.OrdinalIgnoreCase);
-        }
-
         var output = new List<DashboardTopBotEntry>();
-        foreach (var grp in source.Where(IsGroupable)
+        foreach (var grp in source.Where(IsGroupableIdentity)
             .GroupBy(b => b.CustomBotName ?? b.BotName, StringComparer.Ordinal))
         {
             var members = grp.ToList();
@@ -87,7 +78,25 @@ internal static class WidgetRenderHelpers
                 BotProbability = members.Max(b => b.BotProbability)
             });
         }
-        output.AddRange(source.Where(b => !IsGroupable(b)));
+        output.AddRange(source.Where(b => !IsGroupableIdentity(b)));
         return output.OrderByDescending(b => b.LastSeen).ToList();
+    }
+
+    /// <summary>
+    ///     Single predicate for "is this row safe to collapse with other same-name rows".
+    ///     Used by <see cref="CollapseGroupableIdentities"/> at model-build time, and by the
+    ///     SbTopBots view at render time to decide which rows still need a synth-name
+    ///     disambiguator (the ones that DON'T get collapsed). Operator-set CustomBotName is
+    ///     always trusted; otherwise the UA must have produced a real BotName AND BotType
+    ///     must be a known-bot category (not "Tool" / "Unknown") -- tools and humans are
+    ///     different actors who share a UA family and must NOT collapse.
+    /// </summary>
+    public static bool IsGroupableIdentity(DashboardTopBotEntry b)
+    {
+        if (b.CustomBotName != null) return true;
+        if (b.BotName == null) return false;
+        return b.BotType is not null
+            && !string.Equals(b.BotType, "Tool", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(b.BotType, "Unknown", StringComparison.OrdinalIgnoreCase);
     }
 }

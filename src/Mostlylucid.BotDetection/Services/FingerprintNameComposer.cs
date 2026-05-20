@@ -128,6 +128,10 @@ internal static class FingerprintNameComposer
             var variance = GetVarianceTerm(signals);
             return string.IsNullOrEmpty(variance) ? composed : $"{composed} ({variance})";
         }
+        // Priorities used to flow through a Unique() wrapper that appended a
+        // "(country:sigprefix)" suffix. That was removed (operators objected to the
+        // status-as-name pollution); the wrapper is gone too -- the return paths above
+        // are the final names.
 
         // No usable signal yet. Return null so the caller can decide whether to emit
         // anything at all -- typically that means "leave bot_name blank in storage and
@@ -188,17 +192,6 @@ internal static class FingerprintNameComposer
             }
         };
     }
-
-    /// <summary>
-    ///     Returns the base name unchanged. We used to append a "(country:sigprefix)" suffix
-    ///     here for visual disambiguation, but the dashboard already carries country (flag
-    ///     column) and signature (signature column or link target) separately, and the suffix
-    ///     turned every name into something like "Chrome (JLsG)" -- a status crammed into the
-    ///     name field. The status is fine; it just belongs in the row, not the label.
-    ///     The hysteresis check in <see cref="IsFallback"/> still tolerates legacy "(...)"
-    ///     decorated names so anything persisted before this change reads correctly.
-    /// </summary>
-    private static string Unique(string baseName, string? signature, string? country) => baseName;
 
     /// <summary>
     ///     Returns a single distinctive modifier from current signals, ordered most-specific
