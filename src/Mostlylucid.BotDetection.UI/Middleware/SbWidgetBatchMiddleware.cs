@@ -405,25 +405,7 @@ public sealed class SbWidgetBatchMiddleware
         var sessions = await sessionStore.GetRecentSessionsAsync(fetchCount, isBot);
         var totalCount = sessions.Count < maxFetch ? sessions.Count : maxFetch;
 
-        // Enrich BotName via two fallbacks: in-memory cache (fast, empties on restart) then the
-        // persistent dashboard_signatures table (survives restart). Sessions are written before
-        // the signature description pipeline names the bot, so the column is usually null.
-        var sigLookup = new Dictionary<string, string?>(StringComparer.Ordinal);
-        try
-        {
-            var recentSigs = await _eventStore.GetSignaturesAsync(limit: 500);
-            foreach (var s in recentSigs)
-                sigLookup[s.PrimarySignature] = s.BotName;
-        }
-        catch { /* store unavailable - fall through to cache-only */ }
-
-        string? ResolveBotName(string signature, string? storedName)
-        {
-            if (!string.IsNullOrEmpty(storedName)) return storedName;
-            if (_signatureCache.TryGet(signature, out var agg) && !string.IsNullOrEmpty(agg?.BotName))
-                return agg.BotName;
-            return sigLookup.TryGetValue(signature, out var name) ? name : null;
-        }
+        var sigLookup = await _eventStore.LoadSignatureLookupAsync();
 
         var entries = sessions
             .Skip((page - 1) * pageSize)
@@ -440,7 +422,7 @@ public sealed class SbWidgetBatchMiddleware
             AvgBotProbability = s.AvgBotProbability,
             RiskBand = s.RiskBand,
             Action = s.Action,
-            BotName = ResolveBotName(s.Signature, s.BotName),
+            BotName = sigLookup.ResolveBotName(_signatureCache, s.Signature, s.BotName),
             CountryCode = s.CountryCode,
             ErrorCount = s.ErrorCount,
             TimingEntropy = s.TimingEntropy,
