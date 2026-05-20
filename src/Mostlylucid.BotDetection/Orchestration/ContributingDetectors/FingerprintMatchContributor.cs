@@ -352,9 +352,7 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
         // Compose the display name from the now-populated signals. The cold-state
         // Priority 4 fallback uses the fingerprint id when even the UA contributor
-        // is silent. Same-name collisions (two Mastodon instances etc.) are not
-        // disambiguated here - that's the display layer's job (variant N suffix in
-        // the sidebar / dashboard); first-seen / last-seen render as columns alongside.
+        // is silent.
         var displayName = FingerprintNameComposer.Compose(
             state.Signals,
             fingerprintId: newId,
@@ -367,6 +365,28 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         // would settle on a real name. Persisting "analysing" would short-circuit Path 1
         // and lock the visible name to the fallback until significant drift fired.
         var persistedDisplayName = FingerprintNameComposer.IsFallback(displayName) ? "" : displayName;
+
+        // Invariant: one display name = one fingerprint. If a different fingerprint already
+        // owns this composed name, the new one MUST be distinguished -- and the discriminator
+        // has to come from what's actually different (ASN, country, IP /16), never a hash.
+        // Try progressively-less-specific modifiers; if all collide, last-resort short fp-id
+        // prefix guarantees uniqueness (and signals an unexpected state we can grep for).
+        if (!string.IsNullOrEmpty(persistedDisplayName))
+        {
+            for (var attempt = 0; attempt < 4; attempt++)
+            {
+                var collisions = await _store.CountByDisplayNameAsync(persistedDisplayName, cancellationToken);
+                if (collisions == 0) break;
+
+                var modifier = attempt < 3
+                    ? FingerprintNameComposer.BuildDistinctiveModifier(state.Signals, attempt)
+                    : null;
+                modifier ??= newId[..Math.Min(8, newId.Length)];
+
+                persistedDisplayName = $"{displayName} ({modifier})";
+                displayName = persistedDisplayName;
+            }
+        }
 
         var newFp = new Fingerprint
         {

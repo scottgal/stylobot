@@ -382,6 +382,26 @@ public class SqliteFingerprintStore : IFingerprintReader
     }
 
     /// <summary>
+    ///     Counts how many fingerprints already hold the given display name. Used by the
+    ///     matcher to enforce the "same name = same fingerprint" rule at allocation time:
+    ///     a non-zero count means a different fingerprint owns the name and the new one
+    ///     must take a distinguished form. Empty / null name returns 0 -- those names
+    ///     don't get persisted in the first place, so they never collide.
+    /// </summary>
+    public async Task<int> CountByDisplayNameAsync(string displayName, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(displayName)) return 0;
+        await EnsureInitialisedAsync(ct);
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM fingerprints WHERE display_name = @name";
+        cmd.Parameters.AddWithValue("@name", displayName);
+        var raw = await cmd.ExecuteScalarAsync(ct);
+        return raw is long n ? (int)n : 0;
+    }
+
+    /// <summary>
     ///     Update the display name on whichever fingerprint <paramref name="primarySignature"/>
     ///     currently maps to. One-shot helper for downstream consumers (the LLM-result callback,
     ///     dashboard "rename" controls) that have a signature in hand but not a fingerprint id.

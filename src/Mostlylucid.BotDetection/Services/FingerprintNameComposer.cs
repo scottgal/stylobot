@@ -207,6 +207,42 @@ internal static class FingerprintNameComposer
     /// </summary>
     private static string Unique(string baseName, string? signature, string? country) => baseName;
 
+    /// <summary>
+    ///     Returns a single distinctive modifier from current signals, ordered most-specific
+    ///     to least. The matcher calls this when a freshly-composed display name already
+    ///     belongs to a different fingerprint -- the rule is "same name = same fingerprint",
+    ///     so a collision means the new fingerprint MUST carry something extra in its name,
+    ///     and that something has to be derived from what makes it different (ASN, country,
+    ///     IP /16 block), never a random hash. Returns null when no usable signal is present;
+    ///     callers should then fall back to the short fp-id prefix.
+    /// </summary>
+    public static string? BuildDistinctiveModifier(IReadOnlyDictionary<string, object> signals, int attempt = 0)
+    {
+        var asn = GetString(signals, SignalKeys.IpAsn);
+        var country = GetString(signals, SignalKeys.GeoCountryCode);
+        var ip = GetString(signals, SignalKeys.ClientIp);
+
+        // attempt 0: ASN -- distinguishes AmazonBot US-East-1 (AS16509) from AmazonBot EU (AS14618).
+        // attempt 1: country -- generic geographic split when ASN is missing or matches.
+        // attempt 2: /16 IP prefix -- last-resort numeric block discriminator.
+        return attempt switch
+        {
+            0 when !string.IsNullOrEmpty(asn) => $"AS{asn}",
+            1 when !string.IsNullOrEmpty(country) => country,
+            2 when !string.IsNullOrEmpty(ip) => TrimToSlash16(ip),
+            _ => null
+        };
+    }
+
+    private static string? TrimToSlash16(string ip)
+    {
+        var parts = ip.Split('.');
+        if (parts.Length == 4) return $"{parts[0]}.{parts[1]}.0.0/16";
+        var colon = ip.IndexOf(':');
+        if (colon > 0) return ip[..Math.Min(ip.Length, colon + 5)] + "::/32";
+        return null;
+    }
+
     internal static string? GetString(IReadOnlyDictionary<string, object> signals, string key)
         => signals.TryGetValue(key, out var v) && v is string s && !string.IsNullOrEmpty(s) ? s : null;
 
