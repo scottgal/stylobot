@@ -3992,7 +3992,11 @@ public class StyloBotDashboardMiddleware
                 "clusters" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_ClustersList.cshtml", await BuildClustersModelAsync(context)),
                 "useragents" => await RenderUaPartialAsync(context, q),
                 "topbots" or "top-visitors" or "live-visitors" or "live-activity" => await RenderPartialAsync(context, "/Views/Shared/Components/SbTopBots/Default.cshtml", BuildTopBotsModelFromQuery(widgetId, q)),
-                "sessions" => await RenderPartialAsync(context, "/Views/Shared/Components/SbSessionsList/Default.cshtml", await BuildSessionsModel(context)),
+                "sessions" => await RenderPartialAsync(context, "/Views/Shared/Components/SbSessionsList/Default.cshtml",
+                    await BuildSessionsModel(context,
+                        page: WidgetRenderHelpers.QueryPage(q),
+                        pageSize: WidgetRenderHelpers.QueryPageSize(q, 25),
+                        filter: q["filter"].FirstOrDefault())),
                 "recent" => await RenderRecentActivityPartialAsync(context),
                 "your-detection" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_YourDetection.cshtml", BuildYourDetectionPartialModel(context)),
                 _ => ""
