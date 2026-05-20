@@ -48,6 +48,15 @@ public class SbLiveUpdatesTagHelper : TagHelper
     [HtmlAttributeName("debounce")]
     public int DebounceMs { get; set; } = 500;
 
+    /// <summary>
+    ///     Override the user-active cooldown window in milliseconds. Defaults to
+    ///     <see cref="StyloBotDashboardOptions.UserActiveCooldownMs"/> (3000).
+    ///     Lower values risk the late-arriving-OOB clobber race; raise only if you
+    ///     see operators losing filter state under genuine SignalR-storm conditions.
+    /// </summary>
+    [HtmlAttributeName("cooldown")]
+    public int? CooldownMs { get; set; }
+
     /// <summary>Periodic refresh interval in seconds. Set to 0 to disable. Defaults to 30.</summary>
     [HtmlAttributeName("refresh-interval")]
     public int RefreshInterval { get; set; } = 30;
@@ -60,6 +69,7 @@ public class SbLiveUpdatesTagHelper : TagHelper
     {
         var basePath = BasePath ?? _options?.BasePath.TrimEnd('/') ?? "/_stylobot";
         var hubUrl = HubUrl ?? _options?.HubPath ?? $"{basePath}/hub";
+        var cooldownMs = CooldownMs ?? _options?.UserActiveCooldownMs ?? 3000;
         var nonce = _httpContextAccessor.HttpContext?.Items["CspNonce"]?.ToString();
         var nonceAttr = !string.IsNullOrEmpty(nonce) ? $" nonce=\"{nonce}\"" : "";
 
@@ -125,10 +135,11 @@ public class SbLiveUpdatesTagHelper : TagHelper
     // SignalR refresh whose REQUEST was fired BEFORE the user click but whose RESPONSE
     // arrives AFTER the user settle still gets refused. Without the cooldown that
     // late-arriving OOB swap silently restores the pre-click state -- the operator
-    // clicks Bot, sees bots for ~200ms, then the widget flips back to All. 3 seconds
-    // is enough to absorb an in-flight refresh; subsequent refreshes that fire AFTER
-    // the cooldown read the current post-swap data-sb-params and are harmless.
-    var COOLDOWN_MS = 3000;
+    // clicks Bot, sees bots for ~200ms, then the widget flips back to All. The
+    // cooldown window is configurable via StyloBotDashboardOptions.UserActiveCooldownMs
+    // (default 3s); subsequent refreshes that fire AFTER the cooldown read the current
+    // post-swap data-sb-params and are harmless.
+    var COOLDOWN_MS = {cooldownMs};
     var cooldownTimers = {{}};
     function scheduleRelease(wid) {{
         if (!wid) return;

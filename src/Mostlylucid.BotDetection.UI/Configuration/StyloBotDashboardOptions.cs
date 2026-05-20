@@ -101,6 +101,16 @@ public sealed class StyloBotDashboardOptions
     public int SummaryBroadcastIntervalSeconds { get; set; } = 5;
 
     /// <summary>
+    ///     How long after a user-driven HTMX swap (filter click, sort header, page nav)
+    ///     a widget stays "user-active" -- during this window any incoming SignalR-driven
+    ///     OOB refresh whose response arrives late is refused so it can't clobber the
+    ///     just-applied user state. Default 3000ms. Lower values risk the race where a
+    ///     refresh fired before the click but landing after the settle restores the
+    ///     pre-click state.
+    /// </summary>
+    public int UserActiveCooldownMs { get; set; } = 3000;
+
+    /// <summary>
     ///     Custom authorization filter (evaluated before policy).
     ///     Signature: Func&lt;HttpContext, Task&lt;bool&gt;&gt;
     ///     Return true to allow access, false to deny.
