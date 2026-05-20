@@ -157,23 +157,26 @@
                         </div>
                     }
 
-                    @* Right column: HMAC factor hashes *@
+                    @* Right column: HMAC factor hashes -- every one clickable through to its
+                       signature-detail page on the dashboard. The path is canonical across the
+                       FOSS dashboard and the marketing site (both mount at /dashboard), so we
+                       can hardcode it here instead of plumbing options into the component. *@
                     <div class="factors-grid">
                         @if (!string.IsNullOrEmpty(Model.Signatures.PrimarySignature))
                         {
-                            <div class="factor-compact"><span class="factor-label">Primary:</span> <code>@Model.Signatures.PrimarySignature</code></div>
+                            <div class="factor-compact"><span class="factor-label">Primary:</span> <a href="/dashboard/signature/@Uri.EscapeDataString(Model.Signatures.PrimarySignature)" class="signature-link"><code>@Model.Signatures.PrimarySignature</code></a></div>
                         }
                         @if (!string.IsNullOrEmpty(Model.Signatures.IpSignature))
                         {
-                            <div class="factor-compact"><span class="factor-label">IP:</span> <code>@Model.Signatures.IpSignature</code></div>
+                            <div class="factor-compact"><span class="factor-label">IP:</span> <a href="/dashboard/signature/@Uri.EscapeDataString(Model.Signatures.IpSignature)" class="signature-link"><code>@Model.Signatures.IpSignature</code></a></div>
                         }
                         @if (!string.IsNullOrEmpty(Model.Signatures.UaSignature))
                         {
-                            <div class="factor-compact"><span class="factor-label">UA:</span> <code>@Model.Signatures.UaSignature</code></div>
+                            <div class="factor-compact"><span class="factor-label">UA:</span> <a href="/dashboard/signature/@Uri.EscapeDataString(Model.Signatures.UaSignature)" class="signature-link"><code>@Model.Signatures.UaSignature</code></a></div>
                         }
                         @if (!string.IsNullOrEmpty(Model.Signatures.ClientSideSignature))
                         {
-                            <div class="factor-compact"><span class="factor-label">Browser:</span> <code>@Model.Signatures.ClientSideSignature</code></div>
+                            <div class="factor-compact"><span class="factor-label">Browser:</span> <a href="/dashboard/signature/@Uri.EscapeDataString(Model.Signatures.ClientSideSignature)" class="signature-link"><code>@Model.Signatures.ClientSideSignature</code></a></div>
                         }
                     </div>
                 </div>

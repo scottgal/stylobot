@@ -618,6 +618,17 @@
     color: #6a737d;
 }
 
+.factor-compact .signature-link {
+    text-decoration: none;
+    transition: opacity 0.15s ease;
+}
+
+.factor-compact .signature-link:hover code {
+    border-color: #0366d6;
+    color: #0366d6;
+    background: #f0f6ff;
+}
+
 .privacy-note {
     margin-top: 8px;
     font-size: 11px;
