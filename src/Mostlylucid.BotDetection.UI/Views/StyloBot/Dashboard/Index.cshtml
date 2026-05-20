@@ -154,65 +154,85 @@
     <!-- Main content -->
     <main class="max-w-7xl mx-auto px-2 py-4">
 
-        <!-- Summary stats + right panel: side by side at half-width -->
+        <!-- Compact metric strip + Your Detection pill (single row, ~48px instead of ~360px).
+             The old two-column grid (sb-summary-stats card + license/your-detection card) ate the
+             top third of the dashboard before the operator saw any actual data. The metric strip
+             below carries the same numbers in one line; the map+graph below the tab nav are the
+             real headline of this page. -->
         @{
             var yd = Model.YourDetection;
             var ydRiskClass = yd.RiskBand is "VeryHigh" or "High" ? "text-error"
                 : yd.RiskBand is "Medium" or "Elevated" ? "text-warning" : "text-success";
             var ydProbPct = (yd.BotProbability * 100).ToString("F1");
+            var summary = Model.Summary.Summary;
+            var totalReq = summary.TotalRequests;
+            var botReq = summary.BotRequests;
+            var humanReq = summary.HumanRequests;
+            var uncertain = summary.UncertainRequests;
+            var uniqueSigs = summary.UniqueSignatures;
+            var botPctStrip = totalReq > 0 ? (double)botReq / totalReq * 100 : 0;
+            var botPctClass = botPctStrip > 50 ? "text-error" : botPctStrip > 20 ? "text-warning" : "text-success";
         }
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-3">
-            <sb-summary-stats />
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-1 px-3 py-2 mb-3 rounded-lg border text-xs"
+             style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <span class="flex items-baseline gap-1">
+                <span class="font-bold text-base-content">@totalReq.ToString("N0")</span>
+                <span class="text-base-content/50 text-[10px]">req</span>
+            </span>
+            <span class="flex items-baseline gap-1">
+                <span class="font-bold @botPctClass">@botPctStrip.ToString("F1")%</span>
+                <span class="text-base-content/50 text-[10px]">bot</span>
+            </span>
+            <span class="flex items-baseline gap-1 text-base-content/70">
+                <span class="text-error">@botReq.ToString("N0")</span>
+                <span class="text-base-content/30">/</span>
+                <span class="text-success">@humanReq.ToString("N0")</span>
+                <span class="text-base-content/50 text-[10px]">bot / human</span>
+            </span>
+            <span class="flex items-baseline gap-1">
+                <span class="font-bold">@uniqueSigs.ToString("N0")</span>
+                <span class="text-base-content/50 text-[10px]">signatures</span>
+            </span>
+            @if (uncertain > 0)
+            {
+                <span class="flex items-baseline gap-1 text-base-content/50">
+                    <span class="font-bold">@uncertain.ToString("N0")</span>
+                    <span class="text-[10px]">uncertain</span>
+                </span>
+            }
 
-            @if (Model.License.Status != LicenseStatusKind.Unconfigured)
-            {
-                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_LicenseCard.cshtml", Model.License)
-            }
-            else
-            {
-                <!-- FOSS: compact your-detection alongside summary stats -->
-                <div id="your-detection"
-                     data-sb-widget="your-detection"
-                     data-sb-depends="summary,@(yd.Signature ?? "")"
-                     class="rounded-lg p-3"
-                     style="background: var(--sb-card-bg); border: 1px solid var(--sb-card-border);">
-                    <div class="flex items-center gap-1 mb-2">
-                        <span class="text-[10px] font-semibold text-base-content/50 uppercase tracking-wider">Your Detection</span>
-                        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "your-detection")
-                        @if (yd.HasData)
-                        {
-                            @if (yd.IsBot) { <span class="badge badge-xs badge-error">Bot</span> }
-                            else { <span class="badge badge-xs badge-success">Human</span> }
-                        }
-                        @if (yd.HasData && !string.IsNullOrEmpty(yd.Signature))
-                        {
-                            <a href="@yd.BasePath/signature/@Uri.EscapeDataString(yd.Signature)" class="ml-auto text-[10px] underline text-base-content/40 hover:text-base-content/60">Details &rsaquo;</a>
-                        }
-                    </div>
-                    @if (!yd.HasData)
+            @* Your detection pill, right-aligned. Whole pill clicks through to the user's signature page. *@
+            <span class="ml-auto flex items-center gap-1.5">
+                @if (yd.HasData)
+                {
+                    <span class="text-[10px] text-base-content/40 uppercase tracking-wider">You:</span>
+                    @if (yd.IsBot) { <span class="badge badge-xs badge-error">Bot</span> }
+                    else { <span class="badge badge-xs badge-success">Human</span> }
+                    <span class="text-[11px] font-bold @ydRiskClass">@ydProbPct%</span>
+                    <span class="text-[10px] text-base-content/50">@yd.RiskBand</span>
+                    @if (!string.IsNullOrEmpty(yd.Signature))
                     {
-                        <div class="text-[11px] text-base-content/40 py-1">Waiting for detection data&hellip;</div>
+                        <a href="@yd.BasePath/signature/@Uri.EscapeDataString(yd.Signature)" class="text-[10px] text-base-content/40 hover:text-base-content/70 underline">view →</a>
                     }
-                    else
-                    {
-                        <div class="flex items-center gap-3">
-                            <span class="text-lg font-black @ydRiskClass">@ydProbPct%</span>
-                            <span class="text-[10px] text-base-content/50">@yd.RiskBand risk</span>
-                            <span class="text-[9px] text-base-content/30 ml-auto">@yd.DetectorCount det &middot; @yd.ProcessingTimeMs.ToString("F1")ms</span>
-                        </div>
-                        @if (yd.TopReasons.Count > 0)
-                        {
-                            <div class="mt-1.5 flex flex-col gap-0.5">
-                                @foreach (var reason in yd.TopReasons.Take(2))
-                                {
-                                    <span class="text-[10px] text-base-content/50 truncate" title="@reason">&bull; @reason</span>
-                                }
-                            </div>
-                        }
-                    }
-                </div>
-            }
+                }
+                else
+                {
+                    <span class="text-[10px] text-base-content/40">Detection pending…</span>
+                }
+            </span>
         </div>
+
+        @if (Model.License.Status != LicenseStatusKind.Unconfigured)
+        {
+            <!-- Commercial license card on its own compact row -->
+            <div class="mb-3">
+                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_LicenseCard.cshtml", Model.License)
+            </div>
+        }
+
+        @* Commercial-only: full Your Detection partial below the strip (gives operators the
+           expanded detector trace they expect on commercial dashboards). FOSS gets the compact
+           pill inside the strip above and nothing else. *@
         @if (Model.License.Status != LicenseStatusKind.Unconfigured)
         {
             <div class="mb-3">
