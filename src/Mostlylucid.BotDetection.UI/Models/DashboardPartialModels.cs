@@ -353,6 +353,19 @@ public sealed record UserAgentDetailModel
 public sealed record PackTabInfo(string Id, string TabName);
 
 /// <summary>
+///     One (hour bucket, UA version) bin from the UA-version-history query. The dashboard
+///     stacks these into a per-version area chart so an operator can see when a new Chrome
+///     version started showing up, when an old one disappeared, or when an unusual version
+///     spiked. No new storage required -- read from <c>dashboard_detections.important_signals</c>.
+/// </summary>
+public sealed record UserAgentVersionBucket
+{
+    public required DateTime Bucket { get; init; }
+    public required string Version { get; init; }
+    public required int Hits { get; init; }
+}
+
+/// <summary>
 ///     Shell view model for the full dashboard page.
 ///     Composes all partial models for initial server-side render.
 /// </summary>

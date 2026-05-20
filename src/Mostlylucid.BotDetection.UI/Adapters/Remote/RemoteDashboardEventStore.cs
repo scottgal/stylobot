@@ -122,6 +122,14 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return list ?? new List<UserAgentSearchResult>();
     }
 
+    public async Task<List<UserAgentVersionBucket>> GetUserAgentVersionHistoryAsync(
+        string family, int hours = 168, CancellationToken ct = default)
+    {
+        var path = $"/api/v1/useragents/versions?family={Uri.EscapeDataString(family ?? string.Empty)}&hours={hours}";
+        var list = await _api.GetEnvelopeAsync<List<UserAgentVersionBucket>>(path);
+        return list ?? new List<UserAgentVersionBucket>();
+    }
+
     public async Task<InvestigationResult> GetInvestigationAsync(InvestigationFilter filter, CancellationToken ct = default)
     {
         var result = await _api.PostEnvelopeAsync<InvestigationFilter, InvestigationResult>(

@@ -1283,6 +1283,49 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         };
     }
 
+    /// <summary>
+    ///     Time-series of UA versions for the given family over the last <paramref name="hours"/>.
+    ///     SQLite doesn't carry a parsed-family column, so we read recent raw user_agents in
+    ///     the time window and parse them in-process via <see cref="UserAgentParser"/>. Bucketed
+    ///     by hour. Acceptable on FOSS single-binary deployments; commercial PG has a direct
+    ///     JSON query that doesn't load rows into memory.
+    /// </summary>
+    public async Task<List<UserAgentVersionBucket>> GetUserAgentVersionHistoryAsync(
+        string family, int hours = 168, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(family)) return [];
+        await EnsureInitializedAsync();
+        var sinceUtc = DateTime.UtcNow.AddHours(-Math.Clamp(hours, 1, 24 * 90));
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT timestamp, user_agent_raw FROM detections
+             WHERE user_agent_raw IS NOT NULL AND user_agent_raw <> ''
+               AND timestamp >= @since
+            """;
+        cmd.Parameters.AddWithValue("@since", sinceUtc.ToString("O"));
+
+        var buckets = new Dictionary<(DateTime Bucket, string Version), int>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            if (!DateTime.TryParse(reader.GetString(0), out var ts)) continue;
+            var ua = reader.GetString(1);
+            var parsed = Mostlylucid.BotDetection.Helpers.UserAgentParser.Parse(ua);
+            if (!string.Equals(parsed.Family, family, StringComparison.OrdinalIgnoreCase)) continue;
+            if (string.IsNullOrEmpty(parsed.Version)) continue;
+            var bucket = new DateTime(ts.Year, ts.Month, ts.Day, ts.Hour, 0, 0, DateTimeKind.Utc);
+            var key = (bucket, parsed.Version);
+            buckets[key] = (buckets.TryGetValue(key, out var v) ? v : 0) + 1;
+        }
+
+        return buckets
+            .Select(kv => new UserAgentVersionBucket { Bucket = kv.Key.Bucket, Version = kv.Key.Version, Hits = kv.Value })
+            .OrderBy(b => b.Bucket).ThenByDescending(b => b.Hits)
+            .ToList();
+    }
+
     public async Task<List<UserAgentSearchResult>> SearchUserAgentsAsync(string query, int limit = 20)
     {
         await EnsureInitializedAsync();

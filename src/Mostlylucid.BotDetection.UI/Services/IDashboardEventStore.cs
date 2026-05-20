@@ -87,6 +87,18 @@ public interface IDashboardEventStore
     /// </summary>
     Task<List<UserAgentSearchResult>> SearchUserAgentsAsync(string query, int limit = 20);
 
+    /// <summary>
+    ///     Time-series of how a given UA family's versions have been distributed over the
+    ///     past <paramref name="hours"/>. Reads the <c>ua.family</c> and <c>ua.family_version</c>
+    ///     entries on the existing per-detection <c>important_signals</c> JSON column -- no
+    ///     new storage. Each row is one (hour bucket, version) bin with a hit count so the
+    ///     dashboard can render a stacked-area chart and spot outliers / version churn.
+    ///     Returns an empty list when the store doesn't track per-detection signals (FOSS
+    ///     SQLite path).
+    /// </summary>
+    Task<List<UserAgentVersionBucket>> GetUserAgentVersionHistoryAsync(
+        string family, int hours = 168, CancellationToken ct = default);
+
     /// <summary>Unified investigation query -- filter by any entity type, get cross-associated results.</summary>
     Task<InvestigationResult> GetInvestigationAsync(InvestigationFilter filter, CancellationToken ct = default);
 
