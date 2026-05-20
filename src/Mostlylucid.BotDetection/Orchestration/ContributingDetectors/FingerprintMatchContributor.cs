@@ -350,32 +350,26 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
         WriteArchetypeSignals(state, vector, nearestArchetype?.Archetype, nearestArchetype?.Score ?? 0.0);
 
-        // Compose the display name from the now-populated signals. The cold-state
-        // Priority 4 fallback uses the fingerprint id when even the UA contributor
-        // is silent.
+        // Compose the display name from the now-populated signals. Returns null when no
+        // usable signal is available yet -- we leave the persisted name blank in that case
+        // and the dashboard's render layer synthesises a descriptive label from the row's
+        // current threat/behaviour signals. Avoids ever writing "analysing" anywhere.
         var displayName = FingerprintNameComposer.Compose(
             state.Signals,
-            fingerprintId: newId,
             userAgent: state.UserAgent,
             previousName: null);
-
-        // Don't persist a Priority-4 fallback ("analysing" / "unknown xxx"): next request
-        // would see the empty DisplayName, Path 2+3 in EmitDisplayNameSignal would
-        // recompose (potentially picking up the UA family this time), and the dashboard
-        // would settle on a real name. Persisting "analysing" would short-circuit Path 1
-        // and lock the visible name to the fallback until significant drift fired.
-        var persistedDisplayName = FingerprintNameComposer.IsFallback(displayName) ? "" : displayName;
 
         // Invariant: one display name = one fingerprint. If a different fingerprint already
         // owns this composed name, the new one MUST be distinguished -- and the discriminator
         // has to come from what's actually different (ASN, country, IP /16), never a hash.
         // Try progressively-less-specific modifiers; if all collide, last-resort short fp-id
         // prefix guarantees uniqueness (and signals an unexpected state we can grep for).
-        if (!string.IsNullOrEmpty(persistedDisplayName))
+        if (!string.IsNullOrEmpty(displayName))
         {
+            var baseName = displayName;
             for (var attempt = 0; attempt < 4; attempt++)
             {
-                var collisions = await _store.CountByDisplayNameAsync(persistedDisplayName, cancellationToken);
+                var collisions = await _store.CountByDisplayNameAsync(displayName, cancellationToken);
                 if (collisions == 0) break;
 
                 var modifier = attempt < 3
@@ -383,10 +377,11 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
                     : null;
                 modifier ??= newId[..Math.Min(8, newId.Length)];
 
-                persistedDisplayName = $"{displayName} ({modifier})";
-                displayName = persistedDisplayName;
+                displayName = $"{baseName} ({modifier})";
             }
         }
+
+        var persistedDisplayName = displayName ?? "";
 
         var newFp = new Fingerprint
         {
@@ -412,7 +407,10 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         };
         await _store.InsertFingerprintAsync(newFp, primarySig, cancellationToken);
 
-        state.WriteSignal(SignalKeys.IdentityDisplayName, displayName);
+        // Compose returns null when there's no usable signal; downstream stays unset and
+        // the render layer synthesises a descriptive label from threat/behaviour signals.
+        if (!string.IsNullOrEmpty(displayName))
+            state.WriteSignal(SignalKeys.IdentityDisplayName, displayName);
 
         // New-fingerprint allocation = ambiguity event by definition (no L1 baseline matched).
         await BumpAmbiguityAsync(state, newId, isAmbiguous: true, cancellationToken);
@@ -532,31 +530,31 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
             return;
         }
 
-        // Path 2 + 3: compose a fresh name from current signals. Pass matched.DisplayName
-        // as previousName for hysteresis (Compose returns previousName if the fresh result
-        // would be a Priority-4 fallback - stops "Chrome" → "analysing" → "Chrome" churn
-        // when signal presence varies request-to-request).
+        // Path 2 + 3: compose a fresh name from current signals. Pass matched.DisplayName as
+        // previousName so Compose can keep the existing real name when current signals haven't
+        // yet produced one (matcher runs before UserAgentContributor).
         var freshName = FingerprintNameComposer.Compose(
             state.Signals,
-            fingerprintId: matched.FingerprintId,
             userAgent: state.UserAgent,
             previousName: string.IsNullOrEmpty(matched.DisplayName) ? null : matched.DisplayName);
-        state.WriteSignal(SignalKeys.IdentityDisplayName, freshName);
 
-        // Persist if: row had no display name AND we now have a real one (avoid persisting
-        // fallbacks - see allocation path comment) OR significant drift produced a different
-        // real name. Hysteresis already prevents fresh from being worse than matched, so
-        // any string-difference here means an upgrade or a meaningful drift change.
-        var freshIsFallback = FingerprintNameComposer.IsFallback(freshName);
-        var shouldPersist = !freshIsFallback && (
+        // Emit the signal only when there's a real name. Downstream sees null/missing and the
+        // render layer synthesises a descriptive label from the row's threat / behaviour.
+        if (!string.IsNullOrEmpty(freshName))
+            state.WriteSignal(SignalKeys.IdentityDisplayName, freshName);
+
+        // Persist when: row had no name AND we now have one, OR significant drift produced a
+        // different real name. Hysteresis already keeps the previous name when fresh is null,
+        // so any string-difference means a real upgrade or drift change.
+        var shouldPersist = !string.IsNullOrEmpty(freshName) && (
             string.IsNullOrEmpty(matched.DisplayName)
             || (drift is not null && drift.Value.Score > _options.Match.SignificantDriftEpsilon
                 && !string.Equals(freshName, matched.DisplayName, StringComparison.Ordinal)));
         if (shouldPersist)
         {
-            // Fire-and-forget. Consistent with how other matcher writes (RecordObservationAsync
-            // when called from EmitConfirmedSignals indirectly) avoid blocking the request path.
-            _ = _store.UpdateDisplayNameAsync(matched.FingerprintId, freshName, DateTime.UtcNow, CancellationToken.None);
+            // Fire-and-forget. Consistent with other matcher writes that avoid blocking the
+            // request path. freshName is non-null inside this branch (checked above).
+            _ = _store.UpdateDisplayNameAsync(matched.FingerprintId, freshName!, DateTime.UtcNow, CancellationToken.None);
         }
     }
 

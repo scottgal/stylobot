@@ -75,38 +75,29 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_Priority4_FingerprintIdPrefix_WhenNoUa()
+    public void Compose_ReturnsNull_WhenNoUsableSignal()
     {
+        // No UA, no archetype, no bot name -- the matcher's signal dict simply lacks enough
+        // information to label this visitor. Compose returns null so callers leave the
+        // bot_name blank and the dashboard's render layer synthesises a descriptive label
+        // from threat / behaviour on the row. Previously this returned "analysing" /
+        // "unknown abc123de" which leaked into Top Bots as a literal row name.
+        Assert.Null(FingerprintNameComposer.Compose(new Dictionary<string, object>()));
+        Assert.Null(FingerprintNameComposer.Compose(
+            new Dictionary<string, object>(),
+            fingerprintId: "abc123def456ghi"));
+    }
+
+    [Fact]
+    public void Compose_PreservesPreviousName_WhenNoFreshSignal()
+    {
+        // Hysteresis: when current request has nothing usable but a real previousName exists,
+        // keep the previous one. Prevents "Chrome" -> null -> "Chrome" churn when the matcher
+        // runs before UserAgentContributor on a hot path.
         var name = FingerprintNameComposer.Compose(
             new Dictionary<string, object>(),
-            fingerprintId: "abc123def456ghi");
-
-        Assert.Contains("abc123de", name);
-    }
-
-    [Fact]
-    public void Compose_Priority4_Analysing_WhenNoUaAndNoFingerprintId()
-    {
-        var name = FingerprintNameComposer.Compose(new Dictionary<string, object>());
-        Assert.Equal("analysing", name);
-    }
-
-    [Fact]
-    public void Compose_NeverReturnsNullOrEmpty()
-    {
-        // Every conceivable signal combination must produce a non-empty name. The contract
-        // elsewhere is "fingerprints always have a name" — this is the load-bearing invariant.
-        foreach (var signals in new[]
-        {
-            new Dictionary<string, object>(),
-            new Dictionary<string, object> { ["ua.bot_name"] = "" },
-            new Dictionary<string, object> { ["ua.family"] = "" },
-            new Dictionary<string, object> { ["identity.archetype_name"] = "" },
-        })
-        {
-            var name = FingerprintNameComposer.Compose(signals);
-            Assert.False(string.IsNullOrWhiteSpace(name), $"got empty for signals: {string.Join(',', signals.Keys)}");
-        }
+            previousName: "Chrome on Windows");
+        Assert.Equal("Chrome on Windows", name);
     }
 
     [Fact]
@@ -232,15 +223,17 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_Hysteresis_FreshWins_WhenBothAreFallback()
+    public void Compose_ReturnsPrevious_WhenFreshIsNullAndPreviousIsFallback()
     {
-        // Both fallback - fresh wins (no information to prefer either way).
+        // Compose no longer returns "analysing" or "unknown xxx" itself; it returns null.
+        // If the caller supplies a legacy fallback as previousName, we still echo it back
+        // (hysteresis: don't blank a name out, even a poor one) until a better fresh result
+        // arrives. The matcher's IsFallback check at the persist site keeps fallbacks out
+        // of the DB; this just preserves what's already there during the request.
         var name = FingerprintNameComposer.Compose(
             new Dictionary<string, object>(),
-            fingerprintId: "abc123de",
             previousName: "analysing");
-
-        Assert.Contains("unknown abc123de", name);
+        Assert.Equal("analysing", name);
     }
 
     [Fact]

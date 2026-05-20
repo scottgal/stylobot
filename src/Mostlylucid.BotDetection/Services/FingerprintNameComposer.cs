@@ -61,32 +61,26 @@ internal static class FingerprintNameComposer
     ///     columns so the name stays clean.
     ///     </para>
     /// </summary>
-    public static string Compose(
+    public static string? Compose(
         IReadOnlyDictionary<string, object> signals,
         string? fingerprintId = null,
         string? userAgent = null,
         string? previousName = null)
     {
-        var signature = GetString(signals, SignalKeys.PrimarySignature);
-        var country = GetString(signals, SignalKeys.GeoCountryCode);
-        var fresh = ComposeFresh(signals, fingerprintId, userAgent, signature, country);
+        var fresh = ComposeFresh(signals, userAgent);
 
-        // Hysteresis: if the fresh compose would be a Priority-4 fallback ("analysing" /
-        // "unknown xxx") but we have a previous non-fallback name, keep the previous one.
-        // Stops the visible name from churning when signal presence varies request-to-
-        // request (matcher runs at priority 6, before UserAgentContributor at priority 10,
-        // so the first compose for a brand-new fingerprint often lacks ua.family).
-        if (IsFallback(fresh) && !string.IsNullOrEmpty(previousName) && !IsFallback(previousName))
+        // Hysteresis: if we have no fresh result but a previous real name exists, keep the
+        // previous one so the visible label doesn't disappear when signal presence varies
+        // request-to-request (matcher runs at priority 6, before UserAgentContributor at
+        // priority 10, so the first compose for a brand-new fingerprint often lacks ua.family).
+        if (fresh is null && !string.IsNullOrEmpty(previousName))
             return previousName;
         return fresh;
     }
 
-    private static string ComposeFresh(
+    private static string? ComposeFresh(
         IReadOnlyDictionary<string, object> signals,
-        string? fingerprintId,
-        string? userAgent,
-        string? signature,
-        string? country)
+        string? userAgent)
     {
         // Priority 1: known bot name from UA parsing. When the UA carries a per-instance
         // discriminator (the +URL comment convention used by Mastodon, Pleroma, Misskey,
@@ -107,7 +101,7 @@ internal static class FingerprintNameComposer
             var discriminator = UserAgentDiscriminator.ExtractDiscriminator(rawUa);
             var composed = string.IsNullOrEmpty(discriminator) ? botName : $"{botName} {discriminator}";
             if (IsSpoofedClaim(signals)) composed += SpoofedMarker;
-            return Unique(composed, signature, country);
+            return composed;
         }
 
         // Priority 2: matched archetype name + variance term.
@@ -115,8 +109,7 @@ internal static class FingerprintNameComposer
         if (!string.IsNullOrEmpty(archetypeName))
         {
             var variance = GetVarianceTerm(signals);
-            var composed = string.IsNullOrEmpty(variance) ? archetypeName : $"{archetypeName} ({variance})";
-            return Unique(composed, signature, country);
+            return string.IsNullOrEmpty(variance) ? archetypeName : $"{archetypeName} ({variance})";
         }
 
         // Priority 3: UA family + OS characterization. Reads the signals first; falls back
@@ -133,25 +126,25 @@ internal static class FingerprintNameComposer
         {
             var composed = !string.IsNullOrEmpty(os) ? $"{family} on {os}" : family;
             var variance = GetVarianceTerm(signals);
-            if (!string.IsNullOrEmpty(variance)) composed = $"{composed} ({variance})";
-            return Unique(composed, signature, country);
+            return string.IsNullOrEmpty(variance) ? composed : $"{composed} ({variance})";
         }
 
-        // Priority 4: last-resort id-prefix label. Better than "analysing" because the
-        // prefix at least identifies which fingerprint this is.
-        if (!string.IsNullOrEmpty(fingerprintId))
-            return Unique($"unknown {fingerprintId[..Math.Min(8, fingerprintId.Length)]}", signature, country);
-
-        return Unique("analysing", signature, country);
+        // No usable signal yet. Return null so the caller can decide whether to emit
+        // anything at all -- typically that means "leave bot_name blank in storage and
+        // let the dashboard's render layer synthesise a descriptive label from threat
+        // / behaviour signals on the row". Avoids the old "analysing" / "unknown xxx"
+        // placeholders ever reaching the dashboard or persisting in fingerprint records.
+        return null;
     }
 
     /// <summary>
-    ///     True when <paramref name="composedName"/> is a Priority-4 fallback ("analysing"
-    ///     or "unknown xxx" prefix) - either form is the "we don't know yet" sentinel and
-    ///     should never overwrite a real name. Strips the Unique() country/sig parens
-    ///     before testing the base.
+    ///     True when <paramref name="composedName"/> is null/empty or a legacy Priority-4
+    ///     fallback ("analysing" / "unknown xxx" / "(country:sigprefix)"-decorated form of
+    ///     either). Compose no longer produces these -- it returns null instead -- but
+    ///     historical persisted display_name rows from before that change still match.
+    ///     Strips a legacy " (...)" suffix before testing the base.
     /// </summary>
-    public static bool IsFallback(string composedName)
+    public static bool IsFallback(string? composedName)
     {
         if (string.IsNullOrEmpty(composedName)) return true;
         var paren = composedName.IndexOf(" (", StringComparison.Ordinal);

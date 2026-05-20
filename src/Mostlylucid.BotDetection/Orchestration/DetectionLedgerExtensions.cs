@@ -204,17 +204,13 @@ public static class DetectionLedgerExtensions
     }
 
     /// <summary>
-    ///     Resolves the display name for this visitor with three-level fallback:
-    ///     <list type="number">
-    ///         <item>Matcher-set <c>identity.display_name</c> signal (present when
-    ///             <c>Identity:Enabled = true</c> - persisted, drift-gated).</item>
-    ///         <item>Caller-supplied UA-derived fallback (the ledger's <c>BotName</c>,
-    ///             populated by classifier contributions for bots).</item>
-    ///         <item>Pure-function composition via <see cref="FingerprintNameComposer.Compose"/>
-    ///             over the merged signals. Keeps the "every visitor always has a name"
-    ///             invariant working even when the metastable identity layer is off, so
-    ///             humans surface as "Chrome on Windows" rather than null.</item>
-    ///     </list>
+    ///     Resolves the display name for this visitor: the matcher-set signal first, then the
+    ///     ledger's classifier-supplied <c>BotName</c>. Returns null when neither is present;
+    ///     the dashboard's render layer (SbTopBots.DescriptiveBotName etc.) synthesises a
+    ///     descriptive label from threat / behaviour signals on the row in that case.
+    ///     Previously this also called FingerprintNameComposer.Compose as a third fallback,
+    ///     which is now redundant -- the matcher already calls Compose at allocation time
+    ///     and only writes the signal when a real name was derivable.
     /// </summary>
     private static string? ResolveDisplayName(
         IReadOnlyDictionary<string, object> signals, string? fallback)
@@ -222,8 +218,7 @@ public static class DetectionLedgerExtensions
         var fromSignal = signals.TryGetValue(SignalKeys.IdentityDisplayName, out var v)
             ? v as string : null;
         if (!string.IsNullOrEmpty(fromSignal)) return fromSignal;
-        if (!string.IsNullOrEmpty(fallback)) return fallback;
-        return Services.FingerprintNameComposer.Compose(signals);
+        return string.IsNullOrEmpty(fallback) ? null : fallback;
     }
 
     private static (double ThreatScore, ThreatBand Band) ExtractThreatScore(
