@@ -25,3 +25,25 @@
     black;
 }
 @source "../../Views/**/*.cshtml";
+
+/* =============================================
+   Shared navbar brand styles. These are referenced by _StylobotNavbar.cshtml
+   which is consumed by:
+     - the marketing site (was defined in marketing's index.css)
+     - the FOSS dashboard root (Index.cshtml)
+     - signature + endpoint detail pages (rendered standalone, linked to this
+       vendor CSS bundle -- the reason the shared navbar partial used to
+       render with an unconstrained logo when used here)
+   Keep these definitions in lock-step with marketing's wwwroot/src/index.css.
+   ============================================= */
+.stylo-text       { color: var(--sb-brand-muted); }
+.bot-text         { color: var(--sb-brand-strong); }
+.brand-wordmark   { font-family: "Raleway", sans-serif; font-weight: 900; }
+.brand-italic     { font-style: italic; }
+.logo-adaptive    { filter: none; transition: filter 180ms ease; }
+[data-theme="light"] .logo-adaptive {
+    filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.75))
+            drop-shadow(0 0 7px rgba(0, 0, 0, 0.45));
+}
+.nav-link         { font-weight: 500; transition: color 180ms ease; }
+.nav-link:hover   { color: var(--sb-accent); }

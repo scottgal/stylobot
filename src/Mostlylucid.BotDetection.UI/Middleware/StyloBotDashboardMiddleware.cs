@@ -4536,6 +4536,11 @@ public class StyloBotDashboardMiddleware
         // it here in the same shell the signature-detail page uses so theme + assets + nav
         // are consistent across drill-down pages.
         var detailHtml = await RenderEndpointDetailBodyAsync(context, method, path);
+        // Render the shared site-wide navbar partial here so the endpoint detail page
+        // gets the same chrome as the marketing site and dashboard root. Brand styles
+        // (brand-wordmark / nav-link / logo-adaptive) now ship in the vendor bundle.
+        var navbarHtml = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/_StylobotNavbar.cshtml", model: null!, context);
         var cspNonce = context.Items.TryGetValue("CspNonce", out var n) && n is string ns ? ns : "";
         var navBp = (string.IsNullOrEmpty(_options.NavBasePath) ? _options.BasePath : _options.NavBasePath).TrimEnd('/');
         var pageTitle = $"{method} {path} -- StyloBot endpoint detail";
@@ -4575,46 +4580,15 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 </style>
 </head>
 <body>
-<header class=""brand-header px-4 py-3"">
-  <div class=""max-w-7xl mx-auto flex items-center justify-between"">
-    <div class=""flex items-center gap-3"">
-      <a href=""{navBp}"" data-action=""smart-back"" class=""text-lg font-black tracking-tight"" style=""font-family: 'Raleway', sans-serif;"">
-        <span style=""color: var(--sb-brand-muted);"">stylo</span><span style=""color: var(--sb-brand-strong);"">bot</span>
-      </a>
-      <span class=""text-xs font-medium px-2 py-0.5 rounded-full"" style=""background: var(--sb-card-bg); color: var(--sb-brand-muted); border: 1px solid var(--sb-card-border);"">Endpoint Detail</span>
-    </div>
-    <div class=""flex items-center gap-3"">
-      <a href=""{navBp}?tab=endpoints"" class=""text-xs text-base-content/50 hover:text-base-content"">All endpoints &rarr;</a>
-      <select id=""sb-theme-picker"" class=""select select-bordered select-xs text-xs bg-base-100 relative z-50"">
-        <option value=""dark"" selected>Dark</option>
-        <option value=""light"">Light</option>
-        <option value=""dim"">Dim</option>
-        <option value=""night"">Night</option>
-        <option value=""dracula"">Dracula</option>
-        <option value=""synthwave"">Synthwave</option>
-        <option value=""nord"">Nord</option>
-        <option value=""cupcake"">Cupcake</option>
-        <option value=""forest"">Forest</option>
-        <option value=""luxury"">Luxury</option>
-        <option value=""coffee"">Coffee</option>
-      </select>
-      <script nonce=""{cspNonce}"">
-        (function(){{
-          var t=localStorage.getItem('sb-theme')||'dark';
-          var sel=document.getElementById('sb-theme-picker');
-          if(sel){{
-            var o=sel.querySelector('option[value=""'+t+'""]');
-            if(o)o.selected=true;
-            sel.addEventListener('change',function(){{
-              document.documentElement.setAttribute('data-theme',this.value);
-              try{{localStorage.setItem('sb-theme',this.value);}}catch(e){{}}
-            }});
-          }}
-        }})();
-      </script>
-    </div>
+{navbarHtml}
+<div class=""max-w-7xl mx-auto px-4 py-1.5 text-[10px] text-base-content/40 flex items-center justify-between"">
+  <div>
+    <a href=""{navBp}"" data-action=""smart-back"" class=""hover:text-base-content/70"">&larr; Dashboard</a>
+    <span class=""mx-1"">/</span>
+    <span class=""text-base-content/60"">Endpoint Detail</span>
   </div>
-</header>
+  <a href=""{navBp}?tab=endpoints"" class=""hover:text-base-content/70"">All endpoints &rarr;</a>
+</div>
 <main class=""max-w-5xl mx-auto px-2 py-4"">
 {detailHtml}
 </main>
