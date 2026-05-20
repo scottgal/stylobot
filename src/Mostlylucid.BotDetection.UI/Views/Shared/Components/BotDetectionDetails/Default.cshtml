@@ -19,6 +19,52 @@
     };
     var detectorCount = Model.DetectorContributions?.Count ?? 0;
     var aiRan = Model.DetectorContributions?.Any(d => d.Name?.Contains("Llm") == true || d.Name?.Contains("AI") == true) ?? false;
+
+    // Build the behavioral-fingerprint radar from per-detector contributions.
+    // The fingerprint is "3 signature hashes + this shape" -- the polygon's vertices encode the
+    // per-detector contribution magnitudes (clamped 0..1) projected around a circle.
+    // Positive contribution (more bot-like) and negative (more human-like) both use abs magnitude;
+    // the polygon fill colour shifts toward the dominant sign.
+    var radarDetectors = Model.DetectorContributions?
+        .Where(d => !string.IsNullOrEmpty(d.Name) && d.Contribution != 0)
+        .OrderByDescending(d => Math.Abs(d.Contribution))
+        .Take(8)
+        .ToList() ?? new List<Mostlylucid.BotDetection.UI.Models.DetectorContributionDisplay>();
+
+    var radarVertices = new System.Text.StringBuilder();
+    var radarLabels = new System.Text.StringBuilder();
+    var radarAxisLines = new System.Text.StringBuilder();
+    if (radarDetectors.Count >= 3)
+    {
+        var n = radarDetectors.Count;
+        var totalSigned = 0d;
+        for (var i = 0; i < n; i++)
+        {
+            var d = radarDetectors[i];
+            var angle = (2 * Math.PI * i / n) - (Math.PI / 2); // start at top
+            var magnitude = Math.Min(1.0, Math.Abs(d.Contribution) * 2.5);
+            totalSigned += d.Contribution;
+            var x = 50 + Math.Cos(angle) * 35 * magnitude;
+            var y = 50 + Math.Sin(angle) * 35 * magnitude;
+            radarVertices.Append($"{x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)},{y.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} ");
+
+            // Axis line from centre to outer edge
+            var axisX = 50 + Math.Cos(angle) * 35;
+            var axisY = 50 + Math.Sin(angle) * 35;
+            radarAxisLines.AppendLine($"<line x1=\"50\" y1=\"50\" x2=\"{axisX.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y2=\"{axisY.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" stroke=\"currentColor\" stroke-width=\"0.3\" opacity=\"0.12\" />");
+
+            // Label outside the ring
+            var lx = 50 + Math.Cos(angle) * 44;
+            var ly = 50 + Math.Sin(angle) * 44 + 1.5;
+            var labelText = d.Name.Length <= 5 ? d.Name : d.Name.Substring(0, 5);
+            radarLabels.AppendLine($"<text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3.5\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.55\">{labelText}</text>");
+        }
+        // Close polygon to first point so SVG fills cleanly
+        radarVertices.Length--; // trailing space
+    }
+    var radarPolygonPoints = radarVertices.ToString();
+    var radarFillColor = Model.IsBot ? "rgba(220,38,38,0.22)" : "rgba(91,163,163,0.22)";
+    var radarStrokeColor = Model.IsBot ? "#dc2626" : "#5ba3a3";
 }
 
 <div class="bot-detection-container bot-detection-compact" x-data="{ showDetails: false, showSignatures: false }">
@@ -89,28 +135,49 @@
         <div class="bot-detection-signatures-compact">
             <button type="button" class="toggle-btn" @@click="showSignatures = !showSignatures">
                 <span x-text="showSignatures ? '▼' : '▶'"></span>
-                🔐 Signatures (@Model.Signatures.FactorCount factors) - Zero PII
+                🔐 Fingerprint (@Model.Signatures.FactorCount factors + behavioural shape) - Zero PII
             </button>
             <div x-show="showSignatures" x-collapse class="signatures-content">
-                <div class="factors-grid">
-                    @if (!string.IsNullOrEmpty(Model.Signatures.PrimarySignature))
+                <div class="bot-detection-fingerprint-row">
+                    @* Left column: per-detector behavioural-shape radar derived from contributions.
+                       Each axis is a detector; the polygon distance from centre is the magnitude of
+                       that detector's contribution to the final classification. *@
+                    @if (radarDetectors.Count >= 3)
                     {
-                        <div class="factor-compact"><span class="factor-label">Primary:</span> <code>@Model.Signatures.PrimarySignature</code></div>
+                        <div class="bot-detection-radar">
+                            <svg viewBox="0 0 100 100" width="120" height="120" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="50" cy="50" r="35" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.18" />
+                                <circle cx="50" cy="50" r="23" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.10" />
+                                <circle cx="50" cy="50" r="12" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.10" />
+                                @Html.Raw(radarAxisLines.ToString())
+                                <polygon points="@radarPolygonPoints" fill="@radarFillColor" stroke="@radarStrokeColor" stroke-width="1.2" />
+                                @Html.Raw(radarLabels.ToString())
+                            </svg>
+                            <div class="bot-detection-radar-caption">Behavioural shape</div>
+                        </div>
                     }
-                    @if (!string.IsNullOrEmpty(Model.Signatures.IpSignature))
-                    {
-                        <div class="factor-compact"><span class="factor-label">IP:</span> <code>@Model.Signatures.IpSignature</code></div>
-                    }
-                    @if (!string.IsNullOrEmpty(Model.Signatures.UaSignature))
-                    {
-                        <div class="factor-compact"><span class="factor-label">UA:</span> <code>@Model.Signatures.UaSignature</code></div>
-                    }
-                    @if (!string.IsNullOrEmpty(Model.Signatures.ClientSideSignature))
-                    {
-                        <div class="factor-compact"><span class="factor-label">Browser:</span> <code>@Model.Signatures.ClientSideSignature</code></div>
-                    }
+
+                    @* Right column: HMAC factor hashes *@
+                    <div class="factors-grid">
+                        @if (!string.IsNullOrEmpty(Model.Signatures.PrimarySignature))
+                        {
+                            <div class="factor-compact"><span class="factor-label">Primary:</span> <code>@Model.Signatures.PrimarySignature</code></div>
+                        }
+                        @if (!string.IsNullOrEmpty(Model.Signatures.IpSignature))
+                        {
+                            <div class="factor-compact"><span class="factor-label">IP:</span> <code>@Model.Signatures.IpSignature</code></div>
+                        }
+                        @if (!string.IsNullOrEmpty(Model.Signatures.UaSignature))
+                        {
+                            <div class="factor-compact"><span class="factor-label">UA:</span> <code>@Model.Signatures.UaSignature</code></div>
+                        }
+                        @if (!string.IsNullOrEmpty(Model.Signatures.ClientSideSignature))
+                        {
+                            <div class="factor-compact"><span class="factor-label">Browser:</span> <code>@Model.Signatures.ClientSideSignature</code></div>
+                        }
+                    </div>
                 </div>
-                <div class="privacy-note">All signatures are HMAC-SHA256 hashed. No PII stored.</div>
+                <div class="privacy-note">All signatures are HMAC-SHA256 hashed. No PII stored. The behavioural shape is derived from runtime detector contributions only.</div>
             </div>
         </div>
     }

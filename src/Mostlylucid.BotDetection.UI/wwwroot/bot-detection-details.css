@@ -556,6 +556,39 @@
     background: #f0f7ff;
 }
 
+/* Two-column layout inside the expanded fingerprint section: behavioural-shape radar on the
+   left, HMAC factor hashes on the right. Stacks on narrow viewports. */
+.bot-detection-fingerprint-row {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.bot-detection-radar {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.bot-detection-radar svg {
+    display: block;
+}
+
+.bot-detection-radar-caption {
+    font-size: 10px;
+    opacity: 0.55;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.bot-detection-fingerprint-row .factors-grid {
+    flex: 1 1 auto;
+    min-width: 220px;
+}
+
 .factors-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
