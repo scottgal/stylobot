@@ -66,21 +66,59 @@
                         </tr>
                     </thead>
                     @{
-                        // Invariant the operator demanded: NO two rows may share a display name.
-                        // If two fingerprints would otherwise collide (e.g. eight "British Visitor"
-                        // entries) the second and subsequent ones get a discriminator built from
-                        // what's actually different between them. Order is: country code (already
-                        // baked into the base name for visitors, so usually same) -> first-seen
-                        // timestamp (the user's explicit fallback). The timestamp is the last
-                        // resort because two distinct fingerprints can collide on every other
-                        // facet but cannot share a first-seen instant -- they were allocated by
-                        // separate code paths at different times.
+                        // Group rules per operator spec:
+                        //   * UA-pattern-match + verified bot identity (BotType in a known-bot
+                        //     category like SearchEngine / AiCrawler / Crawler) -> all rows
+                        //     converge on the SAME fingerprint via TryConvergeOnNamedBotAsync.
+                        //     COLLAPSE into one aggregate row: sum hits, earliest first-seen,
+                        //     latest last-seen, max probability. Operator-set CustomBotName
+                        //     is always trusted-identity too.
+                        //   * Tool UA matches (BotType = "Tool", e.g. curl / python-requests)
+                        //     share a UA family but each invocation is a different identity
+                        //     -- DON'T collapse; tools aren't a single actor.
+                        //   * Humans (BotType null / Unknown, synth name from DescriptiveBotName)
+                        //     are individuals -- DON'T collapse; disambiguate names via the
+                        //     first-seen timestamp loop below so each row reads uniquely.
+                        static bool IsGroupableIdentity(DashboardTopBotEntry b)
+                        {
+                            if (b.CustomBotName != null) return true;
+                            if (b.BotName == null) return false;
+                            return b.BotType is not null
+                                && !string.Equals(b.BotType, "Tool", StringComparison.OrdinalIgnoreCase)
+                                && !string.Equals(b.BotType, "Unknown", StringComparison.OrdinalIgnoreCase);
+                        }
+
+                        var grouped = new List<DashboardTopBotEntry>();
+                        foreach (var grp in Model.Bots
+                            .Where(IsGroupableIdentity)
+                            .GroupBy(b => b.CustomBotName ?? b.BotName, StringComparer.Ordinal))
+                        {
+                            var members = grp.ToList();
+                            if (members.Count == 1)
+                            {
+                                grouped.Add(members[0]);
+                                continue;
+                            }
+                            var canonical = members.OrderByDescending(b => b.LastSeen).First();
+                            grouped.Add(canonical with
+                            {
+                                HitCount = members.Sum(b => b.HitCount),
+                                FirstSeen = members.Min(b => b.FirstSeen == default ? DateTime.MaxValue : b.FirstSeen),
+                                LastSeen = members.Max(b => b.LastSeen),
+                                BotProbability = members.Max(b => b.BotProbability)
+                            });
+                        }
+                        grouped.AddRange(Model.Bots.Where(b => !IsGroupableIdentity(b)));
+                        grouped = grouped
+                            .OrderByDescending(b => b.LastSeen)
+                            .ToList();
+
                         var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
                         static string FormatFirstSeen(DateTime utc)
                             => utc == default ? "" : $"first seen {utc.ToLocalTime():HH:mm:ss}";
                     }
                     <tbody>
-                        @foreach (var bot in Model.Bots)
+                        @foreach (var bot in grouped)
                         {
                             var riskClass = bot.RiskBand switch {
                                 "VeryHigh" or "High" => "text-error",
@@ -92,17 +130,19 @@
                                 ?? bot.BotName
                                 ?? (string.IsNullOrEmpty(bot.BotType) ? DescriptiveBotName(bot) : bot.BotType);
                             var displayName = baseDisplay;
-                            if (seenNames.ContainsKey(baseDisplay))
+                            // Synth + tool-UA names can still collide between distinct
+                            // fingerprints. Verified-identity rows are already deduped above,
+                            // so no decoration applies to them.
+                            if (!IsGroupableIdentity(bot) && seenNames.ContainsKey(baseDisplay))
                             {
-                                // Custom labels (operator-set) are always trusted as unique;
-                                // never decorate those. Everything else gets a discriminator.
-                                if (!isCustomNamed)
-                                {
-                                    var firstSeenMod = FormatFirstSeen(bot.FirstSeen);
-                                    displayName = string.IsNullOrEmpty(firstSeenMod)
-                                        ? $"{baseDisplay} #{seenNames[baseDisplay] + 1}"
-                                        : $"{baseDisplay} ({firstSeenMod})";
-                                }
+                                var firstSeenMod = FormatFirstSeen(bot.FirstSeen);
+                                displayName = string.IsNullOrEmpty(firstSeenMod)
+                                    ? $"{baseDisplay} #{seenNames[baseDisplay] + 1}"
+                                    : $"{baseDisplay} ({firstSeenMod})";
+                                seenNames[baseDisplay]++;
+                            }
+                            else if (seenNames.ContainsKey(baseDisplay))
+                            {
                                 seenNames[baseDisplay]++;
                             }
                             else
