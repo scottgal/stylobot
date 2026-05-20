@@ -173,6 +173,13 @@ public static class StyloBotDashboardServiceExtensions
         configure?.Invoke(options);
 
         services.AddSingleton(options);
+        // Also expose via IOptions<> so ViewComponents that DI IOptions<StyloBotDashboardOptions>
+        // (SbTopBotsViewComponent, SbSessionsListViewComponent, etc.) see the configured instance
+        // instead of a freshly-constructed default. Without this the host's options.BasePath
+        // override is silently ignored on every IOptions<>-injected widget -- links emit
+        // /stylobot/signature/... using the FOSS default while the middleware-rendered partials
+        // correctly emit /dashboard/signature/..., producing inconsistent navigation.
+        services.AddSingleton<IOptions<StyloBotDashboardOptions>>(Options.Create(options));
 
         // Register lightweight UI services (tag helpers, view components)
         services.AddStyloBotUI();
