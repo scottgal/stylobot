@@ -87,29 +87,42 @@
 </head>
 <body class="min-h-screen overflow-x-hidden" hx-headers='{"X-Requested-With": "XMLHttpRequest"}'>
 
-    <!-- Brand header -->
-    <header id="sb-brand-header" class="brand-header px-4 py-3">
-        <div class="max-w-7xl mx-auto flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <a href="@bp" class="text-lg font-black tracking-tight" style="font-family: 'Raleway', sans-serif;">
-                    <span style="color: var(--sb-brand-muted);">stylo</span><span style="color: var(--sb-brand-strong);">bot</span>
+    <!-- Brand header. Mirrors the marketing site's navbar markup (Views/Shared/_Layout.cshtml
+         lines 68-149 over there) so the dashboard reads as the same site, not a bolt-on. Logo
+         and link styling come from the shared FOSS UI Raleway / brand-wordmark / nav-link
+         CSS so they paint identically on both sides. Dashboard-specific affordances (SignalR
+         dot, theme picker, license badge) live next to the same right-rail position the
+         marketing header uses for its theme toggle / GitHub button. -->
+    <header id="sb-brand-header" class="sticky top-0 z-[9999] bg-base-100/95 backdrop-blur-md border-b border-base-300/70 shadow-sm">
+        <nav class="max-w-7xl mx-auto px-4 py-1.5">
+            <div class="flex items-center justify-between gap-3">
+                <a href="/" class="flex items-center gap-2.5 flex-shrink-0">
+                    <img src="/_content/Mostlylucid.BotDetection.UI/img/stylowall.svg" alt="stylobot Logo" class="h-10 w-auto" />
+                    <span class="text-lg hidden sm:inline font-bold" style="font-family: 'Raleway', sans-serif;">
+                        <span style="color: var(--sb-brand-muted); font-style: italic;">stylo</span><span style="color: var(--sb-brand-strong);">bot</span>
+                    </span>
                 </a>
-                <span class="text-xs font-medium px-2 py-0.5 rounded-full"
-                      style="background: var(--sb-card-bg); color: var(--sb-brand-muted); border: 1px solid var(--sb-card-border);">
-                    Dashboard
-                </span>
-                <!-- SignalR connection status -->
-                <span id="sb-connection-status" class="w-2 h-2 rounded-full sb-disconnected" title="SignalR: disconnected"></span>
-                @if (Model.License.Status == LicenseStatusKind.Unconfigured)
-                {
-                    <span class="text-[10px] text-base-content/60 ml-2">OSS tier</span>
-                    <a href="https://stylobot.net/pricing" target="_blank" rel="noopener"
-                       class="text-[10px] text-base-content/60 hover:text-base-content/80 ml-1">
-                        Compare paid tiers →
-                    </a>
-                }
-            </div>
-            <div class="flex items-center gap-2">
+
+                <div class="hidden lg:flex items-center gap-5 text-sm">
+                    <a href="/" class="hover:text-base-content/80 text-base-content/60">Home</a>
+                    <a href="/threats" class="hover:text-base-content/80 text-base-content/60">Threats</a>
+                    <a href="/detectors" class="hover:text-base-content/80 text-base-content/60">Detectors</a>
+                    <a href="/open-source" class="hover:text-base-content/80 text-base-content/60">Open Source</a>
+                    <a href="/pricing" class="hover:text-base-content/80 text-base-content/60">Pricing</a>
+                    <a href="/docs" class="hover:text-base-content/80 text-base-content/60">Docs</a>
+                    <a href="/about" class="hover:text-base-content/80 text-base-content/60">About</a>
+                    <a href="@bp" class="font-semibold text-base-content">Dashboard</a>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <span id="sb-connection-status" class="w-2 h-2 rounded-full sb-disconnected" title="SignalR: disconnected"></span>
+                    @if (Model.License.Status == LicenseStatusKind.Unconfigured)
+                    {
+                        <a href="https://stylobot.net/pricing" target="_blank" rel="noopener"
+                           class="text-[10px] text-base-content/60 hover:text-base-content/80">
+                            OSS · upgrade →
+                        </a>
+                    }
                 <select id="sb-theme-picker" class="select select-bordered select-xs text-xs bg-base-100 relative z-50">
                     <option value="dark">Dark</option>
                     <option value="light">Light</option>
@@ -147,8 +160,9 @@
                         }
                     })();
                 </script>
+                </div>
             </div>
-        </div>
+        </nav>
     </header>
 
     <!-- Main content -->
