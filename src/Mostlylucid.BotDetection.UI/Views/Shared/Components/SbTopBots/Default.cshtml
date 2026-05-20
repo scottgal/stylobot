@@ -203,11 +203,17 @@
         }
 
         if (string.IsNullOrEmpty(activity)) {
+            // Low-prob entities (< 0.5) are humans. Calling a 1% bot-probability visitor a
+            // "Suspicious Client" is a glaring bug -- they're a Visitor, not a suspect.
+            // High-prob with no specific signal is genuinely an unidentified automated
+            // client; medium is the actual ambiguous middle ground.
             activity = (bot.RiskBand ?? bot.ThreatBand) switch {
                 "VeryHigh" => "High-Risk Scanner",
                 "High" => "Automated Scanner",
                 "Medium" or "Elevated" => "Automated Client",
-                _ => bot.BotProbability >= 0.90 ? "Automated Client" : "Suspicious Client"
+                _ => bot.BotProbability >= 0.90 ? "Automated Client"
+                   : bot.BotProbability >= 0.50 ? "Suspicious Client"
+                   : "Visitor"
             };
         }
 

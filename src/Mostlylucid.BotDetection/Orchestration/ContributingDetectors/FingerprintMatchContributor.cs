@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.Helpers;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Services;
@@ -130,6 +131,18 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
 
         await _store.EnsureInitialisedAsync(cancellationToken);
 
+        // Pass 0: verified-bot convergence. When the UA carries a known bot identity, every
+        // request with that identity belongs to the SAME conceptual fingerprint -- one
+        // GPTBot fingerprint, one AmazonBot fingerprint, etc., regardless of which source IP
+        // / signature the individual request landed on. Without this, every new IP from
+        // Meta's pool spawns its own fingerprint and the dashboard renders eight rows for
+        // the same Meta-ExternalAgent identity. The deterministic id is keyed on
+        // (name, instance discriminator, spoof flag) so:
+        //   - mastodon.social and mas.to (same UA, different +URL) stay distinct;
+        //   - a spoofed AmazonBot routes to its own fingerprint, not the legit one.
+        if (await TryConvergeOnNamedBotAsync(state, vector, primarySig, cancellationToken))
+            return Array.Empty<DetectionContribution>();
+
         // Pass 1: point lookup
         var l1FingerprintId = await _store.LookupFingerprintIdAsync(primarySig, cancellationToken);
         Fingerprint? l1Candidate = l1FingerprintId is not null
@@ -184,6 +197,88 @@ public sealed class FingerprintMatchContributor : ContributingDetectorBase, IFou
         // still gets identity signals.
         await RunPass2InternalAsync(state, vector, primarySig, null, null, cancellationToken);
         return Array.Empty<DetectionContribution>();
+    }
+
+    /// <summary>
+    ///     When the User-Agent identifies a known bot (UA classifier set <c>ua.bot_name</c>),
+    ///     converge every request from that bot identity onto a single fingerprint keyed off
+    ///     the canonical name. Without this, every new source IP from a verified bot's pool
+    ///     (Meta's crawlers, AWS Lambda, GPTBot, etc.) produces a fresh primary_signature, a
+    ///     fresh L1 miss, and a fresh fingerprint allocation -- so the dashboard ends up with
+    ///     N identical "Meta-ExternalAgent" rows for the same actual bot.
+    ///
+    ///     The deterministic id factors in <see cref="UserAgentDiscriminator"/> (so
+    ///     mastodon.social and mas.to stay distinct) and the spoof flag (so a UA-claiming-
+    ///     AmazonBot from a non-Amazon ASN gets its own fingerprint, never the real one).
+    ///     Returns true when the fast path handled this request -- the caller must NOT then
+    ///     run the vector-based passes.
+    /// </summary>
+    private async Task<bool> TryConvergeOnNamedBotAsync(
+        BlackboardState state, float[] vector, string primarySig, CancellationToken ct)
+    {
+        var botName = state.GetSignal<string>(SignalKeys.UserAgentBotName);
+        if (string.IsNullOrEmpty(botName) || botName == "unknown")
+            return false;
+
+        var rawUa = state.GetSignal<string>(SignalKeys.UserAgent) ?? state.UserAgent;
+        var discriminator = UserAgentDiscriminator.ExtractDiscriminator(rawUa) ?? string.Empty;
+        var spoofed = (state.GetSignal<bool?>(SignalKeys.VerifiedBotSpoofed) ?? false)
+                      || (state.GetSignal<bool?>(SignalKeys.VerifiedBotRdnsMismatch) ?? false);
+
+        // Deterministic id: collisions on (botName, discriminator, spoofed) converge by design.
+        var canonical = $"verifiedbot:{botName.ToLowerInvariant()}:{discriminator.ToLowerInvariant()}:{(spoofed ? "spoof" : "ok")}";
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        var idBytes = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(canonical));
+        var canonicalId = Convert.ToHexString(idBytes, 0, 16).ToLowerInvariant();
+
+        var existing = await _store.GetFingerprintAsync(canonicalId, ct);
+        if (existing is not null)
+        {
+            // Already seen this identity. Bind this primary_signature so future L1 lookups
+            // skip even the SHA + GetFingerprint call; record the observation; emit signals.
+            await _store.UpsertKeyAsync(primarySig, canonicalId, ct);
+            await _store.RecordObservationAsync(canonicalId, vector, ct);
+            EmitConfirmedSignals(state, vector, existing, matchScore: 1.0, primarySig);
+            await BumpAmbiguityAsync(state, canonicalId, isAmbiguous: false, ct);
+            return true;
+        }
+
+        // First sighting. Allocate the deterministic-id fingerprint. Centroid = this vector
+        // (subsequent observations EWMA it), weights uniform (we don't need behavioural
+        // discrimination -- the UA name IS the identity).
+        var dim = vector.Length;
+        var seedWeights = new float[dim];
+        for (var i = 0; i < dim; i++) seedWeights[i] = 1.0f;
+        var displayName = string.IsNullOrEmpty(discriminator) ? botName : $"{botName} {discriminator}";
+        if (spoofed) displayName += FingerprintNameComposer.SpoofedMarker;
+
+        var now = DateTime.UtcNow;
+        var fp = new Fingerprint
+        {
+            FingerprintId = canonicalId,
+            Centroid = vector,
+            CentroidMaturity = 1,
+            Weights = seedWeights,
+            MemberCount = 1,
+            ObservationCount = 1,
+            CorrectionCount = 0,
+            FirstSeen = now,
+            LastSeen = now,
+            Quality = state.Signals.TryGetValue(SignalKeys.IdentityVectorQuality, out var qObj) && qObj is double q ? q : 1.0,
+            ArchetypeOrigin = $"verifiedbot:{botName.ToLowerInvariant()}",
+            InferredClientType = spoofed ? "suspicious" : "bot",
+            InferredTypeConfidence = 1.0,
+            InferredTypeChangedAt = now,
+            CachedBotProbability = spoofed ? 0.95 : 0.85,
+            CachedRiskBand = spoofed ? "VeryHigh" : "Medium",
+            CachedScoreUpdatedAt = now,
+            DisplayName = displayName,
+            DisplayNameUpdatedAt = now
+        };
+        await _store.InsertFingerprintAsync(fp, primarySig, ct);
+        EmitConfirmedSignals(state, vector, fp, matchScore: 1.0, primarySig);
+        await BumpAmbiguityAsync(state, canonicalId, isAmbiguous: false, ct);
+        return true;
     }
 
     /// <summary>
