@@ -608,6 +608,25 @@ public partial class DetectionBroadcastMiddleware
                        ?? context.Request.Protocol;
         signals.TryAdd("request.protocol", protocol);
 
+        // Additional CF Transform Rule signals -- all free-tier accessible. See
+        // docs/cloudflare-tunnel-setup.md for the rule recipe. Each is optional;
+        // origin without CF (or without the rules deployed) just doesn't see them.
+        var tlsVersion = context.Request.Headers["X-Client-TLS-Version"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(tlsVersion))
+        {
+            signals.TryAdd("tls.version", tlsVersion);
+            signals.TryAdd("tls.Version", tlsVersion); // signature card reads either case
+        }
+        var tlsCipher = context.Request.Headers["X-Client-TLS-Cipher"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(tlsCipher))
+            signals.TryAdd("tls.cipher", tlsCipher);
+        var tlsExtSha1 = context.Request.Headers["X-Client-TLS-Ext-Sha1"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(tlsExtSha1))
+            signals.TryAdd("tls.client_extensions_sha1", tlsExtSha1);
+        var asnHeader = context.Request.Headers["X-Client-ASN"].FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(asnHeader))
+            signals.TryAdd("ip.asn", asnHeader);
+
         if (!signals.ContainsKey("h3.protocol") && !signals.ContainsKey("h3.version") &&
             !signals.ContainsKey("h2.fingerprint") && !signals.ContainsKey("h2.settings_hash") &&
             !signals.ContainsKey("h2.protocol"))
