@@ -3521,33 +3521,41 @@ public class StyloBotDashboardMiddleware
     {
         var sig = context.Request.Query["sig"].FirstOrDefault();
         var idStr = context.Request.Query["id"].FirstOrDefault();
+        var groupStr = context.Request.Query["group"].FirstOrDefault();
 
         var sessionStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Data.ISessionStore>();
-        if (sessionStore == null || string.IsNullOrEmpty(sig))
+        if (string.IsNullOrEmpty(sig))
         {
             context.Response.ContentType = "text/html";
-            await context.Response.WriteAsync("<div class='text-xs text-base-content/40 py-4 text-center'>Session store not available</div>");
+            await context.Response.WriteAsync("<div class='text-xs text-base-content/40 py-4 text-center'>Missing signature parameter</div>");
             return;
         }
 
         var decodedSig = Uri.UnescapeDataString(sig);
-        BotDetection.Data.PersistedSession? s;
+        BotDetection.Data.PersistedSession? s = null;
 
-        if (long.TryParse(idStr, out var sessionId) && sessionId > 0)
+        if (sessionStore != null)
         {
-            var candidates = await sessionStore.GetSessionsAsync(decodedSig, 500);
-            s = candidates.FirstOrDefault(x => x.Id == sessionId) ?? (candidates.Count > 0 ? candidates[0] : null);
-        }
-        else
-        {
-            var fallback = await sessionStore.GetSessionsAsync(decodedSig, 1);
-            s = fallback.Count > 0 ? fallback[0] : null;
+            if (long.TryParse(idStr, out var sessionId) && sessionId > 0)
+            {
+                var candidates = await sessionStore.GetSessionsAsync(decodedSig, 500);
+                s = candidates.FirstOrDefault(x => x.Id == sessionId) ?? (candidates.Count > 0 ? candidates[0] : null);
+            }
+            else
+            {
+                var fallback = await sessionStore.GetSessionsAsync(decodedSig, 1);
+                s = fallback.Count > 0 ? fallback[0] : null;
+            }
         }
 
         if (s == null)
         {
-            context.Response.ContentType = "text/html";
-            await context.Response.WriteAsync("<div class='text-xs text-base-content/40 py-4 text-center'>Session not found</div>");
+            // No persisted session yet -- sessions finalise after 30 min idle. Fall back
+            // to rendering the synthetic detection group (the same data the signature
+            // detail page's "in-flight session" row was built from). The ?group=<unixMs>
+            // parameter narrows to the group around that start time; without it we show
+            // the latest activity period.
+            await RenderSyntheticSessionDetailAsync(context, decodedSig, groupStr);
             return;
         }
         var cspNonce = GetOrCreateCspNonce(context);
@@ -3586,6 +3594,135 @@ public class StyloBotDashboardMiddleware
     ///     Serves inline HTML for signature sessions (loaded via HTMX in signature detail page).
     ///     Shows session timeline with Markov chain previews and path sequences.
     /// </summary>
+    /// <summary>
+    ///     Render an "in-flight session" view for signatures that have not yet had a
+    ///     persisted session finalised. Sessions close after 30 min of inactivity; until
+    ///     then the dashboard groups detection events into synthetic activity periods.
+    ///     This page shows what we have so the operator isn't sent to a dead "Session
+    ///     not found" wall.
+    /// </summary>
+    private async Task RenderSyntheticSessionDetailAsync(HttpContext context, string signature, string? groupStr)
+    {
+        context.Response.ContentType = "text/html";
+        var eventStore = context.RequestServices.GetService<IDashboardEventStore>();
+        if (eventStore == null)
+        {
+            await context.Response.WriteAsync("<div class='text-xs text-base-content/40 py-4 text-center'>Session not found and no event store available</div>");
+            return;
+        }
+
+        var detections = await eventStore.GetDetectionsAsync(new DashboardFilter
+        {
+            SignatureId = signature,
+            Limit = 200
+        });
+
+        if (detections.Count == 0)
+        {
+            await context.Response.WriteAsync("<div class='text-xs text-base-content/40 py-4 text-center'>No activity recorded for this signature yet.</div>");
+            return;
+        }
+
+        // Same 30-minute split that ServeSignatureSessionsPartialAsync uses, so the
+        // synthetic groups here line up exactly with the rows on the signature page.
+        var ordered = detections.OrderBy(d => d.Timestamp).ToList();
+        var groups = new List<List<DashboardDetectionEvent>>();
+        var current = new List<DashboardDetectionEvent> { ordered[0] };
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            if ((ordered[i].Timestamp - ordered[i - 1].Timestamp).TotalMinutes > 30)
+            {
+                groups.Add(current);
+                current = new List<DashboardDetectionEvent>();
+            }
+            current.Add(ordered[i]);
+        }
+        groups.Add(current);
+
+        // Pick the group whose start timestamp matches the requested group key, else
+        // most recent (groups were ordered ascending so OrderByDescending picks newest).
+        List<DashboardDetectionEvent> selected;
+        if (long.TryParse(groupStr, out var groupKey))
+        {
+            var match = groups.FirstOrDefault(g =>
+                new DateTimeOffset(g[0].Timestamp).ToUnixTimeMilliseconds() == groupKey);
+            selected = match ?? groups.OrderByDescending(g => g[0].Timestamp).First();
+        }
+        else
+        {
+            selected = groups.OrderByDescending(g => g[0].Timestamp).First();
+        }
+
+        var startedAt = selected[0].Timestamp;
+        var endedAt = selected[^1].Timestamp;
+        var duration = (endedAt - startedAt).TotalMinutes;
+        var avgProb = selected.Average(d => d.BotProbability);
+        var maxThreat = selected.Max(d => d.BotProbability);
+        var dominantRisk = selected.GroupBy(d => d.RiskBand).OrderByDescending(g => g.Count()).First().Key;
+        var pathCounts = selected.GroupBy(d => d.Path ?? "(unknown)")
+            .Select(g => new { Path = g.Key, Count = g.Count() })
+            .OrderByDescending(p => p.Count)
+            .ToList();
+        var statusCounts = selected.GroupBy(d => d.StatusCode)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .OrderByDescending(p => p.Count)
+            .ToList();
+
+        var probClass = avgProb >= 0.7 ? "text-error" : avgProb >= 0.4 ? "text-warning" : "text-success";
+        var riskClass = dominantRisk is "VeryHigh" or "High" ? "text-error" : dominantRisk is "Elevated" or "Medium" ? "text-warning" : "text-success";
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<div class=\"rounded-xl border p-4 mb-4\" style=\"border-color: var(--sb-card-border); background: var(--sb-card-bg);\">");
+        sb.Append("<div class=\"flex items-center justify-between mb-2\">");
+        sb.Append("<div class=\"flex items-center gap-2\">");
+        sb.Append("<h3 class=\"text-xs font-semibold text-base-content/70 uppercase\"><i class=\"bx bx-time text-sm\" style=\"color: var(--sb-accent);\"></i> Activity Period</h3>");
+        sb.Append("<span class=\"text-[9px] px-1 py-0.5 rounded bg-warning/20 text-warning font-medium\">IN-FLIGHT</span>");
+        sb.Append("</div>");
+        sb.Append($"<span class=\"text-[10px] text-base-content/40\">{System.Net.WebUtility.HtmlEncode(signature[..Math.Min(16, signature.Length)])}...</span>");
+        sb.Append("</div>");
+        sb.Append("<div class=\"text-[10px] text-base-content/40 mb-3\">Sessions are finalised after 30 min of inactivity. This view shows the activity grouped from raw detection events.</div>");
+
+        sb.Append("<div class=\"grid grid-cols-2 md:grid-cols-4 gap-3 text-xs\">");
+        sb.Append($"<div><div class=\"text-[10px] uppercase text-base-content/40\">Started</div><div class=\"font-mono\">{startedAt:MMM dd HH:mm:ss}</div></div>");
+        sb.Append($"<div><div class=\"text-[10px] uppercase text-base-content/40\">Duration</div><div class=\"font-mono\">{duration:F1}m</div></div>");
+        sb.Append($"<div><div class=\"text-[10px] uppercase text-base-content/40\">Requests</div><div class=\"font-mono\">{selected.Count}</div></div>");
+        sb.Append($"<div><div class=\"text-[10px] uppercase text-base-content/40\">Avg Bot Prob</div><div class=\"font-mono font-bold {probClass}\">{avgProb:P0}</div></div>");
+        sb.Append($"<div><div class=\"text-[10px] uppercase text-base-content/40\">Peak Threat</div><div class=\"font-mono {probClass}\">{maxThreat:P0}</div></div>");
+        sb.Append($"<div><div class=\"text-[10px] uppercase text-base-content/40\">Dominant Risk</div><div class=\"font-mono font-bold {riskClass}\">{dominantRisk}</div></div>");
+        sb.Append($"<div><div class=\"text-[10px] uppercase text-base-content/40\">Unique Paths</div><div class=\"font-mono\">{pathCounts.Count}</div></div>");
+        sb.Append($"<div><div class=\"text-[10px] uppercase text-base-content/40\">Status Codes</div><div class=\"font-mono\">{statusCounts.Count}</div></div>");
+        sb.Append("</div>");
+        sb.Append("</div>");
+
+        // Per-request table
+        sb.Append("<div class=\"rounded-xl border p-4 mb-4\" style=\"border-color: var(--sb-card-border); background: var(--sb-card-bg);\">");
+        sb.Append("<h3 class=\"text-xs font-semibold text-base-content/70 uppercase mb-2\"><i class=\"bx bx-list-ul text-sm\" style=\"color: var(--sb-accent);\"></i> Requests</h3>");
+        sb.Append("<div class=\"overflow-x-auto\"><table class=\"table table-xs w-full\"><thead>");
+        sb.Append("<tr class=\"text-[10px] uppercase tracking-wider text-base-content/40\">");
+        sb.Append("<th class=\"py-1\">Time</th><th class=\"py-1\">Method</th><th class=\"py-1\">Path</th><th class=\"py-1 text-right\">Status</th><th class=\"py-1 text-right\">Bot Prob</th><th class=\"py-1\">Risk</th><th class=\"py-1\">Action</th>");
+        sb.Append("</tr></thead><tbody>");
+        foreach (var d in selected.OrderByDescending(d => d.Timestamp).Take(50))
+        {
+            var rowProb = d.BotProbability >= 0.7 ? "text-error" : d.BotProbability >= 0.4 ? "text-warning" : "text-success";
+            var rowRisk = d.RiskBand is "VeryHigh" or "High" ? "text-error" : d.RiskBand is "Elevated" or "Medium" ? "text-warning" : "text-base-content/60";
+            sb.Append("<tr>");
+            sb.Append($"<td class=\"py-1 text-[10px] text-base-content/50 whitespace-nowrap font-mono\">{d.Timestamp:HH:mm:ss}</td>");
+            sb.Append($"<td class=\"py-1 text-[10px] text-base-content/60\">{System.Net.WebUtility.HtmlEncode(d.Method ?? "-")}</td>");
+            sb.Append($"<td class=\"py-1 text-[10px] text-base-content/60 max-w-[400px] truncate\" title=\"{System.Net.WebUtility.HtmlEncode(d.Path ?? "")}\">{System.Net.WebUtility.HtmlEncode(d.Path ?? "-")}</td>");
+            sb.Append($"<td class=\"py-1 text-[10px] text-right font-mono text-base-content/60\">{d.StatusCode}</td>");
+            sb.Append($"<td class=\"py-1 text-[10px] text-right font-mono font-bold {rowProb}\">{d.BotProbability:P0}</td>");
+            sb.Append($"<td class=\"py-1 text-[10px] {rowRisk}\">{System.Net.WebUtility.HtmlEncode(d.RiskBand ?? "-")}</td>");
+            sb.Append($"<td class=\"py-1 text-[10px] text-base-content/60\">{System.Net.WebUtility.HtmlEncode(d.Action ?? "-")}</td>");
+            sb.Append("</tr>");
+        }
+        sb.Append("</tbody></table></div>");
+        if (selected.Count > 50)
+            sb.Append($"<div class=\"text-[10px] text-base-content/40 mt-2 text-center\">Showing 50 of {selected.Count} requests</div>");
+        sb.Append("</div>");
+
+        await context.Response.WriteAsync(sb.ToString());
+    }
+
     private async Task ServeSignatureSessionsPartialAsync(HttpContext context)
     {
         var signature = context.Request.Query["signature"].FirstOrDefault() ?? "";
@@ -3656,7 +3793,13 @@ public class StyloBotDashboardMiddleware
                         var probClass = avgProb >= 0.7 ? "text-error" : avgProb >= 0.4 ? "text-warning" : "text-success";
                         var riskClass = dominantRisk is "VeryHigh" or "High" ? "text-error" : dominantRisk is "Elevated" or "Medium" ? "text-warning" : "text-success";
 
-                        syntheticHtml.Append("<tr class=\"hover:bg-base-200/50\">");
+                        // Synthetic group click-through: no real session id yet, so we pass
+                        // sig + a synthetic 'group' parameter (the group's first timestamp as
+                        // unix ms). The session detail page falls back to rendering the
+                        // detections-derived view when no persisted session matches.
+                        var groupKey = new DateTimeOffset(group[0].Timestamp).ToUnixTimeMilliseconds();
+                        var syntheticHref = $"{_options.BasePath.TrimEnd('/')}/session?sig={Uri.EscapeDataString(decodedSig)}&group={groupKey}";
+                        syntheticHtml.Append($"<tr class=\"hover:bg-base-200/50 cursor-pointer\" data-href=\"{syntheticHref}\">");
                         syntheticHtml.Append($"<td class=\"py-1 text-[10px] text-base-content/50 whitespace-nowrap\">{group[0].Timestamp:MMM dd HH:mm}</td>");
                         syntheticHtml.Append($"<td class=\"py-1 text-xs text-base-content/60\">{duration:F1}m</td>");
                         syntheticHtml.Append($"<td class=\"py-1 text-right text-xs font-mono\">{group.Count}</td>");
