@@ -121,20 +121,32 @@ public class SbLiveUpdatesTagHelper : TagHelper
         if (wid) userActiveWidgets.add(wid);
     }});
 
-    // Hold user-active through afterSettle (not just afterRequest). Between response
-    // arrival (afterRequest) and DOM update (afterSettle) there's a small window where
-    // data-sb-params on the widget hasn't been updated yet. If SignalR's debounce timer
-    // fires in that window, flush() reads the STALE data-sb-params and fetches the old
-    // page, then its response paints over the just-arrived user response. Holding the
-    // lock through settle means flush() either skips the widget (still active) or sees
-    // the post-swap params (no stomp).
+    // After the user's swap settles, hold user-active for a brief COOLDOWN so any
+    // SignalR refresh whose REQUEST was fired BEFORE the user click but whose RESPONSE
+    // arrives AFTER the user settle still gets refused. Without the cooldown that
+    // late-arriving OOB swap silently restores the pre-click state -- the operator
+    // clicks Bot, sees bots for ~200ms, then the widget flips back to All. 3 seconds
+    // is enough to absorb an in-flight refresh; subsequent refreshes that fire AFTER
+    // the cooldown read the current post-swap data-sb-params and are harmless.
+    var COOLDOWN_MS = 3000;
+    var cooldownTimers = {{}};
+    function scheduleRelease(wid) {{
+        if (!wid) return;
+        if (cooldownTimers[wid]) clearTimeout(cooldownTimers[wid]);
+        cooldownTimers[wid] = setTimeout(function() {{
+            userActiveWidgets.delete(wid);
+            delete cooldownTimers[wid];
+        }}, COOLDOWN_MS);
+    }}
+
     document.body.addEventListener('htmx:afterSettle', function(ev) {{
         var wid = widgetForElt(ev.detail && ev.detail.elt);
-        if (wid) userActiveWidgets.delete(wid);
+        if (wid) scheduleRelease(wid);
     }});
 
     // Belt-and-braces release: if the request errors out (no swap, no settle) we still
-    // need to clear user-active so subsequent SignalR refreshes work normally.
+    // need to clear user-active so subsequent SignalR refreshes work normally. No
+    // cooldown here -- there's no successful swap result to protect.
     document.body.addEventListener('htmx:responseError', function(ev) {{
         var wid = widgetForElt(ev.detail && ev.detail.elt);
         if (wid) userActiveWidgets.delete(wid);
