@@ -220,20 +220,22 @@
             </div>
         }
 
-        <!-- Tab navigation -->
-        <div class="flex items-center gap-1 my-4 bg-base-300/50 rounded-lg p-0.5 w-fit">
+        <!-- Tab navigation. Consolidated from 15 → 9 user-visible top-level tabs:
+             - Identities folded into Visitors (sub-filter pill inside)
+             - Threat Intel folded into Threats (sub-filter "Detected" / "Feed")
+             - Clusters surfaces as a tab inside Activity (deferred) -- removed for now to fit one row
+             - User Agents folded into Visitors (sub-filter)
+             - Static Routes tab removed; ASP.NET pack still contributes its own Routes via
+               Model.MonitoringPacks below, so hosts that load the pack see it dynamically.
+        -->
+        <div class="flex items-center gap-1 my-4 bg-base-300/50 rounded-lg p-0.5 w-fit flex-wrap">
             <a href="@TabUrl("overview")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("overview")">Overview</a>
             <a href="@TabUrl("activity")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("activity")">Activity</a>
             <a href="@TabUrl("visitors")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("visitors")">Visitors</a>
             <a href="@TabUrl("countries")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("countries")">Countries</a>
             <a href="@TabUrl("endpoints")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("endpoints")">Endpoints</a>
             <a href="@TabUrl("sessions")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("sessions")">Sessions</a>
-            <a href="@TabUrl("identities")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("identities")">Identities</a>
-            <a href="@TabUrl("clusters")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("clusters")">Clusters</a>
             <a href="@TabUrl("threats")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("threats")">Threats</a>
-            <a href="@TabUrl("threat-intel")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("threat-intel")">Threat Intel</a>
-            <a href="@TabUrl("useragents")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("useragents")">User Agents</a>
-            <a href="@TabUrl("routes")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("routes")">Routes</a>
             @foreach (var pack in Model.MonitoringPacks)
             {
                 <a href="@TabUrl(pack.Id)" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass(pack.Id)">@pack.TabName</a>
@@ -280,8 +282,40 @@
                 </div>
             }
 
-            <!-- Primary ops view: Endpoints by bot pressure + Active bots -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <!-- HEADER ROW: Global threat map (left, wider) + Traffic over time (right).
+                 These take the top of the page because they're the at-a-glance view -- where
+                 traffic is coming from and the shape over time. Everything below is detail. -->
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+                <!-- World map: 3/5 width -->
+                <div class="lg:col-span-3 rounded-xl border overflow-hidden command-map-container" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                    <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
+                        <div class="flex items-center gap-2">
+                            <span class="text-[10px] font-semibold text-base-content/70">GLOBAL THREAT MAP</span>
+                            <span class="text-[9px] px-1 py-0.5 rounded bg-error/20 text-error font-medium">LIVE</span>
+                            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "world-map")
+                        </div>
+                    </div>
+                    <div id="command-map" class="relative" style="height: 380px;"></div>
+                </div>
+
+                <!-- Traffic chart: 2/5 width -->
+                <div class="lg:col-span-2 rounded-xl border overflow-hidden" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                    <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
+                        <div class="flex items-center gap-1">
+                            <span class="text-[10px] font-semibold text-base-content/70">TRAFFIC OVER TIME</span>
+                            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "traffic-chart")
+                        </div>
+                        <span class="text-[9px] text-base-content/40">Last 6 hours</span>
+                    </div>
+                    <div class="p-2">
+                        <div id="time-chart" style="height: 350px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECONDARY: Endpoints under pressure + live visitor lists -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
 
                 <!-- ENDPOINTS BY BOT PRESSURE: 2/3 width -->
                 <div class="lg:col-span-2">
@@ -306,33 +340,6 @@
                 <div class="flex flex-col gap-4">
                     <sb-top-bots filter="all" sort="hits" page-size="5" widget-id="top-visitors" />
                     <sb-top-bots filter="all" sort="lastseen" page-size="5" widget-id="live-visitors" />
-                </div>
-            </div>
-
-            <!-- Traffic chart + World map -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-
-                <div class="rounded-xl border overflow-hidden" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                    <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
-                        <div class="flex items-center gap-1">
-                            <span class="text-[10px] font-semibold text-base-content/70">TRAFFIC OVER TIME</span>
-                            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "traffic-chart")
-                        </div>
-                        <span class="text-[9px] text-base-content/40">Last 6 hours</span>
-                    </div>
-                    <div class="p-2">
-                        <div id="time-chart" style="height: 140px;"></div>
-                    </div>
-                </div>
-
-                <div class="rounded-xl border overflow-hidden command-map-container" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                    <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
-                        <div class="flex items-center gap-2">
-                            <span class="text-[10px] font-semibold text-base-content/70">GLOBAL THREAT MAP</span>
-                            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "world-map")
-                        </div>
-                    </div>
-                    <div id="command-map" class="relative" style="height: 280px;"></div>
                 </div>
             </div>
         }
