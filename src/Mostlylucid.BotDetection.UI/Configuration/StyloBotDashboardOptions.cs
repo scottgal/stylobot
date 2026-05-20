@@ -60,6 +60,22 @@ public sealed class StyloBotDashboardOptions
     public bool RenderPage { get; set; } = true;
 
     /// <summary>
+    ///     When true (default), the dashboard's <c>Index.cshtml</c> emits its own brand header
+    ///     (logo + Dashboard pill + SignalR dot + license badge + theme picker). When false,
+    ///     the host application is expected to wrap the dashboard body in its own layout / navbar
+    ///     so the operator sees ONE site chrome, not two. Commercial deployments embedded inside
+    ///     the marketing site set this to <c>false</c>; FOSS standalone keeps the default
+    ///     because there is no surrounding chrome to defer to.
+    ///     <para>
+    ///     This flag controls the brand header only. The full HTML shell (DOCTYPE / head /
+    ///     scripts / styles) still renders -- the dashboard is the page in that case. The
+    ///     larger "host renders the dashboard body inside its own layout" path is gated by
+    ///     <see cref="RenderPage" />.
+    ///     </para>
+    /// </summary>
+    public bool RenderShell { get; set; } = true;
+
+    /// <summary>
     ///     Whether to enable the dashboard.
     ///     Default: true
     /// </summary>

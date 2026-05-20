@@ -362,6 +362,13 @@ public sealed class DashboardShellModel
 
     public string? Version { get; init; }
 
+    /// <summary>
+    ///     Mirrors <c>StyloBotDashboardOptions.RenderShell</c>. When false, the view skips
+    ///     its own brand header so a host's _Layout navbar can sit above the dashboard body
+    ///     without doubling up.
+    /// </summary>
+    public bool RenderShell { get; init; } = true;
+
     // Partial models for initial render
     public required SummaryStatsModel Summary { get; init; }
     public required VisitorListModel Visitors { get; init; }

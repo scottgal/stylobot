@@ -912,6 +912,7 @@ public class StyloBotDashboardMiddleware
             HubPath = _options.HubPath,
             ActiveTab = tab,
             Version = DashboardVersion,
+            RenderShell = _options.RenderShell,
             Summary = BuildSummaryStatsModelFromVisitorCache(summary, basePath, visitorCache),
             Visitors = new VisitorListModel
             {
