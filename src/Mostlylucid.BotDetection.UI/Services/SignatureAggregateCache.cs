@@ -253,15 +253,20 @@ public sealed class SignatureAggregateCache
         {
             existing.HitCount++;
             existing.IsBot = detection.IsBot;
-            if (detection.IsBot)
+            // Name + type are owned by the canonical naming pipeline (UpdateSignatureBotNameAsync
+            // calling ApplyBotName, write-through to the dashboard_signatures table). Per-detection
+            // updates must NEVER overwrite a name that's already been set -- otherwise an early
+            // heuristic guess like "British Suspicious Client" clobbers a later LLM-resolved name,
+            // or vice versa, and the cache drifts permanently away from the persistent store.
+            // The only mutation allowed here is the first-time seed when the cache has no name yet.
+            if (string.IsNullOrEmpty(existing.BotName) && !string.IsNullOrEmpty(detection.BotName))
             {
-                existing.BotName = detection.BotName ?? existing.BotName;
-                existing.BotType = detection.BotType ?? existing.BotType;
+                existing.BotName = detection.BotName;
+                existing.BotType = detection.BotType;
             }
-            else
+            else if (string.IsNullOrEmpty(existing.BotType) && !string.IsNullOrEmpty(detection.BotType))
             {
-                existing.BotName = null;
-                existing.BotType = null;
+                existing.BotType = detection.BotType;
             }
             existing.RiskBand = detection.RiskBand;
             existing.BotProbability = detection.BotProbability;
