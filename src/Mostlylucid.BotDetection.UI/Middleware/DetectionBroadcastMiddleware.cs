@@ -593,13 +593,16 @@ public partial class DetectionBroadcastMiddleware
         // Prefer forwarded client protocol from the edge proxy. Behind a CF tunnel /
         // Caddy / similar, context.Request.Protocol always reads as the upstream's
         // connection to the gateway (HTTP/1.1 by default), NOT the browser's actual
-        // protocol to the edge. Three header names checked in priority order:
-        //   - X-Client-HTTP-Version : Cloudflare Transform Rule injecting http.request.version
+        // protocol to the edge. Header names checked in priority order:
+        //   - Sb-Http-Version       : Cloudflare Transform Rule (preferred, avoids
+        //                             X- prefix rejection some CF setups hit)
+        //   - X-Client-HTTP-Version : older Transform Rule recipe
         //   - X-Forwarded-Proto-Version : some operator setups normalise to this
-        //   - X-Client-Protocol : Caddy convention
+        //   - X-Client-Protocol     : Caddy convention
         // Fall through to Request.Protocol (the cloudflared/Caddy -> Kestrel hop)
         // when none of those are present.
-        var protocol = context.Request.Headers["X-Client-HTTP-Version"].FirstOrDefault()
+        var protocol = context.Request.Headers["Sb-Http-Version"].FirstOrDefault()
+                       ?? context.Request.Headers["X-Client-HTTP-Version"].FirstOrDefault()
                        ?? context.Request.Headers["X-Forwarded-Proto-Version"].FirstOrDefault()
                        ?? context.Request.Headers["X-Client-Protocol"].FirstOrDefault()
                        ?? context.Request.Protocol;
