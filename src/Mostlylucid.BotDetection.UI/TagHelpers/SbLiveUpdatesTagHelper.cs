@@ -121,12 +121,58 @@ public class SbLiveUpdatesTagHelper : TagHelper
         if (wid) userActiveWidgets.add(wid);
     }});
 
-    document.body.addEventListener('htmx:afterRequest', function(ev) {{
+    // Hold user-active through afterSettle (not just afterRequest). Between response
+    // arrival (afterRequest) and DOM update (afterSettle) there's a small window where
+    // data-sb-params on the widget hasn't been updated yet. If SignalR's debounce timer
+    // fires in that window, flush() reads the STALE data-sb-params and fetches the old
+    // page, then its response paints over the just-arrived user response. Holding the
+    // lock through settle means flush() either skips the widget (still active) or sees
+    // the post-swap params (no stomp).
+    document.body.addEventListener('htmx:afterSettle', function(ev) {{
         var wid = widgetForElt(ev.detail && ev.detail.elt);
         if (wid) userActiveWidgets.delete(wid);
     }});
 
+    // Belt-and-braces release: if the request errors out (no swap, no settle) we still
+    // need to clear user-active so subsequent SignalR refreshes work normally.
+    document.body.addEventListener('htmx:responseError', function(ev) {{
+        var wid = widgetForElt(ev.detail && ev.detail.elt);
+        if (wid) userActiveWidgets.delete(wid);
+    }});
+    document.body.addEventListener('htmx:sendError', function(ev) {{
+        var wid = widgetForElt(ev.detail && ev.detail.elt);
+        if (wid) userActiveWidgets.delete(wid);
+    }});
+
+    // Distinguish user-initiated requests from SignalR background batches by URL.
+    // User actions hit /partials/<widget-name>?... (topbots, sessions, recent, etc.);
+    // SignalR refreshes hit /partials/update?widgets=... -- and ONLY the latter should
+    // ever be refused when the widget is being actively driven by the user. Refusing the
+    // user's own swap (which my first cut did) means clicking Next never updates the DOM,
+    // the widget stays on page 1 forever, and the next SignalR refresh paints page 1 on top.
+    function isSignalRBackgroundRequest(ev) {{
+        var xhr = ev.detail && ev.detail.xhr;
+        var url = (xhr && xhr.responseURL) || '';
+        if (!url && ev.detail && ev.detail.requestConfig) url = ev.detail.requestConfig.path || '';
+        if (!url && ev.detail && ev.detail.pathInfo) url = ev.detail.pathInfo.path || '';
+        return url.indexOf('/partials/update') !== -1;
+    }}
+
     document.body.addEventListener('htmx:beforeSwap', function(ev) {{
+        if (!isSignalRBackgroundRequest(ev)) return;
+        var target = ev.detail && ev.detail.target;
+        if (!target || !target.getAttribute) return;
+        var wid = target.getAttribute('data-sb-widget');
+        if (wid && userActiveWidgets.has(wid)) {{
+            ev.detail.shouldSwap = false;
+        }}
+    }});
+
+    // OOB swaps (which SignalR refreshes use to target multiple widgets in one response)
+    // fire htmx:oobBeforeSwap, NOT htmx:beforeSwap. Hook that too or the suppression
+    // silently skips every multi-widget batch.
+    document.body.addEventListener('htmx:oobBeforeSwap', function(ev) {{
+        if (!isSignalRBackgroundRequest(ev)) return;
         var target = ev.detail && ev.detail.target;
         if (!target || !target.getAttribute) return;
         var wid = target.getAttribute('data-sb-widget');
