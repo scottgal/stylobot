@@ -110,8 +110,11 @@ public class FingerprintNameComposerTests
     }
 
     [Fact]
-    public void Compose_UniqueSuffix_AppendsCountryAndSigPrefix()
+    public void Compose_DoesNotAppendCountryOrSigPrefix_ToName()
     {
+        // The dashboard renders country and signature in their own columns; baking them
+        // into the name produced labels like "Chrome (US:abcd)" that read as "a status,
+        // not a name" (operator feedback). The name should now be just "Chrome on Windows".
         var name = FingerprintNameComposer.Compose(new Dictionary<string, object>
         {
             ["ua.family"] = "Chrome",
@@ -120,7 +123,9 @@ public class FingerprintNameComposerTests
             ["signature.primary"] = "abcd1234efgh5678"
         });
 
-        Assert.Contains("US:abcd", name);
+        Assert.Equal("Chrome on Windows", name);
+        Assert.DoesNotContain("US:", name);
+        Assert.DoesNotContain("abcd", name);
     }
 
     [Fact]

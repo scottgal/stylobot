@@ -213,7 +213,7 @@ public static class DetectionLedgerExtensions
     ///         <item>Pure-function composition via <see cref="FingerprintNameComposer.Compose"/>
     ///             over the merged signals. Keeps the "every visitor always has a name"
     ///             invariant working even when the metastable identity layer is off, so
-    ///             humans surface as "Chrome on Windows (US:abcd)" rather than null.</item>
+    ///             humans surface as "Chrome on Windows" rather than null.</item>
     ///     </list>
     /// </summary>
     private static string? ResolveDisplayName(

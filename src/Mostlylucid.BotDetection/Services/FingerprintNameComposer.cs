@@ -197,17 +197,15 @@ internal static class FingerprintNameComposer
     }
 
     /// <summary>
-    ///     Decorates the base name with a (country:sigprefix) suffix when available, so
-    ///     distinct fingerprints sharing a base name remain visually distinguishable in the
-    ///     dashboard. "Chrome Desktop" becomes "Chrome Desktop (US:abcd)".
+    ///     Returns the base name unchanged. We used to append a "(country:sigprefix)" suffix
+    ///     here for visual disambiguation, but the dashboard already carries country (flag
+    ///     column) and signature (signature column or link target) separately, and the suffix
+    ///     turned every name into something like "Chrome (JLsG)" -- a status crammed into the
+    ///     name field. The status is fine; it just belongs in the row, not the label.
+    ///     The hysteresis check in <see cref="IsFallback"/> still tolerates legacy "(...)"
+    ///     decorated names so anything persisted before this change reads correctly.
     /// </summary>
-    private static string Unique(string baseName, string? signature, string? country)
-    {
-        var parts = new List<string>(2);
-        if (!string.IsNullOrEmpty(country)) parts.Add(country);
-        if (!string.IsNullOrEmpty(signature) && signature.Length >= 4) parts.Add(signature[..4]);
-        return parts.Count > 0 ? $"{baseName} ({string.Join(":", parts)})" : baseName;
-    }
+    private static string Unique(string baseName, string? signature, string? country) => baseName;
 
     internal static string? GetString(IReadOnlyDictionary<string, object> signals, string key)
         => signals.TryGetValue(key, out var v) && v is string s && !string.IsNullOrEmpty(s) ? s : null;
