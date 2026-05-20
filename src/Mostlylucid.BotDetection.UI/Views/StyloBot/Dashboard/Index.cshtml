@@ -309,13 +309,14 @@
         }
         else if (tab == "activity")
         {
-            <!-- Full activity view: Recent Activity (large, filtered) + Endpoints (filtered).
-                 items-stretch + h-full on the Activity column so the card fills the same vertical
-                 space as the Endpoints column on the right instead of collapsing to its content
-                 height and leaving a sea of background below it. -->
+            <!-- Full activity view: the same sb-top-bots widget the overview uses, sized up
+                 to 25 rows and rendered as the "live-activity" variant. Replaces the older
+                 _RecentActivity partial whose paging + filtering quietly stopped working and
+                 whose row count drifted downward over time. Same widget id ("live-activity")
+                 means the data-sb-depends wiring already SignalR-refreshes correctly. -->
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
                 <div class="lg:col-span-2 h-full">
-                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_RecentActivity.cshtml", Model.Visitors)
+                    <sb-top-bots filter="all" sort="lastseen" page-size="25" widget-id="live-activity" />
                 </div>
                 <div>
                     <div class="rounded-xl border overflow-hidden" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
