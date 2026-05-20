@@ -374,9 +374,12 @@
         }
         else if (tab == "activity")
         {
-            <!-- Full activity view: Recent Activity (large, filtered) + Endpoints (filtered) -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                <div class="lg:col-span-2">
+            <!-- Full activity view: Recent Activity (large, filtered) + Endpoints (filtered).
+                 items-stretch + h-full on the Activity column so the card fills the same vertical
+                 space as the Endpoints column on the right instead of collapsing to its content
+                 height and leaving a sea of background below it. -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+                <div class="lg:col-span-2 h-full">
                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_RecentActivity.cshtml", Model.Visitors)
                 </div>
                 <div>
