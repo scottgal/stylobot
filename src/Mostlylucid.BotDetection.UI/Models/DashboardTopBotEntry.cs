@@ -18,6 +18,7 @@ public sealed record DashboardTopBotEntry
     public double ProcessingTimeMs { get; init; }
     public List<string>? TopReasons { get; init; }
     public string? LastPath { get; init; }
+    public DateTime FirstSeen { get; init; }
     public DateTime LastSeen { get; init; }
     public string? Narrative { get; init; }
     public string? Description { get; init; }

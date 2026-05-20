@@ -228,6 +228,7 @@ public sealed class SignatureAggregateCache
             CountryCode = detection.CountryCode,
             ProcessingTimeMs = detection.ProcessingTimeMs,
             TopReasons = detection.TopReasons,
+            FirstSeen = detection.Timestamp,
             LastSeen = detection.Timestamp,
             Narrative = detection.Narrative,
             Description = detection.Description,
@@ -332,6 +333,7 @@ public sealed class SignatureAggregateCache
                 CountryCode = agg.CountryCode,
                 ProcessingTimeMs = agg.ProcessingTimeMs,
                 TopReasons = agg.TopReasons,
+                FirstSeen = agg.FirstSeen,
                 LastSeen = agg.LastSeen,
                 Narrative = agg.Narrative,
                 Description = agg.Description,
@@ -405,6 +407,7 @@ public sealed class SignatureAggregate
     public string? CountryCode;
     public double ProcessingTimeMs;
     public List<string>? TopReasons;
+    public DateTime FirstSeen;
     public DateTime LastSeen;
     public string? Narrative;
     public string? Description;

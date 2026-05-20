@@ -65,6 +65,20 @@
                             </th>
                         </tr>
                     </thead>
+                    @{
+                        // Invariant the operator demanded: NO two rows may share a display name.
+                        // If two fingerprints would otherwise collide (e.g. eight "British Visitor"
+                        // entries) the second and subsequent ones get a discriminator built from
+                        // what's actually different between them. Order is: country code (already
+                        // baked into the base name for visitors, so usually same) -> first-seen
+                        // timestamp (the user's explicit fallback). The timestamp is the last
+                        // resort because two distinct fingerprints can collide on every other
+                        // facet but cannot share a first-seen instant -- they were allocated by
+                        // separate code paths at different times.
+                        var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
+                        static string FormatFirstSeen(DateTime utc)
+                            => utc == default ? "" : $"first seen {utc.ToLocalTime():HH:mm:ss}";
+                    }
                     <tbody>
                         @foreach (var bot in Model.Bots)
                         {
@@ -74,9 +88,27 @@
                                 _ => "text-success"
                             };
                             var isCustomNamed = bot.CustomBotName != null;
-                            var displayName = bot.CustomBotName
+                            var baseDisplay = bot.CustomBotName
                                 ?? bot.BotName
                                 ?? (string.IsNullOrEmpty(bot.BotType) ? DescriptiveBotName(bot) : bot.BotType);
+                            var displayName = baseDisplay;
+                            if (seenNames.ContainsKey(baseDisplay))
+                            {
+                                // Custom labels (operator-set) are always trusted as unique;
+                                // never decorate those. Everything else gets a discriminator.
+                                if (!isCustomNamed)
+                                {
+                                    var firstSeenMod = FormatFirstSeen(bot.FirstSeen);
+                                    displayName = string.IsNullOrEmpty(firstSeenMod)
+                                        ? $"{baseDisplay} #{seenNames[baseDisplay] + 1}"
+                                        : $"{baseDisplay} ({firstSeenMod})";
+                                }
+                                seenNames[baseDisplay]++;
+                            }
+                            else
+                            {
+                                seenNames[baseDisplay] = 1;
+                            }
                             var displayIntent = bot.BotType ?? DeterministicIntent(bot.BotProbability);
                             var displayThreat = ResolvedThreat(bot.ThreatBand, bot.BotProbability);
                             var threatClass = displayThreat switch {
