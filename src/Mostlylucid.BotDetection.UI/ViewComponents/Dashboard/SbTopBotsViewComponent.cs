@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Middleware;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -20,13 +21,19 @@ public class SbTopBotsViewComponent(
         string widgetId = "topbots")
     {
         var allBots = signatureCache.GetTopBots(page: 1, pageSize: signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir, filter: filter);
-        var pagedBots = allBots.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        // Same collapse the OOB refresh path applies (BuildTopBotsModel in both
+        // StyloBotDashboardMiddleware + SbWidgetBatchMiddleware). Without it the
+        // SSR painted a raw 100-row Amazonbot list and the very next OOB swap
+        // dropped to one row, producing the "loads long, instantly shortens"
+        // flicker the user has flagged twice. SSR + OOB must agree on row count.
+        var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(allBots);
+        var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return View(new TopBotsListModel
         {
             Bots = pagedBots,
             Page = page,
             PageSize = pageSize,
-            TotalCount = allBots.Count,
+            TotalCount = grouped.Count,
             SortField = sortBy,
             SortDir = sortDir,
             BasePath = options.Value.BasePath.TrimEnd('/'),
