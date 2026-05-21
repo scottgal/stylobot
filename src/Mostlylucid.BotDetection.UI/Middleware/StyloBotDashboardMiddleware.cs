@@ -4873,7 +4873,9 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                 TopActions = detail.TopActions,
                 TopCountries = detail.TopCountries,
                 RiskBands = detail.RiskBands,
-                TopBots = detail.TopBots,
+                // Same predicate the visitor list + Top Bots widget use -- one
+                // Amazonbot row, not N rows for N converged fingerprints.
+                TopBots = WidgetRenderHelpers.CollapseGroupableIdentities(detail.TopBots),
                 RecentDetections = detail.RecentDetections,
                 BotProfile = detail.BotProfile,
                 HumanProfile = detail.HumanProfile,
