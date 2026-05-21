@@ -75,20 +75,58 @@ public class SbLiveUpdatesTagHelper : TagHelper
 
         output.TagName = null;
 
-        // Cross-swap CSS transition. HTMX adds .htmx-swapping to the old element while
-        // it's being removed and .htmx-added to the new element after it lands. Without
-        // a transition the OOB swap is a hard delete-then-insert and reads as a blink.
-        // Fading the new element from 0.65 -> 1 opacity and 4px translate -> 0 over
-        // 180ms hides the gap; the cubic-bezier keeps the motion soft so a periodic
-        // OOB refresh doesn't feel busy.
+        // Cross-swap transition via the browser's View Transitions API. WidgetRenderHelpers
+        // emits hx-swap-oob="outerHTML transition:true" on OOB responses so HTMX hands
+        // the old->new replacement to the browser instead of doing a hard remove-then-insert.
+        // Two pieces here:
+        //
+        //   1. JS sets a unique `view-transition-name` per [data-sb-widget] so the browser
+        //      pairs the old and new elements correctly and animates only the widget rather
+        //      than the entire document. We assign on initial page load and refresh after
+        //      every settle so newly-swapped widgets get the name too.
+        //
+        //   2. The ::view-transition-old/-new pseudo-element CSS keeps the cross-fade short
+        //      (160ms) and predictable. The old element fades out and slides up 2px while
+        //      the new fades in and slides down 2px -- the motion masks the brief overlap
+        //      so the operator sees a fade, not a flash.
+        //
+        // The previous approach (CSS animation gated on the .htmx-added class) raced HTMX's
+        // 20ms settle window: the class came off before the 180ms animation could finish.
+        // View Transitions don't depend on class lifetime so there's no race.
         output.Content.AppendHtml($@"<style{nonceAttr}>
-[data-sb-widget].htmx-swapping {{ opacity: 0; transition: opacity 80ms ease-in; }}
-[data-sb-widget].htmx-added    {{ animation: sb-widget-swap-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }}
-@keyframes sb-widget-swap-in {{
-  from {{ opacity: 0.55; transform: translateY(3px); }}
-  to   {{ opacity: 1;    transform: translateY(0);   }}
+[data-sb-widget] {{ contain: layout style; }}
+::view-transition-old(sb-widget) {{
+  animation: sb-vt-old 140ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}}
+::view-transition-new(sb-widget) {{
+  animation: sb-vt-new 160ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}}
+@keyframes sb-vt-old {{
+  from {{ opacity: 1; transform: translateY(0);    }}
+  to   {{ opacity: 0; transform: translateY(-2px); }}
+}}
+@keyframes sb-vt-new {{
+  from {{ opacity: 0; transform: translateY(2px); }}
+  to   {{ opacity: 1; transform: translateY(0);   }}
 }}
 </style>
+<script{nonceAttr}>
+(function() {{
+    // Assign a unique view-transition-name per widget so the browser can pair the
+    // old element with its replacement across the OOB swap. We use the widget id
+    // (data-sb-widget value) and re-assign on every settle so freshly-swapped
+    // widgets pick up a name too. Falling back to {{vt-name}} = sb-widget keeps the
+    // CSS selectors deterministic.
+    function nameWidgets() {{
+        document.querySelectorAll('[data-sb-widget]').forEach(function(el) {{
+            if (!el.style.viewTransitionName) el.style.viewTransitionName = 'sb-widget';
+        }});
+    }}
+    if (document.readyState !== 'loading') nameWidgets();
+    else document.addEventListener('DOMContentLoaded', nameWidgets);
+    document.body.addEventListener('htmx:afterSettle', nameWidgets);
+}})();
+</script>
 ");
 
         if (ShowStatus)
