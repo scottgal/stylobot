@@ -372,16 +372,21 @@ public static class DetectionLedgerExtensions
         var ledgerFriendly = BotTypeClassification.IsFriendly(botType);
         var yamlFriendly = BotTypeClassification.IsFriendly(yamlType);
         var hasFriendlyCandidate = ledgerFriendly || yamlFriendly;
-        // Threat-score gate applies universally: a UA pretending to be Googlebot while
-        // probing .env files still gets the standard treatment.
+        // UA is a string -- trivially spoofable. The friendly pin must REQUIRE at least
+        // one corroborating non-UA signal: vendor-IP verification (passing or absent
+        // because the operator has the index in place), or in the future ASN match,
+        // reverse-DNS check, behavioural consistency vs the vendor's known profile.
+        // Threat score, isConfirmedBad, and friendlyIpVerified=false all still block.
         //
-        // isConfirmedBad gate is DROPPED when the YAML pattern authoritatively says this
-        // is a friendly bot. The YAML catalog is curated and is more authoritative than
-        // the reputation cache, which routinely flags benign high-volume crawlers
-        // (MJ12bot, AhrefsBot, SemrushBot) as "can_abort" purely because of request
-        // volume -- volume is a property of crawlers, not of malicious actors. The
-        // reputation cache still wins when we only have weak friendly evidence
-        // (a contributor labelled it friendly without a matching YAML entry).
+        // The friendlyIpVerified semantics carry the rule:
+        //   true  -> IP matches a vendor range; pin fires
+        //   false -> IP check ran and failed (likely spoof); pin DOES NOT fire
+        //   null  -> no IP check available; pin DOES NOT fire (UA alone is not enough)
+        //
+        // Until the Commercial-side IP-range contributor is wired the production
+        // signal will be null, so every "friendly UA" gets standard treatment.
+        // That is the right default. Operators flip it on when they're confident in
+        // their vendor-IP source.
         string friendlyTrace;
         if (!hasFriendlyCandidate)
         {
@@ -391,38 +396,29 @@ public static class DetectionLedgerExtensions
         {
             friendlyTrace = $"skipped:threatScore={threatScore:F2} >= gate({BotTypeClassification.FriendlyThreatGate:F2}) (had friendly candidate {(ledgerFriendly ? botType : yamlType)})";
         }
-        else if (isConfirmedBad && !yamlFriendly)
+        else if (isConfirmedBad)
         {
-            // Only weak (ledger-only) friendly evidence and the reputation cache says
-            // bad: trust the reputation cache.
-            friendlyTrace = $"skipped:isConfirmedBad (weak friendly via ledger only: {botType})";
+            friendlyTrace = $"skipped:isConfirmedBad (had friendly candidate {(ledgerFriendly ? botType : yamlType)})";
         }
-        else if (friendlyIpVerified == false)
+        else if (friendlyIpVerified != true)
         {
-            // UA looks friendly but vendor-IP check failed. Treat as spoofed UA --
-            // probability + threat dimensions decide the band below as if the UA
-            // had never matched a friendly pattern.
-            friendlyTrace = $"skipped:ip_not_verified (UA claims {botName ?? "friendly bot"} as {(ledgerFriendly ? botType : yamlType)} but client IP not in vendor range)";
+            // UA looks friendly but we have NO corroborating IP verification. UA on its
+            // own is not enough -- anyone can send "User-Agent: MJ12bot/v1.4.8". Fall
+            // through to standard band calculation.
+            var reason = friendlyIpVerified == false ? "ip_check_failed" : "ip_check_not_available";
+            friendlyTrace = $"skipped:{reason} (UA claims {botName ?? "friendly bot"} as {(ledgerFriendly ? botType : yamlType)}; UA alone is not sufficient)";
         }
         else if (ledgerFriendly)
         {
-            string kind;
-            if (friendlyIpVerified == true) kind = "ledger+ip";
-            else if (isConfirmedBad)        kind = "ledger+yaml-overrides-reputation";
-            else                            kind = "ledger";
             return (RiskBand.Low,
-                $"identified as {botType} (friendly automation)",
-                $"fired:{kind}:{botType}");
+                $"identified as {botType} (friendly automation, vendor IP verified)",
+                $"fired:ledger+ip:{botType}");
         }
-        else // yamlFriendly == true (proven by hasFriendlyCandidate && !ledgerFriendly)
+        else // yamlFriendly == true && friendlyIpVerified == true
         {
-            string kind;
-            if (friendlyIpVerified == true) kind = "yaml+ip";
-            else if (isConfirmedBad)        kind = "yaml-overrides-reputation";
-            else                            kind = "yaml";
             return (RiskBand.Low,
-                $"identified as {botName} (friendly automation; yaml bot_type {yamlType})",
-                $"fired:{kind}:{botName}:{yamlType}");
+                $"identified as {botName} (friendly automation, vendor IP verified; yaml bot_type {yamlType})",
+                $"fired:yaml+ip:{botName}:{yamlType}");
         }
 
         // Low confidence: not enough data to assess reliably
