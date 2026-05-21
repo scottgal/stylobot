@@ -261,8 +261,8 @@ public class SbLiveUpdatesTagHelper : TagHelper
     // for THIS placement. Without this split, the overview tab's live-activity widget
     // (pageSize=10) wrote sessionStorage that then clobbered the activity tab's
     // SSR pageSize=25, the SignalR refresh sent pageSize=10 in the params, the
-    // partial returned 10 rows, and the visitor saw the SSR list "instantly shorten"
-    // by 60% on the first OOB swap.
+    // partial returned 10 rows, and the visitor saw the SSR list shorten by 60%
+    // on the first OOB swap (the long-flagged 'loads long, instantly shortens' bug).
     var USER_DRIVEN_KEYS = ['filter', 'sort', 'dir', 'page'];
     document.querySelectorAll('[data-sb-widget]').forEach(function(el) {{
         var wid = el.getAttribute('data-sb-widget');
