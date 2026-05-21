@@ -286,6 +286,28 @@ context.GetBotConfidence()
 context.GetBotType()
 ```
 
+### Default posture: observe-only
+
+The Gateway image ships with `BlockDetectedBots = false` and `DefaultActionPolicyName = "throttle-stealth"` for the pre-launch calibration window. Detection runs as normal; responses are delayed rather than refused. A pre-launch banner across the dashboard chrome (`130ebc0`) signals this state. Flipping to enforcement is one config change: set `BlockDetectedBots = true` and pick a non-throttle policy (`block` / `throttle-status` / `throttle-tools` / `challenge`). See [`action-policies.md`](src/Mostlylucid.BotDetection/docs/action-policies.md#default-posture-observe-only).
+
+### Admin endpoints (off by default)
+
+Two operator endpoints under `/stylobot/admin/` let you apply config changes without redeploying:
+- `POST /admin/reload` triggers `IConfigurationRoot.Reload()`; `IOptionsMonitor` consumers see new values on next read.
+- `POST /admin/restart` calls `IHostApplicationLifetime.StopApplication()` after flushing; the supervisor (Docker / systemd / launchctl) restarts the process.
+
+Fail-closed: routing is unmapped unless `StyloBot:Dashboard:Admin:Enabled = true` AND a non-empty `Token` is configured. Bearer comparison is constant-time; attempts log at Warning with source IP. See [`docs/admin-endpoints.md`](docs/admin-endpoints.md).
+
+### Edge-injected client signals (behind a reverse proxy)
+
+When the gateway sits behind Cloudflare / Caddy / nginx / AWS ALB, the proxy-to-origin hop's protocol and TLS are not the client's. The detection pipeline reads injected headers first and falls back to `HttpContext.Request.*` only when none is present:
+
+- `X-Client-HTTP-Version` (also accepts `Sb-Http-Version`)
+- `X-Client-TLS-Version`, `X-Client-TLS-Cipher`, `X-Client-TLS-Ext-Sha1`
+- `X-Client-ASN`
+
+Commercial CF Enterprise extension adds `X-Client-Bot-Score`, `X-Client-Verified-Bot`, `X-Client-JA3`, `X-Client-JA4` (surfaced as `HttpContext.Items` keys; the FOSS gateway ignores them unless the commercial plugin is registered). Recipes for each proxy in [`docs/REVERSE_PROXY_SIGNALS.md`](docs/REVERSE_PROXY_SIGNALS.md).
+
 ## Adding a New Detector
 
 Every detector touches exactly 5 files. Use `Http3FingerprintContributor` as a reference implementation.

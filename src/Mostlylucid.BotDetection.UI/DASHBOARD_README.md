@@ -1,21 +1,39 @@
 # StyloBot Dashboard
 
-Real-time bot detection monitoring dashboard with SignalR live updates, interactive world map, country analytics, bot network cluster visualization, user agent breakdown, and full detection event drill-down.
+Real-time bot detection monitoring dashboard with SignalR live updates, interactive world map, country analytics, bot network cluster visualization, user agent breakdown, session timeline drill-in, endpoint detail panels, and full detection event evidence chains.
 
 ## Features
 
-- **Real-time Updates**: SignalR-powered live feed - detections, signatures, clusters, and summary stats update instantly
-- **Interactive World Map**: jsvectormap with countries colored by bot rate (green to red) and markers sized by request volume
-- **Top Bots Panel**: Ranked bot list from `VisitorListCache` - shared data source with the home page, updated in real-time via SignalR
-- **Countries Tab**: Country-level bot rates, reputation scores, request volumes, geographic threat intelligence
-- **Clusters Tab**: Leiden-detected bot networks with similarity scores, campaign analysis, and cluster membership
-- **User Agents Tab**: UA family aggregation with category badges (Browser/Search/AI/Tool), version distribution, country per UA
-- **Visitors Tab**: Live signature feed with risk bands, bot probability sparklines, narrative explanations
-- **Detections Tab**: Full event log with per-detector contributions, signal breakdown, and evidence chain
-- **Signature Drill-Down**: Click any signature for detailed view with country pin map, detection history, and signal analysis
-- **Dark Mode**: Full dark/light theme support with theme-aware map colors
-- **Export**: Download detections as CSV or JSON
-- **Embed Mode**: `?embed=1` hides the brand header for iframe embedding
+### Layout
+- **Compact metric strip**: Active signatures, request rate, threat ratio, and live cluster count in a single thin strip across the top (replaces the two big header cards from prior releases).
+- **Map + chart on top**: World threat map (jsvectormap) and traffic chart (ApexCharts) sit equal-height side-by-side immediately under the strip, above the tabs.
+- **Pre-launch banner**: Visible across the dashboard chrome when the gateway runs in observe-only mode (the default during calibration).
+- **Theme picker**: Dropdown applies themes immediately; one shared early-paint init across marketing + every FOSS-served page avoids the light-then-dark flash on load.
+- **Embed Mode**: `?embed=1` hides the brand header for iframe embedding; `RenderShell = false` lets a host MVC app skip the dashboard shell entirely.
+
+### Real-time feed
+- **SignalR live updates**: detections, signatures, clusters, and summary stats update instantly. User filter / sort / page state always wins over an OOB swap from a background refresh (cooldown absorbs late-arriving SignalR responses so user-active widgets are never clobbered mid-interaction).
+- **Live activity widget**: Bot detections stream in via the same invalidation pipeline; clickable rows route into signature or session detail.
+
+### Tabs
+- **Visitors**: Live signature feed with risk bands, bot probability sparklines, narrative explanations. Groupable identities (Amazonbot, GPTBot etc.) collapse to one row; humans and tool clients stay distinct.
+- **Top Bots**: Ranked bot list from `VisitorListCache` (shared data source with the home page). Distinctive-modifier guarantees one display name per fingerprint; no duplicate rows.
+- **Countries**: Country-level bot rates, reputation scores, request volumes, geographic threat intelligence. All 271 country flags shipped locally as vendored SVGs (no `flagcdn.com` dependency).
+- **Endpoints**: Per-endpoint table; click through to the endpoint detail panel.
+- **Clusters**: Leiden-detected bot networks with similarity scores, campaign analysis, and cluster membership.
+- **User Agents**: UA family aggregation with category badges (Browser / Search / AI / Tool), version distribution, country per UA, UA-version time series.
+- **Activity**: `sb-top-bots` widget (replaced the prior `_RecentActivity` partial; the activity feed and the top-bots ranking share one canonical source).
+- **Threats**: CVE probe feed with severity badges; live detections on top, ingested threat-intel feeds below.
+
+### Drill-down
+- **Signature detail**: Click any signature row for country pin map, detection history, signal analysis, and the behavioural-shape radar projecting the 129-dim session vector onto 8 axes.
+- **Session detail (full-page route)**: `/_stylobot/sessions/{id}` shows the session's Markov chain, transition timing, and per-axis radar. Synthetic in-flight view: a session that hasn't been finalised still renders with its accumulated state. Behavioral Sessions rows in the dashboard click through.
+- **Endpoint detail**: Per-endpoint response-time stats (min / avg / p95 / max), top visitors (group-collapsed on the "Most regular" table), recent activity. Behavioural history reads in-flight sessions from persisted detections, not just finalised ones.
+- **Detections**: Full event log with per-detector contributions, signal breakdown, and evidence chain.
+- **Export**: Download detections as CSV or JSON.
+
+### Naming
+One canonical pipeline owns display names (`FingerprintNameComposer`). The Razor card, sessions list, top-bots widget, and endpoint detail all read from the same resolver. Friendly-bot names come from `bot-patterns.yaml`, not hard-coded lists.
 
 ## Quick Start
 

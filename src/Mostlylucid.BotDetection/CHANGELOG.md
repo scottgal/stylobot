@@ -5,6 +5,33 @@ All notable changes to the Mostlylucid.BotDetection package will be documented i
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> The **root [`CHANGELOG.md`](../../CHANGELOG.md)** is the authoritative source across the whole solution. Entries below cover the package-visible surface; for dashboard, gateway, console, and cross-cutting changes, follow the root changelog.
+
+## [6.7.0] - 2026-05-21
+
+Pre-launch hardening pass. Detection engine is feature-frozen; this round is operator ergonomics, naming coherence, and a pipeline quality sweep. Full notes in the root [`CHANGELOG.md`](../../CHANGELOG.md#670---2026-05-21).
+
+### Added
+
+- **Edge-injected client signals**: detection pipeline reads `X-Client-HTTP-Version` (and `Sb-Http-Version` fallback), `X-Client-TLS-Version`, `X-Client-TLS-Cipher`, `X-Client-TLS-Ext-Sha1`, `X-Client-ASN` from a fronting reverse proxy. Falls back to `HttpContext.Request.*` only when none is present. Single Cloudflare Transform Rule, Caddy `header_up`, and nginx `proxy_set_header` recipes in [`REVERSE_PROXY_SIGNALS.md`](../../docs/REVERSE_PROXY_SIGNALS.md).
+- **Admin endpoints**: bearer-token `POST /stylobot/admin/reload` (config reload, no restart) and `POST /stylobot/admin/restart` (graceful supervisor-driven restart). Off by default; fail-closed when `Token` is empty. See [`admin-endpoints.md`](../../docs/admin-endpoints.md).
+
+### Changed
+
+- **Foundation contributor contract tightened**: `PeriodicityContributor` and `IdentityChangeContributor` now implement `IFoundationContributor` so they run unconditionally (they derive identity from the request, not from prior detector output). Previously they were policy-gated and silently skipped on some paths.
+- **`FingerprintMatchContributor` self-computes the identity vector** when the wave race elides the upstream signal. No more silent failures when `IdentityVectorContributor` lands after the matcher in a particular ordering.
+- **Naming surface**: one canonical pipeline owns display names. `FingerprintNameComposer` got a distinctive modifier that guarantees one display name per fingerprint id; friendly-bot names live in `bot-patterns.yaml` instead of a hard-coded list; the `(country:sigprefix)` suffix no longer gets crammed into composed names.
+- **Pre-launch observe-only default**: Gateway image ships with `BlockDetectedBots = false` and `DefaultActionPolicyName = "throttle-stealth"`. Flipping to enforcement is one config change; see the new "Default posture" section in [`action-policies.md`](docs/action-policies.md#default-posture-observe-only).
+
+### Fixed
+
+- **29 dead `SignalKeys` removed**: keys that no detector wrote and no consumer read. Reduces the blackboard contract surface.
+- **Rate-limiter TOCTOU**: budget check and budget update are now under one lock.
+- **`IdentityChange` signal dedupe**: same identity-change event was being recorded twice on some paths.
+- **`ExtractThreatScore`**: now reads honeypot + attack signals too, so a CVE probe with no bot-typed contribution still scores correctly.
+- **YARP integration**: null-guard `evidence.Signals` before dereference; no more NRE when a detection arrives with an empty signal map.
+- **Cache warm-from-DB**: `SignatureAggregateCache` pre-populates from the persisted `signatures` table on startup with a distinct-by-signature warmup pass.
+
 ## [6.0.0-alpha] - 2026-04-21
 
 ### Breaking Changes

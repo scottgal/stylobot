@@ -5,6 +5,116 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.7.0] - 2026-05-21
+
+This release is the pre-launch hardening pass. The detection engine is feature-frozen; this round is about operator ergonomics (admin reload, edge-injected client signals), dashboard surface (compact metric strip, session detail full-page route, endpoint detail panel, theme picker), naming coherence (one canonical pipeline, no duplicate names across a fingerprint), and a pipeline quality sweep that removes dead code from 6.x prototyping. Default posture is observe-only with a pre-launch banner so operators can calibrate before flipping to hard block.
+
+### Added: admin reload + restart endpoints
+
+Operators can now apply config changes (action-policy weights, path policies, learning toggles) without redeploying. Two endpoints live under `/stylobot/admin/`:
+
+- `POST /admin/reload`: reloads `IConfigurationRoot`. `IOptionsMonitor` consumers see the new values on their next read. No process restart, no traffic interruption. Returns `200 {"status":"reloaded"}`.
+- `POST /admin/restart`: flushes the response and calls `IHostApplicationLifetime.StopApplication()`. The supervisor (Docker, systemd, launchctl) brings a fresh process up. Returns `202 {"status":"restarting"}`.
+
+Off by default (preserves the small-surface posture). Fail-closed: `Enabled=true` with an empty `Token` returns `401` plus the exact config key to set, not an anonymous allow path. Bearer token compared in constant time, attempts logged at Warning with source IP. `BasePath` defaults to `/stylobot/admin` so existing reverse-proxy rules covering the dashboard already cover admin. See `docs/admin-endpoints.md`.
+
+### Added: edge-injected client signals (Cloudflare Transform Rules + Sb-* fallbacks)
+
+When the gateway sits behind a reverse proxy that terminates TLS, it only sees the proxy-to-origin hop's protocol/TLS/IP, so the Fingerprint Profile card on the dashboard would show `HTTP/1.1`, blank TLS version, etc. forever. The gateway now reads injected headers from the edge first and falls back to `HttpContext.Request.*` only when none is present:
+
+- `X-Client-HTTP-Version` (also accepts `Sb-Http-Version`): real client HTTP version. Sourced from `http.request.version` on Cloudflare, `$server_protocol` on nginx, `{http.request.proto}` on Caddy.
+- `X-Client-TLS-Version`, `X-Client-TLS-Cipher`, `X-Client-TLS-Ext-Sha1`: TLS handshake metadata. Cloudflare `cf.tls_version` / `cf.tls_cipher` / `cf.tls_client_extensions_sha1`.
+- `X-Client-ASN`: edge-resolved ASN for datacenter detection.
+
+Setup is a single Cloudflare Transform Rule (one rule, five dynamic headers). No code changes on the gateway side. Documented end-to-end in `docs/REVERSE_PROXY_SIGNALS.md` with Cloudflare, Caddy, nginx, and AWS ALB recipes.
+
+Commercial CF Enterprise extension (in `stylobot-commercial`): four more headers (`X-Client-Bot-Score`, `X-Client-Verified-Bot`, `X-Client-JA3`, `X-Client-JA4`) surface CF Bot Management signals as `HttpContext.Items` keys for downstream contributors. The FOSS gateway ignores them when the plugin is absent.
+
+### Added: pre-launch observe-only default
+
+The Gateway image ships with `BlockDetectedBots = false` and `DefaultActionPolicyName = throttle-stealth` for the calibration window leading into RTM. Detection runs as normal; the response is delayed rather than refused. A pre-launch banner across the dashboard chrome ((130ebc0)) tells operators (and dashboard visitors on stylobot.net itself) that this site is observe-only while the engine learns real-traffic baselines.
+
+To flip to hard block once you've calibrated, set:
+
+```json
+"BotDetection": {
+  "BlockDetectedBots": true,
+  "DefaultActionPolicyName": "block"
+}
+```
+
+Pick one of `block` / `throttle-status` / `throttle-tools` / `challenge` depending on whether you want a 403, a polite 429+Retry-After, an exponential-backoff 429 (for curl/wget), or a CAPTCHA path.
+
+### Changed: naming pipeline (one canonical path, one display name per fingerprint)
+
+Six separate places used to compose display names. They drifted: the Razor card and the sessions list and the top-bots widget would each call a different helper and show three labels for the same fingerprint. This release collapses every naming path to one canonical pipeline owned by `FingerprintNameComposer`:
+
+- `DescriptiveBotName` and display helpers extracted from Razor to `BotDisplayHelpers` with test coverage (`9d61e14`).
+- Session BotName resolver extracted to `SessionEnrichmentExtensions`; sessions list now shows English bot names instead of raw signature IDs; falls back to the `dashboard_signatures` table on cache miss (`23f1ea4`, `d7aa277`, `02528fb`).
+- Hard-coded friendly-bot list deleted; the names live in `bot-patterns.yaml` instead (`c843c98`, `c043503`).
+- `(country:sigprefix)` no longer cramming itself into composed names (`35e4c83`).
+- Verified-bot convergence: when multiple verified-bot rows resolve to the same canonical name, they collapse into one row at the data layer (humans + tools stay distinct) (`e0325a0`, `bac663f`).
+- `Suspicious` is no longer applied to 1% bot-probability humans (`bac663f`).
+- No-duplicate-names invariant enforced at render time in the top-bots widget (`0e55c43`).
+- New: distinctive modifier on `FingerprintNameComposer` guarantees one display name per fingerprint id even when two visitors collide on user-agent string (`bdc9a84`).
+
+End result: every signature row in the FOSS card clicks through to a signature detail page (`131c8d5`); groupable identities like Amazonbot collapse to one row in the Visitors list and on the endpoint detail "Most regular" table (`5080137`, `f35f810`).
+
+### Changed: dashboard restructure (compact strip + map+chart on top + fewer tabs)
+
+The dashboard header was two big cards taking half the fold. Now: a single compact metric strip across the top, then the world threat map and traffic chart equal-height side-by-side, then the tabbed surface with several legacy tabs removed (`a7ad7c1`, `24fb44a`, `dfa4fc4`).
+
+- **Behavioural-shape radar in bot-detection-details** (`743b7e9`): the 8-axis projection from the 129-dim session vector is now shown on the detail card, not just on the session timeline.
+- **Endpoint detail panel** (`7d60bdb`): per-endpoint response-time stats (min / avg / p95 / max) (`90981e6`), top visitors, recent activity. Razor comment that was leaking as literal HTML fixed (`4abe970`).
+- **UA-version history** (`8d73760`): time-series of Chrome / Firefox / Safari major-version distribution sourced from existing detection data (no new ingest path).
+- **Theme picker** (`b38bf04`): the dropdown actually applies themes now and the option labels are readable. One shared early-paint theme init across marketing + every FOSS-served page (`090bffc`) so the page doesn't flash light-then-dark on load.
+- **Vendored flag SVGs** (`77230e8`): all 271 country flags ship locally; `flagcdn.com` removed from the network path (and from CSP, except a small allow for legacy paths during transition: `838dd0d`).
+- **Detection details icons** (`222d5e6`): emoji icons replaced with boxicons for consistent rendering across OSes.
+- **Pre-launch banner** (`130ebc0`): visible on every dashboard page.
+- **RenderPage / RenderShell** (`e20ab22`, `9bb4f91`): host MVC integration; the dashboard header is theme-responsive and embeddable hosts can opt out of the shell.
+- **`IOptions<StyloBotDashboardOptions>` registered** (`b1fe5b6`) so widgets see host config instead of defaults.
+
+### Changed: session + endpoint detail are first-class routes
+
+- **Full-page session detail route** (`62ed8cc`): `/_stylobot/sessions/{id}`; Behavioral Sessions rows in the dashboard click through.
+- **Synthetic in-flight session view** (`b722fd3`): a session that hasn't been finalised yet still renders with its accumulated state.
+- **Behavioral history reads in-flight sessions** (`5953f68`, `a33aadc`): the per-fingerprint history pulls from persisted detections rather than the in-memory accumulator, so a fingerprint that's still mid-session shows its current shape correctly.
+- **Shared navbar** across signature + endpoint detail (`1984f50`, `823f3f2`); the partial broke once in the FOSS bundle context and was reverted+refixed (`971ea36`, `4804ab4`).
+- **Sessions filter propagation** (`340c163`): drill-down preserves the parent filter.
+
+### Changed: live-update arbitration (the user always wins)
+
+The dashboard polls SignalR for live invalidations *and* lets the user filter/sort/page. The previous behaviour: an OOB swap from the background poll could clobber the user's filter selection mid-interaction. New rule: user-active widgets refuse OOB swaps; a cooldown absorbs late-arriving SignalR responses; user paging + filter + sort always wins over a background refresh (`15e8273`, `903dc67`, `410df77`, `65f38a5`, `7856a6d`).
+
+- `COOLDOWN_MS` magic promoted to `StyloBotDashboardOptions` so it can be tuned per deployment (`6d163a5`).
+- `data-href` click handler promoted to the `SbLiveUpdates` global instead of being re-attached per widget (`2b13c09`).
+- Activity-tab SSR view-component matches OOB collapse state, so the panel doesn't flicker open-then-closed on page load (`0d14e0d`).
+- Live-activity widget wired into the SignalR invalidation pipeline (`13e4cdb`).
+
+### Changed: pipeline quality sweep
+
+- **29 dead SignalKeys removed** (`1d215b6`): keys that no detector wrote and no consumer read. Reduces the noise in the blackboard contract.
+- **Rate-limiter TOCTOU fixed** (`1d215b6`): the "is this signature over its budget" check and the budget update are now under one lock.
+- **`Periodicity` + `IdentityChange` marked `IFoundationContributor`** (`e4f40fe`): both compute identity from the request rather than depending on prior detector output, so they must run unconditionally. Previously they were policy-gated and silently skipped on some paths. See `docs/architecture/signal-contracts.md` for the foundation contract.
+- **`FingerprintMatchContributor` self-computes the identity vector** (`96abda2`) when the wave race elides the upstream signal: it no longer fails silently when `IdentityVectorContributor` lands after the matcher in a particular ordering.
+- **`IdentityChange` signals deduped** (`1d215b6`): same identity-change event was being recorded twice on some paths.
+- **Cache warm from DB on startup** (`8eba798`): `SignatureAggregateCache` pre-populates from the persisted `signatures` table instead of waiting for live traffic to repopulate it. Distinct-by-signature on warmup so a chatty source can't blank the cache (`862124c`).
+- **`ExtractThreatScore` reads honeypot + attack signals** (`8c0a9f0`): previously only looked at the bot-typed signals. Now a CVE probe with no bot-typed contribution still scores correctly.
+- **YARP evidence.Signals null-guard** (`7e9032a`): the YARP integration path no longer NREs when a detection arrives with an empty signal map.
+
+### Fixed: dead code removal
+
+- `_RecentActivity` partial + its route + the dispatcher case all removed; the Activity tab uses the canonical `sb-top-bots` widget instead (`e16ca40`, `da5ab94`).
+- Dead `Unique()` wrapper deleted; `IsGroupableIdentity` is the single check (`3dab851`).
+- 29 SignalKeys deleted (above).
+- BDF replay rig at `Mostlylucid.BotDetection.Orchestration.Tests/Integration/BdfReplayTests.Integration.cs` runs under `DetectionPolicy.Default` and asserts on the foundation read surface so future contributor additions can't silently regress the dashboard.
+
+### Docs
+
+- New: `docs/admin-endpoints.md` covers the `/admin/reload` + `/admin/restart` surface end-to-end.
+- New: `docs/REVERSE_PROXY_SIGNALS.md` covers Cloudflare Transform Rules + Caddy + nginx + AWS ALB recipes for injecting client TLS/HTTP/ASN signals; commercial CF Enterprise recipe documented.
+- Updated: `docs/README.md` indexes the new operator docs.
+
 ## [Unreleased] - 6.5.1
 
 ### Added — Friendly clustering bots (`throttle-status` + per-instance naming)

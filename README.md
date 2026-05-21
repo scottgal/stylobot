@@ -6,7 +6,7 @@ Current versions are in development. With version 7 (due early June 2026) this w
 ## STATUS
 With version 6.x these are the stabilisation versions - IT IS LIKELY THEY WILL BREAK - as I work through this. StyloBot is now *feature complete* and I'm now stabilising it with a view to a June 1st RTM
 
-The website https://www.stylobot.net will also be updated at that time (right now it's VERY old and unstable). 
+The website https://www.stylobot.net will also be updated at that time (right now it's VERY old and unstable). The live site itself runs the gateway in observe-only mode (detection runs, no 403s) during the calibration window; the dashboard's pre-launch banner makes this visible. Flipping to enforcement is one config change (`BlockDetectedBots: true` + `DefaultActionPolicyName: "block"`): see [`action-policies.md`](src/Mostlylucid.BotDetection/docs/action-policies.md#default-posture-observe-only). 
 
 [PLEASE REPORT ANY BUGS IN ISSUES ](https://github.com/scottgal/stylobot/issues)
 

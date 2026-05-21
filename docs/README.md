@@ -52,9 +52,11 @@
 
 ## Gateway & Dashboard
 
-- [`Stylobot.Gateway/README.md`](../Stylobot.Gateway/README.md) - Docker YARP gateway
-- [`Stylobot.Gateway/docs/DOCKERHUB.md`](../Stylobot.Gateway/docs/DOCKERHUB.md) - Docker Hub
-- [`Mostlylucid.BotDetection.UI/README.md`](../Mostlylucid.BotDetection.UI/README.md) - Dashboard + SignalR
+- [`Stylobot.Gateway/README.md`](../src/Stylobot.Gateway/README.md) - Docker YARP gateway
+- [`Stylobot.Gateway/docs/DOCKERHUB.md`](../src/Stylobot.Gateway/docs/DOCKERHUB.md) - Docker Hub
+- [`Mostlylucid.BotDetection.UI/README.md`](../src/Mostlylucid.BotDetection.UI/README.md) - Dashboard + SignalR
+- [`admin-endpoints.md`](admin-endpoints.md) - Bearer-token `/admin/reload` + `/admin/restart` (off by default)
+- [`REVERSE_PROXY_SIGNALS.md`](REVERSE_PROXY_SIGNALS.md) - Inject client TLS / HTTP version / ASN from Cloudflare / Caddy / nginx
 
 ## Other Components
 

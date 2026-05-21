@@ -54,6 +54,41 @@ flowchart TB
     Allow --> Response
 ```
 
+## Default posture: observe-only
+
+The Gateway image (and the `AddBotDetection()` defaults) ship with:
+
+```json
+"BotDetection": {
+  "BlockDetectedBots": false,
+  "DefaultActionPolicyName": "throttle-stealth"
+}
+```
+
+Detection runs as normal; the response is delayed rather than refused. This is the right posture for a calibration window: you want to see what the engine flags on real traffic before you start serving 403s. The dashboard's pre-launch banner reflects this state when present.
+
+### Flipping to hard block
+
+Once you've watched the dashboard for a day or two and the labels look right, switch to enforcement with one config change:
+
+```json
+"BotDetection": {
+  "BlockDetectedBots": true,
+  "DefaultActionPolicyName": "block"
+}
+```
+
+Pick the policy that matches your risk appetite:
+
+| Policy            | What it does                                                                | Use when                                              |
+|-------------------|-----------------------------------------------------------------------------|-------------------------------------------------------|
+| `block`           | Hard 403 with `Access denied` body                                          | High-confidence bots; default for enforced deployments|
+| `throttle-status` | Fast 429 with `Retry-After: 60` (polite back-off)                           | Friendly clustering bots (fediverse stampedes)        |
+| `throttle-tools`  | 429 with delay-derived `Retry-After` + exponential backoff                  | curl / wget / python-requests scrapers                |
+| `challenge`       | CAPTCHA / proof-of-work intermediate page                                   | Borderline 0.5-0.7 probability band                   |
+
+Apply the action `block` to your most certain detections and graduate the rest with `Transitions`: see the per-risk-band example further down the page.
+
 ## Quick Start
 
 ### Two Lines of Code
