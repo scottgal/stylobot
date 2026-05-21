@@ -221,6 +221,32 @@ public sealed class StyloBotDashboardOptions
     ///     auto-honeypots from documented operations.
     /// </summary>
     public OpenApiSeedOptions OpenApi { get; set; } = new();
+
+    /// <summary>
+    ///     Admin control-plane endpoints (POST /admin/reload, POST /admin/restart) for
+    ///     applying config changes during operator setup. Both endpoints require a
+    ///     Bearer token; when <see cref="AdminOptions.Token"/> is null/empty the routes
+    ///     return 404 so their existence isn't advertised.
+    /// </summary>
+    public AdminOptions Admin { get; set; } = new();
+}
+
+public sealed class AdminOptions
+{
+    /// <summary>
+    ///     Shared-secret bearer token. Set via <c>StyloBot:Dashboard:Admin:Token</c>
+    ///     or the env var <c>STYLOBOT_ADMIN_TOKEN</c>. Empty/null disables the admin
+    ///     endpoints entirely (404). Pick something long and random; rotated on incident.
+    /// </summary>
+    public string? Token { get; set; }
+
+    /// <summary>
+    ///     Path the admin middleware listens on, relative to the host root. Default
+    ///     <c>/stylobot/admin</c> -- sits under the dashboard base path so reverse-proxy
+    ///     rules already in place for the dashboard cover it. Endpoints are
+    ///     <c>POST {BasePath}/reload</c> and <c>POST {BasePath}/restart</c>.
+    /// </summary>
+    public string BasePath { get; set; } = "/stylobot/admin";
 }
 
 public sealed class MonitoringPackOptions

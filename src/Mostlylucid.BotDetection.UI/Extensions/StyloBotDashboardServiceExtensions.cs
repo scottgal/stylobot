@@ -404,6 +404,13 @@ public static class StyloBotDashboardServiceExtensions
 
         if (options?.Enabled == true)
         {
+            // Admin endpoints (POST /stylobot/admin/{reload,restart}). The middleware
+            // short-circuits any non-admin path immediately and 404s admin paths when
+            // no token is configured, so it's safe to register unconditionally here.
+            // Must run BEFORE StyloBotDashboardMiddleware so the dashboard never sees
+            // the admin path.
+            app.UseMiddleware<StyloBotAdminMiddleware>();
+
             // Dashboard UI middleware
             app.UseMiddleware<StyloBotDashboardMiddleware>();
 
