@@ -574,6 +574,24 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<VerifiedBotRegistry>();
         services.AddHostedService(sp => sp.GetRequiredService<VerifiedBotRegistry>());
         services.AddSingleton<IContributingDetector, VerifiedBotContributor>();
+        // Fediverse domain verification (priority 5) - NodeInfo lookup against the
+        // +https://instance/ URL in Mastodon/Pleroma/Misskey UAs. The cross-
+        // corroboration analogue to IP-range verification for traffic that runs
+        // on arbitrary cloud IPs. Verifier uses a typed HttpClient with strict
+        // SSRF guards (no IP literals, no .local/.localhost/.invalid/.internal,
+        // https-only, 3s timeout, 32KB max body). Cache: 24h positive / 1h
+        // negative -- hot path is a dictionary lookup, only first-encounter
+        // domains pay outbound HTTPS cost.
+        services.AddHttpClient<IFediverseDomainVerifier, FediverseDomainVerifier>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(5);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("stylobot-nodeinfo-verifier/1.0 (+https://stylobot.net)");
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+        {
+            AllowAutoRedirect = false,  // SSRF guard -- no redirect chains
+            UseCookies = false
+        });
+        services.AddSingleton<IContributingDetector, FediverseDomainContributor>();
         // Threat-intel enrichment (priority 7) - reads cached verdicts from
         // IThreatIntelCoordinator (offline pack: Spamhaus, Tor, KEV, cloud ranges).
         // FOSS default: coordinator IsEnabled=false (master switch off + every

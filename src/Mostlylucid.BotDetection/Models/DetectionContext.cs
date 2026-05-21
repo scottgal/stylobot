@@ -288,6 +288,21 @@ public static class SignalKeys
     /// case the friendly pin falls back to UA-only behaviour (FOSS default).</summary>
     public const string FriendlyIpVerified = "friendly.ip_verified";
 
+    /// <summary>Bool: set by FediverseDomainContributor when a UA matching the
+    /// canonical fediverse pattern (Mastodon, Pleroma, Misskey, etc., where UA
+    /// contains "+https://instance/") is corroborated by a successful NodeInfo
+    /// lookup against that instance. NodeInfo is the ActivityPub-spec mechanism
+    /// for proving an instance domain hosts real fediverse software -- the
+    /// protocol-defined cross-corroboration signal for traffic that cannot be
+    /// IP-range verified (instances run on arbitrary cloud IPs).
+    ///
+    /// Semantics mirror FriendlyIpVerified: true = NodeInfo confirmed, false =
+    /// lookup ran and failed (likely spoofed UA), null = no verification
+    /// attempted. Treated as a parallel corroborating signal: when EITHER
+    /// FriendlyIpVerified or FriendlyDomainVerified is true the friendly pin
+    /// fires; either being false still blocks.</summary>
+    public const string FriendlyDomainVerified = "friendly.domain_verified";
+
     // AI/LLM signals
     public const string AiPrediction = "ai.prediction";
     public const string AiConfidence = "ai.confidence";

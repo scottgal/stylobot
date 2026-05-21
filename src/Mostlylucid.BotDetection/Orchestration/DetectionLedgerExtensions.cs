@@ -57,6 +57,14 @@ public static class DetectionLedgerExtensions
         var friendlyIpVerified = preSignals.TryGetValue(SignalKeys.FriendlyIpVerified, out var fipv)
             ? (bool?)Convert.ToBoolean(fipv)
             : null;
+        // NodeInfo / fediverse-domain verification (FediverseDomainContributor in
+        // this repo). Same bool? semantics: true = +https://instance/ in UA was
+        // confirmed by a NodeInfo lookup; false = lookup ran and failed; null = no
+        // check attempted (UA was not fediverse-shaped or verifier disabled).
+        // Either this OR friendlyIpVerified satisfies the friendly-pin gate.
+        var friendlyDomainVerified = preSignals.TryGetValue(SignalKeys.FriendlyDomainVerified, out var fdv)
+            ? (bool?)Convert.ToBoolean(fdv)
+            : null;
         // ledger.BotType is last-writer-wins (HeuristicEarly often overwrites the
         // authoritative UA pattern's "GoodBot" with a generic "Scraper" guess), but
         // DetermineRiskBand's own YAML fallback recovers from that by looking the
@@ -67,7 +75,7 @@ public static class DetectionLedgerExtensions
 
         var (riskBand, riskJustification, friendlyPinTrace) = DetermineRiskBand(botProbability, confidence, aiRan,
             earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory,
-            ledgerBotType, ledger.BotName, friendlyIpVerified);
+            ledgerBotType, ledger.BotName, friendlyIpVerified, friendlyDomainVerified);
 
         // PrimaryBotType stays gated on classification — it's a claim about WHAT KIND of bot
         // ("this looks like a Scraper") and is only meaningful when classified as bot.
@@ -351,7 +359,8 @@ public static class DetectionLedgerExtensions
         string? intentCategory = null,
         BotType? botType = null,
         string? botName = null,
-        bool? friendlyIpVerified = null)
+        bool? friendlyIpVerified = null,
+        bool? friendlyDomainVerified = null)
     {
         // Friendly bot types (search engines, fediverse link previewers, monitoring,
         // explicitly-verified good bots) get pinned to Low even when probability is
@@ -374,20 +383,30 @@ public static class DetectionLedgerExtensions
         var yamlFriendly = BotTypeClassification.IsFriendly(yamlType);
         var hasFriendlyCandidate = ledgerFriendly || yamlFriendly;
         // UA is a string -- trivially spoofable. The friendly pin must REQUIRE at least
-        // one corroborating non-UA signal: vendor-IP verification (passing or absent
-        // because the operator has the index in place), or in the future ASN match,
-        // reverse-DNS check, behavioural consistency vs the vendor's known profile.
-        // Threat score, isConfirmedBad, and friendlyIpVerified=false all still block.
+        // one corroborating non-UA signal. Two paths in:
+        //   1. friendlyIpVerified == true: client IP matches the vendor's published
+        //      ranges (Googlebot, Bingbot, MJ12bot). Commercial-only today.
+        //   2. friendlyDomainVerified == true: UA carries +https://instance/ and a
+        //      NodeInfo lookup against that instance confirmed real fediverse software
+        //      (Mastodon, Pleroma, Misskey, etc.). This is the ActivityPub-spec
+        //      corroboration for traffic that CANNOT be IP-range verified because
+        //      every instance runs on arbitrary cloud IPs.
         //
-        // The friendlyIpVerified semantics carry the rule:
-        //   true  -> IP matches a vendor range; pin fires
-        //   false -> IP check ran and failed (likely spoof); pin DOES NOT fire
-        //   null  -> no IP check available; pin DOES NOT fire (UA alone is not enough)
+        // Either path satisfies the gate. Threat score, isConfirmedBad, and an
+        // EXPLICIT false on either signal still block (false means "the check ran
+        // and the UA is spoofed").
         //
-        // Until the Commercial-side IP-range contributor is wired the production
-        // signal will be null, so every "friendly UA" gets standard treatment.
-        // That is the right default. Operators flip it on when they're confident in
-        // their vendor-IP source.
+        // Until the corresponding contributor wires its signal (Commercial GoodBotIp
+        // index, or the FediverseDomainContributor in this repo) both stay null and
+        // friendly UAs get standard treatment. That is the right default -- UA alone
+        // is not enough.
+        var ipVerified = friendlyIpVerified == true;
+        var domainVerified = friendlyDomainVerified == true;
+        var ipExplicitlyFailed = friendlyIpVerified == false;
+        var domainExplicitlyFailed = friendlyDomainVerified == false;
+        var anyVerified = ipVerified || domainVerified;
+        var anyExplicitlyFailed = ipExplicitlyFailed || domainExplicitlyFailed;
+
         string friendlyTrace;
         if (!hasFriendlyCandidate)
         {
@@ -401,25 +420,38 @@ public static class DetectionLedgerExtensions
         {
             friendlyTrace = $"skipped:isConfirmedBad (had friendly candidate {(ledgerFriendly ? botType : yamlType)})";
         }
-        else if (friendlyIpVerified != true)
+        else if (anyExplicitlyFailed && !anyVerified)
         {
-            // UA looks friendly but we have NO corroborating IP verification. UA on its
-            // own is not enough -- anyone can send "User-Agent: MJ12bot/v1.4.8". Fall
-            // through to standard band calculation.
-            var reason = friendlyIpVerified == false ? "ip_check_failed" : "ip_check_not_available";
-            friendlyTrace = $"skipped:{reason} (UA claims {botName ?? "friendly bot"} as {(ledgerFriendly ? botType : yamlType)}; UA alone is not sufficient)";
+            // A check RAN and failed (spoofed UA). Even if the other check was absent,
+            // a failed check overrides -- the UA claimed friendly software but the
+            // corroborating channel said no.
+            var reason = ipExplicitlyFailed ? "ip_check_failed" : "domain_check_failed";
+            friendlyTrace = $"skipped:{reason} (UA claims {botName ?? "friendly bot"} as {(ledgerFriendly ? botType : yamlType)}; corroboration failed)";
         }
-        else if (ledgerFriendly)
+        else if (!anyVerified)
         {
-            return (RiskBand.Low,
-                $"identified as {botType} (friendly automation, vendor IP verified)",
-                $"fired:ledger+ip:{botType}");
+            // No corroboration available at all. UA on its own is not enough --
+            // anyone can send "User-Agent: MJ12bot/v1.4.8" or "Mastodon/4.2.0".
+            friendlyTrace = $"skipped:no_corroboration (UA claims {botName ?? "friendly bot"} as {(ledgerFriendly ? botType : yamlType)}; UA alone is not sufficient)";
         }
-        else // yamlFriendly == true && friendlyIpVerified == true
+        else
         {
+            // At least one channel confirmed. Build a precise trace describing which.
+            var source = (ipVerified, domainVerified) switch
+            {
+                (true, true)  => "ip+domain",
+                (true, false) => "ip",
+                _             => "domain"
+            };
+            if (ledgerFriendly)
+            {
+                return (RiskBand.Low,
+                    $"identified as {botType} (friendly automation, {source} verified)",
+                    $"fired:ledger+{source}:{botType}");
+            }
             return (RiskBand.Low,
-                $"identified as {botName} (friendly automation, vendor IP verified; yaml bot_type {yamlType})",
-                $"fired:yaml+ip:{botName}:{yamlType}");
+                $"identified as {botName} (friendly automation, {source} verified; yaml bot_type {yamlType})",
+                $"fired:yaml+{source}:{botName}:{yamlType}");
         }
 
         // Low confidence: not enough data to assess reliably
