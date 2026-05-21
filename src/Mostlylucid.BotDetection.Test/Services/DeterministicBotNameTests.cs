@@ -195,14 +195,16 @@ public class DeterministicBotNameTests
     // ─── Priority 4: cold state ────────────────────────────────────────
 
     [Fact]
-    public async Task EmptySignals_ReturnsAnalysing()
+    public async Task EmptySignals_ReturnsNull()
     {
+        // Post-naming-refactor contract: the composer returns null when it has
+        // nothing to compose from. The matcher (DetectionLedgerExtensions.ResolveDisplayName)
+        // owns fallback display, not the synthesizer.
         var signals = new Dictionary<string, object?>();
 
         var name = await _synthesizer.SynthesizeBotNameAsync(signals);
 
-        Assert.NotNull(name);
-        Assert.StartsWith("analysing", name);
+        Assert.Null(name);
     }
 
     // ─── Detailed (name + description) ─────────────────────────────────
