@@ -226,16 +226,46 @@ public static class DetectionLedgerExtensions
     private static (double ThreatScore, ThreatBand Band) ExtractThreatScore(
         IReadOnlyDictionary<string, object> signals)
     {
+        // Take the max threat score across every contributor that produces one.
+        // Previously only intent.threat_score was read, so a request that hit a
+        // honeypot path OR carried an injection-class HaxxorContributor signal
+        // still resolved to ThreatBand.None on the dashboard -- the operator
+        // saw "Threat: None" on an xmlrpc.php brute-force probe because the
+        // intent contributor didn't classify the session yet.
         double threatScore = 0.0;
-        if (signals.TryGetValue(SignalKeys.IntentThreatScore, out var rawScore))
+
+        // 1. Intent classifier (existing, 0-1 scale)
+        if (signals.TryGetValue(SignalKeys.IntentThreatScore, out var rawIntent))
+            threatScore = Math.Max(threatScore, AsDouble(rawIntent));
+
+        // 2. Project Honeypot DNSBL (writes 0-100; ProjectHoneypotContributor uses
+        //    35 = suspicious, 75 = comment-spammer, 100 = harvester). Normalise to
+        //    0-1 so it ranks alongside the intent score.
+        if (signals.TryGetValue(SignalKeys.HoneypotThreatScore, out var rawHp))
         {
-            threatScore = rawScore switch
+            var hp = AsDouble(rawHp);
+            // Some emitters use 0-1 already (DNSBL response parsing varies). Detect
+            // and rescale; values >1 are the 0-100 form.
+            if (hp > 1.0) hp /= 100.0;
+            threatScore = Math.Max(threatScore, hp);
+        }
+
+        // 3. HaxxorContributor severity (string). xmlrpc, wp-login, .env, .git,
+        //    SQL injection / XSS / SSRF payloads all surface here. Mapping the
+        //    discrete severity ladder onto the same 0-1 axis: an injection-class
+        //    payload at 'critical' should land on Critical band.
+        if (signals.TryGetValue(SignalKeys.AttackSeverity, out var rawSeverity)
+            && rawSeverity is string severity)
+        {
+            var attackScore = severity.ToLowerInvariant() switch
             {
-                double d => d,
-                float f => f,
-                int i => i,
-                _ => 0.0
+                "critical" => 0.95,
+                "high"     => 0.75,
+                "medium"   => 0.50,
+                "low"      => 0.30,
+                _          => 0.0
             };
+            threatScore = Math.Max(threatScore, attackScore);
         }
 
         var band = threatScore switch
@@ -249,6 +279,15 @@ public static class DetectionLedgerExtensions
 
         return (threatScore, band);
     }
+
+    private static double AsDouble(object value) => value switch
+    {
+        double d => d,
+        float f => f,
+        int i => i,
+        long l => l,
+        _ => 0.0
+    };
 
     private static double ComputeCoverageConfidence(IReadOnlySet<string> detectorsRan, bool aiRan)
     {
