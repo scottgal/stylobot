@@ -874,16 +874,9 @@ else
             history.back();
         }
     });
-    // Generic row-click delegation for data-href -- used by Behavioral Sessions rows
-    // to navigate to /dashboard/session?sig=...&id=... without inline onclick handlers
-    // (CSP-safe). Real anchors inside the row win so explicit links still work.
-    document.addEventListener('click', function(e) {
-        if (e.target.closest('a, button, input, select, textarea, [hx-get], [hx-post]')) return;
-        var row = e.target.closest('[data-href]');
-        if (!row) return;
-        var href = row.getAttribute('data-href');
-        if (href) window.location.href = href;
-    });
+    // (The generic data-href click delegation lives in SbLiveUpdatesTagHelper so every
+    //  dashboard surface picks it up automatically; the Behavioral Sessions rows on
+    //  this page rely on that global handler.)
     </script>
 </body>
 </html>

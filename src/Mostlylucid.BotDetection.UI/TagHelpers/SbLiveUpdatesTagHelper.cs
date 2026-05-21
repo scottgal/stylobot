@@ -162,6 +162,20 @@ public class SbLiveUpdatesTagHelper : TagHelper
         var wid = widgetForElt(ev.detail && ev.detail.elt);
         if (wid) userActiveWidgets.delete(wid);
     }});
+
+    // Global row-click delegation: any element carrying data-href becomes a clickable
+    // row that navigates to that URL on click. Used by the Behavioral Sessions table,
+    // the EndpointsCompact rows, and any future widget that wants a whole-row click
+    // target without nesting inline onclick handlers (CSP-safe). Real interactive
+    // children (links, buttons, form fields, htmx triggers) keep their own click
+    // behaviour via the exclusion guard.
+    document.body.addEventListener('click', function(ev) {{
+        if (ev.target.closest('a, button, input, select, textarea, label, [hx-get], [hx-post]')) return;
+        var row = ev.target.closest('[data-href]');
+        if (!row) return;
+        var href = row.getAttribute('data-href');
+        if (href) window.location.href = href;
+    }});
     document.body.addEventListener('htmx:sendError', function(ev) {{
         var wid = widgetForElt(ev.detail && ev.detail.elt);
         if (wid) userActiveWidgets.delete(wid);
