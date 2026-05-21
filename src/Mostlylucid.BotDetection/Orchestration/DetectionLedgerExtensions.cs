@@ -372,18 +372,30 @@ public static class DetectionLedgerExtensions
         var ledgerFriendly = BotTypeClassification.IsFriendly(botType);
         var yamlFriendly = BotTypeClassification.IsFriendly(yamlType);
         var hasFriendlyCandidate = ledgerFriendly || yamlFriendly;
+        // Threat-score gate applies universally: a UA pretending to be Googlebot while
+        // probing .env files still gets the standard treatment.
+        //
+        // isConfirmedBad gate is DROPPED when the YAML pattern authoritatively says this
+        // is a friendly bot. The YAML catalog is curated and is more authoritative than
+        // the reputation cache, which routinely flags benign high-volume crawlers
+        // (MJ12bot, AhrefsBot, SemrushBot) as "can_abort" purely because of request
+        // volume -- volume is a property of crawlers, not of malicious actors. The
+        // reputation cache still wins when we only have weak friendly evidence
+        // (a contributor labelled it friendly without a matching YAML entry).
         string friendlyTrace;
         if (!hasFriendlyCandidate)
         {
             friendlyTrace = $"not-applicable:botType={botType?.ToString() ?? "null"},yamlType={yamlType?.ToString() ?? "null"},botName={botName ?? "null"}";
         }
-        else if (isConfirmedBad)
-        {
-            friendlyTrace = $"skipped:isConfirmedBad (had friendly candidate {(ledgerFriendly ? botType : yamlType)})";
-        }
         else if (threatScore >= BotTypeClassification.FriendlyThreatGate)
         {
             friendlyTrace = $"skipped:threatScore={threatScore:F2} >= gate({BotTypeClassification.FriendlyThreatGate:F2}) (had friendly candidate {(ledgerFriendly ? botType : yamlType)})";
+        }
+        else if (isConfirmedBad && !yamlFriendly)
+        {
+            // Only weak (ledger-only) friendly evidence and the reputation cache says
+            // bad: trust the reputation cache.
+            friendlyTrace = $"skipped:isConfirmedBad (weak friendly via ledger only: {botType})";
         }
         else if (friendlyIpVerified == false)
         {
@@ -394,16 +406,23 @@ public static class DetectionLedgerExtensions
         }
         else if (ledgerFriendly)
         {
-            var trace = friendlyIpVerified == true
-                ? $"fired:ledger+ip:{botType}"
-                : $"fired:ledger:{botType}";
+            var trace = (friendlyIpVerified == true, isConfirmedBad) switch
+            {
+                (true,  _    ) => $"fired:ledger+ip:{botType}",
+                (false, _    ) => $"fired:ledger:{botType}",  // unreachable; here for completeness
+                (_,     true ) => $"fired:ledger+yaml-overrides-reputation:{botType}",
+                _              => $"fired:ledger:{botType}"
+            };
             return (RiskBand.Low, $"identified as {botType} (friendly automation)", trace);
         }
         else // yamlFriendly == true (proven by hasFriendlyCandidate && !ledgerFriendly)
         {
-            var trace = friendlyIpVerified == true
-                ? $"fired:yaml+ip:{botName}:{yamlType}"
-                : $"fired:yaml:{botName}:{yamlType}";
+            var trace = (friendlyIpVerified == true, isConfirmedBad) switch
+            {
+                (true,  _    ) => $"fired:yaml+ip:{botName}:{yamlType}",
+                (_,     true ) => $"fired:yaml-overrides-reputation:{botName}:{yamlType}",
+                _              => $"fired:yaml:{botName}:{yamlType}"
+            };
             return (RiskBand.Low,
                 $"identified as {botName} (friendly automation; yaml bot_type {yamlType})",
                 trace);
