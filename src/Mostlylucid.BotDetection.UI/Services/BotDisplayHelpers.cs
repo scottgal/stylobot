@@ -272,6 +272,49 @@ public static class BotDisplayHelpers
         _                               => "text-success"
     };
 
+    /// <summary>
+    ///     Boxicon class for an HTTP method. Used alongside <see cref="ColorForHttpMethod"/>
+    ///     to render the method as a coloured icon-pill in endpoint cards.
+    /// </summary>
+    public static string IconForHttpMethod(string? method) => (method ?? "").ToUpperInvariant() switch
+    {
+        "GET"     => "bx bx-down-arrow-alt",
+        "POST"    => "bx bx-up-arrow-alt",
+        "PUT"     => "bx bx-edit",
+        "PATCH"   => "bx bx-edit-alt",
+        "DELETE"  => "bx bx-trash",
+        "HEAD"    => "bx bx-info-circle",
+        "OPTIONS" => "bx bx-cog",
+        _         => "bx bx-transfer"
+    };
+
+    /// <summary>Tailwind text-colour for an HTTP method (matches REST mutation severity).</summary>
+    public static string ColorForHttpMethod(string? method) => (method ?? "").ToUpperInvariant() switch
+    {
+        "GET" or "HEAD" or "OPTIONS" => "text-success",
+        "POST"                       => "text-warning",
+        "PUT" or "PATCH"             => "text-info",
+        "DELETE"                     => "text-error",
+        _                            => "text-base-content/50"
+    };
+
+    /// <summary>
+    ///     Boxicon for the path category returned by <see cref="CategorizePath"/>.
+    ///     Kept beside CategorizePath so the icon and label stay in sync if we
+    ///     add or rename categories.
+    /// </summary>
+    public static string IconForPathCategory(string category) => category switch
+    {
+        "ENV Scanner"     => "bx bx-key",
+        "Config Scanner"  => "bx bx-cog",
+        "Admin Scanner"   => "bx bx-shield-quarter",
+        "Backup Scanner"  => "bx bx-archive",
+        "API Scanner"     => "bx bx-server",
+        "Auth Scanner"    => "bx bx-lock",
+        "App Scanner"     => "bx bx-code-alt",
+        _                 => "bx bx-link"
+    };
+
     /// <summary>Severity ranking used to break ties and compare bands.</summary>
     public static int RiskSeverity(string? band) => band switch
     {
