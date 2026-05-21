@@ -193,6 +193,15 @@ public class VisitorListCache
             _ => items
         };
 
+        // Same grouping rule used for Top Bots / Live Activity: rows that share a
+        // verified-bot identity name (Amazonbot / Googlebot / ClaudeBot etc.) collapse
+        // into one aggregate, summing Hits across the group, keeping the latest-seen
+        // canonical row. Without this, the matcher converging 30 source IPs onto the
+        // Amazonbot identity rendered as 30 separate "Amazonbot Hits: 1" cards. The
+        // groupable predicate lives in WidgetRenderHelpers -- one source of truth used
+        // by both this surface and SbTopBots/Default.cshtml.
+        items = CollapseGroupable(items);
+
         items = (sortField, sortDir) switch
         {
             ("name", "asc") => items.OrderBy(v => v.BotName ?? v.PrimarySignature),
@@ -234,6 +243,63 @@ public class VisitorListCache
             Search = all.Count(v => v.IsBot && IsSearchBot(v)),
             Tools = all.Count(v => v.IsBot && IsToolBot(v))
         };
+    }
+
+    /// <summary>
+    ///     Collapse multiple rows that share a verified-bot identity (Amazonbot,
+    ///     Googlebot, ClaudeBot, etc.) into one aggregate per name. The groupable
+    ///     predicate is shared with SbTopBots via
+    ///     <see cref="Middleware.WidgetRenderHelpers.IsGroupableIdentity(string?,string?,string?)"/>
+    ///     so the visitor card list and the Top Bots list always agree on what
+    ///     counts as the same identity.
+    /// </summary>
+    private static IEnumerable<CachedVisitor> CollapseGroupable(IEnumerable<CachedVisitor> source)
+    {
+        var list = source.ToList();
+        foreach (var grp in list.GroupBy(
+            v => Middleware.WidgetRenderHelpers.IsGroupableIdentity(customBotName: null, v.BotName, v.BotType)
+                 ? "name:" + v.BotName
+                 : "sig:" + v.PrimarySignature,
+            StringComparer.Ordinal))
+        {
+            var members = grp.ToList();
+            if (members.Count == 1) { yield return members[0]; continue; }
+
+            // Pick the latest-seen as canonical, sum hits, take max bot probability,
+            // earliest first-seen across the group.
+            var canonical = members.OrderByDescending(v => v.LastSeen).First();
+            yield return new CachedVisitor
+            {
+                PrimarySignature = canonical.PrimarySignature,
+                Hits = members.Sum(v => v.Hits),
+                FirstSeen = members.Min(v => v.FirstSeen == default ? DateTime.MaxValue : v.FirstSeen),
+                LastSeen = members.Max(v => v.LastSeen),
+                IsBot = canonical.IsBot,
+                BotProbability = members.Max(v => v.BotProbability),
+                Confidence = canonical.Confidence,
+                RiskBand = canonical.RiskBand,
+                LastPath = canonical.LastPath,
+                Paths = canonical.Paths,
+                Action = canonical.Action,
+                BotName = canonical.BotName,
+                BotType = canonical.BotType,
+                CountryCode = canonical.CountryCode,
+                UserAgent = canonical.UserAgent,
+                Narrative = canonical.Narrative,
+                Description = canonical.Description,
+                TopReasons = canonical.TopReasons,
+                ProcessingTimeMs = canonical.ProcessingTimeMs,
+                MaxProcessingTimeMs = members.Max(v => v.MaxProcessingTimeMs),
+                MinProcessingTimeMs = members.Min(v => v.MinProcessingTimeMs > 0 ? v.MinProcessingTimeMs : double.MaxValue),
+                ProcessingTimeHistory = canonical.ProcessingTimeHistory,
+                BotProbabilityHistory = canonical.BotProbabilityHistory,
+                ConfidenceHistory = canonical.ConfidenceHistory,
+                LastRequestId = canonical.LastRequestId,
+                ThreatScore = members.Max(v => v.ThreatScore),
+                ThreatBand = canonical.ThreatBand,
+                Protocol = canonical.Protocol
+            };
+        }
     }
 
     /// <summary>

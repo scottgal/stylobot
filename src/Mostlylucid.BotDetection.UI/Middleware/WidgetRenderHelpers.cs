@@ -91,12 +91,20 @@ internal static class WidgetRenderHelpers
     ///     must be a known-bot category (not "Tool" / "Unknown") -- tools and humans are
     ///     different actors who share a UA family and must NOT collapse.
     /// </summary>
-    public static bool IsGroupableIdentity(DashboardTopBotEntry b)
+    public static bool IsGroupableIdentity(DashboardTopBotEntry b) =>
+        IsGroupableIdentity(b.CustomBotName, b.BotName, b.BotType);
+
+    /// <summary>
+    ///     Primitive-typed predicate overload so non-DashboardTopBotEntry surfaces
+    ///     (CachedVisitor in VisitorListCache.GetFiltered, anything else) can share
+    ///     the same "is safe to collapse" rule without re-implementing it.
+    /// </summary>
+    public static bool IsGroupableIdentity(string? customBotName, string? botName, string? botType)
     {
-        if (b.CustomBotName != null) return true;
-        if (b.BotName == null) return false;
-        return b.BotType is not null
-            && !string.Equals(b.BotType, "Tool", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(b.BotType, "Unknown", StringComparison.OrdinalIgnoreCase);
+        if (customBotName != null) return true;
+        if (botName == null) return false;
+        return botType is not null
+            && !string.Equals(botType, "Tool", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(botType, "Unknown", StringComparison.OrdinalIgnoreCase);
     }
 }
