@@ -438,10 +438,6 @@ public class StyloBotDashboardMiddleware
                 await ServeBotBreakdownPartialAsync(context);
                 break;
 
-            case "partials/recent":
-                await ServeRecentActivityPartialAsync(context);
-                break;
-
             case "partials/sessions":
                 await ServeSessionsPartialAsync(context);
                 break;
@@ -4035,56 +4031,6 @@ public class StyloBotDashboardMiddleware
         await context.Response.WriteAsync(html);
     }
 
-    private async Task ServeRecentActivityPartialAsync(HttpContext context)
-    {
-        var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
-        var filter = context.Request.Query["filter"].FirstOrDefault() ?? "all";
-        var sortField = context.Request.Query["sort"].FirstOrDefault() ?? "lastSeen";
-        var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
-        var page = int.TryParse(context.Request.Query["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
-        var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 50 ? ps : 10;
-
-        // Map recent activity filters to visitor cache filter categories
-        var cacheFilter = filter switch
-        {
-            "bots" => "bot",
-            "humans" => "human",
-            "threats" => "bot", // threats = bots with high threat scores, filtered below
-            _ => "all"
-        };
-
-        var (items, totalCount, _, _) = visitorCache.GetFiltered(cacheFilter, sortField, sortDir, page, pageSize);
-
-        // For "threats" filter, further narrow to high threat scores
-        if (filter == "threats")
-        {
-            items = items.Where(v =>
-                (!string.IsNullOrEmpty(v.ThreatBand) && v.ThreatBand is not ("None" or "Low"))
-                || v.BotProbability > 0.8).ToList();
-            totalCount = items.Count;
-        }
-
-        var counts = visitorCache.GetCounts();
-
-        var model = new VisitorListModel
-        {
-            Visitors = items,
-            Counts = counts,
-            Filter = filter,
-            SortField = sortField,
-            SortDir = sortDir,
-            Page = page,
-            PageSize = pageSize,
-            TotalCount = totalCount,
-            BasePath = _options.BasePath.TrimEnd('/')
-        };
-
-        context.Response.ContentType = "text/html";
-        var html = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/StyloBot/Dashboard/_RecentActivity.cshtml", model, context);
-        await context.Response.WriteAsync(html);
-    }
-
     /// <summary>Render the user agents list partial with server-side filter, sort, and pagination.</summary>
     private async Task ServeUserAgentsPartialAsync(HttpContext context)
     {
@@ -4156,7 +4102,6 @@ public class StyloBotDashboardMiddleware
                         page: WidgetRenderHelpers.QueryPage(q),
                         pageSize: WidgetRenderHelpers.QueryPageSize(q, 25),
                         filter: q["filter"].FirstOrDefault())),
-                "recent" => await RenderRecentActivityPartialAsync(context, q),
                 "your-detection" => await RenderPartialAsync(context, "/Views/StyloBot/Dashboard/_YourDetection.cshtml", BuildYourDetectionPartialModel(context)),
                 _ => ""
             };
@@ -4233,31 +4178,6 @@ public class StyloBotDashboardMiddleware
         var data = await GetEndpointsDataAsync(context);
         var model = BuildEndpointsModel(sortField, sortDir, page, 20, data);
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Shared/Components/SbEndpointsList/Default.cshtml", model, context);
-    }
-
-    private async Task<string> RenderRecentActivityPartialAsync(HttpContext context, IQueryCollection? q = null)
-    {
-        q ??= context.Request.Query;
-        // Defaults must match the controller's SSR (Marketing DashboardController + FOSS
-        // dashboard Index.cshtml both use pageSize=24). Mismatched defaults here were
-        // the "loads with a LOT of results then instantly switches to a few" bug --
-        // SSR painted 24 rows, the first SignalR-driven OOB refresh replaced with 10.
-        var filter = q["filter"].FirstOrDefault() ?? "all";
-        var sortField = q["sort"].FirstOrDefault() ?? "lastSeen";
-        var sortDir = q["dir"].FirstOrDefault() ?? "desc";
-        var page = WidgetRenderHelpers.QueryPage(q);
-        var pageSize = WidgetRenderHelpers.QueryPageSize(q, 24);
-
-        var visitorCache = context.RequestServices.GetRequiredService<VisitorListCache>();
-        var (items, totalCount, _, _) = visitorCache.GetFiltered(filter, sortField, sortDir, page, pageSize);
-        var model = new VisitorListModel
-        {
-            Visitors = items, Counts = visitorCache.GetCounts(),
-            Filter = filter, SortField = sortField, SortDir = sortDir,
-            Page = page, PageSize = pageSize, TotalCount = totalCount,
-            BasePath = _options.BasePath.TrimEnd('/')
-        };
-        return await _razorViewRenderer.RenderViewToStringAsync("/Views/StyloBot/Dashboard/_RecentActivity.cshtml", model, context);
     }
 
     private async Task<string> RenderUaPartialAsync(HttpContext context, IQueryCollection? q = null)
