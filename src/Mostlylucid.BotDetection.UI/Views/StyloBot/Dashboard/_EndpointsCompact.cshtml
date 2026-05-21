@@ -9,7 +9,7 @@
 }
 else
 {
-    @{ var pathMaxW = Model.IsCompact ? "max-w-[140px]" : "max-w-[220px]"; }
+    var pathMaxW = Model.IsCompact ? "max-w-[140px]" : "max-w-[220px]";
     <div class="@(Model.IsCompact ? "overflow-hidden" : "overflow-x-auto")">
         <table class="table table-xs w-full @(Model.IsCompact ? "table-fixed" : "")">
             <thead>
