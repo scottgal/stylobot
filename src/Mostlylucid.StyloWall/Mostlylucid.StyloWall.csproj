@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <IsPackable>true</IsPackable>
+        <PackageId>mostlylucid.stylowall</PackageId>
+        <PackageTags>stylowall;stylobot;semantic-firewall;response-transform;aspnetcore;middleware</PackageTags>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <Description>
+            StyloWall: a semantic firewall that runs alongside StyloBot. Provides the
+            response-modification pipeline (IResponseTransform), gating middleware, and
+            verdict-driven content rewriting. Optimization packs (HTML to Markdown,
+            image rewriting, minification) ship as separate packages.
+        </Description>
+        <PackageReleaseNotes>$([System.IO.File]::ReadAllText("$(MSBuildProjectDirectory)/ReleaseNotes.txt"))</PackageReleaseNotes>
+        <TargetFrameworks>net10.0</TargetFrameworks>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+        <IsTrimmable>false</IsTrimmable>
+        <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <MinVerTagPrefix>stylowall-v</MinVerTagPrefix>
+        <MinVerSkip Condition="'$(Configuration)' == 'Debug'">true</MinVerSkip>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Mostlylucid.BotDetection\Mostlylucid.BotDetection.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="MinVer" Version="7.0.0">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="ReleaseNotes.txt" />
+        <None Include=".\README.md" Pack="true" PackagePath="">
+            <Link>Properties\README.md</Link>
+        </None>
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,7 @@
+0.1.0
+Initial StyloWall optimization pack.
+
+- HtmlToMarkdownTransform: AngleSharp-based HTML to Markdown emitter
+- Supports headings, paragraphs, lists, code blocks, links, images, blockquotes, GFM tables
+- Skips scripts/styles/iframes by walker design (no separate sanitizer needed for v1)
+- Content-root preference: <main> / <article> when present

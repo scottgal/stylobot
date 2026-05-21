@@ -1,0 +1,7 @@
+0.1.0
+Initial scaffold of StyloWall: the semantic firewall layer for StyloBot.
+
+- IResponseTransform pipeline abstraction
+- StyloWallMiddleware (gated response buffering + transform chain)
+- Verdict-driven gate: AI-scraper detection, Accept: text/markdown, route rules, ?format=md
+- StyloWallOptions for configuration
