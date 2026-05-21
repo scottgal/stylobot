@@ -22,8 +22,11 @@ namespace Mostlylucid.BotDetection.UI.Middleware;
 ///     </para>
 ///     <para>
 ///     Auth: <c>Authorization: Bearer &lt;token&gt;</c> where the token matches
-///     <see cref="AdminOptions.Token"/>. Comparison is constant-time. When the option is
-///     unset the middleware returns 404 so its routes don't appear to exist.
+///     <see cref="AdminOptions.Token"/>. Comparison is constant-time. There is no
+///     anonymous fallback -- when the token is unset the endpoints return 401
+///     with a body that tells the operator to configure
+///     <c>StyloBot:Dashboard:Admin:Token</c>. Requests never reach the reload or
+///     restart handlers without a matching bearer.
 ///     </para>
 /// </summary>
 public sealed class StyloBotAdminMiddleware
@@ -54,16 +57,17 @@ public sealed class StyloBotAdminMiddleware
         var path = context.Request.Path.Value ?? string.Empty;
         var token = _options.Admin.Token;
 
-        // Bail to the rest of the pipeline if this isn't an admin route. Includes the
-        // disabled-token case so an attacker probing /stylobot/admin/* sees the same 404
-        // they would see for any other unmatched path -- no signal that admin exists.
+        // Anything off the admin base path is none of our business.
         if (!path.StartsWith(basePath + "/", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;
         }
 
-        if (string.IsNullOrEmpty(token))
+        // Disabled by default. Operator must explicitly set Admin:Enabled=true.
+        // When disabled, admin paths fall through to the rest of the pipeline (so
+        // they 404 like any other unmatched path -- no admin surface advertised).
+        if (!_options.Admin.Enabled)
         {
             await _next(context);
             return;
@@ -73,6 +77,23 @@ public sealed class StyloBotAdminMiddleware
         {
             context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
             context.Response.Headers["Allow"] = "POST";
+            return;
+        }
+
+        // No anonymous path through. If the operator hasn't configured a token, the
+        // admin endpoints are unreachable -- 401 with a body that points at the
+        // exact config key so the operator knows what to set instead of guessing.
+        if (string.IsNullOrEmpty(token))
+        {
+            _logger.LogWarning(
+                "Admin request rejected: no AdminToken configured ({Path} from {IP})",
+                path, context.Connection.RemoteIpAddress);
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.Headers["WWW-Authenticate"] = "Bearer realm=\"stylobot-admin\"";
+            context.Response.ContentType = "application/json";
+            await context.Response.WriteAsync(
+                "{\"status\":\"admin_disabled\"," +
+                "\"message\":\"Set StyloBot:Dashboard:Admin:Token to enable admin endpoints.\"}");
             return;
         }
 

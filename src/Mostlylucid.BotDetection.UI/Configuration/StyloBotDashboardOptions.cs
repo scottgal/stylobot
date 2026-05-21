@@ -234,9 +234,20 @@ public sealed class StyloBotDashboardOptions
 public sealed class AdminOptions
 {
     /// <summary>
-    ///     Shared-secret bearer token. Set via <c>StyloBot:Dashboard:Admin:Token</c>
-    ///     or the env var <c>STYLOBOT_ADMIN_TOKEN</c>. Empty/null disables the admin
-    ///     endpoints entirely (404). Pick something long and random; rotated on incident.
+    ///     Off by default. Set true in your operator-side appsettings (or via
+    ///     <c>STYLOBOT_ADMIN_ENABLED=true</c>) to turn the admin endpoints on. When
+    ///     false the middleware short-circuits and admin paths fall through to the
+    ///     rest of the pipeline (404), so the endpoints aren't exposed at all.
+    /// </summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>
+    ///     Shared-secret bearer token. Required when <see cref="Enabled"/> is true;
+    ///     set via <c>StyloBot:Dashboard:Admin:Token</c> or the env var
+    ///     <c>STYLOBOT_ADMIN_TOKEN</c>. Pick something long and random; rotated on
+    ///     incident. If <see cref="Enabled"/> is true but Token is empty the
+    ///     endpoints return 401 with a body pointing at the missing config key --
+    ///     there is no anonymous path.
     /// </summary>
     public string? Token { get; set; }
 
