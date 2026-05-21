@@ -1,13 +1,45 @@
 @using Mostlylucid.BotDetection.UI.Services
 @model Mostlylucid.BotDetection.UI.Models.InvestigationViewModel
+@inject SignatureAggregateCache AggregateCache
 
 @*
-    Cloudflare-style consolidated signature row (stage 1).
-    Icons + colour replace text-heavy badges; horizontal probability bar replaces the raw
-    "high/medium/low" label; a single threat icon replaces the small text pill. Sparkline
-    column (HitCount history) lands in stage 2 once the per-signature time series is plumbed
-    into SignatureSummary -- placeholder dot for now so the layout reads correctly.
+    Cloudflare-style consolidated signature row (stage 1 + stage 2).
+
+    Stage 1: icons + colour replace text-heavy badges; horizontal risk-severity bars
+    replace the raw "high/medium/low" label; verified tick + category pill carry the
+    classification at-a-glance.
+
+    Stage 2: inline SVG sparkline rendered from SignatureAggregateCache.GetSparkline
+    for each row -- the cache already holds a per-signature rolling bot-probability
+    history, so the temporal series surfaces here without a new data path or new DB
+    query. The cache is injected at render time; misses fall through to the placeholder
+    dot so the column never shifts the layout while data warms.
 *@
+
+@functions {
+    // Render a sparkline polyline from a series of values in [0,1].
+    // Inline so a missing cache entry doesn't cost a partial render -- caller passes
+    // null when the series is unavailable.
+    string SparklinePoints(IReadOnlyList<double> values, int width, int height)
+    {
+        if (values == null || values.Count < 2) return string.Empty;
+        var minVal = double.MaxValue;
+        var maxVal = double.MinValue;
+        foreach (var v in values) { if (v < minVal) minVal = v; if (v > maxVal) maxVal = v; }
+        var range = maxVal - minVal;
+        if (range <= 0) range = 1; // flat line — keep it centred
+        var step = values.Count == 1 ? 0d : (double)width / (values.Count - 1);
+        var pts = new System.Text.StringBuilder();
+        for (var i = 0; i < values.Count; i++)
+        {
+            var x = i * step;
+            var y = height - ((values[i] - minVal) / range) * height;
+            if (i > 0) pts.Append(' ');
+            pts.Append($"{x:F1},{y:F1}");
+        }
+        return pts.ToString();
+    }
+}
 
 <div class="sb-investigate-signatures grid gap-2"
      style="grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));">
@@ -61,10 +93,30 @@
                         <span class="text-sm font-bold text-base-content tabular-nums">@hitsText</span>
                         <span class="text-[10px] text-base-content/40">hits</span>
                     </div>
-                    <!-- Sparkline placeholder (stage 2 will plumb HitHistory through SignatureSummary).
-                         A flat dot keeps the column reserved so stage 2 lands without a layout shift. -->
+                    <!-- Sparkline: per-signature bot-probability series from SignatureAggregateCache.
+                         Rendered inline so we never block on a sparkline data fetch -- if the cache
+                         has no series for this signature (warmup-cold) we drop a placeholder dot. -->
+                    @{
+                        var sparkValues = AggregateCache?.GetSparkline(sig.PrimarySignature);
+                        var sparkPoints = sparkValues != null ? SparklinePoints(sparkValues, 56, 14) : null;
+                        var sparkColor = sig.RiskBand switch
+                        {
+                            "VeryHigh" or "Critical" or "High" => "var(--sb-signal-danger, #ef4444)",
+                            "Elevated" or "Medium"             => "var(--sb-signal-warn, #f59e0b)",
+                            _                                   => "var(--sb-signal-pos, #22c55e)"
+                        };
+                    }
                     <div class="w-16 h-4 flex items-center justify-center" aria-hidden="true">
-                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/20"></span>
+                        @if (!string.IsNullOrEmpty(sparkPoints))
+                        {
+                            <svg viewBox="0 0 56 14" width="56" height="14" xmlns="http://www.w3.org/2000/svg" class="overflow-visible">
+                                <polyline points="@sparkPoints" fill="none" stroke="@sparkColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        }
+                        else
+                        {
+                            <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/20"></span>
+                        }
                     </div>
                 </div>
 
