@@ -59,14 +59,7 @@
     <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/fonts.css" />
     <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js" nonce="@Model.CspNonce"></script>
     <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/apexcharts.min.js" nonce="@Model.CspNonce"></script>
-    <script nonce="@Model.CspNonce">
-        (function() {
-            try {
-                var saved = localStorage.getItem('sb-theme') || 'dark';
-                document.documentElement.setAttribute('data-theme', saved);
-            } catch(e) {}
-        })();
-    </script>
+    @await Html.PartialAsync("_ThemeBoot")
     <style nonce="@Model.CspNonce">
         :root, [data-theme] {
             --sb-surface:      var(--color-base-200);

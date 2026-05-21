@@ -27,12 +27,14 @@
     <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/world-merc.js" nonce="@Model.CspNonce"></script>
     <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/apexcharts.min.js" nonce="@Model.CspNonce"></script>
 
+    @* Early-paint theme applied via the shared _ThemeBoot partial -- one
+       script across the marketing site and every FOSS-served page, so
+       picking 'coffee' on stylobot.net survives the navigation to
+       /dashboard without resetting to 'dark'. *@
+    @await Html.PartialAsync("_ThemeBoot")
+
     <script nonce="@Model.CspNonce">
         (function() {
-            try {
-                var saved = localStorage.getItem('sb-theme') || 'dark';
-                document.documentElement.setAttribute('data-theme', saved);
-            } catch(e) {}
             if (new URLSearchParams(window.location.search).get('embed') === '1') {
                 document.addEventListener('DOMContentLoaded', function() {
                     var hdr = document.getElementById('sb-brand-header');

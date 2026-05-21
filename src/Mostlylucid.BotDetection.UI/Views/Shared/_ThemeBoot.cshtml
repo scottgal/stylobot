@@ -1,0 +1,41 @@
+@*
+    Single early-paint theme initialiser. Every page that needs to honour the
+    sb-theme localStorage value before stylesheets load includes this partial
+    inside its <head>. The change-listener UI (the 21-option theme picker)
+    lives in _StylobotNavbar.cshtml -- this script just reads what the picker
+    saved and applies it before the first frame, eliminating the light-to-dark
+    flash on reload.
+
+    Before this consolidation:
+      - mostlylucid.stylobot.website _Layout.cshtml had its own copy
+      - FOSS Index.cshtml had a 'or "dark"' fallback (lost system preference)
+      - _SignatureDetail.cshtml had a third copy
+      - StyloBotDashboardMiddleware embedded a fourth in C# string literals
+      - main.ts had a 2-state Alpine themeSwitcher that CLOBBERED everything
+        back to dark/light on every marketing navigation, dropping coffee /
+        nord / synthwave / etc. silently.
+
+    One file = one source of truth. The 21-theme whitelist mirrors
+    tailwind.config.cjs (marketing) + tailwind-input.css (FOSS UI). Keep
+    them in lock-step.
+*@
+@{
+    var nonce = Context.Items["CspNonce"]?.ToString() ?? "";
+}
+<script nonce="@nonce">
+    (function() {
+        var ALLOWED = new Set([
+            'dark','light','dim','night','dracula','synthwave','cyberpunk','nord',
+            'cupcake','bumblebee','emerald','corporate','retro','forest','aqua',
+            'luxury','coffee','sunset','winter','lofi','black'
+        ]);
+        try {
+            var saved = localStorage.getItem('sb-theme');
+            var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            var mode = ALLOWED.has(saved) ? saved : (prefersDark ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', mode);
+            // 'dark' class kept in sync for any Tailwind-darkMode-class selectors.
+            document.documentElement.classList.toggle('dark', mode !== 'light');
+        } catch (_) {}
+    })();
+</script>

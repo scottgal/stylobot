@@ -4615,11 +4615,14 @@ public class StyloBotDashboardMiddleware
         // it here in the same shell the signature-detail page uses so theme + assets + nav
         // are consistent across drill-down pages.
         var detailHtml = await RenderEndpointDetailBodyAsync(context, method, path);
-        // Render the shared site-wide navbar partial here so the endpoint detail page
-        // gets the same chrome as the marketing site and dashboard root. Brand styles
+        // Render the shared navbar AND theme-boot partials here so the endpoint
+        // detail page gets the same chrome AND theme handling as the marketing
+        // site / dashboard root / signature detail. Brand styles
         // (brand-wordmark / nav-link / logo-adaptive) now ship in the vendor bundle.
         var navbarHtml = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/_StylobotNavbar.cshtml", model: null!, context);
+        var themeBootHtml = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/_ThemeBoot.cshtml", model: null!, context);
         var cspNonce = context.Items.TryGetValue("CspNonce", out var n) && n is string ns ? ns : "";
         var navBp = (string.IsNullOrEmpty(_options.NavBasePath) ? _options.BasePath : _options.NavBasePath).TrimEnd('/');
         var pageTitle = $"{method} {path} -- StyloBot endpoint detail";
@@ -4638,7 +4641,7 @@ public class StyloBotDashboardMiddleware
 <link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/fonts.css"" />
 <script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js"" nonce=""{cspNonce}""></script>
 <script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/apexcharts.min.js"" nonce=""{cspNonce}""></script>
-<script nonce=""{cspNonce}"">(function(){{try{{var t=localStorage.getItem('sb-theme')||'dark';document.documentElement.setAttribute('data-theme',t);}}catch(e){{}}}})();</script>
+{themeBootHtml}
 <style nonce=""{cspNonce}"">
 :root, [data-theme] {{
   --sb-surface: var(--color-base-200);
@@ -4696,6 +4699,8 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         var detailHtml = await RenderSessionDetailBodyAsync(context, sig, idStr);
         var navbarHtml = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/_StylobotNavbar.cshtml", model: null!, context);
+        var themeBootHtml = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/Shared/_ThemeBoot.cshtml", model: null!, context);
         var cspNonce = context.Items.TryGetValue("CspNonce", out var n) && n is string ns ? ns : "";
         var navBp = (string.IsNullOrEmpty(_options.NavBasePath) ? _options.BasePath : _options.NavBasePath).TrimEnd('/');
         var sigEncoded = Uri.EscapeDataString(sig);
@@ -4714,7 +4719,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 <link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/fonts.css"" />
 <script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js"" nonce=""{cspNonce}""></script>
 <script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/apexcharts.min.js"" nonce=""{cspNonce}""></script>
-<script nonce=""{cspNonce}"">(function(){{try{{var t=localStorage.getItem('sb-theme')||'dark';document.documentElement.setAttribute('data-theme',t);}}catch(e){{}}}})();</script>
+{themeBootHtml}
 <style nonce=""{cspNonce}"">
 :root, [data-theme] {{
   --sb-surface: var(--color-base-200);
