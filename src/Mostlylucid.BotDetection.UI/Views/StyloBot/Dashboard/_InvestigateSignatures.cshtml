@@ -1,28 +1,88 @@
+@using Mostlylucid.BotDetection.UI.Services
 @model Mostlylucid.BotDetection.UI.Models.InvestigationViewModel
 
-<div class="sb-investigate-signatures" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:0.75rem;">
+@*
+    Cloudflare-style consolidated signature row (stage 1).
+    Icons + colour replace text-heavy badges; horizontal probability bar replaces the raw
+    "high/medium/low" label; a single threat icon replaces the small text pill. Sparkline
+    column (HitCount history) lands in stage 2 once the per-signature time series is plumbed
+    into SignatureSummary -- placeholder dot for now so the layout reads correctly.
+*@
+
+<div class="sb-investigate-signatures grid gap-2"
+     style="grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));">
     @foreach (var sig in Model.Result.Signatures)
     {
-        var riskColor = sig.RiskBand switch { "high" => "var(--sb-signal-danger)", "medium" => "var(--sb-signal-warn)", _ => "var(--sb-signal-pos)" };
-        <div style="padding:0.75rem; background:var(--sb-card-bg); border:1px solid var(--sb-card-border); border-radius:8px; cursor:pointer;"
+        var displayName = sig.BotName ?? (sig.PrimarySignature?.Length > 16
+            ? sig.PrimarySignature[..16] + "…"
+            : sig.PrimarySignature) ?? "(unknown)";
+        var typeIcon = BotDisplayHelpers.IconForBotType(sig.BotType);
+        var categoryClass = BotDisplayHelpers.CategoryBadgeClass(sig.BotType);
+        var riskColor = BotDisplayHelpers.ColorForRiskBand(sig.RiskBand);
+        var riskSev = BotDisplayHelpers.RiskSeverity(sig.RiskBand);
+        var riskBars = Math.Max(1, riskSev);
+        var lastSeen = BotDisplayHelpers.TimeAgoCompact(sig.LastSeen);
+        var hitsText = sig.HitCount >= 1000 ? $"{sig.HitCount / 1000.0:F1}k" : sig.HitCount.ToString();
+
+        <div class="card bg-base-200 border border-base-300 hover:border-primary/40 transition-colors cursor-pointer"
              hx-get="@Model.BasePath/investigate?type=signature&value=@sig.PrimarySignature"
              hx-target="#investigate-view"
              hx-swap="outerHTML transition:true">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-                <span style="font-weight:600; font-size:0.9rem;">@(sig.BotName ?? sig.PrimarySignature?[..Math.Min(sig.PrimarySignature?.Length ?? 0, 20)])</span>
-                <span style="color:@riskColor; font-weight:600; font-size:0.8rem;">@sig.RiskBand</span>
-            </div>
-            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; font-size:0.75rem; color:var(--sb-brand-muted);">
-                <span>@sig.HitCount hits</span>
-                @if (sig.IsKnownBot) { <span style="color:var(--sb-signal-danger);">known bot</span> }
-                @if (sig.BotType != null) { <span>@sig.BotType</span> }
-                @if (sig.UaFamily != null) { <span>UA: @sig.UaFamily</span> }
-                <span>last: @sig.LastSeen.ToString("MMM dd HH:mm")</span>
+            <div class="card-body p-3 gap-2">
+                <!-- ROW 1: identity (icon + name + verified tick) | category | last seen -->
+                <div class="flex items-center gap-2 min-w-0">
+                    <i class="@typeIcon text-base text-base-content/70" aria-hidden="true"></i>
+                    <span class="font-semibold text-sm truncate" title="@(sig.BotName ?? sig.PrimarySignature)">@displayName</span>
+                    @if (sig.IsKnownBot)
+                    {
+                        <i class="bx bxs-check-shield text-success text-sm" title="Verified known bot"></i>
+                    }
+                    @if (!string.IsNullOrEmpty(sig.BotType))
+                    {
+                        <span class="text-[10px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded @categoryClass">
+                            @sig.BotType
+                        </span>
+                    }
+                    <span class="ml-auto text-[10px] text-base-content/40 whitespace-nowrap">@lastSeen</span>
+                </div>
+
+                <!-- ROW 2: risk severity (icon bars) | hit count | sparkline placeholder -->
+                <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-0.5" title="Risk: @sig.RiskBand">
+                        @for (var i = 0; i < 5; i++)
+                        {
+                            var filled = i < riskBars;
+                            <span class="inline-block w-1 rounded-sm @(filled ? riskColor : "text-base-content/15")"
+                                  style="height: @((i + 2) * 2)px; background: currentColor;"></span>
+                        }
+                        <span class="text-[10px] font-semibold uppercase tracking-wider @riskColor ml-1">@sig.RiskBand</span>
+                    </div>
+                    <div class="flex items-baseline gap-1 ml-auto" title="@sig.HitCount detections">
+                        <span class="text-sm font-bold text-base-content tabular-nums">@hitsText</span>
+                        <span class="text-[10px] text-base-content/40">hits</span>
+                    </div>
+                    <!-- Sparkline placeholder (stage 2 will plumb HitHistory through SignatureSummary).
+                         A flat dot keeps the column reserved so stage 2 lands without a layout shift. -->
+                    <div class="w-16 h-4 flex items-center justify-center" aria-hidden="true">
+                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-base-content/20"></span>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(sig.UaFamily))
+                {
+                    <!-- ROW 3 (optional): UA family as small footer, only when it adds info -->
+                    <div class="text-[10px] text-base-content/50 truncate" title="@sig.UaFamily">
+                        <i class="bx bx-laptop align-middle"></i> @sig.UaFamily
+                    </div>
+                }
             </div>
         </div>
     }
     @if (!Model.Result.Signatures.Any())
     {
-        <p style="color:var(--sb-brand-muted); padding:1rem;">No distinct signatures in this result set.</p>
+        <p class="col-span-full text-center text-sm text-base-content/40 py-8">
+            <i class="bx bx-search text-2xl block mb-2 opacity-50"></i>
+            No distinct signatures in this result set.
+        </p>
     }
 </div>

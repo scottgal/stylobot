@@ -183,4 +183,114 @@ public static class BotDisplayHelpers
             _ => "Low"
         };
     }
+
+    // ─── Icon / colour helpers for the Cloudflare-style consolidated row ─────────
+    // Goal: replace text-heavy labels with iconography + colour so a row reads at a
+    // glance. The mapping is intentionally single-source -- every dashboard surface
+    // that wants "icon for this bot type" should call into here so a future relabel
+    // touches one switch.
+
+    /// <summary>Boxicon class for a bot type, e.g. "bx bx-search-alt" for SearchEngine.</summary>
+    public static string IconForBotType(string? botType) => botType switch
+    {
+        "SearchEngine"   => "bx bx-search-alt",
+        "VerifiedBot"    => "bx bx-shield-quarter",
+        "GoodBot"        => "bx bx-bot",
+        "SocialMediaBot" => "bx bx-link-alt",
+        "MonitoringBot"  => "bx bx-pulse",
+        "AiBot"          => "bx bx-brain",
+        "Tool"           => "bx bx-terminal",
+        "Scraper"        => "bx bx-cloud-download",
+        "MaliciousBot"   => "bx bx-shield-x",
+        "ExploitScanner" => "bx bx-bug",
+        "ClickFraud"     => "bx bx-pointer",
+        _                => "bx bx-user"
+    };
+
+    /// <summary>Tailwind text-colour class for a risk band.</summary>
+    public static string ColorForRiskBand(string? band) => band switch
+    {
+        "VeryHigh" or "Critical" => "text-error",
+        "High"                   => "text-error",
+        "Elevated" or "Medium"   => "text-warning",
+        "Low"                    => "text-success",
+        "VeryLow"                => "text-base-content/60",
+        _                        => "text-base-content/40"
+    };
+
+    /// <summary>Tailwind background tint for a category badge.</summary>
+    public static string CategoryBadgeClass(string? botType) => botType switch
+    {
+        "SearchEngine" or "VerifiedBot" or "GoodBot" => "bg-info/15 text-info",
+        "AiBot"                                      => "bg-secondary/15 text-secondary",
+        "Scraper" or "MaliciousBot" or "ExploitScanner" => "bg-error/15 text-error",
+        "Tool"                                       => "bg-warning/15 text-warning",
+        "MonitoringBot"                              => "bg-success/15 text-success",
+        "SocialMediaBot"                             => "bg-accent/15 text-accent",
+        _                                            => "bg-base-content/10 text-base-content/70"
+    };
+
+    /// <summary>Boxicon class for a threat band (orthogonal to risk: threat is "is this attacking").</summary>
+    public static string IconForThreatBand(string? band) => band switch
+    {
+        "Critical" => "bx bxs-skull",
+        "High"     => "bx bxs-error",
+        "Elevated" => "bx bx-error-circle",
+        "Low"      => "bx bx-info-circle",
+        _          => "bx bx-shield" // None / null
+    };
+
+    /// <summary>Tailwind text-colour for a threat band.</summary>
+    public static string ColorForThreatBand(string? band) => band switch
+    {
+        "Critical" => "text-error",
+        "High"     => "text-error",
+        "Elevated" => "text-warning",
+        "Low"      => "text-info",
+        _          => "text-base-content/30"
+    };
+
+    /// <summary>Boxicon for an action taken by the gateway.</summary>
+    public static string IconForAction(string? action) => action switch
+    {
+        "Block"          => "bx bx-block",
+        "Challenge"      => "bx bx-shield-quarter",
+        "Throttle"       => "bx bx-time-five",
+        "ThrottleStealth"=> "bx bx-time",
+        "Redirect"       => "bx bx-rotate-right",
+        "LogOnly"        => "bx bx-show",
+        _                => "bx bx-check"
+    };
+
+    /// <summary>Tailwind text-colour for an action.</summary>
+    public static string ColorForAction(string? action) => action switch
+    {
+        "Block" or "Challenge"          => "text-error",
+        "Throttle" or "ThrottleStealth" => "text-warning",
+        "Redirect"                      => "text-info",
+        "LogOnly"                       => "text-base-content/50",
+        _                               => "text-success"
+    };
+
+    /// <summary>Severity ranking used to break ties and compare bands.</summary>
+    public static int RiskSeverity(string? band) => band switch
+    {
+        "VeryHigh" or "Critical" => 5,
+        "High"                   => 4,
+        "Elevated" or "Medium"   => 3,
+        "Low"                    => 2,
+        "VeryLow"                => 1,
+        _                        => 0
+    };
+
+    /// <summary>Compact relative-time string ("12s", "5m", "3h 22m", "2d") for LastSeen.</summary>
+    public static string TimeAgoCompact(DateTime when)
+    {
+        var span = DateTime.UtcNow - when;
+        if (span.TotalSeconds < 5) return "now";
+        if (span.TotalSeconds < 60) return $"{(int)span.TotalSeconds}s";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h {span.Minutes}m";
+        return $"{(int)span.TotalDays}d";
+    }
 }
