@@ -14,8 +14,12 @@ public class VisitorListCache
     private readonly ConcurrentDictionary<string, CachedVisitor> _visitors = new();
     private readonly int _maxVisitors;
 
-    public VisitorListCache(int maxVisitors = 100)
+    public VisitorListCache(int maxVisitors = 500)
     {
+        // Default was 100; bumped to 500 so a staging gateway seeing a few hundred
+        // distinct signatures over 24h (Amazonbot alone churns 200+ fingerprints)
+        // doesn't constantly evict-then-rehydrate the visitor cards. Memory cost
+        // per entry is ~1KB so the cap is still well under a megabyte.
         _maxVisitors = maxVisitors;
     }
 
