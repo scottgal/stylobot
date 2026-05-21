@@ -406,26 +406,23 @@ public static class DetectionLedgerExtensions
         }
         else if (ledgerFriendly)
         {
-            var trace = (friendlyIpVerified == true, isConfirmedBad) switch
-            {
-                (true,  _    ) => $"fired:ledger+ip:{botType}",
-                (false, _    ) => $"fired:ledger:{botType}",  // unreachable; here for completeness
-                (_,     true ) => $"fired:ledger+yaml-overrides-reputation:{botType}",
-                _              => $"fired:ledger:{botType}"
-            };
-            return (RiskBand.Low, $"identified as {botType} (friendly automation)", trace);
+            string kind;
+            if (friendlyIpVerified == true) kind = "ledger+ip";
+            else if (isConfirmedBad)        kind = "ledger+yaml-overrides-reputation";
+            else                            kind = "ledger";
+            return (RiskBand.Low,
+                $"identified as {botType} (friendly automation)",
+                $"fired:{kind}:{botType}");
         }
         else // yamlFriendly == true (proven by hasFriendlyCandidate && !ledgerFriendly)
         {
-            var trace = (friendlyIpVerified == true, isConfirmedBad) switch
-            {
-                (true,  _    ) => $"fired:yaml+ip:{botName}:{yamlType}",
-                (_,     true ) => $"fired:yaml-overrides-reputation:{botName}:{yamlType}",
-                _              => $"fired:yaml:{botName}:{yamlType}"
-            };
+            string kind;
+            if (friendlyIpVerified == true) kind = "yaml+ip";
+            else if (isConfirmedBad)        kind = "yaml-overrides-reputation";
+            else                            kind = "yaml";
             return (RiskBand.Low,
                 $"identified as {botName} (friendly automation; yaml bot_type {yamlType})",
-                trace);
+                $"fired:{kind}:{botName}:{yamlType}");
         }
 
         // Low confidence: not enough data to assess reliably
