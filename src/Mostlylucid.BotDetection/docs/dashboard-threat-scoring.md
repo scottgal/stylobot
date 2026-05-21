@@ -118,6 +118,75 @@ Bot narratives include a threat qualifier prefix for elevated+ threats:
 | Elevated | `Elevated-threat ` | "Elevated-threat Possible bot on /api/v1 - caught by behavioral analysis" |
 | Low / None | (none) | "Scraper on /robots.txt - caught by user-agent analysis" |
 
+## Friendly Bot Pinning
+
+Risk band and bot probability are separate dimensions but the band gives them
+a single output. A search engine (Googlebot, MJ12bot, AhrefsBot) has high bot
+probability (it *is* a bot) but should not be a "VeryHigh risk" row -- it is
+legitimate automation. The band logic resolves that by **pinning the band to
+`Low`** when the UA matches a friendly-bot classification AND the request
+carries no offsetting threat signal.
+
+### Inputs
+
+Two pieces of information feed the pin decision:
+
+1. **Friendly classification.** A `BotType` in `IsFriendly`
+   (`SearchEngine`, `SocialMediaBot`, `MonitoringBot`, `GoodBot`, `VerifiedBot`)
+   sourced from either:
+   - The contribution with the largest `ConfidenceDelta` among contributors that
+     emitted a friendly `BotType` (see `FindFriendlyBotContribution`). Includes
+     negative-delta contributions because a reputation-cache hit that says
+     "this UA has been seen 1000 times as legitimate" expresses itself as a
+     **negative** delta and is still a strong friendly signal.
+   - YAML pattern fallback (`BotPatternLoader.FindBotTypeByName`) when the
+     ledger has no friendly contribution but the bot name matches a YAML entry
+     whose `bot_type` is in the friendly set.
+
+2. **Vendor-IP verification** (`SignalKeys.FriendlyIpVerified`):
+   - `true`  -- the client IP matches a published vendor range
+                (Commercial-side IP-range index)
+   - `false` -- check ran but did not match (likely UA spoof)
+   - `null`  -- no check ran (FOSS fallback: UA-only)
+
+### Gates
+
+The pin fires when ALL of these hold:
+
+- A friendly classification exists (ledger contribution OR YAML fallback)
+- `isConfirmedBad == false` (no prior verdict marking the actor bad)
+- `threatScore < FriendlyThreatGate` (0.55 by default; an attacker probing
+  `.env` while pretending to be Googlebot still gets the standard treatment)
+- `friendlyIpVerified != false` (an explicit `false` always skips the pin
+  regardless of UA classification)
+
+### Trace
+
+Every band decision writes `signals[risk.friendly_pin_trace]` so an operator
+can audit any signature's band without re-running detection. Possible values:
+
+| Trace | Meaning |
+|---|---|
+| `fired:ledger:GoodBot`                | Pinned via ledger contribution. UA-only verification. |
+| `fired:ledger+ip:GoodBot`             | Pinned via ledger AND vendor IP verified. Highest confidence. |
+| `fired:yaml:MJ12bot:GoodBot`          | Pinned via YAML fallback (ledger lacked a friendly type). |
+| `fired:yaml+ip:MJ12bot:GoodBot`       | Pinned via YAML AND vendor IP verified. |
+| `skipped:isConfirmedBad (...)`        | Friendly candidate present but the actor has a prior bad verdict. |
+| `skipped:threatScore=0.62 >= gate(0.55) (...)` | Friendly candidate present but threat score exceeds the gate (active probing). |
+| `skipped:ip_not_verified (...)`       | UA looks friendly but vendor IP check explicitly failed (probable spoof). |
+| `not-applicable:botType=Scraper,yamlType=null,botName=curl` | No friendly candidate. |
+
+### How to extend
+
+- **A new vendor**: add a YAML entry under `Definitions/BotPatterns/` with
+  `bot_type: SearchEngine` (or any other friendly type). No code change.
+- **Vendor IP verification**: a Commercial contributor reads
+  `IGoodBotIpRangeIndex.Verify(clientIp, botName)` and writes
+  `friendly.ip_verified` to the blackboard. The pin then upgrades to
+  `fired:*+ip:*` automatically.
+- **New friendly type**: add to `BotTypeClassification.IsFriendly` and the YAML
+  `bot_type` set; no other change is required.
+
 ## Backwards Compatibility
 
 All new fields are nullable (`double?`, `string?`) or default to zero (`AverageThreatScore`). Existing detections without intent data:

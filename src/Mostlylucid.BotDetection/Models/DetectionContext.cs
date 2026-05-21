@@ -279,6 +279,15 @@ public static class SignalKeys
     /// pin Low. Always set by DetermineRiskBand.</summary>
     public const string RiskFriendlyPinTrace = "risk.friendly_pin_trace";
 
+    /// <summary>Bool: set by a vendor-IP-verifying contributor (Commercial:
+    /// GoodBotIpRangeIndex / reverse-DNS verifier) when a UA classified as a
+    /// friendly bot (Googlebot, Bingbot, MJ12bot, etc.) also matches the
+    /// published vendor IP ranges. False means the UA looked friendly but the
+    /// client IP did not verify and the friendly pin must NOT fire (likely
+    /// spoofed UA). Absent (null) means no verification was attempted, in which
+    /// case the friendly pin falls back to UA-only behaviour (FOSS default).</summary>
+    public const string FriendlyIpVerified = "friendly.ip_verified";
+
     // AI/LLM signals
     public const string AiPrediction = "ai.prediction";
     public const string AiConfidence = "ai.confidence";

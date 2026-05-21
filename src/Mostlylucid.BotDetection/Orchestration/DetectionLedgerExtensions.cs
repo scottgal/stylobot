@@ -50,6 +50,13 @@ public static class DetectionLedgerExtensions
         var isConfirmedBadForBand = IsConfirmedBad(preSignals);
         var sessionCountForBand = ExtractSessionCount(preSignals);
         var intentCategory = preSignals.TryGetValue(SignalKeys.IntentCategory, out var ic) ? ic as string : null;
+        // Vendor-IP verification (Commercial-side contributor). bool? semantics:
+        //   true  = friendly UA + IP matches vendor range -> proceed to pin
+        //   false = friendly UA + IP did NOT match -> skip pin (spoofed UA)
+        //   null  = no check attempted -> fall back to UA-only friendly logic
+        var friendlyIpVerified = preSignals.TryGetValue(SignalKeys.FriendlyIpVerified, out var fipv)
+            ? (bool?)Convert.ToBoolean(fipv)
+            : null;
         // Find any contributor that classified this UA as a friendly bot type. The ledger's
         // single BotType property is last-writer-wins (HeuristicEarly often overwrites the
         // UA's authoritative pattern match with a generic "Scraper" guess). Scanning all
@@ -59,7 +66,7 @@ public static class DetectionLedgerExtensions
 
         var (riskBand, riskJustification, friendlyPinTrace) = DetermineRiskBand(botProbability, confidence, aiRan,
             earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory,
-            ledgerBotType, ledger.BotName);
+            ledgerBotType, ledger.BotName, friendlyIpVerified);
 
         // PrimaryBotType stays gated on classification — it's a claim about WHAT KIND of bot
         // ("this looks like a Scraper") and is only meaningful when classified as bot.
@@ -342,7 +349,8 @@ public static class DetectionLedgerExtensions
         double threatScore, bool isConfirmedBad, int sessionRequestCount,
         string? intentCategory = null,
         BotType? botType = null,
-        string? botName = null)
+        string? botName = null,
+        bool? friendlyIpVerified = null)
     {
         // Friendly bot types (search engines, fediverse link previewers, monitoring,
         // explicitly-verified good bots) get pinned to Low even when probability is
@@ -377,15 +385,28 @@ public static class DetectionLedgerExtensions
         {
             friendlyTrace = $"skipped:threatScore={threatScore:F2} >= gate({BotTypeClassification.FriendlyThreatGate:F2}) (had friendly candidate {(ledgerFriendly ? botType : yamlType)})";
         }
+        else if (friendlyIpVerified == false)
+        {
+            // UA looks friendly but vendor-IP check failed. Treat as spoofed UA --
+            // probability + threat dimensions decide the band below as if the UA
+            // had never matched a friendly pattern.
+            friendlyTrace = $"skipped:ip_not_verified (UA claims {botName ?? "friendly bot"} as {(ledgerFriendly ? botType : yamlType)} but client IP not in vendor range)";
+        }
         else if (ledgerFriendly)
         {
-            return (RiskBand.Low, $"identified as {botType} (friendly automation)", $"fired:ledger:{botType}");
+            var trace = friendlyIpVerified == true
+                ? $"fired:ledger+ip:{botType}"
+                : $"fired:ledger:{botType}";
+            return (RiskBand.Low, $"identified as {botType} (friendly automation)", trace);
         }
         else // yamlFriendly == true (proven by hasFriendlyCandidate && !ledgerFriendly)
         {
+            var trace = friendlyIpVerified == true
+                ? $"fired:yaml+ip:{botName}:{yamlType}"
+                : $"fired:yaml:{botName}:{yamlType}";
             return (RiskBand.Low,
                 $"identified as {botName} (friendly automation; yaml bot_type {yamlType})",
-                $"fired:yaml:{botName}:{yamlType}");
+                trace);
         }
 
         // Low confidence: not enough data to assess reliably
