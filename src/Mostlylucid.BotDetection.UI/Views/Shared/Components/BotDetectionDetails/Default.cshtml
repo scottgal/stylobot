@@ -71,7 +71,7 @@
     <!-- Compact Header with Key Metrics -->
     <div class="bot-detection-header">
         <div class="bot-detection-status @(Model.IsBot ? "is-bot" : "is-human")">
-            <span class="status-icon">@(Model.IsBot ? "🤖" : "👤")</span>
+            <span class="status-icon"><i class="@(Model.IsBot ? "bx bx-bot" : "bx bx-user")"></i></span>
             <span class="status-text">@(Model.IsBot ? "Bot" : "Human")</span>
         </div>
         <div class="bot-detection-score">
@@ -134,8 +134,9 @@
     {
         <div class="bot-detection-signatures-compact">
             <button type="button" class="toggle-btn" @@click="showSignatures = !showSignatures">
-                <span x-text="showSignatures ? '▼' : '▶'"></span>
-                🔐 Fingerprint (@Model.Signatures.FactorCount factors + behavioural shape) - Zero PII
+                <i class="bx" :class="showSignatures ? 'bx-chevron-down' : 'bx-chevron-right'"></i>
+                <i class="bx bx-fingerprint"></i>
+                Fingerprint (@Model.Signatures.FactorCount factors + behavioural shape) - Zero PII
             </button>
             <div x-show="showSignatures" x-collapse class="signatures-content">
                 <div class="bot-detection-fingerprint-row">
@@ -190,8 +191,9 @@
     {
         <div class="bot-detection-details-compact">
             <button type="button" class="toggle-btn" @@click="showDetails = !showDetails">
-                <span x-text="showDetails ? '▼' : '▶'"></span>
-                📊 Detector Details (@detectorCount detectors)
+                <i class="bx" :class="showDetails ? 'bx-chevron-down' : 'bx-chevron-right'"></i>
+                <i class="bx bx-bar-chart-alt-2"></i>
+                Detector Details (@detectorCount detectors)
             </button>
             <div x-show="showDetails" x-collapse class="details-content">
                 <div class="contributions-compact">
