@@ -38,7 +38,17 @@ public partial class DetectionBroadcastMiddleware
             "detection.", "request.", "h2.", "tls.", "tcp.", "h3.",
             "cluster.", "reputation.", "honeypot.", "similarity.",
             "attack.", "ato.", "intent.", "heuristic.", "referrer.",
-            "privacy."
+            "privacy.",
+            // Risk dimension -- carries risk.justification (human-readable band
+            // reason) and risk.friendly_pin_trace (fired/skipped/not-applicable
+            // diagnostic for the friendly-bot pin). Both are classifier outputs
+            // with no PII, but neither was reaching dashboard_detections.important_signals
+            // because the prefix wasn't whitelisted -- audit rows had empty
+            // justification + null trace so operators couldn't see why a
+            // known-friendly UA was banded VeryHigh.
+            "risk.",
+            // Friendly-bot vendor IP verification signals (true / false / absent).
+            "friendly."
         ], StringComparer.OrdinalIgnoreCase);
 
     private static bool IsAllowedSignal(string key)

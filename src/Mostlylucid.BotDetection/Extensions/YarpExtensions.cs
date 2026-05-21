@@ -22,7 +22,8 @@ public static class YarpExtensions
         "ua.", "header.", "client.", "geo.", "ip.", "behavioral.",
         "detection.", "request.", "h2.", "tls.", "tcp.", "h3.",
         "cluster.", "reputation.", "honeypot.", "similarity.",
-        "attack.", "ato."
+        "attack.", "ato.", "intent.", "heuristic.", "referrer.",
+        "privacy.", "risk.", "friendly."
     ];
 
     /// <summary>Signal keys that must never leave the gateway.</summary>
