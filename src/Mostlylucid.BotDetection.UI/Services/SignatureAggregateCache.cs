@@ -212,6 +212,97 @@ public sealed class SignatureAggregateCache
         _sortDirty = true;
     }
 
+    /// <summary>
+    ///     Warm the cache for a signature by reading recent detection rows and folding
+    ///     them into an aggregate. The single read source for every dashboard surface
+    ///     is this cache; on a miss the caller hands the persisted detections to this
+    ///     method, the cache holds the warmed aggregate, and the caller re-reads via
+    ///     <see cref="TryGet"/>. Risk band and threat band are resolved by majority
+    ///     vote across the supplied detections so the warmed value cannot disagree
+    ///     with the rolling cache value the live-traffic write path produces.
+    /// </summary>
+    public SignatureAggregate WarmFromDetections(
+        string signature,
+        IReadOnlyList<DashboardDetectionEvent> detections)
+    {
+        if (string.IsNullOrEmpty(signature) || detections.Count == 0)
+            return null!;
+
+        // Majority-vote on risk_band / threat_band so a single anomalous detection
+        // can't flip the headline value the way detections[0] could. Ties resolve
+        // to the highest-severity band so the operator never sees an under-call.
+        var riskBand = MajorityBand(detections, d => d.RiskBand, RiskSeverity);
+        var threatBand = MajorityBand(detections, d => d.ThreatBand, ThreatSeverity);
+
+        // Latest semantics for everything else -- the values the live-traffic Update
+        // would write for the most recent detection. detections[0] is the freshest
+        // row by the GetDetectionsAsync timestamp DESC ordering.
+        var latest = detections[0];
+
+        var agg = new SignatureAggregate
+        {
+            HitCount = detections.Count,
+            BotName = detections.Select(d => d.BotName).FirstOrDefault(n => !string.IsNullOrEmpty(n)) ?? latest.BotName,
+            BotType = detections.Select(d => d.BotType).FirstOrDefault(t => !string.IsNullOrEmpty(t)) ?? latest.BotType,
+            RiskBand = riskBand,
+            BotProbability = latest.BotProbability,
+            Confidence = latest.Confidence,
+            Action = latest.Action,
+            CountryCode = latest.CountryCode,
+            ProcessingTimeMs = latest.ProcessingTimeMs,
+            TopReasons = latest.TopReasons,
+            FirstSeen = detections[^1].Timestamp,
+            LastSeen = latest.Timestamp,
+            Narrative = latest.Narrative,
+            Description = latest.Description,
+            IsBot = latest.IsBot,
+            ThreatScore = latest.ThreatScore,
+            ThreatBand = threatBand,
+            RiskJustification = latest.RiskJustification
+        };
+
+        // Score history walks oldest-to-newest so the sparkline reads left-to-right.
+        foreach (var d in detections.Reverse())
+        {
+            agg.ScoreHistory.AddLast(d.BotProbability);
+            while (agg.ScoreHistory.Count > ScoreHistorySize)
+                agg.ScoreHistory.RemoveFirst();
+        }
+
+        _entries[signature] = agg;
+        _sortDirty = true;
+        return agg;
+    }
+
+    private static string? MajorityBand<T>(
+        IReadOnlyList<T> rows, Func<T, string?> selector, Func<string, int> severity)
+    {
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var r in rows)
+        {
+            var b = selector(r);
+            if (string.IsNullOrEmpty(b)) continue;
+            counts[b] = counts.GetValueOrDefault(b) + 1;
+        }
+        if (counts.Count == 0) return null;
+        var maxCount = counts.Values.Max();
+        return counts
+            .Where(kv => kv.Value == maxCount)
+            .OrderByDescending(kv => severity(kv.Key))
+            .First().Key;
+    }
+
+    private static int RiskSeverity(string band) => band switch
+    {
+        "VeryHigh" => 5, "High" => 4, "Elevated" => 3, "Medium" => 3,
+        "Low" => 2, "VeryLow" => 1, _ => 0
+    };
+
+    private static int ThreatSeverity(string band) => band switch
+    {
+        "Critical" => 5, "High" => 4, "Elevated" => 3, "Low" => 2, _ => 0
+    };
+
     // ─── Internal ────────────────────────────────────────────────────────
 
     private SignatureAggregate CreateNew(DashboardDetectionEvent detection)

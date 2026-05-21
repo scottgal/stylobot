@@ -200,14 +200,17 @@ public class VisitorListCache
     {
         var snapshot = SnapshotAll();
 
-        // Single source of names: whenever the SignatureAggregateCache has a name
-        // for this signature, override the locally-cached one before anything
-        // downstream (filter, collapse, sort) reads it. Otherwise the card shows
-        // the name captured at first-detection time (often "Unknown Bot") forever,
-        // while the signature detail page reads from the aggregate cache and
-        // shows the up-to-date canonical name -- the "two different names on the
-        // same fingerprint" bug. Mutates the cached row in place; subsequent
-        // upserts will keep refreshing it from the same source.
+        // Single source of truth: SignatureAggregateCache owns bot_name, bot_type,
+        // risk_band, threat_band, bot_probability for every signature on every
+        // dashboard surface. The visitor cache stores a copy purely as an event-time
+        // snapshot; the canonical values may have been updated since (LLM naming
+        // landed, a newer detection escalated the band, the YAML overrode a
+        // heuristic guess), and the signature detail page reads from the aggregate
+        // cache. If the visitor card kept the snapshot value the same fingerprint
+        // would show one band/name on the card and another on the detail -- the
+        // class-of-bug the operator has hit repeatedly. Override in place before
+        // filter / collapse / sort runs so every downstream consumer sees the
+        // canonical values.
         if (_aggregateCache != null)
         {
             foreach (var v in snapshot)
@@ -218,6 +221,10 @@ public class VisitorListCache
                     v.BotName = agg.BotName;
                 if (!string.IsNullOrEmpty(agg.BotType) && agg.BotType != v.BotType)
                     v.BotType = agg.BotType;
+                if (!string.IsNullOrEmpty(agg.RiskBand) && agg.RiskBand != v.RiskBand)
+                    v.RiskBand = agg.RiskBand;
+                if (!string.IsNullOrEmpty(agg.ThreatBand) && agg.ThreatBand != v.ThreatBand)
+                    v.ThreatBand = agg.ThreatBand;
             }
         }
 

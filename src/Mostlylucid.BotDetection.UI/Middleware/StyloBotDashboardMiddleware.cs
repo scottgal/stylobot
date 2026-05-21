@@ -4450,7 +4450,16 @@ public class StyloBotDashboardMiddleware
 
                 if (detections.Count > 0)
                 {
-                    var latest = detections[0]; // Most recent detection
+                    // Write-through cache: warm SignatureAggregateCache from the DB rows
+                    // and then read EVERY headline field (RiskBand, ThreatBand, BotName,
+                    // BotType, BotProbability, etc.) from the warmed aggregate. The cache
+                    // is the single source for every dashboard surface; on a miss we
+                    // populate it from the persistent store, never bypass it. RiskBand
+                    // and ThreatBand are folded by majority-vote inside WarmFromDetections
+                    // so the headline value cannot disagree with what the overview
+                    // widgets render once this signature is hot again.
+                    var warmedAgg = _signatureCache.WarmFromDetections(decodedSignature, detections);
+                    var latest = detections[0]; // freshest row (for fields not folded)
                     var recentDetections = detections.Select(d => new SignatureDetectionRow
                     {
                         Timestamp = d.Timestamp,
@@ -4494,6 +4503,11 @@ public class StyloBotDashboardMiddleware
                         }
                     }
 
+                    // Headline fields come from the warmed aggregate -- not detections[0] --
+                    // so the detail page and the overview widgets agree byte-for-byte on
+                    // RiskBand, ThreatBand, BotName, BotType, BotProbability. detections[0]
+                    // remains the source for per-request fields (Action, ProcessingTimeMs,
+                    // Country, Top reasons) where the freshest single-row value is intended.
                     model = new SignatureDetailModel
                     {
                         SignatureId = decodedSignature,
@@ -4501,23 +4515,23 @@ public class StyloBotDashboardMiddleware
                         CspNonce = cspNonce,
                         HubPath = _options.HubPath,
                         Found = true,
-                        BotName = latest.BotName,
-                        BotType = latest.BotType,
-                        RiskBand = latest.RiskBand,
-                        BotProbability = latest.BotProbability,
-                        Confidence = latest.Confidence,
+                        BotName = warmedAgg.BotName ?? latest.BotName,
+                        BotType = warmedAgg.BotType ?? latest.BotType,
+                        RiskBand = warmedAgg.RiskBand ?? latest.RiskBand,
+                        BotProbability = warmedAgg.BotProbability,
+                        Confidence = warmedAgg.Confidence,
                         HitCount = detections.Count,
                         Action = latest.Action,
                         CountryCode = latest.CountryCode,
                         ProcessingTimeMs = latest.ProcessingTimeMs,
                         TopReasons = latest.TopReasons?.ToList() ?? [],
-                        LastSeen = latest.Timestamp,
-                        Narrative = latest.Narrative,
-                        Description = latest.Description,
-                        IsBot = latest.IsBot,
-                        ThreatScore = latest.ThreatScore,
-                        ThreatBand = latest.ThreatBand,
-                        RiskJustification = latest.RiskJustification,
+                        LastSeen = warmedAgg.LastSeen,
+                        Narrative = warmedAgg.Narrative ?? latest.Narrative,
+                        Description = warmedAgg.Description ?? latest.Description,
+                        IsBot = warmedAgg.IsBot,
+                        ThreatScore = warmedAgg.ThreatScore ?? latest.ThreatScore,
+                        ThreatBand = warmedAgg.ThreatBand ?? latest.ThreatBand,
+                        RiskJustification = warmedAgg.RiskJustification ?? latest.RiskJustification,
                         SparklineData = detections.Select(d => d.BotProbability).ToList(),
                         Paths = detections.Where(d => d.Path != null).Select(d => d.Path!).Distinct().ToList(),
                         UserAgent = null, // Not available from event store (PII-hashed)
