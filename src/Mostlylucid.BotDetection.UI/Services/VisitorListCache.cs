@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Text.RegularExpressions;
 using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -49,19 +48,12 @@ public class VisitorListCache
         var visitor = _visitors.AddOrUpdate(sig,
             _ =>
             {
-                var botName = detection.BotName;
-                var botType = detection.BotType;
-
-                // Infer bot identity from behavior when the detection ledger didn't provide it
-                if (detection.IsBot && string.IsNullOrEmpty(botName))
-                {
-                    var paths = new List<string> { detection.Path ?? "/" };
-                    var (inferredName, inferredType) = InferBotIdentity(
-                        paths, detection.UserAgent, 1, detection.Timestamp, detection.Timestamp);
-                    botName ??= inferredName;
-                    botType ??= inferredType;
-                }
-
+                // BotName / BotType come straight from the detection event. Any later
+                // canonical naming (LLM resolves a description, UA pattern catches up,
+                // operator labels a fingerprint) updates SignatureAggregateCache via
+                // ApplyBotName, and GetFiltered overrides the cached card from that
+                // source on every render -- so the value stored on the row is only a
+                // snapshot. No inline regex inference here.
                 return new CachedVisitor
                 {
                     PrimarySignature = sig,
@@ -75,8 +67,8 @@ public class VisitorListCache
                     LastPath = detection.Path,
                     Paths = new List<string> { detection.Path ?? "/" },
                     Action = detection.Action ?? "Allow",
-                    BotName = botName,
-                    BotType = botType,
+                    BotName = detection.BotName,
+                    BotType = detection.BotType,
                     CountryCode = detection.CountryCode,
                     UserAgent = detection.UserAgent,
                     Narrative = detection.Narrative,
@@ -112,31 +104,18 @@ public class VisitorListCache
                         existing.Description = detection.Description;
                     if (detection.TopReasons.Count > 0)
                         existing.TopReasons = detection.TopReasons.ToList();
-                    // Update bot identity: clear stale bot info when detection is now human
+                    // Update bot identity from the detection event only. The regex
+                    // re-inference path used to fire here ("Unknown Bot" -> guess from
+                    // paths + UA via InferBotIdentity) is gone -- SignatureAggregateCache
+                    // is now the canonical name source, GetFiltered overrides the row
+                    // before rendering. The inline regex was a parallel naming pipeline
+                    // that silently drifted from the YAML catalog.
                     if (detection.IsBot)
                     {
                         if (!string.IsNullOrEmpty(detection.BotName))
                             existing.BotName = detection.BotName;
                         if (!string.IsNullOrEmpty(detection.BotType))
                             existing.BotType = detection.BotType;
-
-                        // Re-infer identity as more paths accumulate (behavioral refinement)
-                        if (string.IsNullOrEmpty(existing.BotName) || existing.BotName == "Unknown Bot")
-                        {
-                            var (inferredName, inferredType) = InferBotIdentity(
-                                existing.Paths, existing.UserAgent, existing.Hits,
-                                existing.FirstSeen, existing.LastSeen);
-                            if (inferredName != null && inferredName != "Unknown Bot")
-                            {
-                                existing.BotName = inferredName;
-                                existing.BotType ??= inferredType;
-                            }
-                            else if (existing.BotName == null)
-                            {
-                                existing.BotName = inferredName;
-                                existing.BotType ??= inferredType;
-                            }
-                        }
                     }
                     else
                     {
@@ -438,202 +417,16 @@ public class VisitorListCache
             _visitors.TryRemove(key, out _);
     }
 
-    // UA-based bot identity regexes — compiled once, used in hot path per detection.
-    private static readonly Regex AiBotUaRegex = new(
-        @"GPTBot|ChatGPT|CCBot|anthropic-ai|ClaudeBot|Google-Extended|PerplexityBot|Bytespider|Applebot-Extended|cohere-ai|FacebookBot|Meta-ExternalAgent",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex SearchBotUaRegex = new(
-        @"Googlebot|bingbot|YandexBot|Baiduspider|DuckDuckBot|Slurp|Sogou|Applebot(?!-Extended)",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex SeoBotUaRegex = new(
-        @"SemrushBot|AhrefsBot|MJ12bot|DotBot|PetalBot|MegaIndex|SerpstatBot|Sistrix|Screaming",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex MonitorBotUaRegex = new(
-        @"UptimeRobot|Pingdom|Site24x7|StatusCake|Datadog|NewRelic|GTmetrix|PageSpeed|Lighthouse",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex PythonBotUaRegex = new(
-        @"python-requests|python-urllib|python-httpx|aiohttp",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex CurlUaRegex = new(@"^curl/", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex WgetUaRegex = new(@"^wget/", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex GoBotUaRegex = new(@"Go-http-client|golang", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex JavaBotUaRegex = new(@"Java/|Apache-HttpClient|okhttp", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex NodeBotUaRegex = new(@"node-fetch|axios|undici", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex RubyBotUaRegex = new(@"Ruby|Faraday|Typhoeus", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex PhpBotUaRegex = new(@"PHP/|Guzzle|php-curl", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex PerlBotUaRegex = new(@"libwww-perl|LWP|Mechanize", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex CrawlerUaRegex = new(@"Scrapy|Nutch|Heritrix", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex HeadlessUaRegex = new(@"HeadlessChrome|Headless", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex PhantomUaRegex = new(@"PhantomJS", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex SeleniumUaRegex = new(@"Selenium|WebDriver", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex PlaywrightUaRegex = new(@"Playwright", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-    private static readonly Regex PuppeteerUaRegex = new(@"Puppeteer", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly System.Text.RegularExpressions.Regex AiNameRegex =
-        new(@"\bai\b|gpt|claude|llm|chatbot|copilot|gemini|bard|anthropic|perplexity|cohere",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
-
-    private static readonly System.Text.RegularExpressions.Regex SearchNameRegex =
-        new(@"googlebot|bingbot|yandexbot|baiduspider|duckduckbot|slurp|sogou|exabot|ia_archiver|archive\.org|google|bing",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
-
-    private static readonly System.Text.RegularExpressions.Regex ToolNameRegex =
-        new(@"semrush|ahrefs|mj12|majestic|screaming|dotbot|petalbot|bytespider|yeti|megaindex|serpstat|sistrix|curl|wget|python|go-http|java|ruby|perl|php|node-fetch|axios|scrapy|httpclient|requests|libwww|lwp|mechanize|webdriver|selenium|playwright|puppeteer|phantom|headless|chrome-lighthouse|pagespeed|gtmetrix|pingdom|uptime|monitor|datadog|newrelic|statuspage",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Compiled);
-
-    /// <summary>
-    ///     Infer the effective bot category from BotType and BotName.
-    ///     BotType is often null because the detection ledger only sets it
-    ///     when a contribution has ConfidenceDelta > 0. Falling back to BotName
-    ///     allows proper categorization for dashboard filters.
-    /// </summary>
-    private static string InferBotCategory(string? botType, string? botName)
-    {
-        // Explicit BotType takes precedence
-        if (!string.IsNullOrEmpty(botType))
-        {
-            if (botType is "AiBot") return "ai";
-            if (botType is "SearchEngine" or "VerifiedBot" or "GoodBot") return "search";
-            if (botType is "Scraper" or "MonitoringBot" or "SocialMediaBot") return "tools";
-            return "other";
-        }
-
-        // Infer from BotName when BotType is null
-        if (!string.IsNullOrEmpty(botName))
-        {
-            if (AiNameRegex.IsMatch(botName)) return "ai";
-            if (SearchNameRegex.IsMatch(botName)) return "search";
-            if (ToolNameRegex.IsMatch(botName)) return "tools";
-        }
-
-        return "other";
-    }
-
-    /// <summary>
-    ///     Infer bot name and type from behavioral signals when the detection ledger
-    ///     didn't provide them. Uses paths visited, user-agent, and hit rate.
-    ///     Returns (name, type) - either may be null if inference fails.
-    /// </summary>
-    internal static (string? Name, string? Type) InferBotIdentity(
-        IReadOnlyList<string> paths, string? userAgent, int hits, DateTime firstSeen, DateTime lastSeen)
-    {
-        // 1. Path-based inference - what they're scanning tells us who they are
-        var pathSet = string.Join(" ", paths).ToLowerInvariant();
-
-        if (WpPathRegex.IsMatch(pathSet))
-            return ("WordPress Scanner", "Scraper");
-        if (ConfigPathRegex.IsMatch(pathSet))
-            return ("Config Scanner", "Scraper");
-        if (ExploitPathRegex.IsMatch(pathSet))
-            return ("Exploit Scanner", "Scraper");
-        if (DbPathRegex.IsMatch(pathSet))
-            return ("Database Scanner", "Scraper");
-        if (ApiPathRegex.IsMatch(pathSet))
-            return ("API Prober", "Scraper");
-        if (CmsPathRegex.IsMatch(pathSet))
-            return ("CMS Scanner", "Scraper");
-
-        // 2. UA-based inference - extract identity from user-agent string
-        if (!string.IsNullOrEmpty(userAgent))
-        {
-            var ua = userAgent;
-            if (AiBotUaRegex.IsMatch(ua))
-                return (ExtractUaBotName(ua) ?? "AI Crawler", "AiBot");
-            if (SearchBotUaRegex.IsMatch(ua))
-                return (ExtractUaBotName(ua) ?? "Search Bot", "SearchEngine");
-            if (SeoBotUaRegex.IsMatch(ua))
-                return (ExtractUaBotName(ua) ?? "SEO Crawler", "Scraper");
-            if (MonitorBotUaRegex.IsMatch(ua))
-                return (ExtractUaBotName(ua) ?? "Monitor", "MonitoringBot");
-            if (PythonBotUaRegex.IsMatch(ua))
-                return ("Python Bot", "Scraper");
-            if (CurlUaRegex.IsMatch(ua))
-                return ("curl", "Scraper");
-            if (WgetUaRegex.IsMatch(ua))
-                return ("wget", "Scraper");
-            if (GoBotUaRegex.IsMatch(ua))
-                return ("Go Bot", "Scraper");
-            if (JavaBotUaRegex.IsMatch(ua))
-                return ("Java Bot", "Scraper");
-            if (NodeBotUaRegex.IsMatch(ua))
-                return ("Node.js Bot", "Scraper");
-            if (RubyBotUaRegex.IsMatch(ua))
-                return ("Ruby Bot", "Scraper");
-            if (PhpBotUaRegex.IsMatch(ua))
-                return ("PHP Bot", "Scraper");
-            if (PerlBotUaRegex.IsMatch(ua))
-                return ("Perl Bot", "Scraper");
-            if (CrawlerUaRegex.IsMatch(ua))
-                return ("Web Crawler", "Scraper");
-            if (HeadlessUaRegex.IsMatch(ua))
-                return ("Headless Chrome", "Scraper");
-            if (PhantomUaRegex.IsMatch(ua))
-                return ("PhantomJS", "Scraper");
-            if (SeleniumUaRegex.IsMatch(ua))
-                return ("Selenium Bot", "Scraper");
-            if (PlaywrightUaRegex.IsMatch(ua))
-                return ("Playwright Bot", "Scraper");
-            if (PuppeteerUaRegex.IsMatch(ua))
-                return ("Puppeteer Bot", "Scraper");
-        }
-
-        // 3. Rate-based inference - high hit rate suggests aggressive bot
-        if (hits > 10 && lastSeen > firstSeen)
-        {
-            var seconds = (lastSeen - firstSeen).TotalSeconds;
-            if (seconds > 0)
-            {
-                var rpm = hits / seconds * 60.0;
-                if (rpm > 60)
-                    return ("Aggressive Crawler", "Scraper");
-                if (rpm > 20)
-                    return ("Fast Crawler", "Scraper");
-            }
-        }
-
-        // 4. Fallback - we know it's a bot but can't identify it further
-        return ("Unknown Bot", null);
-    }
-
-    /// <summary>
-    ///     Extract a clean bot name from a user-agent string.
-    ///     E.g. "Mozilla/5.0 (compatible; GPTBot/1.0)" → "GPTBot"
-    /// </summary>
-    private static string? ExtractUaBotName(string ua)
-    {
-        // Try "compatible; BotName/version" pattern
-        var m = Regex.Match(ua, @"compatible;\s*([A-Za-z][\w-]+)", RegexOptions.IgnoreCase);
-        if (m.Success) return m.Groups[1].Value;
-        // Try "BotName/version" at start
-        m = Regex.Match(ua, @"^([A-Za-z][\w-]+)/[\d.]", RegexOptions.IgnoreCase);
-        if (m.Success) return m.Groups[1].Value;
-        return null;
-    }
-
-    // Path pattern regexes for behavioral inference
-    private static readonly Regex WpPathRegex = new(
-        @"wp-admin|wp-login|wp-content|wp-includes|xmlrpc\.php|wp-json|wp-cron",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex ConfigPathRegex = new(
-        @"\.env|\.git|\.aws|\.ssh|\.config|\.htaccess|\.htpasswd|web\.config|appsettings|credentials|\.key|\.pem|\.bak",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex ExploitPathRegex = new(
-        @"/shell|/cmd|/eval|/exec|cgi-bin|/setup|phpunit|vendor/phpunit|/debug|/console|actuator|/solr|struts|/ognl|ThinkPHP",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex DbPathRegex = new(
-        @"phpmyadmin|/pma|/mysql|/adminer|/dbadmin|/sql|/pgadmin|/mongodb",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex ApiPathRegex = new(
-        @"/graphql|/swagger|/openapi|/api-docs|/v1/|/v2/|/rest/",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-    private static readonly Regex CmsPathRegex = new(
-        @"/administrator|/joomla|/drupal|/magento|/shopify|/typo3|/umbraco|/sitecore|/craft",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    // Bot identity is owned by the YAML pattern loader + SignatureAggregateCache.
+    // VisitorListCache used to hold a parallel regex farm (UA/path/name detectors)
+    // for "infer bot identity when the detection ledger didn't populate it." That
+    // surface has been removed -- GetFiltered overrides BotName / BotType /
+    // RiskBand / ThreatBand from SignatureAggregateCache at render time, so any
+    // detection event that arrives with a null name will pick up the canonical
+    // one on the next render anyway. The path-pattern regexes (WpPathRegex,
+    // ConfigPathRegex, etc.) were also dead weight -- BotPatternLoader covers
+    // UA-based identity, IntentContributor covers path-based intent. Both lived
+    // here as a duplicate that silently drifted from the YAML catalog.
 
     private static string? ExtractProtocol(DashboardDetectionEvent detection)
     {
@@ -645,29 +438,15 @@ public class VisitorListCache
         return null;
     }
 
-    private static bool IsAiBot(CachedVisitor v)
-    {
-        var cat = InferBotCategory(v.BotType, v.BotName);
-        if (cat == "ai") return true;
-        // Also check UA for AI bots when category fell through
-        if (!string.IsNullOrEmpty(v.UserAgent) && Regex.IsMatch(v.UserAgent,
-                @"GPTBot|ChatGPT|CCBot|anthropic-ai|ClaudeBot|Google-Extended|PerplexityBot|Applebot-Extended|cohere-ai|Meta-ExternalAgent",
-                RegexOptions.IgnoreCase))
-            return true;
-        return false;
-    }
-
-    private static bool IsSearchBot(CachedVisitor v)
-    {
-        var cat = InferBotCategory(v.BotType, v.BotName);
-        return cat == "search";
-    }
-
-    private static bool IsToolBot(CachedVisitor v)
-    {
-        var cat = InferBotCategory(v.BotType, v.BotName);
-        return cat == "tools";
-    }
+    // Filter categories key off BotType. BotType is the authoritative classification
+    // from the YAML catalog (UserAgentContributor matches the UA against the loaded
+    // patterns and writes the bot_type into the signal), and GetFiltered keeps it in
+    // sync from SignatureAggregateCache on every render. No name-regex fallback --
+    // anything not classified in the catalog falls into "other" and is hidden from
+    // these filters rather than guessed.
+    private static bool IsAiBot(CachedVisitor v) => v.BotType is "AiBot";
+    private static bool IsSearchBot(CachedVisitor v) => v.BotType is "SearchEngine" or "VerifiedBot" or "GoodBot";
+    private static bool IsToolBot(CachedVisitor v) => v.BotType is "Scraper" or "MonitoringBot" or "SocialMediaBot" or "Tool";
 
     private static int RiskOrder(string? band) => band switch
     {
