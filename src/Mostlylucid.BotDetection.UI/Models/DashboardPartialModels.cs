@@ -149,7 +149,7 @@ public sealed class ClusterDiagnosticsViewModel
 /// <summary>
 ///     View model for the endpoints list partial.
 /// </summary>
-public sealed class EndpointsListModel
+public sealed record EndpointsListModel
 {
     public required IReadOnlyList<DashboardEndpointStats> Endpoints { get; init; }
     public required string BasePath { get; init; }
@@ -159,6 +159,12 @@ public sealed class EndpointsListModel
     public int PageSize { get; init; } = 25;
     public int TotalCount { get; init; }
     public int TotalPages => Math.Max(1, (int)Math.Ceiling((double)TotalCount / PageSize));
+
+    /// <summary>When true the partial renders a narrow column set that fits inside a
+    /// half-width container without horizontal scroll: Method, Path, Req, Bot %. The
+    /// wider columns (Sigs, Policy) are dropped entirely rather than gated by Tailwind
+    /// breakpoints, which fail when the parent column is narrower than the breakpoint.</summary>
+    public bool IsCompact { get; init; }
 }
 
 /// <summary>

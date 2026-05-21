@@ -3182,12 +3182,13 @@ public class StyloBotDashboardMiddleware
         var sortDir = context.Request.Query["dir"].FirstOrDefault() ?? "desc";
         var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 100 ? ps : 10;
         var excludeStatic = context.Request.Query["excludeStatic"].FirstOrDefault() == "true";
+        var compact = context.Request.Query["compact"].FirstOrDefault() == "true";
 
         var endpoints = await GetEndpointsDataAsync(context);
         if (excludeStatic)
             endpoints = endpoints.Where(e => !IsStaticResource(e.Path)).ToList();
 
-        var model = BuildEndpointsModel(sortField, sortDir, 1, pageSize, endpoints);
+        var model = BuildEndpointsModel(sortField, sortDir, 1, pageSize, endpoints) with { IsCompact = compact };
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(

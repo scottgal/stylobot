@@ -9,16 +9,20 @@
 }
 else
 {
-    <div class="overflow-x-auto">
-        <table class="table table-xs w-full">
+    @{ var pathMaxW = Model.IsCompact ? "max-w-[140px]" : "max-w-[220px]"; }
+    <div class="@(Model.IsCompact ? "overflow-hidden" : "overflow-x-auto")">
+        <table class="table table-xs w-full @(Model.IsCompact ? "table-fixed" : "")">
             <thead>
             <tr class="text-[10px] uppercase tracking-wider">
-                <th class="py-1">Method</th>
+                <th class="py-1 @(Model.IsCompact ? "w-12" : "")">Method</th>
                 <th class="py-1">Path</th>
-                <th class="py-1 text-right">Req</th>
-                <th class="py-1 text-right">Bot %</th>
-                <th class="py-1 text-right hidden sm:table-cell">Sigs</th>
-                <th class="py-1 hidden md:table-cell">Policy</th>
+                <th class="py-1 text-right @(Model.IsCompact ? "w-14" : "")">Req</th>
+                <th class="py-1 text-right @(Model.IsCompact ? "w-14" : "")">Bot %</th>
+                @if (!Model.IsCompact)
+                {
+                    <th class="py-1 text-right hidden sm:table-cell">Sigs</th>
+                    <th class="py-1 hidden md:table-cell">Policy</th>
+                }
             </tr>
             </thead>
             <tbody>
@@ -29,7 +33,7 @@ else
                 <tr class="hover:bg-base-200/50 transition-colors cursor-pointer"
                     data-action="navigate" data-href="@detailHref">
                     <td class="py-1 text-[10px] font-bold">@endpoint.Method</td>
-                    <td class="py-1 text-xs font-medium max-w-[220px] truncate" title="@endpoint.Path">
+                    <td class="py-1 text-xs font-medium @pathMaxW truncate" title="@endpoint.Path">
                         @if (endpoint.IsPinned)
                         {
                             <i class="bx bx-pin text-base-content/30 mr-0.5" title="Pinned"></i>
@@ -42,17 +46,20 @@ else
                     </td>
                     <td class="py-1 text-right text-xs font-mono">@endpoint.TotalCount</td>
                     <td class="py-1 text-right text-xs font-bold @botClass">@((endpoint.BotRate * 100).ToString("F0"))%</td>
-                    <td class="py-1 text-right text-xs font-mono hidden sm:table-cell">@endpoint.UniqueSignatures</td>
-                    <td class="py-1 hidden md:table-cell">
-                        @if (!string.IsNullOrEmpty(endpoint.ActivePolicyName))
-                        {
-                            <span class="badge badge-xs badge-ghost font-mono text-[9px]">@endpoint.ActivePolicyName</span>
-                        }
-                        else
-                        {
-                            <span class="text-[10px] text-base-content/30">—</span>
-                        }
-                    </td>
+                    @if (!Model.IsCompact)
+                    {
+                        <td class="py-1 text-right text-xs font-mono hidden sm:table-cell">@endpoint.UniqueSignatures</td>
+                        <td class="py-1 hidden md:table-cell">
+                            @if (!string.IsNullOrEmpty(endpoint.ActivePolicyName))
+                            {
+                                <span class="badge badge-xs badge-ghost font-mono text-[9px]">@endpoint.ActivePolicyName</span>
+                            }
+                            else
+                            {
+                                <span class="text-[10px] text-base-content/30">—</span>
+                            }
+                        </td>
+                    }
                 </tr>
             }
             </tbody>
