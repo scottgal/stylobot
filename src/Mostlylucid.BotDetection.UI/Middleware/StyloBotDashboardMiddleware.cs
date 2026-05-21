@@ -1885,47 +1885,51 @@ public class StyloBotDashboardMiddleware
                 : null
         }).ToList<object>();
 
-        // Include live in-progress session from write-through cache if available.
-        // This ensures there's always a behavioral shape, even before session finalization.
+        // Live in-progress session: prefer the in-memory accumulator (has a real session
+        // vector for radar) when warm. Falls back to detection-event grouping below if the
+        // accumulator is cold (e.g. post-restart) so the radar never blanks on the in-flight
+        // entry just because the process restarted -- per "we never lose more than a couple
+        // of seconds of data" the persisted detection stream is the source of truth.
+        var liveAdded = false;
         var liveSessionStore = context.RequestServices.GetService<BotDetection.Analysis.SessionStore>();
-        if (liveSessionStore != null)
+        if (liveSessionStore?.GetCurrentSession(decodedSignature) is { Count: >= 1 } liveSession)
         {
-            var liveSession = liveSessionStore.GetCurrentSession(decodedSignature);
-            if (liveSession is { Count: >= 1 })
-            {
-                var liveVector = BotDetection.Analysis.SessionVectorizer.Encode(liveSession);
-                var liveRadar = BotDetection.Analysis.VectorRadarProjection.Project(liveVector);
-                var dominantState = liveSession
-                    .GroupBy(r => r.State)
-                    .OrderByDescending(g => g.Count())
-                    .First().Key;
+            var liveVector = BotDetection.Analysis.SessionVectorizer.Encode(liveSession);
+            var liveRadar = BotDetection.Analysis.VectorRadarProjection.Project(liveVector);
+            var dominantState = liveSession
+                .GroupBy(r => r.State)
+                .OrderByDescending(g => g.Count())
+                .First().Key;
 
-                result.Insert(0, new
-                {
-                    Id = "live",
-                    StartedAt = liveSession[0].Timestamp,
-                    EndedAt = liveSession[^1].Timestamp,
-                    durationMinutes = Math.Round((liveSession[^1].Timestamp - liveSession[0].Timestamp).TotalMinutes, 1),
-                    RequestCount = liveSession.Count,
-                    DominantState = dominantState.ToString(),
-                    IsBot = false,
-                    avgBotProbability = 0.0,
-                    RiskBand = "Unknown",
-                    ErrorCount = 0,
-                    timingEntropy = 0.0,
-                    Maturity = BotDetection.Analysis.SessionVectorizer.ComputeMaturity(liveSession),
-                    live = true,
-                    transitionCounts = (Dictionary<string, int>?)null,
-                    paths = liveSession.Select(r => r.PathTemplate).Distinct().ToList(),
-                    radarAxes = liveRadar
-                });
-            }
+            result.Insert(0, new
+            {
+                Id = "live",
+                StartedAt = liveSession[0].Timestamp,
+                EndedAt = liveSession[^1].Timestamp,
+                durationMinutes = Math.Round((liveSession[^1].Timestamp - liveSession[0].Timestamp).TotalMinutes, 1),
+                RequestCount = liveSession.Count,
+                DominantState = dominantState.ToString(),
+                IsBot = false,
+                avgBotProbability = 0.0,
+                RiskBand = "Unknown",
+                ErrorCount = 0,
+                timingEntropy = 0.0,
+                Maturity = BotDetection.Analysis.SessionVectorizer.ComputeMaturity(liveSession),
+                live = true,
+                transitionCounts = (Dictionary<string, int>?)null,
+                paths = liveSession.Select(r => r.PathTemplate).Distinct().ToList(),
+                radarAxes = liveRadar
+            });
+            liveAdded = true;
         }
 
-        // Fallback: when no finalized sessions and no live session exist, synthesize session
-        // objects from dashboard_detections. This guarantees behavioral shape always shows
-        // on the signature detail page even for in-flight or low-traffic signatures.
-        if (result.Count == 0)
+        // Detection-fallback: if no live session was added from the in-memory accumulator,
+        // synthesise from persisted detections. Runs whenever the accumulator is cold,
+        // regardless of whether finalised sessions exist -- restart must not blank the
+        // in-flight portion of the radar. When no finalised sessions exist either, the
+        // fallback also fills in past activity periods so a low-traffic signature still
+        // has a behavioral shape to render.
+        if (!liveAdded)
         {
             var eventStore = context.RequestServices.GetService<IDashboardEventStore>();
             if (eventStore != null)
@@ -1938,23 +1942,27 @@ public class StyloBotDashboardMiddleware
 
                 if (detections.Count > 0)
                 {
-                    // Group into synthetic sessions by 30-min inactivity gaps
-                    var ordered = detections.OrderBy(d => d.Timestamp).ToList();
-                    var syntheticGroups = new List<List<DashboardDetectionEvent>>();
-                    var currentGroup = new List<DashboardDetectionEvent> { ordered[0] };
-                    for (var i = 1; i < ordered.Count; i++)
-                    {
-                        if ((ordered[i].Timestamp - ordered[i - 1].Timestamp).TotalMinutes > 30)
-                        {
-                            syntheticGroups.Add(currentGroup);
-                            currentGroup = new List<DashboardDetectionEvent>();
-                        }
-                        currentGroup.Add(ordered[i]);
-                    }
-                    syntheticGroups.Add(currentGroup);
+                    var syntheticGroups = GroupDetectionsBySessionGap(detections);
 
-                    foreach (var group in syntheticGroups.OrderByDescending(g => g[^1].Timestamp))
+                    // When finalised sessions exist, only synthesise the most-recent group
+                    // (the in-flight one) and only when its start is after the newest
+                    // finalised session's end -- older groups are already covered by the
+                    // finalised rows in `result`.
+                    var newestFinalisedEnd = sessions.Count > 0
+                        ? sessions.Max(s => s.EndedAt)
+                        : DateTime.MinValue;
+
+                    var groupsToEmit = sessions.Count == 0
+                        ? syntheticGroups.OrderByDescending(g => g[^1].Timestamp).ToList()
+                        : syntheticGroups
+                            .Where(g => g[0].Timestamp > newestFinalisedEnd)
+                            .OrderByDescending(g => g[^1].Timestamp)
+                            .Take(1)
+                            .ToList();
+
+                    for (var gi = 0; gi < groupsToEmit.Count; gi++)
                     {
+                        var group = groupsToEmit[gi];
                         var avgProb = group.Average(d => d.BotProbability);
                         var dominantRisk = group
                             .GroupBy(d => d.RiskBand)
@@ -1996,9 +2004,13 @@ public class StyloBotDashboardMiddleware
                             }
                         }
 
-                        result.Add(new
+                        // gi==0 = most-recent group, after newestFinalisedEnd ⇒ this is the
+                        // in-flight session; mark live=true and prepend so the radar chart
+                        // and session selector treat it as the active row.
+                        var isLive = gi == 0;
+                        var entry = new
                         {
-                            Id = $"det-{group[0].Timestamp:yyyyMMddHHmm}",
+                            Id = isLive ? "live" : $"det-{group[0].Timestamp:yyyyMMddHHmm}",
                             StartedAt = group[0].Timestamp,
                             EndedAt = group[^1].Timestamp,
                             durationMinutes = Math.Round((group[^1].Timestamp - group[0].Timestamp).TotalMinutes, 1),
@@ -2010,12 +2022,14 @@ public class StyloBotDashboardMiddleware
                             ErrorCount = 0,
                             timingEntropy = 0.0,
                             Maturity = 0.0,
-                            live = false,
+                            live = isLive,
                             velocity = (object?)null,
                             transitionCounts = (Dictionary<string, int>?)null,
                             paths,
                             radarAxes
-                        });
+                        };
+                        if (isLive) result.Insert(0, entry);
+                        else result.Add(entry);
                     }
                 }
             }
@@ -3590,13 +3604,30 @@ public class StyloBotDashboardMiddleware
     ///     Serves inline HTML for signature sessions (loaded via HTMX in signature detail page).
     ///     Shows session timeline with Markov chain previews and path sequences.
     /// </summary>
-    /// <summary>
-    ///     Render an "in-flight session" view for signatures that have not yet had a
-    ///     persisted session finalised. Sessions close after 30 min of inactivity; until
-    ///     then the dashboard groups detection events into synthetic activity periods.
-    ///     This page shows what we have so the operator isn't sent to a dead "Session
-    ///     not found" wall.
-    /// </summary>
+    // Single pathway: every dashboard read that needs to reconstruct an "in-flight session"
+    // groups persisted detection events by a 30-minute idle gap. Used by the filmstrip,
+    // the Behavioral Sessions table, and the synthetic session-detail page. There is no
+    // in-memory fallback -- the Postgres event store is the source of truth.
+    private static List<List<DashboardDetectionEvent>> GroupDetectionsBySessionGap(
+        IReadOnlyList<DashboardDetectionEvent> detections)
+    {
+        var groups = new List<List<DashboardDetectionEvent>>();
+        if (detections.Count == 0) return groups;
+        var ordered = detections.OrderBy(d => d.Timestamp).ToList();
+        var current = new List<DashboardDetectionEvent> { ordered[0] };
+        for (var i = 1; i < ordered.Count; i++)
+        {
+            if ((ordered[i].Timestamp - ordered[i - 1].Timestamp).TotalMinutes > 30)
+            {
+                groups.Add(current);
+                current = new List<DashboardDetectionEvent>();
+            }
+            current.Add(ordered[i]);
+        }
+        groups.Add(current);
+        return groups;
+    }
+
     private async Task RenderSyntheticSessionDetailAsync(HttpContext context, string signature, string? groupStr)
     {
         context.Response.ContentType = "text/html";
@@ -3619,21 +3650,7 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        // Same 30-minute split that ServeSignatureSessionsPartialAsync uses, so the
-        // synthetic groups here line up exactly with the rows on the signature page.
-        var ordered = detections.OrderBy(d => d.Timestamp).ToList();
-        var groups = new List<List<DashboardDetectionEvent>>();
-        var current = new List<DashboardDetectionEvent> { ordered[0] };
-        for (var i = 1; i < ordered.Count; i++)
-        {
-            if ((ordered[i].Timestamp - ordered[i - 1].Timestamp).TotalMinutes > 30)
-            {
-                groups.Add(current);
-                current = new List<DashboardDetectionEvent>();
-            }
-            current.Add(ordered[i]);
-        }
-        groups.Add(current);
+        var groups = GroupDetectionsBySessionGap(detections);
 
         // Pick the group whose start timestamp matches the requested group key, else
         // most recent (groups were ordered ascending so OrderByDescending picks newest).
@@ -3753,19 +3770,7 @@ public class StyloBotDashboardMiddleware
 
                 if (detections.Count > 0)
                 {
-                    var ordered = detections.OrderBy(d => d.Timestamp).ToList();
-                    var syntheticGroups = new List<List<DashboardDetectionEvent>>();
-                    var currentGroup = new List<DashboardDetectionEvent> { ordered[0] };
-                    for (var i = 1; i < ordered.Count; i++)
-                    {
-                        if ((ordered[i].Timestamp - ordered[i - 1].Timestamp).TotalMinutes > 30)
-                        {
-                            syntheticGroups.Add(currentGroup);
-                            currentGroup = new List<DashboardDetectionEvent>();
-                        }
-                        currentGroup.Add(ordered[i]);
-                    }
-                    syntheticGroups.Add(currentGroup);
+                    var syntheticGroups = GroupDetectionsBySessionGap(detections);
 
                     var syntheticHtml = new System.Text.StringBuilder();
                     syntheticHtml.Append("<div class=\"overflow-x-auto\"><table class=\"table table-xs w-full\"><thead>");
@@ -3956,28 +3961,47 @@ public class StyloBotDashboardMiddleware
             };
         }).ToList();
 
-        // Behavioural History was a category error: it only showed FINALIZED sessions
-        // (i.e. ones idle for 30+ minutes), which meant a live-traffic operator with
-        // healthy ongoing sessions saw "No sessions yet" forever. Now we also include the
-        // current in-flight session (if any) at the head of the list, marked with a
-        // sentinel Id = -1 so the view can render it as a live row instead of a finalised
-        // history entry. State frequencies aren't fully computed until finalize, so we
-        // leave StateFreqs zero (radar shows as the inner-most dot); RequestCount + start
-        // time are enough for the operator to see "yes, this signature is active right now".
-        var inMemorySessions = context.RequestServices.GetService<BotDetection.Analysis.SessionStore>();
-        var inFlight = inMemorySessions?.GetCurrentSession(signature);
-        if (inFlight is { Count: > 0 })
+        // Behavioural History was first wired to read in-flight session state from
+        // BotDetection.Analysis.SessionStore -- a ConcurrentDictionary that doesn't
+        // survive a gateway restart and routinely disagreed with the Behavioural Sessions
+        // table on the same page (table source: persisted detections; filmstrip source:
+        // volatile cache). Now both partials reconstruct in-flight activity from the
+        // same Postgres event stream via GroupDetectionsBySessionGap, so they always
+        // agree. Synthesised entries carry a negative Id (-unixMs of group start) so
+        // the filmstrip Razor template can route the click to ?group=<key> instead of
+        // ?id=<sessionId>. State freqs are zero (no finalised vector yet) -- the radar
+        // renders as a centre dot, which is the intended "session in progress" glyph.
+        if (entries.Count == 0)
         {
-            entries.Insert(0, new Models.SessionFingerprintEntry
+            var eventStore = context.RequestServices.GetService<IDashboardEventStore>();
+            if (eventStore != null)
             {
-                Id = -1,
-                StartedAt = inFlight[0].Timestamp.UtcDateTime,
-                IsBot = false,
-                RiskBand = "InFlight",
-                Probability = 0,
-                RequestCount = inFlight.Count,
-                StateFreqs = new float[10]
-            });
+                var detections = await eventStore.GetDetectionsAsync(new DashboardFilter
+                {
+                    SignatureId = signature,
+                    Limit = 200
+                });
+                foreach (var group in GroupDetectionsBySessionGap(detections)
+                    .OrderByDescending(g => g[0].Timestamp)
+                    .Take(limit))
+                {
+                    var groupKey = new DateTimeOffset(group[0].Timestamp).ToUnixTimeMilliseconds();
+                    var avgProb = group.Average(d => d.BotProbability);
+                    var dominantRisk = group.GroupBy(d => d.RiskBand)
+                        .OrderByDescending(g2 => g2.Count())
+                        .First().Key ?? "InFlight";
+                    entries.Add(new Models.SessionFingerprintEntry
+                    {
+                        Id = -groupKey,
+                        StartedAt = group[0].Timestamp,
+                        IsBot = avgProb >= 0.5,
+                        RiskBand = dominantRisk,
+                        Probability = avgProb,
+                        RequestCount = group.Count,
+                        StateFreqs = new float[10]
+                    });
+                }
+            }
         }
 
         var cspNonce = GetOrCreateCspNonce(context);
