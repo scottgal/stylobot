@@ -71,11 +71,24 @@ public static class DetectionLedgerExtensions
         // bot name up against BotPatternLoader. The previous belt-and-braces helper
         // (FindFriendlyBotType, scanning contributions for a friendly classification)
         // duplicated that recovery and has been deleted.
-        var ledgerBotType = ParseBotType(ledger.BotType);
+        //
+        // Fall back to the UserAgent signals when ledger.BotType / BotName are unset.
+        // The UserAgentContributor reliably writes UserAgentBotType / UserAgentBotName
+        // into preSignals via WriteSignals, but the Ephemeral ledger's BotType / BotName
+        // top-level properties stay null on the read path -- AddContribution doesn't
+        // promote the contribution's PrimaryBotType / PrimaryBotName onto the ledger
+        // surface. Without this fallback the friendly-pin gate exited with
+        // botType=null,botName=null for every UA the YAML matcher had successfully
+        // identified (Mastodon, Pleroma, etc.). The signals are the canonical
+        // single source either way; this just teaches the read site to consult them.
+        var ledgerBotType = ParseBotType(ledger.BotType)
+                            ?? ParseBotType(preSignals.TryGetValue(SignalKeys.UserAgentBotType, out var uabt) ? uabt as string : null);
+        var ledgerBotName = ledger.BotName
+                            ?? (preSignals.TryGetValue(SignalKeys.UserAgentBotName, out var uabn) ? uabn as string : null);
 
         var (riskBand, riskJustification, friendlyPinTrace) = DetermineRiskBand(botProbability, confidence, aiRan,
             earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory,
-            ledgerBotType, ledger.BotName, friendlyIpVerified, friendlyDomainVerified);
+            ledgerBotType, ledgerBotName, friendlyIpVerified, friendlyDomainVerified);
 
         // PrimaryBotType stays gated on classification — it's a claim about WHAT KIND of bot
         // ("this looks like a Scraper") and is only meaningful when classified as bot.
