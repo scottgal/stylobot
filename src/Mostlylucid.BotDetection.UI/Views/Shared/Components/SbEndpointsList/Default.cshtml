@@ -23,49 +23,55 @@
             <h3 class="text-sm font-bold text-base-content">Endpoints</h3>
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "endpoints")
         </div>
-        <button class="btn btn-xs btn-ghost gap-1 text-base-content/60"
-                data-action="toggle-pin-form">
-            <i class="bx bx-pin text-sm"></i>Pin Endpoint
-        </button>
+        @if (Model.IsCommercial)
+        {
+            <button class="btn btn-xs btn-ghost gap-1 text-base-content/60"
+                    data-action="toggle-pin-form">
+                <i class="bx bx-pin text-sm"></i>Pin Endpoint
+            </button>
+        }
     </div>
-    <div id="pin-endpoint-form" class="hidden mb-4 p-3 bg-base-200 rounded-lg">
-        <form hx-post="@(bp)/api/endpoint-pins"
-              hx-target="#endpoints-list"
-              hx-swap="outerHTML"
-              hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('pin-endpoint-form').classList.add('hidden')}"
-              class="space-y-2">
-            <div class="flex gap-2">
-                <select name="method" class="select select-xs select-bordered w-28 font-mono">
-                    <option value="ANY">ANY</option>
-                    <option value="GET">GET</option>
-                    <option value="POST">POST</option>
-                    <option value="PUT">PUT</option>
-                    <option value="DELETE">DELETE</option>
-                    <option value="PATCH">PATCH</option>
-                </select>
-                <input name="path" type="text" placeholder="/config.php"
-                       class="input input-xs input-bordered flex-1 font-mono"
-                       required pattern="\/.*" maxlength="500" />
-            </div>
-            <div class="flex items-center gap-4">
-                <label class="flex items-center gap-1.5 text-xs cursor-pointer">
-                    <input type="checkbox" name="isHoneypot" value="true" class="checkbox checkbox-xs" />
-                    Mark as honeypot
-                </label>
-                <input name="note" type="text" placeholder="Optional note"
-                       class="input input-xs input-bordered flex-1" maxlength="200" />
-            </div>
-            <div class="flex gap-2 justify-end">
-                <button type="button" class="btn btn-xs btn-ghost"
-                        data-action="hide-pin-form">
-                    Cancel
-                </button>
-                <button type="submit" class="btn btn-xs btn-primary">
-                    <i class="bx bx-pin mr-1"></i>Pin Endpoint
-                </button>
-            </div>
-        </form>
-    </div>
+    @if (Model.IsCommercial)
+    {
+        <div id="pin-endpoint-form" class="hidden mb-4 p-3 bg-base-200 rounded-lg">
+            <form hx-post="@(bp)/api/endpoint-pins"
+                  hx-target="#endpoints-list"
+                  hx-swap="outerHTML"
+                  hx-on::after-request="if(event.detail.successful){this.reset();document.getElementById('pin-endpoint-form').classList.add('hidden')}"
+                  class="space-y-2">
+                <div class="flex gap-2">
+                    <select name="method" class="select select-xs select-bordered w-28 font-mono">
+                        <option value="ANY">ANY</option>
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="DELETE">DELETE</option>
+                        <option value="PATCH">PATCH</option>
+                    </select>
+                    <input name="path" type="text" placeholder="/config.php"
+                           class="input input-xs input-bordered flex-1 font-mono"
+                           required pattern="\/.*" maxlength="500" />
+                </div>
+                <div class="flex items-center gap-4">
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input type="checkbox" name="isHoneypot" value="true" class="checkbox checkbox-xs" />
+                        Mark as honeypot
+                    </label>
+                    <input name="note" type="text" placeholder="Optional note"
+                           class="input input-xs input-bordered flex-1" maxlength="200" />
+                </div>
+                <div class="flex gap-2 justify-end">
+                    <button type="button" class="btn btn-xs btn-ghost"
+                            data-action="hide-pin-form">
+                        Cancel
+                    </button>
+                    <button type="submit" class="btn btn-xs btn-primary">
+                        <i class="bx bx-pin mr-1"></i>Pin Endpoint
+                    </button>
+                </div>
+            </form>
+        </div>
+    }
     @if (Model.Endpoints.Count == 0)
     {
         <div class="text-xs text-base-content/40 py-8 text-center">No endpoint analytics yet</div>

@@ -165,6 +165,11 @@ public sealed record EndpointsListModel
     /// wider columns (Sigs, Policy) are dropped entirely rather than gated by Tailwind
     /// breakpoints, which fail when the parent column is narrower than the breakpoint.</summary>
     public bool IsCompact { get; init; }
+
+    /// <summary>True when the request resolves to commercial mode. Gates the
+    /// "Pin Endpoint" / honeypot management UI -- pinning is a paid feature
+    /// and must never render or accept input in FOSS mode.</summary>
+    public bool IsCommercial { get; init; }
 }
 
 /// <summary>
@@ -200,6 +205,11 @@ public sealed class EndpointDetailModel
     public bool IsPinned { get; init; }
     public bool IsHoneypot { get; init; }
     public long? PinId { get; init; }
+
+    /// <summary>True when the request resolves to commercial mode. Gates the
+    /// Unpin button -- FOSS may display the pinned/honeypot badge (seeded data
+    /// shows the feature exists) but the unpin action itself is paid.</summary>
+    public bool IsCommercial { get; init; }
 }
 
 /// <summary>

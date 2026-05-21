@@ -530,6 +530,12 @@ public class StyloBotDashboardMiddleware
                 break;
 
             case "api/endpoint-pins":
+                if (!IsCommercialMode(context))
+                {
+                    context.Response.StatusCode = 402;
+                    await context.Response.WriteAsync("Endpoint pinning is a commercial feature.");
+                    break;
+                }
                 if (context.Request.Method == "GET")
                     await ServeEndpointPinsApiAsync(context);
                 else if (context.Request.Method == "POST")
@@ -539,6 +545,12 @@ public class StyloBotDashboardMiddleware
                 break;
 
             case var p when p.StartsWith("api/endpoint-pins/", StringComparison.OrdinalIgnoreCase):
+                if (!IsCommercialMode(context))
+                {
+                    context.Response.StatusCode = 402;
+                    await context.Response.WriteAsync("Endpoint pinning is a commercial feature.");
+                    break;
+                }
                 if (context.Request.Method == "DELETE")
                     await HandleUnpinEndpointAsync(context, relLower["api/endpoint-pins/".Length..]);
                 else
@@ -940,7 +952,7 @@ public class StyloBotDashboardMiddleware
             },
             YourDetection = BuildYourDetectionPartialModel(context),
             Countries = BuildCountriesModel("total", "desc", 1, 20, countriesData),
-            Endpoints = BuildEndpointsModel("total", "desc", 1, 20, endpointsData),
+            Endpoints = BuildEndpointsModel(context, "total", "desc", 1, 20, endpointsData),
             Clusters = await BuildClustersModelAsync(context),
             UserAgents = BuildUserAgentsModel("all", "requests", "desc", 1, 25, allUserAgents),
             TopBots = BuildTopBotsModel(page: 1, pageSize: 10, sortBy: "default", sortDir: "desc"),
@@ -3167,7 +3179,7 @@ public class StyloBotDashboardMiddleware
         if (excludeStatic)
             endpoints = endpoints.Where(e => !IsStaticResource(e.Path)).ToList();
 
-        var model = BuildEndpointsModel(sortField, sortDir, page, pageSize, endpoints);
+        var model = BuildEndpointsModel(context, sortField, sortDir, page, pageSize, endpoints);
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -3188,7 +3200,7 @@ public class StyloBotDashboardMiddleware
         if (excludeStatic)
             endpoints = endpoints.Where(e => !IsStaticResource(e.Path)).ToList();
 
-        var model = BuildEndpointsModel(sortField, sortDir, 1, pageSize, endpoints) with { IsCompact = compact };
+        var model = BuildEndpointsModel(context, sortField, sortDir, 1, pageSize, endpoints) with { IsCompact = compact };
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
@@ -4201,7 +4213,7 @@ public class StyloBotDashboardMiddleware
         var sortDir = q["dir"].FirstOrDefault() ?? "desc";
         var page = int.TryParse(q["page"].FirstOrDefault(), out var p) && p > 0 ? p : 1;
         var data = await GetEndpointsDataAsync(context);
-        var model = BuildEndpointsModel(sortField, sortDir, page, 20, data);
+        var model = BuildEndpointsModel(context, sortField, sortDir, page, 20, data);
         return await _razorViewRenderer.RenderViewToStringAsync("/Views/Shared/Components/SbEndpointsList/Default.cshtml", model, context);
     }
 
@@ -4879,6 +4891,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         var policyName = policyRegistry?.GetPolicyForPath(path).Name;
         var packCoverage = BuildEndpointDetailCoverage(context, path);
 
+        var isCommercial = IsCommercialMode(context);
         var model = detail == null
             ? new EndpointDetailModel
             {
@@ -4891,7 +4904,8 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                 PackCoverage = packCoverage,
                 IsPinned = pin != null,
                 IsHoneypot = pin?.IsHoneypot ?? false,
-                PinId = pin?.Id
+                PinId = pin?.Id,
+                IsCommercial = isCommercial
             }
             : new EndpointDetailModel
             {
@@ -4924,7 +4938,8 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                 PackCoverage = packCoverage,
                 IsPinned = pin != null,
                 IsHoneypot = pin?.IsHoneypot ?? false,
-                PinId = pin?.Id
+                PinId = pin?.Id,
+                IsCommercial = isCommercial
             };
 
         context.Response.ContentType = "text/html";
@@ -5127,7 +5142,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         return coverage;
     }
 
-    private EndpointsListModel BuildEndpointsModel(string sortField, string sortDir, int page, int pageSize, List<DashboardEndpointStats> all)
+    private EndpointsListModel BuildEndpointsModel(HttpContext context, string sortField, string sortDir, int page, int pageSize, List<DashboardEndpointStats> all)
     {
         IEnumerable<DashboardEndpointStats> sorted = sortField.ToLowerInvariant() switch
         {
@@ -5151,7 +5166,8 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             SortDir = sortDir,
             Page = page,
             PageSize = pageSize,
-            TotalCount = all.Count
+            TotalCount = all.Count,
+            IsCommercial = IsCommercialMode(context)
         };
     }
 

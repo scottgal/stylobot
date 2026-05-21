@@ -364,13 +364,16 @@
                             <span class="badge badge-xs badge-warning ml-1">honeypot</span>
                         }
                     </div>
-                    <button class="btn btn-xs btn-ghost text-error/60 hover:text-error"
-                            hx-delete="@(Model.BasePath)/api/endpoint-pins/@Model.PinId"
-                            hx-confirm="Remove pin for @Model.Path?"
-                            hx-target="closest [data-endpoint-detail]"
-                            hx-swap="outerHTML">
-                        <i class="bx bx-unlink text-sm"></i>Unpin
-                    </button>
+                    @if (Model.IsCommercial)
+                    {
+                        <button class="btn btn-xs btn-ghost text-error/60 hover:text-error"
+                                hx-delete="@(Model.BasePath)/api/endpoint-pins/@Model.PinId"
+                                hx-confirm="Remove pin for @Model.Path?"
+                                hx-target="closest [data-endpoint-detail]"
+                                hx-swap="outerHTML">
+                            <i class="bx bx-unlink text-sm"></i>Unpin
+                        </button>
+                    }
                 </div>
             }
         </div>
