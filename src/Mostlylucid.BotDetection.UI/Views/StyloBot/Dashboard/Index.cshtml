@@ -96,6 +96,9 @@
        lets a host (commercial wrapper) suppress this when it already provides its own. *@
     @if (Model.RenderShell)
     {
+        <div class="w-full bg-warning text-warning-content text-center text-xs sm:text-sm font-bold uppercase tracking-wider py-1.5 px-4">
+            Releases June 1st &middot; all content is provisional
+        </div>
         @await Html.PartialAsync("_StylobotNavbar")
     }
 
