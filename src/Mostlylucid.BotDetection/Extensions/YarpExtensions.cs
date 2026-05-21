@@ -95,8 +95,14 @@ public static class YarpExtensions
         }
 
         // Forward multi-factor signatures so downstream can match "your detection" and
-        // report accurate factor counts without recomputing from a different vantage point
-        if (evidence.Signals.TryGetValue(Models.SignalKeys.SignatureMultifactor, out var sigsObj) &&
+        // report accurate factor counts without recomputing from a different vantage
+        // point. evidence is nullable (line 63 declares it, lines 64-68 only assign
+        // conditionally) -- the defensive 'if (evidence != null)' guard later in the
+        // method was AFTER this dereference, so any request that didn't carry a
+        // populated AggregatedEvidence (early-exit detection paths, dashboard asset
+        // requests, etc.) NPE'd here and YARP returned 502 on the proxy hop.
+        if (evidence?.Signals != null &&
+            evidence.Signals.TryGetValue(Models.SignalKeys.SignatureMultifactor, out var sigsObj) &&
             sigsObj is Dashboard.MultiFactorSignatures mfs &&
             !string.IsNullOrEmpty(mfs.PrimarySignature))
         {
