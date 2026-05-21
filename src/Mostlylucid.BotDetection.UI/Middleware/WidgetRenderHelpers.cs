@@ -46,15 +46,15 @@ internal static class WidgetRenderHelpers
         var match = FirstTagRegex.Match(html);
         if (!match.Success) return html;
         if (match.Value.Contains("hx-swap-oob", StringComparison.Ordinal)) return html;
-        // outerHTML transition:true opts the swap into the browser's View Transitions
-        // API. Without it HTMX hard-removes the old element and inserts the new one,
-        // leaving a one-frame blank slot that reads as a flash. With transition:true,
-        // the browser cross-fades old -> new natively (no CSS-class race against
-        // htmx-added's 20ms settle window) and respects view-transition-name so the
-        // swap is scoped to the widget rather than the whole document.
+        // OOB swap value is "true" -- HTMX 2.0's OOB parser does NOT accept the
+        // "outerHTML transition:true" syntax (verified live: that value zeroed
+        // out oobBeforeSwap events entirely). View Transitions are now applied
+        // client-side by SbLiveUpdatesTagHelper wrapping htmx.ajax in
+        // document.startViewTransition, which works for the whole OOB batch
+        // including elements whose OOB attribute is just "true".
         return html[..match.Groups[1].Index]
                + match.Groups[1].Value
-               + " hx-swap-oob=\"outerHTML transition:true\""
+               + " hx-swap-oob=\"true\""
                + match.Groups[2].Value
                + html[(match.Index + match.Length)..];
     }

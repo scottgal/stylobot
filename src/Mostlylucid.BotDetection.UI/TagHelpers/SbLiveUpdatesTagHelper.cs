@@ -288,7 +288,22 @@ public class SbLiveUpdatesTagHelper : TagHelper
 
         var url = BASE + '/partials/update?' + qs.toString();
         if (typeof htmx !== 'undefined') {{
-            htmx.ajax('GET', url, {{ target: 'body', swap: 'none' }});
+            // Wrap the OOB batch in the View Transitions API when available so the
+            // browser cross-fades old->new on every [data-sb-widget] swapped in this
+            // batch. The DOM mutations htmx.ajax triggers inside the callback are
+            // captured by startViewTransition; the browser snapshots the before
+            // state, runs the swaps synchronously inside the callback, then animates
+            // old -> new using the view-transition-name we set per widget. Falls
+            // through to a plain swap when the API is unavailable (Firefox today).
+            if (typeof document.startViewTransition === 'function') {{
+                document.startViewTransition(function() {{
+                    return new Promise(function(resolve) {{
+                        htmx.ajax('GET', url, {{ target: 'body', swap: 'none' }}).then(resolve, resolve);
+                    }});
+                }});
+            }} else {{
+                htmx.ajax('GET', url, {{ target: 'body', swap: 'none' }});
+            }}
         }}
     }}
 
