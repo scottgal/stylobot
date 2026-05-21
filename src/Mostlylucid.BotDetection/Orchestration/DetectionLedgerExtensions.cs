@@ -57,12 +57,13 @@ public static class DetectionLedgerExtensions
         var friendlyIpVerified = preSignals.TryGetValue(SignalKeys.FriendlyIpVerified, out var fipv)
             ? (bool?)Convert.ToBoolean(fipv)
             : null;
-        // Find any contributor that classified this UA as a friendly bot type. The ledger's
-        // single BotType property is last-writer-wins (HeuristicEarly often overwrites the
-        // UA's authoritative pattern match with a generic "Scraper" guess). Scanning all
-        // contributions surfaces the strongest identification.
-        var friendlyBotType = FindFriendlyBotType(ledger);
-        var ledgerBotType = friendlyBotType ?? ParseBotType(ledger.BotType);
+        // ledger.BotType is last-writer-wins (HeuristicEarly often overwrites the
+        // authoritative UA pattern's "GoodBot" with a generic "Scraper" guess), but
+        // DetermineRiskBand's own YAML fallback recovers from that by looking the
+        // bot name up against BotPatternLoader. The previous belt-and-braces helper
+        // (FindFriendlyBotType, scanning contributions for a friendly classification)
+        // duplicated that recovery and has been deleted.
+        var ledgerBotType = ParseBotType(ledger.BotType);
 
         var (riskBand, riskJustification, friendlyPinTrace) = DetermineRiskBand(botProbability, confidence, aiRan,
             earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory,
@@ -559,9 +560,6 @@ public static class DetectionLedgerExtensions
             _        => 0
         };
     }
-
-    private static BotType? FindFriendlyBotType(DetectionLedger ledger)
-        => FindFriendlyBotContribution(ledger) is { } c ? ParseBotType(c.BotType) : null;
 
     private static DetectionContribution? FindFriendlyBotContribution(DetectionLedger ledger)
     {

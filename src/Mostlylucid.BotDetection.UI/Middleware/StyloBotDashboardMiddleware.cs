@@ -4520,7 +4520,7 @@ public class StyloBotDashboardMiddleware
                         RiskBand = warmedAgg.RiskBand ?? latest.RiskBand,
                         BotProbability = warmedAgg.BotProbability,
                         Confidence = warmedAgg.Confidence,
-                        HitCount = detections.Count,
+                        HitCount = warmedAgg.HitCount,
                         Action = latest.Action,
                         CountryCode = latest.CountryCode,
                         ProcessingTimeMs = latest.ProcessingTimeMs,
@@ -4536,7 +4536,7 @@ public class StyloBotDashboardMiddleware
                         Paths = detections.Where(d => d.Path != null).Select(d => d.Path!).Distinct().ToList(),
                         UserAgent = null, // Not available from event store (PII-hashed)
                         Protocol = null,
-                        FirstSeen = detections.Count > 0 ? detections[^1].Timestamp : default,
+                        FirstSeen = detections[^1].Timestamp, // outer if already proved detections.Count > 0
                         BotProbabilityHistory = detections.Select(d => d.BotProbability).ToList(),
                         ConfidenceHistory = detections.Select(d => d.Confidence).ToList(),
                         ProcessingTimeHistory = detections.Select(d => (double)d.ProcessingTimeMs).ToList(),
