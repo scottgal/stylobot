@@ -372,7 +372,14 @@ public sealed class SignatureAggregateCache
             existing.Description = detection.Description ?? existing.Description;
             existing.ThreatScore = detection.ThreatScore ?? existing.ThreatScore;
             existing.ThreatBand = detection.ThreatBand ?? existing.ThreatBand;
-            existing.RiskJustification = detection.RiskJustification ?? existing.RiskJustification;
+            // RiskJustification is the rendered "why this band" string -- it must track
+            // the CURRENT band (which we always overwrite on detection at line 363),
+            // not the first one we ever saw. Previously this coalesced with `??`, so
+            // a signature whose first detection produced "AI probability 0.92" would
+            // keep that justification forever even after every subsequent detection
+            // produced a different reason set (or no reason at all). The trace strings
+            // and the band itself disagreed in the signature detail UI.
+            existing.RiskJustification = detection.RiskJustification;
 
             existing.ScoreHistory.AddLast(detection.BotProbability);
             while (existing.ScoreHistory.Count > ScoreHistorySize)

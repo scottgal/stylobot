@@ -266,7 +266,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     threat_score = @threat,
                     threat_band = @band,
                     narrative = COALESCE(@narrative, narrative),
-                    risk_justification = COALESCE(@justification, risk_justification)
+                    -- risk_justification tracks the CURRENT band's explanation, not
+                    -- the first one ever recorded. The earlier COALESCE froze the
+                    -- justification on first write so the signature detail page
+                    -- showed a stale reason string that no longer matched the band.
+                    risk_justification = @justification
                 RETURNING hit_count
                 """;
             cmd.Parameters.AddWithValue("@sig", signature.PrimarySignature ?? "unknown");

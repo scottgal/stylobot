@@ -5574,6 +5574,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         if (vectorSearch == null || result.Signatures.Count == 0) return result;
 
         var sessionStore = context.RequestServices.GetService<ISessionStore>();
+        var signatureCache = context.RequestServices.GetService<SignatureAggregateCache>();
         var ghostHits = new List<GhostCampaignHit>();
         var enrichedSignatures = new List<SignatureSummary>(result.Signatures.Count);
 
@@ -5613,13 +5614,39 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             {
                 // Don't match the signature to itself
                 if (string.Equals(g.FamilyId, sig.PrimarySignature, StringComparison.Ordinal)) continue;
+                // RiskBand for a ghost match must come from the same source every
+                // other dashboard surface uses (SignatureAggregateCache) so a ghost
+                // row can't show a different band to the operator than the matched
+                // family's own Top Bots row. Previously this re-derived a band from
+                // probability via a unique threshold formula (>0.7 -> High, else
+                // Medium), giving the matched family a THIRD independent definition
+                // of "what band is this fingerprint in." Now read from the cache;
+                // fall back to a band derived from probability only when the family
+                // is not in cache (warmup-cold case).
+                string ghostBand;
+                if (signatureCache != null && signatureCache.TryGet(g.FamilyId, out var ghostAgg) && ghostAgg != null && !string.IsNullOrEmpty(ghostAgg.RiskBand))
+                {
+                    ghostBand = ghostAgg.RiskBand;
+                }
+                else
+                {
+                    ghostBand = g.BotProbability switch
+                    {
+                        >= 0.85 => "VeryHigh",
+                        >= 0.65 => "High",
+                        >= 0.50 => "Medium",
+                        >= 0.35 => "Elevated",
+                        >= 0.15 => "Low",
+                        _       => "VeryLow"
+                    };
+                }
                 ghostHits.Add(new GhostCampaignHit
                 {
                     FamilyId = g.FamilyId,
                     Label = null,  // FOSS has no analyst labels
                     Similarity = g.Similarity,
                     MatchedSignature = sig.PrimarySignature,
-                    RiskBand = g.BotProbability > 0.7 ? "High" : "Medium",
+                    RiskBand = ghostBand,
                     SignatureCount = 1,  // FOSS doesn't track merged count
                     LastSeen = sig.LastSeen
                 });
