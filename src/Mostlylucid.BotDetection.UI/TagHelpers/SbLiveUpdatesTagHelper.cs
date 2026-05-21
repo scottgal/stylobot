@@ -75,6 +75,22 @@ public class SbLiveUpdatesTagHelper : TagHelper
 
         output.TagName = null;
 
+        // Cross-swap CSS transition. HTMX adds .htmx-swapping to the old element while
+        // it's being removed and .htmx-added to the new element after it lands. Without
+        // a transition the OOB swap is a hard delete-then-insert and reads as a blink.
+        // Fading the new element from 0.65 -> 1 opacity and 4px translate -> 0 over
+        // 180ms hides the gap; the cubic-bezier keeps the motion soft so a periodic
+        // OOB refresh doesn't feel busy.
+        output.Content.AppendHtml($@"<style{nonceAttr}>
+[data-sb-widget].htmx-swapping {{ opacity: 0; transition: opacity 80ms ease-in; }}
+[data-sb-widget].htmx-added    {{ animation: sb-widget-swap-in 180ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }}
+@keyframes sb-widget-swap-in {{
+  from {{ opacity: 0.55; transform: translateY(3px); }}
+  to   {{ opacity: 1;    transform: translateY(0);   }}
+}}
+</style>
+");
+
         if (ShowStatus)
         {
             output.Content.AppendHtml(
@@ -239,14 +255,33 @@ public class SbLiveUpdatesTagHelper : TagHelper
     }}
 
     // Restore previously-saved widget filter/sort params from sessionStorage so that
-    // switching dashboard tabs preserves the user's last filter selection.
+    // switching dashboard tabs preserves the user's last filter selection. Only the
+    // user-driven keys (filter, sort, dir, page) are carried across visits; page-author
+    // keys (pageSize, widgetId) ALWAYS come from the fresh SSR-rendered data-sb-params
+    // for THIS placement. Without this split, the overview tab's live-activity widget
+    // (pageSize=10) wrote sessionStorage that then clobbered the activity tab's
+    // SSR pageSize=25, the SignalR refresh sent pageSize=10 in the params, the
+    // partial returned 10 rows, and the visitor saw the SSR list "instantly shorten"
+    // by 60% on the first OOB swap.
+    var USER_DRIVEN_KEYS = ['filter', 'sort', 'dir', 'page'];
     document.querySelectorAll('[data-sb-widget]').forEach(function(el) {{
         var wid = el.getAttribute('data-sb-widget');
         var saved = sessionStorage.getItem('sb:wp:' + wid);
-        if (saved) el.setAttribute('data-sb-params', saved);
+        if (!saved) return;
+        try {{
+            var fresh = new URLSearchParams(el.getAttribute('data-sb-params') || '');
+            var savedParams = new URLSearchParams(saved);
+            USER_DRIVEN_KEYS.forEach(function(key) {{
+                if (savedParams.has(key)) fresh.set(key, savedParams.get(key));
+            }});
+            el.setAttribute('data-sb-params', fresh.toString());
+        }} catch(e) {{ }}
     }});
 
     // After any HTMX swap settles (including OOB), persist current widget params.
+    // We save the whole string but the restore above only consumes user-driven keys,
+    // so re-saving pageSize is harmless -- it stays attached but is ignored when
+    // restored against a different placement.
     document.body.addEventListener('htmx:afterSettle', function() {{
         document.querySelectorAll('[data-sb-widget]').forEach(function(el) {{
             var wid = el.getAttribute('data-sb-widget');
