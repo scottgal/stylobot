@@ -13,15 +13,28 @@ public class VisitorListCache
 {
     private readonly ConcurrentDictionary<string, CachedVisitor> _visitors = new();
     private readonly int _maxVisitors;
+    private readonly SignatureAggregateCache? _aggregateCache;
 
-    public VisitorListCache(int maxVisitors = 500)
+    public VisitorListCache(int maxVisitors = 500, SignatureAggregateCache? aggregateCache = null)
     {
         // Default was 100; bumped to 500 so a staging gateway seeing a few hundred
         // distinct signatures over 24h (Amazonbot alone churns 200+ fingerprints)
         // doesn't constantly evict-then-rehydrate the visitor cards. Memory cost
         // per entry is ~1KB so the cap is still well under a megabyte.
         _maxVisitors = maxVisitors;
+        // SignatureAggregateCache is the single source of truth for bot name + type
+        // (UpdateSignatureBotNameAsync writes to it whenever the canonical naming
+        // pipeline fires -- including LLM identification). Without this link, the
+        // visitor card showed the initial detection's BotName (often "Unknown Bot")
+        // even after the signature was later named, so users saw "Unknown" on the
+        // card and the real name on the signature detail page.
+        _aggregateCache = aggregateCache;
     }
+
+    // DI-friendly ctor: matches the AddSingleton<VisitorListCache>() registration so
+    // SignatureAggregateCache is wired automatically; the maxVisitors-only ctor
+    // above is preserved for tests that construct the cache by hand.
+    public VisitorListCache(SignatureAggregateCache aggregateCache) : this(500, aggregateCache) { }
 
     /// <summary>
     ///     Upsert a visitor from a detection event.
@@ -185,7 +198,30 @@ public class VisitorListCache
     public (IReadOnlyList<CachedVisitor> Items, int TotalCount, int Page, int PageSize) GetFiltered(
         string? filter, string sortField, string sortDir, int page, int pageSize)
     {
-        IEnumerable<CachedVisitor> items = SnapshotAll();
+        var snapshot = SnapshotAll();
+
+        // Single source of names: whenever the SignatureAggregateCache has a name
+        // for this signature, override the locally-cached one before anything
+        // downstream (filter, collapse, sort) reads it. Otherwise the card shows
+        // the name captured at first-detection time (often "Unknown Bot") forever,
+        // while the signature detail page reads from the aggregate cache and
+        // shows the up-to-date canonical name -- the "two different names on the
+        // same fingerprint" bug. Mutates the cached row in place; subsequent
+        // upserts will keep refreshing it from the same source.
+        if (_aggregateCache != null)
+        {
+            foreach (var v in snapshot)
+            {
+                if (string.IsNullOrEmpty(v.PrimarySignature)) continue;
+                if (!_aggregateCache.TryGet(v.PrimarySignature, out var agg) || agg == null) continue;
+                if (!string.IsNullOrEmpty(agg.BotName) && agg.BotName != v.BotName)
+                    v.BotName = agg.BotName;
+                if (!string.IsNullOrEmpty(agg.BotType) && agg.BotType != v.BotType)
+                    v.BotType = agg.BotType;
+            }
+        }
+
+        IEnumerable<CachedVisitor> items = snapshot;
 
         items = filter switch
         {
