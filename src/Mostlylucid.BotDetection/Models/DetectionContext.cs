@@ -272,6 +272,13 @@ public static class SignalKeys
     /// <summary>String: human-readable explanation of why this risk band was assigned</summary>
     public const string RiskJustification = "risk.justification";
 
+    /// <summary>String: trace of the friendly-bot pin evaluation. Format is
+    /// "fired:&lt;source&gt;" / "skipped:&lt;reason&gt;" / "not-applicable:&lt;reason&gt;"
+    /// so the dashboard can show why a known-friendly bot (MJ12bot, AhrefsBot,
+    /// DuckDuckBot) ended up VeryHigh or, conversely, why a spoofed UA managed to
+    /// pin Low. Always set by DetermineRiskBand.</summary>
+    public const string RiskFriendlyPinTrace = "risk.friendly_pin_trace";
+
     // AI/LLM signals
     public const string AiPrediction = "ai.prediction";
     public const string AiConfidence = "ai.confidence";

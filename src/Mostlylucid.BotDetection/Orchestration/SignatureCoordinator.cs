@@ -586,7 +586,7 @@ public class SignatureCoordinator : IAsyncDisposable
         // Cached verdicts never run AI; reuse the canonical band logic so a Skip-served
         // verdict classifies into the same band a fresh pipeline pass would have produced
         // given the same probability / threat / persistence inputs.
-        var (riskBand, _) = DetectionLedgerExtensions.DetermineRiskBand(
+        var (riskBand, _, _) = DetectionLedgerExtensions.DetermineRiskBand(
             botProbability: behavior.AverageBotProbability,
             confidence: confidence,
             aiRan: false,

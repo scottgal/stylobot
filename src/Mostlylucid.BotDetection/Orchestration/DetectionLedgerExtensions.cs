@@ -57,7 +57,7 @@ public static class DetectionLedgerExtensions
         var friendlyBotType = FindFriendlyBotType(ledger);
         var ledgerBotType = friendlyBotType ?? ParseBotType(ledger.BotType);
 
-        var (riskBand, riskJustification) = DetermineRiskBand(botProbability, confidence, aiRan,
+        var (riskBand, riskJustification, friendlyPinTrace) = DetermineRiskBand(botProbability, confidence, aiRan,
             earlyThreatForBand, isConfirmedBadForBand, sessionCountForBand, intentCategory,
             ledgerBotType, ledger.BotName);
 
@@ -86,6 +86,8 @@ public static class DetectionLedgerExtensions
         // Write risk justification back to signals so downstream consumers can read it
         if (!string.IsNullOrEmpty(riskJustification))
             signals[SignalKeys.RiskJustification] = riskJustification;
+        if (!string.IsNullOrEmpty(friendlyPinTrace))
+            signals[SignalKeys.RiskFriendlyPinTrace] = friendlyPinTrace;
 
         double priorProbability = 0.0;
         double contributionDelta = 0.0;
@@ -335,7 +337,7 @@ public static class DetectionLedgerExtensions
     /// VeryHigh without AI requires one of: probability >= 0.85, OR confirmed bad actor, OR
     /// probability >= 0.70 with active threat OR >= 5 requests.
     /// </summary>
-    internal static (RiskBand Band, string Justification) DetermineRiskBand(
+    internal static (RiskBand Band, string Justification, string FriendlyPinTrace) DetermineRiskBand(
         double botProbability, double confidence, bool aiRan,
         double threatScore, bool isConfirmedBad, int sessionRequestCount,
         string? intentCategory = null,
@@ -351,20 +353,46 @@ public static class DetectionLedgerExtensions
         //      botName matches a YAML pattern whose bot_type IS friendly. The YAML
         //      pattern files are the single source of truth here -- without this
         //      fallback a wiring bug surfaces as a VeryHigh-risk DuckDuckBot row.
-        if (!isConfirmedBad && threatScore < BotTypeClassification.FriendlyThreatGate)
+        //
+        // The FriendlyPinTrace return value records the decision either way so the
+        // dashboard can show "this would have pinned to Low but the threat score
+        // bypassed the gate" rather than the operator having to guess why a known
+        // SEO crawler (MJ12bot, AhrefsBot) ended up VeryHigh. Format is structured
+        // so it can be parsed: "fired:<source>" or "skipped:<reason>" or
+        // "not-applicable:<reason>".
+        var yamlType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(botName));
+        var ledgerFriendly = BotTypeClassification.IsFriendly(botType);
+        var yamlFriendly = BotTypeClassification.IsFriendly(yamlType);
+        var hasFriendlyCandidate = ledgerFriendly || yamlFriendly;
+        string friendlyTrace;
+        if (!hasFriendlyCandidate)
         {
-            if (BotTypeClassification.IsFriendly(botType))
-                return (RiskBand.Low, $"identified as {botType} (friendly automation)");
-            var yamlType = ParseBotType(BotPatternLoader.Default.FindBotTypeByName(botName));
-            if (BotTypeClassification.IsFriendly(yamlType))
-                return (RiskBand.Low, $"identified as {botName} (friendly automation; yaml bot_type {yamlType})");
+            friendlyTrace = $"not-applicable:botType={botType?.ToString() ?? "null"},yamlType={yamlType?.ToString() ?? "null"},botName={botName ?? "null"}";
+        }
+        else if (isConfirmedBad)
+        {
+            friendlyTrace = $"skipped:isConfirmedBad (had friendly candidate {(ledgerFriendly ? botType : yamlType)})";
+        }
+        else if (threatScore >= BotTypeClassification.FriendlyThreatGate)
+        {
+            friendlyTrace = $"skipped:threatScore={threatScore:F2} >= gate({BotTypeClassification.FriendlyThreatGate:F2}) (had friendly candidate {(ledgerFriendly ? botType : yamlType)})";
+        }
+        else if (ledgerFriendly)
+        {
+            return (RiskBand.Low, $"identified as {botType} (friendly automation)", $"fired:ledger:{botType}");
+        }
+        else // yamlFriendly == true (proven by hasFriendlyCandidate && !ledgerFriendly)
+        {
+            return (RiskBand.Low,
+                $"identified as {botName} (friendly automation; yaml bot_type {yamlType})",
+                $"fired:yaml:{botName}:{yamlType}");
         }
 
         // Low confidence: not enough data to assess reliably
         if (confidence < 0.3)
             return botProbability >= 0.5
-                ? (RiskBand.Medium, $"Low detection confidence ({confidence:F2}); probability {botProbability:F2}")
-                : (RiskBand.Unknown, "Insufficient data for reliable risk assessment");
+                ? (RiskBand.Medium, $"Low detection confidence ({confidence:F2}); probability {botProbability:F2}", friendlyTrace)
+                : (RiskBand.Unknown, "Insufficient data for reliable risk assessment", friendlyTrace);
 
         var reasons = new List<string>(4);
 
@@ -448,10 +476,10 @@ public static class DetectionLedgerExtensions
         if (reasons.Count == 0)
         {
             var lowLabel = finalBand <= RiskBand.Low ? "No significant indicators" : $"probability {botProbability:F2}";
-            return (finalBand, lowLabel);
+            return (finalBand, lowLabel, friendlyTrace);
         }
 
-        return (finalBand, string.Join("; ", reasons));
+        return (finalBand, string.Join("; ", reasons), friendlyTrace);
     }
 
     private static bool TryReadDouble(object? raw, out double value)
@@ -504,14 +532,27 @@ public static class DetectionLedgerExtensions
 
     private static DetectionContribution? FindFriendlyBotContribution(DetectionLedger ledger)
     {
+        // A friendly classification is friendly regardless of which direction it pushed
+        // the bot-probability needle. Examples that the old "delta > 0" gate ate:
+        //   - A UA pattern match says GoodBot and contributes +0.0 (it's labelling, not
+        //     scoring probability).
+        //   - A reputation cache says VerifiedBot and reduces probability (-0.2) because
+        //     this UA has been seen 1000 times as legitimate -- that is the strongest
+        //     friendly signal there is, but a negative delta dropped it.
+        // We take the friendly contribution with the largest positive delta if any are
+        // positive (a confident "this IS a friendly bot" beats a labelling-only signal),
+        // otherwise the first friendly contribution at all. Either way, MJ12bot / Ahrefs
+        // / DuckDuckBot stop being thrown back into VeryHigh because the labelling
+        // detector happened to have delta=0.
+        DetectionContribution? best = null;
         foreach (var contrib in ledger.Contributions)
         {
-            if (string.IsNullOrEmpty(contrib.BotType) || contrib.ConfidenceDelta <= 0)
-                continue;
-            if (BotTypeClassification.IsFriendly(ParseBotType(contrib.BotType)))
-                return contrib;
+            if (string.IsNullOrEmpty(contrib.BotType)) continue;
+            if (!BotTypeClassification.IsFriendly(ParseBotType(contrib.BotType))) continue;
+            if (best is null || contrib.ConfidenceDelta > best.ConfidenceDelta)
+                best = contrib;
         }
-        return null;
+        return best;
     }
 
     private static BotType? ParseBotType(string? botType)
