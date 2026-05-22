@@ -1,74 +1,89 @@
-using MailKit.Net.Smtp;
-using MailKit.Security;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using MimeKit;
 using Mostlylucid.BotDetection.UI.Models.Auth;
+using Mostlylucid.BotDetection.UI.Notifications;
+using Mostlylucid.Notify;
+using Mostlylucid.Notify.Email;
 
 namespace Mostlylucid.BotDetection.UI.Services.Auth;
 
+/// <summary>
+///     ASP.NET Identity <see cref="IEmailSender{TUser}"/> impl. Now a thin shim over
+///     <see cref="INotificationSender"/>: each typed Identity call is routed to one of the
+///     three M0 templates (registration.verify, auth.password.reset, auth.mfa.code) with a
+///     strongly-typed model rather than the raw HTML+subject path Identity used previously.
+/// </summary>
+[Obsolete("Use INotificationSender + the typed templates directly. This shim exists for backward compat with ASP.NET Identity's IEmailSender<TUser> contract.")]
 public sealed class StyloBotSmtpEmailSender : IEmailSender<StyloBotUser>
 {
-    private readonly StyloBotSmtpOptions _smtp;
+    private readonly INotificationSender _notify;
     private readonly ILogger<StyloBotSmtpEmailSender> _logger;
+    private readonly string _siteName;
 
     public StyloBotSmtpEmailSender(
-        IOptions<StyloBotSmtpOptions> options,
+        INotificationSender notify,
+        IOptions<StyloBotSmtpOptions> smtpOptions,
         ILogger<StyloBotSmtpEmailSender> logger)
     {
-        _smtp = options.Value;
+        _notify = notify;
         _logger = logger;
+        // FromName doubles as the public site label in the templated emails so the existing
+        // "StyloBot:Smtp:FromName" knob still controls greeting copy.
+        _siteName = string.IsNullOrWhiteSpace(smtpOptions.Value.FromName)
+            ? "Stylobot"
+            : smtpOptions.Value.FromName;
     }
 
     public Task SendConfirmationLinkAsync(StyloBotUser user, string email, string confirmationLink) =>
-        SendAsync(email, "Confirm your StyloBot Dashboard account",
-            $"<p>Please confirm your account by <a href='{HtmlEncode(confirmationLink)}'>clicking here</a>.</p>" +
-            $"<p>Or copy this link: {HtmlEncode(confirmationLink)}</p>");
+        SendTemplatedAsync(
+            email,
+            "registration.verify",
+            new RegistrationVerifyModel(
+                DisplayName: user.UserName ?? email,
+                VerifyUrl: confirmationLink,
+                SiteName: _siteName));
 
     public Task SendPasswordResetLinkAsync(StyloBotUser user, string email, string resetLink) =>
-        SendAsync(email, "Reset your StyloBot Dashboard password",
-            $"<p>Reset your password by <a href='{HtmlEncode(resetLink)}'>clicking here</a>.</p>" +
-            $"<p>This link expires in 24 hours.</p>");
+        SendTemplatedAsync(
+            email,
+            "auth.password.reset",
+            new PasswordResetModel(
+                DisplayName: user.UserName ?? email,
+                ResetUrl: resetLink,
+                SiteName: _siteName,
+                ValidFor: TimeSpan.FromHours(24)));
 
     public Task SendPasswordResetCodeAsync(StyloBotUser user, string email, string resetCode) =>
-        SendAsync(email, "Your StyloBot Dashboard verification code",
-            $"<p>Your verification code is: <strong style='font-size:1.4em;letter-spacing:2px'>{HtmlEncode(resetCode)}</strong></p>" +
-            $"<p>This code expires in 15 minutes.</p>");
+        SendTemplatedAsync(
+            email,
+            "auth.mfa.code",
+            new MfaCodeModel(
+                DisplayName: user.UserName ?? email,
+                Code: resetCode,
+                SiteName: _siteName,
+                ValidFor: TimeSpan.FromMinutes(15)));
 
-    private async Task SendAsync(string to, string subject, string htmlBody)
+    private async Task SendTemplatedAsync(string email, string template, object model, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrEmpty(_smtp.Host))
+        var message = NotificationMessage.Email(
+            to: new EmailRecipient(email),
+            template: template,
+            model: model);
+
+        var result = await _notify.SendAsync(message, cancellationToken).ConfigureAwait(false);
+
+        if (!result.Success)
         {
             _logger.LogWarning(
-                "SMTP not configured - email to {To} dropped. Set {Section}:Host in appsettings.json.",
-                to, StyloBotSmtpOptions.Section);
-            return;
+                "StyloBotSmtpEmailSender: notify send failed for template '{Template}' to {Email}: {Reason}",
+                template, email, result.Error ?? "(no detail)");
         }
-
-        var fromAddress = _smtp.FromAddress ?? $"noreply@{_smtp.Host}";
-
-        var message = new MimeMessage();
-        message.From.Add(new MailboxAddress(_smtp.FromName, fromAddress));
-        message.To.Add(MailboxAddress.Parse(to));
-        message.Subject = subject;
-        message.Body = new TextPart("html") { Text = htmlBody };
-
-        using var client = new SmtpClient();
-        await client.ConnectAsync(
-            _smtp.Host,
-            _smtp.Port,
-            _smtp.EnableSsl ? SecureSocketOptions.StartTls : SecureSocketOptions.None);
-
-        if (_smtp.Username != null)
-            await client.AuthenticateAsync(_smtp.Username, _smtp.Password);
-
-        await client.SendAsync(message);
-        await client.DisconnectAsync(true);
-
-        _logger.LogInformation("Email sent to {To}: {Subject}", to, subject);
+        else
+        {
+            _logger.LogInformation(
+                "StyloBotSmtpEmailSender: dispatched '{Template}' to {Email} via INotificationSender",
+                template, email);
+        }
     }
-
-    private static string HtmlEncode(string value) =>
-        System.Net.WebUtility.HtmlEncode(value);
 }

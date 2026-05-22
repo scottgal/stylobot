@@ -4,6 +4,7 @@ using Mostlylucid.BotDetection.UI.Models.Auth;
 
 namespace Mostlylucid.BotDetection.UI.Services.Auth;
 
+[Obsolete("Register Mostlylucid.Notify with AddNotifyEmailLogging() instead. This stays for backward compat with existing DI lookups.")]
 public sealed class StyloBotDevEmailSender : IEmailSender<StyloBotUser>
 {
     private readonly ILogger<StyloBotDevEmailSender> _logger;

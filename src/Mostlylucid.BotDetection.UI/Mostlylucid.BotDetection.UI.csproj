@@ -32,6 +32,8 @@
         <PackageReference Include="Fluid.Core" Version="2.31.0" />
         <PackageReference Include="MailKit" Version="4.16.0" />
         <PackageReference Include="Markdig" Version="1.2.0" />
+        <PackageReference Include="Mostlylucid.Notify" Version="0.1.1" />
+        <PackageReference Include="RazorSlices" Version="0.10.1" />
         <PackageReference Include="MinVer" Version="7.0.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -59,6 +61,12 @@
     <!-- Ensure Razor views are compiled -->
     <ItemGroup>
         <Content Include="Views\**\*.cshtml" />
+    </ItemGroup>
+
+    <!-- Notifications: include as Content so the Razor SDK compiles them; RazorSlices source-generator emits the proxy types -->
+    <ItemGroup>
+        <UpToDateCheckInput Include="Notifications\**\*.cshtml" />
+        <Content Include="Notifications\**\*.cshtml" />
     </ItemGroup>
 
     <!-- Package icon -->
