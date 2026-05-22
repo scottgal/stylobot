@@ -15,15 +15,20 @@ public sealed class PasswordResetEmail : INotificationTemplate<PasswordResetMode
         return writer.ToString();
     }
 
-    public Task<string> RenderTextAsync(PasswordResetModel m, CancellationToken cancellationToken = default) =>
-        Task.FromResult($"""
+    public Task<string> RenderTextAsync(PasswordResetModel m, CancellationToken cancellationToken = default)
+    {
+        var validity = m.ValidFor.TotalHours >= 1
+            ? $"{m.ValidFor.TotalHours:F0} hours"
+            : $"{m.ValidFor.TotalMinutes:F0} minutes";
+        return Task.FromResult($"""
             Reset your {m.SiteName} password
 
             Hi {m.DisplayName},
 
-            Open this link within {m.ValidFor.TotalMinutes:F0} minutes to reset your password:
+            Open this link within {validity} to reset your password:
             {m.ResetUrl}
 
             If you didn't request this, ignore the message.
             """);
+    }
 }

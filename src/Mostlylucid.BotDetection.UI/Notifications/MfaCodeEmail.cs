@@ -15,15 +15,20 @@ public sealed class MfaCodeEmail : INotificationTemplate<MfaCodeModel>
         return writer.ToString();
     }
 
-    public Task<string> RenderTextAsync(MfaCodeModel m, CancellationToken cancellationToken = default) =>
-        Task.FromResult($"""
+    public Task<string> RenderTextAsync(MfaCodeModel m, CancellationToken cancellationToken = default)
+    {
+        var validity = m.ValidFor.TotalHours >= 1
+            ? $"{m.ValidFor.TotalHours:F0} hours"
+            : $"{m.ValidFor.TotalMinutes:F0} minutes";
+        return Task.FromResult($"""
             Your {m.SiteName} verification code
 
             Hi {m.DisplayName},
 
             Code: {m.Code}
-            Valid for {m.ValidFor.TotalMinutes:F0} minutes.
+            Valid for {validity}.
 
             If this wasn't you, change your password and contact support.
             """);
+    }
 }

@@ -673,9 +673,15 @@ public static class StyloBotDashboardServiceExtensions
         // Wire the Notify pipeline that StyloBotSmtpEmailSender shims onto. Each typed
         // Identity callback maps to one of the three M0 templates; the outbox + drain are
         // hooked onto the Ephemeral coordinator on host startup (see XML doc above).
+        // Outbox is SQLite-backed -- queued messages must survive process restarts so a
+        // password-reset link or MFA code isn't silently dropped on pod cycle / app recycle.
+        // Path is configurable via Notify:Outbox:Sqlite; default sits next to the app's
+        // working directory.
+        var notifyOutboxConnString = configuration.GetValue<string>("Notify:Outbox:Sqlite")
+                                     ?? "Data Source=notify-outbox.db";
         services.AddNotify(configuration)
             .AddNotifyEmail()
-            .AddNotifyOutboxInMemory()
+            .AddNotifyOutboxSqlite(notifyOutboxConnString)
             .AddEmailTemplate<Notifications.RegistrationVerifyModel, Notifications.RegistrationVerifyEmail>("registration.verify")
             .AddEmailTemplate<Notifications.PasswordResetModel, Notifications.PasswordResetEmail>("auth.password.reset")
             .AddEmailTemplate<Notifications.MfaCodeModel, Notifications.MfaCodeEmail>("auth.mfa.code")
