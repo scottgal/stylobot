@@ -91,7 +91,7 @@ public partial class VersionAgeDetector : IDetector
             stopwatch.Stop();
             _logger.LogDebug(
                 "Version age detection completed in {ElapsedMs}ms. Browser: {Browser} v{BrowserVersion}, OS: {Os}. Confidence: {Confidence:F2}",
-                stopwatch.ElapsedMilliseconds, browserName ?? "unknown", browserVersion?.ToString() ?? "?",
+                stopwatch.Elapsed.TotalMilliseconds, browserName ?? "unknown", browserVersion?.ToString() ?? "?",
                 osName ?? "unknown", result.Confidence);
         }
         catch (Exception ex)

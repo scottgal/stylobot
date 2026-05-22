@@ -1,4 +1,5 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
 @using System.Text.Json
 @model EndpointDetailModel
 @{
@@ -90,19 +91,19 @@
             <div class="text-[10px] uppercase tracking-wider text-base-content/40 mb-2">Response times</div>
             <div class="grid grid-cols-4 gap-2 text-center">
                 <div>
-                    <div class="text-sm font-bold font-mono">@Model.MinProcessingTimeMs.ToString("F0")<span class="text-[9px] text-base-content/40">ms</span></div>
+                    <div class="text-sm font-bold font-mono">@BotDisplayHelpers.FormatProcessingTime(Model.MinProcessingTimeMs)</div>
                     <div class="text-[9px] text-base-content/40 uppercase tracking-wide">Min</div>
                 </div>
                 <div>
-                    <div class="text-sm font-bold font-mono">@Model.AvgProcessingTimeMs.ToString("F0")<span class="text-[9px] text-base-content/40">ms</span></div>
+                    <div class="text-sm font-bold font-mono">@BotDisplayHelpers.FormatProcessingTime(Model.AvgProcessingTimeMs)</div>
                     <div class="text-[9px] text-base-content/40 uppercase tracking-wide">Avg</div>
                 </div>
                 <div>
-                    <div class="text-sm font-bold font-mono @(Model.P95ProcessingTimeMs >= 500 ? "text-warning" : "")">@Model.P95ProcessingTimeMs.ToString("F0")<span class="text-[9px] text-base-content/40">ms</span></div>
+                    <div class="text-sm font-bold font-mono @(Model.P95ProcessingTimeMs >= 500 ? "text-warning" : "")">@BotDisplayHelpers.FormatProcessingTime(Model.P95ProcessingTimeMs)</div>
                     <div class="text-[9px] text-base-content/40 uppercase tracking-wide">P95</div>
                 </div>
                 <div>
-                    <div class="text-sm font-bold font-mono @(Model.MaxProcessingTimeMs >= 1000 ? "text-error" : "")">@Model.MaxProcessingTimeMs.ToString("F0")<span class="text-[9px] text-base-content/40">ms</span></div>
+                    <div class="text-sm font-bold font-mono @(Model.MaxProcessingTimeMs >= 1000 ? "text-error" : "")">@BotDisplayHelpers.FormatProcessingTime(Model.MaxProcessingTimeMs)</div>
                     <div class="text-[9px] text-base-content/40 uppercase tracking-wide">Max</div>
                 </div>
             </div>
@@ -293,7 +294,7 @@
                                     <td class="py-0.5 text-[10px] font-mono w-10 @verdictColor">@(det.IsBot ? "BOT" : "HUM")</td>
                                     <td class="py-0.5 text-[10px] font-mono w-10 @statusColor">@(det.StatusCode == 0 ? "--" : det.StatusCode.ToString())</td>
                                     <td class="py-0.5 text-[10px] font-mono">@((det.BotProbability * 100).ToString("F0"))%</td>
-                                    <td class="py-0.5 text-[10px] text-base-content/50 text-right">@det.ProcessingTimeMs.ToString("F0")ms</td>
+                                    <td class="py-0.5 text-[10px] text-base-content/50 text-right">@BotDisplayHelpers.FormatProcessingTime(det.ProcessingTimeMs)</td>
                                 </tr>
                             }
                         </tbody>

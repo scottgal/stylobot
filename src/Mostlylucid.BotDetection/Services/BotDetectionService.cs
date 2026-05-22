@@ -76,7 +76,7 @@ public class BotDetectionService : IBotDetectionService
             // Combine results using weighted scoring
             result = CombineResults(detectionContext);
             sw.Stop();
-            result.ProcessingTimeMs = sw.ElapsedMilliseconds;
+            result.ProcessingTimeMs = sw.Elapsed.TotalMilliseconds;
 
             // Cache result
             _cache.Set(cacheKey, result, TimeSpan.FromSeconds(_options.CacheDurationSeconds));
@@ -106,7 +106,7 @@ public class BotDetectionService : IBotDetectionService
             {
                 IsBot = false,
                 ConfidenceScore = 0.0,
-                ProcessingTimeMs = sw.ElapsedMilliseconds
+                ProcessingTimeMs = sw.Elapsed.TotalMilliseconds
             };
         }
     }

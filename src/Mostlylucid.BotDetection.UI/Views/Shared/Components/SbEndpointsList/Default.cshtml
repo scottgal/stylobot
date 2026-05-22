@@ -1,4 +1,5 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
 @model EndpointsListModel
 @{
     var bp = Model.BasePath;
@@ -118,10 +119,10 @@
                         <td class="py-1 text-right text-xs font-bold @botClass">@((endpoint.BotRate * 100).ToString("F0"))%</td>
                         <td class="py-1 text-right text-xs font-mono hidden sm:table-cell">@endpoint.UniqueSignatures</td>
                         <td class="py-1 text-right text-xs hidden md:table-cell font-mono tabular-nums"
-                            title="min @endpoint.MinProcessingTimeMs.ToString("F1") · avg @endpoint.AvgProcessingTimeMs.ToString("F1") · p95 @endpoint.P95ProcessingTimeMs.ToString("F1") · max @endpoint.MaxProcessingTimeMs.ToString("F1") ms">
-                            <span>@endpoint.AvgProcessingTimeMs.ToString("F0")</span>
+                            title="min @BotDisplayHelpers.FormatProcessingTime(endpoint.MinProcessingTimeMs) · avg @BotDisplayHelpers.FormatProcessingTime(endpoint.AvgProcessingTimeMs) · p95 @BotDisplayHelpers.FormatProcessingTime(endpoint.P95ProcessingTimeMs) · max @BotDisplayHelpers.FormatProcessingTime(endpoint.MaxProcessingTimeMs)">
+                            <span>@BotDisplayHelpers.FormatProcessingTime(endpoint.AvgProcessingTimeMs)</span>
                             <span class="text-base-content/40">/</span>
-                            <span class="text-base-content/70">@endpoint.P95ProcessingTimeMs.ToString("F0")</span>
+                            <span class="text-base-content/70">@BotDisplayHelpers.FormatProcessingTime(endpoint.P95ProcessingTimeMs)</span>
                         </td>
                         <td class="py-1 text-right text-xs hidden md:table-cell">@endpoint.AvgThreatScore.ToString("F1")</td>
                         <td class="py-1 hidden lg:table-cell">

@@ -1077,21 +1077,47 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     {
         await EnsureInitializedAsync(ct);
 
-        var whereClause = filter.EntityType switch
+        // Empty entity value or explicit "all" => no entity gate, the free-text filters
+        // do the narrowing. Previously this defaulted to WHERE 1=0 and the Investigate
+        // tab reported "No detections found." for every search that didn't drill into
+        // a specific entity.
+        var hasEntityValue = !string.IsNullOrWhiteSpace(filter.EntityValue);
+        var whereClause = (filter.EntityType, hasEntityValue) switch
         {
-            "signature" => "d.signature = @Value",
-            "country"   => "d.country_code = @Value",
-            "path"      => "d.path LIKE @Value",
-            "ua_family" => "d.user_agent_raw LIKE @Value || '%'",
-            _           => "1=0"
+            ("all", _)        => "1=1",
+            (_, false)        => "1=1",
+            ("signature", _)  => "d.signature = @Value",
+            ("country", _)    => "d.country_code = @Value",
+            ("path", _)       => "d.path LIKE @Value",
+            ("ua_family", _)  => "d.user_agent_raw LIKE @Value || '%'",
+            _                 => "1=0"
         };
 
         var timeFilter = "";
         if (filter.Start.HasValue) timeFilter += " AND d.timestamp >= @Start";
         if (filter.End.HasValue)   timeFilter += " AND d.timestamp <= @End";
 
-        var baseSql = $"FROM detections d WHERE {whereClause}{timeFilter}";
+        // Free-text filter inputs from the Investigate bar. SQLite has no
+        // ip_search_hmac column, so IpHmac is honored only by the Postgres store.
+        var extraFilter = new System.Text.StringBuilder();
+        if (!string.IsNullOrWhiteSpace(filter.EndpointPath)) extraFilter.Append(" AND d.path LIKE @EndpointPath");
+        if (!string.IsNullOrWhiteSpace(filter.UserAgent))    extraFilter.Append(" AND d.user_agent_raw LIKE @UserAgent");
+        if (!string.IsNullOrWhiteSpace(filter.Country))      extraFilter.Append(" AND d.country_code = @Country");
+        if (!string.IsNullOrWhiteSpace(filter.BotName))      extraFilter.Append(" AND d.bot_name LIKE @BotName");
+
+        var baseSql = $"FROM detections d WHERE {whereClause}{timeFilter}{extraFilter}";
         var paramValue = filter.EntityType == "path" ? $"%{filter.EntityValue}%" : filter.EntityValue;
+
+        void BindFilters(SqliteCommand cmd)
+        {
+            cmd.Parameters.AddWithValue("@Value", paramValue);
+            if (filter.Start.HasValue) cmd.Parameters.AddWithValue("@Start", filter.Start.Value.ToString("o"));
+            if (filter.End.HasValue)   cmd.Parameters.AddWithValue("@End",   filter.End.Value.ToString("o"));
+            if (!string.IsNullOrWhiteSpace(filter.EndpointPath)) cmd.Parameters.AddWithValue("@EndpointPath", $"%{filter.EndpointPath.Trim()}%");
+            if (!string.IsNullOrWhiteSpace(filter.UserAgent))    cmd.Parameters.AddWithValue("@UserAgent",    $"%{filter.UserAgent.Trim()}%");
+            if (!string.IsNullOrWhiteSpace(filter.Country))      cmd.Parameters.AddWithValue("@Country",      filter.Country.Trim());
+            if (!string.IsNullOrWhiteSpace(filter.BotName))      cmd.Parameters.AddWithValue("@BotName",      $"%{filter.BotName.Trim()}%");
+        }
 
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(ct);
@@ -1109,9 +1135,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 SUM(CASE WHEN risk_band = 'low'    THEN 1 ELSE 0 END) AS LowRisk
             {baseSql}
             """;
-        summaryCmd.Parameters.AddWithValue("@Value", paramValue);
-        if (filter.Start.HasValue) summaryCmd.Parameters.AddWithValue("@Start", filter.Start.Value.ToString("o"));
-        if (filter.End.HasValue)   summaryCmd.Parameters.AddWithValue("@End",   filter.End.Value.ToString("o"));
+        BindFilters(summaryCmd);
 
         InvestigationSummary summary;
         await using (var r = await summaryCmd.ExecuteReaderAsync(ct))
@@ -1147,11 +1171,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             ORDER BY d.timestamp DESC
             LIMIT @Limit OFFSET @Offset
             """;
-        detCmd.Parameters.AddWithValue("@Value",  paramValue);
+        BindFilters(detCmd);
         detCmd.Parameters.AddWithValue("@Limit",  filter.Limit);
         detCmd.Parameters.AddWithValue("@Offset", filter.Offset);
-        if (filter.Start.HasValue) detCmd.Parameters.AddWithValue("@Start", filter.Start.Value.ToString("o"));
-        if (filter.End.HasValue)   detCmd.Parameters.AddWithValue("@End",   filter.End.Value.ToString("o"));
 
         var detections = new List<DashboardDetectionEvent>();
         await using (var r = await detCmd.ExecuteReaderAsync(ct))
@@ -1193,9 +1215,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             ORDER BY s.hit_count DESC
             LIMIT 50
             """;
-        sigCmd.Parameters.AddWithValue("@Value", paramValue);
-        if (filter.Start.HasValue) sigCmd.Parameters.AddWithValue("@Start", filter.Start.Value.ToString("o"));
-        if (filter.End.HasValue)   sigCmd.Parameters.AddWithValue("@End",   filter.End.Value.ToString("o"));
+        BindFilters(sigCmd);
 
         var signatures = new List<SignatureSummary>();
         await using (var r = await sigCmd.ExecuteReaderAsync(ct))
@@ -1227,9 +1247,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             ORDER BY Count DESC
             LIMIT 50
             """;
-        epCmd.Parameters.AddWithValue("@Value", paramValue);
-        if (filter.Start.HasValue) epCmd.Parameters.AddWithValue("@Start", filter.Start.Value.ToString("o"));
-        if (filter.End.HasValue)   epCmd.Parameters.AddWithValue("@End",   filter.End.Value.ToString("o"));
+        BindFilters(epCmd);
 
         var endpoints = new List<EndpointStat>();
         await using (var r = await epCmd.ExecuteReaderAsync(ct))
@@ -1258,9 +1276,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             ORDER BY Count DESC
             LIMIT 50
             """;
-        ctryCmd.Parameters.AddWithValue("@Value", paramValue);
-        if (filter.Start.HasValue) ctryCmd.Parameters.AddWithValue("@Start", filter.Start.Value.ToString("o"));
-        if (filter.End.HasValue)   ctryCmd.Parameters.AddWithValue("@End",   filter.End.Value.ToString("o"));
+        BindFilters(ctryCmd);
 
         var countries = new List<CountryStat>();
         await using (var r = await ctryCmd.ExecuteReaderAsync(ct))

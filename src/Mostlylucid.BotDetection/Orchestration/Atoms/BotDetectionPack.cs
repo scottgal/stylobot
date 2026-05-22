@@ -142,7 +142,7 @@ public sealed class BotDetectionPack : IDisposable
 
             _logger.LogDebug(
                 "Detection completed for {SessionId}: BotProbability={Prob:F2}, Confidence={Conf:F2}, Elapsed={Elapsed}ms",
-                sessionId, evidence.BotProbability, evidence.Confidence, stopwatch.ElapsedMilliseconds);
+                sessionId, evidence.BotProbability, evidence.Confidence, stopwatch.Elapsed.TotalMilliseconds);
 
             return evidence;
         }

@@ -31,9 +31,12 @@ public class BotDetectionResult
     public string? BotName { get; set; }
 
     /// <summary>
-    ///     Processing time in milliseconds
+    ///     Processing time in milliseconds, fractional (microsecond resolution).
+    ///     Detection often completes in well under 1ms; storing as integer ms rounded
+    ///     every sub-ms request to 0, hiding the actual timing distribution. Source is
+    ///     Stopwatch.Elapsed.TotalMilliseconds (double).
     /// </summary>
-    public long ProcessingTimeMs { get; set; }
+    public double ProcessingTimeMs { get; set; }
 }
 
 /// <summary>
