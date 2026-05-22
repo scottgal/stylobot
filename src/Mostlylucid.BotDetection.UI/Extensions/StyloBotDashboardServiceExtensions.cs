@@ -23,6 +23,7 @@ using Mostlylucid.BotDetection.UI.Models.Auth;
 using Mostlylucid.BotDetection.UI.Services;
 using Mostlylucid.BotDetection.UI.Services.Auth;
 using Mostlylucid.BotDetection.UI.Services.Routes;
+using Mostlylucid.Notify.DependencyInjection;
 
 namespace Mostlylucid.BotDetection.UI.Extensions;
 
@@ -630,31 +631,64 @@ public static class StyloBotDashboardServiceExtensions
     /// <summary>
     ///     Enables the built-in SMTP email sender for dashboard auth flows (confirmation,
     ///     password reset, 2FA codes). Reads configuration from <c>StyloBot:Smtp</c> in
-    ///     appsettings.json. Call this after <see cref="AddStyloBot"/> or
+    ///     appsettings.json for the legacy <c>FromName</c> label and from <c>Notify:Email</c>
+    ///     for the underlying SMTP transport bound by <c>Mostlylucid.Notify</c>.
+    ///     Call this after <see cref="AddStyloBot"/> or
     ///     <see cref="AddStyloBotDashboard(IServiceCollection, Action{StyloBotDashboardOptions}?)"/>.
     ///     <para>
     ///     Without this, StyloBot logs tokens to the console (dev no-op sender).
     ///     Commercial deployments can skip this and register a custom
     ///     <c>IEmailSender&lt;StyloBotUser&gt;</c> directly.
     ///     </para>
+    ///     <para>
+    ///     CONSUMER MUST CALL after <c>app.Build()</c> so the Notify template registry
+    ///     materialises and the outbox drain starts on the Ephemeral coordinator:
+    ///     <code>
+    ///     app.Services.ActivateNotifyTemplates();
+    ///     app.Services.StartNotifyDrain(app.Lifetime.ApplicationStopping);
+    ///     </code>
+    ///     This library is a Razor class library, so it cannot reach <c>IHost</c> itself.
+    ///     </para>
     /// </summary>
     /// <example>
     ///     <code>
     ///     // appsettings.json:
-    ///     // "StyloBot": { "Smtp": { "Host": "smtp.example.com", "Port": 587,
-    ///     //   "Username": "user", "Password": "pass", "FromAddress": "bot@example.com" } }
+    ///     // "StyloBot": { "Smtp": { "FromName": "Stylobot Dashboard" } }
+    ///     // "Notify": { "Email": { "From": "noreply@example.com",
+    ///     //   "Smtp": { "Host": "smtp.example.com", "Port": 587,
+    ///     //     "User": "user", "Password": "pass", "UseTls": true } } }
     ///     builder.Services.AddStyloBot(d => d.RequireAuthentication = true);
-    ///     builder.Services.AddStyloBotSmtp();
+    ///     builder.Services.AddStyloBotSmtp(builder.Configuration);
+    ///     // ...
+    ///     var app = builder.Build();
+    ///     app.Services.ActivateNotifyTemplates();
+    ///     app.Services.StartNotifyDrain(app.Lifetime.ApplicationStopping);
     ///     </code>
     /// </example>
-    public static IServiceCollection AddStyloBotSmtp(this IServiceCollection services)
+    public static IServiceCollection AddStyloBotSmtp(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<StyloBotSmtpOptions>()
             .BindConfiguration(StyloBotSmtpOptions.Section);
 
-        // Remove dev no-op and register SMTP sender
+        // Wire the Notify pipeline that StyloBotSmtpEmailSender shims onto. Each typed
+        // Identity callback maps to one of the three M0 templates; the outbox + drain are
+        // hooked onto the Ephemeral coordinator on host startup (see XML doc above).
+        services.AddNotify(configuration)
+            .AddNotifyEmail()
+            .AddNotifyOutboxInMemory()
+            .AddEmailTemplate<Notifications.RegistrationVerifyModel, Notifications.RegistrationVerifyEmail>("registration.verify")
+            .AddEmailTemplate<Notifications.PasswordResetModel, Notifications.PasswordResetEmail>("auth.password.reset")
+            .AddEmailTemplate<Notifications.MfaCodeModel, Notifications.MfaCodeEmail>("auth.mfa.code")
+            .StartDrainOnCoordinator();
+
+        // Remove dev no-op and register SMTP sender (now a Notify shim). The class is
+        // [Obsolete] for direct consumption but DI registration of an obsolete type is
+        // intentional here -- the legacy IEmailSender<StyloBotUser> contract still drives
+        // ASP.NET Identity callbacks.
+#pragma warning disable CS0618
         services.RemoveAll<IEmailSender<StyloBotUser>>();
         services.AddTransient<IEmailSender<StyloBotUser>, StyloBotSmtpEmailSender>();
+#pragma warning restore CS0618
 
         return services;
     }
