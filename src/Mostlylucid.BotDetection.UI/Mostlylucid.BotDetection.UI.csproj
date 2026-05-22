@@ -63,6 +63,12 @@
         <Content Include="Views\**\*.cshtml" />
     </ItemGroup>
 
+    <!-- Notifications: include as Content so the Razor SDK compiles them; RazorSlices source-generator emits the proxy types -->
+    <ItemGroup>
+        <UpToDateCheckInput Include="Notifications\**\*.cshtml" />
+        <Content Include="Notifications\**\*.cshtml" />
+    </ItemGroup>
+
     <!-- Package icon -->
     <ItemGroup>
         <None Include=".\icon.png" Pack="true" PackagePath="">
