@@ -698,7 +698,7 @@ public class SqliteWeightStore : IWeightStore, IAsyncDisposable, IDisposable
                 await transaction.CommitAsync(ct);
                 success = true;
                 _logger.LogDebug("Flushed {Count} pending writes to SQLite in {Duration:F1}ms", writes.Count,
-                    sw.ElapsedMilliseconds);
+                    sw.Elapsed.TotalMilliseconds);
             }
             catch
             {

@@ -3,13 +3,21 @@ namespace Mostlylucid.BotDetection.UI.Models;
 /// <summary>Filter for the unified investigation view. Each entity type becomes a WHERE clause.</summary>
 public sealed record InvestigationFilter
 {
-    public required string EntityType { get; init; }  // signature, country, path, ua_family, ip, fingerprint
+    public required string EntityType { get; init; }  // signature, country, path, ua_family, ip, fingerprint, "all" for no entity gate
     public required string EntityValue { get; init; }
     public DateTime? Start { get; init; }
     public DateTime? End { get; init; }
     public int Limit { get; init; } = 50;
     public int Offset { get; init; } = 0;
     public string? Tab { get; init; }  // which tab to render (detections, signatures, endpoints, geo, fingerprints, signaltrace)
+
+    // Free-text filters from the Investigate filter bar. Each is AND-combined with the
+    // entity-type WHERE clause. Substring/ILIKE for the text fields, exact for code/HMAC.
+    public string? EndpointPath { get; init; }
+    public string? UserAgent { get; init; }
+    public string? Country { get; init; }
+    public string? BotName { get; init; }
+    public string? IpHmac { get; init; }
 }
 
 /// <summary>Aggregated result for the investigation view. Tabs pull from different fields.</summary>

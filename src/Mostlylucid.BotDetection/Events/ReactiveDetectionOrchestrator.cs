@@ -89,7 +89,7 @@ public class ReactiveDetectionOrchestrator
         {
             DetectorResults = results,
             Signals = signalBus.GetAllSignals(),
-            ProcessingTimeMs = sw.ElapsedMilliseconds
+            ProcessingTimeMs = sw.Elapsed.TotalMilliseconds
         };
     }
 
@@ -219,7 +219,7 @@ public class DetectionPipelineResult
     public required IReadOnlyDictionary<string, DetectionSignal> Signals { get; init; }
 
     /// <summary>
-    ///     Total processing time
+    ///     Total processing time in milliseconds, fractional (microsecond resolution).
     /// </summary>
-    public long ProcessingTimeMs { get; init; }
+    public double ProcessingTimeMs { get; init; }
 }

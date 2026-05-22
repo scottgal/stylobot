@@ -606,7 +606,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
             {
                 _logger.LogWarning(
                     "Detection timed out after {Elapsed}ms for {RequestId}",
-                    stopwatch.ElapsedMilliseconds, requestId);
+                    stopwatch.Elapsed.TotalMilliseconds, requestId);
             }
 
             var result = aggregator.ToAggregatedEvidence(policy.Name, aiRan: aiRan, premergedSignals: signals, options: _fullOptions);
@@ -778,7 +778,7 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                 result.RiskBand,
                 result.BotProbability,
                 result.Confidence,
-                stopwatch.ElapsedMilliseconds,
+                stopwatch.Elapsed.TotalMilliseconds,
                 waveNumber,
                 result.ContributingDetectors.Count);
 

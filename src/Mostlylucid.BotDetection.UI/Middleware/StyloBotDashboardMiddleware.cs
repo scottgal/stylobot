@@ -5465,15 +5465,27 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         }
         else
         {
-            // Fall back to spec 1 SQL-based investigation
+            // Fall back to SQL-based investigation. The shape filter form also carries
+            // free-text inputs (endpoint, user-agent, country, bot, ip) — those have to
+            // be threaded through to the store, otherwise the user types into them and
+            // nothing happens.
+            var qsType = context.Request.Query["type"].FirstOrDefault();
+            var qsValue = context.Request.Query["value"].FirstOrDefault();
+            var hasEntity = !string.IsNullOrWhiteSpace(qsValue);
+
             var investigationFilter = new InvestigationFilter
             {
-                EntityType = context.Request.Query["type"].FirstOrDefault() ?? "signature",
-                EntityValue = context.Request.Query["value"].FirstOrDefault() ?? "",
+                EntityType = hasEntity ? (qsType ?? "signature") : "all",
+                EntityValue = qsValue ?? "",
                 Start = shapeFilter.Start,
                 End = shapeFilter.End,
                 Tab = shapeFilter.Tab,
-                Offset = shapeFilter.Offset
+                Offset = shapeFilter.Offset,
+                EndpointPath = string.IsNullOrWhiteSpace(shapeFilter.EndpointPath) ? null : shapeFilter.EndpointPath,
+                UserAgent = string.IsNullOrWhiteSpace(shapeFilter.UserAgent) ? null : shapeFilter.UserAgent,
+                Country = string.IsNullOrWhiteSpace(shapeFilter.Country) ? null : shapeFilter.Country,
+                BotName = string.IsNullOrWhiteSpace(shapeFilter.BotName) ? null : shapeFilter.BotName,
+                IpHmac = string.IsNullOrWhiteSpace(shapeFilter.IpHmac) ? null : shapeFilter.IpHmac
             };
             result = await _eventStore.GetInvestigationAsync(investigationFilter);
         }
@@ -5700,8 +5712,9 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
     private InvestigationFilter ParseInvestigationFilter(HttpContext context)
     {
         var query = context.Request.Query;
-        var entityType = query["type"].FirstOrDefault() ?? "signature";
-        var entityValue = query["value"].FirstOrDefault() ?? "";
+        var qsType = query["type"].FirstOrDefault();
+        var qsValue = query["value"].FirstOrDefault();
+        var hasEntity = !string.IsNullOrWhiteSpace(qsValue);
         var tab = query["tab"].FirstOrDefault();
         var range = query["range"].FirstOrDefault() ?? "24h";
         var offset = int.TryParse(query["offset"].FirstOrDefault(), out var o) ? o : 0;
@@ -5715,14 +5728,21 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         if (DateTime.TryParse(query["end"].FirstOrDefault(), out var customEnd))
             end = customEnd;
 
+        static string? Trimmed(string? v) => string.IsNullOrWhiteSpace(v) ? null : v;
+
         return new InvestigationFilter
         {
-            EntityType = entityType,
-            EntityValue = entityValue,
+            EntityType = hasEntity ? (qsType ?? "signature") : "all",
+            EntityValue = qsValue ?? "",
             Start = start,
             End = end,
             Tab = tab,
-            Offset = offset
+            Offset = offset,
+            EndpointPath = Trimmed(query["endpointPath"].FirstOrDefault()),
+            UserAgent = Trimmed(query["userAgent"].FirstOrDefault()),
+            Country = Trimmed(query["country"].FirstOrDefault()),
+            BotName = Trimmed(query["botName"].FirstOrDefault()),
+            IpHmac = Trimmed(query["ipHmac"].FirstOrDefault())
         };
     }
 
@@ -5741,7 +5761,11 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             if (float.TryParse(query[$"dim_{i}"].FirstOrDefault(), out var dimVal))
             {
                 shape[i] = Math.Max(0f, Math.Min(1f, dimVal));
-                hasAnyShape = true;
+                // Only count this as "user supplied a shape" when the dimension is
+                // above the same threshold the auto-weight derivation uses. The form
+                // serialises every untouched radar slider as dim_i=0, so without this
+                // guard an all-zero vector would be passed to HNSW shape search.
+                if (shape[i] > 0.05f) hasAnyShape = true;
             }
             weights[i] = float.TryParse(query[$"weight_{i}"].FirstOrDefault(), out var w) ? w : (shape[i] > 0.05f ? 1f : 0f);
         }

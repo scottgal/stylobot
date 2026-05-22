@@ -378,7 +378,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         {
             _logger.LogWarning(
                 "Detection timed out after {Elapsed}ms for {RequestId}",
-                stopwatch.ElapsedMilliseconds, requestId);
+                stopwatch.Elapsed.TotalMilliseconds, requestId);
         }
 
         // signals already contains both per-state WriteSignal writes and per-contribution
@@ -422,7 +422,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
             requestId,
             result.RiskBand,
             result.BotProbability,
-            stopwatch.ElapsedMilliseconds,
+            stopwatch.Elapsed.TotalMilliseconds,
             waveNumber,
             contributorTracker.CompletedCount,
             contributorTracker.ExpectedCount);
@@ -655,7 +655,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
             {
                 var withMetadata = contribution with
                 {
-                    ProcessingTimeMs = stopwatch.ElapsedMilliseconds,
+                    ProcessingTimeMs = stopwatch.Elapsed.TotalMilliseconds,
                     Priority = detector.Priority
                 };
                 aggregator.AddContribution(withMetadata);
@@ -673,7 +673,7 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
             RecordSuccess(detector.Name);
 
             requestSignals.Raise(
-                $"detector.completed:{detector.Name}:{stopwatch.ElapsedMilliseconds}ms",
+                $"detector.completed:{detector.Name}:{stopwatch.Elapsed.TotalMilliseconds:F3}ms",
                 requestId);
 
             // Emit progress signal
@@ -686,13 +686,13 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
 
             _logger.LogDebug(
                 "Detector {Name} completed in {Elapsed}ms with {ContributionCount} contributions",
-                detector.Name, stopwatch.ElapsedMilliseconds, contributions.Count);
+                detector.Name, stopwatch.Elapsed.TotalMilliseconds, contributions.Count);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             stopwatch.Stop();
             tracker.Fail(detector.Name, new TimeoutException("Detector timed out"));
-            HandleDetectorFailure(detector, aggregator, requestSignals, "Timeout", stopwatch.ElapsedMilliseconds,
+            HandleDetectorFailure(detector, aggregator, requestSignals, "Timeout", stopwatch.Elapsed.TotalMilliseconds,
                 requestId);
             requestSignals.Raise($"detector.timeout:{detector.Name}", requestId);
         }
@@ -700,12 +700,12 @@ public class EphemeralDetectionOrchestrator : IDetectionOrchestrator, IAsyncDisp
         {
             stopwatch.Stop();
             tracker.Fail(detector.Name, ex);
-            HandleDetectorFailure(detector, aggregator, requestSignals, ex.Message, stopwatch.ElapsedMilliseconds,
+            HandleDetectorFailure(detector, aggregator, requestSignals, ex.Message, stopwatch.Elapsed.TotalMilliseconds,
                 requestId);
 
             _logger.LogWarning(ex,
                 "Detector {Name} failed after {Elapsed}ms: {Message}",
-                detector.Name, stopwatch.ElapsedMilliseconds, ex.Message);
+                detector.Name, stopwatch.Elapsed.TotalMilliseconds, ex.Message);
         }
     }
 

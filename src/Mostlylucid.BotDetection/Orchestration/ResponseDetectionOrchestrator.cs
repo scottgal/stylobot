@@ -105,7 +105,7 @@ public sealed class ResponseDetectionOrchestrator : IAsyncDisposable
                 StatusCode = signal.StatusCode,
                 RequestBotProbability = signal.RequestBotProbability,
                 ResponseScore = result.ResponseScore,
-                ProcessingTimeMs = stopwatch.ElapsedMilliseconds,
+                ProcessingTimeMs = stopwatch.Elapsed.TotalMilliseconds,
                 TriggerSignals = analysisContext?.TriggerSignals ?? new Dictionary<string, object>()
             };
 

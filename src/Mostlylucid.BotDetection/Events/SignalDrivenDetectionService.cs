@@ -158,7 +158,7 @@ public class SignalDrivenDetectionService
             {
                 IsBot = false,
                 ConfidenceScore = 0.0,
-                ProcessingTimeMs = sw.ElapsedMilliseconds
+                ProcessingTimeMs = sw.Elapsed.TotalMilliseconds
             };
         }
     }
@@ -253,7 +253,7 @@ public class SignalDrivenDetectionService
         sw.Stop();
 
         // Build final result
-        var result = BuildResult(context, sw.ElapsedMilliseconds);
+        var result = BuildResult(context, sw.Elapsed.TotalMilliseconds);
 
         // Publish to learning bus for async processing
         PublishToLearningBus(context, result);
@@ -332,7 +332,7 @@ public class SignalDrivenDetectionService
             detectorName, result.Confidence);
     }
 
-    private BotDetectionResult BuildResult(DetectionContext context, long processingTimeMs)
+    private BotDetectionResult BuildResult(DetectionContext context, double processingTimeMs)
     {
         var result = new BotDetectionResult
         {

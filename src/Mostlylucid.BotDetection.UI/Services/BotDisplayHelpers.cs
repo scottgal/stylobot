@@ -326,6 +326,32 @@ public static class BotDisplayHelpers
         _                        => 0
     };
 
+    /// <summary>
+    ///     Format a processing-time value (in fractional milliseconds, as written by
+    ///     Stopwatch.Elapsed.TotalMilliseconds) with the appropriate unit so sub-ms
+    ///     detections render with real resolution instead of "0ms". Detection paths
+    ///     routinely complete in 100-900µs; rounding to integer ms collapsed the
+    ///     entire distribution to 0/1 and made operator dashboards useless.
+    ///
+    ///     Output:
+    ///     - &lt; 0.001 ms (under a µs) -> "&lt;1µs"
+    ///     - &lt; 1 ms      -> integer microseconds, e.g. "437µs"
+    ///     - &lt; 10 ms     -> 2-decimal ms, e.g. "1.23ms"
+    ///     - &lt; 1000 ms   -> integer ms, e.g. "458ms"
+    ///     - &lt; 60000 ms  -> 1-decimal seconds, e.g. "12.3s"
+    ///     - otherwise   -> integer minutes, e.g. "3m"
+    /// </summary>
+    public static string FormatProcessingTime(double ms)
+    {
+        if (double.IsNaN(ms) || ms < 0) return "--";
+        if (ms < 0.001) return "<1µs";
+        if (ms < 1.0)   return $"{ms * 1000.0:F0}µs";
+        if (ms < 10.0)  return $"{ms:F2}ms";
+        if (ms < 1000)  return $"{ms:F0}ms";
+        if (ms < 60_000) return $"{ms / 1000.0:F1}s";
+        return $"{ms / 60_000.0:F0}m";
+    }
+
     /// <summary>Compact relative-time string ("12s", "5m", "3h 22m", "2d") for LastSeen.</summary>
     public static string TimeAgoCompact(DateTime when)
     {
