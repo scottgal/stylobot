@@ -55,43 +55,39 @@
                     <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
                 </a>
                 <select id="sb-theme-picker" class="select select-bordered select-xs text-xs bg-base-100 relative z-50">
+                    <option value="system">System</option>
                     <option value="dark">Dark</option>
                     <option value="light">Light</option>
-                    <option value="dim">Dim</option>
-                    <option value="night">Night</option>
-                    <option value="dracula">Dracula</option>
-                    <option value="synthwave">Synthwave</option>
-                    <option value="cyberpunk">Cyberpunk</option>
-                    <option value="nord">Nord</option>
-                    <option value="cupcake">Cupcake</option>
-                    <option value="bumblebee">Bumblebee</option>
-                    <option value="emerald">Emerald</option>
-                    <option value="corporate">Corporate</option>
-                    <option value="retro">Retro</option>
-                    <option value="forest">Forest</option>
-                    <option value="aqua">Aqua</option>
-                    <option value="luxury">Luxury</option>
-                    <option value="coffee">Coffee</option>
-                    <option value="sunset">Sunset</option>
-                    <option value="winter">Winter</option>
-                    <option value="lofi">Lo-Fi</option>
-                    <option value="black">Black</option>
                 </select>
                 <script nonce="@cspNonce">
                     (function(){
-                        var ALLOWED = new Set(['dark','light','dim','night','dracula','synthwave','cyberpunk','nord','cupcake','bumblebee','emerald','corporate','retro','forest','aqua','luxury','coffee','sunset','winter','lofi','black']);
+                        // "system" tracks the OS preference live; "dark"/"light" are explicit pins.
+                        // We only render dark + light + system here -- the long list of daisyUI
+                        // themes (dim, dracula, synthwave, etc.) was inherited from the daisyUI
+                        // demo and was never properly styled for stylobot's brand surfaces.
+                        var ALLOWED = new Set(['system','dark','light']);
+                        var mql = window.matchMedia('(prefers-color-scheme: dark)');
+                        function applyTheme(t) {
+                            var effective = (t === 'system') ? (mql.matches ? 'dark' : 'light') : t;
+                            document.documentElement.setAttribute('data-theme', effective);
+                        }
                         var saved = localStorage.getItem('sb-theme');
-                        var t = ALLOWED.has(saved) ? saved : 'dark';
-                        document.documentElement.setAttribute('data-theme', t);
+                        var choice = ALLOWED.has(saved) ? saved : 'system';
+                        applyTheme(choice);
                         var sel = document.getElementById('sb-theme-picker');
                         if (sel) {
-                            var opt = sel.querySelector('option[value="' + t + '"]');
+                            var opt = sel.querySelector('option[value="' + choice + '"]');
                             if (opt) opt.selected = true;
                             sel.addEventListener('change', function() {
-                                document.documentElement.setAttribute('data-theme', this.value);
+                                applyTheme(this.value);
                                 try { localStorage.setItem('sb-theme', this.value); } catch (e) {}
                             });
                         }
+                        // Live-track OS theme changes when "system" is active.
+                        mql.addEventListener('change', function() {
+                            var cur = localStorage.getItem('sb-theme') || 'system';
+                            if (cur === 'system') applyTheme('system');
+                        });
                     })();
                 </script>
             </div>
