@@ -642,10 +642,9 @@ public static class StyloBotDashboardServiceExtensions
     ///     </para>
     ///     <para>
     ///     CONSUMER MUST CALL after <c>app.Build()</c> so the Notify template registry
-    ///     materialises and the outbox drain starts on the Ephemeral coordinator:
+    ///     materialises (typed singletons are touched once, registry self-populates):
     ///     <code>
     ///     app.Services.ActivateNotifyTemplates();
-    ///     app.Services.StartNotifyDrain(app.Lifetime.ApplicationStopping);
     ///     </code>
     ///     This library is a Razor class library, so it cannot reach <c>IHost</c> itself.
     ///     </para>
@@ -671,21 +670,18 @@ public static class StyloBotDashboardServiceExtensions
             .BindConfiguration(StyloBotSmtpOptions.Section);
 
         // Wire the Notify pipeline that StyloBotSmtpEmailSender shims onto. Each typed
-        // Identity callback maps to one of the three M0 templates; the outbox + drain are
-        // hooked onto the Ephemeral coordinator on host startup (see XML doc above).
-        // Outbox is SQLite-backed -- queued messages must survive process restarts so a
-        // password-reset link or MFA code isn't silently dropped on pod cycle / app recycle.
-        // Path is configurable via Notify:Outbox:Sqlite; default sits next to the app's
-        // working directory.
-        var notifyOutboxConnString = configuration.GetValue<string>("Notify:Outbox:Sqlite")
-                                     ?? "Data Source=notify-outbox.db";
+        // Identity callback maps to one of the three M0 templates. EmailSender direct-sends
+        // via MailKit (synchronous, no outbox/drain in v0.1) -- so no outbox wiring and no
+        // StartDrainOnCoordinator. AddNotifyOutbox* + StartDrainOnCoordinator were dead in
+        // v0.1 (EmailSender doesn't enqueue) AND the drain starter requires an
+        // IEphemeralCoordinator that hosts don't always pre-register, crashing startup.
+        // Outbox-backed retry returns in Notify 0.1.2+ once the library bootstraps its own
+        // coordinator.
         services.AddNotify(configuration)
             .AddNotifyEmail()
-            .AddNotifyOutboxSqlite(notifyOutboxConnString)
             .AddEmailTemplate<Notifications.RegistrationVerifyModel, Notifications.RegistrationVerifyEmail>("registration.verify")
             .AddEmailTemplate<Notifications.PasswordResetModel, Notifications.PasswordResetEmail>("auth.password.reset")
-            .AddEmailTemplate<Notifications.MfaCodeModel, Notifications.MfaCodeEmail>("auth.mfa.code")
-            .StartDrainOnCoordinator();
+            .AddEmailTemplate<Notifications.MfaCodeModel, Notifications.MfaCodeEmail>("auth.mfa.code");
 
         // Remove dev no-op and register SMTP sender (now a Notify shim). The class is
         // [Obsolete] for direct consumption but DI registration of an obsolete type is
