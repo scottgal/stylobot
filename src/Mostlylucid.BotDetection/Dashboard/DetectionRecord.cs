@@ -71,6 +71,25 @@ public sealed record DetectionRecord
     /// <summary>Referer header (if enabled)</summary>
     public string? Referer { get; init; }
 
+    /// <summary>
+    ///     Lowercased Host header value (no port). Always populated at build time;
+    ///     used as the multi-domain partition key on every analytics aggregate.
+    /// </summary>
+    public string? Domain { get; init; }
+
+    /// <summary>
+    ///     Lowercased referrer host extracted from the Referer header at write time.
+    ///     Only set when <see cref="DetectionRecordOptions.DeriveReferrerHost"/> is wired
+    ///     and <see cref="DetectionRecordOptions.IncludeReferer"/> is true.
+    /// </summary>
+    public string? ReferrerHost { get; init; }
+
+    /// <summary>
+    ///     Coarse device class (Desktop / Mobile / Tablet) derived from UA family.
+    ///     Only set when <see cref="DetectionRecordOptions.DeriveUaDeviceClass"/> is wired.
+    /// </summary>
+    public string? UaDeviceClass { get; init; }
+
     // ===== Detector Contributions =====
 
     /// <summary>
@@ -189,6 +208,13 @@ public static class DetectionRecordFactory
             CountryCode = options.IncludeGeo ? state.GetSignal<string>("geo.country_code") : null,
             Locale = options.IncludeLocale ? state.HttpContext.Request.Headers.AcceptLanguage.ToString() : null,
             Referer = options.IncludeReferer ? state.HttpContext.Request.Headers.Referer.ToString() : null,
+            Domain = state.HttpContext.Request.Host.Host?.ToLowerInvariant(),
+            ReferrerHost = options.IncludeReferer && options.DeriveReferrerHost is not null
+                ? options.DeriveReferrerHost(state.HttpContext.Request.Headers.Referer.ToString())
+                : null,
+            UaDeviceClass = options.DeriveUaDeviceClass is not null
+                ? options.DeriveUaDeviceClass(state.GetSignal<string>("ua.family"))
+                : null,
 
             // Detector contributions
             DetectorContributions = evidence.Contributions
@@ -275,6 +301,21 @@ public sealed class DetectionRecordOptions
 
     /// <summary>Include referer header</summary>
     public bool IncludeReferer { get; set; } = false;
+
+    /// <summary>
+    ///     Optional hook to derive the referrer_host column at write time.
+    ///     When set and <see cref="IncludeReferer"/> is true, the delegate is
+    ///     called with the raw Referer header value and its return value is
+    ///     assigned to <see cref="DetectionRecord.ReferrerHost"/>.
+    /// </summary>
+    public Func<string?, string?>? DeriveReferrerHost { get; set; }
+
+    /// <summary>
+    ///     Optional hook to derive the ua_device_class column at write time.
+    ///     Called with the parsed UA family signal. Return value is assigned
+    ///     to <see cref="DetectionRecord.UaDeviceClass"/>.
+    /// </summary>
+    public Func<string?, string?>? DeriveUaDeviceClass { get; set; }
 
     /// <summary>Include blackboard signals</summary>
     public bool IncludeSignals { get; set; } = true;
