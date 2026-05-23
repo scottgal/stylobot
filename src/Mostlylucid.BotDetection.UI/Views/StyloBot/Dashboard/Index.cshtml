@@ -618,13 +618,17 @@
 
             var chart = new ApexCharts(el, {
                 chart: {
-                    type: 'area', height: 200, toolbar: { show: false },
+                    // Line, not area. The previous area fill closed the path back to the
+                    // baseline at both extents -- with sparse data it looked like a
+                    // filled mountain rather than a trend line, exactly the "closed
+                    // shape with missing data" the user flagged on staging.
+                    type: 'line', height: 200, toolbar: { show: false },
                     background: 'transparent', fontFamily: 'inherit', foreColor: '#888',
                     animations: { enabled: true, easing: 'easeinout', speed: 500 }
                 },
                 stroke: { curve: 'straight', width: 2 },
                 markers: { size: 0, hover: { sizeOffset: 3 } },
-                fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.02 } },
+                fill: { type: 'solid', opacity: 0 },
                 colors: ['#2dd4bf', '#ef4444'],
                 series: [{ name: 'Human', data: [] }, { name: 'Bot', data: [] }],
                 xaxis: {
