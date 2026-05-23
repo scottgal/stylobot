@@ -697,6 +697,20 @@ public static class ServiceCollectionExtensions
         // auto-selects it when the tagger set a tier tag on HttpContext.Items.
         services.AddSingleton<Honeypot.HoneypotResponseActionPolicy>();
         services.AddSingleton<IActionPolicy>(sp => sp.GetRequiredService<Honeypot.HoneypotResponseActionPolicy>());
+        // Path lifecycle store -- records per-path response history so the honeypot
+        // threat scorer can lift the score when a 4xx hits a path that used to serve
+        // real content (scanner has institutional memory of a removed endpoint).
+        services.TryAddSingleton<Lifecycle.IPathLifecycleStore>(sp =>
+        {
+            var env = sp.GetService<Microsoft.Extensions.Hosting.IHostEnvironment>();
+            var dbPath = env != null
+                ? Path.Combine(env.ContentRootPath, "path-lifecycle.db")
+                : "path-lifecycle.db";
+            var logger = sp.GetRequiredService<ILogger<Lifecycle.SqlitePathLifecycleStore>>();
+            return new Lifecycle.SqlitePathLifecycleStore(
+                $"Data Source={dbPath};Cache=Shared", logger);
+        });
+        services.AddSingleton<IContributingDetector, Honeypot.EndpointHistoryContributor>();
         // AI scraper detection - known AI bots, Cloudflare signals, Web Bot Auth
         services.AddSingleton<IContributingDetector, AiScraperContributor>();
         // Cache behavior analysis - runs early alongside behavioral

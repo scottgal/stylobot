@@ -982,20 +982,102 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             var tier = Mostlylucid.BotDetection.Honeypot.HoneypotPathDefinitions.Classify(normalized, out var matched);
             if (tier == Mostlylucid.BotDetection.Honeypot.HoneypotTier.None) continue; // skip rows that aren't actually honeypot
 
+            var distinctSigs = reader.GetInt32(2);
             results.Add(new HoneypotHitRow
             {
                 Path = rawPath,
                 Tier = (int)tier,
                 MatchedPattern = matched,
                 HitCount = reader.GetInt32(1),
-                DistinctSignatures = reader.GetInt32(2),
+                DistinctSignatures = distinctSigs,
                 FirstSeen = DateTime.Parse(reader.GetString(3), null, System.Globalization.DateTimeStyles.RoundtripKind),
                 LastSeen = DateTime.Parse(reader.GetString(4), null, System.Globalization.DateTimeStyles.RoundtripKind),
-                SampleBotName = reader.IsDBNull(5) ? null : reader.GetString(5)
+                SampleBotName = reader.IsDBNull(5) ? null : reader.GetString(5),
+                Why = BuildWhyChips(tier, matched, normalized, distinctSigs)
             });
         }
 
         return results;
+    }
+
+    /// <summary>
+    ///     Deterministic explanation chips derived from tier + pattern + the
+    ///     normalised path. Intentionally short and operator-facing -- the
+    ///     chip text is what gets shown in the "Why" column on the Honeypot
+    ///     tab. Tier 1 paths get an intent label ("credentials theft",
+    ///     "version control exposure" etc) so the dashboard tells the
+    ///     operator WHY this path is dangerous, not just that it matched.
+    /// </summary>
+    private static IReadOnlyList<string> BuildWhyChips(
+        Mostlylucid.BotDetection.Honeypot.HoneypotTier tier,
+        string? pattern,
+        string normalizedPath,
+        int distinctVisitors)
+    {
+        var chips = new List<string>(4);
+
+        // Intent chip -- what the scanner is going for.
+        chips.Add(IntentForPath(normalizedPath, tier));
+
+        // Pattern chip (collapsed when same as path).
+        if (!string.IsNullOrEmpty(pattern) &&
+            !string.Equals(pattern, normalizedPath, StringComparison.OrdinalIgnoreCase))
+        {
+            chips.Add($"matches {pattern}");
+        }
+
+        if (distinctVisitors >= 5)
+            chips.Add($"{distinctVisitors} distinct visitors");
+
+        return chips;
+    }
+
+    private static string IntentForPath(string normalizedPath, Mostlylucid.BotDetection.Honeypot.HoneypotTier tier)
+    {
+        // Keep these LABELS short -- they render as a single chip.
+        if (normalizedPath.StartsWith("/.aws") || normalizedPath.StartsWith("/.ssh")
+            || normalizedPath.StartsWith("/.gcp") || normalizedPath.StartsWith("/.azure")
+            || normalizedPath.StartsWith("/.kube") || normalizedPath.Equals("/kubeconfig")
+            || normalizedPath.Contains("credentials") || normalizedPath.Contains("id_rsa")
+            || normalizedPath.Contains("id_ed25519") || normalizedPath.Contains("id_dsa")
+            || normalizedPath.Contains(".pgpass") || normalizedPath.Contains(".my.cnf")
+            || normalizedPath.Contains("token") || normalizedPath.Contains("secret"))
+            return "credentials theft";
+
+        if (normalizedPath.StartsWith("/.env"))
+            return "config file leak";
+
+        if (normalizedPath.StartsWith("/.git") || normalizedPath.StartsWith("/.svn")
+            || normalizedPath.StartsWith("/.hg"))
+            return "version-control exposure";
+
+        if (normalizedPath.EndsWith(".sql") || normalizedPath.Contains("backup")
+            || normalizedPath.Contains("dump") || normalizedPath.EndsWith(".sql.bak"))
+            return "database/backup dump";
+
+        if (normalizedPath.StartsWith("/wp-") || normalizedPath.Contains("xmlrpc"))
+            return "WordPress probe";
+
+        if (normalizedPath.StartsWith("/etc/") || normalizedPath.StartsWith("/proc/")
+            || normalizedPath.StartsWith("/windows/") || normalizedPath.StartsWith("/boot."))
+            return "path-traversal probe";
+
+        if (normalizedPath.Contains("phpmyadmin") || normalizedPath.Contains("adminer")
+            || normalizedPath.Contains("mysql"))
+            return "database admin probe";
+
+        if (normalizedPath.StartsWith("/.well-known") || normalizedPath.Contains("metadata"))
+            return "metadata SSRF probe";
+
+        if (normalizedPath.EndsWith(".php") &&
+            (normalizedPath.Contains("shell") || normalizedPath.Contains("c99")
+             || normalizedPath.Contains("r57") || normalizedPath.Contains("backdoor")
+             || normalizedPath.Contains("alfa")))
+            return "webshell upload";
+
+        return tier == Mostlylucid.BotDetection.Honeypot.HoneypotTier.Always
+            ? "always-honeypot"
+            : "probable scanner";
     }
 
     public async Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)

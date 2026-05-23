@@ -168,21 +168,46 @@ public static class BotDisplayHelpers
     };
 
     /// <summary>
-    ///     Resolve a threat band string: honour the upstream value when present and non-"None",
-    ///     otherwise derive from bot probability. Non-bots get an empty band -- showing a
-    ///     "Low" threat on a verified human is misleading.
+    ///     Resolve a threat band string. Honours the upstream value when present
+    ///     and non-"None"; otherwise returns "None" (NOT a probability-derived
+    ///     guess). A 100% bot row paired with "High threat" derived from
+    ///     probability misreads as a contradiction on verified-good bots like
+    ///     Googlebot -- bot probability says "automated", threat says
+    ///     "dangerous", and the two are orthogonal axes.
     /// </summary>
     public static string ResolvedThreat(string? band, double prob, bool isBot = true)
     {
         if (!string.IsNullOrEmpty(band) && band != "None") return band;
+        return isBot ? "None" : "";
+    }
+
+    /// <summary>
+    ///     Categorical "is this dangerous" label for bot rows. Separate from
+    ///     bot probability ("is this automated"). Returns "Benign" /
+    ///     "Suspicious" / "Hostile" so the dashboard never paints
+    ///     "100% Bot · THREAT 0.0" as a contradiction -- the row reads
+    ///     "100% Bot · Benign" for a verified Googlebot,
+    ///     "100% Bot · Hostile" for an /.aws/credentials probe.
+    /// </summary>
+    public static string IntentLabel(string? threatBand, bool isBot)
+    {
         if (!isBot) return "";
-        return prob switch
+        return threatBand switch
         {
-            >= 0.95 => "High",
-            >= 0.75 => "Medium",
-            _ => "Low"
+            "Critical" or "High" => "Hostile",
+            "Elevated" or "Medium" => "Suspicious",
+            _ => "Benign"
         };
     }
+
+    /// <summary>Tailwind text-colour for the Benign/Suspicious/Hostile label.</summary>
+    public static string ColorForIntent(string label) => label switch
+    {
+        "Hostile" => "text-error",
+        "Suspicious" => "text-warning",
+        "Benign" => "text-info",
+        _ => "text-base-content/40"
+    };
 
     // ─── Icon / colour helpers for the Cloudflare-style consolidated row ─────────
     // Goal: replace text-heavy labels with iconography + colour so a row reads at a

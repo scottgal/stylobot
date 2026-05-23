@@ -37,9 +37,29 @@ public class BotDisplayHelpersTests
     }
 
     [Fact]
-    public void ResolvedThreat_treats_None_band_as_missing_and_falls_back_to_probability()
+    public void ResolvedThreat_treats_None_band_as_None_not_probability_derived()
     {
-        Assert.Equal("High", BotDisplayHelpers.ResolvedThreat("None", 0.98, isBot: true));
+        // A 98%-bot Googlebot with no upstream threat band should NOT read as
+        // "High threat" -- bot probability and threat are orthogonal axes, and
+        // deriving threat from probability was the source of the
+        // "100% Bot · THREAT 0.0" UX contradiction the dashboard used to show.
+        Assert.Equal("None", BotDisplayHelpers.ResolvedThreat("None", 0.98, isBot: true));
+        Assert.Equal("None", BotDisplayHelpers.ResolvedThreat(null, 0.98, isBot: true));
+        Assert.Equal("None", BotDisplayHelpers.ResolvedThreat("", 0.98, isBot: true));
+    }
+
+    [Theory]
+    [InlineData("Critical", true,  "Hostile")]
+    [InlineData("High",     true,  "Hostile")]
+    [InlineData("Elevated", true,  "Suspicious")]
+    [InlineData("Medium",   true,  "Suspicious")]
+    [InlineData("Low",      true,  "Benign")]
+    [InlineData("None",     true,  "Benign")]
+    [InlineData(null,       true,  "Benign")]
+    [InlineData("High",     false, "")]
+    public void IntentLabel_maps_band_to_categorical(string? band, bool isBot, string expected)
+    {
+        Assert.Equal(expected, BotDisplayHelpers.IntentLabel(band, isBot));
     }
 
     [Theory]

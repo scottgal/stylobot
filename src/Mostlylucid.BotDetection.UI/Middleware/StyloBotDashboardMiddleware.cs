@@ -5608,6 +5608,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                     FirstSeen = h.FirstSeen,
                     LastSeen = h.LastSeen,
                     SampleBotName = h.SampleBotName,
+                    Why = h.Why,
                     IsExempt = exemptStore.IsExempt(
                         Mostlylucid.BotDetection.Honeypot.HoneypotPathDefinitions.NormalizePath(h.Path))
                 }).ToList();

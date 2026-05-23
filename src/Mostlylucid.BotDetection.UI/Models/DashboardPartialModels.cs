@@ -677,6 +677,14 @@ public sealed class HoneypotHitRow
 
     /// <summary>True when this path is in the operator's exempt list.</summary>
     public bool IsExempt { get; init; }
+
+    /// <summary>
+    ///     Deterministic explanation chips. Short reason strings derived at
+    ///     query time from tier + pattern + lifecycle hints. Surfaced as
+    ///     chips so an operator can see WHY a path is treated as honeypot
+    ///     without drilling into raw signals.
+    /// </summary>
+    public IReadOnlyList<string> Why { get; init; } = Array.Empty<string>();
 }
 
 /// <summary>View model for the unified investigation view.</summary>

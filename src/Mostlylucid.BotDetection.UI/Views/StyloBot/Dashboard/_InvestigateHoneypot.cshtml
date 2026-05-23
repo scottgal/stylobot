@@ -49,7 +49,7 @@
                     <tr style="background:var(--sb-surface); text-align:left;">
                         <th style="padding:0.5rem 0.75rem;">Tier</th>
                         <th style="padding:0.5rem 0.75rem;">Path</th>
-                        <th style="padding:0.5rem 0.75rem;">Pattern</th>
+                        <th style="padding:0.5rem 0.75rem;">Why</th>
                         <th style="padding:0.5rem 0.75rem; text-align:right;">Hits</th>
                         <th style="padding:0.5rem 0.75rem; text-align:right;">Visitors</th>
                         <th style="padding:0.5rem 0.75rem;">Last seen</th>
@@ -63,7 +63,14 @@
                     <tr style="border-top:1px solid var(--sb-card-divider);">
                         <td style="padding:0.5rem 0.75rem;">@Html.Raw(TierBadge(row.Tier))</td>
                         <td style="padding:0.5rem 0.75rem; font-family:monospace; word-break:break-all;">@row.Path</td>
-                        <td style="padding:0.5rem 0.75rem; font-family:monospace; color:var(--sb-brand-muted); font-size:0.75rem;">@(row.MatchedPattern ?? "")</td>
+                        <td style="padding:0.5rem 0.75rem;">
+                            <div style="display:flex; flex-wrap:wrap; gap:0.25rem;">
+                            @foreach (var chip in row.Why)
+                            {
+                                <span style="font-size:0.7rem; padding:0.1rem 0.4rem; background:var(--sb-surface); border-radius:4px; color:var(--sb-brand-muted); white-space:nowrap;">@chip</span>
+                            }
+                            </div>
+                        </td>
                         <td style="padding:0.5rem 0.75rem; text-align:right; font-variant-numeric:tabular-nums;">@row.HitCount</td>
                         <td style="padding:0.5rem 0.75rem; text-align:right; font-variant-numeric:tabular-nums;">@row.DistinctSignatures</td>
                         <td style="padding:0.5rem 0.75rem; color:var(--sb-brand-muted); white-space:nowrap;" title="@row.LastSeen.ToString("u")">@AgoString(row.LastSeen)</td>

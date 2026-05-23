@@ -1,0 +1,84 @@
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+
+namespace Mostlylucid.BotDetection.Lifecycle;
+
+/// <summary>
+///     Response-side middleware that records every non-asset response into
+///     <see cref="IPathLifecycleStore"/> so the honeypot threat scorer can
+///     tell "scanner probing a path that used to be real" (high threat)
+///     from "scanner probing a path that never existed" (lower threat).
+/// </summary>
+/// <remarks>
+///     <para>
+///         Skips static assets at the path filter -- they would dominate
+///         the table without contributing signal (CSS hash flips don't
+///         carry intent). Fire-and-forget: writes are not awaited so we
+///         never block the response.
+///     </para>
+///     <para>
+///         Wired into <c>UseBotDetection()</c> after the detection middleware.
+///     </para>
+/// </remarks>
+public sealed class PathLifecycleMiddleware
+{
+    private static readonly string[] StaticAssetExtensions =
+    [
+        ".css", ".js", ".mjs", ".map",
+        ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".bmp",
+        ".woff", ".woff2", ".ttf", ".otf", ".eot",
+        ".mp4", ".webm", ".mp3", ".ogg", ".wav",
+        ".pdf"
+    ];
+
+    private readonly RequestDelegate _next;
+    private readonly IPathLifecycleStore _store;
+    private readonly ILogger<PathLifecycleMiddleware> _logger;
+
+    public PathLifecycleMiddleware(
+        RequestDelegate next,
+        IPathLifecycleStore store,
+        ILogger<PathLifecycleMiddleware> logger)
+    {
+        _next = next;
+        _store = store;
+        _logger = logger;
+    }
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        await _next(context);
+
+        var path = context.Request.Path.Value;
+        if (string.IsNullOrEmpty(path)) return;
+        if (IsStaticAsset(path)) return;
+
+        var statusCode = context.Response.StatusCode;
+
+        // Fire-and-forget. The store handles its own errors.
+        _ = RecordSafelyAsync(path, statusCode, context.RequestAborted);
+    }
+
+    private async Task RecordSafelyAsync(string path, int statusCode, CancellationToken ct)
+    {
+        try
+        {
+            await _store.RecordResponseAsync(path, statusCode, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "PathLifecycle record failed for {Path}", path);
+        }
+    }
+
+    private static bool IsStaticAsset(string path)
+    {
+        var dot = path.LastIndexOf('.');
+        if (dot < 0 || dot == path.Length - 1) return false;
+        var ext = path.AsSpan(dot);
+        foreach (var known in StaticAssetExtensions)
+            if (ext.Equals(known, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
+    }
+}

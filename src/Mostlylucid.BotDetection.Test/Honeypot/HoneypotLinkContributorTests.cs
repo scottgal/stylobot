@@ -55,6 +55,22 @@ public class HoneypotLinkContributorTests
         Assert.Equal(2.0, c.Weight);
         Assert.True(c.Signals.ContainsKey(HoneypotLinkContributor.SignalTier1Hit));
         Assert.Equal("/.aws/credentials", c.Signals[HoneypotLinkContributor.SignalNormalizedPath]);
+        // Tier 1 must publish a threat score so dashboard shows "Hostile" not "Benign".
+        Assert.Equal(HoneypotLinkContributor.Tier1ThreatScore,
+            (double)c.Signals[Mostlylucid.BotDetection.Models.SignalKeys.IntentThreatScore]);
+    }
+
+    [Fact]
+    public async Task Tier2Path_WpLogin_EmitsSoftThreatScore()
+    {
+        var contributor = Create();
+        var state = StateForPath("/wp-login.php");
+
+        var contributions = await contributor.ContributeAsync(state);
+
+        var c = Assert.Single(contributions);
+        Assert.Equal(HoneypotLinkContributor.Tier2ThreatScore,
+            (double)c.Signals[Mostlylucid.BotDetection.Models.SignalKeys.IntentThreatScore]);
     }
 
     [Fact]

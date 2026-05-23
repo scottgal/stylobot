@@ -2684,6 +2684,11 @@ public static class BotDetectionMiddlewareExtensions
     public static IApplicationBuilder UseBotDetection(this IApplicationBuilder builder)
     {
         builder.UseMiddleware<AssetHashMiddleware>();
+        // Path lifecycle recorder wraps the inner pipeline so it observes the
+        // FINAL response status code (post-detection, post-action-policy).
+        // Feeds the honeypot threat scorer's "this path used to serve 2xx,
+        // now scanners are still probing it" branch.
+        builder.UseMiddleware<Lifecycle.PathLifecycleMiddleware>();
         // Honeypot tagger runs BEFORE BotDetectionMiddleware so the
         // classification survives any early-exit short-circuit later in the
         // pipeline (FastPathReputation, SignatureVerdictGate Skip).

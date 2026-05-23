@@ -42,6 +42,12 @@ public sealed class HoneypotLinkContributor : ContributingDetectorBase
     public const string SignalNormalizedPath = "honeypot.normalized_path";
     public const string SignalTier = "honeypot.tier";
 
+    /// <summary>Threat score we publish on a Tier 1 hit. Theft-of-secrets intent.</summary>
+    public const double Tier1ThreatScore = 0.90;
+
+    /// <summary>Threat score on a Tier 2 hit. Probable-scanner intent.</summary>
+    public const double Tier2ThreatScore = 0.60;
+
     private readonly ILogger<HoneypotLinkContributor> _logger;
     private readonly IOptionsMonitor<HoneypotDetectionOptions> _options;
     private readonly IHoneypotExemptStore _exemptStore;
@@ -131,6 +137,10 @@ public sealed class HoneypotLinkContributor : ContributingDetectorBase
         if (tier == HoneypotTier.Always)
         {
             signals.Add(SignalTier1Hit, true);
+            // intent.threat_score is read by ExtractThreatScore in
+            // DetectionLedgerExtensions; emitting it here is what lifts the
+            // dashboard label from "Benign" to "Hostile" on a credential-theft probe.
+            signals.Add(SignalKeys.IntentThreatScore, Tier1ThreatScore);
             _logger.LogWarning(
                 "Tier 1 honeypot hit: {Path} matched {Pattern}",
                 normalizedPath, matchedPattern);
@@ -139,7 +149,7 @@ public sealed class HoneypotLinkContributor : ContributingDetectorBase
             [
                 DetectionContribution.VerifiedBot(
                     Name,
-                    $"Accessed always-honeypot path {normalizedPath} (pattern: {matchedPattern})",
+                    $"Tier 1 honeypot hit: {normalizedPath} matched {matchedPattern}",
                     nameof(BotType.Scraper))
                     with
                     {
@@ -153,6 +163,7 @@ public sealed class HoneypotLinkContributor : ContributingDetectorBase
 
         // Tier.Probable
         signals.Add(SignalTier2Hit, true);
+        signals.Add(SignalKeys.IntentThreatScore, Tier2ThreatScore);
         _logger.LogInformation(
             "Tier 2 honeypot hit: {Path} matched {Pattern}",
             normalizedPath, matchedPattern);
@@ -163,7 +174,7 @@ public sealed class HoneypotLinkContributor : ContributingDetectorBase
                 Name,
                 "HoneypotTrap",
                 0.75,
-                $"Accessed probable-honeypot path {normalizedPath} (pattern: {matchedPattern})",
+                $"Tier 2 honeypot hit: {normalizedPath} matched {matchedPattern}",
                 1.5,
                 nameof(BotType.Scraper))
                 with
