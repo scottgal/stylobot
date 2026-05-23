@@ -1,0 +1,17 @@
+@using Mostlylucid.BotDetection.UI.Models.Primitives
+@model CountryFlagModel
+@{
+    var hasFlag = !string.IsNullOrEmpty(Model.Code)
+                  && Model.Code!.Length == 2
+                  && !Model.Code.Equals("XX", System.StringComparison.OrdinalIgnoreCase);
+    var name = Model.Name ?? Model.Code ?? "Unknown";
+}
+@if (hasFlag)
+{
+    var url = $"/_content/Mostlylucid.BotDetection.UI/flags/{Model.Code!.ToLowerInvariant()}.svg";
+    <img src="@url" alt="@Model.Code" title="@name" class="w-6 h-4 object-cover rounded-sm" loading="lazy" />
+}
+else
+{
+    <span class="text-base-content/30 text-[10px]" title="@name">--</span>
+}
