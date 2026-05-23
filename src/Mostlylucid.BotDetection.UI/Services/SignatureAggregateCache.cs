@@ -152,6 +152,41 @@ public sealed class SignatureAggregateCache
     }
 
     /// <summary>
+    ///     Pre-warm the per-signature hit ring buffers from recent stored detections.
+    ///     Walked oldest-first; signatures not in the cache (outside the warm-up top-N)
+    ///     are silently skipped. Without this, the sparkline column reads as flat for
+    ///     the first 60 minutes after every restart -- the user's "no in-memory stores
+    ///     that don't pre-warm" rule.
+    /// </summary>
+    public void SeedHitTrendsFromDetections(IEnumerable<DashboardDetectionEvent> recentDetections)
+    {
+        foreach (var d in recentDetections)
+        {
+            if (string.IsNullOrEmpty(d.PrimarySignature)) continue;
+            if (!_entries.TryGetValue(d.PrimarySignature, out var agg)) continue;
+            lock (agg.SyncRoot)
+            {
+                agg.RecordHit(d.Timestamp.ToUniversalTime());
+            }
+        }
+    }
+
+    /// <summary>
+    ///     Snapshot of how many cached signatures fall into each filter bucket. Single
+    ///     pass over the entries dictionary -- much cheaper than calling
+    ///     <see cref="GetTopBots"/> three times with different filters just to count.
+    /// </summary>
+    public TopBotsCounts GetCounts()
+    {
+        int bots = 0, humans = 0;
+        foreach (var kvp in _entries)
+        {
+            if (kvp.Value.IsBot) bots++; else humans++;
+        }
+        return new TopBotsCounts(All: bots + humans, Bots: bots, Humans: humans);
+    }
+
+    /// <summary>
     ///     Get sparkline score history for a specific signature.
     /// </summary>
     public List<double>? GetSparkline(string signature)
@@ -330,6 +365,7 @@ public sealed class SignatureAggregateCache
 
         // No lock needed - object is not yet visible to other threads
         agg.ScoreHistory.AddLast(detection.BotProbability);
+        agg.RecordHit(detection.Timestamp.ToUniversalTime());
 
         return agg;
     }
@@ -384,6 +420,8 @@ public sealed class SignatureAggregateCache
             existing.ScoreHistory.AddLast(detection.BotProbability);
             while (existing.ScoreHistory.Count > ScoreHistorySize)
                 existing.ScoreHistory.RemoveFirst();
+
+            existing.RecordHit(detection.Timestamp.ToUniversalTime());
         }
 
         return existing;
@@ -438,6 +476,7 @@ public sealed class SignatureAggregateCache
                 IsKnownBot = agg.IsBot,
                 ThreatScore = agg.ThreatScore,
                 ThreatBand = agg.ThreatBand,
+                HitTrend = agg.ReadHitTrend(),
             };
         }
     }
@@ -519,6 +558,72 @@ public sealed class SignatureAggregate
 
     /// <summary>Ring buffer of recent bot probability scores for sparkline.</summary>
     public readonly LinkedList<double> ScoreHistory = new();
+
+    /// <summary>
+    ///     Per-minute hit count over the last 60 minutes. Index 0 is the most recent
+    ///     minute, index 59 is 59 minutes ago. Walked oldest-to-newest by reading
+    ///     index 59 down to 0 (see <see cref="ReadHitTrend"/>).
+    /// </summary>
+    private readonly int[] _hitsPerMinute = new int[60];
+
+    /// <summary>UTC minute corresponding to <c>_hitsPerMinute[0]</c>; advances on update.</summary>
+    private DateTime _hitsBucketMinute = DateTime.MinValue;
+
+    /// <summary>
+    ///     Record one hit at the supplied UTC timestamp. Caller must already hold
+    ///     <see cref="SyncRoot"/> (CreateNew runs before the aggregate is published,
+    ///     Update wraps in lock).
+    /// </summary>
+    internal void RecordHit(DateTime utcTimestamp)
+    {
+        var thisMin = new DateTime(
+            utcTimestamp.Year, utcTimestamp.Month, utcTimestamp.Day,
+            utcTimestamp.Hour, utcTimestamp.Minute, 0, DateTimeKind.Utc);
+
+        if (_hitsBucketMinute == DateTime.MinValue)
+        {
+            _hitsBucketMinute = thisMin;
+            _hitsPerMinute[0] = 1;
+            return;
+        }
+
+        var minutesAdvanced = (int)(thisMin - _hitsBucketMinute).TotalMinutes;
+        if (minutesAdvanced < 0)
+        {
+            // Clock skew or out-of-order detection. Drop into the current bucket
+            // rather than rewinding history.
+            _hitsPerMinute[0]++;
+            return;
+        }
+
+        if (minutesAdvanced >= 60)
+        {
+            Array.Clear(_hitsPerMinute, 0, 60);
+        }
+        else if (minutesAdvanced > 0)
+        {
+            // Shift the array right so the "current minute" slot is freed at index 0.
+            // The values previously at index N now sit at index N+minutesAdvanced.
+            Array.Copy(_hitsPerMinute, 0, _hitsPerMinute, minutesAdvanced, 60 - minutesAdvanced);
+            Array.Clear(_hitsPerMinute, 0, minutesAdvanced);
+        }
+
+        _hitsBucketMinute = thisMin;
+        _hitsPerMinute[0]++;
+    }
+
+    /// <summary>
+    ///     Return the hit trend oldest-first (caller already holds <see cref="SyncRoot"/>).
+    ///     Result[0] is 59 minutes ago, Result[59] is the most recent minute. Returns
+    ///     <see cref="Array.Empty{T}"/> when the buffer has never recorded a hit.
+    /// </summary>
+    internal int[] ReadHitTrend()
+    {
+        if (_hitsBucketMinute == DateTime.MinValue) return Array.Empty<int>();
+        var trend = new int[60];
+        for (int i = 0; i < 60; i++) trend[i] = _hitsPerMinute[59 - i];
+        return trend;
+    }
 
     /// <summary>Sync root for all field mutations.</summary>
     public readonly object SyncRoot = new();

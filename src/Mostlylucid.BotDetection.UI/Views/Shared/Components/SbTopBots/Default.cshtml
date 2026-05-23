@@ -29,21 +29,25 @@
     var widgetRootId = Model.WidgetId + "-list";
     var dataRegionId = Model.WidgetId + "-data";
 
-    // Filter chips. Counts deliberately null -- the model doesn't carry per-filter
-    // counts yet, so the toolbar omits the count badge rather than show 0.
+    // Filter chips carry real per-bucket counts from SignatureAggregateCache.GetCounts.
     var chips = new[]
     {
-        new FilterChip("all",    "All",    (int?)null, FilterUrl("all")),
-        new FilterChip("bots",   "Bots",   (int?)null, FilterUrl("bots")),
-        new FilterChip("humans", "Humans", (int?)null, FilterUrl("humans")),
+        new FilterChip("all",    "All",    (int?)Model.Counts.All,    FilterUrl("all")),
+        new FilterChip("bots",   "Bots",   (int?)Model.Counts.Bots,   FilterUrl("bots")),
+        new FilterChip("humans", "Humans", (int?)Model.Counts.Humans, FilterUrl("humans")),
     };
+
+    // Search box hits the same partial route; q is included via hx-include="this".
+    // Keeping page=1 and current filter/sort so a search inside the active filter
+    // bucket reads as expected ("search within Bots").
+    var searchUrl = $"{bp}/partials/topbots?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={Model.PageSize}&widgetId={Model.WidgetId}";
 
     var toolbar = new TableToolbarModel(
         TargetId: widgetRootId,
         Chips: chips,
         ActiveFilter: Model.Filter,
-        ShowSearch: false,
-        SearchUrl: null,
+        ShowSearch: true,
+        SearchUrl: searchUrl,
         TimeWindowOptions: null,
         ActiveTimeWindow: null);
 
@@ -118,6 +122,7 @@
                                 hx-get="@SortUrl("hits")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Hits@(Html.Raw(SortIcon("hits")))
                             </th>
+                            <th class="py-1 text-center text-[10px] text-base-content/40" title="Hits per minute, last hour">1h</th>
                             <th class="py-1 text-right @ThClass("lastseen")"
                                 hx-get="@SortUrl("lastseen")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Seen@(Html.Raw(SortIcon("lastseen")))
@@ -197,6 +202,16 @@
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_RiskBar.cshtml", riskBar)
                                 </td>
                                 <td class="py-1 text-right text-xs text-base-content/60 font-mono">@bot.HitCount</td>
+                                <td class="py-1 text-center align-middle">
+                                    @{
+                                        // Bot trend is the same data plotted in both series for now;
+                                        // human/bot split per signature is a follow-on that needs the
+                                        // ring buffer to track is_bot per minute. Today every detection
+                                        // on this signature falls in one bucket.
+                                        var spark = new SparklineModel(BotTrend: bot.HitTrend, HumanTrend: System.Array.Empty<int>(), WindowMinutes: 60);
+                                    }
+                                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_Sparkline.cshtml", spark)
+                                </td>
                                 <td class="py-1 text-right">
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_TimeAgo.cshtml", timeAgo)
                                 </td>

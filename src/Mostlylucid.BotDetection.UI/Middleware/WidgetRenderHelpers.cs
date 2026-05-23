@@ -133,4 +133,31 @@ internal static class WidgetRenderHelpers
             && !string.Equals(botType, "Tool", StringComparison.OrdinalIgnoreCase)
             && !string.Equals(botType, "Unknown", StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    ///     Case-insensitive substring match against the searchable fields of a top-bots row
+    ///     (CustomBotName, BotName, BotType, PrimarySignature). Null/empty query returns
+    ///     the input unchanged. Shared by every top-bots build site so the search box
+    ///     behaves identically across the dashboard middleware, the OOB batch path,
+    ///     and the view component.
+    /// </summary>
+    public static List<DashboardTopBotEntry> ApplySearchFilter(
+        IReadOnlyList<DashboardTopBotEntry> source, string? query)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return source.ToList();
+        var q = query.Trim();
+        var cmp = StringComparison.OrdinalIgnoreCase;
+        var result = new List<DashboardTopBotEntry>(source.Count);
+        foreach (var b in source)
+        {
+            if ((b.CustomBotName?.Contains(q, cmp) ?? false) ||
+                (b.BotName?.Contains(q, cmp) ?? false) ||
+                (b.BotType?.Contains(q, cmp) ?? false) ||
+                b.PrimarySignature.Contains(q, cmp))
+            {
+                result.Add(b);
+            }
+        }
+        return result;
+    }
 }

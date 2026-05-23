@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Services;
 
@@ -56,6 +57,35 @@ public sealed class SignatureAggregateCacheWarmupService : BackgroundService
                 _logger.LogInformation(
                     "Warmed signature aggregate cache with {Count} signatures from last 24h",
                     topBots.Count);
+
+                // Pre-warm the per-signature hit ring buffers from the last hour of stored
+                // detections so the Live Activity sparkline column shows real trend on
+                // first paint after restart. The cap is generous; on light traffic this
+                // returns far fewer rows. Detections come back DESC, walk oldest-first
+                // so RecordHit's array-shift math advances minute-by-minute correctly.
+                try
+                {
+                    var recent = await _eventStore.GetDetectionsAsync(new DashboardFilter
+                    {
+                        StartTime = DateTime.UtcNow.AddMinutes(-60),
+                        Limit = 50_000,
+                    }, stoppingToken);
+
+                    if (recent.Count > 0)
+                    {
+                        recent.Reverse();
+                        _cache.SeedHitTrendsFromDetections(recent);
+                        _logger.LogInformation(
+                            "Pre-warmed sparkline ring buffers from {Count} recent detections",
+                            recent.Count);
+                    }
+                }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "Failed to pre-warm sparkline ring buffers -- they will build up from live traffic over the next hour");
+                }
             }
             else
             {

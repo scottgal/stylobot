@@ -250,7 +250,8 @@ public sealed class SbWidgetBatchMiddleware
         var pageSize = WidgetRenderHelpers.QueryPageSize(q, 10, 50);
         var filter = q["filter"].FirstOrDefault() ?? "bots";
         var widgetId = q["widgetId"].FirstOrDefault() ?? routeWidgetId;
-        var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId);
+        var searchQuery = q["q"].FirstOrDefault();
+        var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
         return await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/Shared/Components/SbTopBots/Default.cshtml", model, context);
     }
@@ -284,10 +285,11 @@ public sealed class SbWidgetBatchMiddleware
     // Model builders (mirrors private methods in StyloBotDashboardMiddleware)
     // -------------------------------------------------------------------------
 
-    private TopBotsListModel BuildTopBotsModel(int page, int pageSize, string sortBy, string sortDir, string filter = "bots", string widgetId = "topbots")
+    private TopBotsListModel BuildTopBotsModel(int page, int pageSize, string sortBy, string sortDir, string filter = "bots", string widgetId = "topbots", string? searchQuery = null)
     {
         var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir, filter: filter);
         var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(allBots);
+        grouped = WidgetRenderHelpers.ApplySearchFilter(grouped, searchQuery);
         var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return new TopBotsListModel
         {
@@ -299,7 +301,9 @@ public sealed class SbWidgetBatchMiddleware
             SortDir = sortDir,
             BasePath = _options.BasePath.TrimEnd('/'),
             Filter = filter,
-            WidgetId = widgetId
+            WidgetId = widgetId,
+            Counts = _signatureCache.GetCounts(),
+            Query = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery.Trim(),
         };
     }
 

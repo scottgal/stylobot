@@ -18,7 +18,8 @@ public class SbTopBotsViewComponent(
         string sortBy = "default",
         string sortDir = "desc",
         string filter = "bots",
-        string widgetId = "topbots")
+        string widgetId = "topbots",
+        string? q = null)
     {
         var allBots = signatureCache.GetTopBots(page: 1, pageSize: signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir, filter: filter);
         // Same collapse the OOB refresh path applies (BuildTopBotsModel in both
@@ -27,6 +28,7 @@ public class SbTopBotsViewComponent(
         // dropped to one row, producing the "loads long, instantly shortens"
         // flicker the user has flagged twice. SSR + OOB must agree on row count.
         var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(allBots);
+        grouped = WidgetRenderHelpers.ApplySearchFilter(grouped, q);
         var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return View(new TopBotsListModel
         {
@@ -38,7 +40,9 @@ public class SbTopBotsViewComponent(
             SortDir = sortDir,
             BasePath = options.Value.BasePath.TrimEnd('/'),
             Filter = filter,
-            WidgetId = widgetId
+            WidgetId = widgetId,
+            Counts = signatureCache.GetCounts(),
+            Query = string.IsNullOrWhiteSpace(q) ? null : q.Trim(),
         });
     }
 }

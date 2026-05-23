@@ -26,6 +26,13 @@ public sealed record DashboardTopBotEntry
     public double? ThreatScore { get; init; }
     public string? ThreatBand { get; init; }
 
+    /// <summary>
+    ///     60-bucket per-minute hit count, oldest-first (index 0 = 59 minutes ago,
+    ///     index 59 = current minute). Empty array when the ring buffer has no
+    ///     observations yet. Used by the _Sparkline primitive for SSR svg paths.
+    /// </summary>
+    public int[] HitTrend { get; init; } = Array.Empty<int>();
+
     public string TimeAgo
     {
         get

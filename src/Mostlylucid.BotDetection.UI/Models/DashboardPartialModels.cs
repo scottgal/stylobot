@@ -248,7 +248,14 @@ public sealed class TopBotsListModel
     public string Filter { get; init; } = "bots";
     /// <summary>HTML id prefix; allows multiple widget instances on the same page.</summary>
     public string WidgetId { get; init; } = "topbots";
+    /// <summary>Per-filter counts so the toolbar chips can render real numbers.</summary>
+    public TopBotsCounts Counts { get; init; } = new(0, 0, 0);
+    /// <summary>Active search query (substring on bot name / type / signature). Null = no filter.</summary>
+    public string? Query { get; init; }
 }
+
+/// <summary>Counts per filter bucket for the SbTopBots toolbar chips.</summary>
+public sealed record TopBotsCounts(int All, int Bots, int Humans);
 
 /// <summary>
 ///     View model for the signature detail page.

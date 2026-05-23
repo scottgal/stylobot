@@ -5004,7 +5004,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         }
     }
 
-    private TopBotsListModel BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "default", string sortDir = "desc", string filter = "bots", string widgetId = "topbots")
+    private TopBotsListModel BuildTopBotsModel(int page = 1, int pageSize = 10, string sortBy = "default", string sortDir = "desc", string filter = "bots", string widgetId = "topbots", string? searchQuery = null)
     {
         // Pull every matching entry from the cache, then collapse groupable identities
         // (verified-bot UAs converged to one canonical fingerprint) into single rows BEFORE
@@ -5012,9 +5012,11 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         // a Live Activity widget showing 3 visual rows but claiming "page 1/4" because 40
         // raw sigs collapsed into 10 grouped rows. TotalCount must match what the view
         // actually renders, so the grouping moves here and the view consumes the result
-        // as-is.
+        // as-is. Search filter follows the same collapse so paging counts match the
+        // visible row set.
         var allBots = _signatureCache.GetTopBots(page: 1, pageSize: _signatureCache.MaxEntries, sortBy: sortBy, sortDir: sortDir, filter: filter);
         var grouped = WidgetRenderHelpers.CollapseGroupableIdentities(allBots);
+        grouped = WidgetRenderHelpers.ApplySearchFilter(grouped, searchQuery);
         var pagedBots = grouped.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         return new TopBotsListModel
         {
@@ -5026,7 +5028,9 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             SortDir = sortDir,
             BasePath = _options.BasePath.TrimEnd('/'),
             Filter = filter,
-            WidgetId = widgetId
+            WidgetId = widgetId,
+            Counts = _signatureCache.GetCounts(),
+            Query = string.IsNullOrWhiteSpace(searchQuery) ? null : searchQuery.Trim(),
         };
     }
 
@@ -5039,7 +5043,8 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         var pageSize = WidgetRenderHelpers.QueryPageSize(q, 10, 50);
         var filter = q["filter"].FirstOrDefault() ?? "bots";
         var routeWidgetId = q["widgetId"].FirstOrDefault() ?? widgetId;
-        return BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, routeWidgetId);
+        var searchQuery = q["q"].FirstOrDefault();
+        return BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, routeWidgetId, searchQuery);
     }
 
     private async Task<List<DashboardCountryStats>> GetCountriesDataAsync()
