@@ -12,6 +12,12 @@ internal static class WidgetRenderHelpers
         @"^\s*(<[a-zA-Z][^>]*?)(/?>)",
         RegexOptions.Compiled | RegexOptions.Singleline);
 
+    // Matches the first opening tag that carries the data-sb-data-region attribute.
+    // Group 1 = "<tag ... " (everything before the trailing >). Group 2 = "/>" or ">".
+    private static readonly Regex DataRegionTagRegex = new(
+        @"(<[a-zA-Z][^>]*?\sdata-sb-data-region(?:=""[^""]*"")?[^>]*?)(/?>)",
+        RegexOptions.Compiled | RegexOptions.Singleline);
+
     internal static IQueryCollection ExtractWidgetParams(HttpContext context, string widgetId)
     {
         var prefix = widgetId + ".";
@@ -43,20 +49,34 @@ internal static class WidgetRenderHelpers
 
     internal static string InjectOobAttribute(string html)
     {
-        var match = FirstTagRegex.Match(html);
-        if (!match.Success) return html;
-        if (match.Value.Contains("hx-swap-oob", StringComparison.Ordinal)) return html;
-        // OOB swap value is "true" -- HTMX 2.0's OOB parser does NOT accept the
-        // "outerHTML transition:true" syntax (verified live: that value zeroed
-        // out oobBeforeSwap events entirely). View Transitions are now applied
-        // client-side by SbLiveUpdatesTagHelper wrapping htmx.ajax in
-        // document.startViewTransition, which works for the whole OOB batch
-        // including elements whose OOB attribute is just "true".
-        return html[..match.Groups[1].Index]
-               + match.Groups[1].Value
+        // Preferred path: a [data-sb-data-region] element exists in the chunk.
+        // Inject hx-swap-oob="innerHTML" on it so HTMX replaces ONLY the contents
+        // of the data region, leaving the widget chrome untouched. This is the
+        // structural fix for the "flickery resetting" SignalR refresh.
+        var regionMatch = DataRegionTagRegex.Match(html);
+        if (regionMatch.Success)
+        {
+            if (regionMatch.Value.Contains("hx-swap-oob", StringComparison.Ordinal))
+                return html;
+
+            return html[..(regionMatch.Index + regionMatch.Groups[1].Length)]
+                   + " hx-swap-oob=\"innerHTML\""
+                   + html[(regionMatch.Index + regionMatch.Groups[1].Length)..];
+        }
+
+        // Legacy fallback: no data region marked. Inject the old outerHTML OOB on the
+        // root. Kept so partials not yet migrated to the two-region contract keep
+        // working. The widget will continue to flicker on update -- a deliberate
+        // signal that the partial needs migration.
+        var rootMatch = FirstTagRegex.Match(html);
+        if (!rootMatch.Success) return html;
+        if (rootMatch.Value.Contains("hx-swap-oob", StringComparison.Ordinal)) return html;
+
+        return html[..rootMatch.Groups[1].Index]
+               + rootMatch.Groups[1].Value
                + " hx-swap-oob=\"true\""
-               + match.Groups[2].Value
-               + html[(match.Index + match.Length)..];
+               + rootMatch.Groups[2].Value
+               + html[(rootMatch.Index + rootMatch.Length)..];
     }
 
     /// <summary>
