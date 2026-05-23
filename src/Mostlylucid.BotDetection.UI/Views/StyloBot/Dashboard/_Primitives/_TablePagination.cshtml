@@ -5,26 +5,24 @@
     if (Model.TotalCount == 0) { return; }
     var slots = PaginationNumbering.Compact(Model.Page, Model.TotalPages);
 }
-<div class="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-base-300/60 flex-wrap">
-    <div class="flex items-center gap-2 text-[10px] text-base-content/50">
-        <span>Showing @Model.FirstItem–@Model.LastItem of @Model.TotalCount.ToString("N0")</span>
-        <div class="flex items-center gap-1">
-            <span>per page</span>
-            <select hx-get="@Model.PageSizeUrl(10)"
-                    hx-target="#@Model.TargetId"
-                    hx-swap="outerHTML transition:true"
-                    onchange="this.value && htmx.ajax('GET', this.options[this.selectedIndex].dataset.url, { target: '#@Model.TargetId', swap: 'outerHTML transition:true' })"
-                    class="select select-xs select-bordered text-[10px]">
-                @foreach (var size in new[] { 10, 25, 50, 100 })
-                {
-                    var selected = size == Model.PageSize ? "selected" : null;
-                    <option value="@size" data-url="@Model.PageSizeUrl(size)" selected="@selected">@size</option>
-                }
-            </select>
-        </div>
+<div class="flex items-center justify-between gap-3 mt-2 pt-2 border-t border-base-300/60 flex-wrap text-[10px] text-base-content/50">
+    <div class="flex items-center gap-2 whitespace-nowrap">
+        <span class="whitespace-nowrap">@Model.FirstItem–@Model.LastItem of @Model.TotalCount.ToString("N0")</span>
+        <select title="Rows per page"
+                hx-get="@Model.PageSizeUrl(10)"
+                hx-target="#@Model.TargetId"
+                hx-swap="outerHTML transition:true"
+                onchange="this.value && htmx.ajax('GET', this.options[this.selectedIndex].dataset.url, { target: '#@Model.TargetId', swap: 'outerHTML transition:true' })"
+                class="select select-xs select-bordered text-[10px] min-h-0 h-6 py-0">
+            @foreach (var size in new[] { 10, 25, 50, 100 })
+            {
+                var selected = size == Model.PageSize ? "selected" : null;
+                <option value="@size" data-url="@Model.PageSizeUrl(size)" selected="@selected">@size / page</option>
+            }
+        </select>
     </div>
 
-    <div class="flex items-center gap-0.5">
+    <div class="flex items-center gap-0.5 whitespace-nowrap">
         @if (Model.Page > 1)
         {
             <button type="button"
@@ -37,7 +35,7 @@
         {
             if (slot is null)
             {
-                <span class="px-2 text-[10px] text-base-content/30">…</span>
+                <span class="px-2 text-base-content/30">…</span>
             }
             else if (slot == Model.Page)
             {

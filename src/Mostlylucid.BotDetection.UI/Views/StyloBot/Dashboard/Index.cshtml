@@ -87,6 +87,16 @@
         .sb-disconnected { background: var(--sb-signal-danger); }
         .sb-connecting { background: var(--sb-signal-warn); animation: pulse 1.5s infinite; }
         @@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+        /* DaisyUI's .modal renders display:grid covering the viewport at z-index 999
+           even when the <dialog> has no [open] attribute. Pointer-events:none on the
+           dialog itself doesn't stop its descendants (e.g. the .modal-backdrop form)
+           from intercepting hit-tests. Result on this page: the unopened
+           sb-policy-modal silently captured the second and third clicks on the
+           chart time-range pills directly below it (the first click slipped through
+           before some layout shift, subsequent clicks landed on the modal layer).
+           Forcing display:none on a closed dialog removes the layer entirely. */
+        dialog.modal:not([open]) { display: none !important; }
     </style>
 </head>
 <body class="min-h-screen overflow-x-hidden" hx-headers='{"X-Requested-With": "XMLHttpRequest"}'>
@@ -600,6 +610,12 @@
                 return { window: key, bucket: bucket, ms: msMap[key] || 3600000 };
             }
 
+            // Remember which series the operator has clicked off in the legend so
+            // chart.updateSeries (called every 15s + on every pill click) doesn't
+            // silently bring hidden series back. Default ApexCharts legend behaviour
+            // toggles visibility on click but does NOT persist across data updates.
+            var hiddenSeries = new Set();
+
             var chart = new ApexCharts(el, {
                 chart: {
                     // Line, not area. The previous area fill closed the path back to the
@@ -610,7 +626,15 @@
                     // at a fixed 200px and leaving white space below.
                     type: 'line', height: '100%', toolbar: { show: false },
                     background: 'transparent', fontFamily: 'inherit', foreColor: '#888',
-                    animations: { enabled: true, easing: 'easeinout', speed: 500 }
+                    animations: { enabled: true, easing: 'easeinout', speed: 500 },
+                    events: {
+                        legendClick: function(chartCtx, seriesIndex, config) {
+                            var name = config.config.series[seriesIndex] && config.config.series[seriesIndex].name;
+                            if (!name) return;
+                            if (hiddenSeries.has(name)) hiddenSeries.delete(name);
+                            else hiddenSeries.add(name);
+                        }
+                    }
                 },
                 stroke: { curve: 'straight', width: 2 },
                 markers: { size: 0, hover: { sizeOffset: 3 } },
@@ -657,6 +681,10 @@
                             { name: 'Human', data: humans },
                             { name: 'Bot', data: bots }
                         ]);
+                        // Re-apply the operator's legend toggles -- updateSeries shows
+                        // all series by default. Without this every 15s tick (and every
+                        // pill click) silently un-hides whatever the user clicked off.
+                        hiddenSeries.forEach(function(name) { chart.hideSeries(name); });
                     })
                     .catch(function() {});
             }
