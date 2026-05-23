@@ -1,0 +1,22 @@
+@using Mostlylucid.BotDetection.UI.Models.Primitives
+@model TimeAgoModel
+@{
+    var iso = Model.Utc == default
+        ? ""
+        : Model.Utc.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture);
+    var local = Model.Utc == default ? "" : Model.Utc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+    var rel = Model.RelativeText ?? Format(Model.Utc);
+}
+<span class="text-[10px] text-base-content/40" title="@local UTC: @iso">@rel</span>
+@functions {
+    private static string Format(System.DateTime utc)
+    {
+        if (utc == default) return "";
+        var span = System.DateTime.UtcNow - utc;
+        if (span.TotalSeconds < 5) return "now";
+        if (span.TotalSeconds < 60) return $"{(int)span.TotalSeconds}s";
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours}h {span.Minutes}m";
+        return $"{(int)span.TotalDays}d";
+    }
+}
