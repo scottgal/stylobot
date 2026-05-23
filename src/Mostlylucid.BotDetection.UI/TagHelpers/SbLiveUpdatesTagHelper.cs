@@ -118,8 +118,26 @@ public class SbLiveUpdatesTagHelper : TagHelper
     // widgets pick up a name too. Falling back to {{vt-name}} = sb-widget keeps the
     // CSS selectors deterministic.
     function nameWidgets() {{
+        // Only legacy widgets (those that get outerHTML-swapped wholesale on a beacon)
+        // need the view-transition cross-fade to mask the flash. Widgets that have
+        // adopted the two-region contract -- a [data-sb-data-region] descendant means
+        // SignalR beacons only innerHTML-swap that inner region, the chrome stays put
+        // and there is no flash to mask. Assigning view-transition-name there would
+        // make the browser cross-fade the whole widget on every beacon, which the
+        // operator perceives as pulsing.
         document.querySelectorAll('[data-sb-widget]').forEach(function(el) {{
-            if (!el.style.viewTransitionName) el.style.viewTransitionName = 'sb-widget';
+            var hasDataRegion = !!el.querySelector('[data-sb-data-region]');
+            if (hasDataRegion) {{
+                // 'none' is the explicit CSS value that opts out of view transitions.
+                // Empty string only clears the inline declaration -- a parent or :root
+                // rule could still apply. 'none' is unambiguous and also avoids the
+                // compositor-layer promotion that causes the widget to float on scroll.
+                el.style.viewTransitionName = 'none';
+                return;
+            }}
+            if (!el.style.viewTransitionName || el.style.viewTransitionName === 'none') {{
+                el.style.viewTransitionName = 'sb-widget';
+            }}
         }});
     }}
     if (document.readyState !== 'loading') nameWidgets();

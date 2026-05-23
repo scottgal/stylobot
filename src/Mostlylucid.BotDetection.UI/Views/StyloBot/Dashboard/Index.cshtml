@@ -76,11 +76,11 @@
         .sb-link { color: var(--sb-accent); text-decoration: none; }
         .sb-link:hover { text-decoration: underline; }
 
-        /* HTMX transition styles */
-        .htmx-swapping { opacity: 0; transition: opacity 200ms ease-out; }
-        .htmx-settling { opacity: 1; transition: opacity 200ms ease-in; }
-        .htmx-added { opacity: 0; }
-        .htmx-added.htmx-settling { opacity: 1; transition: opacity 300ms ease-in; }
+        /* Legacy HTMX opacity-fade transitions removed -- they pre-dated the View
+           Transitions API path (which masks legacy outerHTML swaps gracefully) and
+           the two-region innerHTML-OOB swap (which preserves DOM identity and needs
+           no fade at all). Leaving these rules in caused tbody contents to fade out
+           and back in on every SignalR beacon, even on migrated widgets. */
 
         /* Connection status indicator */
         .sb-connected { background: var(--sb-signal-pos); }
@@ -604,9 +604,11 @@
                 chart: {
                     // Line, not area. The previous area fill closed the path back to the
                     // baseline at both extents -- with sparse data it looked like a
-                    // filled mountain rather than a trend line, exactly the "closed
-                    // shape with missing data" the user flagged on staging.
-                    type: 'line', height: 200, toolbar: { show: false },
+                    // filled mountain rather than a trend line.
+                    // height: '100%' makes ApexCharts size to the parent (.flex-1 column),
+                    // so the chart fills the available column height instead of stopping
+                    // at a fixed 200px and leaving white space below.
+                    type: 'line', height: '100%', toolbar: { show: false },
                     background: 'transparent', fontFamily: 'inherit', foreColor: '#888',
                     animations: { enabled: true, easing: 'easeinout', speed: 500 }
                 },
