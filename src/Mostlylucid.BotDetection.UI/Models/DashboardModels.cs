@@ -65,6 +65,37 @@ public sealed record DashboardDetectionEvent
     public string? UserAgentRaw { get; init; }
 
     /// <summary>
+    ///     Lowercased Host header value (no port) for the request that produced
+    ///     this detection. Sole key for the multi-domain partition on every
+    ///     analytics aggregate. Always populated at write time when the
+    ///     analytics capture path is active.
+    /// </summary>
+    public string? Domain { get; init; }
+
+    /// <summary>
+    ///     Raw Referer header value when the capture flag
+    ///     AnalyticsCaptureOptions.IncludeReferer is enabled. Null otherwise.
+    /// </summary>
+    public string? Referer { get; init; }
+
+    /// <summary>
+    ///     Lowercased host extracted from Referer at write time
+    ///     when AnalyticsCaptureOptions.DeriveReferrerHostAtWrite is enabled.
+    ///     Persisted as the referrer_host column. Source of truth for the
+    ///     Sources card's Referrers and Channels tabs.
+    /// </summary>
+    public string? ReferrerHost { get; init; }
+
+    /// <summary>
+    ///     Coarse device classification (Desktop / Mobile / Tablet) derived from
+    ///     the UA family at write time when
+    ///     AnalyticsCaptureOptions.DeriveDeviceClassAtWrite is enabled.
+    ///     Persisted as the ua_device_class column. Null for bots and
+    ///     unknown families.
+    /// </summary>
+    public string? UaDeviceClass { get; init; }
+
+    /// <summary>
     ///     16-dimensional radar shape vector for visual fingerprint display.
     ///     Derived from detector contributions and signal dimensions at detection time.
     /// </summary>

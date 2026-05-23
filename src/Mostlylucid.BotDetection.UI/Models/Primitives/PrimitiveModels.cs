@@ -22,8 +22,8 @@ public sealed record CountryFlagModel(string? Code, string? Name);
 /// <summary>Relative time string with absolute timestamp in title attr.</summary>
 public sealed record TimeAgoModel(System.DateTime Utc, string? RelativeText);
 
-/// <summary>Filter chip in the table toolbar.</summary>
-public sealed record FilterChip(string Key, string Label, int Count, string Url);
+/// <summary>Filter chip in the table toolbar. Count is optional -- null hides the count badge.</summary>
+public sealed record FilterChip(string Key, string Label, int? Count, string Url);
 
 /// <summary>Time-window pill option in the table toolbar.</summary>
 public sealed record TimeWindowOption(string Key, string Label, string Url);

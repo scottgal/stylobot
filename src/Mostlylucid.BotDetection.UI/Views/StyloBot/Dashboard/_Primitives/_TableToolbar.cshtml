@@ -20,7 +20,7 @@
                     hx-target="#@Model.TargetId"
                     hx-swap="outerHTML transition:true"
                     class="px-2.5 py-1 text-xs font-medium rounded-md transition-all @ChipClass(chip.Key)">
-                @chip.Label <span class="text-[10px] opacity-60">@chip.Count</span>
+                @chip.Label@if (chip.Count.HasValue) { <span class="text-[10px] opacity-60 ml-1">@chip.Count</span> }
             </button>
         }
     </div>

@@ -256,52 +256,36 @@
                 </div>
             }
 
-            <!-- HEADER ROW: charts on the left (map + traffic side-by-side, equal width,
-                 equal height -- 240px so they don't dominate the page); Live Activity on the
-                 right, stretched to the row height so it doesn't look like a stub. -->
-            <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 items-stretch">
+            @* Overview header row: two equal columns. World map lives on the Countries tab
+               only -- it ate too much space here without delivering operator value. *@
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
 
-                <!-- LEFT COLUMN (3/4 of row): two charts side by side, equal width + height. -->
-                <div class="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div class="rounded-xl border overflow-hidden command-map-container" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                        <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
-                            <div class="flex items-center gap-2">
-                                <span class="text-[10px] font-semibold text-base-content/70">GLOBAL THREAT MAP</span>
-                                <span class="text-[9px] px-1 py-0.5 rounded bg-error/20 text-error font-medium">LIVE</span>
-                                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "world-map")
-                            </div>
+                <!-- LEFT: Traffic Over Time, half-page width. -->
+                <div class="rounded-xl border overflow-hidden flex flex-col" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+                    <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
+                        <div class="flex items-center gap-1">
+                            <span class="text-[10px] font-semibold text-base-content/70">TRAFFIC OVER TIME</span>
+                            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "traffic-chart")
                         </div>
-                        <div id="command-map" class="relative" style="height: 240px;"></div>
+                        <div id="time-chart-windows" class="flex items-center gap-0.5 bg-base-300/50 rounded-md p-0.5"
+                             data-active="1h">
+                            <button type="button" data-window="15m" data-bucket="60"
+                                    class="px-2 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/70">15m</button>
+                            <button type="button" data-window="1h" data-bucket="60"
+                                    class="px-2 py-0.5 text-[10px] font-bold rounded-md bg-primary text-primary-content shadow ring-1 ring-primary/40">1h</button>
+                            <button type="button" data-window="6h" data-bucket="300"
+                                    class="px-2 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/70">6h</button>
+                            <button type="button" data-window="24h" data-bucket="1800"
+                                    class="px-2 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/70">24h</button>
+                        </div>
                     </div>
-
-                    <div class="rounded-xl border overflow-hidden" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                        <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
-                            <div class="flex items-center gap-1">
-                                <span class="text-[10px] font-semibold text-base-content/70">TRAFFIC OVER TIME</span>
-                                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "traffic-chart")
-                            </div>
-                            <div id="time-chart-windows" class="flex items-center gap-0.5 bg-base-300/50 rounded-md p-0.5"
-                                 data-active="1h">
-                                <button type="button" data-window="15m" data-bucket="60"
-                                        class="px-1.5 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/60">15m</button>
-                                <button type="button" data-window="1h" data-bucket="60"
-                                        class="px-1.5 py-0.5 text-[10px] font-medium rounded-md bg-base-100 shadow-sm text-base-content font-semibold">1h</button>
-                                <button type="button" data-window="6h" data-bucket="300"
-                                        class="px-1.5 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/60">6h</button>
-                                <button type="button" data-window="24h" data-bucket="1800"
-                                        class="px-1.5 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/60">24h</button>
-                            </div>
-                        </div>
-                        <div class="p-2">
-                            <div id="time-chart" style="height: 210px;"></div>
-                        </div>
+                    <div class="p-2 flex-1">
+                        <div id="time-chart" style="height: 100%; min-height: 240px;"></div>
                     </div>
                 </div>
 
-                <!-- RIGHT COLUMN: Live Activity stretches the full row height (items-stretch on the
-                     outer grid + h-full on the card root via the FOSS widget). SSR on first paint,
-                     SignalR-refreshed via data-sb-depends. -->
-                <div class="lg:col-span-1 flex">
+                <!-- RIGHT: Live Activity, half-page width with shared toolbar + pagination. -->
+                <div class="flex">
                     <sb-top-bots filter="all" sort="lastseen" page-size="10" widget-id="live-activity" />
                 </div>
             </div>
@@ -628,7 +612,9 @@
                 },
                 stroke: { curve: 'straight', width: 2 },
                 markers: { size: 0, hover: { sizeOffset: 3 } },
-                fill: { type: 'solid', opacity: 0 },
+                // No fill block: on a 'line' chart ApexCharts threads `fill.opacity`
+                // through into the stroke's rgba alpha, so setting opacity:0 makes the
+                // lines invisible (verified live -- paths rendered with rgba(...,0)).
                 colors: ['#2dd4bf', '#ef4444'],
                 series: [{ name: 'Human', data: [] }, { name: 'Bot', data: [] }],
                 xaxis: {
@@ -683,8 +669,8 @@
                     Array.prototype.forEach.call(windowsEl.querySelectorAll('button'), function(b) {
                         var on = b === btn;
                         b.className = on
-                            ? 'px-1.5 py-0.5 text-[10px] font-medium rounded-md bg-base-100 shadow-sm text-base-content font-semibold'
-                            : 'px-1.5 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/60';
+                            ? 'px-2 py-0.5 text-[10px] font-bold rounded-md bg-primary text-primary-content shadow ring-1 ring-primary/40'
+                            : 'px-2 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/70';
                     });
                     refreshChart();
                 });
