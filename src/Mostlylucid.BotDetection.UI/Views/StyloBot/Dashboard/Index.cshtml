@@ -219,7 +219,10 @@
             }
         </div>
 
-        @if (Model.StatusStrip is not null)
+        @* StatusStrip belongs on the configuration surface only -- it's noise on every
+           other tab (Pack/Detection/Services/Guardians/Tunnels are setup signals, not
+           operator situational awareness). *@
+        @if (tab == "configuration" && Model.StatusStrip is not null)
         {
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_StatusStrip.cshtml", Model.StatusStrip)
         }
@@ -277,7 +280,17 @@
                                 <span class="text-[10px] font-semibold text-base-content/70">TRAFFIC OVER TIME</span>
                                 @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "traffic-chart")
                             </div>
-                            <span class="text-[9px] text-base-content/40">Last 6 hours</span>
+                            <div id="time-chart-windows" class="flex items-center gap-0.5 bg-base-300/50 rounded-md p-0.5"
+                                 data-active="1h">
+                                <button type="button" data-window="15m" data-bucket="60"
+                                        class="px-1.5 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/60">15m</button>
+                                <button type="button" data-window="1h" data-bucket="60"
+                                        class="px-1.5 py-0.5 text-[10px] font-medium rounded-md bg-base-100 shadow-sm text-base-content font-semibold">1h</button>
+                                <button type="button" data-window="6h" data-bucket="300"
+                                        class="px-1.5 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/60">6h</button>
+                                <button type="button" data-window="24h" data-bucket="1800"
+                                        class="px-1.5 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/60">24h</button>
+                            </div>
                         </div>
                         <div class="p-2">
                             <div id="time-chart" style="height: 210px;"></div>
@@ -591,18 +604,35 @@
             var el = document.getElementById('time-chart');
             if (!el || typeof ApexCharts === 'undefined') return;
 
+            // Window selector lives in the card header; default is whatever the markup
+            // has marked as active (1h on first paint).
+            var windowsEl = document.getElementById('time-chart-windows');
+            function activeWindow() {
+                if (!windowsEl) return { window: '1h', bucket: 60, ms: 3600000 };
+                var key = windowsEl.getAttribute('data-active') || '1h';
+                var btn = windowsEl.querySelector('button[data-window="' + key + '"]') || windowsEl.querySelector('button[data-window="1h"]');
+                var bucket = parseInt(btn.getAttribute('data-bucket'), 10) || 60;
+                var msMap = { '15m': 900000, '1h': 3600000, '6h': 21600000, '24h': 86400000 };
+                return { window: key, bucket: bucket, ms: msMap[key] || 3600000 };
+            }
+
             var chart = new ApexCharts(el, {
                 chart: {
-                    type: 'area', height: 160, toolbar: { show: false },
+                    type: 'area', height: 200, toolbar: { show: false },
                     background: 'transparent', fontFamily: 'inherit', foreColor: '#888',
                     animations: { enabled: true, easing: 'easeinout', speed: 500 }
                 },
-                stroke: { curve: 'smooth', width: 2 },
-                fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.05 } },
+                stroke: { curve: 'straight', width: 2 },
+                markers: { size: 0, hover: { sizeOffset: 3 } },
+                fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.02 } },
                 colors: ['#2dd4bf', '#ef4444'],
                 series: [{ name: 'Human', data: [] }, { name: 'Bot', data: [] }],
-                xaxis: { type: 'datetime', labels: { style: { fontSize: '10px' }, datetimeUTC: false }, axisBorder: { show: false }, axisTicks: { show: false } },
-                yaxis: { labels: { style: { fontSize: '10px' } }, min: 0 },
+                xaxis: {
+                    type: 'datetime',
+                    labels: { style: { fontSize: '10px' }, datetimeUTC: false },
+                    axisBorder: { show: false }, axisTicks: { show: false }
+                },
+                yaxis: { labels: { style: { fontSize: '10px' } }, min: 0, forceNiceScale: true },
                 grid: { borderColor: '#333', strokeDashArray: 3, padding: { left: 8, right: 8, top: 0, bottom: 0 } },
                 legend: { show: true, position: 'top', fontSize: '10px', markers: { size: 4 } },
                 tooltip: { theme: 'dark', x: { format: 'HH:mm' } },
@@ -611,22 +641,49 @@
             chart.render();
 
             function refreshChart() {
-                fetch(BASE + '/api/timeseries')
+                var w = activeWindow();
+                var end = new Date();
+                var start = new Date(end.getTime() - w.ms);
+                var url = BASE + '/api/timeseries'
+                    + '?start=' + encodeURIComponent(start.toISOString())
+                    + '&end=' + encodeURIComponent(end.toISOString())
+                    + '&bucket=' + w.bucket;
+                fetch(url)
                     .then(function(r) { return r.json(); })
                     .then(function(data) {
-                        if (!data || data.length === 0) return;
+                        if (!Array.isArray(data)) return;
                         var humans = [], bots = [];
                         data.forEach(function(pt) {
                             var ts = new Date(pt.timestamp).getTime();
                             humans.push({ x: ts, y: pt.humanCount || 0 });
                             bots.push({ x: ts, y: pt.botCount || 0 });
                         });
+                        chart.updateOptions({
+                            xaxis: { min: start.getTime(), max: end.getTime() }
+                        }, false, false);
                         chart.updateSeries([
                             { name: 'Human', data: humans },
                             { name: 'Bot', data: bots }
                         ]);
                     })
                     .catch(function() {});
+            }
+
+            // Pill clicks switch the active window and refresh immediately.
+            if (windowsEl) {
+                windowsEl.addEventListener('click', function(e) {
+                    var btn = e.target.closest('button[data-window]');
+                    if (!btn) return;
+                    var key = btn.getAttribute('data-window');
+                    windowsEl.setAttribute('data-active', key);
+                    Array.prototype.forEach.call(windowsEl.querySelectorAll('button'), function(b) {
+                        var on = b === btn;
+                        b.className = on
+                            ? 'px-1.5 py-0.5 text-[10px] font-medium rounded-md bg-base-100 shadow-sm text-base-content font-semibold'
+                            : 'px-1.5 py-0.5 text-[10px] font-medium rounded-md text-base-content/40 hover:text-base-content/60';
+                    });
+                    refreshChart();
+                });
             }
 
             refreshChart();

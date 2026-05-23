@@ -533,36 +533,22 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     {
         await EnsureInitializedAsync();
 
-        // Determine SQLite strftime format and gap-fill key format from bucket size
-        string bucketFormat;
-        int bucketSeconds;
-        string keyFormat;
-        if (bucketSize >= TimeSpan.FromDays(1))
-        {
-            bucketFormat = "%Y-%m-%dT00:00:00";
-            bucketSeconds = (int)TimeSpan.FromDays(1).TotalSeconds;
-            keyFormat = "yyyy-MM-ddT00:00:00";
-        }
-        else if (bucketSize >= TimeSpan.FromHours(1))
-        {
-            bucketFormat = "%Y-%m-%dT%H:00:00";
-            bucketSeconds = (int)TimeSpan.FromHours(1).TotalSeconds;
-            keyFormat = "yyyy-MM-ddTHH:00:00";
-        }
-        else
-        {
-            bucketFormat = "%Y-%m-%dT%H:%M:00";
-            bucketSeconds = (int)bucketSize.TotalSeconds;
-            keyFormat = "yyyy-MM-ddTHH:mm:00";
-        }
+        // True N-second bucketing via integer-division on unix epoch. The old branched
+        // strftime path hardcoded minute precision for sub-hour bucketSize values, so a
+        // request for 5-minute buckets returned per-minute rows and the gap-fill loop
+        // (which iterated by bucketSize but looked up minute keys) produced an
+        // overlapping/scrambled series the chart drew as disconnected points.
+        var bucketSeconds = Math.Max((int)bucketSize.TotalSeconds, 1);
 
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"""
+        cmd.CommandText = """
             SELECT
-                strftime('{bucketFormat}', timestamp) AS bucket,
+                strftime('%Y-%m-%dT%H:%M:%SZ',
+                         (CAST(strftime('%s', timestamp) AS INTEGER) / @bucket) * @bucket,
+                         'unixepoch') AS bucket,
                 SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots,
                 SUM(CASE WHEN is_bot = 0 THEN 1 ELSE 0 END) AS humans,
                 COUNT(*) AS total
@@ -573,13 +559,15 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             """;
         cmd.Parameters.AddWithValue("@start", startTime.ToString("O"));
         cmd.Parameters.AddWithValue("@end", endTime.ToString("O"));
+        cmd.Parameters.AddWithValue("@bucket", bucketSeconds);
 
         var dbPoints = new Dictionary<string, DashboardTimeSeriesPoint>(StringComparer.Ordinal);
         await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
             var bucket = reader.GetString(0);
-            if (DateTime.TryParse(bucket, out var ts))
+            if (DateTime.TryParse(bucket, System.Globalization.CultureInfo.InvariantCulture,
+                                  System.Globalization.DateTimeStyles.RoundtripKind, out var ts))
                 dbPoints[bucket] = new DashboardTimeSeriesPoint
                 {
                     Timestamp = ts,
@@ -589,12 +577,16 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 };
         }
 
-        // Fill gaps with zero-count buckets to keep chart series continuous
+        // Align startTime DOWN to the nearest bucket boundary so the gap-fill iteration
+        // produces keys that exactly match the SQL output's "yyyy-MM-ddTHH:mm:ssZ" format.
+        var startUtc = startTime.ToUniversalTime();
+        var alignedTicks = (startUtc.Ticks / bucketSize.Ticks) * bucketSize.Ticks;
+        var current = new DateTime(alignedTicks, DateTimeKind.Utc);
+
         var points = new List<DashboardTimeSeriesPoint>();
-        var current = startTime;
         while (current < endTime)
         {
-            var key = current.ToString(keyFormat);
+            var key = current.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture);
             points.Add(dbPoints.TryGetValue(key, out var p) ? p : new DashboardTimeSeriesPoint
             {
                 Timestamp = current,
