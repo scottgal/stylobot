@@ -92,6 +92,7 @@ public partial class DetectionBroadcastMiddleware
         VisitorListCache visitorListCache,
         SignatureAggregateCache signatureAggregateCache,
         Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher detectionEventPublisher,
+        IOptions<Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions>? recordOptionsAccessor = null,
         SignatureDescriptionService? signatureDescriptionService = null)
     {
         // Call next middleware first (so detection runs)
@@ -157,7 +158,7 @@ public partial class DetectionBroadcastMiddleware
                     return;
                 }
 
-                var detection = BuildDetectionFromEvidence(context, evidence);
+                var detection = BuildDetectionFromEvidence(context, evidence, recordOptionsAccessor?.Value);
 
                 // Same local-IP exclusion as the upstream-result path above: drop the entire
                 // detection (no event-store write, no cache update, no broadcast) when the source
@@ -259,8 +260,14 @@ public partial class DetectionBroadcastMiddleware
 
     /// <summary>
     ///     Build a DashboardDetectionEvent from full AggregatedEvidence (local detection path).
+    ///     When <paramref name="recordOptions"/> is provided the Domain, Referer, ReferrerHost and
+    ///     UaDeviceClass analytics fields are populated according to the capture flags; Domain is
+    ///     always set regardless of flags as it is the multi-domain partition key.
     /// </summary>
-    private DashboardDetectionEvent BuildDetectionFromEvidence(HttpContext context, AggregatedEvidence evidence)
+    private DashboardDetectionEvent BuildDetectionFromEvidence(
+        HttpContext context,
+        AggregatedEvidence evidence,
+        Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions? recordOptions = null)
     {
         var sigValue = ResolvePrimarySignature(context);
         var countryCode = ResolveCountryCode(context, evidence.Signals);
@@ -286,6 +293,21 @@ public partial class DetectionBroadcastMiddleware
                 });
 
         var importantSignals = BuildImportantSignals(context, evidence.Signals, ref countryCode);
+
+        // Analytics capture: Domain is the multi-domain partition key; always populated.
+        // Referer/ReferrerHost/UaDeviceClass require the corresponding DetectionRecordOptions
+        // hooks to be set (wired by the commercial analytics capture plugin at startup).
+        var rawReferer = context.Request.Headers.Referer.ToString();
+        var captureReferer = recordOptions?.IncludeReferer == true && !string.IsNullOrEmpty(rawReferer);
+        var derivedReferrerHost = (captureReferer && recordOptions?.DeriveReferrerHost is not null)
+            ? recordOptions.DeriveReferrerHost(rawReferer)
+            : null;
+        // Pass the raw User-Agent string (not ua.family) so device class can distinguish
+        // iOS Safari from Desktop Safari via OS tokens (iPhone, Android, Mobile).
+        var rawUa = context.Request.Headers.UserAgent.ToString();
+        var derivedUaDeviceClass = recordOptions?.DeriveUaDeviceClass is not null
+            ? recordOptions.DeriveUaDeviceClass(rawUa)
+            : null;
 
         var detection = new DashboardDetectionEvent
         {
@@ -314,6 +336,10 @@ public partial class DetectionBroadcastMiddleware
             ThreatBand = evidence.ThreatBand != Orchestration.ThreatBand.None
                 ? evidence.ThreatBand.ToString() : null,
             RiskJustification = evidence.RiskJustification,
+            Domain = context.Request.Host.Host?.ToLowerInvariant(),
+            Referer = captureReferer ? rawReferer : null,
+            ReferrerHost = derivedReferrerHost,
+            UaDeviceClass = derivedUaDeviceClass,
         };
 
         return detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };
@@ -413,6 +439,8 @@ public partial class DetectionBroadcastMiddleware
                 && tsObj is double tsVal ? tsVal : null,
             ThreatBand = importantSignals.TryGetValue("intent.threat_band", out var tbObj)
                 ? tbObj?.ToString() : null,
+            // Domain is unconditional for the upstream path too (multi-domain partition key)
+            Domain = context.Request.Host.Host?.ToLowerInvariant(),
         };
 
         return detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };
