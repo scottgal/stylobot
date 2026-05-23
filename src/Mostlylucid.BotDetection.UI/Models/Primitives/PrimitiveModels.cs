@@ -42,7 +42,15 @@ public sealed record TableToolbarModel(
     System.Collections.Generic.IReadOnlyList<TimeWindowOption>? TimeWindowOptions,
     string? ActiveTimeWindow);
 
-/// <summary>Table pagination footer: page-size, numbered pages, total.</summary>
+/// <summary>
+///     Table pagination footer: page-size, numbered pages, total.
+///     <para>
+///     <b>Server-side only.</b> <see cref="PageUrl"/> and <see cref="PageSizeUrl"/> are
+///     delegates -- this record must not be model-bound, JSON-serialised, or persisted.
+///     Construct in the controller / view-component, hand to <c>Html.PartialAsync</c>,
+///     done. Razor invokes the delegates inline during render.
+///     </para>
+/// </summary>
 public sealed record TablePaginationModel(
     int Page,
     int PageSize,
@@ -51,6 +59,8 @@ public sealed record TablePaginationModel(
     System.Func<int, string> PageSizeUrl,
     string TargetId)
 {
+    // PageSize == 0 is a degenerate state (a caller that hasn't set it). Treat as one
+    // synthetic page so the partial renders an empty footer rather than divide-by-zero.
     public int TotalPages => PageSize > 0 ? (TotalCount + PageSize - 1) / PageSize : 1;
     public int FirstItem => TotalCount == 0 ? 0 : (Page - 1) * PageSize + 1;
     public int LastItem => System.Math.Min(Page * PageSize, TotalCount);
