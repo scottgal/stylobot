@@ -221,9 +221,39 @@ public class SbLiveUpdatesTagHelper : TagHelper
             delete cooldownTimers[wid];
         }}, COOLDOWN_MS);
     }}
+    function holdActive(wid) {{
+        if (!wid) return;
+        userActiveWidgets.add(wid);
+        if (cooldownTimers[wid]) {{ clearTimeout(cooldownTimers[wid]); delete cooldownTimers[wid]; }}
+    }}
 
     document.body.addEventListener('htmx:afterSettle', function(ev) {{
         var wid = widgetForElt(ev.detail && ev.detail.elt);
+        if (wid) scheduleRelease(wid);
+    }});
+
+    // Hover protection: while the cursor is over a widget, treat it as user-active
+    // so SignalR-driven destructive swaps do not yank links out from under the
+    // pointer mid-hover. The same cooldown applies on mouseleave so a beacon whose
+    // request was already in flight when the cursor left still gets refused.
+    // Without this guard the cursor flickers between hand and arrow once per
+    // beacon, every link in the visible region is uninhittable for a frame, and
+    // anything mid-click loses the target.
+    document.body.addEventListener('mouseenter', function(ev) {{
+        var wid = widgetForElt(ev.target);
+        if (wid) holdActive(wid);
+    }}, true);
+    document.body.addEventListener('mouseleave', function(ev) {{
+        var wid = widgetForElt(ev.target);
+        if (wid) scheduleRelease(wid);
+    }}, true);
+    // Focus protection: keyboard users sitting on a link get the same treatment.
+    document.body.addEventListener('focusin', function(ev) {{
+        var wid = widgetForElt(ev.target);
+        if (wid) holdActive(wid);
+    }});
+    document.body.addEventListener('focusout', function(ev) {{
+        var wid = widgetForElt(ev.target);
         if (wid) scheduleRelease(wid);
     }});
 
@@ -264,10 +294,20 @@ public class SbLiveUpdatesTagHelper : TagHelper
     // SignalR /partials/update response is the BODY (not the widget root), and the widget
     // root only appears on the OOB sub-swap. So checking target.data-sb-widget at
     // beforeSwap-time never matched and the handler was a no-op. Dropped entirely.
+    //
+    // The OOB target for a beacon refresh can be either the widget root itself
+    // ([data-sb-widget=...]) OR an inner [data-sb-data-region]/[data-sb-list]/list
+    // partial nested inside the widget. We walk up to the enclosing widget root so
+    // an inner-region swap is still gated by the same user-active check; the original
+    // version only matched when the target itself was the widget root, which meant
+    // every inner-region OOB swap silently bypassed the protection and clobbered
+    // the user's just-clicked sort/filter/page.
     document.body.addEventListener('htmx:oobBeforeSwap', function(ev) {{
         var target = ev.detail && ev.detail.target;
-        if (!target || !target.getAttribute) return;
-        var wid = target.getAttribute('data-sb-widget');
+        if (!target || !target.closest) return;
+        var widgetRoot = target.closest('[data-sb-widget]');
+        if (!widgetRoot) return;
+        var wid = widgetRoot.getAttribute('data-sb-widget');
         if (wid && userActiveWidgets.has(wid)) {{
             ev.detail.shouldSwap = false;
         }}
