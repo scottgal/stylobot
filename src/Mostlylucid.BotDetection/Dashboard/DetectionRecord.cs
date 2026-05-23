@@ -259,26 +259,26 @@ public static class DetectionRecordFactory
 /// <summary>
 ///     Options controlling what data is included in detection records.
 /// </summary>
-public sealed record DetectionRecordOptions
+public sealed class DetectionRecordOptions
 {
     /// <summary>Include client IP address (PII)</summary>
-    public bool IncludeClientIp { get; init; } = false;
+    public bool IncludeClientIp { get; set; } = false;
 
     /// <summary>Include user agent string (fingerprinting data)</summary>
-    public bool IncludeUserAgent { get; init; } = true;
+    public bool IncludeUserAgent { get; set; } = true;
 
     /// <summary>Include geographic data (country code)</summary>
-    public bool IncludeGeo { get; init; } = true;
+    public bool IncludeGeo { get; set; } = true;
 
     /// <summary>Include locale/language data</summary>
-    public bool IncludeLocale { get; init; } = true;
+    public bool IncludeLocale { get; set; } = true;
 
     /// <summary>Include referer header</summary>
-    public bool IncludeReferer { get; init; } = false;
+    public bool IncludeReferer { get; set; } = false;
 
     /// <summary>Include blackboard signals</summary>
-    public bool IncludeSignals { get; init; } = true;
+    public bool IncludeSignals { get; set; } = true;
 
     /// <summary>Include server hostname</summary>
-    public bool IncludeServerHost { get; init; } = false;
+    public bool IncludeServerHost { get; set; } = false;
 }
