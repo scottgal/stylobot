@@ -2650,6 +2650,10 @@ public static class BotDetectionMiddlewareExtensions
     public static IApplicationBuilder UseBotDetection(this IApplicationBuilder builder)
     {
         builder.UseMiddleware<AssetHashMiddleware>();
+        // Honeypot tagger runs BEFORE BotDetectionMiddleware so the
+        // classification survives any early-exit short-circuit later in the
+        // pipeline (FastPathReputation, SignatureVerdictGate Skip).
+        builder.UseMiddleware<Honeypot.HoneypotPathTagger>();
         return builder.UseMiddleware<BotDetectionMiddleware>();
     }
 }

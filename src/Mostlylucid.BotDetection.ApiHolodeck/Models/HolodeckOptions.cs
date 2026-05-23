@@ -44,32 +44,13 @@ public class HolodeckOptions
     public int MockApiTimeoutMs { get; set; } = 5000;
 
     // ==========================================
-    // Honeypot Link Detection
+    // Hidden link injection
     // ==========================================
-
-    /// <summary>
-    ///     Enable honeypot link detection (trap paths that bots follow).
-    ///     Default: true
-    /// </summary>
-    public bool EnableHoneypotLinkDetection { get; set; } = true;
-
-    /// <summary>
-    ///     Paths that are considered honeypot traps.
-    ///     Bots that access these paths are immediately flagged.
-    /// </summary>
-    public List<string> HoneypotPaths { get; set; } = new()
-    {
-        "/admin-secret",
-        "/wp-login.php",
-        "/wp-admin",
-        "/.env",
-        "/xmlrpc.php",
-        "/phpmyadmin",
-        "/.git/config",
-        "/config.php",
-        "/backup.sql",
-        "/debug.php"
-    };
+    //
+    // Honeypot PATH detection moved to Mostlylucid.BotDetection.Honeypot in core
+    // (see HoneypotDetectionOptions). The settings below are for the optional
+    // hidden-link injection feature that seeds invisible href entries in HTML
+    // responses to catch crawlers that follow them.
 
     /// <summary>
     ///     Whether to inject hidden honeypot links into HTML responses.

@@ -4,7 +4,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Actions;
 using Mostlylucid.BotDetection.ApiHolodeck.Actions;
-using Mostlylucid.BotDetection.ApiHolodeck.Contributors;
 using Mostlylucid.BotDetection.ApiHolodeck.Models;
 using Mostlylucid.BotDetection.ApiHolodeck.Services;
 using Mostlylucid.BotDetection.Models;
@@ -71,11 +70,10 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<HolodeckActionPolicy>();
         services.AddSingleton<IActionPolicy>(sp => sp.GetRequiredService<HolodeckActionPolicy>());
 
-        // Register the honeypot link contributor
-        services.AddSingleton<HoneypotLinkContributor>();
-        services.AddSingleton<IContributingDetector>(sp => sp.GetRequiredService<HoneypotLinkContributor>());
-
-        // Register the honeypot reporter background service
+        // Honeypot path detection + link contributor moved to core
+        // Mostlylucid.BotDetection.Honeypot (registered automatically via
+        // AddBotDetection). This package still wires the holodeck engagement +
+        // beacon side of the system.
         services.AddHostedService<HoneypotReporter>();
 
         // Holodeck coordinator for per-fingerprint engagement slots
@@ -133,11 +131,10 @@ public static class ServiceCollectionExtensions
         // Register the ShapeBuilder
         services.AddSingleton<IShapeBuilder, ShapeBuilder>();
 
-        // Register services
+        // Register services. Honeypot path detection lives in core
+        // (Mostlylucid.BotDetection.Honeypot) and is wired by AddBotDetection.
         services.AddSingleton<HolodeckActionPolicy>();
         services.AddSingleton<IActionPolicy>(sp => sp.GetRequiredService<HolodeckActionPolicy>());
-        services.AddSingleton<HoneypotLinkContributor>();
-        services.AddSingleton<IContributingDetector>(sp => sp.GetRequiredService<HoneypotLinkContributor>());
         services.AddHostedService<HoneypotReporter>();
 
         // Holodeck coordinator for per-fingerprint engagement slots

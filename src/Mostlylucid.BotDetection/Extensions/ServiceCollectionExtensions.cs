@@ -685,6 +685,13 @@ public static class ServiceCollectionExtensions
         // Simulation pack CVE probe detection - matches request paths against loaded packs
         services.TryAddSingleton<ISimulationPackRegistry, SimulationPackLoader>();
         services.AddSingleton<IContributingDetector, CveProbeContributor>();
+        // Honeypot path detection (Tier 1 + Tier 2 catalog). Reads the pre-detection
+        // tagger's HttpContext.Items classification on the fast path and falls back to
+        // running the classifier itself when the tagger middleware isn't wired.
+        services.AddOptions<Honeypot.HoneypotDetectionOptions>()
+            .BindConfiguration(Honeypot.HoneypotDetectionOptions.SectionName);
+        services.TryAddSingleton<Honeypot.IHoneypotExemptStore, Honeypot.ConfigHoneypotExemptStore>();
+        services.AddSingleton<IContributingDetector, Honeypot.HoneypotLinkContributor>();
         // AI scraper detection - known AI bots, Cloudflare signals, Web Bot Auth
         services.AddSingleton<IContributingDetector, AiScraperContributor>();
         // Cache behavior analysis - runs early alongside behavioral

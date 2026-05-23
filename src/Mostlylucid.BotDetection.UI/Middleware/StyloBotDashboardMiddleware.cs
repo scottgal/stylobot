@@ -3227,8 +3227,9 @@ public class StyloBotDashboardMiddleware
         var pageSize = int.TryParse(context.Request.Query["pageSize"].FirstOrDefault(), out var ps) && ps is > 0 and <= 50 ? ps : 10;
         var filter = context.Request.Query["filter"].FirstOrDefault() ?? "bots";
         var widgetId = context.Request.Query["widgetId"].FirstOrDefault() ?? "topbots";
+        var searchQuery = context.Request.Query["q"].FirstOrDefault();
 
-        var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId);
+        var model = BuildTopBotsModel(page, pageSize, sortBy, sortDir, filter, widgetId, searchQuery);
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(

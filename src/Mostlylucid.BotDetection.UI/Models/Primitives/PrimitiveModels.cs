@@ -40,7 +40,8 @@ public sealed record TableToolbarModel(
     bool ShowSearch,
     string? SearchUrl,
     System.Collections.Generic.IReadOnlyList<TimeWindowOption>? TimeWindowOptions,
-    string? ActiveTimeWindow);
+    string? ActiveTimeWindow,
+    string? SearchValue = null);
 
 /// <summary>
 ///     Table pagination footer: page-size, numbered pages, total.
