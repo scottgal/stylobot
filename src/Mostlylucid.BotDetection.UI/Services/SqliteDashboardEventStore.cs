@@ -150,7 +150,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 ("detections", "user_agent_raw", "TEXT"),
                 ("detections", "risk_justification", "TEXT"),
                 ("signatures", "risk_justification", "TEXT"),
-                ("signatures", "top_reasons_json", "TEXT")
+                ("signatures", "top_reasons_json", "TEXT"),
+                ("detections", "domain", "TEXT"),
+                ("detections", "referrer_host", "TEXT"),
+                ("detections", "ua_device_class", "TEXT")
             })
             {
                 var colExists = false;
@@ -170,6 +173,24 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     mc.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {colDef}";
                     await mc.ExecuteNonQueryAsync(ct);
                 }
+            }
+
+            // Indexes that depend on the analytics columns added by the migration
+            // tuple loop above. Created here so the new columns are guaranteed to
+            // exist. Idempotent via IF NOT EXISTS.
+            const string analyticsIndexSql = """
+            CREATE INDEX IF NOT EXISTS idx_det_domain_ts ON detections(domain, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_det_domain_path_ts ON detections(domain, path, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_det_domain_bot_name_ts ON detections(domain, bot_name, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_det_domain_country_ts ON detections(domain, country_code, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_det_domain_referrer_host_ts ON detections(domain, referrer_host, timestamp DESC);
+            CREATE INDEX IF NOT EXISTS idx_det_domain_ua_device_class_ts ON detections(domain, ua_device_class, timestamp DESC);
+            """;
+            foreach (var statement in analyticsIndexSql.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = statement;
+                await cmd.ExecuteNonQueryAsync(ct);
             }
 
             // Prune old detections (keep last 7 days)
