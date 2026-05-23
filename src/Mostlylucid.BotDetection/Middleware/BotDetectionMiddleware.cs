@@ -2684,6 +2684,10 @@ public static class BotDetectionMiddlewareExtensions
     public static IApplicationBuilder UseBotDetection(this IApplicationBuilder builder)
     {
         builder.UseMiddleware<AssetHashMiddleware>();
+        // Endpoint policy resolver runs FIRST: hard operator rules
+        // (block POST /xmlrpc.php, throttle DELETE /api/*, etc.) short-circuit
+        // before any detection cost. Throttle/LogOnly continue the pipeline.
+        builder.UseMiddleware<EndpointPolicies.EndpointPolicyMiddleware>();
         // Path lifecycle recorder wraps the inner pipeline so it observes the
         // FINAL response status code (post-detection, post-action-policy).
         // Feeds the honeypot threat scorer's "this path used to serve 2xx,

@@ -699,9 +699,17 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(SiteProfiles.SiteMapOptions.SectionName);
         services.TryAddSingleton<SiteProfiles.ISiteProfileCatalog, SiteProfiles.SiteProfileCatalog>();
         services.TryAddSingleton<SiteProfiles.ISiteProfileResolver, SiteProfiles.SiteProfileResolver>();
+        // Operator-declared per-(host, method, path, transport, protocol) policies.
+        // Runs before bot detection; matched rules dispatch a named action via the
+        // existing IActionPolicyRegistry. Pre-detection layer -- no detection cost
+        // for hard-blocked requests.
+        services.AddOptions<EndpointPolicies.EndpointPolicyOptions>()
+            .BindConfiguration(EndpointPolicies.EndpointPolicyOptions.SectionName);
+        services.TryAddSingleton<EndpointPolicies.IEndpointPolicyResolver, EndpointPolicies.ConfigEndpointPolicyResolver>();
         // Honeypot response policy -- jittered rate-limit + fake response.
         // Registered as IActionPolicy under name "honeypot-response"; the middleware
         // auto-selects it when the tagger set a tier tag on HttpContext.Items.
+        services.TryAddSingleton<Honeypot.HoneypotRateLimiter>();
         services.AddSingleton<Honeypot.HoneypotResponseActionPolicy>();
         services.AddSingleton<IActionPolicy>(sp => sp.GetRequiredService<Honeypot.HoneypotResponseActionPolicy>());
         // Path lifecycle store -- records per-path response history so the honeypot

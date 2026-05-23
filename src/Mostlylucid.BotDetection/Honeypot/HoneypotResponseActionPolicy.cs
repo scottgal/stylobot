@@ -34,15 +34,18 @@ public sealed class HoneypotResponseActionPolicy : IActionPolicy
 
     private readonly IOptionsMonitor<HoneypotDetectionOptions> _options;
     private readonly SimulationPackResponder _packResponder;
+    private readonly HoneypotRateLimiter _rateLimiter;
     private readonly ILogger<HoneypotResponseActionPolicy> _logger;
 
     public HoneypotResponseActionPolicy(
         IOptionsMonitor<HoneypotDetectionOptions> options,
         SimulationPackResponder packResponder,
+        HoneypotRateLimiter rateLimiter,
         ILogger<HoneypotResponseActionPolicy> logger)
     {
         _options = options;
         _packResponder = packResponder;
+        _rateLimiter = rateLimiter;
         _logger = logger;
     }
 
@@ -56,6 +59,22 @@ public sealed class HoneypotResponseActionPolicy : IActionPolicy
         CancellationToken cancellationToken = default)
     {
         var rate = _options.CurrentValue.RateLimit;
+
+        // Per-fingerprint rate limit -- protects against attackers hammering
+        // a single trap. Over the cap we fast-403, no jitter, no fake body.
+        // Saves resources AND leaks less timing information.
+        var fingerprintKey = ResolveFingerprintKey(context);
+        if (!_rateLimiter.RecordAndCheck(fingerprintKey,
+                rate.MaxHitsPerFingerprintPerMinute,
+                rate.MaxHitsPerFingerprintPerHour))
+        {
+            context.Response.StatusCode = 403;
+            context.Response.Headers.TryAdd("X-StyloBot-Honeypot", "ratelimited");
+            _logger.LogInformation(
+                "Honeypot rate-limit exceeded for {Key} on {Path}; immediate 403",
+                fingerprintKey, context.Request.Path.Value);
+            return ActionResult.Blocked(403, "Honeypot rate-limit");
+        }
 
         // Apply randomised jitter delay BEFORE any response work so the
         // attacker's first observation is the timing curve. Without jitter
@@ -93,6 +112,22 @@ public sealed class HoneypotResponseActionPolicy : IActionPolicy
             context.Items[HoneypotPathTagger.ItemKeyTier] ?? "unknown");
 
         return ActionResult.Blocked(context.Response.StatusCode, "Honeypot fake response served");
+    }
+
+    private static string ResolveFingerprintKey(HttpContext context)
+    {
+        // The detection middleware writes the primary signature on
+        // BotDetectionMiddleware.PrimarySignatureKey ("BotDetection:Signature").
+        // It may not be present yet on the honeypot path (early-exit branches
+        // and config-driven dispatch can land here pre-detection), so fall
+        // back to client IP. IP is a coarse-grained rate-limit key but
+        // adequate for "stop hammering this trap".
+        if (context.Items.TryGetValue("BotDetection:Signature", out var sigVal)
+            && sigVal is string sig && !string.IsNullOrEmpty(sig))
+            return "sig:" + sig;
+
+        var ip = context.Connection.RemoteIpAddress?.ToString();
+        return string.IsNullOrEmpty(ip) ? "anon" : "ip:" + ip;
     }
 
     private static async Task WriteGenericFakeResponseAsync(HttpContext context, string path, CancellationToken ct)

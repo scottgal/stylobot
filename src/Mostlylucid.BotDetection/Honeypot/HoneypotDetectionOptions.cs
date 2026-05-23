@@ -82,4 +82,20 @@ public sealed class HoneypotRateLimitOptions
     ///     delay ranges 200-1000 ms with default <c>BaseDelayMs</c>).
     /// </summary>
     public int JitterMs { get; set; } = 400;
+
+    /// <summary>
+    ///     Max honeypot engagements per (fingerprint or IP) per 60 seconds.
+    ///     Over the cap the policy returns an immediate fast 403 with no
+    ///     jitter and no fake body -- protects against attackers hammering
+    ///     a single trap, and tells them less. Default 10. Set to 0 to
+    ///     disable the per-minute cap.
+    /// </summary>
+    public int MaxHitsPerFingerprintPerMinute { get; set; } = 10;
+
+    /// <summary>
+    ///     Max honeypot engagements per (fingerprint or IP) per 3600 seconds.
+    ///     Same fast-403 treatment as the per-minute cap when exceeded.
+    ///     Default 60. Set to 0 to disable the per-hour cap.
+    /// </summary>
+    public int MaxHitsPerFingerprintPerHour { get; set; } = 60;
 }
