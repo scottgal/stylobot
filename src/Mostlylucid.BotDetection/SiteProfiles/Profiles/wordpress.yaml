@@ -1,0 +1,51 @@
+id: wordpress
+name: WordPress
+# WordPress sites legitimately serve /wp-login.php, /wp-admin, wp-cron.php,
+# xmlrpc.php and the wp-content/uploads tree. The global honeypot catalog
+# classifies all of these as Tier 2 (probable scanner) because they're hostile
+# anywhere ELSE on the web. For this host we skip the Tier 2 elevation;
+# Haxxor, behavioural, rate-limit, auth-takeover still run normally.
+honeypot:
+  framework_paths:
+    - /wp-login.php
+    - /wp-admin*
+    - /wp-cron.php
+    - /xmlrpc.php
+    - /wp-content/uploads*
+    - /wp-json*
+    - /wp-includes/js*
+    - /wp-includes/css*
+
+  # Promoted to Tier 1 (always-honeypot) for this stack -- never web-served.
+  additional_tier1:
+    - /wp-config.php.bak
+    - /wp-config.php.old
+    - /wp-config.php.save
+    - /wp-config.php~
+    - /wp-config.php.swp
+    - /wp-config.php.txt
+    - /wp-config.bak
+    - /wp-content/debug.log
+    - /.user.ini
+    - /wp-content/uploads/wp-config.php
+
+  # Tier 2 additions specific to WordPress probe patterns.
+  elevated_tier2:
+    - /wp-content/plugins/*/readme.txt
+    - /wp-content/themes/*/readme.txt
+    - /?author=1
+
+expected_bots:
+  - googlebot
+  - bingbot
+  - applebot
+  - jetpack
+  - wp-rocket
+
+suggested_packs:
+  - id: wordpress
+    description: Realistic 404/login fake responses for WP-shaped probes
+    tier: foss
+  - id: wordpress-cve-bundle
+    description: Per-CVE response templates for WordPress plugins, refreshed monthly
+    tier: commercial

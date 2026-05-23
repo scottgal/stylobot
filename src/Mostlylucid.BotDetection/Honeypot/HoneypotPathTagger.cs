@@ -42,15 +42,18 @@ public sealed class HoneypotPathTagger
     private readonly RequestDelegate _next;
     private readonly IOptionsMonitor<HoneypotDetectionOptions> _options;
     private readonly IHoneypotExemptStore _exemptStore;
+    private readonly SiteProfiles.ISiteProfileResolver? _profileResolver;
 
     public HoneypotPathTagger(
         RequestDelegate next,
         IOptionsMonitor<HoneypotDetectionOptions> options,
-        IHoneypotExemptStore exemptStore)
+        IHoneypotExemptStore exemptStore,
+        SiteProfiles.ISiteProfileResolver? profileResolver = null)
     {
         _next = next;
         _options = options;
         _exemptStore = exemptStore;
+        _profileResolver = profileResolver;
     }
 
     public Task InvokeAsync(HttpContext context)
@@ -82,10 +85,50 @@ public sealed class HoneypotPathTagger
             }
         }
 
+        // Site profile per-host promotions: additional_tier1 elevates to
+        // Always, elevated_tier2 to Probable. Always-tier wins if both match.
+        // Skipped silently when no resolver is registered (FOSS without site
+        // profiles wired) or when the request's host has no rule.
+        if (_profileResolver is not null)
+        {
+            var profile = _profileResolver.Resolve(context);
+            if (profile?.Honeypot is { } hp)
+            {
+                if (hp.AdditionalTier1 is { Count: > 0 } t1)
+                {
+                    foreach (var p in t1)
+                    {
+                        if (string.IsNullOrEmpty(p)) continue;
+                        if (MatchesAdditional(normalized, p))
+                        {
+                            tier = HoneypotTier.Always;
+                            matched = p;
+                            break;
+                        }
+                    }
+                }
+                if (tier == HoneypotTier.None && hp.ElevatedTier2 is { Count: > 0 } t2)
+                {
+                    foreach (var p in t2)
+                    {
+                        if (string.IsNullOrEmpty(p)) continue;
+                        if (MatchesAdditional(normalized, p))
+                        {
+                            tier = HoneypotTier.Probable;
+                            matched = p;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         if (tier == HoneypotTier.None) return _next(context);
 
-        // Tier 2 is exempt-able; Tier 1 is not.
-        if (tier == HoneypotTier.Probable && _exemptStore.IsExempt(normalized))
+        // Tier 2 is exempt-able; Tier 1 is not. Passing the HttpContext
+        // lets the resolver consult the active site profile's framework_paths
+        // so e.g. a WordPress host's /wp-login.php is legitimately served.
+        if (tier == HoneypotTier.Probable && _exemptStore.IsExempt(normalized, context))
             return _next(context);
 
         context.Items[ItemKeyTier] = tier;

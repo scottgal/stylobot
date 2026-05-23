@@ -692,6 +692,13 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(Honeypot.HoneypotDetectionOptions.SectionName);
         services.TryAddSingleton<Honeypot.IHoneypotExemptStore, Honeypot.ConfigHoneypotExemptStore>();
         services.AddSingleton<IContributingDetector, Honeypot.HoneypotLinkContributor>();
+        // Per-host site profiles modulate the honeypot exempt list + Tier 1/2
+        // promotions. Catalog loads embedded YAMLs; resolver compiles the
+        // host map at startup. Both optional from the consumer's view.
+        services.AddOptions<SiteProfiles.SiteMapOptions>()
+            .BindConfiguration(SiteProfiles.SiteMapOptions.SectionName);
+        services.TryAddSingleton<SiteProfiles.ISiteProfileCatalog, SiteProfiles.SiteProfileCatalog>();
+        services.TryAddSingleton<SiteProfiles.ISiteProfileResolver, SiteProfiles.SiteProfileResolver>();
         // Honeypot response policy -- jittered rate-limit + fake response.
         // Registered as IActionPolicy under name "honeypot-response"; the middleware
         // auto-selects it when the tagger set a tier tag on HttpContext.Items.

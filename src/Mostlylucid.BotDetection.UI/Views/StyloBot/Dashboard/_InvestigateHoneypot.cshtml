@@ -3,6 +3,8 @@
 @{
     var rows = (Context.Items["Honeypot.HitRows"] as List<HoneypotHitRow>) ?? new List<HoneypotHitRow>();
     var isCommercial = Context.Items["Honeypot.IsCommercial"] is true;
+    var profile = Context.Items["Honeypot.ActiveProfile"] as Mostlylucid.BotDetection.SiteProfiles.SiteProfile;
+    var profileHost = Context.Items["Honeypot.ActiveProfileHost"] as string;
 
     string TierBadge(int tier) => tier switch
     {
@@ -23,8 +25,29 @@
 
 <div class="sb-honeypot-tab" style="display:flex; flex-direction:column; gap:1rem;">
 
-    <div style="display:flex; gap:1rem; align-items:center; padding:0.75rem 1rem; background:var(--sb-card-bg); border:1px solid var(--sb-card-border); border-radius:8px;">
+    <div style="display:flex; gap:1rem; align-items:center; padding:0.75rem 1rem; background:var(--sb-card-bg); border:1px solid var(--sb-card-border); border-radius:8px; flex-wrap:wrap;">
         <div style="font-size:0.9rem; font-weight:600;">@rows.Count honeypot path@(rows.Count == 1 ? "" : "s") hit in window</div>
+        @if (profile is not null)
+        {
+            <div style="display:flex; align-items:center; gap:0.4rem; padding:0.2rem 0.5rem; background:var(--sb-surface); border-radius:4px; font-size:0.75rem;">
+                <span style="color:var(--sb-brand-muted);">Site:</span>
+                <span style="font-weight:600;">@profile.Name</span>
+                @if (!string.IsNullOrEmpty(profileHost))
+                {
+                    <span style="color:var(--sb-brand-muted); font-family:monospace;">(@profileHost)</span>
+                }
+            </div>
+            @foreach (var pack in profile.SuggestedPacks)
+            {
+                var packTier = string.Equals(pack.Tier, "commercial", StringComparison.OrdinalIgnoreCase)
+                    ? "commercial" : "foss";
+                var badgeBg = packTier == "commercial" ? "var(--sb-accent, #5a67d8)" : "var(--sb-signal-pos, #10b981)";
+                <span title="@pack.Description" style="display:inline-flex; gap:0.3rem; align-items:center; padding:0.15rem 0.5rem; background:@badgeBg; color:white; border-radius:4px; font-size:0.7rem; font-weight:600;">
+                    pack: @pack.Id
+                    <span style="opacity:0.8; font-weight:400;">[@packTier]</span>
+                </span>
+            }
+        }
         <div style="font-size:0.75rem; color:var(--sb-brand-muted);">
             Tier 1 = always-honeypot (zero-FP, never exempt-able) &nbsp;|&nbsp;
             Tier 2 = probable (real on some stacks; operator can mark exempt)

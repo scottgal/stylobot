@@ -1,0 +1,28 @@
+id: nextjs
+name: Next.js
+honeypot:
+  framework_paths:
+    - /_next/static*
+    - /_next/data*
+    - /_next/image*
+    - /api/auth*
+    - /api/trpc*
+
+  additional_tier1:
+    - /.next/cache*
+    - /.next/server/middleware-manifest.json
+    - /next.config.js.bak
+    - /.env.local.bak
+    - /package.json.bak
+
+  elevated_tier2: []
+
+expected_bots:
+  - googlebot
+  - bingbot
+  - vercelbot
+
+suggested_packs:
+  - id: nextjs
+    description: Next.js / Vercel fake response patterns
+    tier: foss

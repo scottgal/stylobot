@@ -118,7 +118,7 @@ public sealed class HoneypotLinkContributor : ContributingDetectorBase
 
         if (matchedTier == HoneypotTier.None) return Task.FromResult(None());
 
-        if (matchedTier == HoneypotTier.Probable && _exemptStore.IsExempt(path))
+        if (matchedTier == HoneypotTier.Probable && _exemptStore.IsExempt(path, http))
             return Task.FromResult(None());
 
         return Task.FromResult(BuildContribution(matchedTier, matched ?? "?", path));

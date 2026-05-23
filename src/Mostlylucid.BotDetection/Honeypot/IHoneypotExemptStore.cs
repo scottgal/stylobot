@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
+using Mostlylucid.BotDetection.SiteProfiles;
 
 namespace Mostlylucid.BotDetection.Honeypot;
 
@@ -24,7 +26,14 @@ public interface IHoneypotExemptStore
     ///     Tier 2 signals. Tier 1 paths always return false (never
     ///     exempt-able).
     /// </summary>
-    bool IsExempt(string normalizedPath);
+    /// <param name="normalizedPath">Normalised request path.</param>
+    /// <param name="context">
+    ///     Optional <see cref="HttpContext"/> -- when provided, the resolver
+    ///     also consults the active site profile's <c>framework_paths</c>
+    ///     so per-host stack-aware exemptions take effect (e.g. a WordPress
+    ///     host's <c>/wp-login.php</c> is legitimately served).
+    /// </param>
+    bool IsExempt(string normalizedPath, HttpContext? context = null);
 }
 
 /// <summary>
@@ -32,23 +41,48 @@ public interface IHoneypotExemptStore
 ///     <see cref="HoneypotDetectionOptions.ExemptPaths"/> via
 ///     <see cref="IOptionsMonitor{TOptions}"/> so live config reloads
 ///     (see <c>/stylobot/admin/reload</c>) take effect without restart.
+///     When a <see cref="HttpContext"/> is supplied to <see cref="IsExempt"/>,
+///     the active site profile's <c>framework_paths</c> are layered on top
+///     of the global exempt list (per-host stack-aware exemptions).
 /// </summary>
 public sealed class ConfigHoneypotExemptStore : IHoneypotExemptStore
 {
     private readonly IOptionsMonitor<HoneypotDetectionOptions> _options;
+    private readonly ISiteProfileResolver? _profileResolver;
 
-    public ConfigHoneypotExemptStore(IOptionsMonitor<HoneypotDetectionOptions> options)
+    public ConfigHoneypotExemptStore(
+        IOptionsMonitor<HoneypotDetectionOptions> options,
+        ISiteProfileResolver? profileResolver = null)
     {
         _options = options;
+        _profileResolver = profileResolver;
     }
 
     public IReadOnlyCollection<string> GetExemptPaths() => _options.CurrentValue.ExemptPaths;
 
-    public bool IsExempt(string normalizedPath)
+    public bool IsExempt(string normalizedPath, HttpContext? context = null)
     {
         if (string.IsNullOrEmpty(normalizedPath)) return false;
 
-        foreach (var pattern in _options.CurrentValue.ExemptPaths)
+        // 1. Operator-supplied global list (appsettings).
+        if (MatchesAny(normalizedPath, _options.CurrentValue.ExemptPaths))
+            return true;
+
+        // 2. Per-host site profile framework_paths.
+        if (context is not null && _profileResolver is not null)
+        {
+            var profile = _profileResolver.Resolve(context);
+            if (profile?.Honeypot?.FrameworkPaths is { Count: > 0 } framework
+                && MatchesAny(normalizedPath, framework))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool MatchesAny(string normalizedPath, IEnumerable<string> patterns)
+    {
+        foreach (var pattern in patterns)
         {
             if (string.IsNullOrEmpty(pattern)) continue;
 
@@ -69,7 +103,6 @@ public sealed class ConfigHoneypotExemptStore : IHoneypotExemptStore
                 return true;
             }
         }
-
         return false;
     }
 }

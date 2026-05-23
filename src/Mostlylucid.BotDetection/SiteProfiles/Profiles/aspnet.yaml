@@ -1,0 +1,40 @@
+id: aspnet
+name: ASP.NET
+# ASP.NET-served apps (Razor / MVC / WebAPI / Blazor). Identity/dev paths
+# are legitimately exposed in development; production should never serve
+# .bak / appsettings.Development.json / bin/ etc -- those are Tier 1 here.
+honeypot:
+  framework_paths:
+    - /_framework*
+    - /_blazor*
+    - /signin-*
+    - /signout-*
+    - /_vs/*
+    - /__browserLink*
+
+  additional_tier1:
+    - /appsettings.Development.json
+    - /appsettings.Production.json
+    - /appsettings.json.bak
+    - /web.config.bak
+    - /web.config.old
+    - /global.asax.bak
+    - /App_Data*
+    - /App_Code*
+    - /bin/*.dll
+    - /bin/*.pdb
+    - /obj/*
+
+  elevated_tier2:
+    - /Trace.axd
+    - /elmah.axd
+
+expected_bots:
+  - bingbot
+  - googlebot
+  - applebot
+
+suggested_packs:
+  - id: aspnet
+    description: Realistic 404/500 fakes for ASP.NET probe patterns
+    tier: foss

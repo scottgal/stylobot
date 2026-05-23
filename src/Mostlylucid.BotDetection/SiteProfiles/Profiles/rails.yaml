@@ -1,0 +1,28 @@
+id: rails
+name: Ruby on Rails
+honeypot:
+  framework_paths:
+    - /rails/active_storage*
+    - /rails/info*
+    - /assets*
+    - /packs*
+
+  additional_tier1:
+    - /config/database.yml
+    - /config/secrets.yml
+    - /config/master.key
+    - /config/credentials*.yml.enc
+    - /Gemfile.bak
+    - /.env.rails
+
+  elevated_tier2:
+    - /rails/conductor*
+
+expected_bots:
+  - googlebot
+  - bingbot
+
+suggested_packs:
+  - id: rails
+    description: Rails-shaped fake responses
+    tier: foss

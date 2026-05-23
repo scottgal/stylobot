@@ -1,0 +1,29 @@
+id: django
+name: Django
+honeypot:
+  framework_paths:
+    - /static/admin*
+    - /static/rest_framework*
+    - /static/debug_toolbar*
+    - /admin/login*
+    - /accounts/login*
+    - /accounts/logout*
+    - /api/auth*
+
+  additional_tier1:
+    - /settings.py.bak
+    - /local_settings.py
+    - /.env.django
+    - /manage.py.bak
+
+  elevated_tier2:
+    - /__debug__*
+
+expected_bots:
+  - googlebot
+  - bingbot
+
+suggested_packs:
+  - id: django
+    description: Django-shaped fake responses
+    tier: foss

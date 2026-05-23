@@ -123,6 +123,11 @@
         <EmbeddedResource Include="SimulationPacks\Packs\*.yaml" />
     </ItemGroup>
 
+    <!-- Embed site profile YAML definitions -->
+    <ItemGroup>
+        <EmbeddedResource Include="SiteProfiles\Profiles\*.yaml" />
+    </ItemGroup>
+
     <!-- Embed compliance pack YAML definitions -->
     <ItemGroup>
         <EmbeddedResource Include="Compliance\CompliancePacks\*.yaml" />

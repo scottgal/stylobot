@@ -68,6 +68,11 @@ internal static class VYamlBootstrap
         PackCveModule.__RegisterVYamlFormatter();
         PackTimingProfile.__RegisterVYamlFormatter();
 
+        // Site profiles
+        SiteProfiles.SiteProfile.__RegisterVYamlFormatter();
+        SiteProfiles.HoneypotProfile.__RegisterVYamlFormatter();
+        SiteProfiles.SuggestedPack.__RegisterVYamlFormatter();
+
         // Detector / pipeline manifests
         DetectorManifest.__RegisterVYamlFormatter();
         SignalScope.__RegisterVYamlFormatter();
@@ -108,6 +113,7 @@ internal static class VYamlBootstrap
         GeneratedResolver.Register(new ListFormatter<PackHoneypotPath>());
         GeneratedResolver.Register(new ListFormatter<PackResponseTemplate>());
         GeneratedResolver.Register(new ListFormatter<PackCveModule>());
+        GeneratedResolver.Register(new ListFormatter<SiteProfiles.SuggestedPack>());
         GeneratedResolver.Register(new DictionaryFormatter<string, CentroidDimensionEntry>());
         GeneratedResolver.Register(new DictionaryFormatter<string, IdentityArchetypeDimensionYaml>());
         GeneratedResolver.Register(new DictionaryFormatter<string, EscalationRule>());

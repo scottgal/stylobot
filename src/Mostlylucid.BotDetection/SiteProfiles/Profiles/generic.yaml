@@ -1,0 +1,12 @@
+id: generic
+name: Generic
+# Fallback profile when no site rule matches. No framework_paths so the
+# global honeypot catalog is enforced as-is for every Tier 2 path; no
+# additional Tier 1 promotions; no pack suggestions. Operators on an
+# unmapped host get the canonical detection behaviour.
+honeypot:
+  framework_paths: []
+  additional_tier1: []
+  elevated_tier2: []
+expected_bots: []
+suggested_packs: []

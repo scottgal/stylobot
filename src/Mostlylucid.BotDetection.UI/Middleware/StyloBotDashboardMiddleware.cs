@@ -5615,6 +5615,20 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             }
             context.Items["Honeypot.HitRows"] = honeypotHits;
             context.Items["Honeypot.IsCommercial"] = IsCommercialMode(context);
+            // Resolved site profile for the chip in the tab header. The
+            // resolver caches on HttpContext.Items by its own key so this
+            // doesn't re-match.
+            var profileResolver =
+                context.RequestServices.GetService<Mostlylucid.BotDetection.SiteProfiles.ISiteProfileResolver>();
+            if (profileResolver is not null)
+            {
+                var resolved = profileResolver.Resolve(context);
+                if (resolved is not null)
+                {
+                    context.Items["Honeypot.ActiveProfile"] = resolved;
+                    context.Items["Honeypot.ActiveProfileHost"] = context.Request.Host.Host;
+                }
+            }
         }
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
