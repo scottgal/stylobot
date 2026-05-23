@@ -650,6 +650,35 @@ public sealed class ThreatEntry
     public bool InHoneypot { get; init; }
 }
 
+/// <summary>
+///     Aggregated row for the dashboard Honeypot subtab -- one row per
+///     distinct honeypot path that's been hit in the window, with the
+///     totals an operator needs to triage.
+/// </summary>
+public sealed class HoneypotHitRow
+{
+    public required string Path { get; init; }
+
+    /// <summary>1 = Tier 1 (always honeypot), 2 = Tier 2 (probable, exempt-able).</summary>
+    public int Tier { get; init; }
+
+    public string? MatchedPattern { get; init; }
+
+    public int HitCount { get; init; }
+
+    public int DistinctSignatures { get; init; }
+
+    public DateTime FirstSeen { get; init; }
+
+    public DateTime LastSeen { get; init; }
+
+    /// <summary>Sample bot-name for the row (most recent non-null).</summary>
+    public string? SampleBotName { get; init; }
+
+    /// <summary>True when this path is in the operator's exempt list.</summary>
+    public bool IsExempt { get; init; }
+}
+
 /// <summary>View model for the unified investigation view.</summary>
 public sealed class InvestigationViewModel
 {

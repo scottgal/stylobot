@@ -99,6 +99,15 @@ public interface IDashboardEventStore
     Task<List<UserAgentVersionBucket>> GetUserAgentVersionHistoryAsync(
         string family, int hours = 168, CancellationToken ct = default);
 
+    /// <summary>
+    ///     Aggregate honeypot hits per distinct path, for the dashboard Honeypot subtab.
+    ///     Rows are derived from detections where the action policy was
+    ///     <c>honeypot-response</c> or <c>simulation-pack</c> in the time window.
+    /// </summary>
+    Task<List<HoneypotHitRow>> GetHoneypotHitsAsync(
+        int count = 50, DateTime? startTime = null, DateTime? endTime = null,
+        CancellationToken ct = default);
+
     /// <summary>Unified investigation query -- filter by any entity type, get cross-associated results.</summary>
     Task<InvestigationResult> GetInvestigationAsync(InvestigationFilter filter, CancellationToken ct = default);
 

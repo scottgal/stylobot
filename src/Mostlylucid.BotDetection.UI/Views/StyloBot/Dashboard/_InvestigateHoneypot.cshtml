@@ -1,0 +1,110 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model InvestigationViewModel
+@{
+    var rows = (Context.Items["Honeypot.HitRows"] as List<HoneypotHitRow>) ?? new List<HoneypotHitRow>();
+    var isCommercial = Context.Items["Honeypot.IsCommercial"] is true;
+
+    string TierBadge(int tier) => tier switch
+    {
+        1 => "<span style=\"padding:0.15rem 0.5rem; border-radius:4px; background:var(--sb-signal-danger); color:white; font-size:0.7rem; font-weight:600;\">Tier&nbsp;1</span>",
+        2 => "<span style=\"padding:0.15rem 0.5rem; border-radius:4px; background:var(--sb-signal-warn); color:white; font-size:0.7rem; font-weight:600;\">Tier&nbsp;2</span>",
+        _ => string.Empty
+    };
+
+    string AgoString(DateTime t)
+    {
+        var span = DateTime.UtcNow - t.ToUniversalTime();
+        if (span.TotalSeconds < 60) return $"{(int)span.TotalSeconds}s ago";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        return $"{(int)span.TotalDays}d ago";
+    }
+}
+
+<div class="sb-honeypot-tab" style="display:flex; flex-direction:column; gap:1rem;">
+
+    <div style="display:flex; gap:1rem; align-items:center; padding:0.75rem 1rem; background:var(--sb-card-bg); border:1px solid var(--sb-card-border); border-radius:8px;">
+        <div style="font-size:0.9rem; font-weight:600;">@rows.Count honeypot path@(rows.Count == 1 ? "" : "s") hit in window</div>
+        <div style="font-size:0.75rem; color:var(--sb-brand-muted);">
+            Tier 1 = always-honeypot (zero-FP, never exempt-able) &nbsp;|&nbsp;
+            Tier 2 = probable (real on some stacks; operator can mark exempt)
+        </div>
+    </div>
+
+    @if (rows.Count == 0)
+    {
+        <div style="padding:2rem; text-align:center; color:var(--sb-brand-muted); background:var(--sb-card-bg); border:1px solid var(--sb-card-border); border-radius:8px;">
+            <div style="font-size:1rem; margin-bottom:0.5rem;">No honeypot hits in this window.</div>
+            <div style="font-size:0.8rem;">
+                Honeypot paths are tracked from the curated catalog (TC1+TC2) plus any deployment-specific
+                paths under <code>BotDetection:Honeypot:AdditionalPaths</code>.
+            </div>
+        </div>
+    }
+    else
+    {
+        <div style="background:var(--sb-card-bg); border:1px solid var(--sb-card-border); border-radius:8px; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+                <thead>
+                    <tr style="background:var(--sb-surface); text-align:left;">
+                        <th style="padding:0.5rem 0.75rem;">Tier</th>
+                        <th style="padding:0.5rem 0.75rem;">Path</th>
+                        <th style="padding:0.5rem 0.75rem;">Pattern</th>
+                        <th style="padding:0.5rem 0.75rem; text-align:right;">Hits</th>
+                        <th style="padding:0.5rem 0.75rem; text-align:right;">Visitors</th>
+                        <th style="padding:0.5rem 0.75rem;">Last seen</th>
+                        <th style="padding:0.5rem 0.75rem;">Sample</th>
+                        <th style="padding:0.5rem 0.75rem;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @foreach (var row in rows)
+                {
+                    <tr style="border-top:1px solid var(--sb-card-divider);">
+                        <td style="padding:0.5rem 0.75rem;">@Html.Raw(TierBadge(row.Tier))</td>
+                        <td style="padding:0.5rem 0.75rem; font-family:monospace; word-break:break-all;">@row.Path</td>
+                        <td style="padding:0.5rem 0.75rem; font-family:monospace; color:var(--sb-brand-muted); font-size:0.75rem;">@(row.MatchedPattern ?? "")</td>
+                        <td style="padding:0.5rem 0.75rem; text-align:right; font-variant-numeric:tabular-nums;">@row.HitCount</td>
+                        <td style="padding:0.5rem 0.75rem; text-align:right; font-variant-numeric:tabular-nums;">@row.DistinctSignatures</td>
+                        <td style="padding:0.5rem 0.75rem; color:var(--sb-brand-muted); white-space:nowrap;" title="@row.LastSeen.ToString("u")">@AgoString(row.LastSeen)</td>
+                        <td style="padding:0.5rem 0.75rem; font-size:0.75rem; color:var(--sb-brand-muted);">@(row.SampleBotName ?? "—")</td>
+                        <td style="padding:0.5rem 0.75rem;">
+                            @if (row.IsExempt)
+                            {
+                                <span style="font-size:0.7rem; padding:0.15rem 0.4rem; background:var(--sb-surface); color:var(--sb-brand-muted); border-radius:4px;">exempt</span>
+                            }
+                            else if (row.Tier == 2)
+                            {
+                                @if (isCommercial)
+                                {
+                                    <button type="button"
+                                            hx-post="@Model.BasePath/honeypot/exempt?path=@Uri.EscapeDataString(row.Path)"
+                                            hx-target="closest tr"
+                                            hx-swap="outerHTML"
+                                            style="font-size:0.7rem; padding:0.15rem 0.5rem; background:transparent; border:1px solid var(--sb-card-border); border-radius:4px; cursor:pointer;">
+                                        Mark legitimate
+                                    </button>
+                                }
+                                else
+                                {
+                                    <span style="font-size:0.7rem; color:var(--sb-brand-muted);" title="Commercial only">edit&nbsp;in&nbsp;config</span>
+                                }
+                            }
+                            else
+                            {
+                                <span style="font-size:0.7rem; color:var(--sb-brand-muted);" title="Tier 1 cannot be exempted">always trap</span>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+
+        <div style="font-size:0.7rem; color:var(--sb-brand-muted); padding:0 0.25rem;">
+            Tier 2 exemptions can also be set in <code>appsettings.json</code> under
+            <code>BotDetection:Honeypot:ExemptPaths</code> (supports trailing <code>*</code> globs).
+            Tier 1 paths are zero-FP credential/key/dump probes -- not exempt-able.
+        </div>
+    }
+</div>

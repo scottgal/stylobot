@@ -935,6 +935,69 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         };
     }
 
+    public async Task<List<HoneypotHitRow>> GetHoneypotHitsAsync(
+        int count = 50, DateTime? startTime = null, DateTime? endTime = null,
+        CancellationToken ct = default)
+    {
+        await EnsureInitializedAsync();
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(ct);
+
+        await using var cmd = conn.CreateCommand();
+        var sql = """
+            SELECT path,
+                   COUNT(*)                       AS hit_count,
+                   COUNT(DISTINCT signature)      AS distinct_sigs,
+                   MIN(timestamp)                 AS first_seen,
+                   MAX(timestamp)                 AS last_seen,
+                   MAX(bot_name)                  AS sample_bot_name
+            FROM detections
+            WHERE action IN ('honeypot-response', 'simulation-pack')
+            """;
+
+        if (startTime.HasValue)
+        {
+            sql += " AND timestamp >= @start";
+            cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        }
+        if (endTime.HasValue)
+        {
+            sql += " AND timestamp <= @end";
+            cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
+        }
+
+        sql += " GROUP BY path ORDER BY hit_count DESC LIMIT @count";
+        cmd.Parameters.AddWithValue("@count", count);
+        cmd.CommandText = sql;
+
+        var results = new List<HoneypotHitRow>();
+        await using var reader = await cmd.ExecuteReaderAsync(ct);
+
+        while (await reader.ReadAsync(ct))
+        {
+            var rawPath = reader.IsDBNull(0) ? "/" : reader.GetString(0);
+            // Re-classify against the catalog so the UI shows tier badges
+            // even when the action column doesn't carry the tier directly.
+            var normalized = Mostlylucid.BotDetection.Honeypot.HoneypotPathDefinitions.NormalizePath(rawPath);
+            var tier = Mostlylucid.BotDetection.Honeypot.HoneypotPathDefinitions.Classify(normalized, out var matched);
+            if (tier == Mostlylucid.BotDetection.Honeypot.HoneypotTier.None) continue; // skip rows that aren't actually honeypot
+
+            results.Add(new HoneypotHitRow
+            {
+                Path = rawPath,
+                Tier = (int)tier,
+                MatchedPattern = matched,
+                HitCount = reader.GetInt32(1),
+                DistinctSignatures = reader.GetInt32(2),
+                FirstSeen = DateTime.Parse(reader.GetString(3), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                LastSeen = DateTime.Parse(reader.GetString(4), null, System.Globalization.DateTimeStyles.RoundtripKind),
+                SampleBotName = reader.IsDBNull(5) ? null : reader.GetString(5)
+            });
+        }
+
+        return results;
+    }
+
     public async Task<List<ThreatEntry>> GetThreatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
     {
         await EnsureInitializedAsync();

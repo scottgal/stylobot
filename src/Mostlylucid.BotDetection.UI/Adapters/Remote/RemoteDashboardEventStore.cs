@@ -115,6 +115,16 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return list ?? new List<ThreatEntry>();
     }
 
+    public async Task<List<HoneypotHitRow>> GetHoneypotHitsAsync(
+        int count = 50, DateTime? startTime = null, DateTime? endTime = null,
+        CancellationToken ct = default)
+    {
+        // No remote API surface yet -- viewer can't aggregate honeypot hits
+        // from the gateway. Returns empty so the tab renders an empty-state.
+        await Task.CompletedTask;
+        return new List<HoneypotHitRow>();
+    }
+
     public async Task<List<UserAgentSearchResult>> SearchUserAgentsAsync(string query, int limit = 20)
     {
         var path = $"/api/v1/useragents/search?query={Uri.EscapeDataString(query ?? string.Empty)}&limit={limit}";

@@ -919,7 +919,7 @@ public class StyloBotDashboardMiddleware
                 ? await shapeStore.GetPresetsAsync()
                 : Array.Empty<InvestigationPreset>();
             var invHasCommercial = IsCommercialMode(context);
-            var invTabs = new List<string> { "detections", "signatures", "endpoints", "geo", "signaltrace" };
+            var invTabs = new List<string> { "detections", "signatures", "endpoints", "honeypot", "geo", "signaltrace" };
             if (invHasCommercial) invTabs.Insert(invTabs.Count - 1, "fingerprints");
 
             investigationVm = new ShapeInvestigationViewModel
@@ -5507,7 +5507,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             : Array.Empty<InvestigationPreset>();
 
         var hasCommercial = IsCommercialMode(context);
-        var tabs = new List<string> { "detections", "signatures", "endpoints", "geo", "signaltrace" };
+        var tabs = new List<string> { "detections", "signatures", "endpoints", "honeypot", "geo", "signaltrace" };
         if (hasCommercial) tabs.Insert(tabs.Count - 1, "fingerprints");
 
         var vm = new ShapeInvestigationViewModel
@@ -5580,11 +5580,41 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             "detections" => "_InvestigateDetections",
             "signatures" => "_InvestigateSignatures",
             "endpoints" => "_InvestigateEndpoints",
+            "honeypot" => "_InvestigateHoneypot",
             "geo" => "_InvestigateGeo",
             "fingerprints" => "_InvestigateFingerprints",
             "signaltrace" => "_InvestigateSignaltrace",
             _ => "_InvestigateDetections"
         };
+
+        // Honeypot tab needs the per-path aggregate, not the standard InvestigationResult.
+        // Attach via HttpContext.Items so the Razor partial picks it up without
+        // changing the shared InvestigationViewModel contract.
+        if (string.Equals(tab, "honeypot", StringComparison.OrdinalIgnoreCase))
+        {
+            var honeypotHits = await _eventStore.GetHoneypotHitsAsync(
+                count: 100, startTime: filter.Start, endTime: filter.End,
+                ct: context.RequestAborted);
+            var exemptStore = context.RequestServices.GetService<Mostlylucid.BotDetection.Honeypot.IHoneypotExemptStore>();
+            if (exemptStore is not null)
+            {
+                honeypotHits = honeypotHits.Select(h => new HoneypotHitRow
+                {
+                    Path = h.Path,
+                    Tier = h.Tier,
+                    MatchedPattern = h.MatchedPattern,
+                    HitCount = h.HitCount,
+                    DistinctSignatures = h.DistinctSignatures,
+                    FirstSeen = h.FirstSeen,
+                    LastSeen = h.LastSeen,
+                    SampleBotName = h.SampleBotName,
+                    IsExempt = exemptStore.IsExempt(
+                        Mostlylucid.BotDetection.Honeypot.HoneypotPathDefinitions.NormalizePath(h.Path))
+                }).ToList();
+            }
+            context.Items["Honeypot.HitRows"] = honeypotHits;
+            context.Items["Honeypot.IsCommercial"] = IsCommercialMode(context);
+        }
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             $"/Views/StyloBot/Dashboard/{partialName}.cshtml", vm, context);
