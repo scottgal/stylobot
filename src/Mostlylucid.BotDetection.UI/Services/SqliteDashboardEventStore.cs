@@ -193,6 +193,51 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 await cmd.ExecuteNonQueryAsync(ct);
             }
 
+            // Backfill ua_device_class for pre-migration rows that have a
+            // stripped user_agent_raw value but no derived device class yet.
+            // Runs once on startup; idempotent because the WHERE clause restricts
+            // to rows where ua_device_class IS NULL.
+            await using (var pickCmd = conn.CreateCommand())
+            {
+                pickCmd.CommandText = """
+                    SELECT id, user_agent_raw
+                    FROM detections
+                    WHERE ua_device_class IS NULL AND user_agent_raw IS NOT NULL
+                    """;
+                var updates = new List<(long Id, string DeviceClass)>();
+                await using (var reader = await pickCmd.ExecuteReaderAsync(ct))
+                {
+                    while (await reader.ReadAsync(ct))
+                    {
+                        var id = reader.GetInt64(0);
+                        var ua = reader.GetString(1);
+                        var deviceClass = Mostlylucid.BotDetection.Helpers.UserAgentParser.ClassifyDeviceClass(ua);
+                        if (deviceClass is not null)
+                            updates.Add((id, deviceClass));
+                    }
+                }
+
+                if (updates.Count > 0)
+                {
+                    await using var tx = conn.BeginTransaction();
+                    await using var upd = conn.CreateCommand();
+                    upd.Transaction = tx;
+                    upd.CommandText = "UPDATE detections SET ua_device_class = @d WHERE id = @id";
+                    var pd = upd.CreateParameter(); pd.ParameterName = "@d"; upd.Parameters.Add(pd);
+                    var pi = upd.CreateParameter(); pi.ParameterName = "@id"; upd.Parameters.Add(pi);
+                    foreach (var (id, dc) in updates)
+                    {
+                        pd.Value = dc;
+                        pi.Value = id;
+                        await upd.ExecuteNonQueryAsync(ct);
+                    }
+                    tx.Commit();
+                    _logger.LogInformation(
+                        "Backfilled ua_device_class for {Count} pre-migration detections",
+                        updates.Count);
+                }
+            }
+
             // Prune old detections (keep last 7 days)
             await using var pruneCmd = conn.CreateCommand();
             pruneCmd.CommandText = "DELETE FROM detections WHERE timestamp < @cutoff";
