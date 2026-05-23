@@ -15,7 +15,7 @@ internal static class WidgetRenderHelpers
     // Matches the first opening tag that carries the data-sb-data-region attribute.
     // Group 1 = "<tag ... " (everything before the trailing >). Group 2 = "/>" or ">".
     private static readonly Regex DataRegionTagRegex = new(
-        @"(<[a-zA-Z][^>]*?\sdata-sb-data-region(?:=""[^""]*"")?[^>]*?)(/?>)",
+        @"(<[a-zA-Z][^>]*?\sdata-sb-data-region(?=[ \t\r\n=/>])(?:=""[^""]*"")?[^>]*?)(/?>)",
         RegexOptions.Compiled | RegexOptions.Singleline);
 
     internal static IQueryCollection ExtractWidgetParams(HttpContext context, string widgetId)

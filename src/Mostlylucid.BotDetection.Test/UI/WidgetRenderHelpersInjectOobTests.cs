@@ -60,4 +60,35 @@ public class WidgetRenderHelpersInjectOobTests
         var occurrences = System.Text.RegularExpressions.Regex.Matches(result, "hx-swap-oob").Count;
         Assert.Equal(1, occurrences);
     }
+
+    [Fact]
+    public void Data_region_with_explicit_value_still_gets_innerHTML_oob()
+    {
+        const string html = """
+            <div id="my-widget">
+              <div id="my-widget-data" data-sb-data-region="rows">
+                <table><tr><td>row</td></tr></table>
+              </div>
+            </div>
+            """;
+        var result = WidgetRenderHelpers.InjectOobAttribute(html);
+        Assert.Contains("hx-swap-oob=\"innerHTML\"", result);
+        // The data region's existing attributes must survive intact.
+        Assert.Contains("data-sb-data-region=\"rows\"", result);
+        // Root tag should NOT have OOB injected on it.
+        var firstTagEnd = result.IndexOf('>');
+        Assert.DoesNotContain("hx-swap-oob", result[..firstTagEnd]);
+    }
+
+    [Fact]
+    public void Lookalike_attribute_name_does_not_match_data_region()
+    {
+        // data-sb-data-region-inner is a HYPOTHETICAL sibling attribute. The regex
+        // must not treat it as data-sb-data-region; the legacy path should run.
+        const string html = "<div id=\"x\" data-sb-data-region-inner=\"y\">stuff</div>";
+        var result = WidgetRenderHelpers.InjectOobAttribute(html);
+        // Legacy fallback should fire -> outerHTML OOB on the root.
+        Assert.Contains("hx-swap-oob=\"true\"", result);
+        Assert.DoesNotContain("hx-swap-oob=\"innerHTML\"", result);
+    }
 }
