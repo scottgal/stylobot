@@ -222,9 +222,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.CommandText = """
                 INSERT INTO detections (timestamp, signature, method, path, is_bot, bot_probability, confidence,
                     risk_band, bot_name, bot_type, action, country_code, processing_time_ms, threat_score, threat_band,
-                    status_code, user_agent_raw, risk_justification)
+                    status_code, user_agent_raw, risk_justification, domain, referrer_host, ua_device_class)
                 VALUES (@ts, @sig, @method, @path, @isBot, @prob, @conf, @risk, @name, @type, @action, @country, @ms,
-                    @threat, @band, @status, @uaRaw, @justification)
+                    @threat, @band, @status, @uaRaw, @justification, @domain, @refHost, @deviceClass)
                 """;
             cmd.Parameters.AddWithValue("@ts", detection.Timestamp.ToString("O"));
             cmd.Parameters.AddWithValue("@sig", detection.PrimarySignature ?? "unknown");
@@ -245,6 +245,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             var strippedUa = UaPiiStripper.Strip(detection.UserAgentRaw);
             cmd.Parameters.AddWithValue("@uaRaw", string.IsNullOrEmpty(strippedUa) ? (object)DBNull.Value : strippedUa);
             cmd.Parameters.AddWithValue("@justification", (object?)detection.RiskJustification ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@domain", (object?)detection.Domain ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@refHost", (object?)detection.ReferrerHost ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@deviceClass", (object?)detection.UaDeviceClass ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync();
 
             // Upsert UA stats for analytics
@@ -404,6 +407,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         var ordThreat       = reader.GetOrdinal("threat_score");
         var ordThreatBand   = reader.GetOrdinal("threat_band");
         var ordStatus       = reader.GetOrdinal("status_code");
+        var ordDomain       = reader.GetOrdinal("domain");
+        var ordRefHost      = reader.GetOrdinal("referrer_host");
+        var ordDeviceClass  = reader.GetOrdinal("ua_device_class");
 
         while (await reader.ReadAsync(ct))
         {
@@ -427,7 +433,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 ThreatBand      = reader.IsDBNull(ordThreatBand) ? null : reader.GetString(ordThreatBand),
                 StatusCode      = reader.GetInt32(ordStatus),
                 UserAgentRaw    = SafeGetString(reader, "user_agent_raw"),
-                RiskJustification = SafeGetString(reader, "risk_justification")
+                RiskJustification = SafeGetString(reader, "risk_justification"),
+                Domain          = reader.IsDBNull(ordDomain)      ? null : reader.GetString(ordDomain),
+                ReferrerHost    = reader.IsDBNull(ordRefHost)      ? null : reader.GetString(ordRefHost),
+                UaDeviceClass   = reader.IsDBNull(ordDeviceClass)  ? null : reader.GetString(ordDeviceClass)
             });
         }
         return results;
@@ -1324,7 +1333,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 d.is_bot, d.bot_probability, d.confidence, d.risk_band,
                 d.bot_name, d.bot_type, d.action, d.country_code,
                 d.processing_time_ms, d.status_code, d.user_agent_raw,
-                d.threat_score, d.threat_band
+                d.threat_score, d.threat_band,
+                d.domain, d.referrer_host, d.ua_device_class
             {baseSql}
             ORDER BY d.timestamp DESC
             LIMIT @Limit OFFSET @Offset
@@ -1357,7 +1367,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     StatusCode       = r.IsDBNull(13) ? 0    : r.GetInt32(13),
                     UserAgentRaw     = r.IsDBNull(14) ? null : r.GetString(14),
                     ThreatScore      = r.IsDBNull(15) ? 0    : r.GetDouble(15),
-                    ThreatBand       = r.IsDBNull(16) ? null : r.GetString(16)
+                    ThreatBand       = r.IsDBNull(16) ? null : r.GetString(16),
+                    Domain           = r.IsDBNull(17) ? null : r.GetString(17),
+                    ReferrerHost     = r.IsDBNull(18) ? null : r.GetString(18),
+                    UaDeviceClass    = r.IsDBNull(19) ? null : r.GetString(19)
                 });
             }
         }
