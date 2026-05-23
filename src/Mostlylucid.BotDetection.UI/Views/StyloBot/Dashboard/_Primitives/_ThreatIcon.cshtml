@@ -1,0 +1,18 @@
+@using Mostlylucid.BotDetection.UI.Models.Primitives
+@model ThreatIconModel
+@{
+    var band = Model.Band ?? "None";
+    var probPct = (Model.BotProbability * 100).ToString("F0");
+    var (icon, colorClass, label) = band switch
+    {
+        "Critical" => ("bx-shield-x", "text-error", "Critical"),
+        "VeryHigh" => ("bx-shield-x", "text-error", "Very High"),
+        "High"     => ("bx-shield-quarter", "text-error", "High"),
+        "Elevated" => ("bx-shield-quarter", "text-warning", "Elevated"),
+        "Medium"   => ("bx-shield-quarter", "text-warning", "Medium"),
+        "Low"      => ("bx-shield", "text-success", "Low"),
+        _          => ("bx-shield", "text-base-content/30", "None")
+    };
+    var title = $"{label} -- {probPct}% bot probability";
+}
+<i class="bx @icon @colorClass text-base" title="@title" aria-label="@title"></i>
