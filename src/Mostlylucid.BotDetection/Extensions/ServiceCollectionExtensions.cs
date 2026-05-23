@@ -692,6 +692,11 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(Honeypot.HoneypotDetectionOptions.SectionName);
         services.TryAddSingleton<Honeypot.IHoneypotExemptStore, Honeypot.ConfigHoneypotExemptStore>();
         services.AddSingleton<IContributingDetector, Honeypot.HoneypotLinkContributor>();
+        // Honeypot response policy -- jittered rate-limit + fake response.
+        // Registered as IActionPolicy under name "honeypot-response"; the middleware
+        // auto-selects it when the tagger set a tier tag on HttpContext.Items.
+        services.AddSingleton<Honeypot.HoneypotResponseActionPolicy>();
+        services.AddSingleton<IActionPolicy>(sp => sp.GetRequiredService<Honeypot.HoneypotResponseActionPolicy>());
         // AI scraper detection - known AI bots, Cloudflare signals, Web Bot Auth
         services.AddSingleton<IContributingDetector, AiScraperContributor>();
         // Cache behavior analysis - runs early alongside behavioral

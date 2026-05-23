@@ -53,4 +53,33 @@ public sealed class HoneypotDetectionOptions
     ///     the same honeypot signal. Same glob syntax as the catalog.
     /// </summary>
     public List<string> AdditionalPaths { get; set; } = new();
+
+    /// <summary>
+    ///     Randomised throttle applied when serving the honeypot response.
+    ///     Defaults to a 200-1000 ms uniform jitter so the attacker can't
+    ///     fingerprint detection by timing -- a fixed delay would tell them
+    ///     "stylobot saw this", which defeats the holodeck.
+    /// </summary>
+    public HoneypotRateLimitOptions RateLimit { get; set; } = new();
+}
+
+/// <summary>
+///     Randomised rate-limit applied by the honeypot response policy before
+///     writing the fake response. Random uniform draw in
+///     <c>[BaseDelayMs - JitterMs, BaseDelayMs + JitterMs]</c>; clamped to
+///     a non-negative value.
+/// </summary>
+public sealed class HoneypotRateLimitOptions
+{
+    /// <summary>Enable the jittered delay. Default true.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>Mean delay in milliseconds. Default 600 ms.</summary>
+    public int BaseDelayMs { get; set; } = 600;
+
+    /// <summary>
+    ///     Half-width of the uniform draw. Default 400 ms (so the actual
+    ///     delay ranges 200-1000 ms with default <c>BaseDelayMs</c>).
+    /// </summary>
+    public int JitterMs { get; set; } = 400;
 }

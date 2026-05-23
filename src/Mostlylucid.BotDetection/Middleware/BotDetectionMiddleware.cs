@@ -386,6 +386,24 @@ public class BotDetectionMiddleware(
                     _ = _signatureCoordinator.NotifyObservationAsync(
                         precomputedSig, pathStr, v.BotProbability, context.RequestAborted);
 
+                    // Honeypot override: a cached-benign verdict cannot rescue a known
+                    // scanner path. If the tagger flagged this request as a honeypot
+                    // hit, divert to the honeypot policy (jittered fake response) even
+                    // on the skip path. Tier 2 exemptions were filtered out by the
+                    // tagger; if we see a tier tag here, the operator wants the trap.
+                    if (context.Items.TryGetValue(Honeypot.HoneypotPathTagger.ItemKeyTier, out var skipTierVal)
+                        && skipTierVal is Honeypot.HoneypotTier skipTier
+                        && skipTier != Honeypot.HoneypotTier.None)
+                    {
+                        var honeypotPolicy = actionPolicyRegistry.GetPolicy(
+                            Honeypot.HoneypotResponseActionPolicy.PolicyName);
+                        if (honeypotPolicy != null)
+                        {
+                            await honeypotPolicy.ExecuteAsync(context, cachedEvidence, context.RequestAborted);
+                            return;
+                        }
+                    }
+
                     await _next(context);
                     return;
                 }
@@ -564,6 +582,22 @@ public class BotDetectionMiddleware(
             }
             await InvokeNextWithResponseMutationAsync(context);
             return;
+        }
+
+        // Honeypot tag wins over the default action selection. If the tagger
+        // flagged this request as a known scanner path AND no other transition
+        // already targeted a specific policy, force the honeypot policy so the
+        // jittered fake response runs regardless of the verdict's risk band.
+        if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
+            && context.Items.TryGetValue(Honeypot.HoneypotPathTagger.ItemKeyTier, out var postTierVal)
+            && postTierVal is Honeypot.HoneypotTier postTier
+            && postTier != Honeypot.HoneypotTier.None)
+        {
+            aggregatedResult = aggregatedResult with
+            {
+                TriggeredActionPolicyName = Honeypot.HoneypotResponseActionPolicy.PolicyName
+            };
+            context.Items[AggregatedEvidenceKey] = aggregatedResult;
         }
 
         // Check for triggered action policy first (takes precedence over built-in actions)
