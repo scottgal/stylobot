@@ -78,6 +78,56 @@ public static class UserAgentParser
         return null;
     }
 
+    /// <summary>
+    ///     Derives a coarse device class (Desktop / Mobile / Tablet) from a raw
+    ///     User-Agent string. Uses OS-level tokens (iPhone, Android, iPad) rather
+    ///     than the parsed browser family so that iOS Chrome / iOS Safari are
+    ///     correctly classified as Mobile instead of Desktop.
+    ///
+    ///     Returns null when the UA is absent, empty, or does not contain
+    ///     recognisable browser tokens (bots, crawlers, CLI tools).
+    ///
+    ///     Accepts either a raw UA string or a short family name; if passed a
+    ///     family name the function falls back to the family-based switch so
+    ///     callers do not need to be updated.
+    /// </summary>
+    public static string? ClassifyDeviceClass(string? ua)
+    {
+        if (string.IsNullOrWhiteSpace(ua))
+            return null;
+
+        var u = ua.Trim();
+
+        // Tablet check first -- iPad UA contains "Mobile" token on iOS 13+
+        if (u.Contains("iPad", StringComparison.OrdinalIgnoreCase)
+            || u.Contains("Tablet", StringComparison.OrdinalIgnoreCase))
+            return "Tablet";
+
+        // Mobile OS tokens take precedence over browser family
+        if (u.Contains("iPhone", StringComparison.OrdinalIgnoreCase)
+            || u.Contains("Android", StringComparison.OrdinalIgnoreCase)
+            || u.Contains("Mobile", StringComparison.OrdinalIgnoreCase))
+            return "Mobile";
+
+        // Recognised desktop browser families (full UA string or family name)
+        if (u.Contains("Chrome/", StringComparison.Ordinal)
+            || u.Contains("Firefox/", StringComparison.Ordinal)
+            || u.Contains("Safari/", StringComparison.Ordinal)
+            || u.Contains("Edg/", StringComparison.Ordinal)
+            || u.Contains("OPR/", StringComparison.Ordinal)
+            || u.Contains("MSIE", StringComparison.Ordinal)
+            || u.Contains("Trident/", StringComparison.Ordinal))
+            return "Desktop";
+
+        // Family-name fallback (for callers that pass the ua.family signal)
+        return u switch
+        {
+            "Chrome" or "Firefox" or "Safari" or "Edge"
+                or "Opera" or "Internet Explorer" or "Brave" or "Vivaldi" => "Desktop",
+            _ => null,
+        };
+    }
+
     private static string? ExtractVersion(string ua, string token)
     {
         var idx = ua.IndexOf(token, StringComparison.Ordinal);
