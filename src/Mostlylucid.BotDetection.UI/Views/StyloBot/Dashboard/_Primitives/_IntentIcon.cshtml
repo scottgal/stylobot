@@ -1,0 +1,18 @@
+@using Mostlylucid.BotDetection.UI.Models.Primitives
+@model IntentIconModel
+@{
+    var intent = Model.Intent ?? "Unknown";
+    var (icon, label) = intent switch
+    {
+        "Scraper" or "Scanner"  => ("bx-spider", "Scraper"),
+        "Probe"                 => ("bx-search-alt", "Probe"),
+        "AI" or "AiBot"         => ("bx-brain", "AI"),
+        "Tool"                  => ("bx-wrench", "Tool"),
+        "Browser"               => ("bx-globe", "Browser"),
+        "Crawler"               => ("bx-network-chart", "Crawler"),
+        "Automated"             => ("bx-bot", "Automated"),
+        "MonitoringBot"         => ("bx-pulse", "Monitor"),
+        _                       => ("bx-help-circle", intent)
+    };
+}
+<i class="bx @icon text-base-content/60 text-base" title="@label" aria-label="@label"></i>
