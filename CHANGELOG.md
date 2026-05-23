@@ -5,6 +5,111 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.7.5] - 2026-05-23
+
+Follow-up to the pre-launch hardening pass. Three substantive additions on top of 6.7.0: a fediverse-domain corroboration channel for the friendly-pin gate (so a Mastodon stampede on arbitrary cloud IPs can be cleared without a spoofable-UA shortcut), a Mostlylucid.Notify-backed auth email pipeline (replaces the bespoke `StyloBotSmtpEmailSender` MailKit code with three RazorSlices templates), and a third stage of the dashboard investigate redesign that promotes the signature-card pattern across Endpoints / Detections / Geo. Plus the usual sweep of risk-band ergonomics, single-source cache fixes, and licensing-gate plumbing.
+
+### Added: fediverse NodeInfo verification (`FediverseDomainContributor`, priority 5)
+
+The 6.7.0 friendly-pin gate required `friendly.ip_verified = true` before it would downgrade a friendly-classified UA to its calm risk band. That works for SearchEngine / GoodBot / VerifiedBot where the vendor publishes IP ranges, but fediverse software (Mastodon, Pleroma, Misskey, Akkoma, Firefish, Sharkey, etc.) runs on arbitrary cloud IPs by design -- there is no range to match -- so 50-instance card-preview stampedes were dropping straight through to behavioural scoring and getting labelled scanner-shaped. (`154dea5`)
+
+ActivityPub defines the cross-corroboration channel: `/.well-known/nodeinfo` on every conformant instance is a discovery doc pointing at a machine-readable software descriptor. If a UA carrying `+https://instance/` resolves to a NodeInfo naming real fediverse software, the UA is corroborated by a non-UA channel (an outbound HTTPS GET against the claimed domain). Same trust level as IP-range verification, just a different proof method.
+
+- **`IFediverseDomainVerifier` / `FediverseDomainVerifier`**: typed `HttpClient` with strict SSRF guards (no IP literals -- including `169.254.169.254` IMDS -- no `.local` / `.localhost` / `.invalid` / `.internal` / `.arpa` / `.test` / `.example`, https-only, `AllowAutoRedirect = false`, 3s per-hop timeout, 32KB max body, fediverse software whitelist). Two-step lookup (discovery → NodeInfo doc) with same-host requirement on the discovery link so a NodeInfo pointer can never be followed to a third party. 24h positive / 1h negative cache; in-flight de-dup collapses 50 concurrent visitors for one domain into ONE outbound request.
+- **`FediverseDomainContributor`**: runs in the first wave alongside `VerifiedBotContributor`. UA prefilter + `+https://instance/` regex; calls the verifier; writes `friendly.domain_verified` (true / false / null) and emits a `DetectionContribution` row for the dashboard trace (negative weight on success, positive on failed verification so a spoofed Mastodon-claim UA reads as suspicious).
+- **`SignalKeys.FriendlyDomainVerified`**: mirrors `FriendlyIpVerified` semantics. The gate in `DetectionLedgerExtensions.DetermineRiskBand` now reads "EITHER signal=true satisfies; either signal=false blocks; both null falls through to standard band calc". Trace strings name which channel fired: `fired:ledger+domain:Mastodon`, `fired:yaml+ip+domain:...`, `skipped:domain_check_failed`.
+- **36-test SSRF guard contract** covers IP literals (incl. IMDS), reserved TLDs, malformed hostnames, length cap, normalisation.
+
+### Added: Mostlylucid.Notify auth email pipeline
+
+The dashboard's Identity surface (registration confirmation, password reset, MFA code) was using bespoke MailKit code in `StyloBotSmtpEmailSender`. This release routes it through `Mostlylucid.Notify` v0.1.1 with three typed RazorSlices templates so the auth email path matches the rest of the platform's notification pipeline. (`1fb67b1`, `583ebe5`, `83fa263`, `68e1179`, `2a837a3`, `ebe3ec9`, `937c73d`, `0ee1268`)
+
+- **Three M0 templates** under `Mostlylucid.BotDetection.UI/Notifications/`:
+  - `RegistrationVerifyEmail` (template id `registration.verify`)
+  - `PasswordResetEmail` (template id `auth.password.reset`)
+  - `MfaCodeEmail` (template id `auth.mfa.code`)
+
+  Each has a typed model (`RegistrationVerifyModel`, `PasswordResetModel`, `MfaCodeModel`), a RazorSlices `.cshtml` for HTML rendering, and a plain-text fallback. Validity windows render natural-language ("2 hours" / "15 minutes") rather than raw timespan strings (`937c73d`).
+- **`StyloBotSmtpEmailSender` is now a shim onto `INotificationSender`** (`68e1179`). Identity's `IEmailSender<StyloBotUser>` contract is preserved; each of the three typed callbacks maps to one of the three templates with no string-matching heuristic. The class is `[Obsolete]` -- callers should migrate to `INotificationSender` + typed models directly.
+- **`StyloBotDevEmailSender` is `[Obsolete]`** with the replacement (`AddNotifyEmailLogging`) in the message (`2a837a3`).
+- **`AddStyloBotSmtp(IConfiguration)`** wires the Notify pipeline (`AddNotify` → `AddNotifyEmail` → `AddEmailTemplate × 3`) alongside the existing `IEmailSender` registration. The library can't reach `IHost` itself; XML doc tells consumers to call `ActivateNotifyTemplates()` after `Build()`.
+- **Hotfix: dropped the outbox + drain wiring** (`0ee1268`). Staging crash-looped with `Unable to resolve service for type 'Mostlylucid.Ephemeral.IEphemeralCoordinator' while attempting to activate 'Mostlylucid.Notify.Drain.EphemeralDrainStarter'`. Root cause: Notify v0.1's `EmailSender` does synchronous direct-send via MailKit and doesn't enqueue, so `AddNotifyOutboxSqlite` + `StartDrainOnCoordinator` were dead code that registered a drain starter requiring an `IEphemeralCoordinator` the host didn't pre-register. Hotfix removes both lines; direct-send keeps working. Outbox-backed retry will return in Notify 0.1.2+ once the library bootstraps its own coordinator.
+- **Notify bumped 0.1.0 → 0.1.1** (`ebe3ec9`) for an IL2091 AOT annotation fix.
+
+### Added: dashboard investigate redesign stage 3 (cards everywhere)
+
+Stages 1 and 2 (`3777638`, `51b041c`) introduced the icon + colour-bar + badge + inline-SVG-sparkline pattern on the signature cards. Stage 3 (`cf6ba58`) rolls the same pattern across the three remaining tabs in the Investigation panel, replacing the old inline-CSS tables and text-heavy risk labels.
+
+- **Endpoints**: method-pill (`GET` green / `POST` orange / `PUT`-`PATCH` blue / `DELETE` red) + path-category icon (ENV, Config, Admin, Backup, API, Auth, App) + 5-bar risk meter + bot-probability strip in place of the `37%` column.
+- **Detections**: cards replace the table-with-hidden-tr expansion; the detail row is now an Alpine `$data` toggle directly on the card so the chevron rotates and keyboard tab order stays sane. Also kills a silent bug: the old inline switch matched lower-case `high` / `medium` / `low` against the canonical `VeryHigh` / `High` / `Medium`, so the colour never lit -- now goes through `BotDisplayHelpers.ColorForRiskBand` (single source).
+- **Geo**: flag SVG + demonym + bot:human ratio strip (red/green split bar) replaces the `27 bots / 14 human` arithmetic. Risk bars only render when `DominantRiskBand` is non-null so empty rows don't show a stale meter.
+- **New `BotDisplayHelpers` entries** (single-source so future relabels hit one switch): `IconForHttpMethod`, `ColorForHttpMethod`, `IconForPathCategory` (mirrors `CategorizePath`).
+
+### Changed: risk-band gate (UA alone is never enough)
+
+A short series of iterations on the friendly-pin gate that ended with the strict rule. (`5591647`, `2d13cd0`, `3ffeeef`)
+
+- First the YAML friendly pattern was given override authority over `isConfirmedBad` so a recovering Googlebot wasn't pinned forever on a stale reputation row (`5591647`).
+- Then walked that back to its current form (`3ffeeef`): a friendly UA match is necessary but never sufficient. Friendly pin REQUIRES `friendly.ip_verified == true` OR `friendly.domain_verified == true`. Three states each, both null = "no verifier in the pipeline yet, UA alone is not enough, fall through to standard band calc". `isConfirmedBad` still blocks the pin in all branches; the threat-score gate (`< 0.55`) still universal.
+- Documented production reality: with no friendly-IP contributor wired yet (only `GoodBotIpRangeRefreshService` loading vendor ranges; no contributor emitting `friendly.ip_verified`), the new fediverse domain channel is the *only* corroboration source today, so the gate fires for fediverse traffic and falls through for everyone else. That's the correct default; risking false-Low pins on a spoofable signal erodes trust more than over-banding a real GoodBot.
+
+### Changed: dashboard single-source for `risk_band` + `threat_band`
+
+Same fingerprint was showing different risk bands depending on which surface the operator looked at: overview rendered `SignatureAggregateCache.RiskBand`; the signature-detail page on cache miss read `detections[0].RiskBand` straight from SQLite. The two could disagree any time a cache-eviction race landed between writes, and the operator saw an authority gap. (`99dd94e`, `58a6191`, `b4d04af`)
+
+- **`SignatureAggregateCache` is now the only read source** for `risk_band`, `threat_band`, `bot_name`, `bot_type`, `bot_probability` across every dashboard widget. Cache is ephemeral / LRU-style; on miss it warms itself from the persistent store via `WarmFromDetections(signature, detections)` and the caller re-reads from cache. No surface reads SQLite directly for these fields.
+- **Majority-vote band folding**: when warming an aggregate from N detection rows, `RiskBand` and `ThreatBand` fold by majority across rows (severity ties go to the higher band) so a single anomalous row can't flip the headline value. Bot name / type take the first non-empty across rows; per-request fields (Action, ProcessingTimeMs, Country, Narrative) take the freshest. Score history is rebuilt oldest → newest so sparkline reads left-to-right.
+- **`VisitorListCache.GetFiltered`** now overrides `RiskBand` and `ThreatBand` from the aggregate at render time alongside the pre-existing `BotName` / `BotType` override, so the visitor card and the signature-detail page can't drift apart on these fields.
+- **`RiskJustification` tracks the current band, not the historical one** (`58a6191`): ghost-campaign matches read from cache so a band downgrade actually reflects in the trace string instead of showing yesterday's justification.
+- **Bot-name fallback to UserAgent signals** (`b4d04af`): when the ledger has no `BotName` set yet (early-life fingerprint), `DetectionLedgerExtensions` now falls back through `useragent.bot_name` → `useragent.family` → `useragent.client_name` so the visitor list never shows a raw signature ID.
+
+### Changed: live-update animations use the View Transitions API
+
+The previous OOB-swap animation racing was fragile: it depended on the `htmx-added` class landing before the browser painted, and dropped frames on slower hardware. (`36b5e24`, `de4676f`, `361f535`, `9917037`)
+
+- **`SbLiveUpdatesTagHelper` drives the swap through `document.startViewTransition`** when the browser supports it. Falls back to the previous behaviour on older browsers (no flicker, just no animation).
+- **`htmx.ajax` wrapper hooks the transition**, rather than racing the OOB syntax (`de4676f`): the wrapper schedules the transition around the response apply step, so the in / out animations always pair up across the full DOM diff instead of per-element.
+- **SSR-vs-OOB row count + flicker on swap** (`9917037`): the SSR view-component's collapsed/expanded state now matches the OOB swap, so the panel doesn't flicker open-then-closed on page load.
+
+### Changed: PR #24 -- millisecond-precision timing + flexible investigation filters
+
+`Refactor time tracking and investigation filters` (`49641e3`). Two threads:
+
+- **`ProcessingTimeMs` widened from `int` to `double`** across `BotDetectionResult`, the orchestrator chain (`BlackboardOrchestrator`, `EphemeralDetectionOrchestrator`, `ResponseDetectionOrchestrator`, `ReactiveDetectionOrchestrator`, `SignalDrivenDetectionService`), `BotDetectionService`, `WeightStore`, and `VersionAgeDetector`. Sub-millisecond timing was being floored to 0ms, hiding the real shape of the latency distribution. The dashboard renders rounded but the histogram bucket is now meaningful.
+- **Investigation filter accepts flexible free-text input**: `InvestigationModels` + `SqliteDashboardEventStore` broaden the matching surface so an operator typing `mastodon`, `RU`, `/wp-admin`, or `163.172.` all narrow the list rather than requiring exact column matches. PostgreSQL store updated to parity (in `stylobot-commercial`).
+
+### Changed: visitor-list naming pipeline deleted
+
+The visitor list still carried a parallel regex-based naming pipeline (a 287-line `VisitorListCache` switch over a stack of friendly-name regexes) left over from before the 6.7.0 naming-pipeline collapse. It produced different names than `FingerprintNameComposer` did, so the visitor card and the signature-detail page could disagree even when their data sources agreed. (`153c84d`, `d90adff`)
+
+- **`VisitorListCache` cut from 287 lines to 33** (`153c84d`). Naming comes from `SignatureAggregateCache` only; the regex pipeline is gone.
+- **`FindFriendlyBotType` dropped** (`d90adff`). The detail-page model was carrying the helper plus a duplicate version of the same friendly-type lookup that already lived in `DetectionLedgerExtensions`. Now one path.
+
+### Changed: licensing gate covers endpoint pinning
+
+`Pin Endpoint` is a paid feature. 6.7.0 hid the UI on the FOSS build but left the POST endpoint open. (`f92333b`)
+
+- **`EndpointsListModel` / `EndpointDetailModel` carry `IsCommercial`** sourced from `IsCommercialMode(context)` (same gate every other paid feature uses). The "Pin Endpoint" button + form in `SbEndpointsList` and the "Unpin" button in `_EndpointDetail` are hidden when false. Pinned/honeypot badges still render in FOSS so seeded sample data demonstrates the feature exists; only mutation is gated.
+- **API handlers return `402 Payment Required`** on the FOSS build for `GET /api/endpoint-pins`, `POST /api/endpoint-pins`, `DELETE /api/endpoint-pins/{id}` -- closes the "hide UI but leave POST open" hole.
+
+### Changed: navbar theme switcher trimmed to Dark / Light / System
+
+`_StylobotNavbar.cshtml` carried six theme options inherited from the original Tailwind-themed marketing site. The actual styled themes were Dark + Light + System (everything else fell through to one of the three at render time). (`6fca30d`)
+
+Now three options. Less indecision, no behavioural change.
+
+### Fixed
+
+- **`FediverseDomainContributor` missing using** (`f04efb0`): added `using` for `DetectionContribution` so the new contributor compiled cleanly on Release.
+- **Razor build break in `_EndpointsCompact`** (`f83e435`): nested `@{}` inside an `else` block was rejected by the new Razor compiler.
+- **Unreachable patterns in the friendly-pin trace switch** (`2d13cd0`): hotfix on top of the YAML override commit; switch arm ordering meant the explicit `(null, null)` arm was never reached.
+- **Unescaped double quotes inside a verbatim-interpolated JS block** in `SbLiveUpdatesTagHelper` (`361f535`).
+- **Activity-tab 50/50 split + chrome alignment** (`58b2e6f`): the two panels were rendering with different padding so the bottom border didn't align across the fold.
+
+### Docs
+
+No new doc files; surfaces updated as commit messages above. Operator-facing notes on the new `friendly.domain_verified` channel land in the next docs pass alongside the verifier configuration block.
+
 ## [6.7.0] - 2026-05-21
 
 This release is the pre-launch hardening pass. The detection engine is feature-frozen; this round is about operator ergonomics (admin reload, edge-injected client signals), dashboard surface (compact metric strip, session detail full-page route, endpoint detail panel, theme picker), naming coherence (one canonical pipeline, no duplicate names across a fingerprint), and a pipeline quality sweep that removes dead code from 6.x prototyping. Default posture is observe-only with a pre-launch banner so operators can calibrate before flipping to hard block.
