@@ -1,0 +1,39 @@
+@using Mostlylucid.BotDetection.UI.Models.Primitives
+@using Mostlylucid.BotDetection.UI.Services
+@model SparklineModel
+@{
+    const int W = 60;
+    const int H = 18;
+    // Use a shared max across both series so the human trend doesn't get squashed
+    // out of view when bot traffic dwarfs it.
+    int sharedMax = 1;
+    foreach (var v in Model.BotTrend)   if (v > sharedMax) sharedMax = v;
+    foreach (var v in Model.HumanTrend) if (v > sharedMax) sharedMax = v;
+
+    var botPath   = SparklinePathBuilder.Build(Model.BotTrend,   W, H, sharedMax);
+    var humanPath = SparklinePathBuilder.Build(Model.HumanTrend, W, H, sharedMax);
+
+    int botSum = 0, humanSum = 0;
+    foreach (var v in Model.BotTrend)   botSum   += v;
+    foreach (var v in Model.HumanTrend) humanSum += v;
+    var title = $"{Model.WindowMinutes}m: {botSum:N0} bot · {humanSum:N0} human";
+    var hasData = botPath.Length > 0 || humanPath.Length > 0;
+}
+<svg width="@W" height="@H" viewBox="0 0 @W @H" style="overflow:visible;" role="img" aria-label="@title">
+    <title>@title</title>
+    @if (hasData)
+    {
+        @if (humanPath.Length > 0)
+        {
+            <path d="@humanPath" stroke="var(--color-success, #22c55e)" fill="none" stroke-width="1" opacity="0.55" />
+        }
+        @if (botPath.Length > 0)
+        {
+            <path d="@botPath" stroke="var(--color-error, #ef4444)" fill="none" stroke-width="1.2" />
+        }
+    }
+    else
+    {
+        <line x1="0" y1="@(H-1)" x2="@W" y2="@(H-1)" stroke="var(--color-base-content, #888)" stroke-opacity="0.15" stroke-width="1" />
+    }
+</svg>
