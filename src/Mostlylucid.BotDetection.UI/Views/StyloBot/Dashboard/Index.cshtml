@@ -1,4 +1,7 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Services
+@using System.Text.Json
+@inject IDashboardEventStore EventStore
 @model DashboardShellModel
 @{
     // No Layout = null. Host's _ViewStart picks the layout (the website's _Layout
@@ -12,6 +15,32 @@
     string TabClass(string t) => tab == t
         ? "bg-base-100 shadow-sm text-base-content font-semibold"
         : "text-base-content/40 hover:text-base-content/60";
+
+    // SSR-seed the Traffic Over Time chart with the default 1h window so the first
+    // paint shows real data instead of empty axes (the chart's refreshChart() still
+    // runs on load + every 15s to refresh, but the empty-axes flicker the user
+    // perceived as 'broken graphs' is gone).
+    List<DashboardTimeSeriesPoint>? __trafficSeed = null;
+    if (tab == "overview")
+    {
+        try
+        {
+            var __end = DateTime.UtcNow;
+            var __start = __end.AddHours(-1);
+            __trafficSeed = await EventStore.GetTimeSeriesAsync(__start, __end, TimeSpan.FromMinutes(1));
+        }
+        catch
+        {
+            __trafficSeed = null;
+        }
+    }
+    var __trafficSeedJson = __trafficSeed is { Count: > 0 }
+        ? JsonSerializer.Serialize(__trafficSeed.Select(p => new {
+            t = new DateTimeOffset(DateTime.SpecifyKind(p.Timestamp, DateTimeKind.Utc)).ToUnixTimeMilliseconds(),
+            h = p.HumanCount,
+            b = p.BotCount
+        }))
+        : "[]";
 }
 <script nonce="@Model.CspNonce">
     (function() {
@@ -239,6 +268,11 @@
                     </div>
                     <div class="p-2 flex-1">
                         <div id="time-chart" style="height: 100%; min-height: 240px;"></div>
+                        @* SSR seed for first-paint data. initTimeChart() reads this before
+                           calling chart.render() so the lines are drawn immediately instead
+                           of after the first /api/timeseries fetch resolves (which left the
+                           chart showing empty axes for ~0.5-2s on every page load). *@
+                        <script type="application/json" id="time-chart-seed" nonce="@Model.CspNonce">@Html.Raw(__trafficSeedJson)</script>
                     </div>
                 </div>
 
@@ -557,6 +591,23 @@
             // toggles visibility on click but does NOT persist across data updates.
             var hiddenSeries = new Set();
 
+            // SSR seed: server pre-fetched the default 1h window and embedded it as
+            // [{t, h, b}, ...] in #time-chart-seed. Used to populate the chart on
+            // first paint so the user never sees empty axes.
+            var seedHumans = [], seedBots = [];
+            try {
+                var seedEl = document.getElementById('time-chart-seed');
+                if (seedEl) {
+                    var seed = JSON.parse(seedEl.textContent || '[]');
+                    if (Array.isArray(seed)) {
+                        seed.forEach(function(p) {
+                            seedHumans.push({ x: p.t, y: p.h || 0 });
+                            seedBots.push({ x: p.t, y: p.b || 0 });
+                        });
+                    }
+                }
+            } catch (e) { /* ignore malformed seed -- refreshChart() will fill in */ }
+
             var chart = new ApexCharts(el, {
                 chart: {
                     // Line, not area. The previous area fill closed the path back to the
@@ -583,7 +634,7 @@
                 // through into the stroke's rgba alpha, so setting opacity:0 makes the
                 // lines invisible (verified live -- paths rendered with rgba(...,0)).
                 colors: ['#2dd4bf', '#ef4444'],
-                series: [{ name: 'Human', data: [] }, { name: 'Bot', data: [] }],
+                series: [{ name: 'Human', data: seedHumans }, { name: 'Bot', data: seedBots }],
                 xaxis: {
                     type: 'datetime',
                     labels: { style: { fontSize: '10px' }, datetimeUTC: false },
