@@ -1,6 +1,7 @@
-@* Bot Ticker - Real-time detection feed using SignalR + Alpine.js + HTMX *@
+@* Bot Ticker - Real-time detection feed using SignalR + Alpine.js + HTMX.
+   Hub path is computed client-side from window.__styloBotBasePath so the component
+   works on every host (FOSS default /_stylobot, commercial /dashboard, custom mounts). *@
 @{
-    var hubPath = "/_stylobot/hub";
     var cspNonce = ViewContext.HttpContext.Items["CspNonce"]?.ToString() ?? string.Empty;
 }
 
@@ -102,7 +103,7 @@ document.addEventListener('alpine:init', () => {
                 }
 
                 this.connection = new signalR.HubConnectionBuilder()
-                    .withUrl('@hubPath')
+                    .withUrl((window.__styloBotBasePath || '/_stylobot') + '/hub')
                     .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
                     .configureLogging(signalR.LogLevel.Warning)
                     .build();

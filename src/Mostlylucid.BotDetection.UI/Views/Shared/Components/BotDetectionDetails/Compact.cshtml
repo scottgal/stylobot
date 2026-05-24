@@ -3,7 +3,9 @@
 
 @* Compact Detection Bar - Real-time updates via SignalR *@
 @{
-    var hubPath = "/_stylobot/hub";
+    // hubPath unused -- the inline script reads window.__styloBotBasePath at runtime
+    // so the component works on every host (FOSS default /_stylobot, commercial
+    // /dashboard, custom mounts) without re-rendering.
     var initialSignature = Model.Signatures?.PrimarySignature ?? "";
     var cspNonce = ViewContext.HttpContext.Items["CspNonce"]?.ToString() ?? string.Empty;
     var initialData = new {
@@ -172,7 +174,7 @@ document.addEventListener('alpine:init', () => {
                 }
 
                 this.connection = new signalR.HubConnectionBuilder()
-                    .withUrl('@hubPath')
+                    .withUrl((window.__styloBotBasePath || '/_stylobot') + '/hub')
                     .withAutomaticReconnect([0, 2000, 5000, 10000, 30000])
                     .configureLogging(signalR.LogLevel.Warning)
                     .build();
