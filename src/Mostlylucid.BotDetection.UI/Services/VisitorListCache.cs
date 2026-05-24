@@ -77,7 +77,12 @@ public class VisitorListCache
                     BotName = detection.BotName,
                     BotType = detection.BotType,
                     CountryCode = detection.CountryCode,
-                    UserAgent = detection.UserAgent,
+                    // DashboardDetectionEvent carries two UA fields: UserAgent (set by
+                    // the live detection pipeline) and UserAgentRaw (set by SQLite warmup
+                    // from the user_agent_raw column). Warmup-loaded events only have the
+                    // latter, so prefer it when present; otherwise fall back to the live
+                    // field. Without this coalesce, warmed rows show "-" in the UA column.
+                    UserAgent = detection.UserAgentRaw ?? detection.UserAgent,
                     Narrative = detection.Narrative,
                     Description = detection.Description,
                     TopReasons = detection.TopReasons.ToList(),
@@ -92,7 +97,12 @@ public class VisitorListCache
                     ThreatBand = detection.ThreatBand,
                     Protocol = ExtractProtocol(detection),
                     IpSubnetSignature = ExtractSignal(detection, "ip.subnet"),
-                    UaFamily = ExtractSignal(detection, "ua.family"),
+                    // ua.family in RawSignals is set by the live detection pipeline.
+                    // Warmup-loaded events have an empty RawSignals dict; derive the
+                    // family from the stored UA string in that case so the Visitors
+                    // table's "UA" column is populated for warmed rows too.
+                    UaFamily = ExtractSignal(detection, "ua.family")
+                        ?? DeriveUaFamily(detection.UserAgentRaw ?? detection.UserAgent),
                     FingerprintId = ExtractSignal(detection, "identity.fingerprint_id"),
                     ClusterId = ExtractSignal(detection, "cluster.id"),
                     RadarShape = detection.RadarShape,
@@ -136,8 +146,11 @@ public class VisitorListCache
                     }
                     if (!string.IsNullOrEmpty(detection.CountryCode))
                         existing.CountryCode = detection.CountryCode;
-                    if (!string.IsNullOrEmpty(detection.UserAgent))
-                        existing.UserAgent = detection.UserAgent;
+                    // Coalesce both UA sources -- live pipeline fills UserAgent, warmup
+                    // fills UserAgentRaw. Same defensive read as the create branch above.
+                    var incomingUa = detection.UserAgentRaw ?? detection.UserAgent;
+                    if (!string.IsNullOrEmpty(incomingUa))
+                        existing.UserAgent = incomingUa;
                     existing.ProcessingTimeMs = detection.ProcessingTimeMs;
                     if (detection.ProcessingTimeMs > existing.MaxProcessingTimeMs)
                         existing.MaxProcessingTimeMs = detection.ProcessingTimeMs;
@@ -164,7 +177,8 @@ public class VisitorListCache
                     var subnet = ExtractSignal(detection, "ip.subnet");
                     if (!string.IsNullOrEmpty(subnet))
                         existing.IpSubnetSignature = subnet;
-                    var uaFamily = ExtractSignal(detection, "ua.family");
+                    var uaFamily = ExtractSignal(detection, "ua.family")
+                        ?? DeriveUaFamily(incomingUa);
                     if (!string.IsNullOrEmpty(uaFamily))
                         existing.UaFamily = uaFamily;
                     if (detection.RadarShape is { Length: 16 })
@@ -530,6 +544,18 @@ public class VisitorListCache
         if (detection.ImportantSignals.TryGetValue(key, out var v) && v is not null)
             return v.ToString();
         return null;
+    }
+
+    /// <summary>
+    ///     Parse the UA family ("Chrome", "Safari", "curl", "Googlebot", ...) out of
+    ///     the raw UA string when the live pipeline's ua.family signal isn't present.
+    ///     Used for warmup-loaded events whose ImportantSignals dictionary is empty.
+    /// </summary>
+    private static string? DeriveUaFamily(string? userAgent)
+    {
+        if (string.IsNullOrEmpty(userAgent)) return null;
+        var family = Mostlylucid.BotDetection.Helpers.UserAgentParser.Parse(userAgent).Family;
+        return string.IsNullOrEmpty(family) ? null : family;
     }
 
     // Filter categories key off BotType. BotType is the authoritative classification
