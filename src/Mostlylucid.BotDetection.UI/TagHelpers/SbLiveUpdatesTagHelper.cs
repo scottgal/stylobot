@@ -346,22 +346,18 @@ public class SbLiveUpdatesTagHelper : TagHelper
 
         var url = BASE + '/partials/update?' + qs.toString();
         if (typeof htmx !== 'undefined') {{
-            // Wrap the OOB batch in the View Transitions API when available so the
-            // browser cross-fades old->new on every [data-sb-widget] swapped in this
-            // batch. The DOM mutations htmx.ajax triggers inside the callback are
-            // captured by startViewTransition; the browser snapshots the before
-            // state, runs the swaps synchronously inside the callback, then animates
-            // old -> new using the view-transition-name we set per widget. Falls
-            // through to a plain swap when the API is unavailable (Firefox today).
-            if (typeof document.startViewTransition === 'function') {{
-                document.startViewTransition(function() {{
-                    return new Promise(function(resolve) {{
-                        htmx.ajax('GET', url, {{ target: 'body', swap: 'none' }}).then(resolve, resolve);
-                    }});
-                }});
-            }} else {{
-                htmx.ajax('GET', url, {{ target: 'body', swap: 'none' }});
-            }}
+            // No View Transitions wrapper on the beacon path. startViewTransition
+            // snapshots the entire document and overlays ::view-transition-old/-new
+            // pseudo-elements during the ~160ms animation; the user's cursor moves
+            // over the snapshot (not the live DOM) so hover state does not propagate
+            // and EVERY link on the page (tab nav, header chrome, anything) flips
+            // hand -> arrow -> hand on every beacon. Beacons fire ~1.5x/sec; the
+            // user perceives constant cursor flicker and links go un-hittable for
+            // ~100ms windows. The beacon only innerHTML-swaps a single tbody data
+            // region in < 1 frame -- there is nothing to cross-fade, the overlay
+            // is pure cost. View Transitions stay for actual navigation, but the
+            // SignalR beacon path is plain htmx.ajax now.
+            htmx.ajax('GET', url, {{ target: 'body', swap: 'none' }});
         }}
     }}
 
