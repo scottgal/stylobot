@@ -464,12 +464,19 @@ public class VisitorListCache
 
     /// <summary>
     ///     Warm the cache from persisted detection events (e.g. on startup).
-    ///     Only populates if the cache is currently empty.
+    ///     Idempotent: Upsert handles existing entries via AddOrUpdate, so calling
+    ///     this when the cache already has live entries merges rather than skips.
+    ///     <para>
+    ///     Previously this method returned early when <c>!_visitors.IsEmpty</c>.
+    ///     Combined with the warmup service's 2-second startup delay, a single
+    ///     live request arriving in that window populated the cache with one
+    ///     entry and the guard skipped the warm entirely -- staging routinely
+    ///     ended up with VisitorListCache=1 while SignatureAggregateCache
+    ///     warmed correctly to 90+. Removing the guard restores symmetry.
+    ///     </para>
     /// </summary>
     public void WarmFrom(IEnumerable<DashboardDetectionEvent> detections)
     {
-        if (!_visitors.IsEmpty) return;
-
         foreach (var detection in detections)
             Upsert(detection);
     }
