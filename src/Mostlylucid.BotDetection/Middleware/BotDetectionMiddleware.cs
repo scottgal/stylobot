@@ -603,12 +603,16 @@ public class BotDetectionMiddleware(
         // Check for triggered action policy first (takes precedence over built-in actions)
         if (!string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName))
         {
-            var actionPolicy = actionPolicyRegistry.GetPolicy(aggregatedResult.TriggeredActionPolicyName);
+            var actionPolicy = MaybeShadowForObserveOnly(
+                actionPolicyRegistry,
+                actionPolicyRegistry.GetPolicy(aggregatedResult.TriggeredActionPolicyName));
             if (actionPolicy != null)
             {
                 _logger.LogInformation(
-                    "[ACTION] Executing action policy '{ActionPolicy}' for {Path} (risk={Risk:F2})",
-                    aggregatedResult.TriggeredActionPolicyName, context.Request.Path, aggregatedResult.BotProbability);
+                    "[ACTION] Executing action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2})",
+                    aggregatedResult.TriggeredActionPolicyName,
+                    _options.ObserveOnly ? " [observe-only shadow]" : "",
+                    context.Request.Path, aggregatedResult.BotProbability);
 
                 var actionResult = await actionPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
 
@@ -644,7 +648,9 @@ public class BotDetectionMiddleware(
             && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
 #pragma warning restore CS0618
         {
-            var fallbackPolicy = actionPolicyRegistry.GetPolicy(_options.DefaultActionPolicyName);
+            var fallbackPolicy = MaybeShadowForObserveOnly(
+                actionPolicyRegistry,
+                actionPolicyRegistry.GetPolicy(_options.DefaultActionPolicyName));
             if (fallbackPolicy != null)
             {
                 // Update the evidence so downstream (dashboard, logging) sees the action
@@ -655,8 +661,10 @@ public class BotDetectionMiddleware(
                 context.Items[AggregatedEvidenceKey] = aggregatedResult;
 
                 _logger.LogInformation(
-                    "[ACTION] Executing default action policy '{ActionPolicy}' for {Path} (risk={Risk:F2})",
-                    _options.DefaultActionPolicyName, context.Request.Path, aggregatedResult.BotProbability);
+                    "[ACTION] Executing default action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2})",
+                    _options.DefaultActionPolicyName,
+                    _options.ObserveOnly ? " [observe-only shadow]" : "",
+                    context.Request.Path, aggregatedResult.BotProbability);
 
                 await fallbackPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
 
@@ -1690,6 +1698,32 @@ public class BotDetectionMiddleware(
     }
 
     /// <summary>
+    ///     ObserveOnly hook: when <see cref="BotDetectionOptions.ObserveOnly"/>
+    ///     is set, swap the resolved action policy for <c>logonly</c> so the
+    ///     visitor sees no behaviour change while the dashboard still records
+    ///     which policy would have fired (via
+    ///     <see cref="AggregatedEvidence.TriggeredActionPolicyName"/>).
+    ///     The substitution is a no-op when the original policy already
+    ///     carries <see cref="PolicyIntent.Pass"/>.
+    /// </summary>
+    /// <param name="registry">Action policy registry (used to fetch <c>logonly</c>).</param>
+    /// <param name="resolved">The policy that would normally execute.</param>
+    /// <returns>
+    ///     <paramref name="resolved"/> when observe-only is off, otherwise
+    ///     <c>logonly</c> from the registry. Falls back to
+    ///     <paramref name="resolved"/> if <c>logonly</c> isn't registered.
+    /// </returns>
+    private IActionPolicy? MaybeShadowForObserveOnly(IActionPolicyRegistry registry, IActionPolicy? resolved)
+    {
+        if (!_options.ObserveOnly) return resolved;
+        if (resolved is null) return null;
+        if (resolved.Intent == PolicyIntent.Pass) return resolved;
+        var shadow = registry.GetPolicy("logonly");
+        if (shadow is null) return resolved; // can't find logonly -> better to apply original than fail open silently
+        return shadow;
+    }
+
+    /// <summary>
     ///     Handles action policies and blocking logic after detection.
     ///     Returns true if request was handled (blocked/action executed), false to continue pipeline.
     /// </summary>
@@ -1706,12 +1740,16 @@ public class BotDetectionMiddleware(
         // Execute action policy if triggered
         if (!string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName))
         {
-            var actionPolicy = actionPolicyRegistry.GetPolicy(aggregatedResult.TriggeredActionPolicyName);
+            var actionPolicy = MaybeShadowForObserveOnly(
+                actionPolicyRegistry,
+                actionPolicyRegistry.GetPolicy(aggregatedResult.TriggeredActionPolicyName));
             if (actionPolicy != null)
             {
                 _logger.LogInformation(
-                    "[ACTION] {LogPrefix} executing action policy '{ActionPolicy}' for {Path} (risk={Risk:F2})",
-                    logPrefix, aggregatedResult.TriggeredActionPolicyName, context.Request.Path, aggregatedResult.BotProbability);
+                    "[ACTION] {LogPrefix} executing action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2})",
+                    logPrefix, aggregatedResult.TriggeredActionPolicyName,
+                    _options.ObserveOnly ? " [observe-only shadow]" : "",
+                    context.Request.Path, aggregatedResult.BotProbability);
 
                 var actionResult = await actionPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
                 if (!actionResult.Continue)
@@ -1751,7 +1789,9 @@ public class BotDetectionMiddleware(
 
             if (!string.IsNullOrEmpty(resolvedPolicyName))
             {
-                var fallbackPolicy = actionPolicyRegistry.GetPolicy(resolvedPolicyName);
+                var fallbackPolicy = MaybeShadowForObserveOnly(
+                    actionPolicyRegistry,
+                    actionPolicyRegistry.GetPolicy(resolvedPolicyName));
                 if (fallbackPolicy != null)
                 {
                     aggregatedResult = aggregatedResult with
@@ -1761,8 +1801,10 @@ public class BotDetectionMiddleware(
                     context.Items[AggregatedEvidenceKey] = aggregatedResult;
 
                     _logger.LogInformation(
-                        "[ACTION] {LogPrefix} executing action policy '{ActionPolicy}' for {Path} (risk={Risk:F2}, type={BotType})",
-                        logPrefix, resolvedPolicyName, context.Request.Path, aggregatedResult.BotProbability, aggregatedResult.PrimaryBotType);
+                        "[ACTION] {LogPrefix} executing action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2}, type={BotType})",
+                        logPrefix, resolvedPolicyName,
+                        _options.ObserveOnly ? " [observe-only shadow]" : "",
+                        context.Request.Path, aggregatedResult.BotProbability, aggregatedResult.PrimaryBotType);
 
                     await fallbackPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
                     return false;

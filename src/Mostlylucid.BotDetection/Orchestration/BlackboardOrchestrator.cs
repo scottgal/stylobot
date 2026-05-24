@@ -636,10 +636,33 @@ public class BlackboardOrchestrator : IDetectionOrchestrator
                     trigPolicyName, requestId, trigReason);
             }
 
-            // Friendly-bot soft-throttle: when no other policy fired and the request was
-            // about to be blocked (probability over threshold) but the bot type is a known-
-            // friendly category, route through throttle-status (informational 429 +
-            // Retry-After). The fediverse stampede case: 50 Mastodon instances all hit the
+            // Per-BotType policy mapping (BotDetectionOptions.BotTypeActionPolicies).
+            // Phase 3 of the policy-grammar work: out-of-the-box defaults cover every
+            // BotType -- MaliciousBot -> block-hard, AiBot -> rate-limit-ai, SearchEngine
+            // -> rate-limit-search, and so on. Takes precedence over the legacy
+            // friendly-bot soft-throttle fallback below, so a search-engine UA with
+            // BotType.SearchEngine routes through rate-limit-search (60/min cap) instead
+            // of the hard-coded throttle-status. Falls through to friendly-bot or
+            // DefaultActionPolicyName when this map has no entry for the detected type.
+            if (string.IsNullOrEmpty(triggeredActionPolicyName)
+                && result.PrimaryBotType is not null and not BotType.Unknown
+                && result.BotProbability >= _fullOptions.BotThreshold
+                && _fullOptions.BotTypeActionPolicies.Count > 0)
+            {
+                var botTypeName = result.PrimaryBotType.Value.ToString();
+                if (_fullOptions.BotTypeActionPolicies.TryGetValue(botTypeName, out var perTypePolicy)
+                    && !string.IsNullOrEmpty(perTypePolicy))
+                {
+                    triggeredActionPolicyName = perTypePolicy;
+                    _logger.LogInformation(
+                        "Per-BotType policy {Policy} routed via {BotType} ({Prob:F2}) for {RequestId}",
+                        perTypePolicy, botTypeName, result.BotProbability, requestId);
+                }
+            }
+
+            // Friendly-bot soft-throttle fallback: only fires when the per-BotType
+            // map didn't already route (e.g. user cleared BotTypeActionPolicies in
+            // config). The fediverse stampede case: 50 Mastodon instances all hit the
             // same URL within a second for link previews - blocking them with 403 makes
             // them give up; a 429 with Retry-After tells them to back off and try later,
             // which is what we actually want from legitimate previewers.

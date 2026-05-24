@@ -5,6 +5,55 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 6.8.0
+
+The 6.8 line lands the policy-grammar consolidation in three behaviour-preserving phases and one user-facing default flip. Out of the box: **block malicious bots, rate-limit search and AI bots, leave humans untouched.** No "detect but do nothing" by default any more. Full design at `docs/plans/2026-05-24-policy-grammar-core-experience.md`.
+
+### Added: `PolicyIntent` grammar -- phase 1 (`1dda2c4`)
+
+`PolicyIntent` (Pass / Block / RateLimit / Throttle / Challenge) sits one layer above `ActionType`: action type is "which class is wired up", intent is "what the operator is trying to do". Many-to-one mapping -- `block`, `block-hard`, `block-soft` all carry `Block`.
+
+- `IActionPolicy.Intent` property with a default implementation that derives from `ActionType` -- existing third-party policies keep working without touching them. The five built-in classes declare their intent explicitly so the concrete type also exposes it.
+- `PolicyState` + `PolicyFiringStats` records and `IPolicyStateProvider` contract for the dashboard read model.
+- `RegistryPolicyStateProvider` baseline that walks the registry. Phase 1 reports empty stats; phases 2 and 4 fill them in.
+- 13 new tests pin the `ActionType` -> `Intent` mapping and the per-class declarations.
+
+### Added: `RateLimitActionPolicy` primitive -- phase 2 (`145b658`)
+
+Real token-bucket rate limit (not delay-based throttle) keyed on `SignalKeys.PrimarySignature` (default) or remote IP. Bucket overflow delegates to a composable `OverLimitAction` resolved through the registry -- typo falls back to bare 429 + `Retry-After: 60` so a config slip doesn't open the gate.
+
+- `ITokenBucketStore` + `InMemoryTokenBucketStore` (lock-free CAS-based, per-(policy, identity) isolation, fail-open on misconfig).
+- Four built-in policies registered alongside the existing throttle/block set:
+  - `rate-limit-search` (60 req/min, burst 10 -> `throttle-status`)
+  - `rate-limit-ai` (10 req/min, burst 2 -> **`block-soft`** -- AI scrapers ignore `Retry-After`, so the overflow path bounces harder than search)
+  - `rate-limit-social` (30 req/min, burst 5 -> `throttle-status`)
+  - `rate-limit-monitoring` (6 req/min, burst 2 -> `throttle-status`)
+- `RegistryPolicyStateProvider` exposes the rate-limit params (`requestsPerMinute` / `burstSize` / `overLimitAction` / `keyBy`) so the dashboard renders real numbers instead of just policy names.
+- 33 new tests (token-bucket math, key isolation, OverLimitAction routing including the missing-fallback path, built-in registration, param surfacing).
+
+### Changed: default policy posture -- phase 3 (**USER-FACING**)
+
+The 6.7 default was "detect everything, do nothing": `BlockDetectedBots = false`, `DefaultActionPolicyName = null`, `BotTypeActionPolicies` covered only 2 of 11 `BotType` values. 6.8 ships a full default policy map and routes everything through it.
+
+- **`BotTypeActionPolicies` default covers every `BotType`:**
+  - `MaliciousBot` / `ExploitScanner` / `ClickFraud` -> `block-hard`
+  - `Tool` -> `throttle-tools`
+  - `Scraper` -> `throttle-aggressive`
+  - `AiBot` -> `rate-limit-ai`
+  - `SearchEngine` / `GoodBot` / `VerifiedBot` -> `rate-limit-search`
+  - `SocialMediaBot` -> `rate-limit-social`
+  - `MonitoringBot` -> `rate-limit-monitoring`
+  - `Unknown` is intentionally omitted; falls through to `DefaultActionPolicyName`.
+- **`DefaultActionPolicyName` default** is now `"throttle-stealth"` (was `null`). Visible bots that escape per-type routing get silently slowed rather than hard-blocked. Override to `"block"` for strict default-deny.
+- **`ObserveOnly` opt-in flag** replaces the implicit `BlockDetectedBots = false` posture as the canonical calibration-mode knob. When set, every action policy that would have fired is shadowed through `logonly` instead -- the dashboard still records *which* policy would have fired (via `AggregatedEvidence.TriggeredActionPolicyName`) but the visitor sees no behaviour change. Log lines on the shadow path are tagged ` [observe-only shadow]`.
+- **`BlackboardOrchestrator` consults `BotTypeActionPolicies` directly** (was only consulted in the fallback path in the middleware). Per-type routing now fires in the main flow, taking precedence over the hard-coded friendly-bot soft-throttle fallback. The fallback remains as a safety net for operators who clear the map in config.
+
+**Migration:** if you were running observe-only via `BlockDetectedBots = false` (the 6.7 implicit default), set `BotDetection:ObserveOnly = true` to keep that posture. To revert to "detect but do nothing", set both `BlockDetectedBots = false` AND clear `BotTypeActionPolicies` + `DefaultActionPolicyName`. The legacy `BlockDetectedBots` / `MinConfidenceToBlock` / `AllowVerifiedSearchEngines` flags are `[Obsolete]` and will be removed in v7.
+
+15 new tests pin the default mapping and the registry-cross-check (every value in the default map must be a registered built-in policy).
+
+---
+
 ## [Unreleased] - 6.7.6
 
 Two-commit consolidation that gives the honeypot subsystem a category enum and rewires the dashboard intent label to read from it. No behavioural change to detection -- catalog matches, blocks, exemptions, and rate-limiting work exactly as they did in 6.7.5; the win is structural (single source of truth) and operator-facing (a colour-grouped Category chip on the Honeypot tab).

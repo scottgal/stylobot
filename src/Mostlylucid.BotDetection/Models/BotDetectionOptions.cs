@@ -1023,16 +1023,39 @@ public class BotDetectionOptions
     public Dictionary<string, ActionPolicyConfig> ActionPolicies { get; set; } = new();
 
     /// <summary>
-    ///     Default action policy name to use when detection triggers blocking.
-    ///     If not specified, uses "block" (built-in 403 block).
+    ///     Default action policy name to use when detection triggers blocking
+    ///     and no per-<see cref="BotType"/> entry in <see cref="BotTypeActionPolicies"/>
+    ///     matches. Out of the box this is <c>throttle-stealth</c> -- visible
+    ///     bots that escape per-type routing get silently slowed rather than
+    ///     hard-blocked. Set to <c>"block"</c> for strict default-deny.
     /// </summary>
-    public string? DefaultActionPolicyName { get; set; }
+    public string? DefaultActionPolicyName { get; set; } = "throttle-stealth";
 
     /// <summary>
-    ///     Per-bot-type action policy overrides. When a bot is detected as a specific type,
-    ///     the matching policy name is used instead of DefaultActionPolicyName.
-    ///     Key is the BotType enum name (e.g., "Tool", "Scraper", "AiBot"), value is the policy name.
+    ///     Per-bot-type action policy mapping. When a bot is detected and its
+    ///     <see cref="BotType"/> is in this map, the named action policy fires
+    ///     instead of <see cref="DefaultActionPolicyName"/>.
     /// </summary>
+    /// <remarks>
+    ///     <para>
+    ///         Default mapping (6.8+) covers every <see cref="BotType"/>:
+    ///     </para>
+    ///     <list type="table">
+    ///         <listheader><term>BotType</term><description>Policy</description></listheader>
+    ///         <item><term><c>MaliciousBot</c> / <c>ExploitScanner</c> / <c>ClickFraud</c></term><description><c>block-hard</c></description></item>
+    ///         <item><term><c>Tool</c></term><description><c>throttle-tools</c> (HTTP 429 + Retry-After, exp backoff)</description></item>
+    ///         <item><term><c>Scraper</c></term><description><c>throttle-aggressive</c></description></item>
+    ///         <item><term><c>AiBot</c></term><description><c>rate-limit-ai</c> (10 req/min, burst 2 -> block-soft)</description></item>
+    ///         <item><term><c>SearchEngine</c> / <c>GoodBot</c> / <c>VerifiedBot</c></term><description><c>rate-limit-search</c> (60 req/min, burst 10 -> throttle-status)</description></item>
+    ///         <item><term><c>SocialMediaBot</c></term><description><c>rate-limit-social</c> (30 req/min, burst 5)</description></item>
+    ///         <item><term><c>MonitoringBot</c></term><description><c>rate-limit-monitoring</c> (6 req/min)</description></item>
+    ///     </list>
+    ///     <para>
+    ///         <see cref="BotType.Unknown"/> is intentionally omitted -- the
+    ///         orchestrator falls through to <see cref="DefaultActionPolicyName"/>
+    ///         for it.
+    ///     </para>
+    /// </remarks>
     /// <example>
     ///     <code>
     ///     "BotTypeActionPolicies": {
@@ -1044,9 +1067,34 @@ public class BotDetectionOptions
     /// </example>
     public Dictionary<string, string> BotTypeActionPolicies { get; set; } = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Tool"] = "throttle-tools",
-        ["MaliciousBot"] = "block-hard"
+        ["MaliciousBot"]   = "block-hard",
+        ["ExploitScanner"] = "block-hard",
+        ["ClickFraud"]     = "block-hard",
+        ["Tool"]           = "throttle-tools",
+        ["Scraper"]        = "throttle-aggressive",
+        ["AiBot"]          = "rate-limit-ai",
+        ["SearchEngine"]   = "rate-limit-search",
+        ["GoodBot"]        = "rate-limit-search",
+        ["VerifiedBot"]    = "rate-limit-search",
+        ["SocialMediaBot"] = "rate-limit-social",
+        ["MonitoringBot"]  = "rate-limit-monitoring",
     };
+
+    /// <summary>
+    ///     Calibration / shadow-mode switch. When <c>true</c>, every action
+    ///     policy that would have fired is shadowed through <c>logonly</c>
+    ///     instead -- the dashboard still records *which* policy would have
+    ///     fired (via <see cref="Orchestration.AggregatedEvidence.TriggeredActionPolicyName"/>)
+    ///     but the visitor sees no behaviour change.
+    /// </summary>
+    /// <remarks>
+    ///     Use during the pre-launch calibration window when you want to
+    ///     tune defaults against real traffic without breaking anything.
+    ///     Replaces the older implicit
+    ///     <c>BlockDetectedBots = false</c> posture as the explicit
+    ///     observe-only knob (6.8+).
+    /// </remarks>
+    public bool ObserveOnly { get; set; }
 
     // ==========================================
     // Path Exclusions and Overrides
