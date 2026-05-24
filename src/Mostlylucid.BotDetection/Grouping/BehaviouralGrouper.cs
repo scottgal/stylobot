@@ -22,16 +22,19 @@ public sealed class BehaviouralGrouper : IBehaviouralGrouper
 {
     private readonly IOptionsMonitor<GroupingOptions> _options;
     private readonly ISubnetRotationTracker _subnetTracker;
+    private readonly ISessionSimilarityLookup? _vectorLookup;
     private readonly ILogger<BehaviouralGrouper> _logger;
 
     public BehaviouralGrouper(
         IOptionsMonitor<GroupingOptions> options,
         ILogger<BehaviouralGrouper> logger,
-        ISubnetRotationTracker subnetTracker)
+        ISubnetRotationTracker subnetTracker,
+        ISessionSimilarityLookup? vectorLookup = null)
     {
         _options = options;
         _logger = logger;
         _subnetTracker = subnetTracker;
+        _vectorLookup = vectorLookup;
     }
 
     public GroupKey Resolve(GroupingInput input)
@@ -78,7 +81,35 @@ public sealed class BehaviouralGrouper : IBehaviouralGrouper
                 $"Cluster {Short(input.ClusterId)}");
         }
 
-        // Tiers 3-4 (vector cosine / sequence centroid) land in phase 3.
+        // ============================================================
+        //  Tier 3 -- Session-vector cosine
+        //
+        //  Look up the signature's nearest bot-shaped neighbour from the
+        //  session-vector index. The cache is populated lazily in the
+        //  background; the first call for a fresh signature returns null
+        //  and the grouper falls through to tier 5/6/7 for this render.
+        //  Subsequent renders within the cache TTL collapse via this tier.
+        //  Canonical value: alphabetically smaller signature wins so the
+        //  resolved group key is stable regardless of which side is asked.
+        // ============================================================
+        if (opts.EnableVectorTier && _vectorLookup is not null)
+        {
+            var neighbour = _vectorLookup.FindNearestBotNeighbour(
+                input.Signature, (float)opts.VectorMinCosine);
+            if (neighbour is not null)
+            {
+                var canonical = string.CompareOrdinal(input.Signature, neighbour.Signature) < 0
+                    ? input.Signature
+                    : neighbour.Signature;
+                return new GroupKey(
+                    GroupKeySource.SessionVectorCosine,
+                    canonical,
+                    $"Behavioural twin (cosine {neighbour.Cosine:F2})");
+            }
+        }
+
+        // Tier 4 (sequence centroid) deferred -- centroids are keyed by
+        // cluster_id which is already covered by tier 2.
 
         // ============================================================
         //  Tier 5 -- /24 + UA family rotation

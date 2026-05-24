@@ -713,6 +713,7 @@ public static class ServiceCollectionExtensions
         services.AddOptions<Grouping.GroupingOptions>()
             .BindConfiguration(Grouping.GroupingOptions.SectionName);
         services.TryAddSingleton<Grouping.ISubnetRotationTracker, Grouping.SubnetRotationTracker>();
+        services.TryAddSingleton<Grouping.ISessionSimilarityLookup, Grouping.BoundedSessionSimilarityLookup>();
         services.TryAddSingleton<Grouping.IBehaviouralGrouper, Grouping.BehaviouralGrouper>();
         // Honeypot response policy -- jittered rate-limit + fake response.
         // Registered as IActionPolicy under name "honeypot-response"; the middleware
