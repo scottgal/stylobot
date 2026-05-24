@@ -89,23 +89,57 @@ internal static class WidgetRenderHelpers
     /// </summary>
     public static List<DashboardTopBotEntry> CollapseGroupableIdentities(IReadOnlyList<DashboardTopBotEntry> source)
     {
-        var output = new List<DashboardTopBotEntry>();
-        foreach (var grp in source.Where(IsGroupableIdentity)
-            .GroupBy(b => b.CustomBotName ?? b.BotName, StringComparer.Ordinal))
+        // Single pass to preserve the caller's sort order. Each output item carries
+        // the position of its earliest source occurrence so a final OrderBy returns
+        // results in caller-supplied order; the previous version always re-sorted
+        // by LastSeen DESC which silently overrode any sort the caller passed in
+        // (sort=name, sort=threat, sort=hits etc. all rendered as lastseen).
+        var firstIndexOf = new Dictionary<string, int>(StringComparer.Ordinal);
+        var groupMembers = new Dictionary<string, List<DashboardTopBotEntry>>(StringComparer.Ordinal);
+        var passThrough = new List<(int idx, DashboardTopBotEntry entry)>();
+
+        for (var i = 0; i < source.Count; i++)
         {
-            var members = grp.ToList();
-            if (members.Count == 1) { output.Add(members[0]); continue; }
+            var b = source[i];
+            if (IsGroupableIdentity(b))
+            {
+                var key = b.CustomBotName ?? b.BotName ?? string.Empty;
+                if (!firstIndexOf.ContainsKey(key))
+                {
+                    firstIndexOf[key] = i;
+                    groupMembers[key] = new List<DashboardTopBotEntry>();
+                }
+                groupMembers[key].Add(b);
+            }
+            else
+            {
+                passThrough.Add((i, b));
+            }
+        }
+
+        var collapsed = new List<(int idx, DashboardTopBotEntry entry)>(groupMembers.Count);
+        foreach (var (key, members) in groupMembers)
+        {
+            var minIdx = firstIndexOf[key];
+            if (members.Count == 1)
+            {
+                collapsed.Add((minIdx, members[0]));
+                continue;
+            }
             var canonical = members.OrderByDescending(b => b.LastSeen).First();
-            output.Add(canonical with
+            collapsed.Add((minIdx, canonical with
             {
                 HitCount = members.Sum(b => b.HitCount),
                 FirstSeen = members.Min(b => b.FirstSeen == default ? DateTime.MaxValue : b.FirstSeen),
                 LastSeen = members.Max(b => b.LastSeen),
                 BotProbability = members.Max(b => b.BotProbability)
-            });
+            }));
         }
-        output.AddRange(source.Where(b => !IsGroupableIdentity(b)));
-        return output.OrderByDescending(b => b.LastSeen).ToList();
+
+        return collapsed.Concat(passThrough)
+            .OrderBy(x => x.idx)
+            .Select(x => x.entry)
+            .ToList();
     }
 
     /// <summary>
