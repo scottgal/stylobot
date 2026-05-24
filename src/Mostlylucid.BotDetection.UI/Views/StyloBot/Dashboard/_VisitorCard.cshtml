@@ -1,5 +1,6 @@
 @using Mostlylucid.BotDetection.UI.Services
 @using Mostlylucid.BotDetection.UI.Helpers
+@using Mostlylucid.BotDetection.UI.Models.Primitives
 @model CachedVisitor
 @{
     var basePath = ViewData["BasePath"]?.ToString() ?? "/_stylobot";
@@ -37,6 +38,9 @@
                     };
                 }
                 <span class="badge badge-sm @vBadgeClass">@vBadge</span>
+                @await Html.PartialAsync(
+                    "~/Views/StyloBot/Dashboard/_Primitives/_GroupChip.cshtml",
+                    new GroupChipModel(Model.GroupKey, Model.GroupMemberCount))
             </div>
             <span class="text-xs text-base-content/40">@Model.TimeAgo</span>
         </div>

@@ -312,21 +312,7 @@ public class VisitorListCache
     {
         if (_grouper is not null)
         {
-            var key = _grouper.Resolve(new GroupingInput
-            {
-                Signature = v.PrimarySignature,
-                BotProbability = v.BotProbability,
-                RiskBand = v.RiskBand,
-                IsBot = v.IsBot,
-                BotName = v.BotName,
-                BotType = v.BotType,
-                IpSubnetSignature = v.IpSubnetSignature,
-                UaFamily = v.UaFamily,
-                CountryCode = v.CountryCode,
-                FingerprintId = v.FingerprintId,
-                ClusterId = v.ClusterId
-            });
-            return key.Canonical;
+            return _grouper.Resolve(BuildInput(v)).Canonical;
         }
 
         // Legacy fallback.
@@ -347,6 +333,10 @@ public class VisitorListCache
             // Pick the latest-seen as canonical, sum hits, take max bot probability,
             // earliest first-seen across the group.
             var canonical = members.OrderByDescending(v => v.LastSeen).First();
+            // Resolve the grouper's key for the canonical row so the dashboard
+            // can render the source + reason chip ("Cluster c47 (23 members)" etc).
+            // Only attached when the row actually represents > 1 signature.
+            var resolvedKey = _grouper?.Resolve(BuildInput(canonical));
             yield return new CachedVisitor
             {
                 PrimarySignature = canonical.PrimarySignature,
@@ -376,10 +366,37 @@ public class VisitorListCache
                 LastRequestId = canonical.LastRequestId,
                 ThreatScore = members.Max(v => v.ThreatScore),
                 ThreatBand = canonical.ThreatBand,
-                Protocol = canonical.Protocol
+                Protocol = canonical.Protocol,
+                IpSubnetSignature = canonical.IpSubnetSignature,
+                UaFamily = canonical.UaFamily,
+                FingerprintId = canonical.FingerprintId,
+                ClusterId = canonical.ClusterId,
+                GroupKey = resolvedKey,
+                GroupMemberCount = members.Count
             };
         }
     }
+
+    /// <summary>
+    ///     Build a <see cref="Mostlylucid.BotDetection.Grouping.GroupingInput"/>
+    ///     from a cached visitor. Centralised so the canonical resolve in
+    ///     <see cref="CollapseGroupable"/> and the per-row resolve in
+    ///     <see cref="ResolveGroupCanonical"/> stay in sync.
+    /// </summary>
+    private static Mostlylucid.BotDetection.Grouping.GroupingInput BuildInput(CachedVisitor v) => new()
+    {
+        Signature = v.PrimarySignature,
+        BotProbability = v.BotProbability,
+        RiskBand = v.RiskBand,
+        IsBot = v.IsBot,
+        BotName = v.BotName,
+        BotType = v.BotType,
+        IpSubnetSignature = v.IpSubnetSignature,
+        UaFamily = v.UaFamily,
+        CountryCode = v.CountryCode,
+        FingerprintId = v.FingerprintId,
+        ClusterId = v.ClusterId
+    };
 
     /// <summary>
     ///     Get top N bots by hit count.
@@ -574,6 +591,17 @@ public class CachedVisitor
 
     /// <summary>Leiden community cluster id -- feeds the grouper's cluster tier.</summary>
     public string? ClusterId { get; set; }
+
+    /// <summary>
+    ///     The behavioural grouper's resolved key for this row. Set by
+    ///     <c>CollapseGroupable</c> when this row represents a collapsed
+    ///     group (members > 1); null when the row stands alone or when
+    ///     the grouper is disabled. The view renders a chip from this.
+    /// </summary>
+    public Mostlylucid.BotDetection.Grouping.GroupKey? GroupKey { get; set; }
+
+    /// <summary>Number of member signatures this row represents. 1 when standalone.</summary>
+    public int GroupMemberCount { get; set; } = 1;
 
     public string TimeAgo
     {

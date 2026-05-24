@@ -22,6 +22,15 @@ public sealed record CountryFlagModel(string? Code, string? Name);
 /// <summary>Relative time string with absolute timestamp in title attr.</summary>
 public sealed record TimeAgoModel(System.DateTime Utc, string? RelativeText);
 
+/// <summary>
+///     Coloured chip for the behavioural grouper. Rendered next to a
+///     collapsed row to show WHY rows merged (Identity / Cluster /
+///     Vector / Subnet / Named). Hidden for standalone rows + humans.
+/// </summary>
+public sealed record GroupChipModel(
+    Mostlylucid.BotDetection.Grouping.GroupKey? Key,
+    int MemberCount);
+
 /// <summary>Filter chip in the table toolbar. Count is optional -- null hides the count badge.</summary>
 public sealed record FilterChip(string Key, string Label, int? Count, string Url);
 

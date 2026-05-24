@@ -1,0 +1,33 @@
+@using Mostlylucid.BotDetection.Grouping
+@model Mostlylucid.BotDetection.UI.Models.Primitives.GroupChipModel
+@{
+    // Hidden entirely when there's no useful collapse to surface --
+    // human rows and standalone bot rows fall through to the row's own
+    // BotName / signature label without a chip.
+    if (Model.Key is null
+        || Model.Key.Source == GroupKeySource.Human
+        || Model.Key.Source == GroupKeySource.RawSignature
+        || Model.MemberCount <= 1)
+    {
+        return;
+    }
+
+    var (icon, classes, sourceLabel) = Model.Key.Source switch
+    {
+        GroupKeySource.Identity            => ("bx-fingerprint",   "bg-indigo-500/15 text-indigo-400", "Identity"),
+        GroupKeySource.Cluster             => ("bx-network-chart", "bg-purple-500/15 text-purple-400", "Cluster"),
+        GroupKeySource.SessionVectorCosine => ("bx-pulse",         "bg-blue-500/15 text-blue-400",     "Vector"),
+        GroupKeySource.SequenceCentroid    => ("bx-line-chart",    "bg-teal-500/15 text-teal-400",     "Sequence"),
+        GroupKeySource.SubnetUaRotation    => ("bx-globe-alt",     "bg-amber-500/15 text-amber-400",   "Subnet"),
+        GroupKeySource.FriendlyBotName     => ("bx-bot",           "bg-emerald-500/15 text-emerald-400","Named"),
+        _                                  => ("bx-collection",    "bg-base-content/10 text-base-content/60", "Group")
+    };
+
+    var title = $"{sourceLabel}: {Model.Key.Display} · {Model.MemberCount} members";
+}
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold @classes"
+      title="@title">
+    <i class="bx @icon text-[11px]"></i>
+    <span>@sourceLabel</span>
+    <span class="opacity-70 font-normal">+@(Model.MemberCount - 1)</span>
+</span>
