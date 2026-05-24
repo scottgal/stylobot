@@ -105,3 +105,283 @@
         </div>
     }
 </div>
+
+<script nonce="@Model.CspNonce">
+(function () {
+    var root = document.getElementById('behavioral-evolution');
+    if (!root || typeof ApexCharts === 'undefined') return;
+
+    var bp  = root.dataset.basePath  || '';
+    var sig = root.dataset.signature || '';
+    var cfg = {
+        maxOverlay:         parseInt(root.dataset.maxOverlay,        10) || 5,
+        halfLifeMin:        parseFloat(root.dataset.halfLifeMin)        || 240,
+        minGhostOpacity:    parseFloat(root.dataset.minGhostOpacity)    || 0.03,
+        maxGhostOpacity:    parseFloat(root.dataset.maxGhostOpacity)    || 0.65,
+        minStrokeOpacity:   parseFloat(root.dataset.minStrokeOpacity)   || 0.20,
+        focusFillOpacity:   parseFloat(root.dataset.focusFillOpacity)   || 0.20,
+        focusStrokeOpacity: parseFloat(root.dataset.focusStrokeOpacity) || 1.0,
+        currentStroke:      parseFloat(root.dataset.currentStroke)      || 2.5,
+        ghostStroke:        parseFloat(root.dataset.ghostStroke)        || 1.0,
+        playIntervalMs:     parseInt(root.dataset.playIntervalMs,    10) || 1500,
+        blueShiftMin:       parseFloat(root.dataset.blueShiftMin)       || 720
+    };
+
+    var radarEl   = root.querySelector('[data-evolution-radar]');
+    var listEl    = root.querySelector('[data-evolution-sessions]');
+    var countEl   = root.querySelector('[data-evolution-count]');
+    var playBtn   = root.querySelector('[data-evolution-play]');
+    var metricsEl = root.querySelector('[data-evolution-metrics]');
+
+    var axisLabels = [
+        'Browsing','API Activity','Asset','Realtime','Form/Search','Auth Pressure',
+        'Burst Speed','Timing','Path Diversity','404','Scan/Probe','Fingerprint'
+    ];
+
+    var allSessions = [];   // entire fetched list, newest first
+    var visible     = [];   // subset overlaid on the radar (cap maxOverlay)
+    var focusedId   = null; // id of currently focused session
+    var chart       = null;
+    var playTimer   = null;
+
+    var ACCENT_TEAL = '#5ba3a3';
+    var BLUE        = '#60a5fa';
+
+    function clearChildren(el) { while (el && el.firstChild) el.removeChild(el.firstChild); }
+    function ageMinutes(s) {
+        var t = Date.parse(s.startedAt);
+        return isNaN(t) ? 0 : Math.max(0, (Date.now() - t) / 60000);
+    }
+    function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+    function colorFor(s, isFocus) {
+        if (isFocus) return ACCENT_TEAL;
+        return ageMinutes(s) > cfg.blueShiftMin ? BLUE : ACCENT_TEAL;
+    }
+    function ghostOpacity(s) {
+        var decay = cfg.maxGhostOpacity * Math.exp(-ageMinutes(s) / cfg.halfLifeMin);
+        return clamp(decay, cfg.minGhostOpacity, cfg.maxGhostOpacity);
+    }
+
+    function buildSeries() {
+        return visible.map(function (s) {
+            return {
+                name: s.label || String(s.id),
+                data: (s.clockAxes || new Array(12).fill(0)).map(function (v) { return Math.round(v * 100); })
+            };
+        });
+    }
+    function buildColors()      { return visible.map(function (s) { return colorFor(s, s.id === focusedId); }); }
+    function buildFillOpacity() { return visible.map(function (s) { return s.id === focusedId ? cfg.focusFillOpacity : ghostOpacity(s); }); }
+    function buildStrokeWidth() { return visible.map(function (s) { return s.id === focusedId ? cfg.currentStroke : cfg.ghostStroke; }); }
+    function buildDashArray() {
+        var oldestId = visible.length > 1 ? visible[visible.length - 1].id : null;
+        return visible.map(function (s) { return (s.id !== focusedId && s.id === oldestId) ? 4 : 0; });
+    }
+
+    function showEmptyRadar() {
+        clearChildren(radarEl);
+        var msg = document.createElement('div');
+        msg.style.cssText = 'height:100%;display:flex;align-items:center;justify-content:center;color:rgba(148,163,184,0.5);font-size:11px';
+        msg.textContent = 'No sessions yet.';
+        radarEl.appendChild(msg);
+    }
+
+    function renderRadar() {
+        if (visible.length === 0) { showEmptyRadar(); return; }
+        var isDark = document.documentElement.getAttribute('data-theme') !== 'sb-light';
+        var fg     = isDark ? '#94a3b8' : '#475569';
+
+        var options = {
+            chart:   { type: 'radar', height: 420, toolbar: { show: false }, animations: { enabled: false }, background: 'transparent', fontFamily: 'Inter, sans-serif' },
+            series:  buildSeries(),
+            colors:  buildColors(),
+            xaxis:   { categories: axisLabels, labels: { style: { colors: Array(12).fill(fg), fontSize: '9px' } } },
+            yaxis:   { show: false, min: 0, max: 100 },
+            fill:    { opacity: buildFillOpacity() },
+            stroke:  { width: buildStrokeWidth(), dashArray: buildDashArray() },
+            markers: { size: 0 },
+            legend:  { show: false },
+            plotOptions: { radar: { polygons: { strokeColors: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(15,23,42,0.08)', connectorColors: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(15,23,42,0.08)' } } },
+            tooltip:    { theme: isDark ? 'dark' : 'light', y: { formatter: function (v) { return v + '%'; } } },
+            dataLabels: { enabled: false }
+        };
+
+        if (!chart) {
+            chart = new ApexCharts(radarEl, options);
+            chart.render();
+        } else {
+            chart.updateOptions(options);
+        }
+    }
+
+    function formatWhen(iso) {
+        var d = new Date(iso); if (isNaN(d)) return '';
+        var spanMin = (Date.now() - d.getTime()) / 60000;
+        if (spanMin < 1)       return 'now';
+        if (spanMin < 60)      return Math.floor(spanMin)      + 'm';
+        if (spanMin < 60 * 24) return Math.floor(spanMin / 60) + 'h';
+        return Math.floor(spanMin / (60 * 24)) + 'd';
+    }
+    function riskClass(band) {
+        if (band === 'VeryHigh' || band === 'High')   return 'text-error';
+        if (band === 'Elevated' || band === 'Medium') return 'text-warning';
+        if (band === 'Low')                            return 'text-success';
+        return 'text-base-content/40';
+    }
+
+    function renderList() {
+        clearChildren(listEl);
+        if (allSessions.length === 0) {
+            var empty = document.createElement('div');
+            empty.className = 'text-base-content/40 text-center py-4';
+            empty.textContent = 'No sessions yet.';
+            listEl.appendChild(empty);
+            return;
+        }
+        allSessions.forEach(function (s) {
+            var row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'w-full text-left grid grid-cols-[10px_1fr_auto_auto] gap-2 items-center px-2 py-1.5 rounded hover:bg-base-200/50 ' +
+                            (s.id === focusedId ? 'bg-base-200/70 border-l-2 border-primary pl-[6px]' : '');
+            row.dataset.id = String(s.id);
+
+            var swatch = document.createElement('span');
+            swatch.style.width = '10px';
+            swatch.style.height = '10px';
+            swatch.style.borderRadius = '2px';
+            swatch.style.background = colorFor(s, s.id === focusedId);
+            swatch.style.opacity = String(s.id === focusedId ? 1 : ghostOpacity(s));
+
+            var middle = document.createElement('div');
+            var when = document.createElement('div');
+            when.className = 'text-base-content/70';
+            when.textContent = formatWhen(s.startedAt) + ' · ' + ((s.durationMinutes || 0).toFixed(1)) + 'm';
+            var meta = document.createElement('div');
+            meta.className = 'text-[10px] text-base-content/40 font-mono truncate';
+            var firstPath = (s.paths && s.paths.length > 0) ? s.paths[0] : '';
+            meta.textContent = ((s.requestCount || 0) + ' req · ' + firstPath);
+            middle.appendChild(when);
+            middle.appendChild(meta);
+
+            var pct = document.createElement('div');
+            pct.className = riskClass(s.riskBand) + ' font-semibold text-[11px]';
+            pct.textContent = Math.round((s.avgBotProbability || 0) * 100) + '%';
+
+            var band = document.createElement('div');
+            band.className = riskClass(s.riskBand) + ' text-[10px]';
+            band.textContent = s.riskBand || '--';
+
+            row.appendChild(swatch);
+            row.appendChild(middle);
+            row.appendChild(pct);
+            row.appendChild(band);
+
+            row.addEventListener('click',      function () { focus(s.id); });
+            row.addEventListener('mouseenter', function () { preview(s.id, true);  });
+            row.addEventListener('mouseleave', function () { preview(s.id, false); });
+            listEl.appendChild(row);
+        });
+    }
+
+    function renderMetrics() {
+        if (!metricsEl) return;
+        var s = allSessions.find(function (x) { return x.id === focusedId; });
+        function set(key, val) {
+            var el = metricsEl.querySelector('[data-metric="' + key + '"]');
+            if (el) el.textContent = (val === undefined || val === null) ? '--' : val;
+        }
+        if (!s) {
+            ['duration','requests','dominant','bot-prob','maturity','entropy'].forEach(function (k) { set(k, '--'); });
+            return;
+        }
+        set('duration', (s.durationMinutes || 0).toFixed(1) + 'm');
+        set('requests', s.requestCount || 0);
+        set('dominant', s.dominantState || '--');
+        set('bot-prob', Math.round((s.avgBotProbability || 0) * 100) + '%');
+        set('maturity', Math.round((s.maturity || 0) * 100) + '%');
+        set('entropy', (s.timingEntropy || 0).toFixed(3));
+    }
+
+    function focus(id) {
+        focusedId = id;
+        renderRadar();
+        renderList();
+        renderMetrics();
+        try {
+            history.replaceState(null, '', '#session=' + encodeURIComponent(String(id)));
+        } catch (e) { /* ignore */ }
+    }
+
+    var previewOriginal = null;
+    function preview(id, on) {
+        if (!chart) return;
+        if (on) {
+            previewOriginal = { fill: buildFillOpacity(), stroke: buildStrokeWidth() };
+            var idx = visible.findIndex(function (s) { return s.id === id; });
+            if (idx < 0) return;
+            var fill = previewOriginal.fill.slice();
+            var stroke = previewOriginal.stroke.slice();
+            fill[idx]   = cfg.focusFillOpacity;
+            stroke[idx] = cfg.currentStroke;
+            chart.updateOptions({ fill: { opacity: fill }, stroke: { width: stroke, dashArray: buildDashArray() } });
+        } else if (previewOriginal) {
+            chart.updateOptions({ fill: { opacity: previewOriginal.fill }, stroke: { width: previewOriginal.stroke, dashArray: buildDashArray() } });
+            previewOriginal = null;
+        }
+    }
+
+    function stopPlay() {
+        if (playTimer) { clearInterval(playTimer); playTimer = null; }
+        var icon = playBtn && playBtn.querySelector('i');
+        if (icon) icon.className = 'bx bx-play';
+    }
+    if (playBtn) {
+        playBtn.addEventListener('click', function () {
+            if (playTimer) { stopPlay(); return; }
+            if (visible.length === 0) return;
+            var icon = playBtn.querySelector('i');
+            if (icon) icon.className = 'bx bx-pause';
+            var order = visible.slice().reverse();
+            var i = 0;
+            focus(order[0].id);
+            playTimer = setInterval(function () {
+                i++;
+                if (i >= order.length) { stopPlay(); return; }
+                focus(order[i].id);
+            }, cfg.playIntervalMs);
+        });
+    }
+
+    document.addEventListener('keydown', function (e) {
+        if (!root.contains(document.activeElement) && document.activeElement !== document.body) return;
+        if (visible.length === 0) return;
+        var idx = visible.findIndex(function (s) { return s.id === focusedId; });
+        if (e.key === 'ArrowLeft'  && idx < visible.length - 1) focus(visible[idx + 1].id);
+        if (e.key === 'ArrowRight' && idx > 0)                  focus(visible[idx - 1].id);
+    });
+
+    fetch(bp + '/api/sessions/signature/' + encodeURIComponent(sig))
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            allSessions = Array.isArray(data) ? data : [];
+            allSessions.forEach(function (s) { s.label = formatWhen(s.startedAt); });
+            visible = allSessions.slice(0, cfg.maxOverlay);
+            var hashMatch = (window.location.hash || '').match(/session=([^&]+)/);
+            var hashId    = hashMatch ? decodeURIComponent(hashMatch[1]) : null;
+            var preferred = hashId && allSessions.find(function (s) { return String(s.id) === hashId; });
+            focusedId = preferred ? preferred.id : (visible[0] && visible[0].id) || null;
+
+            if (countEl) countEl.textContent = visible.length + ' of ' + allSessions.length + ' sessions overlaid';
+            renderRadar();
+            renderList();
+            renderMetrics();
+        })
+        .catch(function () {
+            clearChildren(listEl);
+            var fail = document.createElement('div');
+            fail.className = 'text-base-content/40 text-center py-4 text-[11px]';
+            fail.textContent = 'Failed to load sessions.';
+            listEl.appendChild(fail);
+        });
+})();
+</script>
