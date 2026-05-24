@@ -178,27 +178,29 @@
         return visible.map(function (s) { return (s.id !== focusedId && s.id === oldestId) ? 4 : 0; });
     }
 
-    function showEmptyRadar() {
-        clearChildren(radarEl);
-        var msg = document.createElement('div');
-        msg.style.cssText = 'height:100%;display:flex;align-items:center;justify-content:center;color:rgba(148,163,184,0.5);font-size:11px';
-        msg.textContent = 'No sessions yet.';
-        radarEl.appendChild(msg);
-    }
-
     function renderRadar() {
-        if (visible.length === 0) { showEmptyRadar(); return; }
+        // ALWAYS draw the clock grid + axis labels. When there's no session data yet,
+        // we still paint a transparent zero-shape polygon so ApexCharts has a series to
+        // size the grid against. The user must never see an empty rectangle on the
+        // signature detail page -- the fingerprint outline is the signature.
+        var hasData = visible.length > 0;
         var isDark = document.documentElement.getAttribute('data-theme') !== 'sb-light';
         var fg     = isDark ? '#94a3b8' : '#475569';
 
+        var series  = hasData ? buildSeries() : [{ name: 'No data', data: new Array(12).fill(0) }];
+        var colors  = hasData ? buildColors() : ['rgba(148,163,184,0.0)'];
+        var fillOp  = hasData ? buildFillOpacity() : [0];
+        var stroke  = hasData ? buildStrokeWidth() : [0];
+        var dash    = hasData ? buildDashArray()   : [0];
+
         var options = {
             chart:   { type: 'radar', height: 420, toolbar: { show: false }, animations: { enabled: false }, background: 'transparent', fontFamily: 'Inter, sans-serif' },
-            series:  buildSeries(),
-            colors:  buildColors(),
+            series:  series,
+            colors:  colors,
             xaxis:   { categories: axisLabels, labels: { style: { colors: Array(12).fill(fg), fontSize: '9px' } } },
             yaxis:   { show: false, min: 0, max: 100 },
-            fill:    { opacity: buildFillOpacity() },
-            stroke:  { width: buildStrokeWidth(), dashArray: buildDashArray() },
+            fill:    { opacity: fillOp },
+            stroke:  { width: stroke, dashArray: dash },
             markers: { size: 0 },
             legend:  { show: false },
             plotOptions: { radar: { polygons: { strokeColors: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(15,23,42,0.08)', connectorColors: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(15,23,42,0.08)' } } },
