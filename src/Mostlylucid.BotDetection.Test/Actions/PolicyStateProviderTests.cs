@@ -54,6 +54,55 @@ public class PolicyStateProviderTests
     }
 
     [Fact]
+    public void Phase2_BuiltInRateLimitPoliciesAreRegistered()
+    {
+        // Phase 2 adds four rate-limit built-ins to ActionPolicyRegistry's
+        // RegisterBuiltInPolicies block. Pin their presence + intent so a
+        // future rename or removal trips this test instead of silently
+        // disappearing.
+        var registry = BuildRegistryWith();
+        var provider = new RegistryPolicyStateProvider(registry);
+        var states = provider.GetAll();
+
+        var expected = new[] { "rate-limit-search", "rate-limit-ai", "rate-limit-social", "rate-limit-monitoring" };
+        foreach (var name in expected)
+        {
+            var s = states.SingleOrDefault(x => x.Name == name);
+            Assert.NotNull(s);
+            Assert.Equal(PolicyIntent.RateLimit, s!.Intent);
+            Assert.True(s.EffectiveParams.ContainsKey("requestsPerMinute"));
+            Assert.True(s.EffectiveParams.ContainsKey("burstSize"));
+            Assert.True(s.EffectiveParams.ContainsKey("overLimitAction"));
+            Assert.True(s.EffectiveParams.ContainsKey("keyBy"));
+        }
+    }
+
+    [Fact]
+    public void Phase2_RateLimitSearch_SurfacesExpectedDefaults()
+    {
+        var registry = BuildRegistryWith();
+        var provider = new RegistryPolicyStateProvider(registry);
+        var search = provider.Get("rate-limit-search");
+
+        Assert.NotNull(search);
+        Assert.Equal(60, search!.EffectiveParams["requestsPerMinute"]);
+        Assert.Equal(10, search.EffectiveParams["burstSize"]);
+        Assert.Equal("throttle-status", search.EffectiveParams["overLimitAction"]);
+    }
+
+    [Fact]
+    public void Phase2_RateLimitAi_BouncesHarder_BlockSoftFallback()
+    {
+        var registry = BuildRegistryWith();
+        var provider = new RegistryPolicyStateProvider(registry);
+        var ai = provider.Get("rate-limit-ai");
+
+        Assert.NotNull(ai);
+        Assert.Equal(10, ai!.EffectiveParams["requestsPerMinute"]);
+        Assert.Equal("block-soft", ai.EffectiveParams["overLimitAction"]);
+    }
+
+    [Fact]
     public void Phase1_StatsAreZero_TierIsAbsent()
     {
         // The point of phase 1 is "no behaviour change" -- the provider has

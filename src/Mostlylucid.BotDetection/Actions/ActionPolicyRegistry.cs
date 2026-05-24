@@ -45,20 +45,31 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
     private readonly IEnumerable<IActionPolicyFactory> _factories;
     private readonly ILogger<ActionPolicyRegistry>? _logger;
     private readonly BotDetectionOptions _options;
+    private readonly Mostlylucid.BotDetection.RateLimit.ITokenBucketStore _tokenBucketStore;
     private readonly ConcurrentDictionary<string, IActionPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     ///     Creates a new action policy registry.
     /// </summary>
+    /// <param name="tokenBucketStore">
+    ///     Backing store for the built-in <see cref="RateLimitActionPolicy"/>
+    ///     instances. Defaults to a fresh
+    ///     <see cref="Mostlylucid.BotDetection.RateLimit.InMemoryTokenBucketStore"/>
+    ///     when not supplied (so direct construction in tests "just works");
+    ///     production code injects the singleton from DI.
+    /// </param>
     public ActionPolicyRegistry(
         IOptions<BotDetectionOptions> options,
         IEnumerable<IActionPolicyFactory> factories,
         IEnumerable<IActionPolicy>? additionalPolicies = null,
-        ILogger<ActionPolicyRegistry>? logger = null)
+        ILogger<ActionPolicyRegistry>? logger = null,
+        Mostlylucid.BotDetection.RateLimit.ITokenBucketStore? tokenBucketStore = null)
     {
         _options = options.Value;
         _factories = factories;
         _logger = logger;
+        _tokenBucketStore = tokenBucketStore
+            ?? new Mostlylucid.BotDetection.RateLimit.InMemoryTokenBucketStore();
 
         // Register built-in defaults
         RegisterBuiltInPolicies();
@@ -155,6 +166,20 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
         RegisterPolicy(new ThrottleActionPolicy("throttle-tools", ThrottleActionOptions.Tools));
         RegisterPolicy(new ThrottleActionPolicy("throttle-status", ThrottleActionOptions.Status));
         RegisterPolicy(new ThrottleActionPolicy("throttle-escalating", ThrottleActionOptions.Escalating));
+
+        // Rate-limit policies (token bucket; phase 2 of the policy-grammar
+        // work). These reference throttle-status / block-soft as their
+        // OverLimitAction, so they must be registered AFTER those two.
+        // 'this' is safe here -- ExecuteAsync resolves OverLimitAction at
+        // request time, by which point the registry is fully populated.
+        RegisterPolicy(new RateLimitActionPolicy("rate-limit-search",
+            RateLimitActionOptions.Search, _tokenBucketStore, this));
+        RegisterPolicy(new RateLimitActionPolicy("rate-limit-ai",
+            RateLimitActionOptions.Ai, _tokenBucketStore, this));
+        RegisterPolicy(new RateLimitActionPolicy("rate-limit-social",
+            RateLimitActionOptions.Social, _tokenBucketStore, this));
+        RegisterPolicy(new RateLimitActionPolicy("rate-limit-monitoring",
+            RateLimitActionOptions.Monitoring, _tokenBucketStore, this));
 
         // Redirect policies
         RegisterPolicy(new RedirectActionPolicy("redirect", RedirectActionOptions.BlockedPage));

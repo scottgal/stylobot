@@ -53,12 +53,23 @@ public sealed class RegistryPolicyStateProvider : IPolicyStateProvider
         var paramsMap = new Dictionary<string, object>
         {
             ["actionType"] = policy.ActionType.ToString(),
-        }.ToFrozenDictionary();
+        };
+
+        // Phase 2: rate-limit policies expose their configured params so
+        // the dashboard chip can render "60 req/min, burst 10 -> throttle-status"
+        // without needing access to RateLimitActionOptions directly.
+        if (policy is RateLimitActionPolicy rl)
+        {
+            paramsMap["requestsPerMinute"] = rl.Options.RequestsPerMinute;
+            paramsMap["burstSize"] = rl.Options.BurstSize;
+            paramsMap["overLimitAction"] = rl.Options.OverLimitAction;
+            paramsMap["keyBy"] = rl.Options.KeyBy.ToString();
+        }
 
         return new PolicyState(
             Name: policy.Name,
             Intent: policy.Intent,
-            EffectiveParams: paramsMap,
+            EffectiveParams: paramsMap.ToFrozenDictionary(),
             CurrentTier: null,
             TierEnteredAtUtc: null,
             Stats: EmptyStats);

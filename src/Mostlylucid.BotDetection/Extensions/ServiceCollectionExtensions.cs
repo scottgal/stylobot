@@ -1093,6 +1093,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IActionPolicyFactory, RedirectActionPolicyFactory>();
         services.AddSingleton<IActionPolicyFactory, LogOnlyActionPolicyFactory>();
 
+        // Rate-limit token-bucket store (phase 2 of the policy-grammar work).
+        // Default to the in-memory implementation; consumers can override
+        // before AddBotDetection() runs to swap in a SQLite-backed store.
+        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.ITokenBucketStore,
+            Mostlylucid.BotDetection.RateLimit.InMemoryTokenBucketStore>();
+
         // Register action policy registry (holds named action policies)
         services.TryAddSingleton<IActionPolicyRegistry, ActionPolicyRegistry>();
         // Read model for the dashboard policy tab (phase 1 of the policy-
