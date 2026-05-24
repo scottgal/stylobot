@@ -62,18 +62,19 @@ A focused session is highlighted in the right-hand list with a 2 px teal left bo
 
 ## Data Flow
 
-A new server-side helper sits next to `ProjectDetectionRadarTo8Axes` in `StyloBotDashboardMiddleware.cs`:
+Two small static helpers in a new `Services/ClockProjection.cs`, kept narrow and unit-testable:
 
 ```csharp
-private static double[] ProjectTo12AxisClock(float[] shape16, float[] stateFreqs10)
+public static double[] ProjectMarkovTo4Axes(float[] stateFreqs10);
+public static double[] Compose12Axes(double[] semantic8, double[] markov4);
 ```
 
-It returns the 12 clock values in fixed order. The existing `/api/sessions/signature/{id}` endpoint adds a `clockAxes: number[12]` field to each session in its response, alongside the existing `radarAxes`. The client never recombines the two — the server emits the final 12-axis vector. The `radarAxes` field stays on the wire for any other consumers (FOSS dashboard `BotDetectionDetails`, exports).
+`ProjectMarkovTo4Axes` returns `[ Asset, Realtime, Form/Search, 404 ]` from the 10-element state-freq vector. `Compose12Axes` interleaves the existing 8-axis semantic projection with the 4-axis Markov projection into the fixed clock order documented in the Axis Layout table above. The existing `/api/sessions/signature/{id}` endpoint composes once per session and attaches a `clockAxes: number[12]` field on the response, alongside the existing `radarAxes`. The client never recombines axes — the server emits the final 12-axis vector. The `radarAxes` field stays on the wire for any other consumers.
 
-Both source fields are already persisted per session:
+Both source vectors are already available at the API layer:
 
-- `radarAxes[8]` derived from the session vector at projection time.
-- `StateFreqs[10]` persisted on the session record (`DashboardPartialModels.cs:579`).
+- 8-axis semantic comes from `VectorRadarProjection.Project(sessionVector)` (finalised + live in-memory paths) or `ProjectDetectionRadarTo8Axes(shape16)` (detection-fallback path).
+- 10-axis state freqs come from `sessionVector[100..109]` for finalised + live, and are an empty `float[10]` (zeros) for the detection-fallback path where no session vector exists yet. Markov hours therefore sit at the origin until the session has accumulated a vector — the intended "session in progress" reading.
 
 No schema changes. No new persistence.
 
@@ -116,16 +117,18 @@ Colour scheme: focused and recent ghosts use teal (`var(--sb-accent)`); ghosts o
 
 ### Modified
 
+- `src/Mostlylucid.BotDetection.UI/Services/ClockProjection.cs` (new) — `ProjectMarkovTo4Axes` and `Compose12Axes` static methods.
 - `src/Mostlylucid.BotDetection.UI/Middleware/StyloBotDashboardMiddleware.cs`
-  Add `ProjectTo12AxisClock(float[] shape16, float[] stateFreqs10)` next to the existing `ProjectDetectionRadarTo8Axes` (~line 2113). Update the `/api/sessions/signature/{id}` response builder (~line 1987) to attach `clockAxes` to each session DTO. Existing `radarAxes` field stays.
+  In `ServeSignatureSessionsApiAsync` (line 1834), attach a `clockAxes` field to every anonymous session entry — finalised path, live-in-memory path, and detection-fallback path. Existing `radarAxes` stays.
 - `src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/_SignatureDetail.cshtml`
   Remove the three existing panels (lines 193-240) and the inline radar script (lines 695-832). Insert a `@Html.Partial("_BehavioralEvolution", model)` invocation.
-- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/BotDetectionDetails/Default.cshtml`
-  Same swap: remove the three corresponding sections and partial-include `_BehavioralEvolution`. The FOSS dashboard and marketing site dogfood get the new panel for free.
 - `src/Mostlylucid.BotDetection.UI/Models/DashboardPartialModels.cs`
-  Add `double[] ClockAxes` to the session DTO record alongside `RadarAxes`.
+  No DTO type added — the `/api/sessions/signature/{id}` response is built as an anonymous object inline in the middleware. The new `clockAxes` field is attached at construction time alongside the existing `radarAxes`. If a typed DTO ever replaces the anonymous object, that's where `ClockAxes` would live.
 
 ### Kept (not touched)
+
+- `Views/Shared/Components/BotDetectionDetails/Default.cshtml` — renders the visitor's current detection state, not session history. Not affected by this work.
+- `Views/StyloBot/Dashboard/_SessionDetail.cshtml` — embeds `_SessionFingerprints` in compact-filmstrip mode for its identity column. Continues to do so; the compact path of `_SessionFingerprints.cshtml` is unchanged.
 
 - `_SessionFingerprints.cshtml` — survives because it is still used by the compact identity card on the main dashboard's identity column. Its mode toggle / filmstrip behaviour is unchanged for that caller.
 
