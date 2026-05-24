@@ -2,7 +2,17 @@
 @using Mostlylucid.BotDetection.UI.Helpers
 @model SignatureDetailModel
 @{
-    Layout = null;
+    // No Layout = null here. The host's _ViewStart picks the layout (the website's
+    // _Layout for stylobot.net). The host is responsible for the chrome: navbar,
+    // dashboard tab strip, footer, vendor CSS/JS, theme boot, CSP nonces. This view
+    // emits content only. Previously this file set Layout = null and hand-wrapped
+    // itself in <!DOCTYPE>...<html><head>...</head><body> + its own _StylobotNavbar
+    // call -- three copies of the same chrome stacked (one from website _Layout,
+    // one from here, plus the breadcrumb/title), and the host could never customise
+    // it.
+    ViewData["Title"] = Model.Found
+        ? (Model.BotName ?? Model.BotType ?? (Model.SignatureId.Length > 12 ? Model.SignatureId[..12] : Model.SignatureId))
+        : "Not Found";
     var bp = Model.BasePath;
     var navBp = Model.ResolvedNavBasePath;
     bool HasFlag(string? code) => !string.IsNullOrEmpty(code) && code.Length == 2 && code != "XX";
@@ -47,55 +57,13 @@
         return $"{(int)span.TotalDays}d ago";
     }
 }
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@(Model.Found ? (Model.BotName ?? Model.BotType ?? (Model.SignatureId.Length > 12 ? Model.SignatureId[..12] : Model.SignatureId)) : "Not Found") - StyloBot</title>
-    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css" />
-    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/daisyui.min.css" />
-    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/boxicons.min.css" />
-    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/fonts.css" />
-    <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js" nonce="@Model.CspNonce"></script>
-    <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/apexcharts.min.js" nonce="@Model.CspNonce"></script>
-    @await Html.PartialAsync("_ThemeBoot")
-    <style nonce="@Model.CspNonce">
-        :root, [data-theme] {
-            --sb-surface:      var(--color-base-200);
-            --sb-card-bg:      var(--color-base-100);
-            --sb-card-border:  color-mix(in oklch, var(--color-base-content) 15%, transparent);
-            --sb-card-divider: color-mix(in oklch, var(--color-base-content) 8%, transparent);
-            --sb-card-subtle:  var(--color-base-300);
-            --sb-brand-muted:  color-mix(in oklch, var(--color-base-content) 55%, transparent);
-            --sb-brand-strong: var(--color-base-content);
-            --sb-accent:       var(--color-accent);
-            --sb-signal-pos:   var(--color-success);
-            --sb-signal-warn:  var(--color-warning);
-            --sb-signal-danger:var(--color-error);
-        }
-        body { font-family: 'Inter', sans-serif; background: var(--sb-surface); }
-        .brand-header {
-            background: var(--color-base-200);
-            border-bottom: 1px solid color-mix(in oklch, var(--color-base-content) 10%, transparent);
-        }
-        .impact-bar { height: 6px; border-radius: 3px; background: var(--sb-card-divider); }
-        .impact-bar-fill { height: 100%; border-radius: 3px; }
-    </style>
-</head>
-<body class="min-h-screen" hx-history="false">
+<div class="max-w-7xl mx-auto px-4 py-1.5 text-[10px] text-base-content/40">
+    <a href="@navBp" data-action="smart-back" class="hover:text-base-content/70">&larr; Dashboard</a>
+    <span class="mx-1">/</span>
+    <span class="text-base-content/60">Signature Detail</span>
+</div>
 
-    @* Shared site-wide navbar -- the brand styles (brand-wordmark / stylo-text /
-       nav-link / logo-adaptive) now ship in the FOSS vendor tailwind.min.css
-       bundle this page links, so the partial renders correctly here too. *@
-    @await Html.PartialAsync("_StylobotNavbar")
-    <div class="max-w-7xl mx-auto px-4 py-1.5 text-[10px] text-base-content/40">
-        <a href="@navBp" data-action="smart-back" class="hover:text-base-content/70">&larr; Dashboard</a>
-        <span class="mx-1">/</span>
-        <span class="text-base-content/60">Signature Detail</span>
-    </div>
-
-    <main class="max-w-7xl mx-auto px-4 py-4">
+<main class="max-w-7xl mx-auto px-4 py-4">
 
 @if (!Model.Found)
 {
@@ -871,5 +839,3 @@ else
     //  dashboard surface picks it up automatically; the Behavioral Sessions rows on
     //  this page rely on that global handler.)
     </script>
-</body>
-</html>

@@ -1,7 +1,11 @@
 @using Mostlylucid.BotDetection.UI.Models
 @model DashboardShellModel
 @{
-    Layout = null;
+    // No Layout = null. Host's _ViewStart picks the layout (the website's _Layout
+    // for stylobot.net). The host owns the chrome: navbar, footer, vendor CSS/JS,
+    // theme boot, CSP nonces. This view emits dashboard CONTENT only; the inline
+    // CSS vars and supplemental scripts stay because they are content-specific.
+    ViewData["Title"] = "StyloBot Detection Dashboard";
     var bp = Model.BasePath;
     var tab = Model.ActiveTab;
     string TabUrl(string t) => $"{bp}?tab={t}";
@@ -9,111 +13,60 @@
         ? "bg-base-100 shadow-sm text-base-content font-semibold"
         : "text-base-content/40 hover:text-base-content/60";
 }
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>StyloBot Detection Dashboard</title>
-    <!-- All assets self-hosted -- zero external requests (security product) -->
-    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css" />
-    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/jsvectormap.min.css" />
-    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/boxicons.min.css" />
-    <link rel="stylesheet" href="/_content/Mostlylucid.BotDetection.UI/vendor/css/fonts.css" />
-    <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js" nonce="@Model.CspNonce"></script>
-    <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/signalr.min.js" nonce="@Model.CspNonce"></script>
-    <script defer src="/_content/Mostlylucid.BotDetection.UI/vendor/js/alpine.min.js" nonce="@Model.CspNonce"></script>
-    <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/jsvectormap.min.js" nonce="@Model.CspNonce"></script>
-    <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/world-merc.js" nonce="@Model.CspNonce"></script>
-    <script src="/_content/Mostlylucid.BotDetection.UI/vendor/js/apexcharts.min.js" nonce="@Model.CspNonce"></script>
-
-    @* Early-paint theme applied via the shared _ThemeBoot partial -- one
-       script across the marketing site and every FOSS-served page, so
-       picking 'coffee' on stylobot.net survives the navigation to
-       /dashboard without resetting to 'dark'. *@
-    @await Html.PartialAsync("_ThemeBoot")
-
-    <script nonce="@Model.CspNonce">
-        (function() {
-            if (new URLSearchParams(window.location.search).get('embed') === '1') {
-                document.addEventListener('DOMContentLoaded', function() {
-                    var hdr = document.getElementById('sb-brand-header');
-                    if (hdr) hdr.style.display = 'none';
-                });
-            }
-            // Allow HTMX-injected partial scripts to run under this page's CSP nonce
-            htmx.config.inlineScriptNonce = '@Model.CspNonce';
-        })();
-    </script>
-
-    <style nonce="@Model.CspNonce">
-        [x-cloak] { display: none !important; }
-
-        /* Map --sb-* aliases to DaisyUI v5 color tokens */
-        :root, [data-theme] {
-            --sb-surface:      var(--color-base-200);
-            --sb-card-bg:      var(--color-base-100);
-            --sb-card-border:  color-mix(in oklch, var(--color-base-content) 15%, transparent);
-            --sb-card-divider: color-mix(in oklch, var(--color-base-content) 8%, transparent);
-            --sb-card-subtle:  var(--color-base-300);
-            --sb-brand-muted:  color-mix(in oklch, var(--color-base-content) 55%, transparent);
-            --sb-brand-strong: var(--color-base-content);
-            --sb-accent:       var(--color-accent);
-            --sb-accent-alt:   var(--color-primary);
-            --sb-accent-strong:var(--color-success);
-            --sb-signal-pos:   var(--color-success);
-            --sb-signal-warn:  var(--color-warning);
-            --sb-signal-danger:var(--color-error);
+<script nonce="@Model.CspNonce">
+    (function() {
+        if (new URLSearchParams(window.location.search).get('embed') === '1') {
+            document.addEventListener('DOMContentLoaded', function() {
+                var hdr = document.getElementById('sb-brand-header');
+                if (hdr) hdr.style.display = 'none';
+            });
         }
-
-        body { font-family: 'Inter', sans-serif; background: var(--sb-surface); }
-        .brand-header {
-            /* daisyui v5 token names; the old --b2 / --bc names resolved to nothing,
-               so the header chrome stayed a fixed colour across every theme. */
-            background: var(--color-base-200);
-            border-bottom: 1px solid color-mix(in oklch, var(--color-base-content) 10%, transparent);
-        }
-        .sb-link { color: var(--sb-accent); text-decoration: none; }
-        .sb-link:hover { text-decoration: underline; }
-
-        /* Legacy HTMX opacity-fade transitions removed -- they pre-dated the View
-           Transitions API path (which masks legacy outerHTML swaps gracefully) and
-           the two-region innerHTML-OOB swap (which preserves DOM identity and needs
-           no fade at all). Leaving these rules in caused tbody contents to fade out
-           and back in on every SignalR beacon, even on migrated widgets. */
-
-        /* Connection status indicator */
-        .sb-connected { background: var(--sb-signal-pos); }
-        .sb-disconnected { background: var(--sb-signal-danger); }
-        .sb-connecting { background: var(--sb-signal-warn); animation: pulse 1.5s infinite; }
-        @@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-
-        /* DaisyUI's .modal renders display:grid covering the viewport at z-index 999
-           even when the <dialog> has no [open] attribute. Pointer-events:none on the
-           dialog itself doesn't stop its descendants (e.g. the .modal-backdrop form)
-           from intercepting hit-tests. Result on this page: the unopened
-           sb-policy-modal silently captured the second and third clicks on the
-           chart time-range pills directly below it (the first click slipped through
-           before some layout shift, subsequent clicks landed on the modal layer).
-           Forcing display:none on a closed dialog removes the layer entirely. */
-        dialog.modal:not([open]) { display: none !important; }
-    </style>
-</head>
-<body class="min-h-screen overflow-x-hidden" hx-headers='{"X-Requested-With": "XMLHttpRequest"}'>
-
-    @* Brand header is now a SHARED partial used by both the marketing _Layout and this
-       page so the chrome stays byte-identical across the site. The RenderShell flag still
-       lets a host (commercial wrapper) suppress this when it already provides its own. *@
-    @if (Model.RenderShell)
-    {
-        <div class="w-full bg-warning text-warning-content text-center text-xs sm:text-sm font-bold uppercase tracking-wider py-1.5 px-4">
-            Releases June 1st &middot; all content is provisional
-        </div>
-        @await Html.PartialAsync("_StylobotNavbar")
+        // Allow HTMX-injected partial scripts to run under this page's CSP nonce
+        if (typeof htmx !== 'undefined') htmx.config.inlineScriptNonce = '@Model.CspNonce';
+    })();
+</script>
+<style nonce="@Model.CspNonce">
+    [x-cloak] { display: none !important; }
+    :root, [data-theme] {
+        --sb-surface:      var(--color-base-200);
+        --sb-card-bg:      var(--color-base-100);
+        --sb-card-border:  color-mix(in oklch, var(--color-base-content) 15%, transparent);
+        --sb-card-divider: color-mix(in oklch, var(--color-base-content) 8%, transparent);
+        --sb-card-subtle:  var(--color-base-300);
+        --sb-brand-muted:  color-mix(in oklch, var(--color-base-content) 55%, transparent);
+        --sb-brand-strong: var(--color-base-content);
+        --sb-accent:       var(--color-accent);
+        --sb-accent-alt:   var(--color-primary);
+        --sb-accent-strong:var(--color-success);
+        --sb-signal-pos:   var(--color-success);
+        --sb-signal-warn:  var(--color-warning);
+        --sb-signal-danger:var(--color-error);
     }
+    .sb-link { color: var(--sb-accent); text-decoration: none; }
+    .sb-link:hover { text-decoration: underline; }
+    .sb-connected { background: var(--sb-signal-pos); }
+    .sb-disconnected { background: var(--sb-signal-danger); }
+    .sb-connecting { background: var(--sb-signal-warn); animation: pulse 1.5s infinite; }
+    @@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    /* DaisyUI's .modal renders display:grid covering the viewport at z-index 999
+       even when the <dialog> has no [open] attribute. Forcing display:none on
+       a closed dialog removes the click-intercept layer entirely. */
+    dialog.modal:not([open]) { display: none !important; }
+</style>
 
-    <!-- Main content -->
-    <main class="max-w-7xl mx-auto px-2 py-4">
+@* RenderShell stays as a kill switch for hosts that genuinely want to suppress
+   the pre-launch banner (the navbar is the host _Layout's responsibility now,
+   not this view's). Marketing / commercial sites set RenderShell=true to opt
+   into the banner; an embed (?embed=1) host can set false. *@
+@if (Model.RenderShell)
+{
+    <div class="w-full bg-warning text-warning-content text-center text-xs sm:text-sm font-bold uppercase tracking-wider py-1.5 px-4">
+        Releases June 1st &middot; all content is provisional
+    </div>
+}
+
+<!-- Main content -->
+<main class="max-w-7xl mx-auto px-2 py-4">
 
         <!-- Compact metric strip + Your Detection pill (single row, ~48px instead of ~360px).
              The old two-column grid (sb-summary-stats card + license/your-detection card) ate the
@@ -868,5 +821,3 @@
         });
     })();
     </script>
-</body>
-</html>
