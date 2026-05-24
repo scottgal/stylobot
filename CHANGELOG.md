@@ -5,9 +5,9 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 6.8.0
+## [6.8.0] - 2026-05-24
 
-The 6.8 line lands the policy-grammar consolidation in three behaviour-preserving phases and one user-facing default flip. Out of the box: **block malicious bots, rate-limit search and AI bots, leave humans untouched.** No "detect but do nothing" by default any more. Full design at `docs/plans/2026-05-24-policy-grammar-core-experience.md`.
+The 6.8 line lands the policy-grammar consolidation in three behaviour-preserving phases, one user-facing default flip, and a dashboard surface for the new state. Out of the box: **block malicious bots, rate-limit search and AI bots, leave humans untouched, slow bots harder when the origin slows down.** No "detect but do nothing" by default any more. See [`policy-defaults.md`](src/Mostlylucid.BotDetection/docs/policy-defaults.md) for the full per-`BotType` map + the 6.7 -> 6.8 migration recipe.
 
 ### Added: `PolicyIntent` grammar -- phase 1 (`1dda2c4`)
 
@@ -31,7 +31,7 @@ Real token-bucket rate limit (not delay-based throttle) keyed on `SignalKeys.Pri
 - `RegistryPolicyStateProvider` exposes the rate-limit params (`requestsPerMinute` / `burstSize` / `overLimitAction` / `keyBy`) so the dashboard renders real numbers instead of just policy names.
 - 33 new tests (token-bucket math, key isolation, OverLimitAction routing including the missing-fallback path, built-in registration, param surfacing).
 
-### Added: adaptive scaling -- phase 4 (`<this commit>`)
+### Added: adaptive scaling -- phase 4 (`f9ac9b6`)
 
 Origin-aware bot rate limits. When the upstream slows down (P95 latency rises) or starts erroring (5xx rate climbs), every `RateLimitActionPolicy` scales its effective `RequestsPerMinute` by the active degradation tier's `BotMultiplier`. Humans don't traverse rate limits, so they're untouched -- this is what operationalises "prioritise humans" from the plan.
 
@@ -71,9 +71,40 @@ The 6.7 default was "detect everything, do nothing": `BlockDetectedBots = false`
 
 15 new tests pin the default mapping and the registry-cross-check (every value in the default map must be a registered built-in policy).
 
+### Added: policy detail tab -- phase 5 (`404e0bc`)
+
+New `policy` tab in the investigate tab strip (between `honeypot` and `geo`). Reads from `IPolicyStateProvider` so the data pipe was already there in phase 1; phase 5 just renders.
+
+- **Header chip**: observe-only badge when calibration mode is on, otherwise the default-fallback policy name.
+- **`BotType` -> policy grid**: every `BotType` in plan order shows its mapped policy, intent badge (colour-coded by `PolicyIntent`), and (for rate-limits) the *effective* req/min. Unmapped types flagged red so a config typo doesn't hide silently behind `DefaultActionPolicyName`.
+- **Per-policy cards**: rate-limit policies first (the new stuff), each showing intent + tier badge + effective RPM with a muted `(configured x multiplier)` breakdown when adaptive scaling is below 1.0. Burst, key-by mode, and `OverLimitAction` rendered as monospace metadata.
+
+### Fixed: per-`BotType` routing fires in the main middleware flow (`61baabe`)
+
+End-to-end campaign against the FOSS demo surfaced a regression: phase 3 added per-`BotType` consultation to `BlackboardOrchestrator`, but the FOSS demo runs `EphemeralDetectionOrchestrator` (default service registration). Result: every detected bot was hitting `DefaultActionPolicyName` (`throttle-stealth`), bypassing the per-type map the 6.8 defaults are built around.
+
+Fix is a single middleware chokepoint -- `BotDetectionMiddleware`'s main-flow fallback now consults `BotTypeActionPolicies` before `DefaultActionPolicyName`. Covers both orchestrators: `BlackboardOrchestrator` pre-populates `TriggeredActionPolicyName` (block is a no-op), `EphemeralDetectionOrchestrator` leaves it null (block resolves the per-type policy). Mirrors the lookup that's been in `HandlePostDetectionActionsAsync` (line 1742) all along; the main flow was the missing site.
+
+Verified live with the BDF + k6 + curl campaign: `curl/8.6.0` -> `throttle-tools`, `Scrapy/2.11.0` -> `throttle-aggressive`, with log lines now carrying `(type=Tool)` / `(type=Scraper)` instead of falling through to the default.
+
+### Docs
+
+- New [`policy-defaults.md`](src/Mostlylucid.BotDetection/docs/policy-defaults.md) -- canonical "what stylobot does out of the box" reference.
+- [`configuration-reference.md`](src/Mostlylucid.BotDetection/docs/configuration-reference.md) refreshed: `BotTypeActionPolicies` default table, `DefaultActionPolicyName` default flipped, new `ObserveOnly` + adaptive-scaling sections.
+- [`action-policies.md`](src/Mostlylucid.BotDetection/docs/action-policies.md) gained a "Rate-Limit Policies (6.8+)" section between Throttle and Challenge.
+- [`policy-system.md`](src/Mostlylucid.BotDetection/docs/policy-system.md) built-in names list expanded.
+
 ---
 
-## [Unreleased] - 6.7.6
+## [6.7.7] - 2026-05-24
+
+Hotfix release. Single commit (`864a4af`):
+
+- **`fix(data)`**: re-enable 8 data sources that were silently flipped from `Enabled = true` to `false` as drive-by edits in `3c28bdc` ("`fix(ui): update partial view paths missed in namespace move`", 2026-04-19). `stylobot setup` reported *No patterns fetched from any source, using fallback patterns* on every install because every gate was short-circuiting. Restored: `IsBot`, `AwsIpRanges`, `GcpIpRanges`, `CloudflareIpv4`, `CloudflareIpv6`, `BrowserVersions`, `ScannerUserAgents`, `CoreRuleSetScanners`. The three that legitimately default to `false` (`Matomo`, `CrawlerUserAgents`, `AzureIpRanges`) stay off.
+
+---
+
+## [6.7.6] - 2026-05-24
 
 Two-commit consolidation that gives the honeypot subsystem a category enum and rewires the dashboard intent label to read from it. No behavioural change to detection -- catalog matches, blocks, exemptions, and rate-limiting work exactly as they did in 6.7.5; the win is structural (single source of truth) and operator-facing (a colour-grouped Category chip on the Honeypot tab).
 

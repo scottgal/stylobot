@@ -3,7 +3,7 @@
 ***COMING SOON***
 Current versions are in development. With version 7 (due early June 2026) this will stabilize (read fewer releases).
 
-> **Heads up: defaults change in 6.8 in preparation for v7.** Out of the box, stylobot will block malicious bots, rate-limit search/AI bots, leave humans untouched, and throttle bots harder when the origin slows down. The current `BlockDetectedBots = false` observe-only posture becomes an explicit opt-in (`ObserveOnly: true`) rather than the implicit default. The migration callout will ship in the 6.8 [CHANGELOG](CHANGELOG.md) entry. 
+> **Defaults changed in 6.8 in preparation for v7.** Out of the box, stylobot now blocks malicious bots, rate-limits search and AI bots, leaves humans untouched, and throttles bots harder when the origin slows down. The previous `BlockDetectedBots = false` observe-only posture is now an explicit opt-in (`ObserveOnly: true`) rather than the implicit default. Full reference at [`policy-defaults.md`](src/Mostlylucid.BotDetection/docs/policy-defaults.md); migration recipe + complete release notes in the [6.8.0 CHANGELOG entry](CHANGELOG.md#680---2026-05-24). 
 
 ## STATUS
 With version 6.x these are the stabilisation versions - IT IS LIKELY THEY WILL BREAK - as I work through this. StyloBot is now *feature complete* and I'm now stabilising it with a view to a June 1st RTM
