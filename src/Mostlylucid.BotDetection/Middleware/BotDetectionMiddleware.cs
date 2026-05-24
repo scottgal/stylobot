@@ -652,35 +652,51 @@ public class BotDetectionMiddleware(
             }
         }
 
-        // Fallback: if no action policy was triggered by transitions, but a bot was detected
-        // and DefaultActionPolicyName is configured, execute that as a fallback.
-        // This enables "tarpit all detected bots" without needing per-policy transitions.
-        // When DefaultActionPolicyName fires, it REPLACES the hard block/403 - the tarpit
-        // IS the response. We skip ShouldBlockRequest so bots see a normal (delayed) response.
+        // Fallback: no action policy triggered by transitions but a bot was detected.
+        // Resolve in priority order:
+        //   1. Per-BotType policy from BotTypeActionPolicies (6.8+: MaliciousBot ->
+        //      block-hard, AiBot -> rate-limit-ai, etc).
+        //   2. DefaultActionPolicyName fallback.
+        // This is the SINGLE chokepoint that runs regardless of which orchestrator
+        // (Ephemeral vs Blackboard) populated the evidence; the BlackboardOrchestrator
+        // also pre-populates TriggeredActionPolicyName from BotTypeActionPolicies, but
+        // EphemeralDetectionOrchestrator doesn't, so we must consult the map here too.
 #pragma warning disable CS0618 // BotDetectionOptions field deprecated; will be removed in a future major release
         if (string.IsNullOrEmpty(aggregatedResult.TriggeredActionPolicyName)
-            && !string.IsNullOrEmpty(_options.DefaultActionPolicyName)
             && aggregatedResult.BotProbability >= _options.BotThreshold
             && aggregatedResult.EarlyExitVerdict is not (EarlyExitVerdict.VerifiedGoodBot or EarlyExitVerdict.Whitelisted))
 #pragma warning restore CS0618
         {
-            var fallbackPolicy = MaybeShadowForObserveOnly(
-                actionPolicyRegistry,
-                actionPolicyRegistry.GetPolicy(_options.DefaultActionPolicyName));
-            if (fallbackPolicy != null)
+            // Step 1: try the per-BotType map.
+            string? resolvedPolicyName = null;
+            if (aggregatedResult.PrimaryBotType is not null and not BotType.Unknown
+                && _options.BotTypeActionPolicies.Count > 0)
+            {
+                var botTypeName = aggregatedResult.PrimaryBotType.Value.ToString();
+                _options.BotTypeActionPolicies.TryGetValue(botTypeName, out resolvedPolicyName);
+            }
+            // Step 2: fall back to DefaultActionPolicyName if no per-type match.
+            resolvedPolicyName ??= _options.DefaultActionPolicyName;
+
+            var fallbackPolicy = !string.IsNullOrEmpty(resolvedPolicyName)
+                ? MaybeShadowForObserveOnly(
+                    actionPolicyRegistry,
+                    actionPolicyRegistry.GetPolicy(resolvedPolicyName))
+                : null;
+            if (fallbackPolicy != null && resolvedPolicyName is not null)
             {
                 // Update the evidence so downstream (dashboard, logging) sees the action
                 aggregatedResult = aggregatedResult with
                 {
-                    TriggeredActionPolicyName = _options.DefaultActionPolicyName
+                    TriggeredActionPolicyName = resolvedPolicyName
                 };
                 context.Items[AggregatedEvidenceKey] = aggregatedResult;
 
                 _logger.LogInformation(
-                    "[ACTION] Executing default action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2})",
-                    _options.DefaultActionPolicyName,
+                    "[ACTION] Executing action policy '{ActionPolicy}'{Shadow} for {Path} (risk={Risk:F2}, type={BotType})",
+                    resolvedPolicyName,
                     _options.ObserveOnly ? " [observe-only shadow]" : "",
-                    context.Request.Path, aggregatedResult.BotProbability);
+                    context.Request.Path, aggregatedResult.BotProbability, aggregatedResult.PrimaryBotType);
 
                 await fallbackPolicy.ExecuteAsync(context, aggregatedResult, context.RequestAborted);
 
