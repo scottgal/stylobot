@@ -72,7 +72,13 @@ public sealed class IdentityVectorContributor : ContributingDetectorBase, IFound
         // Network — taken from existing signals / GeoLocation context where possible.
         // IP subnet computed inline from the connection address since no standalone signal exists.
         values["network.asn"] = SignalString(signals, SignalKeys.IpAsn);
-        values["network.ip_subnet"] = ComputeIpSubnet(ctx.Connection.RemoteIpAddress);
+        var ipSubnet = ComputeIpSubnet(ctx.Connection.RemoteIpAddress);
+        values["network.ip_subnet"] = ipSubnet;
+        // Also publish as a top-level signal so consumers (dashboard
+        // visitor cache, the behavioural grouper's subnet-rotation tier,
+        // any future operator analytics) can read it without going
+        // through the IdentityVector payload.
+        if (ipSubnet is not null) state.WriteSignal("ip.subnet", ipSubnet);
         values["network.country"] = SignalString(signals, SignalKeys.GeoCountryCode);
         values["network.region"] = SignalString(signals, "geo.region_code");
         values["network.city"] = SignalString(signals, "geo.city");

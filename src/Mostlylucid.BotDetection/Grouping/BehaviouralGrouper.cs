@@ -21,14 +21,17 @@ namespace Mostlylucid.BotDetection.Grouping;
 public sealed class BehaviouralGrouper : IBehaviouralGrouper
 {
     private readonly IOptionsMonitor<GroupingOptions> _options;
+    private readonly ISubnetRotationTracker _subnetTracker;
     private readonly ILogger<BehaviouralGrouper> _logger;
 
     public BehaviouralGrouper(
         IOptionsMonitor<GroupingOptions> options,
-        ILogger<BehaviouralGrouper> logger)
+        ILogger<BehaviouralGrouper> logger,
+        ISubnetRotationTracker subnetTracker)
     {
         _options = options;
         _logger = logger;
+        _subnetTracker = subnetTracker;
     }
 
     public GroupKey Resolve(GroupingInput input)
@@ -75,9 +78,36 @@ public sealed class BehaviouralGrouper : IBehaviouralGrouper
                 $"Cluster {Short(input.ClusterId)}");
         }
 
-        // Tiers 3-5 (vector cosine / sequence centroid / subnet rotation)
-        // wired in Phase 3-4 of the plan; placeholders only here so the
-        // hierarchy reads correctly when those tiers come online.
+        // Tiers 3-4 (vector cosine / sequence centroid) land in phase 3.
+
+        // ============================================================
+        //  Tier 5 -- /24 + UA family rotation
+        //
+        //  Record this bot-shaped observation into the subnet window; if
+        //  the window has crossed both thresholds (sigs + UA families)
+        //  AND stayed single-country, return a rotation key. The chip
+        //  reads "/24 rotation 198.x.x.x (N sigs, M UA families)".
+        // ============================================================
+        if (opts.EnableSubnetRotationTier
+            && !string.IsNullOrEmpty(input.IpSubnetSignature))
+        {
+            var group = _subnetTracker.RecordAndCheck(
+                input.IpSubnetSignature,
+                input.Signature,
+                input.UaFamily,
+                input.CountryCode,
+                opts.SubnetMinSignatures,
+                opts.SubnetMinUaFamilies);
+
+            if (group is not null)
+            {
+                return new GroupKey(
+                    GroupKeySource.SubnetUaRotation,
+                    input.IpSubnetSignature,
+                    $"Subnet rotation ({group.SignatureCount} sigs, {group.UaFamilyCount} UAs"
+                    + (group.Country is null ? ")" : $", {group.Country})"));
+            }
+        }
 
         // ============================================================
         //  Tier 6 -- Friendly bot name (the current dashboard rule)

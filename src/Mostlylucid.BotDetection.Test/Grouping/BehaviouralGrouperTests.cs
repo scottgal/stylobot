@@ -11,7 +11,8 @@ public class BehaviouralGrouperTests
         options ??= new GroupingOptions();
         return new BehaviouralGrouper(
             new TestMonitor<GroupingOptions>(options),
-            NullLogger<BehaviouralGrouper>.Instance);
+            NullLogger<BehaviouralGrouper>.Instance,
+            new SubnetRotationTracker());
     }
 
     private static GroupingInput Bot(string signature, string? botName = null, string? botType = null) =>

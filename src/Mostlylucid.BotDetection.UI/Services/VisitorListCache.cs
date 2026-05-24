@@ -91,6 +91,8 @@ public class VisitorListCache
                     ThreatScore = detection.ThreatScore,
                     ThreatBand = detection.ThreatBand,
                     Protocol = ExtractProtocol(detection),
+                    IpSubnetSignature = ExtractSignal(detection, "ip.subnet"),
+                    UaFamily = ExtractSignal(detection, "ua.family"),
                 };
             },
             (_, existing) =>
@@ -156,6 +158,12 @@ public class VisitorListCache
                     var proto = ExtractProtocol(detection);
                     if (!string.IsNullOrEmpty(proto))
                         existing.Protocol = proto;
+                    var subnet = ExtractSignal(detection, "ip.subnet");
+                    if (!string.IsNullOrEmpty(subnet))
+                        existing.IpSubnetSignature = subnet;
+                    var uaFamily = ExtractSignal(detection, "ua.family");
+                    if (!string.IsNullOrEmpty(uaFamily))
+                        existing.UaFamily = uaFamily;
                     if (!string.IsNullOrEmpty(detection.Path) && !existing.Paths.Contains(detection.Path))
                     {
                         existing.Paths.Add(detection.Path);
@@ -303,9 +311,12 @@ public class VisitorListCache
                 RiskBand = v.RiskBand,
                 IsBot = v.IsBot,
                 BotName = v.BotName,
-                BotType = v.BotType
-                // FingerprintId / ClusterId not on CachedVisitor yet -- Phase 2
-                // will populate them so tiers 1/2 fire here.
+                BotType = v.BotType,
+                IpSubnetSignature = v.IpSubnetSignature,
+                UaFamily = v.UaFamily,
+                CountryCode = v.CountryCode
+                // FingerprintId / ClusterId not on CachedVisitor yet -- Phase 4
+                // wires them so tiers 1/2 fire here.
             });
             return key.Canonical;
         }
@@ -472,6 +483,20 @@ public class VisitorListCache
         return null;
     }
 
+    /// <summary>
+    ///     Read a single signal value off the detection event by key.
+    ///     Used to populate behavioural-grouper inputs (ip.subnet,
+    ///     ua.family) onto the cached visitor without expanding the model
+    ///     surface area.
+    /// </summary>
+    private static string? ExtractSignal(DashboardDetectionEvent detection, string key)
+    {
+        if (detection.ImportantSignals is null) return null;
+        if (detection.ImportantSignals.TryGetValue(key, out var v) && v is not null)
+            return v.ToString();
+        return null;
+    }
+
     // Filter categories key off BotType. BotType is the authoritative classification
     // from the YAML catalog (UserAgentContributor matches the UA against the loaded
     // patterns and writes the bot_type into the signal), and GetFiltered keeps it in
@@ -529,6 +554,12 @@ public class CachedVisitor
     public double? ThreatScore { get; set; }
     public string? ThreatBand { get; set; }
     public string? Protocol { get; set; }
+
+    /// <summary>HMAC of the visitor's /24 subnet -- feeds the behavioural grouper's subnet-rotation tier.</summary>
+    public string? IpSubnetSignature { get; set; }
+
+    /// <summary>User-agent family (e.g. "Chrome", "Safari", "curl") -- feeds the rotation tier's UA diversity check.</summary>
+    public string? UaFamily { get; set; }
 
     public string TimeAgo
     {
