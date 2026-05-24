@@ -1095,6 +1095,9 @@ public static class ServiceCollectionExtensions
 
         // Register action policy registry (holds named action policies)
         services.TryAddSingleton<IActionPolicyRegistry, ActionPolicyRegistry>();
+        // Read model for the dashboard policy tab (phase 1 of the policy-
+        // grammar work; see docs/plans/2026-05-24-policy-grammar-core-experience.md).
+        services.TryAddSingleton<IPolicyStateProvider, RegistryPolicyStateProvider>();
 
         // ==========================================
         // Compliance packs

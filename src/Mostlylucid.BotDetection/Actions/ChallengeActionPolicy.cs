@@ -88,6 +88,9 @@ public class ChallengeActionPolicy : IActionPolicy
     public ActionType ActionType => ActionType.Challenge;
 
     /// <inheritdoc />
+    public PolicyIntent Intent => PolicyIntent.Challenge;
+
+    /// <inheritdoc />
     public async Task<ActionResult> ExecuteAsync(
         HttpContext context,
         AggregatedEvidence evidence,

@@ -41,6 +41,15 @@ public interface IActionPolicy
     ActionType ActionType { get; }
 
     /// <summary>
+    ///     Coarse-grained intent of this policy. Default implementation
+    ///     derives it from <see cref="ActionType"/> via
+    ///     <see cref="PolicyIntentExtensions.ToIntent"/>; new policy classes
+    ///     (e.g. <c>RateLimitActionPolicy</c>) override this to declare an
+    ///     intent that doesn't have a 1:1 mapping to <see cref="ActionType"/>.
+    /// </summary>
+    PolicyIntent Intent => ActionType.ToIntent();
+
+    /// <summary>
     ///     Execute the action policy against the current request.
     /// </summary>
     /// <param name="context">The HTTP context</param>

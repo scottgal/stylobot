@@ -78,6 +78,9 @@ public class ThrottleActionPolicy : IActionPolicy
     public ActionType ActionType => ActionType.Throttle;
 
     /// <inheritdoc />
+    public PolicyIntent Intent => PolicyIntent.Throttle;
+
+    /// <inheritdoc />
     async Task<ActionResult> IActionPolicy.ExecuteAsync(
         HttpContext httpContext,
         AggregatedEvidence evidence,

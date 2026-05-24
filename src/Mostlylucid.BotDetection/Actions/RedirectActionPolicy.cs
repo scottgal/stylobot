@@ -78,6 +78,9 @@ public class RedirectActionPolicy : IActionPolicy
     public ActionType ActionType => ActionType.Redirect;
 
     /// <inheritdoc />
+    public PolicyIntent Intent => PolicyIntent.Block;
+
+    /// <inheritdoc />
     public Task<ActionResult> ExecuteAsync(
         HttpContext context,
         AggregatedEvidence evidence,

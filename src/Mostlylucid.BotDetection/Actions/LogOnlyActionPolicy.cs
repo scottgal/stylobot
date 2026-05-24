@@ -79,6 +79,9 @@ public class LogOnlyActionPolicy : IActionPolicy
     public ActionType ActionType => ActionType.LogOnly;
 
     /// <inheritdoc />
+    public PolicyIntent Intent => PolicyIntent.Pass;
+
+    /// <inheritdoc />
     public Task<ActionResult> ExecuteAsync(
         HttpContext context,
         AggregatedEvidence evidence,

@@ -65,6 +65,9 @@ public class BlockActionPolicy : IActionPolicy
     public ActionType ActionType => ActionType.Block;
 
     /// <inheritdoc />
+    public PolicyIntent Intent => PolicyIntent.Block;
+
+    /// <inheritdoc />
     public async Task<ActionResult> ExecuteAsync(
         HttpContext context,
         AggregatedEvidence evidence,
