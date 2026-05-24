@@ -28,7 +28,12 @@
     <div class="flex items-center gap-2">
         @if (Model.ShowSearch && !string.IsNullOrEmpty(Model.SearchUrl))
         {
+            @* hx-preserve keeps the input element across swaps so focus + caret
+               position survive when SignalR-driven OOB refreshes (or the user's
+               own keyup-triggered swap) replace the widget tbody. id is required
+               for hx-preserve to identify the element on both sides of the swap. *@
             <input type="search"
+                   id="sb-search-@Model.TargetId"
                    name="q"
                    placeholder="Search..."
                    value="@Model.SearchValue"
@@ -37,6 +42,7 @@
                    hx-target="#@Model.TargetId"
                    hx-swap="outerHTML transition:true"
                    hx-include="this"
+                   hx-preserve="true"
                    class="input input-xs input-bordered w-40 text-xs" />
         }
         @if (Model.TimeWindowOptions is { Count: > 0 })

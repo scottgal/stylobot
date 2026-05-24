@@ -42,10 +42,14 @@
             <div class="space-y-2">
                 @foreach (var s in Model.Sessions)
                 {
+                    @* Row click navigates to the full signature detail page (which now has
+                       its own behavioral evolution / radar / metrics surface). The previous
+                       hx-target="#session-detail-panel" target was never rendered on the
+                       Sessions tab so clicks silently 404'd into a missing element. The
+                       SbLiveUpdates global click delegate picks up data-href and routes
+                       to window.location, matching the EndpointsCompact row pattern. *@
                     <div class="bg-base-100 rounded-lg p-3 hover:bg-base-300/50 transition-colors cursor-pointer border border-base-300/50"
-                         hx-get="@bp/partials/session-detail?id=@s.Id&sig=@Uri.EscapeDataString(s.Signature)"
-                         hx-target="#session-detail-panel"
-                         hx-swap="innerHTML transition:true">
+                         data-href="@bp/signature/@Uri.EscapeDataString(s.Signature)">
 
                         @* Header row: identity + timing *@
                         <div class="flex items-center justify-between mb-1">
