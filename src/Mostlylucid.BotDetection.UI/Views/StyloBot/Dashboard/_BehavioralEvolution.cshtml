@@ -1,0 +1,107 @@
+@using Mostlylucid.BotDetection.UI.Models
+@model BehavioralEvolutionModel
+@{
+    var o = Model.Options;
+}
+
+<div id="behavioral-evolution"
+     class="rounded-xl border p-4 mb-4"
+     style="border-color: var(--sb-card-border); background: var(--sb-card-bg);"
+     data-signature="@Model.SignatureId"
+     data-base-path="@Model.BasePath"
+     data-max-overlay="@o.MaxOverlaySessions"
+     data-half-life-min="@o.HalfLifeMinutes"
+     data-min-ghost-opacity="@o.MinGhostOpacity"
+     data-max-ghost-opacity="@o.MaxGhostOpacity"
+     data-min-stroke-opacity="@o.MinStrokeOpacity"
+     data-focus-fill-opacity="@o.FocusFillOpacity"
+     data-focus-stroke-opacity="@o.FocusStrokeOpacity"
+     data-current-stroke="@o.CurrentStrokeWidth"
+     data-ghost-stroke="@o.GhostStrokeWidth"
+     data-play-interval-ms="@o.PlayIntervalMs"
+     data-ring-count="@o.RingCount"
+     data-blue-shift-min="@o.BlueShiftAfterMinutes">
+
+    <div class="flex items-center justify-between mb-3">
+        <h3 class="text-xs font-semibold text-base-content/70 uppercase">
+            <i class="bx bx-shape-polygon text-sm" style="color: var(--sb-accent);"></i>
+            Behavioral Evolution
+        </h3>
+        <div class="flex items-center gap-3 text-[10px] text-base-content/40">
+            <span data-evolution-count>Loading sessions...</span>
+            <button type="button"
+                    class="btn btn-ghost btn-xs"
+                    data-evolution-play
+                    title="Animate through sessions">
+                <i class="bx bx-play"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-4">
+        <div data-evolution-radar style="height: 420px;"></div>
+        <div data-evolution-sessions class="text-xs">
+            <div class="text-base-content/40 text-center py-4">Loading sessions...</div>
+        </div>
+    </div>
+
+    @if (o.ShowMetricsStrip)
+    {
+        <div class="grid grid-cols-6 gap-3 mt-3 pt-3 border-t"
+             style="border-color: var(--sb-card-divider);"
+             data-evolution-metrics>
+            @foreach (var label in new[] { "Duration", "Requests", "Dominant", "Bot Prob", "Maturity", "Entropy" })
+            {
+                <div>
+                    <div class="text-[9px] uppercase tracking-wider text-base-content/40">@label</div>
+                    <div class="text-xs font-mono text-base-content mt-0.5"
+                         data-metric="@label.ToLowerInvariant().Replace(' ', '-')">--</div>
+                </div>
+            }
+        </div>
+    }
+
+    @if (o.ShowAxisLegend)
+    {
+        var quadrants = new (string Title, (int Hour, string Name, string Src)[] Axes)[]
+        {
+                ("Footprint", new[] {
+                    (12, "Browsing", "semantic"),
+                    ( 1, "API Activity", "semantic"),
+                    ( 2, "Asset Share", "markov")
+                }),
+                ("Surface", new[] {
+                    ( 3, "Realtime Share", "markov"),
+                    ( 4, "Form / Search", "markov"),
+                    ( 5, "Auth Pressure", "semantic")
+                }),
+                ("Cadence", new[] {
+                    ( 6, "Burst Speed", "semantic"),
+                    ( 7, "Timing", "semantic"),
+                    ( 8, "Path Diversity", "semantic")
+                }),
+                ("Signal", new[] {
+                    ( 9, "404 Share", "markov"),
+                    (10, "Scan / Probe", "semantic"),
+                    (11, "Fingerprint", "semantic")
+                })
+        };
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3 pt-3 border-t text-[10px]"
+             style="border-color: var(--sb-card-divider);">
+            @foreach (var q in quadrants)
+            {
+                <div>
+                    <h4 class="text-[9px] uppercase tracking-wider mb-1" style="color: var(--sb-accent);">@q.Title</h4>
+                    @foreach (var ax in q.Axes)
+                    {
+                        <div class="flex items-baseline gap-2 text-base-content/70">
+                            <span class="font-mono text-base-content/30 w-4 text-right">@ax.Hour</span>
+                            <span class="flex-1">@ax.Name</span>
+                            <span class="text-base-content/30 text-[9px]">@ax.Src</span>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
