@@ -1224,18 +1224,18 @@ After every task above has its checkboxes ticked, sweep the spec one more time:
 - [ ] **Placeholder scan** — no TBD/TODO strings appear in the produced code.
 - [ ] **Type consistency** — `BehavioralEvolutionOptions` properties referenced from the partial (`MaxOverlaySessions`, `HalfLifeMinutes`, `MinGhostOpacity`, `MaxGhostOpacity`, `MinStrokeOpacity`, `FocusFillOpacity`, `FocusStrokeOpacity`, `CurrentStrokeWidth`, `GhostStrokeWidth`, `PlayIntervalMs`, `RingCount`, `BlueShiftAfterMinutes`, `ShowQuadrantBackgrounds`, `ShowAxisLegend`, `ShowMetricsStrip`) match the names in Task 1.
 
-### Test-coverage gap to flag to the user before execution
+### Test-coverage decisions
 
-The spec's **Testing** section lists four categories. This plan implements two directly and relies on the Step 4.6 / Step 9.x flow for the other two:
+The spec's **Testing** section lists four categories. Coverage and decisions:
 
 | Spec test | Plan coverage |
 |-----------|---------------|
 | `ClockProjectionTests` (unit) | Tasks 2 + 3 — 12 tests on the projection helpers |
-| `SignatureSessionsApiTests` (API contract) | **Partial.** Step 4.6 (curl + jq) and Step 9.2 (prod curl) assert `clockAxes` is length 12 alongside `radarAxes`. A proper WebApplicationFactory integration test is not added here because the UI test directory does not currently host one — adding it is a separate infrastructure piece not in the spec. |
-| `BehavioralEvolutionPartialTests` (partial render) | **Not added.** Same reason: no Razor render harness in `Mostlylucid.BotDetection.Test/UI`. The Step 9.4–9.7 chrome-devtools interaction gate covers the rendered-and-interactive surface, which is the value most of that test would deliver. |
+| `SignatureSessionsApiTests` (API contract) | Step 4.6 (curl + jq) asserts `clockAxes` length 12 alongside `radarAxes` against a local dashboard or prod. Step 9.2 re-asserts after deploy. The middleware composition glue is three calls to `Compose12Axes(semantic, ProjectMarkov(slice))` per branch — each is runtime-verified by Task 9's chrome-devtools gate. A `WebApplicationFactory<Program>` integration test is **not added**: the UI test directory does not host one, adding it is separate infra work, and the live verification is already automated and required by the gate. |
+| `BehavioralEvolutionPartialTests` (partial render) | **Not added.** The chrome-devtools gate (Steps 9.4–9.7) renders the partial against real prod data and drives real clicks/keypresses — that's the meaningful behavior, not the static HTML structure that a server-side render test could check. |
 | Browser interaction (chrome-devtools-mcp) | Task 9 — the HARD GATE |
 
-If you want the two missing integration tests, that is a separate small plan that adds a `WebApplicationFactory<Program>` fixture to the UI test directory and writes the two test classes against it. Say the word and I'll write it.
+If a future change ever splits the middleware composition into multiple deployables or branches behavior between the three session paths in ways the gate can't cover, add the WebApplicationFactory fixture then.
 
 ---
 
