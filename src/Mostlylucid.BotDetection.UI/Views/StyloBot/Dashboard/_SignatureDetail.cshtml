@@ -63,6 +63,23 @@
     <span class="text-base-content/60">Signature Detail</span>
 </div>
 
+@* Dashboard tab strip -- mirrors Index.cshtml so the operator never loses their
+   place after clicking a signature. No tab is highlighted because this view
+   isn't one of the tabs; clicking a tab navigates back to the dashboard with
+   that tab active. *@
+<div class="max-w-7xl mx-auto px-4 mt-2">
+    <div class="flex items-center gap-1 bg-base-300/50 rounded-lg p-0.5 w-fit flex-wrap">
+        <a href="@navBp?tab=overview"   class="px-3 py-1.5 text-xs font-medium rounded-md transition-all text-base-content/40 hover:text-base-content/60">Overview</a>
+        <a href="@navBp?tab=activity"   class="px-3 py-1.5 text-xs font-medium rounded-md transition-all text-base-content/40 hover:text-base-content/60">Activity</a>
+        <a href="@navBp?tab=visitors"   class="px-3 py-1.5 text-xs font-medium rounded-md transition-all text-base-content/40 hover:text-base-content/60">Visitors</a>
+        <a href="@navBp?tab=countries"  class="px-3 py-1.5 text-xs font-medium rounded-md transition-all text-base-content/40 hover:text-base-content/60">Countries</a>
+        <a href="@navBp?tab=endpoints"  class="px-3 py-1.5 text-xs font-medium rounded-md transition-all text-base-content/40 hover:text-base-content/60">Endpoints</a>
+        <a href="@navBp?tab=sessions"   class="px-3 py-1.5 text-xs font-medium rounded-md transition-all text-base-content/40 hover:text-base-content/60">Sessions</a>
+        <a href="@navBp?tab=threats"    class="px-3 py-1.5 text-xs font-medium rounded-md transition-all text-base-content/40 hover:text-base-content/60">Threats</a>
+        <a href="@navBp?tab=investigate" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all text-base-content/40 hover:text-base-content/60">Investigate</a>
+    </div>
+</div>
+
 <main class="max-w-7xl mx-auto px-4 py-4">
 
 @if (!Model.Found)
