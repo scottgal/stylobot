@@ -171,7 +171,12 @@ else
         CspNonce    = Model.CspNonce,
         Options     = evoOptions
     };
-    @await Html.PartialAsync("_BehavioralEvolution", evoModel)
+    @* Full tilde-path -- RazorViewRenderer (used by the FOSS dashboard middleware to
+       render this view outside an MVC controller) does not inject /Views/StyloBot/
+       Dashboard/ into the partial-name search list, so a name-only Html.PartialAsync
+       call 404s with InvalidOperationException at render time. Matches the pattern
+       _HelpIcon and other dashboard partials already use. *@
+    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_BehavioralEvolution.cshtml", evoModel)
 
     <!-- Fingerprint Profile -->
     <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
