@@ -85,11 +85,36 @@
                                 <span class="text-error" title="@s.ErrorCount errors">@s.ErrorCount err</span>
                             }
                             <span title="Bot probability">@((s.AvgBotProbability * 100).ToString("F0"))%</span>
+                            @if (s.ScoreDeltaPp.HasValue && Math.Abs(s.ScoreDeltaPp.Value) >= 0.5)
+                            {
+                                @* Score delta vs prior session for the same fingerprint. Positive = worsening (more bot-like). *@
+                                var dpp = s.ScoreDeltaPp.Value;
+                                var deltaClass = dpp > 0 ? "text-error" : "text-success";
+                                var arrow = dpp > 0 ? "&uarr;" : "&darr;";
+                                <span class="@deltaClass font-semibold" title="Score change vs prior session for this fingerprint">
+                                    @Html.Raw(arrow) @($"{Math.Abs(dpp):F0}pp")
+                                </span>
+                            }
                             @if (s.Action != null)
                             {
                                 <span class="badge badge-xs badge-outline">@s.Action</span>
                             }
                         </div>
+
+                        @* Paths visited preview - templatized; honeypot / 404 paths jump out *@
+                        @if (s.Paths is { Count: > 0 })
+                        {
+                            <div class="flex gap-1 mt-1 flex-wrap">
+                                @foreach (var p in s.Paths.Take(4))
+                                {
+                                    <span class="badge badge-xs badge-ghost font-mono text-[9px] max-w-48 truncate" title="@p">@p</span>
+                                }
+                                @if (s.Paths.Count > 4)
+                                {
+                                    <span class="badge badge-xs badge-ghost text-[9px] opacity-60">+@(s.Paths.Count - 4)</span>
+                                }
+                            </div>
+                        }
 
                         @* Markov chain preview - top transitions *@
                         @if (s.TransitionCounts != null && s.TransitionCounts.Count > 0)

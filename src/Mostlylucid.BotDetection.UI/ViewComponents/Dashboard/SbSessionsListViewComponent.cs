@@ -28,26 +28,61 @@ public class SbSessionsListViewComponent(
 
         var sigLookup = await eventStore.LoadSignatureLookupAsync();
 
-        var allEntries = allSessions.Select(s => new SessionListEntry
+        // GetRecentSessionsAsync returns DESC by StartedAt. To compute a per-row
+        // score-delta we need the *next* (older) session for the same signature.
+        // Build a per-signature timeline ASC once, then look up the prior entry
+        // by Id in the visible window.
+        var priorProbBySessionId = new Dictionary<long, double>();
+        foreach (var group in allSessions.GroupBy(s => s.Signature))
         {
-            Id = s.Id,
-            Signature = s.Signature,
-            StartedAt = s.StartedAt,
-            EndedAt = s.EndedAt,
-            RequestCount = s.RequestCount,
-            DominantState = s.DominantState,
-            IsBot = s.IsBot,
-            AvgBotProbability = s.AvgBotProbability,
-            RiskBand = s.RiskBand,
-            Action = s.Action,
-            BotName = sigLookup.ResolveBotName(signatureCache, s.Signature, s.BotName),
-            CountryCode = s.CountryCode,
-            ErrorCount = s.ErrorCount,
-            TimingEntropy = s.TimingEntropy,
-            Maturity = s.Maturity,
-            TransitionCounts = s.TransitionCountsJson != null
-                ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int>>(s.TransitionCountsJson)
-                : null
+            var asc = group.OrderBy(s => s.StartedAt).ToList();
+            for (var i = 1; i < asc.Count; i++)
+            {
+                priorProbBySessionId[asc[i].Id] = asc[i - 1].AvgBotProbability;
+            }
+        }
+
+        var allEntries = allSessions.Select(s =>
+        {
+            IReadOnlyList<string>? paths = null;
+            if (!string.IsNullOrEmpty(s.PathsJson))
+            {
+                try
+                {
+                    paths = System.Text.Json.JsonSerializer.Deserialize<List<string>>(s.PathsJson);
+                }
+                catch (System.Text.Json.JsonException) { /* tolerate malformed PathsJson */ }
+            }
+
+            double? deltaPp = null;
+            if (priorProbBySessionId.TryGetValue(s.Id, out var priorProb))
+            {
+                deltaPp = (s.AvgBotProbability - priorProb) * 100.0;
+            }
+
+            return new SessionListEntry
+            {
+                Id = s.Id,
+                Signature = s.Signature,
+                StartedAt = s.StartedAt,
+                EndedAt = s.EndedAt,
+                RequestCount = s.RequestCount,
+                DominantState = s.DominantState,
+                IsBot = s.IsBot,
+                AvgBotProbability = s.AvgBotProbability,
+                RiskBand = s.RiskBand,
+                Action = s.Action,
+                BotName = sigLookup.ResolveBotName(signatureCache, s.Signature, s.BotName),
+                CountryCode = s.CountryCode,
+                ErrorCount = s.ErrorCount,
+                TimingEntropy = s.TimingEntropy,
+                Maturity = s.Maturity,
+                TransitionCounts = s.TransitionCountsJson != null
+                    ? System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, int>>(s.TransitionCountsJson)
+                    : null,
+                Paths = paths,
+                ScoreDeltaPp = deltaPp
+            };
         }).ToList();
 
         var totalCount = allEntries.Count;

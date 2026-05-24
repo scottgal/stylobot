@@ -539,6 +539,16 @@ public sealed record SessionListEntry
     public IEnumerable<KeyValuePair<string, int>> TopTransitions =>
         TransitionCounts?.OrderByDescending(kv => kv.Value).Take(3)
         ?? Enumerable.Empty<KeyValuePair<string, int>>();
+
+    /// <summary>Distinct templatized paths visited in this session (e.g. /wp-admin, /api/users/{id}).</summary>
+    public IReadOnlyList<string>? Paths { get; init; }
+
+    /// <summary>
+    ///     Delta of AvgBotProbability vs the immediately prior session for the same signature,
+    ///     in percentage points. Null when no prior session is available in the current window.
+    ///     Positive = score worsened (more bot-like); negative = score improved.
+    /// </summary>
+    public double? ScoreDeltaPp { get; init; }
 }
 
 /// <summary>
