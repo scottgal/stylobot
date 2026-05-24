@@ -1735,8 +1735,17 @@ public class BotDetectionMiddleware(
         if (resolved is null) return null;
         if (resolved.Intent == PolicyIntent.Pass) return resolved;
         var shadow = registry.GetPolicy("logonly");
-        if (shadow is null) return resolved; // can't find logonly -> better to apply original than fail open silently
-        return shadow;
+        if (shadow is not null) return shadow;
+        // logonly is a built-in -- if it's missing the operator has gone out
+        // of their way to deregister it. Warn loudly: applying the original
+        // policy in observe-only mode is the OPPOSITE of what the operator
+        // asked for, but failing open would let bots through entirely.
+        _logger.LogWarning(
+            "ObserveOnly is set but the 'logonly' policy is not registered. " +
+            "Applying the configured policy '{Policy}' instead -- observe-only is NOT effective. " +
+            "Re-register the logonly built-in or unset ObserveOnly.",
+            resolved.Name);
+        return resolved;
     }
 
     /// <summary>

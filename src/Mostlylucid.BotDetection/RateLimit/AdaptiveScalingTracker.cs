@@ -118,6 +118,14 @@ public sealed class AdaptiveScalingTracker : IAdaptiveScalingTracker
 
         // No tier active -> back to nominal (1.0). Recovery applies the
         // RecoveryMultiplier so a flap doesn't snap straight back to baseline.
+        //
+        // Caveat: recovery is *call-frequency-dependent*, not time-based --
+        // each EvaluateTier call when health has recovered steps the
+        // multiplier up by 1/RecoveryMultiplier. Busy servers recover in
+        // milliseconds; quiet servers take minutes. Acceptable for now
+        // because rate limits only matter when there is traffic; revisit
+        // with a wall-clock recovery curve if production patterns expose
+        // the asymmetry.
         if (activeTier is null)
         {
             lock (_stateLock)

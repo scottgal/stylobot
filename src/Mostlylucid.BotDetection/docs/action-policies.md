@@ -242,6 +242,43 @@ The orchestrator routes friendly bot types (`SocialMediaBot`, `MonitoringBot`, `
 
 The friendly-bot set + threat gate are defined once in `Models/BotTypeClassification.cs`. To opt out per-detection-policy, set `TriggeredActionPolicyName` explicitly in a transition — anything non-empty wins over the auto-route.
 
+### Rate-Limit Policies (6.8+)
+
+Token-bucket rate limits, distinct from throttle-by-delay. Bucket overflow delegates to a composable `OverLimitAction` -- typo falls back to bare HTTP 429 + `Retry-After: 60`. Out-of-the-box bucket key is the visitor signature; switch to IP-keyed via `KeyBy: "Ip"` for grey-area bot classes where signature evasion is a concern.
+
+| Name | Rate | Burst | Over-limit action | Default mapping |
+|------|------|-------|-------------------|-----------------|
+| `rate-limit-search` | 60 req/min | 10 | `throttle-status` | `SearchEngine`, `GoodBot`, `VerifiedBot` |
+| `rate-limit-ai` | 10 req/min | 2 | `block-soft` | `AiBot` (bounces harder -- AI scrapers ignore `Retry-After`) |
+| `rate-limit-social` | 30 req/min | 5 | `throttle-status` | `SocialMediaBot` |
+| `rate-limit-monitoring` | 6 req/min | 2 | `throttle-status` | `MonitoringBot` |
+
+Allowed requests carry response headers:
+
+- `X-RateLimit-Policy: rate-limit-search`
+- `X-RateLimit-Limit: 60` (always the *effective* value, after adaptive scaling)
+
+When adaptive scaling is active (multiplier below 1.0):
+
+- `X-RateLimit-Tier: degraded`
+- `X-RateLimit-Multiplier: 0.50`
+
+#### Adaptive scaling -- the "prioritise humans" knob
+
+When the upstream slows down, every `rate-limit-*` policy's effective `RequestsPerMinute` scales by the active tier's `BotMultiplier`. Humans don't traverse rate limits, so they're untouched.
+
+Default tier ladder:
+
+| Tier | Threshold | Multiplier | Effective `rate-limit-search` |
+|------|-----------|------------|------------------------------|
+| `nominal` | P95 < 500ms AND 5xx < 1% | 1.0 | 60 req/min |
+| `degraded` | P95 >= 1000ms OR 5xx >= 3% | 0.5 | 30 req/min |
+| `critical` | P95 >= 2000ms OR 5xx >= 10% | 0.1 | 6 req/min |
+
+Tier transitions are dwell-gated (`Hysteresis.DwellSeconds`, default 30s) so a one-request 5xx spike doesn't halve the allowance. Override in `BotDetection:RateLimit:AdaptiveScaling`; set `Enabled: false` to lock at 1.0.
+
+See [`policy-defaults.md`](policy-defaults.md) for the full per-`BotType` mapping and the observe-only calibration knob.
+
 ### Challenge Policies
 
 | Name                | Type          | Description                | Learning Impact |

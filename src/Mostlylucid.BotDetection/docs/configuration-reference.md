@@ -609,15 +609,49 @@ Action policies define HOW to respond (block, throttle, challenge) and are separ
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `ActionPolicies` | `Dictionary<string, ActionPolicyConfig>` | `{}` | Named action policies |
-| `DefaultActionPolicyName` | `string?` | `null` | Default action policy (null = "block") |
-| `BotTypeActionPolicies` | `Dictionary<string, string>` | `{"Tool": "throttle-tools"}` | Per-bot-type action policy overrides |
+| `DefaultActionPolicyName` | `string?` | `"throttle-stealth"` | Fallback policy when no per-`BotType` entry matches. Set to `"block"` for strict default-deny. |
+| `BotTypeActionPolicies` | `Dictionary<string, string>` | See below | Per-bot-type action policy mapping (covers every `BotType` in 6.8+) |
+| `ObserveOnly` | `bool` | `false` | Calibration-mode opt-in. When `true`, every action policy that would have fired is shadowed through `logonly`; the dashboard still records *which* policy would have fired. |
+
+### `BotTypeActionPolicies` default (6.8+)
+
+| BotType | Policy | Effect |
+|---------|--------|--------|
+| `MaliciousBot` / `ExploitScanner` / `ClickFraud` | `block-hard` | 403, minimal response |
+| `Tool` | `throttle-tools` | HTTP 429 + Retry-After + exponential backoff |
+| `Scraper` | `throttle-aggressive` | Long delay with high jitter |
+| `AiBot` | `rate-limit-ai` | 10 req/min, burst 2 -> `block-soft` on overflow |
+| `SearchEngine` / `GoodBot` / `VerifiedBot` | `rate-limit-search` | 60 req/min, burst 10 -> `throttle-status` on overflow |
+| `SocialMediaBot` | `rate-limit-social` | 30 req/min, burst 5 -> `throttle-status` on overflow |
+| `MonitoringBot` | `rate-limit-monitoring` | 6 req/min, burst 2 -> `throttle-status` on overflow |
+| `Unknown` | (omitted) | Falls through to `DefaultActionPolicyName` |
 
 Built-in action policies available without configuration:
 - **Block**: `block`, `block-hard`, `block-soft`, `block-debug`
-- **Throttle**: `throttle`, `throttle-gentle`, `throttle-moderate`, `throttle-aggressive`, `throttle-stealth`
+- **Throttle**: `throttle`, `throttle-gentle`, `throttle-moderate`, `throttle-aggressive`, `throttle-stealth`, `throttle-tools`, `throttle-status`, `throttle-escalating`
+- **RateLimit** (6.8+): `rate-limit-search`, `rate-limit-ai`, `rate-limit-social`, `rate-limit-monitoring`
 - **Challenge**: `challenge`, `challenge-captcha`, `challenge-js`, `challenge-pow`
 - **Redirect**: `redirect`, `redirect-honeypot`, `redirect-tarpit`, `redirect-error`
 - **Other**: `logonly`, `shadow`, `debug`, `mask-pii`, `strip-pii` (`mask-pii`/`strip-pii` require `ResponsePiiMasking.Enabled = true`)
+
+### Adaptive scaling (`BotDetection:RateLimit:AdaptiveScaling`)
+
+When the upstream slows down, every `rate-limit-*` policy scales its effective `RequestsPerMinute` by the current degradation tier's `BotMultiplier`. Humans don't traverse rate limits, so they're untouched.
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `Enabled` | `bool` | `true` | Master switch for adaptive scaling |
+| `Tiers` | `List<Tier>` | nominal / degraded / critical | Tier ladder evaluated worst-first |
+| `Hysteresis.DwellSeconds` | `double` | `30` | Continuous time a threshold must be exceeded before entering a tier |
+| `Hysteresis.RecoveryMultiplier` | `double` | `0.8` | Recovery slope -- coming back is slower than going down |
+
+Default tier ladder:
+
+| Tier | Threshold | Multiplier |
+|------|-----------|------------|
+| `nominal` | P95 < 500ms AND 5xx < 1% | 1.0 |
+| `degraded` | P95 >= 1000ms OR 5xx >= 3% | 0.5 (halve bot allowance) |
+| `critical` | P95 >= 2000ms OR 5xx >= 10% | 0.1 (10% of nominal) |
 
 ## Response PII Masking
 

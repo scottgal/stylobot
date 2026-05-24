@@ -32,7 +32,7 @@ Defines WHAT to do with the verdict: block, throttle, challenge, log-only, redir
 
 Type: `Mostlylucid.BotDetection.Actions.IActionPolicy`.
 
-Built-in names: `block`, `block-hard`, `block-soft`, `throttle`, `throttle-stealth`, `challenge`, `redirect-honeypot`, `logonly`, `shadow`.
+Built-in names: `block`, `block-hard`, `block-soft`, `throttle`, `throttle-stealth`, `throttle-tools`, `throttle-status`, `throttle-aggressive`, `rate-limit-search`, `rate-limit-ai`, `rate-limit-social`, `rate-limit-monitoring`, `challenge`, `redirect-honeypot`, `logonly`, `shadow`. The `rate-limit-*` family (6.8+) is token-bucket-based; see [`policy-defaults.md`](policy-defaults.md) for the per-`BotType` mapping and [`configuration-reference.md`](configuration-reference.md#adaptive-scaling) for the adaptive-scaling tier ladder.
 
 A detection policy can demand an action policy via `Transitions[i].ActionPolicyName`. The endpoint-level `[BotAction("...")]` attribute can also pick an action policy independently of the detection policy.
 
