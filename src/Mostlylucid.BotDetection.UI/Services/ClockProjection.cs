@@ -38,5 +38,33 @@ public static class ClockProjection
         return new[] { asset, realtime, forms, notFound };
     }
 
+    /// <summary>
+    ///     Interleaves the 8-axis semantic projection with the 4-axis Markov projection
+    ///     into the fixed 12-axis clock order. Hours are indexed 12 → 11 as positions 0 → 11.
+    ///     Missing input arrays contribute zeros for their hours.
+    /// </summary>
+    public static double[] Compose12Axes(double[] semantic8, double[] markov4)
+    {
+        var v = new double[12];
+
+        v[0]  = GetClamped(semantic8, 0);   // 12 Browsing
+        v[1]  = GetClamped(semantic8, 1);   //  1 API Activity
+        v[2]  = GetClamped(markov4,   0);   //  2 Asset Share
+        v[3]  = GetClamped(markov4,   1);   //  3 Realtime Share
+        v[4]  = GetClamped(markov4,   2);   //  4 Form / Search
+        v[5]  = GetClamped(semantic8, 3);   //  5 Auth Pressure
+        v[6]  = GetClamped(semantic8, 5);   //  6 Burst Speed
+        v[7]  = GetClamped(semantic8, 4);   //  7 Timing
+        v[8]  = GetClamped(semantic8, 7);   //  8 Path Diversity
+        v[9]  = GetClamped(markov4,   3);   //  9 404 Share
+        v[10] = GetClamped(semantic8, 2);   // 10 Scan / Probe
+        v[11] = GetClamped(semantic8, 6);   // 11 Fingerprint
+
+        return v;
+    }
+
+    private static double GetClamped(double[]? src, int i)
+        => src is null || i >= src.Length ? 0.0 : Clamp01(src[i]);
+
     private static double Clamp01(double v) => v < 0 ? 0 : (v > 1 ? 1 : v);
 }

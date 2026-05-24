@@ -77,4 +77,70 @@ public class ClockProjectionTests
         var result = ClockProjection.ProjectMarkovTo4Axes(freqs);
         Assert.Equal(1.0, result[1], 5);
     }
+
+    [Fact]
+    public void Compose12Axes_places_each_source_at_its_clock_hour()
+    {
+        // Distinct values per slot so any swap shows up clearly.
+        var semantic = new[] { 0.10, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17 };
+        var markov   = new[] { 0.21, 0.22, 0.23, 0.24 };
+
+        var clock = ClockProjection.Compose12Axes(semantic, markov);
+
+        Assert.Equal(12, clock.Length);
+        Assert.Equal(0.10, clock[0],  5); // 12 Browsing       ← semantic[0]
+        Assert.Equal(0.11, clock[1],  5); //  1 API Activity   ← semantic[1]
+        Assert.Equal(0.21, clock[2],  5); //  2 Asset          ← markov[0]
+        Assert.Equal(0.22, clock[3],  5); //  3 Realtime       ← markov[1]
+        Assert.Equal(0.23, clock[4],  5); //  4 Form/Search    ← markov[2]
+        Assert.Equal(0.13, clock[5],  5); //  5 Auth Pressure  ← semantic[3]
+        Assert.Equal(0.15, clock[6],  5); //  6 Burst Speed    ← semantic[5]
+        Assert.Equal(0.14, clock[7],  5); //  7 Timing         ← semantic[4]
+        Assert.Equal(0.17, clock[8],  5); //  8 Path Diversity ← semantic[7]
+        Assert.Equal(0.24, clock[9],  5); //  9 404 Share      ← markov[3]
+        Assert.Equal(0.12, clock[10], 5); // 10 Scan/Probe     ← semantic[2]
+        Assert.Equal(0.16, clock[11], 5); // 11 Fingerprint    ← semantic[6]
+    }
+
+    [Fact]
+    public void Compose12Axes_null_semantic_yields_zero_for_semantic_hours_only()
+    {
+        var markov = new[] { 0.5, 0.5, 0.5, 0.5 };
+        var clock = ClockProjection.Compose12Axes(null!, markov);
+
+        Assert.Equal(0.0, clock[0]);   // 12 semantic
+        Assert.Equal(0.5, clock[2]);   //  2 markov
+        Assert.Equal(0.0, clock[5]);   //  5 semantic
+        Assert.Equal(0.5, clock[9]);   //  9 markov
+    }
+
+    [Fact]
+    public void Compose12Axes_null_markov_yields_zero_for_markov_hours_only()
+    {
+        var semantic = new[] { 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5 };
+        var clock = ClockProjection.Compose12Axes(semantic, null!);
+
+        Assert.Equal(0.5, clock[0]);   // 12 semantic
+        Assert.Equal(0.0, clock[2]);   //  2 markov
+        Assert.Equal(0.5, clock[5]);   //  5 semantic
+        Assert.Equal(0.0, clock[9]);   //  9 markov
+    }
+
+    [Fact]
+    public void Compose12Axes_clamps_inputs_to_zero_one()
+    {
+        // Pin out-of-range values at the source indices that map to the assertions below:
+        //   semantic[0] (clock[0])  = 1.5  → 1.0
+        //   semantic[2] (clock[10]) = -0.2 → 0.0
+        //   markov[0]   (clock[2])  = 2.0  → 1.0
+        //   markov[3]   (clock[9])  = -1.0 → 0.0
+        var semantic = new[] { 1.5, 0.5, -0.2, 0.5, 0.5, 0.5, 0.5, 0.5 };
+        var markov   = new[] { 2.0, 0.5, 0.5, -1.0 };
+        var clock = ClockProjection.Compose12Axes(semantic, markov);
+
+        Assert.Equal(1.0, clock[0]);
+        Assert.Equal(0.0, clock[10]);
+        Assert.Equal(1.0, clock[2]);
+        Assert.Equal(0.0, clock[9]);
+    }
 }
