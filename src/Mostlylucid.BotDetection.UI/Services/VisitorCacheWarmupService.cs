@@ -52,7 +52,14 @@ public class VisitorCacheWarmupService : BackgroundService
                 return;
             }
 
+            // Many persisted detection events carry a null/empty PrimarySignature --
+            // static-asset hits, low-confidence early-pipeline drops, partial events
+            // written before the signature engine assigned one. Without this filter
+            // the GroupBy below collapses every nulled row into a single anonymous
+            // group, which previously left the cache with one "(unknown)" visitor
+            // covering 5000 events instead of one row per actual fingerprint.
             var distinctBySignature = detections
+                .Where(d => !string.IsNullOrEmpty(d.PrimarySignature))
                 .GroupBy(d => d.PrimarySignature)
                 .Select(g => g.OrderByDescending(d => d.Timestamp).First())
                 .ToList();
