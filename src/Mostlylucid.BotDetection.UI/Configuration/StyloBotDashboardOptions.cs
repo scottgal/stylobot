@@ -229,6 +229,11 @@ public sealed class StyloBotDashboardOptions
     ///     return 404 so their existence isn't advertised.
     /// </summary>
     public AdminOptions Admin { get; set; } = new();
+
+    /// <summary>
+    ///     Tuning for the Behavioral Evolution panel on the signature-detail page.
+    /// </summary>
+    public BehavioralEvolutionOptions BehavioralEvolution { get; set; } = new();
 }
 
 public sealed class AdminOptions
