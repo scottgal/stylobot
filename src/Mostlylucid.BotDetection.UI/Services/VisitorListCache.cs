@@ -93,6 +93,8 @@ public class VisitorListCache
                     Protocol = ExtractProtocol(detection),
                     IpSubnetSignature = ExtractSignal(detection, "ip.subnet"),
                     UaFamily = ExtractSignal(detection, "ua.family"),
+                    FingerprintId = ExtractSignal(detection, "identity.fingerprint_id"),
+                    ClusterId = ExtractSignal(detection, "cluster.id"),
                 };
             },
             (_, existing) =>
@@ -164,6 +166,12 @@ public class VisitorListCache
                     var uaFamily = ExtractSignal(detection, "ua.family");
                     if (!string.IsNullOrEmpty(uaFamily))
                         existing.UaFamily = uaFamily;
+                    var fpid = ExtractSignal(detection, "identity.fingerprint_id");
+                    if (!string.IsNullOrEmpty(fpid))
+                        existing.FingerprintId = fpid;
+                    var clusterId = ExtractSignal(detection, "cluster.id");
+                    if (!string.IsNullOrEmpty(clusterId))
+                        existing.ClusterId = clusterId;
                     if (!string.IsNullOrEmpty(detection.Path) && !existing.Paths.Contains(detection.Path))
                     {
                         existing.Paths.Add(detection.Path);
@@ -314,9 +322,9 @@ public class VisitorListCache
                 BotType = v.BotType,
                 IpSubnetSignature = v.IpSubnetSignature,
                 UaFamily = v.UaFamily,
-                CountryCode = v.CountryCode
-                // FingerprintId / ClusterId not on CachedVisitor yet -- Phase 4
-                // wires them so tiers 1/2 fire here.
+                CountryCode = v.CountryCode,
+                FingerprintId = v.FingerprintId,
+                ClusterId = v.ClusterId
             });
             return key.Canonical;
         }
@@ -560,6 +568,12 @@ public class CachedVisitor
 
     /// <summary>User-agent family (e.g. "Chrome", "Safari", "curl") -- feeds the rotation tier's UA diversity check.</summary>
     public string? UaFamily { get; set; }
+
+    /// <summary>Metastable fingerprint id from FingerprintMatchContributor -- feeds the grouper's identity tier.</summary>
+    public string? FingerprintId { get; set; }
+
+    /// <summary>Leiden community cluster id -- feeds the grouper's cluster tier.</summary>
+    public string? ClusterId { get; set; }
 
     public string TimeAgo
     {
