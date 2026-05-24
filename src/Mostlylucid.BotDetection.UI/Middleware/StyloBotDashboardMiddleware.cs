@@ -5602,6 +5602,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                 {
                     Path = h.Path,
                     Tier = h.Tier,
+                    Category = h.Category,
                     MatchedPattern = h.MatchedPattern,
                     HitCount = h.HitCount,
                     DistinctSignatures = h.DistinctSignatures,
