@@ -4724,8 +4724,11 @@ public class StyloBotDashboardMiddleware
 <link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css"" />
 <link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/boxicons.min.css"" />
 <link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/fonts.css"" />
+<link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/jsvectormap.min.css"" />
 <script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js"" nonce=""{cspNonce}""></script>
 <script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/apexcharts.min.js"" nonce=""{cspNonce}""></script>
+<script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/jsvectormap.min.js"" nonce=""{cspNonce}""></script>
+<script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/world-merc.js"" nonce=""{cspNonce}""></script>
 {themeBootHtml}
 <style nonce=""{cspNonce}"">
 :root, [data-theme] {{
@@ -4802,8 +4805,11 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 <link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css"" />
 <link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/boxicons.min.css"" />
 <link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/fonts.css"" />
+<link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/jsvectormap.min.css"" />
 <script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js"" nonce=""{cspNonce}""></script>
 <script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/apexcharts.min.js"" nonce=""{cspNonce}""></script>
+<script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/jsvectormap.min.js"" nonce=""{cspNonce}""></script>
+<script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/world-merc.js"" nonce=""{cspNonce}""></script>
 {themeBootHtml}
 <style nonce=""{cspNonce}"">
 :root, [data-theme] {{

@@ -3,16 +3,17 @@
 @{
     var band = Model.Band ?? "None";
     var probPct = (Model.BotProbability * 100).ToString("F0");
-    var (icon, colorClass, label) = band switch
+    var (icon, colorClass, label, tip) = band switch
     {
-        "Critical" => ("bx-shield-x", "text-error", "Critical"),
-        "VeryHigh" => ("bx-shield-x", "text-error", "Very High"),
-        "High"     => ("bx-shield-quarter", "text-error", "High"),
-        "Elevated" => ("bx-shield-quarter", "text-warning", "Elevated"),
-        "Medium"   => ("bx-shield-quarter", "text-warning", "Medium"),
-        "Low"      => ("bx-shield", "text-success", "Low"),
-        _          => ("bx-shield", "text-base-content/30", "None")
+        "Critical" => ("bx-shield-x",       "text-error",            "Critical", "Active attack -- block immediately"),
+        "VeryHigh" => ("bx-shield-x",       "text-error",            "Very High","High-confidence malicious or abusive bot"),
+        "High"     => ("bx-shield-quarter", "text-error",            "High",     "Bot, likely unwanted -- challenge or throttle"),
+        "Elevated" => ("bx-shield-quarter", "text-warning",          "Elevated", "Suspicious behaviour -- monitor"),
+        "Medium"   => ("bx-shield-quarter", "text-warning",          "Medium",   "Bot signals present but classification uncertain"),
+        "Low"      => ("bx-shield",         "text-success",          "Low",      "Likely benign automation"),
+        _          => ("bx-shield",         "text-base-content/30",  "None",     "No threat signals detected")
     };
-    var title = $"{label} -- {probPct}% bot probability";
 }
-<i class="bx @icon @colorClass text-base" title="@title" aria-label="@title"></i>
+<span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="@label -- @probPct% bot probability. @tip">
+    <i class="bx @icon @colorClass text-base" aria-label="@label"></i>
+</span>
