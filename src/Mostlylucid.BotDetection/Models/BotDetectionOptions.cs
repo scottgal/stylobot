@@ -3255,6 +3255,13 @@ public class ClusterOptions
     public int MinBotDetectionsToTrigger { get; set; } = 20;
 
     /// <summary>
+    ///     Maximum number of neighbour edges retained per node when the
+    ///     IKnnGraphBuilder is in use. Lower K -> sparser graph -> tighter
+    ///     Leiden clusters and faster build. Default: 20.
+    /// </summary>
+    public int KnnK { get; set; } = 20;
+
+    /// <summary>
     ///     Enable the behavioural-vector axis in clustering similarity. When true and the
     ///     metastable identity layer is on, similarity blends per-fp centroid cosine into
     ///     the heuristic similarity score by <see cref="BehaviouralVectorWeight"/>. When

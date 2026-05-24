@@ -843,6 +843,21 @@ public static class ServiceCollectionExtensions
             var connStr = $"Data Source={Path.Combine(basePath, "clusters.db")};Cache=Shared";
             return new SqliteClusterStore(connStr, logger);
         });
+        // KNN graph builder: feeds the Leiden cluster service a sparse K-NN
+        // graph (O(N log N) via sqlite-vec when the extension is loadable,
+        // O(N^2) brute-force fallback). Replaces the historic inline N^2
+        // BuildSimilarityGraph at any meaningful scale. See
+        // docs/research/2026-05-24-grouping-systems-audit.md.
+        services.TryAddSingleton<Clustering.Knn.BruteForceKnnGraphBuilder>();
+        services.TryAddSingleton<Clustering.Knn.SqliteVecKnnGraphBuilder>(sp =>
+            new Clustering.Knn.SqliteVecKnnGraphBuilder(
+                sp.GetRequiredService<ILogger<Clustering.Knn.SqliteVecKnnGraphBuilder>>()));
+        services.TryAddSingleton<Clustering.Knn.IKnnGraphBuilder>(sp =>
+            new Clustering.Knn.KnnGraphBuilderResolver(
+                sp.GetRequiredService<Clustering.Knn.SqliteVecKnnGraphBuilder>(),
+                sp.GetRequiredService<Clustering.Knn.BruteForceKnnGraphBuilder>(),
+                sp.GetRequiredService<ILogger<Clustering.Knn.KnnGraphBuilderResolver>>()));
+
         services.TryAddSingleton<BotClusterService>();
         services.AddHostedService(sp => sp.GetRequiredService<BotClusterService>());
         // Expose the read-only slice so the dashboard / REST endpoints resolve via interface

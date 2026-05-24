@@ -63,6 +63,8 @@ public class BotClusterService : BackgroundService, IBotClusterReader
 
     private readonly PipelineLoadSensor? _loadSensor;
 
+    private readonly Clustering.Knn.IKnnGraphBuilder? _knnGraphBuilder;
+
     public BotClusterService(
         ILogger<BotClusterService> logger,
         IOptions<BotDetectionOptions> options,
@@ -73,7 +75,8 @@ public class BotClusterService : BackgroundService, IBotClusterReader
         AdaptiveSimilarityWeighter? adaptiveWeighter = null,
         UaProfileStore? uaProfileStore = null,
         PipelineLoadSensor? loadSensor = null,
-        SqliteClusterStore? clusterStore = null)
+        SqliteClusterStore? clusterStore = null,
+        Clustering.Knn.IKnnGraphBuilder? knnGraphBuilder = null)
     {
         _logger = logger;
         _options = options.Value.Cluster;
@@ -85,6 +88,7 @@ public class BotClusterService : BackgroundService, IBotClusterReader
         _uaProfileStore = uaProfileStore;
         _loadSensor = loadSensor;
         _clusterStore = clusterStore;
+        _knnGraphBuilder = knnGraphBuilder;
 
         if (BehaviouralAxisActive)
             _logger.LogInformation(
@@ -362,8 +366,28 @@ public class BotClusterService : BackgroundService, IBotClusterReader
             _currentWeights = null; // Fall back to defaults
         }
 
-        // 3. Compute similarity matrix and build graph
-        var adjacency = BuildSimilarityGraph(features);
+        // 3. Compute similarity matrix and build graph.
+        // When IKnnGraphBuilder is wired (DI-resolved sqlite-vec preferred,
+        // brute-force fallback), use it -- gives O(N log N) graph build
+        // instead of O(N^2), critical at N > 500. Falls back to the inline
+        // O(N^2) BuildSimilarityGraph when no builder is registered.
+        Dictionary<int, List<(int Neighbor, double Similarity)>> adjacency;
+        if (_knnGraphBuilder is not null)
+        {
+            var sparse = _knnGraphBuilder.Build(
+                features,
+                ComputeBlendedSimilarityWithTemporal,
+                _options.KnnK,
+                _options.SimilarityThreshold);
+            // Adapt to the legacy adjacency shape (Neighbor, Similarity).
+            adjacency = sparse.ToDictionary(
+                kv => kv.Key,
+                kv => kv.Value.Select(e => (e.Neighbor, e.Weight)).ToList());
+        }
+        else
+        {
+            adjacency = BuildSimilarityGraph(features);
+        }
 
         // Log graph density for diagnostics
         var edgeCount = adjacency.Values.Sum(e => e.Count) / 2;
@@ -499,7 +523,7 @@ public class BotClusterService : BackgroundService, IBotClusterReader
 
     #region Feature Extraction
 
-    internal record FeatureVector
+    public record FeatureVector
     {
         public required string Signature { get; init; }
         public double TimingRegularity { get; init; }
@@ -644,6 +668,25 @@ public class BotClusterService : BackgroundService, IBotClusterReader
     ///     Recomputed each RunClustering() call.
     /// </summary>
     private Dictionary<string, double>? _currentWeights;
+
+    /// <summary>
+    ///     Same as <see cref="ComputeBlendedSimilarity"/> plus the 85/15
+    ///     blend with temporal cross-correlation when both nodes have
+    ///     interval data. Used as the similarity delegate for the
+    ///     <see cref="Clustering.Knn.IKnnGraphBuilder"/> so K-NN-derived
+    ///     edges get the same weights the legacy N² builder would have
+    ///     produced for the same pair.
+    /// </summary>
+    internal double ComputeBlendedSimilarityWithTemporal(FeatureVector a, FeatureVector b)
+    {
+        var sim = ComputeBlendedSimilarity(a, b);
+        if (a.Intervals is { } intervalsA && b.Intervals is { } intervalsB)
+        {
+            var correlation = SpectralFeatureExtractor.ComputeTemporalCorrelation(intervalsA, intervalsB);
+            sim = sim * 0.85 + correlation * 0.15;
+        }
+        return sim;
+    }
 
     internal double ComputeBlendedSimilarity(FeatureVector a, FeatureVector b)
     {
