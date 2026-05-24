@@ -28,6 +28,14 @@ namespace Mostlylucid.BotDetection.Honeypot;
 ///         their site.
 ///     </para>
 ///     <para>
+///         Every catalog entry also carries a <see cref="HoneypotCategory"/>
+///         tag describing the exploit class the scanner is going for
+///         (Credentials / Config / VersionControl / Webshell etc). The tier
+///         sets (<see cref="AlwaysHoneypot"/>, <see cref="ProbableHoneypot"/>)
+///         are derived from the per-category catalog so the path data has
+///         a single source of truth.
+///     </para>
+///     <para>
 ///         Curated from OWASP CRS <c>restricted-files.data</c>, CrowdSec
 ///         <c>sensitive_data.txt</c> + <c>backdoors.txt</c>, SecLists
 ///         <c>quickhits.txt</c>, and ayoubfathi/leaky-paths. Anchored to the
@@ -38,103 +46,137 @@ namespace Mostlylucid.BotDetection.Honeypot;
 /// </remarks>
 public static class HoneypotPathDefinitions
 {
-    // ──────────────────────────────────────────────────────────────────
-    //  Tier 1 -- AlwaysHoneypot
-    //  No legitimate site exposes these. Anyone requesting one is hostile.
-    //  Not operator-exempt-able; the request always emits the strong signal.
-    // ──────────────────────────────────────────────────────────────────
-    public static readonly FrozenSet<string> AlwaysHoneypot =
-        BuildSet(
-            // ── Cloud + SSH credentials (highest signal -- never legitimate) ──
+    // ─────────────────────────────────────────────────────────────────
+    //  Per-(Tier, Category) catalog -- the single source of truth.
+    //  AlwaysHoneypot + ProbableHoneypot below are derived from this.
+    // ─────────────────────────────────────────────────────────────────
+
+    private static readonly (HoneypotTier Tier, HoneypotCategory Category, string[] Paths)[] _catalog =
+    {
+        // ============================================================
+        //  Tier 1 -- AlwaysHoneypot (zero legitimate use)
+        // ============================================================
+
+        (HoneypotTier.Always, HoneypotCategory.Credentials, new[]
+        {
+            // Cloud + service credentials
             "/.aws/credentials", "/.aws/config",
-            "/.ssh/id_rsa", "/.ssh/id_dsa", "/.ssh/id_ed25519", "/.ssh/id_ecdsa",
-            "/.ssh/authorized_keys", "/.ssh/known_hosts",
             "/.gcp/credentials.json", "/.azure/credentials",
             "/.kube/config", "/kubeconfig",
             "/.docker/config.json", "/.dockercfg",
-
-            // ── Bare SSH keys at root ──
+            // SSH keys (under home dot-dir + bare-root variants attackers also try)
+            "/.ssh/id_rsa", "/.ssh/id_dsa", "/.ssh/id_ed25519", "/.ssh/id_ecdsa",
+            "/.ssh/authorized_keys", "/.ssh/known_hosts",
             "/id_rsa", "/id_dsa", "/id_ed25519", "/id_ecdsa",
+            // Other secrets-bearing dotfiles
             "/.pgpass", "/.my.cnf", "/.netrc",
             "/.npmrc", "/.yarnrc",
+            // Credential files at root
+            "/credentials", "/credentials.json", "/credentials.xml",
+            "/secrets.json", "/secrets.yml", "/secrets.yaml",
+            "/jwt.json", "/token.json", "/tokens.json"
+        }),
 
-            // ── .env family (glob -- catches .env, .env.local, .env.local.save, .env.production.bak, etc) ──
+        (HoneypotTier.Always, HoneypotCategory.Config, new[]
+        {
+            // .env family -- the glob catches .env, .env.local.save, .env.production.bak etc
             "/.env*",
+            // wp-config backup variants -- the actual config never web-served
+            "/wp-config.php.bak", "/wp-config.php.old", "/wp-config.php.save",
+            "/wp-config.php.swp", "/wp-config.php.txt", "/wp-config.php~",
+            "/wp-config.bak", "/wp-config.old", "/wp-config.txt",
+            "/.env.local.php"
+        }),
 
-            // ── Version control directories exposed ──
+        (HoneypotTier.Always, HoneypotCategory.VersionControl, new[]
+        {
             "/.git/config", "/.git/HEAD", "/.git/index", "/.git/logs/HEAD",
             "/.git/refs/heads/master", "/.git/refs/heads/main",
             "/.svn/entries", "/.svn/wc.db",
             "/.hg/hgrc", "/.hg/store",
-            "/.bzr/branch-format",
+            "/.bzr/branch-format"
+        }),
 
-            // ── Database dumps + site archives ──
+        (HoneypotTier.Always, HoneypotCategory.Backup, new[]
+        {
+            // Database + site dumps
             "/backup.sql", "/backup.zip", "/backup.tar.gz", "/backup.rar",
             "/db.sql", "/database.sql", "/dump.sql", "/data.sql",
             "/site.sql", "/mysql.sql", "/db_backup.sql",
             "/site.zip", "/www.zip", "/html.zip", "/web.zip",
-            "/site.tar.gz", "/archive.zip", "/export.zip",
+            "/site.tar.gz", "/archive.zip", "/export.zip"
+        }),
 
-            // ── Path traversal / SSRF probes (already exploiting) ──
+        (HoneypotTier.Always, HoneypotCategory.PathTraversal, new[]
+        {
             "/etc/passwd", "/etc/shadow", "/etc/hosts",
             "/proc/self/environ", "/proc/version",
-            "/windows/win.ini", "/boot.ini",
+            "/windows/win.ini", "/boot.ini"
+        }),
 
-            // ── Cloud metadata SSRF probes ──
-            "/latest/meta-data", "/metadata/v1", "/computeMetadata/v1",
+        (HoneypotTier.Always, HoneypotCategory.Metadata, new[]
+        {
+            "/latest/meta-data", "/metadata/v1", "/computeMetadata/v1"
+        }),
 
-            // ── wp-config.php variants (the actual WordPress config, never web-served) ──
-            "/wp-config.php.bak", "/wp-config.php.old", "/wp-config.php.save",
-            "/wp-config.php.swp", "/wp-config.php.txt", "/wp-config.php~",
-            "/wp-config.bak", "/wp-config.old", "/wp-config.txt",
-
-            // ── Webshells (verified malicious) ──
+        (HoneypotTier.Always, HoneypotCategory.Webshell, new[]
+        {
             "/c99.php", "/r57.php", "/wso.php", "/wso2.php",
             "/b374k.php", "/alfa.php", "/backdoor.php",
-            "/shell.php", "/cmd.php", "/eval.php",
+            "/shell.php", "/cmd.php", "/eval.php"
+        }),
 
-            // ── Credential files at root ──
-            "/credentials", "/credentials.json", "/credentials.xml",
-            "/secrets.json", "/secrets.yml", "/secrets.yaml",
-            "/jwt.json", "/token.json", "/tokens.json",
-            "/.env.local.php"
-        );
+        // ============================================================
+        //  Tier 2 -- ProbableHoneypot (legitimate on some stacks)
+        // ============================================================
 
-    // ──────────────────────────────────────────────────────────────────
-    //  Tier 2 -- ProbableHoneypot
-    //  Almost always scanner traffic, but COULD be a real endpoint on this
-    //  specific site (WordPress login, Spring Boot Actuator, etc).
-    //  Softer signal; per-path exemption supported.
-    // ──────────────────────────────────────────────────────────────────
-    public static readonly FrozenSet<string> ProbableHoneypot =
-        BuildSet(
-            // ── WordPress (real on WordPress sites) ──
+        (HoneypotTier.Probable, HoneypotCategory.Admin, new[]
+        {
+            // WordPress
             "/wp-login.php", "/wp-admin", "/xmlrpc.php",
             "/wp-content*", "/wp-includes*", "/wp-cron.php",
             "/wp-json/wp/v2/users", "/wp-config.php",
-
-            // ── Database admin UIs (real if operator hosts them) ──
-            "/phpmyadmin*", "/pma*", "/myadmin*", "/mysqladmin",
-            "/adminer.php", "/adminer", "/dbadmin", "/sqlmanager",
-
-            // ── Generic admin panels ──
+            // Generic admin panels
             "/administrator*", "/cpanel*", "/webadmin",
             "/manager/html", "/console", "/jmx-console", "/web-console",
-
-            // ── Spring Boot Actuator (real on SB apps with mgmt port leaked) ──
-            "/actuator*", "/jolokia*",
-
-            // ── API documentation (real if exposed intentionally) ──
-            "/swagger.json", "/swagger-ui.html", "/swagger-ui*",
-            "/api-docs", "/v1/api-docs", "/v2/api-docs", "/v3/api-docs",
-            "/graphql/debug",
-
-            // ── Dev/ops UIs (real if exposed) ──
+            // Dev/ops UIs
             "/grafana*", "/jenkins*", "/kibana*", "/portainer*",
             "/solr/admin", "/solr/", "/elasticsearch*",
             "/_cat/indices", "/_cluster/health", "/_all/_search",
+            // Spring Boot actuator
+            "/actuator*", "/jolokia*"
+        }),
 
-            // ── Other config + lock files ──
+        (HoneypotTier.Probable, HoneypotCategory.Database, new[]
+        {
+            "/phpmyadmin*", "/pma*", "/myadmin*", "/mysqladmin",
+            "/adminer.php", "/adminer", "/dbadmin", "/sqlmanager"
+        }),
+
+        (HoneypotTier.Probable, HoneypotCategory.ApiDoc, new[]
+        {
+            "/swagger.json", "/swagger-ui.html", "/swagger-ui*",
+            "/api-docs", "/v1/api-docs", "/v2/api-docs", "/v3/api-docs",
+            "/graphql/debug"
+        }),
+
+        (HoneypotTier.Probable, HoneypotCategory.Config, new[]
+        {
+            // .NET / Java settings
+            "/web.config", "/web.config.bak", "/web.config.old", "/web.config.txt",
+            "/appsettings.json", "/appsettings.Development.json",
+            "/application.yml", "/application.properties",
+            // Generic application config
+            "/config.php", "/configuration.php",
+            "/config.yml", "/config.yaml", "/config.json", "/config.xml",
+            "/config.inc", "/config.inc.php", "/config.bak",
+            "/settings.php", "/settings.py", "/settings.json", "/settings.yml",
+            "/.htaccess", "/.htpasswd", "/.htaccess.bak"
+        }),
+
+        (HoneypotTier.Probable, HoneypotCategory.BuildArtifact, new[]
+        {
+            // Lock files + manifests
             "/composer.json", "/composer.lock",
             "/package.json", "/package-lock.json", "/yarn.lock",
             "/Gemfile", "/Gemfile.lock", "/Pipfile", "/Pipfile.lock",
@@ -143,102 +185,177 @@ public static class HoneypotPathDefinitions
             "/Makefile", "/Vagrantfile",
             "/Jenkinsfile", "/.gitlab-ci.yml", "/.travis.yml",
             "/.circleci/config.yml",
+            // IDE / editor artefacts
+            "/.idea*", "/.vscode*", "/.project", "/.classpath", "/.editorconfig",
+            "/.DS_Store", "/Thumbs.db", "/desktop.ini"
+        }),
 
-            // ── .NET / Java settings files ──
-            "/web.config", "/web.config.bak", "/web.config.old", "/web.config.txt",
-            "/appsettings.json", "/appsettings.Development.json",
-            "/application.yml", "/application.properties",
-
-            // ── Other application config ──
-            "/config.php", "/configuration.php",
-            "/config.yml", "/config.yaml", "/config.json", "/config.xml",
-            "/config.inc", "/config.inc.php", "/config.bak",
-            "/settings.php", "/settings.py", "/settings.json", "/settings.yml",
-            "/.htaccess", "/.htpasswd", "/.htaccess.bak",
-
-            // ── Debug + info disclosure ──
+        (HoneypotTier.Probable, HoneypotCategory.Debug, new[]
+        {
             "/debug.php", "/phpinfo.php", "/info.php", "/test.php", "/test.html",
             "/_profiler*", "/_debugbar*", "/__debug__*",
             "/elmah.axd", "/trace.axd",
-            "/server-status", "/server-info",
+            "/server-status", "/server-info"
+        }),
 
-            // ── CGI / legacy exploit surfaces ──
-            "/cgi-bin*", "/fckeditor*", "/kcfinder*", "/elfinder*",
-
-            // ── IDE / editor artefacts ──
-            "/.idea*", "/.vscode*", "/.project", "/.classpath", "/.editorconfig",
-            "/.DS_Store", "/Thumbs.db", "/desktop.ini",
-
-            // ── Log files ──
+        (HoneypotTier.Probable, HoneypotCategory.Backup, new[]
+        {
+            "/backup", "/backups", "/bak", "/old", "/tmp",
+            // Log files leaked to web root
             "/error.log", "/access.log", "/debug.log",
             "/app.log", "/application.log",
-            "/logs/error.log", "/logs/access.log",
+            "/logs/error.log", "/logs/access.log"
+        }),
 
-            // ── Backup directories ──
-            "/backup", "/backups", "/bak", "/old", "/tmp",
+        (HoneypotTier.Probable, HoneypotCategory.Cgi, new[]
+        {
+            "/cgi-bin*", "/fckeditor*", "/kcfinder*", "/elfinder*"
+        }),
 
-            // ── CMS-specific probes ──
+        (HoneypotTier.Probable, HoneypotCategory.Cms, new[]
+        {
             "/sites/default/files", "/sites/default/settings.php",
             "/user/login", "/user/register",
             "/misc/drupal.js",
             "/downloader", "/app/etc/local.xml"
-        );
+        })
+    };
 
-    // ──────────────────────────────────────────────────────────────────
-    //  Suspicious file extensions
-    //  Any path ending in one of these is suspicious regardless of prefix.
-    //  Used as a Tier 2 hint -- the contributor emits a softer signal so
-    //  benign matches (e.g. legit /reports/q4.zip) don't get banned, but
-    //  the typical bot scan for /backup.sql.bak still gets flagged.
-    // ──────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────
+    //  Derived per-category + per-tier sets, frozen at class init.
+    // ─────────────────────────────────────────────────────────────────
+
+    private static readonly FrozenDictionary<HoneypotCategory, FrozenSet<string>> _byCategory =
+        _catalog
+            .GroupBy(t => t.Category)
+            .ToFrozenDictionary(
+                g => g.Key,
+                g => g.SelectMany(t => t.Paths).ToFrozenSet(StringComparer.OrdinalIgnoreCase));
+
+    private static readonly FrozenDictionary<string, HoneypotCategory> _patternToCategory =
+        _catalog
+            .SelectMany(t => t.Paths.Select(p => (Path: p, t.Category)))
+            .GroupBy(x => x.Path, StringComparer.OrdinalIgnoreCase)
+            .ToFrozenDictionary(g => g.Key, g => g.First().Category, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Tier 1 -- every always-honeypot path, union across categories.</summary>
+    public static readonly FrozenSet<string> AlwaysHoneypot =
+        _catalog
+            .Where(t => t.Tier == HoneypotTier.Always)
+            .SelectMany(t => t.Paths)
+            .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Tier 2 -- every probable-honeypot path, union across categories.</summary>
+    public static readonly FrozenSet<string> ProbableHoneypot =
+        _catalog
+            .Where(t => t.Tier == HoneypotTier.Probable)
+            .SelectMany(t => t.Paths)
+            .ToFrozenSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     Suspicious file extensions. Each one maps to a category so
+    ///     dashboards can render an intent-aware chip for these fallback
+    ///     hits just like for catalog hits.
+    /// </summary>
+    private static readonly (string Ext, HoneypotCategory Category)[] _suspiciousExtensionCatalog =
+    {
+        // Database
+        (".sql", HoneypotCategory.Database),
+        (".db", HoneypotCategory.Database),
+        (".sqlite", HoneypotCategory.Database),
+        (".sqlite3", HoneypotCategory.Database),
+        (".mdb", HoneypotCategory.Database),
+        // Credentials (PKI material)
+        (".pem", HoneypotCategory.Credentials),
+        (".key", HoneypotCategory.Credentials),
+        (".crt", HoneypotCategory.Credentials),
+        (".csr", HoneypotCategory.Credentials),
+        (".p12", HoneypotCategory.Credentials),
+        (".pfx", HoneypotCategory.Credentials),
+        // Backups + archives
+        (".bak", HoneypotCategory.Backup),
+        (".old", HoneypotCategory.Backup),
+        (".orig", HoneypotCategory.Backup),
+        (".save", HoneypotCategory.Backup),
+        (".swp", HoneypotCategory.Backup),
+        (".swo", HoneypotCategory.Backup),
+        (".tar", HoneypotCategory.Backup),
+        (".tar.gz", HoneypotCategory.Backup),
+        (".tgz", HoneypotCategory.Backup),
+        (".gz", HoneypotCategory.Backup),
+        (".zip", HoneypotCategory.Backup),
+        (".rar", HoneypotCategory.Backup),
+        (".7z", HoneypotCategory.Backup),
+        // Config / dev artefacts
+        (".dist", HoneypotCategory.Config),
+        (".inc", HoneypotCategory.Config),
+        (".conf", HoneypotCategory.Config),
+        (".cfg", HoneypotCategory.Config),
+        (".ini", HoneypotCategory.Config),
+        // Logs treated as Backup-class file dumps
+        (".log", HoneypotCategory.Backup)
+    };
+
+    /// <summary>Back-compat: extension strings only, no category metadata.</summary>
     public static readonly FrozenSet<string> SuspiciousExtensions =
-        BuildSet(
-            ".sql", ".bak", ".old", ".orig", ".save", ".swp", ".swo",
-            ".dist", ".inc", ".conf", ".cfg", ".ini",
-            ".tar", ".tar.gz", ".tgz", ".gz", ".zip", ".rar", ".7z",
-            ".pem", ".key", ".crt", ".csr", ".p12", ".pfx",
-            ".db", ".sqlite", ".sqlite3", ".mdb",
-            ".log"
-        );
+        _suspiciousExtensionCatalog.Select(x => x.Ext).ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 
-    // ──────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────
     //  Public match API
-    // ──────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────
 
     /// <summary>
     ///     Classifies a normalised request path against the tier catalog.
-    ///     Path must already be lower-cased + normalised (decoded, traversal
-    ///     resolved, redundant slashes collapsed) -- the contributor does
-    ///     this via <see cref="NormalizePath"/> before calling.
+    ///     Back-compat single-out overload. Prefer <see cref="ClassifyDetailed"/>
+    ///     when the category is wanted.
     /// </summary>
-    /// <param name="path">Normalised request path beginning with <c>/</c>.</param>
-    /// <param name="matchedPattern">The catalog pattern that matched, or null.</param>
-    /// <returns>The tier the path matched, or <see cref="HoneypotTier.None"/>.</returns>
     public static HoneypotTier Classify(string path, out string? matchedPattern)
     {
-        matchedPattern = null;
-        if (string.IsNullOrEmpty(path)) return HoneypotTier.None;
+        var result = ClassifyDetailed(path);
+        matchedPattern = result.Pattern;
+        return result.Tier;
+    }
 
-        // Tier 1 first -- highest signal, can't be exempted, runs hottest.
-        if (TryMatch(path, AlwaysHoneypot, out matchedPattern))
-            return HoneypotTier.Always;
+    /// <summary>
+    ///     Classifies a normalised request path and returns Tier +
+    ///     Category + matched pattern in one call.
+    /// </summary>
+    public static ClassificationResult ClassifyDetailed(string path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return new ClassificationResult(HoneypotTier.None, HoneypotCategory.None, null);
 
-        if (TryMatch(path, ProbableHoneypot, out matchedPattern))
-            return HoneypotTier.Probable;
+        if (TryMatch(path, AlwaysHoneypot, out var matched1))
+            return new ClassificationResult(HoneypotTier.Always, LookupCategory(matched1!), matched1);
 
-        // Suspicious extension fallback (Tier 2 strength). Skipped for paths
-        // already classified above; we only get here if nothing matched.
-        foreach (var ext in SuspiciousExtensions)
+        if (TryMatch(path, ProbableHoneypot, out var matched2))
+            return new ClassificationResult(HoneypotTier.Probable, LookupCategory(matched2!), matched2);
+
+        foreach (var (ext, category) in _suspiciousExtensionCatalog)
         {
             if (path.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
-            {
-                matchedPattern = "*" + ext;
-                return HoneypotTier.Probable;
-            }
+                return new ClassificationResult(HoneypotTier.Probable, category, "*" + ext);
         }
 
-        return HoneypotTier.None;
+        return new ClassificationResult(HoneypotTier.None, HoneypotCategory.None, null);
     }
+
+    /// <summary>
+    ///     Look up the category for a catalog pattern.
+    ///     <see cref="HoneypotCategory.None"/> when the pattern isn't a
+    ///     catalog entry (e.g. a suspicious-extension match).
+    /// </summary>
+    public static HoneypotCategory CategoryForPattern(string pattern) =>
+        _patternToCategory.TryGetValue(pattern, out var cat) ? cat : HoneypotCategory.None;
+
+    /// <summary>Returns every catalog entry that belongs to <paramref name="category"/>.</summary>
+    public static FrozenSet<string> GetPathsByCategory(HoneypotCategory category) =>
+        _byCategory.TryGetValue(category, out var set)
+            ? set
+            : FrozenSet<string>.Empty;
+
+    /// <summary>Returns the union of every catalog entry across all categories + tiers.</summary>
+    public static IReadOnlyCollection<string> GetAllPaths() => _patternToCategory.Keys;
 
     /// <summary>
     ///     Pattern-matches a normalised path against a set of catalog
@@ -247,20 +364,16 @@ public static class HoneypotPathDefinitions
     /// </summary>
     public static bool TryMatch(string path, FrozenSet<string> patterns, out string? matched)
     {
-        // Exact match: O(1) in the frozen set.
         if (patterns.Contains(path))
         {
             matched = path;
             return true;
         }
 
-        // Glob (suffix *) + segment-prefix scan.
         foreach (var pattern in patterns)
         {
             if (pattern.Length > 1 && pattern[^1] == '*')
             {
-                // Glob: prefix-match without requiring a path-segment boundary
-                // so /.env* catches .env.local.save (next char `.`, not `/`).
                 var prefix = pattern.AsSpan(0, pattern.Length - 1);
                 if (path.AsSpan().StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 {
@@ -271,8 +384,6 @@ public static class HoneypotPathDefinitions
             else if (path.StartsWith(pattern, StringComparison.OrdinalIgnoreCase)
                      && (path.Length == pattern.Length || path[pattern.Length] == '/'))
             {
-                // Non-glob: require path-segment boundary so /wp-admin matches
-                // /wp-admin/post.php but not /wp-administrator-tools.
                 matched = pattern;
                 return true;
             }
@@ -281,6 +392,9 @@ public static class HoneypotPathDefinitions
         matched = null;
         return false;
     }
+
+    private static HoneypotCategory LookupCategory(string pattern) =>
+        _patternToCategory.TryGetValue(pattern, out var cat) ? cat : HoneypotCategory.None;
 
     /// <summary>
     ///     Normalises a raw request path: decodes percent-encoding (twice,
@@ -304,7 +418,6 @@ public static class HoneypotPathDefinitions
         if (decoded.Contains('\\'))
             decoded = decoded.Replace('\\', '/');
 
-        // Collapse repeated slashes (//foo -> /foo).
         if (decoded.Contains("//"))
         {
             var sb = new System.Text.StringBuilder(decoded.Length);
@@ -318,7 +431,6 @@ public static class HoneypotPathDefinitions
             decoded = sb.ToString();
         }
 
-        // Resolve . and .. segments.
         if (decoded.Contains("/.") || decoded.Contains("/.."))
         {
             var segments = decoded.Split('/');
@@ -338,14 +450,15 @@ public static class HoneypotPathDefinitions
 
         return decoded.ToLowerInvariant();
     }
-
-    private static FrozenSet<string> BuildSet(params string[] entries) =>
-        entries.ToFrozenSet(StringComparer.OrdinalIgnoreCase);
 }
 
-/// <summary>
-///     Honeypot tier produced by <see cref="HoneypotPathDefinitions.Classify"/>.
-/// </summary>
+/// <summary>Result of <see cref="HoneypotPathDefinitions.ClassifyDetailed"/>.</summary>
+public sealed record ClassificationResult(
+    HoneypotTier Tier,
+    HoneypotCategory Category,
+    string? Pattern);
+
+/// <summary>Honeypot tier produced by <see cref="HoneypotPathDefinitions.Classify"/>.</summary>
 public enum HoneypotTier
 {
     /// <summary>No match -- not a known honeypot path.</summary>
