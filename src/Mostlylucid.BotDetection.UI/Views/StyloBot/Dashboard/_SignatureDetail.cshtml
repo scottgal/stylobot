@@ -496,6 +496,23 @@ else
     <!-- Signal Intelligence -->
     @if (Model.SignalCategories.Count > 0)
     {
+        @* Format raw signal string values so tiny floats don't render with 300 leading
+           zeros (the C# double ToString() default for 3.5e-35 etc). We only re-format
+           when the string is unambiguously a number; non-numeric strings ("True",
+           "Apple", "HTTP/2") pass through unchanged. *@
+        string FormatSignalValue(string? raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return "";
+            if (!double.TryParse(raw, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowExponent,
+                                 System.Globalization.CultureInfo.InvariantCulture, out var d))
+                return raw;
+            var abs = Math.Abs(d);
+            if (abs == 0) return "0";
+            if (abs < 1e-3) return "<0.001"; // anything sub-millisignal is operator noise
+            if (abs >= 1000) return d.ToString("N0", System.Globalization.CultureInfo.InvariantCulture);
+            if (abs >= 1)    return d.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+            return d.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        }
         <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Signal Intelligence</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -508,7 +525,7 @@ else
                             {
                                 <div class="flex items-start gap-2 text-[10px]">
                                     <span class="text-base-content/40 font-mono min-w-[80px] truncate" title="@signal.Key">@signal.Key</span>
-                                    <span class="text-base-content/70 break-all">@signal.Value</span>
+                                    <span class="text-base-content/70 break-all" title="@signal.Value">@FormatSignalValue(signal.Value)</span>
                                 </div>
                             }
                         </div>
@@ -611,15 +628,18 @@ else
                 }).render();
             }
 
-            // Processing Time chart
+            // Processing Time chart -- line + dots, no per-point labels (those badges
+            // covered the actual trend and the operator only needs the trend shape
+            // at a glance + a tooltip for the exact value on hover).
             var ptData = JSON.parse(document.getElementById('proc-time-data').textContent);
             if (ptData && ptData.length > 1) {
                 new ApexCharts(document.getElementById('proc-time-chart'), {
-                    chart: { type: 'area', height: 200, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
+                    chart: { type: 'line', height: 200, background: 'transparent', toolbar: { show: false }, animations: { enabled: false } },
                     series: [{ name: 'Processing Time (ms)', data: ptData }],
                     colors: ['#daa564'],
                     stroke: { width: 2, curve: 'smooth' },
-                    fill: { type: 'gradient', gradient: { opacityFrom: 0.3, opacityTo: 0.05 } },
+                    markers: { size: 3, strokeWidth: 0, hover: { size: 5 } },
+                    dataLabels: { enabled: false },
                     xaxis: { labels: { show: false }, axisBorder: { show: false }, axisTicks: { show: false } },
                     yaxis: { logarithmic: true, labels: { style: { colors: fg, fontSize: '10px' }, formatter: function(v) { return v < 1 ? v.toFixed(2) + 'ms' : v.toFixed(0) + 'ms'; } } },
                     grid: { borderColor: gridColor, strokeDashArray: 3 },

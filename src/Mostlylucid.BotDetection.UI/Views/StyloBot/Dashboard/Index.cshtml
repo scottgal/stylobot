@@ -290,6 +290,10 @@
                     <div class="flex items-center gap-2">
                         <span class="text-[10px] font-semibold text-base-content/70">ENDPOINTS BY BOT PRESSURE</span>
                         <span class="text-[9px] px-1 py-0.5 rounded bg-error/20 text-error font-medium">LIVE</span>
+                        @* The aggregate cache rolls the last 24h of detection events into the
+                           endpoint stats; the Bot% column is therefore "bots / total requests
+                           in the last 24h". Without this label the rate's denominator is invisible. *@
+                        <span class="text-[9px] text-base-content/40">trailing 24h</span>
                     </div>
                     <a href="@TabUrl("endpoints")" class="text-[9px] text-base-content/40 hover:text-base-content/60">All endpoints →</a>
                 </div>
