@@ -1,6 +1,13 @@
-# Scanner-path catalog consolidation (deferred)
+# Scanner-path catalog consolidation (partial -- steps 1, 2, dashboard label rewrite done)
 
 > Originally captured as agent memory after the 6.7.5 honeypot landing. Materialised here so the duplication audit isn't trapped in agent memory and a future contributor can pick up the refactor without re-discovering all twelve files.
+
+## Status (2026-05-24)
+
+- **Done in 6052f0f**: step 1 (`HoneypotCategory` enum + every catalog entry tagged) and step 2 (`ClassifyDetailed` returns `(Tier, Category, Pattern)`; `CategoryForPattern`, `GetPathsByCategory`, `GetAllPaths` added). 52 new tests pin the mapping.
+- **Done in 39c7fa0**: the dashboard slice of step 5 -- `SqliteDashboardEventStore.IntentForPath`'s 45-line string-matcher is replaced by a category-keyed `LabelForCategory` table; `HoneypotHitRow` surfaces `Category`; the Honeypot tab renders a colour-grouped category chip. 16 new tests pin the labels.
+- **Remaining**: the Haxxor YAML category lists (step 3), the `ResponseCoordinator` default (step 4), `EndpointRiskClassifier` (step 5 cont.), inline references in `SignatureToBdfMapper` / `HeuristicFeatureExtractor` / `ThreatIntelContributor` (step 6), and the `AdditionalCatalogFiles` extension surface (step 7).
+- The operator-facing reference for the now-landed catalog lives at [`src/Mostlylucid.BotDetection/docs/honeypot-catalog.md`](../../src/Mostlylucid.BotDetection/docs/honeypot-catalog.md).
 
 ## The problem
 

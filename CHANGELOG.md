@@ -5,6 +5,40 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 6.7.6
+
+Two-commit consolidation that gives the honeypot subsystem a category enum and rewires the dashboard intent label to read from it. No behavioural change to detection -- catalog matches, blocks, exemptions, and rate-limiting work exactly as they did in 6.7.5; the win is structural (single source of truth) and operator-facing (a colour-grouped Category chip on the Honeypot tab).
+
+### Added: `HoneypotCategory` enum on every catalog entry (`6052f0f`)
+
+`Mostlylucid.BotDetection/Honeypot/HoneypotPathDefinitions.cs` was a flat pair of `Tier1 -> FrozenSet<string>` and `Tier2 -> FrozenSet<string>` collections that the rest of the codebase had to re-classify with parallel `StartsWith` chains to figure out what kind of scanner intent a path implied (credentials theft vs config leak vs webshell upload, etc.). 12 files duplicated the knowledge.
+
+This release restructures the catalog around a single `_catalog` array of `(Tier, Category, Paths)` tuples; the two tier sets and the per-category sets are derived from it.
+
+- **`HoneypotCategory` enum** -- 14 values (`Credentials`, `Config`, `VersionControl`, `Database`, `Webshell`, `Admin`, `Debug`, `Backup`, `Metadata`, `PathTraversal`, `BuildArtifact`, `ApiDoc`, `Cgi`, `Cms`) plus `None` as sentinel.
+- **`ClassifyDetailed(path)`** returns `ClassificationResult(Tier, Category, Pattern)` -- one catalog lookup yields everything the dashboard, the rate limiter, the holodeck, and the threat report need. The bare `Classify(path, out matched)` overload is preserved for older call sites.
+- **`CategoryForPattern`**, **`GetPathsByCategory`**, **`GetAllPaths`** helpers so consumers can render and filter by category without re-deriving the catalog.
+- The `SuspiciousExtensions` fallback (`.sql`, `.bak`, `.pem`, `.sqlite`, `.ini`, `.log`, ...) is now category-tagged too, so an arbitrary `*.sql` hit reads as `Database` and an arbitrary `*.pem` as `Credentials`.
+- **52 new tests** assert every Tier 1 + Tier 2 entry has a non-`None` category, `GetPathsByCategory(Webshell)` returns the expected set, and the back-compat `Classify(..., out)` overload still works. Full honeypot suite goes 92 -> 144 passing.
+
+Reference doc at [`src/Mostlylucid.BotDetection/docs/honeypot-catalog.md`](src/Mostlylucid.BotDetection/docs/honeypot-catalog.md).
+
+### Added: dashboard intent label driven by `HoneypotCategory` (`39c7fa0`)
+
+The Honeypot tab's "Why" column used to derive its intent chip from a 45-line `IntentForPath` switch in `SqliteDashboardEventStore` -- `if (path.StartsWith("/.aws") || path.Contains("credentials") || path.Contains("id_rsa")) return "credentials theft";` and 7 other branches like it. Adding a category meant editing two places (the catalog *and* the heuristic) and hoping they didn't drift.
+
+- **`SqliteDashboardEventStore.LabelForCategory(category, tier)`** is now a public, category-keyed lookup table: `Credentials -> "credentials theft"`, `VersionControl -> "version-control exposure"`, `Metadata -> "metadata SSRF probe"`, etc. The `None` sentinel falls back to a tier-derived default ("always-honeypot" / "probable scanner").
+- **`HoneypotHitRow.Category`** is now part of the dashboard model so future filter/group surfaces (Threats widget, endpoint-detail page) can use the enum directly.
+- **Honeypot tab** (`Views/StyloBot/Dashboard/_InvestigateHoneypot.cshtml`) renders a new `Category` column with a colour-grouped chip: red for `Credentials`, orange for `Config`/`VersionControl`, yellow for admin/database/debug/backup, purple for webshell/path-traversal/metadata, grey for the rest. Each row carries `data-category` so client-side filters can hide categories without a server round-trip.
+- **16 new tests** pin the label table -- screenshots and runbooks survive across versions, and `EveryEnumValue_HasANonEmptyLabel` catches a new enum value added without a label entry.
+
+### Notes
+
+- Behaviour-preserving: existing chip text matches the old `IntentForPath` output for every catalog entry. Full honeypot suite 160/160; full project suite 2130/2130.
+- The wider consolidation (Haxxor YAML category lists, `ResponseCoordinator` defaults, `EndpointRiskClassifier`, inline references in `SignatureToBdfMapper` / `HeuristicFeatureExtractor` / `ThreatIntelContributor`) remains in [`docs/deferred/scanner-path-catalog-consolidation.md`](docs/deferred/scanner-path-catalog-consolidation.md) -- step 1, step 2, and the dashboard slice of step 5 are now marked done.
+
+---
+
 ## [6.7.5] - 2026-05-23
 
 Follow-up to the pre-launch hardening pass. Three substantive additions on top of 6.7.0: a fediverse-domain corroboration channel for the friendly-pin gate (so a Mastodon stampede on arbitrary cloud IPs can be cleared without a spoofable-UA shortcut), a Mostlylucid.Notify-backed auth email pipeline (replaces the bespoke `StyloBotSmtpEmailSender` MailKit code with three RazorSlices templates), and a third stage of the dashboard investigate redesign that promotes the signature-card pattern across Endpoints / Detections / Geo. Plus the usual sweep of risk-band ergonomics, single-source cache fixes, and licensing-gate plumbing.
