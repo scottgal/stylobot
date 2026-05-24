@@ -259,12 +259,10 @@
                     </div>
                     <a href="@TabUrl("endpoints")" class="text-[9px] text-base-content/40 hover:text-base-content/60">All endpoints →</a>
                 </div>
-                <div id="overview-endpoints"
-                     hx-get="@bp/partials/endpoints-compact?pageSize=10&excludeStatic=true&sort=botrate&dir=desc&drillToDetail=true"
-                     hx-trigger="load, every 15s"
-                     hx-swap="innerHTML">
-                    <div class="p-2 text-xs text-base-content/40 text-center py-4">Loading...</div>
-                </div>
+                @* SSR-first: server-renders the endpoints data on initial paint and registers a
+                   data-sb-widget so the SignalR coordinator OOB-swaps fresh data when 'endpoints'
+                   invalidations fire. No hx-trigger="every Xs" polling; no "Loading..." flash. *@
+                <sb-endpoints-list sort="botrate" dir="desc" page-size="10" exclude-static="true" />
             </div>
         }
         else if (tab == "activity")
@@ -292,13 +290,8 @@
                                 <span class="text-[9px] px-1 py-0.5 rounded bg-error/20 text-error font-medium">LIVE</span>
                                 <a href="@TabUrl("endpoints")" class="ml-auto text-[10px] text-base-content/40 hover:text-base-content/60">All endpoints →</a>
                             </div>
-                            <div id="activity-endpoints"
-                                 class="overflow-hidden flex-1"
-                                 hx-get="@bp/partials/endpoints-compact?pageSize=15&excludeStatic=true&sort=total&dir=desc&compact=true"
-                                 hx-trigger="load, every 5s"
-                                 hx-swap="innerHTML">
-                                <div class="p-2 text-xs text-base-content/40 text-center py-4">Loading...</div>
-                            </div>
+                            @* SSR-first endpoints widget; SignalR-driven OOB updates via data-sb-widget. *@
+                            <sb-endpoints-list sort="total" dir="desc" page-size="15" exclude-static="true" compact="true" />
                         </div>
                     </div>
                 </div>

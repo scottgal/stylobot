@@ -16,10 +16,16 @@ public class SbEndpointsListViewComponent(
         string sort = "total",
         string dir = "desc",
         int page = 1,
-        int pageSize = 25)
+        int pageSize = 25,
+        bool excludeStatic = false,
+        bool compact = false)
     {
         var cached = aggregateCache.Current.Endpoints;
-        var data = cached.Count > 0 ? cached : await eventStore.GetEndpointStatsAsync(500);
+        IReadOnlyList<DashboardEndpointStats> data = cached.Count > 0 ? cached : await eventStore.GetEndpointStatsAsync(500);
+        if (excludeStatic)
+        {
+            data = data.Where(e => !IsStaticResource(e.Path)).ToList();
+        }
         IEnumerable<DashboardEndpointStats> sorted = sort switch
         {
             "bots" => dir == "asc" ? data.OrderBy(x => x.BotCount) : data.OrderByDescending(x => x.BotCount),
@@ -36,7 +42,22 @@ public class SbEndpointsListViewComponent(
             Page = page,
             PageSize = pageSize,
             TotalCount = data.Count,
-            BasePath = options.Value.BasePath.TrimEnd('/')
+            BasePath = options.Value.BasePath.TrimEnd('/'),
+            IsCompact = compact
         });
+    }
+
+    // Same static-extension list used by ServeEndpointsCompactPartialAsync (FOSS UI middleware).
+    // Keeping the rule colocated with the view component avoids the lazy-load partial drifting
+    // away from the SSR-first widget.
+    private static readonly string[] StaticExtensions =
+        [".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".woff", ".woff2", ".ttf", ".map"];
+
+    private static bool IsStaticResource(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        foreach (var ext in StaticExtensions)
+            if (path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 }
