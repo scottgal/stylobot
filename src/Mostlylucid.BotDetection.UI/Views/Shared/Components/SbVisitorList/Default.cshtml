@@ -1,4 +1,5 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Helpers
 @model VisitorListModel
 @{
     var bp = Model.BasePath;
@@ -8,68 +9,140 @@
         return $"{bp}/partials/visitors?filter={Model.Filter}&sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}";
     }
     string PageUrl(int page) => $"{bp}/partials/visitors?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}";
-    string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? "\u25B2" : "\u25BC") : "";
+    string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? "▲" : "▼") : "";
+    string SortHeaderClass(string field) => Model.SortField == field
+        ? "text-base-content font-semibold cursor-pointer"
+        : "text-base-content/40 hover:text-base-content/60 cursor-pointer";
     string FilterBtnClass(string f) => Model.Filter == f
         ? f switch { "bots" => "bg-error/20 text-error shadow-sm", "humans" => "bg-success/20 text-success shadow-sm", _ => "bg-base-100 shadow-sm text-base-content" }
         : "text-base-content/40 hover:text-base-content/60";
+
+    // Parse the major version out of "Chrome/124.0.6367.91 Safari/537.36" or "curl/8.5.0" etc.
+    // Falls back to empty when the UA has no recognisable major version.
+    static string ExtractMajorVersion(string? ua, string? family)
+    {
+        if (string.IsNullOrEmpty(ua) || string.IsNullOrEmpty(family)) return "";
+        var pattern = System.Text.RegularExpressions.Regex.Escape(family) + @"[/ ](\d+)";
+        var m = System.Text.RegularExpressions.Regex.Match(ua, pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return m.Success ? m.Groups[1].Value : "";
+    }
 }
 <div id="visitor-list"
      data-sb-widget="visitors"
      data-sb-depends="signature,summary"
      data-sb-params="page=@Model.Page&filter=@Model.Filter&sort=@Model.SortField&dir=@Model.SortDir&pageSize=@Model.PageSize">
 
-    @* Filter tabs *@
-    <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-1 bg-base-300/50 rounded-lg p-0.5">
+    @* Filter chips (counts visible on each) *@
+    <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-1 bg-base-300/50 rounded-lg p-0.5 flex-wrap">
             <button hx-get="@FilterUrl("all")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("all")">
+                    class="px-3 py-1 text-xs font-medium rounded-md @FilterBtnClass("all")">
                 All <span class="text-[10px] opacity-60">@Model.Counts.All</span>
             </button>
             <button hx-get="@FilterUrl("humans")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("humans")">
+                    class="px-3 py-1 text-xs font-medium rounded-md @FilterBtnClass("humans")">
                 Humans <span class="text-[10px] opacity-60">@Model.Counts.Humans</span>
             </button>
             <button hx-get="@FilterUrl("bots")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("bots")">
+                    class="px-3 py-1 text-xs font-medium rounded-md @FilterBtnClass("bots")">
                 Bots <span class="text-[10px] opacity-60">@Model.Counts.Bots</span>
             </button>
             <button hx-get="@FilterUrl("ai")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("ai")">
+                    class="px-3 py-1 text-xs font-medium rounded-md @FilterBtnClass("ai")">
                 AI <span class="text-[10px] opacity-60">@Model.Counts.Ai</span>
             </button>
             <button hx-get="@FilterUrl("tools")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                    class="px-3 py-1 text-xs font-medium rounded-md transition-all @FilterBtnClass("tools")">
+                    class="px-3 py-1 text-xs font-medium rounded-md @FilterBtnClass("tools")">
                 Tools <span class="text-[10px] opacity-60">@Model.Counts.Tools</span>
             </button>
         </div>
-        <div class="flex items-center gap-1">
-            @* Sort controls *@
-            <button hx-get="@SortUrl("lastSeen")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                    class="btn btn-xs btn-ghost">Last Seen @SortIcon("lastSeen")</button>
-            <button hx-get="@SortUrl("hits")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                    class="btn btn-xs btn-ghost">Hits @SortIcon("hits")</button>
-            <button hx-get="@SortUrl("risk")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                    class="btn btn-xs btn-ghost">Risk @SortIcon("risk")</button>
-            <button hx-get="@SortUrl("name")" hx-target="#visitor-list" hx-swap="outerHTML transition:true"
-                    class="btn btn-xs btn-ghost">Name @SortIcon("name")</button>
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "visitors")
-        </div>
+        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "visitors")
     </div>
 
-    @* Visitor cards grid *@
-    <div id="visitor-cards" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-        @if (Model.Visitors.Count == 0)
-        {
-            <div class="col-span-full text-center text-base-content/30 py-12 text-sm">
-                No visitors match this filter
-            </div>
-        }
-        @foreach (var visitor in Model.Visitors)
-        {
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_VisitorCard.cshtml", visitor,
-                new ViewDataDictionary(ViewData) { { "BasePath", Model.BasePath } })
-        }
-    </div>
+    @* Visitors table. Outer .overflow-auto keeps thead frozen above the rolling tbody;
+       the tbody itself is the data-region so SignalR-beacon swaps replace just the rows,
+       not the table chrome -- no flash, no scroll jump. *@
+    @if (Model.Visitors.Count == 0)
+    {
+        <div id="visitor-rows" data-sb-data-region class="text-center text-base-content/30 py-12 text-sm">
+            No visitors match this filter
+        </div>
+    }
+    else
+    {
+        <div class="overflow-auto rounded-lg border border-base-300/40">
+            <table class="table table-xs w-full">
+                <thead class="bg-base-300/30 text-[10px] uppercase tracking-wider sticky top-0">
+                    <tr>
+                        <th class="py-1 w-6"></th>
+                        <th class="py-1 @SortHeaderClass("name")"
+                            hx-get="@SortUrl("name")" hx-target="#visitor-list" hx-swap="outerHTML transition:true">
+                            Name @Html.Raw(SortIcon("name"))
+                        </th>
+                        <th class="py-1 text-base-content/40">UA</th>
+                        <th class="py-1 text-base-content/40">Ver</th>
+                        <th class="py-1 text-base-content/40">Bot type</th>
+                        <th class="py-1 text-right @SortHeaderClass("risk")"
+                            hx-get="@SortUrl("risk")" hx-target="#visitor-list" hx-swap="outerHTML transition:true">
+                            Risk @Html.Raw(SortIcon("risk"))
+                        </th>
+                        <th class="py-1 text-right text-base-content/40">Prob</th>
+                        <th class="py-1 text-right @SortHeaderClass("hits")"
+                            hx-get="@SortUrl("hits")" hx-target="#visitor-list" hx-swap="outerHTML transition:true">
+                            Hits @Html.Raw(SortIcon("hits"))
+                        </th>
+                        <th class="py-1 text-base-content/40">Action</th>
+                        <th class="py-1 text-right @SortHeaderClass("lastSeen")"
+                            hx-get="@SortUrl("lastSeen")" hx-target="#visitor-list" hx-swap="outerHTML transition:true">
+                            Seen @Html.Raw(SortIcon("lastSeen"))
+                        </th>
+                    </tr>
+                </thead>
+                <tbody id="visitor-rows" data-sb-data-region>
+                    @foreach (var v in Model.Visitors)
+                    {
+                        var displayName = SignatureDisplayName.Resolve(v.PrimarySignature, v.BotName, v.BotType, null, v.CountryCode, v.IsBot);
+                        var probPct = (v.BotProbability * 100).ToString("F0");
+                        var probClass = v.RiskBand switch { "VeryHigh" or "High" => "text-error", "Medium" or "Elevated" => "text-warning", _ => "text-success" };
+                        var riskBadge = v.RiskBand switch { "VeryHigh" => "badge-error", "High" => "badge-error", "Medium" => "badge-warning", "Elevated" => "badge-warning", "Low" => "badge-success", _ => "badge-ghost" };
+                        var actionClass = ActionDisplayHelper.GetBadgeCssClass(v.Action);
+                        var actionLabel = ActionDisplayHelper.GetFriendlyName(v.Action);
+                        var uaFamily = string.IsNullOrEmpty(v.UaFamily) ? "-" : v.UaFamily;
+                        var uaVersion = ExtractMajorVersion(v.UserAgent, v.UaFamily);
+                        <tr class="hover:bg-base-300/40 cursor-pointer"
+                            data-href="@bp/signature/@Uri.EscapeDataString(v.PrimarySignature)">
+                            <td class="py-1 w-6">
+                                @if (!string.IsNullOrEmpty(v.CountryCode) && v.CountryCode.Length == 2 && v.CountryCode != "XX")
+                                {
+                                    <img src="/_content/Mostlylucid.BotDetection.UI/flags/@(v.CountryCode.ToLowerInvariant()).svg"
+                                         alt="@v.CountryCode" class="w-4 h-3 rounded-sm" loading="lazy" />
+                                }
+                            </td>
+                            <td class="py-1 font-medium text-xs truncate max-w-[200px]"
+                                title="@SignatureDisplayName.TitleAttr(v.PrimarySignature)">
+                                <span class="hover:underline">@displayName</span>
+                            </td>
+                            <td class="py-1 text-xs text-base-content/70">@uaFamily</td>
+                            <td class="py-1 text-xs text-base-content/50 font-mono">@(string.IsNullOrEmpty(uaVersion) ? "-" : uaVersion)</td>
+                            <td class="py-1 text-xs text-base-content/60">@(v.BotType ?? (v.IsBot ? "Bot" : "Human"))</td>
+                            <td class="py-1 text-right">
+                                <span class="badge badge-xs @riskBadge">@v.RiskBand</span>
+                            </td>
+                            <td class="py-1 text-right text-xs font-bold @probClass">@probPct%</td>
+                            <td class="py-1 text-right text-xs">@v.Hits</td>
+                            <td class="py-1 text-xs">
+                                @if (!string.IsNullOrEmpty(v.Action))
+                                {
+                                    <span class="badge badge-xs @actionClass">@actionLabel</span>
+                                }
+                            </td>
+                            <td class="py-1 text-right text-xs text-base-content/50 whitespace-nowrap">@BotDisplayHelpers.TimeAgoCompact(v.LastSeen)</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
 
     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Pagination.cshtml",
         new PaginationModel
