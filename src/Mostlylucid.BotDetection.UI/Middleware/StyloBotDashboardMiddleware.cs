@@ -920,7 +920,7 @@ public class StyloBotDashboardMiddleware
                 ? await shapeStore.GetPresetsAsync()
                 : Array.Empty<InvestigationPreset>();
             var invHasCommercial = IsCommercialMode(context);
-            var invTabs = new List<string> { "detections", "signatures", "endpoints", "honeypot", "geo", "signaltrace" };
+            var invTabs = new List<string> { "detections", "signatures", "endpoints", "honeypot", "policy", "geo", "signaltrace" };
             if (invHasCommercial) invTabs.Insert(invTabs.Count - 1, "fingerprints");
 
             investigationVm = new ShapeInvestigationViewModel
@@ -5559,7 +5559,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             : Array.Empty<InvestigationPreset>();
 
         var hasCommercial = IsCommercialMode(context);
-        var tabs = new List<string> { "detections", "signatures", "endpoints", "honeypot", "geo", "signaltrace" };
+        var tabs = new List<string> { "detections", "signatures", "endpoints", "honeypot", "policy", "geo", "signaltrace" };
         if (hasCommercial) tabs.Insert(tabs.Count - 1, "fingerprints");
 
         var vm = new ShapeInvestigationViewModel
@@ -5633,6 +5633,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             "signatures" => "_InvestigateSignatures",
             "endpoints" => "_InvestigateEndpoints",
             "honeypot" => "_InvestigateHoneypot",
+            "policy" => "_InvestigatePolicy",
             "geo" => "_InvestigateGeo",
             "fingerprints" => "_InvestigateFingerprints",
             "signaltrace" => "_InvestigateSignaltrace",
@@ -5681,6 +5682,22 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                     context.Items["Honeypot.ActiveProfile"] = resolved;
                     context.Items["Honeypot.ActiveProfileHost"] = context.Request.Host.Host;
                 }
+            }
+        }
+
+        // Policy tab: surface the live policy snapshot + the BotType -> policy
+        // map so the partial can render per-type chips and per-policy cards
+        // without reaching into DI itself. Phase 5 of the policy-grammar work.
+        if (string.Equals(tab, "policy", StringComparison.OrdinalIgnoreCase))
+        {
+            var stateProvider = context.RequestServices.GetService<Mostlylucid.BotDetection.Actions.IPolicyStateProvider>();
+            var botOptions = context.RequestServices.GetService<Microsoft.Extensions.Options.IOptions<Mostlylucid.BotDetection.Models.BotDetectionOptions>>()?.Value;
+            if (stateProvider is not null && botOptions is not null)
+            {
+                context.Items["Policy.States"] = stateProvider.GetAll();
+                context.Items["Policy.BotTypeMap"] = botOptions.BotTypeActionPolicies;
+                context.Items["Policy.DefaultPolicyName"] = botOptions.DefaultActionPolicyName;
+                context.Items["Policy.ObserveOnly"] = botOptions.ObserveOnly;
             }
         }
 
@@ -6009,7 +6026,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             new() { Value = "ua_family", Label = "UA Family" }
         };
 
-        var tabs = new List<string> { "detections", "signatures", "endpoints", "geo", "signaltrace" };
+        var tabs = new List<string> { "detections", "signatures", "endpoints", "policy", "geo", "signaltrace" };
 
         // Commercial features -- gated by license + demo mode toggle
         if (httpContext is not null ? IsCommercialMode(httpContext) : _options.EnableConfigEditing)

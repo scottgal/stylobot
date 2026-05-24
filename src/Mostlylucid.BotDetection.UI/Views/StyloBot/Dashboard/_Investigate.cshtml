@@ -107,6 +107,9 @@
                 case "honeypot":
                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_InvestigateHoneypot.cshtml", tabVm)
                     break;
+                case "policy":
+                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_InvestigatePolicy.cshtml", tabVm)
+                    break;
                 case "geo":
                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_InvestigateGeo.cshtml", tabVm)
                     break;
