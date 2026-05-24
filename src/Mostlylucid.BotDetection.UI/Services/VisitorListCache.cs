@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Mostlylucid.BotDetection.Grouping;
 using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -13,26 +14,32 @@ public class VisitorListCache
     private readonly ConcurrentDictionary<string, CachedVisitor> _visitors = new();
     private readonly int _maxVisitors;
     private readonly SignatureAggregateCache? _aggregateCache;
+    private readonly IBehaviouralGrouper? _grouper;
 
-    public VisitorListCache(int maxVisitors = 500, SignatureAggregateCache? aggregateCache = null)
+    public VisitorListCache(
+        int maxVisitors = 500,
+        SignatureAggregateCache? aggregateCache = null,
+        IBehaviouralGrouper? grouper = null)
     {
         // Default was 100; bumped to 500 so a staging gateway seeing a few hundred
         // distinct signatures over 24h (Amazonbot alone churns 200+ fingerprints)
         // doesn't constantly evict-then-rehydrate the visitor cards. Memory cost
         // per entry is ~1KB so the cap is still well under a megabyte.
         _maxVisitors = maxVisitors;
-        // SignatureAggregateCache is the single source of truth for bot name + type
-        // (UpdateSignatureBotNameAsync writes to it whenever the canonical naming
-        // pipeline fires -- including LLM identification). Without this link, the
-        // visitor card showed the initial detection's BotName (often "Unknown Bot")
-        // even after the signature was later named, so users saw "Unknown" on the
-        // card and the real name on the signature detail page.
         _aggregateCache = aggregateCache;
+        // Behavioural grouper -- single bridge that decides how rows
+        // collapse. Optional so legacy test constructors still work; in
+        // production it's wired by AddBotDetection.
+        _grouper = grouper;
     }
 
     // DI-friendly ctor: matches the AddSingleton<VisitorListCache>() registration so
-    // SignatureAggregateCache is wired automatically; the maxVisitors-only ctor
-    // above is preserved for tests that construct the cache by hand.
+    // SignatureAggregateCache + IBehaviouralGrouper are wired automatically; the
+    // maxVisitors-only ctor above is preserved for tests that construct by hand.
+    public VisitorListCache(SignatureAggregateCache aggregateCache, IBehaviouralGrouper grouper)
+        : this(500, aggregateCache, grouper) { }
+
+    // Back-compat ctor for tests that only pass the aggregate cache.
     public VisitorListCache(SignatureAggregateCache aggregateCache) : this(500, aggregateCache) { }
 
     /// <summary>
@@ -279,14 +286,41 @@ public class VisitorListCache
     ///     so the visitor card list and the Top Bots list always agree on what
     ///     counts as the same identity.
     /// </summary>
-    private static IEnumerable<CachedVisitor> CollapseGroupable(IEnumerable<CachedVisitor> source)
+    /// <summary>
+    ///     Build the collapse key for a visitor row. When the behavioural
+    ///     grouper is wired (production), defers to it. Otherwise falls
+    ///     back to the legacy bot-name-or-signature rule so test
+    ///     constructors that don't inject a grouper still behave correctly.
+    /// </summary>
+    private string ResolveGroupCanonical(CachedVisitor v)
+    {
+        if (_grouper is not null)
+        {
+            var key = _grouper.Resolve(new GroupingInput
+            {
+                Signature = v.PrimarySignature,
+                BotProbability = v.BotProbability,
+                RiskBand = v.RiskBand,
+                IsBot = v.IsBot,
+                BotName = v.BotName,
+                BotType = v.BotType
+                // FingerprintId / ClusterId not on CachedVisitor yet -- Phase 2
+                // will populate them so tiers 1/2 fire here.
+            });
+            return key.Canonical;
+        }
+
+        // Legacy fallback.
+        return Middleware.WidgetRenderHelpers.IsGroupableIdentity(
+                   customBotName: null, v.BotName, v.BotType)
+            ? "name:" + v.BotName
+            : "sig:" + v.PrimarySignature;
+    }
+
+    private IEnumerable<CachedVisitor> CollapseGroupable(IEnumerable<CachedVisitor> source)
     {
         var list = source.ToList();
-        foreach (var grp in list.GroupBy(
-            v => Middleware.WidgetRenderHelpers.IsGroupableIdentity(customBotName: null, v.BotName, v.BotType)
-                 ? "name:" + v.BotName
-                 : "sig:" + v.PrimarySignature,
-            StringComparer.Ordinal))
+        foreach (var grp in list.GroupBy(v => ResolveGroupCanonical(v), StringComparer.Ordinal))
         {
             var members = grp.ToList();
             if (members.Count == 1) { yield return members[0]; continue; }

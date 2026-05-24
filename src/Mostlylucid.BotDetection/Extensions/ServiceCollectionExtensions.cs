@@ -706,6 +706,13 @@ public static class ServiceCollectionExtensions
         services.AddOptions<EndpointPolicies.EndpointPolicyOptions>()
             .BindConfiguration(EndpointPolicies.EndpointPolicyOptions.SectionName);
         services.TryAddSingleton<EndpointPolicies.IEndpointPolicyResolver, EndpointPolicies.ConfigEndpointPolicyResolver>();
+        // Behavioural grouper -- single bridge consulted by every dashboard
+        // surface that wants to collapse rows. Enforces a non-overridable
+        // bot-only gate (humans never group) followed by a 7-tier hierarchy
+        // from Identity down to raw signature.
+        services.AddOptions<Grouping.GroupingOptions>()
+            .BindConfiguration(Grouping.GroupingOptions.SectionName);
+        services.TryAddSingleton<Grouping.IBehaviouralGrouper, Grouping.BehaviouralGrouper>();
         // Honeypot response policy -- jittered rate-limit + fake response.
         // Registered as IActionPolicy under name "honeypot-response"; the middleware
         // auto-selects it when the tagger set a tier tag on HttpContext.Items.
