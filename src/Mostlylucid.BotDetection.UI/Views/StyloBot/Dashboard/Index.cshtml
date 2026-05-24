@@ -54,16 +54,11 @@
     dialog.modal:not([open]) { display: none !important; }
 </style>
 
-@* RenderShell stays as a kill switch for hosts that genuinely want to suppress
-   the pre-launch banner (the navbar is the host _Layout's responsibility now,
-   not this view's). Marketing / commercial sites set RenderShell=true to opt
-   into the banner; an embed (?embed=1) host can set false. *@
-@if (Model.RenderShell)
-{
-    <div class="w-full bg-warning text-warning-content text-center text-xs sm:text-sm font-bold uppercase tracking-wider py-1.5 px-4">
-        Releases June 1st &middot; all content is provisional
-    </div>
-}
+@* Pre-launch / release banners are a host concern (marketing site copy), not a
+   FOSS dashboard concern. Hosts that want a banner render their own at the top
+   of their _Layout; embedding the FOSS dashboard never doubles it. The
+   RenderShell option survives for hosts that want to suppress chrome the
+   middleware injects elsewhere; it no longer drives a banner here. *@
 
 <!-- Main content -->
 <main class="max-w-7xl mx-auto px-2 py-4">
