@@ -854,8 +854,9 @@ public class StyloBotDashboardMiddleware
             "object-src 'none'",
             // Flag thumbnails are vendored locally (wwwroot/flags/<cc>.svg, MIT-licensed
             // flag-icons set). No third-party image origins permitted -- this is a security
-            // product, and our own copy says "zero CDN dependencies".
-            "img-src 'self' data:",
+            // product, and our own copy says "zero CDN dependencies". blob: is required for
+            // ApexCharts toolbar exports (URL.createObjectURL on a same-origin canvas blob).
+            "img-src 'self' data: blob:",
             "font-src 'self' data:",
             $"style-src 'self' 'unsafe-inline'",
             $"script-src 'self' 'nonce-{cspNonce}'",
