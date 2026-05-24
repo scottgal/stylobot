@@ -1864,38 +1864,63 @@ public class StyloBotDashboardMiddleware
                 : null)
             .ToList();
 
-        var result = sessions.Select((s, idx) => new
+        // State frequencies live at positions [100..109] of the encoded session vector
+        // (BotDetection.Analysis.SessionVectorizer layout). The Behavioral Evolution
+        // panel's 12-axis clock projection sums slices of this slice; pull it out once.
+        static float[] SliceStateFreqs(float[]? vector)
         {
-            s.Id,
-            s.StartedAt,
-            s.EndedAt,
-            durationMinutes = Math.Round((s.EndedAt - s.StartedAt).TotalMinutes, 1),
-            s.RequestCount,
-            s.DominantState,
-            s.IsBot,
-            avgBotProbability = Math.Round(s.AvgBotProbability, 3),
-            s.RiskBand,
-            s.ErrorCount,
-            timingEntropy = Math.Round(s.TimingEntropy, 3),
-            s.Maturity,
-            live = false,
-            // Inter-session velocity: L2 magnitude of the delta vector from previous session.
-            // High velocity = sudden behavioral shift (bot rotation, account takeover, LLM-driven drift)
-            velocity = (idx < sessions.Count - 1 && sessionVectors[idx] != null && sessionVectors[idx + 1] != null)
-                ? (double?)Math.Round(BotDetection.Analysis.SessionVectorizer.VelocityMagnitude(
-                    BotDetection.Analysis.SessionVectorizer.ComputeVelocity(sessionVectors[idx]!, sessionVectors[idx + 1]!)), 3)
-                : null,
-            // Markov chain for drill-in visualization
-            transitionCounts = s.TransitionCountsJson != null
-                ? JsonSerializer.Deserialize<Dictionary<string, int>>(s.TransitionCountsJson)
-                : null,
-            paths = s.PathsJson != null
-                ? JsonSerializer.Deserialize<List<string>>(s.PathsJson)
-                : null,
-            // Radar projection for behavioral shape visualization
-            radarAxes = s.Vector is { Length: > 0 }
-                ? BotDetection.Analysis.VectorRadarProjection.Project(sessionVectors[idx]!)
-                : null
+            var sf = new float[10];
+            if (vector is { Length: >= 110 })
+                Array.Copy(vector, 100, sf, 0, 10);
+            return sf;
+        }
+
+        var result = sessions.Select((s, idx) =>
+        {
+            var vec = sessionVectors[idx];
+            var radarAxes = vec is { Length: > 0 }
+                ? BotDetection.Analysis.VectorRadarProjection.Project(vec)
+                : null;
+            // 12-axis clock for the Behavioral Evolution panel: semantic projection + 4
+            // Markov state-share projections. Empty markov when no session vector → those
+            // 4 hours sit at the origin.
+            var clockAxes = Mostlylucid.BotDetection.UI.Services.ClockProjection.Compose12Axes(
+                radarAxes!,
+                Mostlylucid.BotDetection.UI.Services.ClockProjection.ProjectMarkovTo4Axes(SliceStateFreqs(vec)));
+
+            return new
+            {
+                s.Id,
+                s.StartedAt,
+                s.EndedAt,
+                durationMinutes = Math.Round((s.EndedAt - s.StartedAt).TotalMinutes, 1),
+                s.RequestCount,
+                s.DominantState,
+                s.IsBot,
+                avgBotProbability = Math.Round(s.AvgBotProbability, 3),
+                s.RiskBand,
+                s.ErrorCount,
+                timingEntropy = Math.Round(s.TimingEntropy, 3),
+                s.Maturity,
+                live = false,
+                // Inter-session velocity: L2 magnitude of the delta vector from previous session.
+                // High velocity = sudden behavioral shift (bot rotation, account takeover, LLM-driven drift)
+                velocity = (idx < sessions.Count - 1 && sessionVectors[idx] != null && sessionVectors[idx + 1] != null)
+                    ? (double?)Math.Round(BotDetection.Analysis.SessionVectorizer.VelocityMagnitude(
+                        BotDetection.Analysis.SessionVectorizer.ComputeVelocity(sessionVectors[idx]!, sessionVectors[idx + 1]!)), 3)
+                    : null,
+                // Markov chain for drill-in visualization
+                transitionCounts = s.TransitionCountsJson != null
+                    ? JsonSerializer.Deserialize<Dictionary<string, int>>(s.TransitionCountsJson)
+                    : null,
+                paths = s.PathsJson != null
+                    ? JsonSerializer.Deserialize<List<string>>(s.PathsJson)
+                    : null,
+                // Radar projection for behavioral shape visualization
+                radarAxes,
+                // 12-axis clock, ready for direct ApexCharts series consumption
+                clockAxes
+            };
         }).ToList<object>();
 
         // Live in-progress session: prefer the in-memory accumulator (has a real session
@@ -1931,7 +1956,10 @@ public class StyloBotDashboardMiddleware
                 live = true,
                 transitionCounts = (Dictionary<string, int>?)null,
                 paths = liveSession.Select(r => r.PathTemplate).Distinct().ToList(),
-                radarAxes = liveRadar
+                radarAxes = liveRadar,
+                clockAxes = Mostlylucid.BotDetection.UI.Services.ClockProjection.Compose12Axes(
+                    liveRadar,
+                    Mostlylucid.BotDetection.UI.Services.ClockProjection.ProjectMarkovTo4Axes(SliceStateFreqs(liveVector)))
             });
             liveAdded = true;
         }
@@ -2039,7 +2067,11 @@ public class StyloBotDashboardMiddleware
                             velocity = (object?)null,
                             transitionCounts = (Dictionary<string, int>?)null,
                             paths,
-                            radarAxes
+                            radarAxes,
+                            // Synthetic entry has no session vector yet → markov hours = 0.
+                            clockAxes = Mostlylucid.BotDetection.UI.Services.ClockProjection.Compose12Axes(
+                                radarAxes ?? new double[8],
+                                new double[] { 0, 0, 0, 0 })
                         };
                         if (isLive) result.Insert(0, entry);
                         else result.Add(entry);
