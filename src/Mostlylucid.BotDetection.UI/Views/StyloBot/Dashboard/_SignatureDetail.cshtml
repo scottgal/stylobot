@@ -407,7 +407,7 @@ else
                 <script type="application/json" id="prob-conf-data">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(new { probability = Model.BotProbabilityHistory, confidence = Model.ConfidenceHistory }))</script>
             </div>
             <div class="rounded-xl border p-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-                <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">Processing Time History</h3>
+                <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2" title="Time spent inside the StyloBot detection pipeline per request. This is the additional latency StyloBot adds on top of your upstream app's response time.">StyloBot Detection Overhead (ms)</h3>
                 <div id="proc-time-chart" style="height: 200px;"></div>
                 <script type="application/json" id="proc-time-data">@Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.ProcessingTimeHistory))</script>
             </div>
