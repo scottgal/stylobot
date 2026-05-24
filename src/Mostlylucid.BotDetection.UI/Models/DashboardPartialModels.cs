@@ -662,6 +662,13 @@ public sealed class HoneypotHitRow
     /// <summary>1 = Tier 1 (always honeypot), 2 = Tier 2 (probable, exempt-able).</summary>
     public int Tier { get; init; }
 
+    /// <summary>
+    ///     Category from <see cref="Mostlylucid.BotDetection.Honeypot.HoneypotCategory"/>;
+    ///     drives the intent chip and lets the dashboard filter/group by
+    ///     what the scanner is going for.
+    /// </summary>
+    public Mostlylucid.BotDetection.Honeypot.HoneypotCategory Category { get; init; }
+
     public string? MatchedPattern { get; init; }
 
     public int HitCount { get; init; }

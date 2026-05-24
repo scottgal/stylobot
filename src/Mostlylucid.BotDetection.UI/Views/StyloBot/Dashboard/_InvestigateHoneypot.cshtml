@@ -13,6 +13,30 @@
         _ => string.Empty
     };
 
+    string CategoryBadge(Mostlylucid.BotDetection.Honeypot.HoneypotCategory cat)
+    {
+        if (cat == Mostlylucid.BotDetection.Honeypot.HoneypotCategory.None) return string.Empty;
+        // Group hot/cold colours so the operator can scan by colour:
+        // red = credential/key theft, orange = config/version-control,
+        // yellow = admin/debug/database, purple = traversal/SSRF/webshell,
+        // grey = lower-risk catalog hits.
+        var (bg, fg) = cat switch
+        {
+            Mostlylucid.BotDetection.Honeypot.HoneypotCategory.Credentials   => ("#dc2626", "#fff"),
+            Mostlylucid.BotDetection.Honeypot.HoneypotCategory.Config        => ("#ea580c", "#fff"),
+            Mostlylucid.BotDetection.Honeypot.HoneypotCategory.VersionControl => ("#ea580c", "#fff"),
+            Mostlylucid.BotDetection.Honeypot.HoneypotCategory.Database      => ("#ca8a04", "#fff"),
+            Mostlylucid.BotDetection.Honeypot.HoneypotCategory.Admin         => ("#ca8a04", "#fff"),
+            Mostlylucid.BotDetection.Honeypot.HoneypotCategory.Debug         => ("#ca8a04", "#fff"),
+            Mostlylucid.BotDetection.Honeypot.HoneypotCategory.Webshell      => ("#7c3aed", "#fff"),
+            Mostlylucid.BotDetection.Honeypot.HoneypotCategory.PathTraversal => ("#7c3aed", "#fff"),
+            Mostlylucid.BotDetection.Honeypot.HoneypotCategory.Metadata      => ("#7c3aed", "#fff"),
+            Mostlylucid.BotDetection.Honeypot.HoneypotCategory.Backup        => ("#ca8a04", "#fff"),
+            _ => ("var(--sb-surface)", "var(--sb-brand-muted)")
+        };
+        return $"<span data-category=\"{cat}\" style=\"padding:0.15rem 0.5rem; border-radius:4px; background:{bg}; color:{fg}; font-size:0.7rem; font-weight:600; white-space:nowrap;\">{cat}</span>";
+    }
+
     string AgoString(DateTime t)
     {
         var span = DateTime.UtcNow - t.ToUniversalTime();
@@ -71,6 +95,7 @@
                 <thead>
                     <tr style="background:var(--sb-surface); text-align:left;">
                         <th style="padding:0.5rem 0.75rem;">Tier</th>
+                        <th style="padding:0.5rem 0.75rem;">Category</th>
                         <th style="padding:0.5rem 0.75rem;">Path</th>
                         <th style="padding:0.5rem 0.75rem;">Why</th>
                         <th style="padding:0.5rem 0.75rem; text-align:right;">Hits</th>
@@ -83,8 +108,9 @@
                 <tbody>
                 @foreach (var row in rows)
                 {
-                    <tr style="border-top:1px solid var(--sb-card-divider);">
+                    <tr style="border-top:1px solid var(--sb-card-divider);" data-category="@row.Category">
                         <td style="padding:0.5rem 0.75rem;">@Html.Raw(TierBadge(row.Tier))</td>
+                        <td style="padding:0.5rem 0.75rem;">@Html.Raw(CategoryBadge(row.Category))</td>
                         <td style="padding:0.5rem 0.75rem; font-family:monospace; word-break:break-all;">@row.Path</td>
                         <td style="padding:0.5rem 0.75rem;">
                             <div style="display:flex; flex-wrap:wrap; gap:0.25rem;">
