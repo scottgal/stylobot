@@ -95,6 +95,7 @@ public class VisitorListCache
                     UaFamily = ExtractSignal(detection, "ua.family"),
                     FingerprintId = ExtractSignal(detection, "identity.fingerprint_id"),
                     ClusterId = ExtractSignal(detection, "cluster.id"),
+                    RadarShape = detection.RadarShape,
                 };
             },
             (_, existing) =>
@@ -166,6 +167,8 @@ public class VisitorListCache
                     var uaFamily = ExtractSignal(detection, "ua.family");
                     if (!string.IsNullOrEmpty(uaFamily))
                         existing.UaFamily = uaFamily;
+                    if (detection.RadarShape is { Length: 16 })
+                        existing.RadarShape = detection.RadarShape;
                     var fpid = ExtractSignal(detection, "identity.fingerprint_id");
                     if (!string.IsNullOrEmpty(fpid))
                         existing.FingerprintId = fpid;
@@ -591,6 +594,10 @@ public class CachedVisitor
 
     /// <summary>Leiden community cluster id -- feeds the grouper's cluster tier.</summary>
     public string? ClusterId { get; set; }
+
+    /// <summary>16-dim radar shape vector from the latest detection. Used by the Your
+    /// Detection widget to show the visitor's own fingerprint as a mini clock radar.</summary>
+    public float[]? RadarShape { get; set; }
 
     /// <summary>
     ///     The behavioural grouper's resolved key for this row. Set by

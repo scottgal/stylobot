@@ -74,6 +74,16 @@ public sealed class YourDetectionModel
     public string? ThreatBand { get; init; }
     public bool HasData { get; init; }
     public required string BasePath { get; init; }
+
+    // Identity signals that say "this is you, here's what we see" -- replaces the
+    // earlier text-heavy "Your Detection" panel.
+    public string? CountryCode { get; init; }
+    public string? UaFamily { get; init; }
+    public string? UserAgent { get; init; }
+    public string? BotName { get; init; }
+    public string? BotType { get; init; }
+    /// <summary>12-axis ClockProjection vector, [0,1]-clamped, ready for direct radar rendering.</summary>
+    public double[]? ClockAxes { get; init; }
 }
 
 /// <summary>

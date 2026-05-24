@@ -1,86 +1,178 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using System.Text.Json
 @model YourDetectionModel
 @{
-    var riskClass = Model.RiskBand switch {
-        "VeryHigh" or "High" => "text-error",
-        "Medium" or "Elevated" => "text-warning",
-        _ => "text-success"
+    // Quadrant labels match the Behavioral Evolution clock used elsewhere on the
+    // dashboard so the operator sees one consistent fingerprint shape across the
+    // signature detail page, session detail page, and Your Detection panel.
+    var axisLabels = new[]
+    {
+        "Browsing", "API", "Assets", "Realtime", "Form/Search", "Auth Pressure",
+        "Burst Speed", "Timing", "Path Diversity", "404 Probes", "Scan/Probe", "Fingerprint"
     };
-    var probPct = (Model.BotProbability * 100).ToString("F1");
-    var confPct = (Model.Confidence * 100).ToString("F0");
+    var hasFlag = !string.IsNullOrEmpty(Model.CountryCode)
+                  && Model.CountryCode.Length == 2
+                  && Model.CountryCode != "XX";
+    var flagUrl = hasFlag
+        ? $"/_content/Mostlylucid.BotDetection.UI/flags/{Model.CountryCode!.ToLowerInvariant()}.svg"
+        : null;
+    var uaLabel = string.IsNullOrEmpty(Model.UaFamily) ? "Unknown UA" : Model.UaFamily!;
+    var verdictClass = Model.IsBot ? "bg-error/20 text-error border-error/30"
+        : Model.RiskBand is "VeryHigh" or "High" ? "bg-warning/20 text-warning border-warning/30"
+        : "bg-success/20 text-success border-success/30";
+    var verdictLabel = Model.IsBot
+        ? (string.IsNullOrEmpty(Model.BotName) ? "Bot" : Model.BotName!)
+        : "Human";
+    var radarJson = Model.ClockAxes is { Length: 12 }
+        ? JsonSerializer.Serialize(Model.ClockAxes)
+        : "[]";
 }
 <div id="your-detection"
      data-sb-widget="your-detection"
      data-sb-depends="summary,@(Model.Signature ?? "")"
      class="card bg-base-200 transition-all duration-200">
     <div class="card-body p-3">
-        <div class="flex items-center justify-between">
-            <h3 class="text-xs font-bold text-base-content flex items-center gap-2">
-                Your Detection
-                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "your-detection")
-                @if (Model.HasData)
-                {
-                    @if (Model.IsBot)
-                    {
-                        <span class="badge badge-xs badge-error">Bot</span>
-                    }
-                    else
-                    {
-                        <span class="badge badge-xs badge-success">Human</span>
-                    }
-                }
+        <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-bold text-base-content flex items-center gap-1.5">
+                <i class="bx bx-user-pin text-sm" style="color: var(--sb-accent);"></i>
+                You, as the gateway sees you
             </h3>
             @if (Model.HasData && !string.IsNullOrEmpty(Model.Signature))
             {
-                <a href="@Model.BasePath/signature/@Uri.EscapeDataString(Model.Signature)" class="text-[10px] underline text-base-content/40 hover:text-base-content/60">Details</a>
+                <a href="@Model.BasePath/signature/@Uri.EscapeDataString(Model.Signature)"
+                   class="text-[10px] text-base-content/40 hover:text-base-content/70">Signature &rarr;</a>
             }
         </div>
 
         @if (!Model.HasData)
         {
-            <div class="text-[11px] text-base-content/40 py-2 text-center">
-                Waiting for detection data&hellip; Visit another page first.
+            <div class="text-[11px] text-base-content/40 py-3 text-center">
+                Click around the site for a moment. The gateway is still scoring your first few requests.
             </div>
         }
         else
         {
-            <!-- Stats row -->
-            <div class="flex items-center gap-4 mt-1.5">
-                <div class="text-center">
-                    <span class="text-sm font-black @riskClass">@(probPct)%</span>
-                    <div class="text-[9px] text-base-content/50">Score</div>
-                </div>
-                <div class="text-center">
-                    <span class="text-sm font-black text-base-content">@(confPct)%</span>
-                    <div class="text-[9px] text-base-content/50">Conf</div>
-                </div>
-                <div class="text-center">
-                    <span class="text-sm font-black @riskClass">@Model.RiskBand</span>
-                    <div class="text-[9px] text-base-content/50">Risk</div>
-                </div>
-                @if (Model.ThreatBand != null && Model.ThreatBand != "None")
-                {
-                    <div class="text-center">
-                        <span class="text-sm font-black @(Model.ThreatBand is "Critical" or "High" ? "text-error" : "text-warning")">
-                            @Model.ThreatBand@(Model.ThreatScore.HasValue ? $" ({Model.ThreatScore.Value:F0})" : "")
-                        </span>
-                        <div class="text-[9px] text-base-content/50">Threat</div>
-                    </div>
-                }
-                <div class="ml-auto text-[9px] text-base-content/30">
-                    @Model.DetectorCount det &middot; @Model.ProcessingTimeMs.ToString("F1")ms
-                </div>
-            </div>
+            <div class="grid grid-cols-[120px_1fr] gap-3 items-start">
 
-            @if (Model.TopReasons.Count > 0)
-            {
-                <div class="mt-2 flex flex-col gap-0.5">
-                    @foreach (var reason in Model.TopReasons.Take(3))
+                @* LEFT: mini 12-axis clock radar -- same axis layout as the Behavioral
+                   Evolution panel, so the same shape reads as "this is your fingerprint"
+                   wherever it appears. Plain SVG, no chart lib bootstrap; sized down
+                   to fit the side card. *@
+                <div>
+                    <svg viewBox="0 0 120 120" width="120" height="120"
+                         xmlns="http://www.w3.org/2000/svg"
+                         data-your-detection-radar
+                         aria-label="Twelve-axis behavioural fingerprint">
+                        <g transform="translate(60,60)">
+                            <!-- concentric reference rings, decagon-ish but 12-sided for an exact match -->
+                            <circle r="48" fill="none" stroke="rgba(148,163,184,0.18)" stroke-width="0.5"/>
+                            <circle r="32" fill="none" stroke="rgba(148,163,184,0.12)" stroke-width="0.5"/>
+                            <circle r="16" fill="none" stroke="rgba(148,163,184,0.08)" stroke-width="0.5"/>
+                            <!-- 12 spokes -->
+                            @for (var i = 0; i < 12; i++)
+                            {
+                                var theta = -Math.PI / 2 + i * 2 * Math.PI / 12;
+                                var x = 48 * Math.Cos(theta);
+                                var y = 48 * Math.Sin(theta);
+                                <line x1="0" y1="0" x2="@x.ToString("F2")" y2="@y.ToString("F2")"
+                                      stroke="rgba(148,163,184,0.10)" stroke-width="0.5"/>
+                            }
+                            <polygon data-your-detection-poly
+                                     points=""
+                                     fill="rgba(91,163,163,0.22)"
+                                     stroke="#5ba3a3"
+                                     stroke-width="1.5"/>
+                        </g>
+                    </svg>
+                    <script type="application/json" data-your-detection-axes>@Html.Raw(radarJson)</script>
+                </div>
+
+                @* RIGHT: identity signals + verdict, no big percentages. The verdict
+                   pill carries the bot/human story; chips below say "here's why we
+                   think that": flag, UA family, threat band. *@
+                <div class="flex flex-col gap-1.5 min-w-0">
+                    <span class="inline-flex items-center gap-1.5 self-start px-2 py-0.5 rounded-full border text-[11px] font-semibold @verdictClass">
+                        @if (Model.IsBot)
+                        {
+                            <i class="bx bx-bot text-xs"></i>
+                        }
+                        else
+                        {
+                            <i class="bx bx-user text-xs"></i>
+                        }
+                        @verdictLabel
+                    </span>
+
+                    <div class="flex items-center flex-wrap gap-1.5">
+                        @if (hasFlag)
+                        {
+                            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-base-300 text-base-content/80">
+                                <img src="@flagUrl" alt="@Model.CountryCode" class="w-3.5 h-2.5 object-cover rounded-[1px]" />
+                                <span>@Model.CountryCode</span>
+                            </span>
+                        }
+                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-base-300 text-base-content/80">
+                            <i class="bx bx-window text-[10px]"></i>
+                            @uaLabel
+                        </span>
+                        @if (!string.IsNullOrEmpty(Model.BotType) && Model.BotType != verdictLabel)
+                        {
+                            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-base-300 text-base-content/80">
+                                @Model.BotType
+                            </span>
+                        }
+                        @if (!string.IsNullOrEmpty(Model.ThreatBand) && Model.ThreatBand != "None")
+                        {
+                            var tClass = Model.ThreatBand is "Critical" or "High" ? "bg-error/15 text-error"
+                                : Model.ThreatBand is "Elevated" or "Medium" ? "bg-warning/15 text-warning"
+                                : "bg-base-300 text-base-content/80";
+                            <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] @tClass">
+                                <i class="bx bx-shield-quarter text-[10px]"></i>
+                                @Model.ThreatBand threat
+                            </span>
+                        }
+                    </div>
+
+                    @if (Model.TopReasons.Count > 0)
                     {
-                        <span class="text-[10px] text-base-content/50 truncate" title="@reason">&bull; @reason</span>
+                        <ul class="mt-1 text-[10px] text-base-content/50 leading-snug list-disc list-inside">
+                            @foreach (var reason in Model.TopReasons.Take(2))
+                            {
+                                <li class="truncate" title="@reason">@reason</li>
+                            }
+                        </ul>
                     }
                 </div>
-            }
+            </div>
         }
     </div>
 </div>
+
+@if (Model.HasData && Model.ClockAxes is { Length: 12 })
+{
+    <script nonce="@Context.Items["CspNonce"]">
+    (function () {
+        // Polygon for the mini clock radar. Reading the values from the
+        // <script type="application/json"> island and computing the polygon points
+        // means the same shape can later be hot-swapped on an OOB beacon by
+        // updating the JSON island + re-running this function (or simply
+        // re-rendering the whole partial -- the SbLiveUpdates path does the
+        // latter today).
+        var root = document.getElementById('your-detection');
+        if (!root) return;
+        var poly = root.querySelector('[data-your-detection-poly]');
+        var src  = root.querySelector('[data-your-detection-axes]');
+        if (!poly || !src) return;
+        var axes = [];
+        try { axes = JSON.parse(src.textContent || '[]'); } catch (e) { return; }
+        if (!Array.isArray(axes) || axes.length !== 12) return;
+        var R = 48;
+        var pts = axes.map(function (v, i) {
+            var c = Math.max(0, Math.min(1, +v || 0));
+            var theta = -Math.PI / 2 + i * 2 * Math.PI / 12;
+            return (R * c * Math.cos(theta)).toFixed(2) + ',' + (R * c * Math.sin(theta)).toFixed(2);
+        }).join(' ');
+        poly.setAttribute('points', pts);
+    })();
+    </script>
+}

@@ -5014,6 +5014,19 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                     BasePath = _options.BasePath.TrimEnd('/')
                 };
 
+            // 12-axis clock for the Your Detection mini-radar. Live visitors don't yet
+            // have an aggregated session vector (no state-freq slice), so the 4 Markov
+            // hours just sit at the origin -- the 8 semantic detector hours carry the
+            // 'who are you' signal.
+            double[]? clockAxes = null;
+            if (visitor.RadarShape is { Length: 16 } rs)
+            {
+                var semantic8 = ProjectDetectionRadarTo8Axes(rs);
+                clockAxes = Mostlylucid.BotDetection.UI.Services.ClockProjection.Compose12Axes(
+                    semantic8,
+                    new double[] { 0, 0, 0, 0 });
+            }
+
             return new YourDetectionModel
             {
                 HasData = true,
@@ -5028,7 +5041,13 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                 Signature = sigs.PrimarySignature,
                 ThreatScore = visitor.ThreatScore,
                 ThreatBand = visitor.ThreatBand,
-                BasePath = _options.BasePath.TrimEnd('/')
+                BasePath = _options.BasePath.TrimEnd('/'),
+                CountryCode = visitor.CountryCode,
+                UaFamily = visitor.UaFamily,
+                UserAgent = visitor.UserAgent,
+                BotName = visitor.BotName,
+                BotType = visitor.BotType,
+                ClockAxes = clockAxes
             };
         }
         catch (Exception ex)
