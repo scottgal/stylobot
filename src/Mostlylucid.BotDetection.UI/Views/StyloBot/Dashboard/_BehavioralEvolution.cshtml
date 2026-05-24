@@ -172,10 +172,17 @@
     }
     function buildColors()      { return visible.map(function (s) { return colorFor(s, s.id === focusedId); }); }
     function buildFillOpacity() { return visible.map(function (s) { return s.id === focusedId ? cfg.focusFillOpacity : ghostOpacity(s); }); }
-    function buildStrokeWidth() { return visible.map(function (s) { return s.id === focusedId ? cfg.currentStroke : cfg.ghostStroke; }); }
+    // ApexCharts radar bug: passing stroke.width as an array on a multi-series radar
+    // produces NaN polygon coords (every other property -- colors, fill.opacity,
+    // dashArray -- supports arrays). Fix is to use a SINGLE stroke width for the
+    // whole chart and differentiate focus via fill opacity + dash pattern.
     function buildDashArray() {
         var oldestId = visible.length > 1 ? visible[visible.length - 1].id : null;
-        return visible.map(function (s) { return (s.id !== focusedId && s.id === oldestId) ? 4 : 0; });
+        return visible.map(function (s) {
+            if (s.id === focusedId) return 0;            // focus: solid
+            if (s.id === oldestId)  return 6;            // oldest ghost: long-dashed
+            return 3;                                    // mid ghosts: short-dashed
+        });
     }
 
     function renderRadar() {
@@ -190,8 +197,12 @@
         var series  = hasData ? buildSeries() : [{ name: 'No data', data: new Array(12).fill(0) }];
         var colors  = hasData ? buildColors() : ['rgba(148,163,184,0.0)'];
         var fillOp  = hasData ? buildFillOpacity() : [0];
-        var stroke  = hasData ? buildStrokeWidth() : [0];
         var dash    = hasData ? buildDashArray()   : [0];
+        // Single stroke width for the whole chart (per-series stroke.width is broken on
+        // ApexCharts radar -- produces NaN coords). Use a mid value so the focused
+        // polygon reads bold via its higher fill opacity + solid dash, and ghosts read
+        // light via low opacity + dashes.
+        var strokeWidth = cfg.ghostStroke || 1;
 
         var options = {
             chart:   { type: 'radar', height: 420, toolbar: { show: false }, animations: { enabled: false }, background: 'transparent', fontFamily: 'Inter, sans-serif' },
@@ -200,7 +211,7 @@
             xaxis:   { categories: axisLabels, labels: { style: { colors: Array(12).fill(fg), fontSize: '9px' } } },
             yaxis:   { show: false, min: 0, max: 100 },
             fill:    { opacity: fillOp },
-            stroke:  { width: stroke, dashArray: dash },
+            stroke:  { width: strokeWidth, dashArray: dash },
             markers: { size: 0 },
             legend:  { show: false },
             plotOptions: { radar: { polygons: { strokeColors: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(15,23,42,0.08)', connectorColors: isDark ? 'rgba(148,163,184,0.10)' : 'rgba(15,23,42,0.08)' } } },
@@ -317,17 +328,19 @@
     var previewOriginal = null;
     function preview(id, on) {
         if (!chart) return;
+        // Stroke width stays a single number (per-series array breaks radar in
+        // ApexCharts -- see renderRadar comment). Preview only raises the hovered
+        // series' fill opacity to focus intensity; stroke dash patterns differentiate
+        // focused vs ghost.
         if (on) {
-            previewOriginal = { fill: buildFillOpacity(), stroke: buildStrokeWidth() };
+            previewOriginal = { fill: buildFillOpacity() };
             var idx = visible.findIndex(function (s) { return s.id === id; });
             if (idx < 0) return;
             var fill = previewOriginal.fill.slice();
-            var stroke = previewOriginal.stroke.slice();
-            fill[idx]   = cfg.focusFillOpacity;
-            stroke[idx] = cfg.currentStroke;
-            chart.updateOptions({ fill: { opacity: fill }, stroke: { width: stroke, dashArray: buildDashArray() } });
+            fill[idx] = cfg.focusFillOpacity;
+            chart.updateOptions({ fill: { opacity: fill } });
         } else if (previewOriginal) {
-            chart.updateOptions({ fill: { opacity: previewOriginal.fill }, stroke: { width: previewOriginal.stroke, dashArray: buildDashArray() } });
+            chart.updateOptions({ fill: { opacity: previewOriginal.fill } });
             previewOriginal = null;
         }
     }
