@@ -265,14 +265,19 @@
             swatch.style.background = colorFor(s, s.id === focusedId);
             swatch.style.opacity = String(s.id === focusedId ? 1 : ghostOpacity(s));
 
+            // min-w-0 is required for the child .truncate to actually clip inside a
+            // grid 1fr column -- without it the grid cell grows to fit the longest
+            // path and pushes the % / band columns off the right edge of the card.
             var middle = document.createElement('div');
+            middle.className = 'min-w-0 overflow-hidden';
             var when = document.createElement('div');
-            when.className = 'text-base-content/70';
+            when.className = 'text-base-content/70 truncate';
             when.textContent = formatWhen(s.startedAt) + ' · ' + ((s.durationMinutes || 0).toFixed(1)) + 'm';
             var meta = document.createElement('div');
             meta.className = 'text-[10px] text-base-content/40 font-mono truncate';
             var firstPath = (s.paths && s.paths.length > 0) ? s.paths[0] : '';
             meta.textContent = ((s.requestCount || 0) + ' req · ' + firstPath);
+            meta.title = firstPath; // hover for the full path
             middle.appendChild(when);
             middle.appendChild(meta);
 
