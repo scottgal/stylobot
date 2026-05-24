@@ -975,7 +975,7 @@ public class StyloBotDashboardMiddleware
         };
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/StyloBot/Dashboard/Index.cshtml", model, context);
+            "/Views/StyloBot/Dashboard/Index.cshtml", model, context, isMainPage: true);
         await context.Response.WriteAsync(html);
     }
 
@@ -4577,7 +4577,7 @@ public class StyloBotDashboardMiddleware
 
         context.Response.ContentType = "text/html";
         var html = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/StyloBot/Dashboard/_SignatureDetail.cshtml", model, context);
+            "/Views/StyloBot/Dashboard/_SignatureDetail.cshtml", model, context, isMainPage: true);
         await context.Response.WriteAsync(html);
     }
 
