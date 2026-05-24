@@ -125,6 +125,22 @@ public class BotDetectionMiddleware(
     {
         _loadSensor?.RecordRequest();
 
+        // Phase 4: hook OnCompleted once so DegradationAtom records every
+        // upstream response (status + latency). Adaptive-scaling tier
+        // multipliers read straight from this stream.
+        var degradationAtom = context.RequestServices.GetService<RateLimit.DegradationAtom>();
+        if (degradationAtom is not null)
+        {
+            var startTicks = Environment.TickCount64;
+            var requestPath = context.Request.Path.HasValue ? context.Request.Path.Value! : "/";
+            context.Response.OnCompleted(() =>
+            {
+                var latencyMs = Environment.TickCount64 - startTicks;
+                degradationAtom.RecordResponse(context.Response.StatusCode, latencyMs, requestPath);
+                return Task.CompletedTask;
+            });
+        }
+
         // Check if bot detection is globally enabled
         if (!_options.Enabled)
         {

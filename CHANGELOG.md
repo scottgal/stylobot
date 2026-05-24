@@ -31,6 +31,25 @@ Real token-bucket rate limit (not delay-based throttle) keyed on `SignalKeys.Pri
 - `RegistryPolicyStateProvider` exposes the rate-limit params (`requestsPerMinute` / `burstSize` / `overLimitAction` / `keyBy`) so the dashboard renders real numbers instead of just policy names.
 - 33 new tests (token-bucket math, key isolation, OverLimitAction routing including the missing-fallback path, built-in registration, param surfacing).
 
+### Added: adaptive scaling -- phase 4 (`<this commit>`)
+
+Origin-aware bot rate limits. When the upstream slows down (P95 latency rises) or starts erroring (5xx rate climbs), every `RateLimitActionPolicy` scales its effective `RequestsPerMinute` by the active degradation tier's `BotMultiplier`. Humans don't traverse rate limits, so they're untouched -- this is what operationalises "prioritise humans" from the plan.
+
+- **`DegradationAtom`** (salvaged from PR #16): rolling exponential-moving-average tracker for `response.error_rate_5xx`, `response.rate_429`, and `response.latency_ema`. ~60s effective window, configurable. Background timer decays stale buckets every 5s so a quiet period doesn't poison the average forever.
+- **`HysteresisTracker`** (salvaged from PR #16): "true for N seconds" gate. A single-request 5xx spike never halves bot allowance -- the tier transition is dwell-gated.
+- **`AdaptiveScalingTracker`** + **`AdaptiveScalingOptions`**: reads the EMA signals on demand, picks the worst tier whose threshold is exceeded *and* whose dwell has elapsed, returns the current multiplier + tier name + time-in-tier. Recovery is asymmetric: coming back up multiplies by `RecoveryMultiplier` (default 0.8) per evaluation so we don't snap straight back to baseline on a single healthy sample.
+- **Default tier ladder** (override in `BotDetection:RateLimit:AdaptiveScaling:Tiers`):
+  - `nominal` -- P95 < 500ms AND 5xx < 1% -- multiplier 1.0
+  - `degraded` -- P95 >= 1000ms OR 5xx >= 3% -- multiplier 0.5 (halve bot allowance)
+  - `critical` -- P95 >= 2000ms OR 5xx >= 10% -- multiplier 0.1 (10% of nominal)
+- **`RateLimitActionPolicy.ExecuteAsync`** consults the tracker; effective RPM is `RequestsPerMinute * CurrentMultiplier` (floored at 1).
+- **New response headers** when adaptive scaling is active: `X-RateLimit-Tier` (the degradation tier name) and `X-RateLimit-Multiplier` (so operators can trace why the effective limit is below configured). `X-RateLimit-Limit` always reports the effective value, not the configured one.
+- **`DegradationAtom.RecordResponse`** hooked into `BotDetectionMiddleware` via `HttpResponse.OnCompleted` -- every upstream response (status + latency) feeds the rolling averages, regardless of detection path.
+- **`RegistryPolicyStateProvider`** surfaces `currentMultiplier` and `effectiveRequestsPerMinute` on every rate-limit policy state so the dashboard chip renders the *live* numbers, not just the configured ones.
+- 13 new tests (dwell gate, tier transitions, recovery curve, multiplier propagation through `X-RateLimit-Limit`/`X-RateLimit-Tier` headers, hysteresis damping of flap cases).
+
+Adaptive scaling defaults to `Enabled: true`. Set `BotDetection:RateLimit:AdaptiveScaling:Enabled = false` to lock all rate-limit policies at their configured RPM regardless of origin health.
+
 ### Changed: default policy posture -- phase 3 (**USER-FACING**)
 
 The 6.7 default was "detect everything, do nothing": `BlockDetectedBots = false`, `DefaultActionPolicyName = null`, `BotTypeActionPolicies` covered only 2 of 11 `BotType` values. 6.8 ships a full default policy map and routes everything through it.

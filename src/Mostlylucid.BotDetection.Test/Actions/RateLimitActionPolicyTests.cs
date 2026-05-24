@@ -107,6 +107,52 @@ public class RateLimitActionPolicyTests
     }
 
     [Fact]
+    public async Task AdaptiveScaling_HalvesEffectiveAllowance_When05xMultiplier()
+    {
+        // Phase 4: 0.5 multiplier should halve the effective RequestsPerMinute.
+        // With 60 RPM and burst 10, a 0.5 multiplier means burst 10 + 1 token/2sec.
+        // After consuming the burst, immediate requests should be denied.
+        var registry = BuildRegistry();
+        var store = new InMemoryTokenBucketStore();
+        var adaptive = new StubAdaptiveScaling(0.5, "degraded");
+        var policy = new RateLimitActionPolicy(
+            "rate-limit-test",
+            new RateLimitActionOptions { RequestsPerMinute = 60, BurstSize = 10, OverLimitAction = "does-not-exist" },
+            store, registry, adaptive);
+        var ctx = NewContext();
+
+        // Burn the burst, then one more.
+        for (var i = 0; i < 10; i++) await policy.ExecuteAsync(ctx, EvidenceWithSig("sig:a"));
+        var denied = await policy.ExecuteAsync(ctx, EvidenceWithSig("sig:a"));
+        Assert.False(denied.Continue);
+
+        // X-RateLimit-Limit header should reflect EFFECTIVE (30), not configured (60).
+        Assert.Equal("30", ctx.Response.Headers["X-RateLimit-Limit"].ToString());
+        Assert.Equal("degraded", ctx.Response.Headers["X-RateLimit-Tier"].ToString());
+        Assert.Equal("0.50", ctx.Response.Headers["X-RateLimit-Multiplier"].ToString());
+    }
+
+    [Fact]
+    public async Task AdaptiveScaling_AtNominal_NoExtraHeaders_LimitIsConfigured()
+    {
+        var registry = BuildRegistry();
+        var store = new InMemoryTokenBucketStore();
+        var adaptive = new StubAdaptiveScaling(1.0, null);
+        var policy = new RateLimitActionPolicy(
+            "rate-limit-test",
+            new RateLimitActionOptions { RequestsPerMinute = 60, BurstSize = 10 },
+            store, registry, adaptive);
+        var ctx = NewContext();
+
+        await policy.ExecuteAsync(ctx, EvidenceWithSig("sig:a"));
+
+        Assert.Equal("60", ctx.Response.Headers["X-RateLimit-Limit"].ToString());
+        // Tier/multiplier headers ONLY appear when scaling is active (multiplier < ~1.0).
+        Assert.False(ctx.Response.Headers.ContainsKey("X-RateLimit-Tier"));
+        Assert.False(ctx.Response.Headers.ContainsKey("X-RateLimit-Multiplier"));
+    }
+
+    [Fact]
     public void Policy_ReportsRateLimitIntent_NotThrottle()
     {
         var (policy, _) = Build(new RateLimitActionOptions());
@@ -163,6 +209,19 @@ public class RateLimitActionPolicyTests
         RiskBand = RiskBand.Medium,
         Signals = new Dictionary<string, object>(),
     };
+
+    private sealed class StubAdaptiveScaling : Mostlylucid.BotDetection.RateLimit.IAdaptiveScalingTracker
+    {
+        public StubAdaptiveScaling(double multiplier, string? tier)
+        {
+            CurrentMultiplier = multiplier;
+            CurrentTier = tier;
+            TierEnteredAtUtc = tier is null ? null : DateTime.UtcNow;
+        }
+        public double CurrentMultiplier { get; }
+        public string? CurrentTier { get; }
+        public DateTime? TierEnteredAtUtc { get; }
+    }
 
     /// <summary>
     ///     Stub policy that records each invocation so the OverLimitAction

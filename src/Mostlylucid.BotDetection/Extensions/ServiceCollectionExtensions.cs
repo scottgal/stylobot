@@ -1099,6 +1099,16 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.ITokenBucketStore,
             Mostlylucid.BotDetection.RateLimit.InMemoryTokenBucketStore>();
 
+        // Adaptive scaling primitives (phase 4): DegradationAtom tracks
+        // upstream health, HysteresisTracker damps tier transitions, and
+        // AdaptiveScalingTracker combines them with the configured tier
+        // ladder to produce the active multiplier.
+        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.DegradationAtom>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.HysteresisTracker>();
+        services.Configure<Mostlylucid.BotDetection.RateLimit.AdaptiveScalingOptions>(_ => { });
+        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimit.IAdaptiveScalingTracker,
+            Mostlylucid.BotDetection.RateLimit.AdaptiveScalingTracker>();
+
         // Register action policy registry (holds named action policies)
         services.TryAddSingleton<IActionPolicyRegistry, ActionPolicyRegistry>();
         // Read model for the dashboard policy tab (phase 1 of the policy-

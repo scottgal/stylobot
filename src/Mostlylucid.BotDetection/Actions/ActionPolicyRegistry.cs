@@ -46,6 +46,7 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
     private readonly ILogger<ActionPolicyRegistry>? _logger;
     private readonly BotDetectionOptions _options;
     private readonly Mostlylucid.BotDetection.RateLimit.ITokenBucketStore _tokenBucketStore;
+    private readonly Mostlylucid.BotDetection.RateLimit.IAdaptiveScalingTracker? _adaptiveScaling;
     private readonly ConcurrentDictionary<string, IActionPolicy> _policies = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
@@ -58,18 +59,26 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
     ///     when not supplied (so direct construction in tests "just works");
     ///     production code injects the singleton from DI.
     /// </param>
+    /// <param name="adaptiveScaling">
+    ///     Optional adaptive-scaling tracker (phase 4). When wired, rate-limit
+    ///     policies scale their effective <c>RequestsPerMinute</c> by the
+    ///     current degradation-tier multiplier. <c>null</c> in tests or when
+    ///     adaptive scaling is disabled in config.
+    /// </param>
     public ActionPolicyRegistry(
         IOptions<BotDetectionOptions> options,
         IEnumerable<IActionPolicyFactory> factories,
         IEnumerable<IActionPolicy>? additionalPolicies = null,
         ILogger<ActionPolicyRegistry>? logger = null,
-        Mostlylucid.BotDetection.RateLimit.ITokenBucketStore? tokenBucketStore = null)
+        Mostlylucid.BotDetection.RateLimit.ITokenBucketStore? tokenBucketStore = null,
+        Mostlylucid.BotDetection.RateLimit.IAdaptiveScalingTracker? adaptiveScaling = null)
     {
         _options = options.Value;
         _factories = factories;
         _logger = logger;
         _tokenBucketStore = tokenBucketStore
             ?? new Mostlylucid.BotDetection.RateLimit.InMemoryTokenBucketStore();
+        _adaptiveScaling = adaptiveScaling;
 
         // Register built-in defaults
         RegisterBuiltInPolicies();
@@ -173,13 +182,13 @@ public class ActionPolicyRegistry : IActionPolicyRegistry
         // 'this' is safe here -- ExecuteAsync resolves OverLimitAction at
         // request time, by which point the registry is fully populated.
         RegisterPolicy(new RateLimitActionPolicy("rate-limit-search",
-            RateLimitActionOptions.Search, _tokenBucketStore, this));
+            RateLimitActionOptions.Search, _tokenBucketStore, this, _adaptiveScaling));
         RegisterPolicy(new RateLimitActionPolicy("rate-limit-ai",
-            RateLimitActionOptions.Ai, _tokenBucketStore, this));
+            RateLimitActionOptions.Ai, _tokenBucketStore, this, _adaptiveScaling));
         RegisterPolicy(new RateLimitActionPolicy("rate-limit-social",
-            RateLimitActionOptions.Social, _tokenBucketStore, this));
+            RateLimitActionOptions.Social, _tokenBucketStore, this, _adaptiveScaling));
         RegisterPolicy(new RateLimitActionPolicy("rate-limit-monitoring",
-            RateLimitActionOptions.Monitoring, _tokenBucketStore, this));
+            RateLimitActionOptions.Monitoring, _tokenBucketStore, this, _adaptiveScaling));
 
         // Redirect policies
         RegisterPolicy(new RedirectActionPolicy("redirect", RedirectActionOptions.BlockedPage));

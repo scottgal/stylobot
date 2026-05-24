@@ -37,6 +37,7 @@ public sealed class RateLimitActionPolicy : IActionPolicy
     private readonly RateLimitActionOptions _options;
     private readonly ITokenBucketStore _store;
     private readonly IActionPolicyRegistry _registry;
+    private readonly IAdaptiveScalingTracker? _adaptiveScaling;
     private readonly ILogger<RateLimitActionPolicy>? _logger;
 
     public RateLimitActionPolicy(
@@ -44,14 +45,29 @@ public sealed class RateLimitActionPolicy : IActionPolicy
         RateLimitActionOptions options,
         ITokenBucketStore store,
         IActionPolicyRegistry registry,
+        IAdaptiveScalingTracker? adaptiveScaling = null,
         ILogger<RateLimitActionPolicy>? logger = null)
     {
         Name = name ?? throw new ArgumentNullException(nameof(name));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
+        _adaptiveScaling = adaptiveScaling;
         _logger = logger;
     }
+
+    /// <summary>
+    ///     Live read of the active adaptive-scaling multiplier (phase 4).
+    ///     1.0 when no tracker is wired or the origin is healthy. Surfaced
+    ///     to the dashboard via the policy-state provider.
+    /// </summary>
+    public double CurrentMultiplier => _adaptiveScaling?.CurrentMultiplier ?? 1.0;
+
+    /// <summary>
+    ///     Current degradation tier name (e.g. <c>nominal</c> / <c>degraded</c>
+    ///     / <c>critical</c>) or <c>null</c> when adaptive scaling is off.
+    /// </summary>
+    public string? CurrentTier => _adaptiveScaling?.CurrentTier;
 
     public string Name { get; }
     public ActionType ActionType => ActionType.Throttle;
@@ -78,14 +94,28 @@ public sealed class RateLimitActionPolicy : IActionPolicy
             return ActionResult.Allowed($"rate-limit:no-key:{_options.KeyBy}");
         }
 
-        var allowed = _store.TryConsume(Name, key, _options.BurstSize, _options.RequestsPerMinute);
+        // Adaptive scaling: when the upstream is unhealthy, scale down the
+        // effective bot allowance so humans (who don't traverse rate limits)
+        // get more headroom. Multiplier defaults to 1.0 when no tracker is
+        // wired (e.g. tests) or the origin is healthy.
+        var multiplier = _adaptiveScaling?.CurrentMultiplier ?? 1.0;
+        var effectiveRpm = Math.Max(1, (int)Math.Round(_options.RequestsPerMinute * multiplier));
+        var allowed = _store.TryConsume(Name, key, _options.BurstSize, effectiveRpm);
         if (allowed)
         {
             if (_options.IncludeHeaders)
             {
                 context.Response.Headers.TryAdd("X-RateLimit-Policy", Name);
                 context.Response.Headers.TryAdd("X-RateLimit-Limit",
-                    _options.RequestsPerMinute.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    effectiveRpm.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                if (multiplier < 0.99 && _adaptiveScaling is not null)
+                {
+                    // Help operators trace why the effective limit is below
+                    // the configured RequestsPerMinute.
+                    context.Response.Headers.TryAdd("X-RateLimit-Tier", _adaptiveScaling.CurrentTier ?? "unknown");
+                    context.Response.Headers.TryAdd("X-RateLimit-Multiplier",
+                        multiplier.ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
+                }
             }
             return ActionResult.Allowed($"rate-limit:{Name}:passed");
         }
