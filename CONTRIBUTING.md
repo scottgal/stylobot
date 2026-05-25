@@ -8,7 +8,7 @@ Thanks for your interest in contributing to StyloBot! This document covers the b
 2. Install [.NET SDK 10.0](https://dotnet.microsoft.com/download)
 3. Build: `dotnet build mostlylucid.stylobot.sln`
 4. Run tests: `dotnet test`
-5. Run the demo: `dotnet run --project Mostlylucid.BotDetection.Demo`
+5. Run the demo: `dotnet run --project src/Mostlylucid.BotDetection.Demo` -- visit `http://localhost:5080/` for the demo, `http://localhost:5080/dashboard/` for the operator dashboard.
 
 ## Development Guidelines
 
@@ -21,11 +21,23 @@ Thanks for your interest in contributing to StyloBot! This document covers the b
 
 Every new detector touches exactly 5 files. See `CLAUDE.md` for the full checklist, or use `Http3FingerprintContributor` as a reference implementation:
 
-1. C# class in `Orchestration/ContributingDetectors/`
-2. YAML manifest in `Orchestration/Manifests/detectors/`
-3. Signal keys in `Models/DetectionContext.cs`
-4. DI registration in `Extensions/ServiceCollectionExtensions.cs`
-5. Narrative builder entries in `Mostlylucid.BotDetection.UI/Services/DetectionNarrativeBuilder.cs`
+1. C# class in `src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/`
+2. YAML manifest in `src/Mostlylucid.BotDetection/Orchestration/Manifests/detectors/`
+3. Signal keys in `src/Mostlylucid.BotDetection/Models/DetectionContext.cs`
+4. DI registration in `src/Mostlylucid.BotDetection/Extensions/ServiceCollectionExtensions.cs`
+5. Narrative builder entries in `src/Mostlylucid.BotDetection.UI/Services/DetectionNarrativeBuilder.cs`
+
+## Adding an Action Policy
+
+Action policies define HOW to respond (block / throttle / rate-limit / challenge / pass) and are separate from detection policies (which define WHAT to detect). The grammar landed in 6.8 -- see [`src/Mostlylucid.BotDetection/docs/policy-defaults.md`](src/Mostlylucid.BotDetection/docs/policy-defaults.md) for the per-`BotType` defaults and [`docs/action-policies.md`](src/Mostlylucid.BotDetection/docs/action-policies.md) for the full grammar.
+
+To add a new action policy class:
+
+1. Implement `IActionPolicy` in `src/Mostlylucid.BotDetection/Actions/`. Declare both `ActionType` (the closest existing enum value) and `Intent` (the new `PolicyIntent` -- `Block` / `RateLimit` / `Throttle` / `Challenge` / `Pass`). Reference: `RateLimitActionPolicy.cs`.
+2. Add an options class in the same folder if your policy is configurable -- include static presets so registrations stay one-line. Reference: `RateLimitActionOptions.cs`.
+3. Register one or more named instances in `ActionPolicyRegistry.RegisterBuiltInPolicies()` (`src/Mostlylucid.BotDetection/Actions/ActionPolicyRegistry.cs`).
+4. If your policy holds runtime state that's worth surfacing on the dashboard policy tab, extend `RegistryPolicyStateProvider.ToState()` to populate `EffectiveParams` for your policy class.
+5. Tests in `src/Mostlylucid.BotDetection.Test/Actions/` -- pin the intent, the per-method behaviour, and (for policies that compose with others) the fallback path.
 
 ## Pull Requests
 
@@ -33,7 +45,8 @@ Every new detector touches exactly 5 files. See `CLAUDE.md` for the full checkli
 - Include tests for new detection logic
 - Run `dotnet test` before submitting
 - Update detector YAML manifests if you change default weights or thresholds
-- Update `CHANGELOG.md` under the `[Unreleased]` section
+- Update `CHANGELOG.md` under the `[Unreleased]` section (add one if none exists)
+- For changes that touch action policies or the per-`BotType` default mapping, also update [`src/Mostlylucid.BotDetection/docs/policy-defaults.md`](src/Mostlylucid.BotDetection/docs/policy-defaults.md) -- it's the canonical "what stylobot does out of the box" reference
 
 ## Running Tests
 
@@ -42,11 +55,14 @@ Every new detector touches exactly 5 files. See `CLAUDE.md` for the full checkli
 dotnet test
 
 # Specific project
-dotnet test Mostlylucid.BotDetection.Test/
-dotnet test Mostlylucid.BotDetection.Orchestration.Tests/
+dotnet test src/Mostlylucid.BotDetection.Test/
+dotnet test src/Mostlylucid.BotDetection.Orchestration.Tests/
 
 # Single test class
 dotnet test --filter "FullyQualifiedName~UserAgentDetectorTests"
+
+# BDF replay campaign (against a running demo at localhost:5080)
+bash test-suites/run-tests.sh
 ```
 
 ## Reporting Issues
