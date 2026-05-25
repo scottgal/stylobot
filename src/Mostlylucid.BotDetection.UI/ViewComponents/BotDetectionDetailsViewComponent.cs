@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
@@ -9,24 +8,23 @@ namespace Mostlylucid.BotDetection.UI.ViewComponents;
 
 /// <summary>
 ///     Renders the BotDetectionDetails partial for the current request.
-///     Enriches the model with ClockAxes via the same SessionStore +
-///     ClockAxesResolver chain the dashboard signature detail surface uses,
-///     so the radar polygon for one visitor is identical across both sites.
+///     Enriches the model's ClockAxes by projecting the visitor's most-recent
+///     persisted session vector through the same chain the dashboard signature
+///     detail page uses (ClockAxesResolver.FromSessionVector). One persistent
+///     source (ISessionStore, SQLite-backed on FOSS / Postgres on commercial),
+///     one projection chain. No in-memory-only stores.
 /// </summary>
 public class BotDetectionDetailsViewComponent : ViewComponent
 {
     private readonly DetectionDataExtractor _extractor;
-    private readonly ISessionStore? _persistedStore;
-    private readonly SessionStore? _liveStore;
+    private readonly ISessionStore? _sessionStore;
 
     public BotDetectionDetailsViewComponent(
         DetectionDataExtractor extractor,
-        ISessionStore? persistedStore = null,
-        SessionStore? liveStore = null)
+        ISessionStore? sessionStore = null)
     {
         _extractor = extractor;
-        _persistedStore = persistedStore;
-        _liveStore = liveStore;
+        _sessionStore = sessionStore;
     }
 
     public async Task<IViewComponentResult> InvokeAsync(string viewName = "Default")
@@ -35,49 +33,29 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         var model = context != null ? _extractor.Extract(context) : new DetectionDisplayModel();
 
         var primarySig = model.Signatures?.PrimarySignature;
-        if (!string.IsNullOrEmpty(primarySig))
-        {
-            var clockAxes = await ResolveClockAxesAsync(primarySig);
-            if (clockAxes is not null)
-                model = model with { ClockAxes = clockAxes };
-        }
-
-        return View(viewName, model);
-    }
-
-    private async Task<double[]?> ResolveClockAxesAsync(string primarySig)
-    {
-        if (_liveStore is not null)
+        if (!string.IsNullOrEmpty(primarySig) && _sessionStore is not null)
         {
             try
             {
-                var liveSession = _liveStore.GetCurrentSession(primarySig);
-                if (liveSession is { Count: >= 1 })
-                {
-                    var vector = SessionVectorizer.Encode(liveSession);
-                    var axes = ClockAxesResolver.FromSessionVector(vector);
-                    if (axes is not null) return axes;
-                }
-            }
-            catch { /* live accumulator best-effort; fall through to persisted */ }
-        }
-
-        if (_persistedStore is not null)
-        {
-            try
-            {
-                var sessions = await _persistedStore.GetSessionsAsync(
+                var sessions = await _sessionStore.GetSessionsAsync(
                     primarySig, limit: 1, HttpContext!.RequestAborted);
                 var latest = sessions.FirstOrDefault();
                 if (latest?.Vector is { Length: > 0 } encoded)
                 {
                     var vector = SqliteSessionStore.DeserializeVector(encoded);
-                    return ClockAxesResolver.FromSessionVector(vector);
+                    var clockAxes = ClockAxesResolver.FromSessionVector(vector);
+                    if (clockAxes is not null)
+                        model = model with { ClockAxes = clockAxes };
                 }
             }
-            catch { /* persisted lookup best-effort */ }
+            catch
+            {
+                // Persistent store best-effort: a transient lookup failure on the
+                // home card must not break the page. ClockAxes stays null and the
+                // view degrades to "no radar yet" instead of a fabricated shape.
+            }
         }
 
-        return null;
+        return View(viewName, model);
     }
 }

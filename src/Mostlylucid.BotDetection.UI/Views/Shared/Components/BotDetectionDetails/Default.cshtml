@@ -30,44 +30,50 @@
         "Burst","Timing","Path","404","Scan","FP"
     ];
 
-    // Prefer the 12-axis clock vector when the pipeline composed one for this request.
-    // When absent, fall back to projecting the existing detector-contribution magnitudes
-    // onto the first 8 axes -- still real signal, just lower-resolution.
-    double[] axes;
-    if (Model.ClockAxes is { Length: 12 })
-    {
-        axes = Model.ClockAxes;
-    }
-    else
-    {
-        axes = new double[12];
-        var contribs = Model.DetectorContributions?
-            .Where(d => !string.IsNullOrEmpty(d.Name) && d.Contribution != 0)
-            .OrderByDescending(d => Math.Abs(d.Contribution))
-            .Take(8)
-            .ToList() ?? new();
-        for (var i = 0; i < contribs.Count && i < 8; i++)
-            axes[i] = Math.Min(1.0, Math.Abs(contribs[i].Contribution) * 2.5);
-    }
+    // The radar projects from the visitor's persisted session vector via the
+    // same chain the dashboard signature page uses. If we don't yet have a
+    // 12-axis projection for this visitor, the radar stays empty -- we do
+    // NOT fabricate a polygon from detector-contribution magnitudes or any
+    // other ad-hoc source. Empty radar is the honest "no data yet" state.
+    var axes = Model.ClockAxes is { Length: 12 } ? Model.ClockAxes : null;
+    var hasRadar = axes is not null;
 
     var radarVertices  = new System.Text.StringBuilder();
     var radarAxisLines = new System.Text.StringBuilder();
     var radarLabelSvg  = new System.Text.StringBuilder();
-    for (var i = 0; i < 12; i++)
+    if (hasRadar)
     {
-        var angle = (2 * Math.PI * i / 12) - (Math.PI / 2); // 12 o'clock at top
-        var magnitude = Math.Clamp(axes[i], 0, 1);
-        var x = 50 + Math.Cos(angle) * 35 * magnitude;
-        var y = 50 + Math.Sin(angle) * 35 * magnitude;
-        radarVertices.Append($"{x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)},{y.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} ");
+        for (var i = 0; i < 12; i++)
+        {
+            var angle = (2 * Math.PI * i / 12) - (Math.PI / 2); // 12 o'clock at top
+            var magnitude = Math.Clamp(axes![i], 0, 1);
+            var x = 50 + Math.Cos(angle) * 35 * magnitude;
+            var y = 50 + Math.Sin(angle) * 35 * magnitude;
+            radarVertices.Append($"{x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)},{y.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} ");
 
-        var ax = 50 + Math.Cos(angle) * 35;
-        var ay = 50 + Math.Sin(angle) * 35;
-        radarAxisLines.AppendLine($"<line x1=\"50\" y1=\"50\" x2=\"{ax.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y2=\"{ay.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" stroke=\"currentColor\" stroke-width=\"0.3\" opacity=\"0.12\" />");
+            var ax = 50 + Math.Cos(angle) * 35;
+            var ay = 50 + Math.Sin(angle) * 35;
+            radarAxisLines.AppendLine($"<line x1=\"50\" y1=\"50\" x2=\"{ax.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y2=\"{ay.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" stroke=\"currentColor\" stroke-width=\"0.3\" opacity=\"0.12\" />");
 
-        var lx = 50 + Math.Cos(angle) * 44;
-        var ly = 50 + Math.Sin(angle) * 44 + 1.2;
-        radarLabelSvg.AppendLine($"<text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.5\">{clockLabels[i]}</text>");
+            var lx = 50 + Math.Cos(angle) * 44;
+            var ly = 50 + Math.Sin(angle) * 44 + 1.2;
+            radarLabelSvg.AppendLine($"<text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.5\">{clockLabels[i]}</text>");
+        }
+    }
+    else
+    {
+        // Still render the axis grid + labels so the empty radar reads as a
+        // calibrating display rather than a broken element.
+        for (var i = 0; i < 12; i++)
+        {
+            var angle = (2 * Math.PI * i / 12) - (Math.PI / 2);
+            var ax = 50 + Math.Cos(angle) * 35;
+            var ay = 50 + Math.Sin(angle) * 35;
+            radarAxisLines.AppendLine($"<line x1=\"50\" y1=\"50\" x2=\"{ax.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y2=\"{ay.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" stroke=\"currentColor\" stroke-width=\"0.3\" opacity=\"0.12\" />");
+            var lx = 50 + Math.Cos(angle) * 44;
+            var ly = 50 + Math.Sin(angle) * 44 + 1.2;
+            radarLabelSvg.AppendLine($"<text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.5\">{clockLabels[i]}</text>");
+        }
     }
 
     var radarFill   = Model.IsBot ? "rgba(239,68,68,0.22)" : "rgba(34,197,94,0.22)";
@@ -119,7 +125,10 @@
                 <circle cx="50" cy="50" r="23" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.10" />
                 <circle cx="50" cy="50" r="12" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.08" />
                 @Html.Raw(radarAxisLines.ToString())
-                <polygon points="@radarVertices.ToString().TrimEnd()" fill="@radarFill" stroke="@radarStroke" stroke-width="1.2" />
+                @if (hasRadar)
+                {
+                    <polygon points="@radarVertices.ToString().TrimEnd()" fill="@radarFill" stroke="@radarStroke" stroke-width="1.2" />
+                }
                 @Html.Raw(radarLabelSvg.ToString())
             </svg>
         </div>
