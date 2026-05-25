@@ -4,11 +4,9 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     Single source of truth for the human-readable label of a signature row.
 ///     Every view that needs to render "what is this fingerprint called" calls
 ///     <see cref="Resolve"/>. Labels come ONLY from real signals -- an operator
-///     rename, a detector-emitted bot name, a real bot-type classification, or
-///     a short prefix of the signature hash itself. There is no synthesis, no
-///     wordlist, no country-prefix-on-unknowns. If detection has nothing to
-///     say, we show the truncated hash so operators can correlate rows; we do
-///     NOT invent "British Sage Fox".
+///     rename, a detector-emitted bot name, a real bot-type classification,
+///     country + UA family composition for ordinary visitors, or the short
+///     hash prefix as the final fallback. No wordlists, no invented personas.
 /// </summary>
 public static class SignatureDisplayName
 {
@@ -18,14 +16,14 @@ public static class SignatureDisplayName
     ///     2. Detected <paramref name="botName"/> (e.g. "Googlebot", "GPTBot").
     ///     3. Detected <paramref name="botType"/> (e.g. "Scraper") when not the
     ///        useless "Unknown"/"Tool"/"Other" sentinels.
-    ///     4. <paramref name="uaFamily"/> when present, prefixed with "Bot · "
-    ///        when <paramref name="isBot"/> is true so an unidentified bot
-    ///        running Chrome reads "Bot · Chrome" and an unidentified human
-    ///        running Chrome reads "Chrome". The UA family is a real signal
-    ///        the detector pipeline already extracts -- no invention.
-    ///     5. The first 8 characters of <paramref name="signature"/> -- the
-    ///        real hash prefix when nothing else is known. Operators can grep
-    ///        the same row in logs or the database without us making up a name.
+    ///     4. Composite "{Country} {UaFamily} {Role}" when both signals are
+    ///        available -- e.g. "British Chrome User", "American curl Bot".
+    ///        A 4-char signature suffix is appended ("British Chrome User · 7faa")
+    ///        so two distinct fingerprints sharing the same country/UA never
+    ///        collapse to a single visible label.
+    ///     5. UaFamily on its own ("Chrome", "Bot · Chrome") when country is
+    ///        unknown but the family resolved.
+    ///     6. Short signature prefix as the bare-minimum fallback.
     ///     Never returns null and never returns a hallucinated label.
     /// </summary>
     public static string Resolve(
@@ -42,11 +40,17 @@ public static class SignatureDisplayName
         if (!string.IsNullOrWhiteSpace(botType) && !IsUselessBotType(botType))
             return botType.Trim();
 
-        if (!string.IsNullOrWhiteSpace(uaFamily))
-        {
-            var fam = uaFamily.Trim();
-            return isBot ? $"Bot · {fam}" : fam;
-        }
+        var country = !string.IsNullOrEmpty(countryCode) && countryCode.Length == 2 && countryCode != "XX"
+            ? BotDisplayHelpers.CountryAdjective(countryCode)
+            : null;
+        var family = string.IsNullOrWhiteSpace(uaFamily) ? null : uaFamily.Trim();
+        var role = isBot ? "Bot" : "User";
+
+        if (country != null && family != null)
+            return $"{country} {family} {role} · {ShortHash(signature, 4)}";
+
+        if (family != null)
+            return isBot ? $"Bot · {family}" : family;
 
         return isBot ? $"Bot · {ShortHash(signature)}" : ShortHash(signature);
     }
@@ -59,8 +63,8 @@ public static class SignatureDisplayName
 
     /// <summary>
     ///     Generic bot-types that carry no information beyond "we know nothing".
-    ///     Falling through to the short hash is more useful than rendering
-    ///     "Unknown" on every row.
+    ///     Falling through to the country/UA/hash labels is more useful than
+    ///     rendering "Unknown" on every row.
     /// </summary>
     private static bool IsUselessBotType(string botType) =>
         botType.Equals("Unknown",   StringComparison.OrdinalIgnoreCase) ||
@@ -68,13 +72,13 @@ public static class SignatureDisplayName
         botType.Equals("Other",     StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    ///     First 8 chars of the signature, or "—" when there is no signature at
-    ///     all. This is a real signal (the hash itself) so operators can grep
-    ///     the same row in logs or in the database without us inventing a name.
+    ///     First N chars of the signature, or "—" when there is no signature
+    ///     at all. The signature itself is real data; truncating it gives a
+    ///     stable, grep-able row identity without inventing a label.
     /// </summary>
-    private static string ShortHash(string signature)
+    private static string ShortHash(string signature, int length = 8)
     {
         if (string.IsNullOrEmpty(signature)) return "—";
-        return signature.Length <= 8 ? signature : signature[..8];
+        return signature.Length <= length ? signature : signature[..length];
     }
 }
