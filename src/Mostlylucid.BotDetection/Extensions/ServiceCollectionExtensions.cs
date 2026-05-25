@@ -301,6 +301,13 @@ public static class ServiceCollectionExtensions
         // registry. Singleton; state lives in the underlying state store.
         services.TryAddSingleton<Mostlylucid.BotDetection.RateLimiting.RateLimitEnforcer>();
 
+        // Detection-policy gate (post-detection rule matching with the four-
+        // axis predicate set: BotProbability / Confidence / Type / Threat).
+        // The middleware itself is registered by the host's UseBotDetection /
+        // UseDetectionPolicies hook (see UseDetectionPolicies extension).
+        services.AddOptions<Mostlylucid.BotDetection.EndpointPolicies.DetectionPolicyOptions>()
+            .BindConfiguration(Mostlylucid.BotDetection.EndpointPolicies.DetectionPolicyOptions.SectionName);
+
         // Add HttpClient factory for bot list fetching
         services.AddHttpClient();
 
