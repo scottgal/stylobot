@@ -25,6 +25,11 @@ public partial class DetectionBroadcastMiddleware
 {
     private static readonly ConcurrentDictionary<Type, PropertyInfo?> CountryCodePropertyCache = new();
 
+    // Outbound broadcasts route through SignalRBroadcastConstrainer so the
+    // detection-rate doesn't dictate the beacon rate. See that class for the
+    // window semantics. Detection events here just call .Queue(...); the
+    // helper handles the rate cap.
+
     /// <summary>
     ///     Signal key prefixes allowed through to dashboard (non-PII).
     ///     Stored as a FrozenSet for O(1) prefix lookup: extract everything up to and
@@ -89,6 +94,7 @@ public partial class DetectionBroadcastMiddleware
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
         IDashboardEventStore eventStore,
         IOptions<BotDetectionOptions> optionsAccessor,
+        IOptions<StyloBotDashboardOptions> dashboardOptionsAccessor,
         VisitorListCache visitorListCache,
         SignatureAggregateCache signatureAggregateCache,
         Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher detectionEventPublisher,
@@ -121,13 +127,15 @@ public partial class DetectionBroadcastMiddleware
                 signatureAggregateCache.UpdateFromDetection(detection);
                 visitorListCache.Upsert(detection);
 
-                // Beacon-only: signal which widgets need refreshing, never send full payloads
-                await hubContext.Clients.All.BroadcastInvalidation("signature");
-                await hubContext.Clients.All.BroadcastInvalidation("summary");
+                // Beacon-only: signal which widgets need refreshing, never send full payloads.
+                // Constrainer-throttled: at most one outbound batch per dashboardOptionsAccessor.Value.BroadcastMinIntervalMs
+                // (default 10 s) regardless of detection rate.
+                SignalRBroadcastConstrainer.Queue(hubContext, "signature", dashboardOptionsAccessor.Value.BroadcastMinIntervalMs);
+                SignalRBroadcastConstrainer.Queue(hubContext, "summary",   dashboardOptionsAccessor.Value.BroadcastMinIntervalMs);
 
                 // Invalidate threats widget for high-threat or honeypot detections
                 if (detection.ThreatScore is > 0.3 || detection.Action == "simulation-pack")
-                    await hubContext.Clients.All.BroadcastInvalidation("threats");
+                    SignalRBroadcastConstrainer.Queue(hubContext, "threats", dashboardOptionsAccessor.Value.BroadcastMinIntervalMs);
 
                 // Fan out to any out-of-process event publisher (commercial Redis → separate
                 // UI container). No-op in FOSS. Fire-and-forget: must not block the response.
@@ -172,12 +180,12 @@ public partial class DetectionBroadcastMiddleware
                 var updatedSignature = await StoreDetectionAndSignatureAsync(context, detection, eventStore);
                 signatureAggregateCache.UpdateFromDetection(detection);
                 visitorListCache.Upsert(detection);
-                await hubContext.Clients.All.BroadcastInvalidation("signature");
-                await hubContext.Clients.All.BroadcastInvalidation("summary");
+                SignalRBroadcastConstrainer.Queue(hubContext, "signature", dashboardOptionsAccessor.Value.BroadcastMinIntervalMs);
+                SignalRBroadcastConstrainer.Queue(hubContext, "summary",   dashboardOptionsAccessor.Value.BroadcastMinIntervalMs);
 
                 // Invalidate threats widget for high-threat or honeypot detections
                 if (detection.ThreatScore is > 0.3 || detection.Action == "simulation-pack")
-                    await hubContext.Clients.All.BroadcastInvalidation("threats");
+                    SignalRBroadcastConstrainer.Queue(hubContext, "threats", dashboardOptionsAccessor.Value.BroadcastMinIntervalMs);
 
                 // Fan out to any out-of-process event publisher (commercial Redis → separate
                 // UI container). No-op in FOSS. Fire-and-forget: must not block the response.

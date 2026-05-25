@@ -111,6 +111,18 @@ public sealed class StyloBotDashboardOptions
     public int UserActiveCooldownMs { get; set; } = 3000;
 
     /// <summary>
+    ///     Minimum interval between outbound SignalR invalidation broadcasts, in
+    ///     milliseconds. At production traffic the detection pipeline fires many
+    ///     events per second; without a constrainer the dashboard would receive a
+    ///     beacon per event and refetch every widget on every one. This bounds
+    ///     the outbound rate: invalidations within the window are coalesced into
+    ///     a single batched emit when it fires. Default 10000ms (one batch every
+    ///     10 seconds). Lower values are noisier; higher means a longer worst-case
+    ///     lag between a real change and the dashboard seeing it.
+    /// </summary>
+    public int BroadcastMinIntervalMs { get; set; } = 10000;
+
+    /// <summary>
     ///     Custom authorization filter (evaluated before policy).
     ///     Signature: Func&lt;HttpContext, Task&lt;bool&gt;&gt;
     ///     Return true to allow access, false to deny.
