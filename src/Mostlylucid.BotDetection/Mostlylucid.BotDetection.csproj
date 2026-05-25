@@ -118,14 +118,23 @@
         <EmbeddedResource Include="Orchestration\Manifests\proxy-headers.yaml" />
     </ItemGroup>
 
-    <!-- Embed simulation pack YAML definitions -->
+    <!-- Embed simulation pack YAML definitions.
+         LogicalName is explicit (not relying on the SDK's default
+         {RootNamespace}.{TransformedPath}.{Filename} convention) because a
+         sibling glob below also has a `wordpress.yaml` file. Both end up
+         under different manifest namespaces matching SimulationPackLoader's
+         resource-prefix filter (`Mostlylucid.BotDetection.SimulationPacks.Packs.`). -->
     <ItemGroup>
-        <EmbeddedResource Include="SimulationPacks\Packs\*.yaml" />
+        <EmbeddedResource Include="SimulationPacks\Packs\*.yaml"
+                          LogicalName="Mostlylucid.BotDetection.SimulationPacks.Packs.%(Filename)%(Extension)" />
     </ItemGroup>
 
-    <!-- Embed site profile YAML definitions -->
+    <!-- Embed site profile YAML definitions.
+         Mirrors the pattern above; SiteProfileLoader filters by the
+         ".SiteProfiles.Profiles." substring. -->
     <ItemGroup>
-        <EmbeddedResource Include="SiteProfiles\Profiles\*.yaml" />
+        <EmbeddedResource Include="SiteProfiles\Profiles\*.yaml"
+                          LogicalName="Mostlylucid.BotDetection.SiteProfiles.Profiles.%(Filename)%(Extension)" />
     </ItemGroup>
 
     <!-- Embed compliance pack YAML definitions -->
