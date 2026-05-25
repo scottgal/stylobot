@@ -5,6 +5,22 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.8.2] - 2026-05-25
+
+Hotfix release. Crashes always trump features: the gateway must start.
+
+### Fixed: production mode no longer refuses to start without a configured HMAC key
+
+Before 6.8.2, `stylobot <port> <upstream> --mode production` *terminated* at startup if `SignatureLogging:SignatureHashKey` was missing or held the default placeholder -- an operator-hostile wall for the brownfield retrofit (the canonical "I just installed stylobot, what do I do" path).
+
+Now the validator (`Mostlylucid.BotDetection.Console.Helpers.ConfigValidator.ResolveHmacKey`) generates a fresh 32-byte random key in memory for this process, logs a loud warning naming the trade-off (signatures don't survive a restart -- visitors look new on restart; dashboard search-by-signature misses), and continues.
+
+The security goal (no shared default key across deployments) is preserved -- each process generates its own unique key. Operators who care about cross-restart signature continuity set `SignatureLogging:SignatureHashKey` explicitly via env var / appsettings / Key Vault. `stylobot genkey` still emits a fresh value for that purpose.
+
+`ConfigValidator.ValidateHmacKey(config, mode)` remains as an `[Obsolete]` shim for backward compat (it's a void method now that `SignatureLoggingConfig.SignatureHashKey` is init-only). New callers should use `ResolveHmacKey(configuredKey, mode)` and feed the returned value into the config initializer.
+
+---
+
 ## [6.8.0] - 2026-05-24
 
 The 6.8 line lands the policy-grammar consolidation in three behaviour-preserving phases, one user-facing default flip, and a dashboard surface for the new state. Out of the box: **block malicious bots, rate-limit search and AI bots, leave humans untouched, slow bots harder when the origin slows down.** No "detect but do nothing" by default any more. See [`policy-defaults.md`](src/Mostlylucid.BotDetection/docs/policy-defaults.md) for the full per-`BotType` map + the 6.7 -> 6.8 migration recipe.
