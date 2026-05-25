@@ -35,48 +35,31 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         var model = context != null ? _extractor.Extract(context) : new DetectionDisplayModel();
 
         var primarySig = model.Signatures?.PrimarySignature;
-        var diag = new List<string>();
-        diag.Add($"sig={primarySig ?? "<null>"}");
-        diag.Add($"liveStore={_liveStore is null}");
-        diag.Add($"persistedStore={_persistedStore is null}");
-
         if (!string.IsNullOrEmpty(primarySig))
         {
-            var clockAxes = await ResolveClockAxesAsync(primarySig, diag);
+            var clockAxes = await ResolveClockAxesAsync(primarySig);
             if (clockAxes is not null)
                 model = model with { ClockAxes = clockAxes };
-            diag.Add($"resolvedClockAxes={clockAxes is not null}");
         }
-
-        // Diagnostic surface: marshal the resolution-path notes into RawSignals so the
-        // view can emit them as an HTML comment for live inspection in the browser.
-        var rawSignals = new Dictionary<string, object>(model.RawSignals)
-        {
-            ["__yourDetectionDiag"] = string.Join(" | ", diag)
-        };
-        model = model with { RawSignals = rawSignals };
 
         return View(viewName, model);
     }
 
-    private async Task<double[]?> ResolveClockAxesAsync(string primarySig, List<string> diag)
+    private async Task<double[]?> ResolveClockAxesAsync(string primarySig)
     {
         if (_liveStore is not null)
         {
             try
             {
                 var liveSession = _liveStore.GetCurrentSession(primarySig);
-                diag.Add($"liveSession.Count={liveSession?.Count.ToString() ?? "<null>"}");
                 if (liveSession is { Count: >= 1 })
                 {
                     var vector = SessionVectorizer.Encode(liveSession);
-                    diag.Add($"liveEncode.Length={vector.Length}");
                     var axes = ClockAxesResolver.FromSessionVector(vector);
-                    diag.Add($"liveAxesNonNull={axes is not null}");
                     if (axes is not null) return axes;
                 }
             }
-            catch (Exception ex) { diag.Add($"liveEx={ex.GetType().Name}:{ex.Message}"); }
+            catch { /* live accumulator best-effort; fall through to persisted */ }
         }
 
         if (_persistedStore is not null)
@@ -85,21 +68,14 @@ public class BotDetectionDetailsViewComponent : ViewComponent
             {
                 var sessions = await _persistedStore.GetSessionsAsync(
                     primarySig, limit: 1, HttpContext!.RequestAborted);
-                diag.Add($"persistedSessions.Count={sessions.Count}");
                 var latest = sessions.FirstOrDefault();
                 if (latest?.Vector is { Length: > 0 } encoded)
                 {
-                    diag.Add($"persistedVector.Length={encoded.Length}");
                     var vector = SqliteSessionStore.DeserializeVector(encoded);
-                    diag.Add($"persistedDecoded.Length={vector.Length}");
                     return ClockAxesResolver.FromSessionVector(vector);
                 }
-                else
-                {
-                    diag.Add("persistedNoVector");
-                }
             }
-            catch (Exception ex) { diag.Add($"persistedEx={ex.GetType().Name}:{ex.Message}"); }
+            catch { /* persisted lookup best-effort */ }
         }
 
         return null;
