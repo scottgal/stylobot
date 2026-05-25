@@ -112,11 +112,32 @@ else
     echo "       stdout: $(tail -5 "$TMPDIR_VAR/stdout.log" 2>/dev/null || echo '(empty)')"
 fi
 
-# Check proxy round-trip (only if upstream is running and server is healthy)
+# Check proxy round-trip (only if upstream is running and server is healthy).
+#
+# Use a realistic browser UA + Sec-CH-UA headers so the 6.8 default policy
+# grammar (block malicious / rate-limit AI / throttle Tool / pass human) lets
+# this probe through. The default 'curl/X.Y.Z' UA classifies as BotType.Tool
+# which routes to throttle-tools (HTTP 429) -- correct product behaviour but
+# the wrong thing to assert in a proxy-forwarding smoke test.
+#
+# We're measuring "did the proxy forward to upstream and return upstream's
+# response?", not "does detection do the right thing?" -- which is covered by
+# the dedicated detection + BDF replay test suites.
 if [[ -n "$UPSTREAM_PID" && $HEALTHY -eq 1 ]]; then
-    STATUS=$(curl -o /dev/null -s -w "%{http_code}" "http://127.0.0.1:$PORT/" 2>/dev/null || echo "000")
+    STATUS=$(curl -o /dev/null -s -w "%{http_code}" \
+        -A "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
+        -H 'Sec-CH-UA: "Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"' \
+        -H 'Sec-CH-UA-Mobile: ?0' \
+        -H 'Sec-CH-UA-Platform: "macOS"' \
+        -H 'Sec-Fetch-Site: none' \
+        -H 'Sec-Fetch-Mode: navigate' \
+        -H 'Sec-Fetch-User: ?1' \
+        -H 'Sec-Fetch-Dest: document' \
+        -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8' \
+        -H 'Accept-Language: en-US,en;q=0.9' \
+        "http://127.0.0.1:$PORT/" 2>/dev/null || echo "000")
     if [[ "$STATUS" == "200" ]]; then
-        pass "proxy round-trip returns 200"
+        pass "proxy round-trip returns 200 (with realistic browser UA)"
     else
         fail "proxy round-trip returned $STATUS (expected 200)"
     fi
