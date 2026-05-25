@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Mostlylucid.BotDetection.Analysis;
 using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
@@ -10,29 +11,36 @@ namespace Mostlylucid.BotDetection.UI.ViewComponents;
 ///     Renders the BotDetectionDetails partial for the current request.
 ///
 ///     <para>
-///     Enrichment path: pull the visitor's most-recent session vector from
-///     <see cref="ISessionStore"/> -- the same source the dashboard's
-///     <c>/api/sessions/signature/&lt;sig&gt;</c> endpoint uses -- and run it
-///     through <see cref="ClockAxesResolver.FromSessionVector"/>. The
-///     dashboard signature detail page now calls the same helper, so the
-///     12-axis radar polygon for one visitor is byte-identical on both
-///     surfaces (no more "different shape on the homepage vs the dashboard"
-///     drift). When the visitor doesn't yet have a finalised session vector,
-///     <see cref="DetectionDisplayModel.ClockAxes"/> stays null and the
-///     view renders an empty radar.
+///     Enrichment path matches what the dashboard's sessions API does for
+///     the same signature:
+///     1. Prefer the in-memory <see cref="SessionStore"/> live session
+///        (this request's accumulating vector). The dashboard prepends a
+///        synthetic <c>live=true</c> row sourced from the same store --
+///        using it here means the home card's polygon for the current
+///        request is the same vector the dashboard shows at idx=0.
+///     2. Fall back to the most-recent finalised session from
+///        <see cref="ISessionStore"/> when no live accumulator is warm
+///        (e.g. post-restart, or a returning visitor whose new session
+///        hasn't started yet).
+///     Both paths run through <see cref="ClockAxesResolver.FromSessionVector"/>
+///     so the radar polygon is byte-identical to whichever session the
+///     dashboard surfaces for the same visitor.
 ///     </para>
 /// </summary>
 public class BotDetectionDetailsViewComponent : ViewComponent
 {
     private readonly DetectionDataExtractor _extractor;
-    private readonly ISessionStore? _sessionStore;
+    private readonly ISessionStore? _persistedStore;
+    private readonly SessionStore? _liveStore;
 
     public BotDetectionDetailsViewComponent(
         DetectionDataExtractor extractor,
-        ISessionStore? sessionStore = null)
+        ISessionStore? persistedStore = null,
+        SessionStore? liveStore = null)
     {
         _extractor = extractor;
-        _sessionStore = sessionStore;
+        _persistedStore = persistedStore;
+        _liveStore = liveStore;
     }
 
     public async Task<IViewComponentResult> InvokeAsync(string viewName = "Default")
@@ -41,33 +49,53 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         var model = context != null ? _extractor.Extract(context) : new DetectionDisplayModel();
 
         var primarySig = model.Signatures?.PrimarySignature;
-        if (!string.IsNullOrEmpty(primarySig) && _sessionStore is not null)
+        if (!string.IsNullOrEmpty(primarySig))
         {
-            try
-            {
-                // Pull the most-recent finalised session for this visitor. The dashboard
-                // surface fetches up to 20 sessions; the Your Detection card only needs
-                // the latest one, so limit=1 keeps the storage hit minimal.
-                var sessions = await _sessionStore.GetSessionsAsync(primarySig, limit: 1, HttpContext!.RequestAborted);
-                var latest = sessions.FirstOrDefault();
-                if (latest?.Vector is { Length: > 0 } encodedVector)
-                {
-                    var sessionVector = SqliteSessionStore.DeserializeVector(encodedVector);
-                    var clockAxes = ClockAxesResolver.FromSessionVector(sessionVector);
-                    if (clockAxes is not null)
-                    {
-                        model = model with { ClockAxes = clockAxes };
-                    }
-                }
-            }
-            catch
-            {
-                // Session store lookup is best-effort. Falling through with ClockAxes
-                // null is preferable to surfacing a partial-data outage on the home
-                // page -- the radar degrades to empty axes rather than a stale shape.
-            }
+            var clockAxes = await ResolveClockAxesAsync(primarySig);
+            if (clockAxes is not null)
+                model = model with { ClockAxes = clockAxes };
         }
 
         return View(viewName, model);
+    }
+
+    private async Task<double[]?> ResolveClockAxesAsync(string primarySig)
+    {
+        // 1. Live in-memory session -- same source the dashboard sessions API
+        //    prepends as idx=0. Encoding here matches SessionVectorizer.Encode
+        //    so the vector going into ClockAxesResolver is identical.
+        if (_liveStore is not null)
+        {
+            try
+            {
+                var liveSession = _liveStore.GetCurrentSession(primarySig);
+                if (liveSession is { Count: >= 1 })
+                {
+                    var vector = SessionVectorizer.Encode(liveSession);
+                    var axes = ClockAxesResolver.FromSessionVector(vector);
+                    if (axes is not null) return axes;
+                }
+            }
+            catch { /* live accumulator best-effort; fall through to persisted */ }
+        }
+
+        // 2. Persisted most-recent finalised session.
+        if (_persistedStore is not null)
+        {
+            try
+            {
+                var sessions = await _persistedStore.GetSessionsAsync(
+                    primarySig, limit: 1, HttpContext!.RequestAborted);
+                var latest = sessions.FirstOrDefault();
+                if (latest?.Vector is { Length: > 0 } encoded)
+                {
+                    var vector = SqliteSessionStore.DeserializeVector(encoded);
+                    return ClockAxesResolver.FromSessionVector(vector);
+                }
+            }
+            catch { /* persisted lookup best-effort */ }
+        }
+
+        return null;
     }
 }
