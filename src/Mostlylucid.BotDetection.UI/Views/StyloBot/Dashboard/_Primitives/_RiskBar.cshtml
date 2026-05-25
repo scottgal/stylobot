@@ -1,7 +1,14 @@
 @using Mostlylucid.BotDetection.UI.Models.Primitives
 @model RiskBarModel
 @{
-    // 5-segment bar; each segment is "filled" if probability >= its threshold (0.2, 0.4, 0.6, 0.8, 1.0).
+    // Graphical-only segment bar. Number is intentionally absent -- the operator
+    // reads "how full" and "what colour" at a glance, the title attr carries the
+    // exact percent for anyone who needs the digit.
+    //
+    // Earlier dimensions (8px / 6px squares with 2px gap) disappeared into the
+    // row -- the segments were technically present but unreadable at row height.
+    // 14px wide x 10px tall with 2px gap keeps the bar visible without taking the
+    // column hostage.
     var p = System.Math.Clamp(Model.Probability, 0, 1);
     var filled = (int)System.Math.Ceiling(p * 5);
     var band = Model.Band ?? "None";
@@ -15,10 +22,12 @@
     var pctText = (p * 100).ToString("F0") + "%";
     var title = $"{band} -- {pctText} bot probability";
 }
-<div class="inline-flex items-center gap-0.5" title="@title" aria-label="@title">
-@for (int i = 0; i < 5; i++)
-{
-    var cls = i < filled ? segColor : "bg-base-content/15";
-    <span class="@cls" style="width:8px; height:8px; border-radius:1px; display:inline-block;"></span>
-}
-</div>
+<span class="tooltip tooltip-left" data-tip="@title">
+    <span class="inline-flex items-center gap-[2px]" aria-label="@title">
+    @for (int i = 0; i < 5; i++)
+    {
+        var cls = i < filled ? segColor : "bg-base-content/15";
+        <span class="@cls" style="width:14px; height:10px; border-radius:2px; display:inline-block;"></span>
+    }
+    </span>
+</span>

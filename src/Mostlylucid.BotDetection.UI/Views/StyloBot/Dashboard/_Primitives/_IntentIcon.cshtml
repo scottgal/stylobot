@@ -1,24 +1,26 @@
 @using Mostlylucid.BotDetection.UI.Models.Primitives
 @model IntentIconModel
 @{
+    // Filled (bxs-) glyphs at a larger size so a Scraper spider doesn't read as a
+    // tiny scribble. Each category gets a distinct hue used as IDENTITY, not
+    // severity: red Scraper / orange Probe / purple AI / blue Browser / cyan
+    // Crawler / amber Automated / green Monitor / muted Unknown. Threat is the
+    // column that carries the severity gradient; intent answers "what kind of
+    // actor is this" and a glance across the column tells you the visitor mix.
     var intent = Model.Intent ?? "Unknown";
-    var (icon, label, tip) = intent switch
+    var (icon, colorClass, label, tip) = intent switch
     {
-        "Scraper" or "Scanner"  => ("bx-spider",         "Scraper",   "Scrapes pages at scale -- credential harvest, content reuse, inventory theft"),
-        "Probe"                 => ("bx-search-alt",     "Probe",     "Probes endpoints looking for vulns, leaked secrets, or open admin paths"),
-        "AI" or "AiBot"         => ("bx-brain",          "AI",        "AI / LLM crawler training on your content"),
-        "Tool"                  => ("bx-wrench",         "Tool",      "Generic HTTP tool / library (curl, requests, etc.)"),
-        "Browser"               => ("bx-globe",          "Browser",   "Looks like a real interactive browser"),
-        "Crawler"               => ("bx-network-chart",  "Crawler",   "Indexing / SEO crawler"),
-        "Automated"             => ("bx-bot",            "Automated", "Headless / scripted automation -- intent unclear"),
-        "MonitoringBot"         => ("bx-pulse",          "Monitor",   "Uptime / synthetic monitoring"),
-        _                       => ("bx-help-circle",    intent,      "Intent could not be classified from signals")
+        "Scraper" or "Scanner"  => ("bxs-spider",         "text-error",          "Scraper",   "Scrapes pages at scale -- credential harvest, content reuse, inventory theft"),
+        "Probe"                 => ("bxs-search-alt-2",   "text-orange-400",     "Probe",     "Probes endpoints looking for vulns, leaked secrets, or open admin paths"),
+        "AI" or "AiBot"         => ("bxs-brain",          "text-purple-400",     "AI",        "AI / LLM crawler training on your content"),
+        "Tool"                  => ("bxs-wrench",         "text-base-content/60","Tool",      "Generic HTTP tool / library (curl, requests, etc.)"),
+        "Browser"               => ("bxs-globe",          "text-info",           "Browser",   "Looks like a real interactive browser"),
+        "Crawler"               => ("bxs-network-chart",  "text-cyan-400",       "Crawler",   "Indexing / SEO crawler"),
+        "Automated"             => ("bxs-bot",            "text-amber-400",      "Automated", "Headless / scripted automation -- intent unclear"),
+        "MonitoringBot"         => ("bxs-pulse",          "text-success",        "Monitor",   "Uptime / synthetic monitoring"),
+        _                       => ("bxs-help-circle",    "text-base-content/40", intent,     "Intent could not be classified from signals")
     };
 }
-@* Intent is a category, not a severity. Threat is what carries the green->red color
-   gradient; intent stays a neutral monochrome glyph so a "Scraper" badge doesn't
-   imply higher danger than a "Browser" badge just by its colour. The shape of the
-   icon and the tooltip carry the meaning. *@
 <span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="@label -- @tip">
-    <i class="bx @icon text-base-content/70 text-base" aria-label="@label"></i>
+    <i class="bx @icon @colorClass text-lg" aria-label="@label"></i>
 </span>
