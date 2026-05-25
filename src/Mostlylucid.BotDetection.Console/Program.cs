@@ -165,7 +165,7 @@ if (cmdArgs.Length <= 1 || cmdArgs.Contains("--help") || cmdArgs.Contains("-h"))
 // Parse: stylobot <port> <upstream> [--mode demo|production]
 // Collect positional args, skipping values that belong to known flags
 var flagsWithValues = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    { "--port", "--upstream", "--mode", "--policy", "--cert", "--key", "--cert-password", "--config", "--log-level", "--threshold", "--llm", "--llm-key", "--llm-url", "--model" };
+    { "--port", "--upstream", "--mode", "--policy", "--cert", "--key", "--cert-password", "--config", "--log-level", "--threshold", "--llm", "--llm-key", "--llm-url", "--model", "--origin-tunnel" };
 var positionals = new List<string>();
 for (var i = 1; i < cmdArgs.Length; i++)
 {
@@ -208,7 +208,41 @@ else if (positionals.Count == 1)
 }
 
 var port = cliPort ?? positionalPort ?? envPort ?? "5080";
-var upstream = cliUpstream ?? positionalUpstream ?? envUpstream ?? "http://localhost:8080";
+
+// --origin-tunnel <private-hostname>: brownfield retrofit (6.8.2+). Stylobot
+// reaches the backend through a Cloudflare Tunnel instead of a public hostname
+// -- the legacy box has zero public exposure. See docs/brownfield-retrofit.md.
+//
+// Mechanics: pick a free loopback port, launch `cloudflared access tcp` to
+// forward it to the configured private hostname, then rewrite the upstream
+// URL to point at that local port. Stylobot is unaware -- it just proxies to
+// http://localhost:<auto-port> as if it were any other origin.
+//
+// Resolved upstream precedence is: explicit --upstream / positional / env > origin-tunnel.
+// When the operator supplies both, we honour the explicit upstream and ignore the
+// tunnel (and log a warning) so a misconfigured retrofit doesn't silently divert
+// production traffic.
+var originTunnelHost = GetArg(cmdArgs, "--origin-tunnel");
+string? originTunnelEffectiveUpstream = null;
+if (!string.IsNullOrWhiteSpace(originTunnelHost))
+{
+    var hasExplicitUpstream = cliUpstream != null || positionalUpstream != null || envUpstream != null;
+    if (hasExplicitUpstream)
+    {
+        Console.Error.WriteLine(
+            $"  Warning: --origin-tunnel '{originTunnelHost}' is set but an explicit upstream was also provided. " +
+            "Honouring the explicit upstream; ignoring --origin-tunnel.");
+    }
+    else
+    {
+        var tunnelPort = Mostlylucid.BotDetection.Console.Services.OriginTunnelLauncher.PickFreeLoopbackPort();
+        originTunnelEffectiveUpstream = $"http://localhost:{tunnelPort}";
+        // Process kept alive by stylobot's lifetime; cloudflared exits with the parent.
+        _ = Mostlylucid.BotDetection.Console.Services.OriginTunnelLauncher.Launch(originTunnelHost, tunnelPort);
+    }
+}
+
+var upstream = cliUpstream ?? positionalUpstream ?? originTunnelEffectiveUpstream ?? envUpstream ?? "http://localhost:8080";
 var mode = GetArg(cmdArgs, "--mode") ?? Environment.GetEnvironmentVariable("MODE") ?? "demo";
 var isDemoLikeMode = mode.Equals("demo", StringComparison.OrdinalIgnoreCase) ||
                      mode.Equals("learning", StringComparison.OrdinalIgnoreCase);
