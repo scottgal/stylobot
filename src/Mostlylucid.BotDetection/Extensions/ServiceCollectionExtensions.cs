@@ -295,6 +295,12 @@ public static class ServiceCollectionExtensions
             .BindConfiguration(Mostlylucid.BotDetection.RateLimiting.RateLimitOptions.SectionName);
         services.TryAddSingleton<Mostlylucid.BotDetection.RateLimiting.ScopedRateLimitResolver>();
 
+        // The enforcer is what DetectionPolicyMiddleware (phase 5) calls. It
+        // glues the four primitives together: subjects + rules + buckets +
+        // data-rate-wrap + over-limit dispatch via the existing action
+        // registry. Singleton; state lives in the underlying state store.
+        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimiting.RateLimitEnforcer>();
+
         // Add HttpClient factory for bot list fetching
         services.AddHttpClient();
 
