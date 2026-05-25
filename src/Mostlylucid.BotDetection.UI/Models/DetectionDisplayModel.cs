@@ -60,6 +60,22 @@ public sealed class DetectionDisplayModel
     /// <summary>Multi-factor signature information</summary>
     public MultiFactorSignatureDisplay? Signatures { get; init; }
 
+    /// <summary>
+    ///     12-axis behavioural-fingerprint vector, clock order (Browsing, API,
+    ///     Asset, Realtime, Form, Auth, Burst, Timing, PathDiv, 404, Scan, FP).
+    ///     Same projection the dashboard's behavioral evolution panel uses, so
+    ///     the marketing-site "Your Detection" radar reads identically to what
+    ///     operators see in the live dashboard. Null when the per-request
+    ///     pipeline couldn't compose a vector (e.g. upstream-trust paths).
+    /// </summary>
+    public double[]? ClockAxes { get; init; }
+
+    /// <summary>Resolved UA family (Chrome, Firefox, curl, etc.) when available.</summary>
+    public string? UaFamily { get; init; }
+
+    /// <summary>Country code (ISO 3166-1 alpha-2) when geo resolved.</summary>
+    public string? CountryCode { get; init; }
+
     /// <summary>Was detection result available?</summary>
     public bool HasData => RequestId != null;
 }

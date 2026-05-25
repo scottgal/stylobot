@@ -478,19 +478,23 @@ try
     // PRODUCTION MODE: PII logging disabled by default (zero-PII)
     var defaultLogPii = mode.Equals("demo", StringComparison.OrdinalIgnoreCase);
 
+    // Resolve the HMAC key (6.8.2+: auto-generate random in-memory when no
+    // key is configured, instead of fail-fast in production). Crashes always
+    // trump features -- the gateway must start. Trade-off is documented in
+    // ConfigValidator: signatures don't survive a restart when auto-generated.
+    var resolvedHmacKey = ConfigValidator.ResolveHmacKey(
+        builder.Configuration.GetValue<string>("SignatureLogging:SignatureHashKey"),
+        mode);
+
     var sigLoggingConfig = new SignatureLoggingConfig
     {
         Enabled = builder.Configuration.GetValue("SignatureLogging:Enabled", true),
         MinConfidence = builder.Configuration.GetValue("SignatureLogging:MinConfidence", 0.7),
         PrettyPrintJsonLd = builder.Configuration.GetValue("SignatureLogging:PrettyPrintJsonLd", false),
-        SignatureHashKey = builder.Configuration.GetValue<string>("SignatureLogging:SignatureHashKey") ??
-                           "DEFAULT_INSECURE_KEY_CHANGE_ME",
+        SignatureHashKey = resolvedHmacKey,
         LogRawPii = builder.Configuration.GetValue("SignatureLogging:LogRawPii",
             defaultLogPii) // Demo: true, Production: false
     };
-
-    // Validate HMAC key (fail-fast on default key in production)
-    ConfigValidator.ValidateHmacKey(sigLoggingConfig, mode);
 
     // Create signature logger with async background queue
     var signatureLogger = new SignatureLogger();

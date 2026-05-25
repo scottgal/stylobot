@@ -11,214 +11,178 @@
 @{
     var recommendedAction = Model.BotProbability switch
     {
-        >= 0.9 => ("Block", "Very high confidence bot - immediate block recommended"),
+        >= 0.9 => ("Block",     "Very high confidence bot - immediate block recommended"),
         >= 0.7 => ("Challenge", "High confidence bot - CAPTCHA or verification recommended"),
-        >= 0.5 => ("Throttle", "Moderate bot signals - rate limiting recommended"),
-        >= 0.3 => ("Monitor", "Some bot signals - monitor behavior"),
-        _ => ("Allow", "Low bot probability - normal access")
+        >= 0.5 => ("Throttle",  "Moderate bot signals - rate limiting recommended"),
+        >= 0.3 => ("Monitor",   "Some bot signals - monitor behavior"),
+        _      => ("Allow",     "Low bot probability - normal access")
     };
-    var detectorCount = Model.DetectorContributions?.Count ?? 0;
-    var aiRan = Model.DetectorContributions?.Any(d => d.Name?.Contains("Llm") == true || d.Name?.Contains("AI") == true) ?? false;
+    var probPct  = (int)Math.Round(Model.BotProbability * 100);
+    var verdictClass = Model.IsBot ? "is-bot" : "is-human";
+    var verdictLabel = Model.IsBot ? "Bot" : "Human";
+    var accent       = Model.IsBot ? "#ef4444" : "#22c55e";
 
-    // Build the behavioral-fingerprint radar from per-detector contributions.
-    // The fingerprint is "3 signature hashes + this shape" -- the polygon's vertices encode the
-    // per-detector contribution magnitudes (clamped 0..1) projected around a circle.
-    // Positive contribution (more bot-like) and negative (more human-like) both use abs magnitude;
-    // the polygon fill colour shifts toward the dominant sign.
-    var radarDetectors = Model.DetectorContributions?
-        .Where(d => !string.IsNullOrEmpty(d.Name) && d.Contribution != 0)
-        .OrderByDescending(d => Math.Abs(d.Contribution))
-        .Take(8)
-        .ToList() ?? new List<Mostlylucid.BotDetection.UI.Models.DetectorContributionDisplay>();
+    // 12-axis clock labels match ClockProjection.Compose12Axes order, so the marketing
+    // radar reads identically to the dashboard's behavioural-evolution panel.
+    string[] clockLabels =
+    [
+        "Browsing","API","Asset","Realtime","Form","Auth",
+        "Burst","Timing","Path","404","Scan","FP"
+    ];
 
-    var radarVertices = new System.Text.StringBuilder();
-    var radarLabels = new System.Text.StringBuilder();
-    var radarAxisLines = new System.Text.StringBuilder();
-    if (radarDetectors.Count >= 3)
+    // Prefer the 12-axis clock vector when the pipeline composed one for this request.
+    // When absent, fall back to projecting the existing detector-contribution magnitudes
+    // onto the first 8 axes -- still real signal, just lower-resolution.
+    double[] axes;
+    if (Model.ClockAxes is { Length: 12 })
     {
-        var n = radarDetectors.Count;
-        var totalSigned = 0d;
-        for (var i = 0; i < n; i++)
-        {
-            var d = radarDetectors[i];
-            var angle = (2 * Math.PI * i / n) - (Math.PI / 2); // start at top
-            var magnitude = Math.Min(1.0, Math.Abs(d.Contribution) * 2.5);
-            totalSigned += d.Contribution;
-            var x = 50 + Math.Cos(angle) * 35 * magnitude;
-            var y = 50 + Math.Sin(angle) * 35 * magnitude;
-            radarVertices.Append($"{x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)},{y.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} ");
-
-            // Axis line from centre to outer edge
-            var axisX = 50 + Math.Cos(angle) * 35;
-            var axisY = 50 + Math.Sin(angle) * 35;
-            radarAxisLines.AppendLine($"<line x1=\"50\" y1=\"50\" x2=\"{axisX.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y2=\"{axisY.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" stroke=\"currentColor\" stroke-width=\"0.3\" opacity=\"0.12\" />");
-
-            // Label outside the ring
-            var lx = 50 + Math.Cos(angle) * 44;
-            var ly = 50 + Math.Sin(angle) * 44 + 1.5;
-            var labelText = d.Name.Length <= 5 ? d.Name : d.Name.Substring(0, 5);
-            radarLabels.AppendLine($"<text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3.5\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.55\">{labelText}</text>");
-        }
-        // Close polygon to first point so SVG fills cleanly
-        radarVertices.Length--; // trailing space
+        axes = Model.ClockAxes;
     }
-    var radarPolygonPoints = radarVertices.ToString();
-    var radarFillColor = Model.IsBot ? "rgba(220,38,38,0.22)" : "rgba(91,163,163,0.22)";
-    var radarStrokeColor = Model.IsBot ? "#dc2626" : "#5ba3a3";
+    else
+    {
+        axes = new double[12];
+        var contribs = Model.DetectorContributions?
+            .Where(d => !string.IsNullOrEmpty(d.Name) && d.Contribution != 0)
+            .OrderByDescending(d => Math.Abs(d.Contribution))
+            .Take(8)
+            .ToList() ?? new();
+        for (var i = 0; i < contribs.Count && i < 8; i++)
+            axes[i] = Math.Min(1.0, Math.Abs(contribs[i].Contribution) * 2.5);
+    }
+
+    var radarVertices  = new System.Text.StringBuilder();
+    var radarAxisLines = new System.Text.StringBuilder();
+    var radarLabelSvg  = new System.Text.StringBuilder();
+    for (var i = 0; i < 12; i++)
+    {
+        var angle = (2 * Math.PI * i / 12) - (Math.PI / 2); // 12 o'clock at top
+        var magnitude = Math.Clamp(axes[i], 0, 1);
+        var x = 50 + Math.Cos(angle) * 35 * magnitude;
+        var y = 50 + Math.Sin(angle) * 35 * magnitude;
+        radarVertices.Append($"{x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)},{y.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} ");
+
+        var ax = 50 + Math.Cos(angle) * 35;
+        var ay = 50 + Math.Sin(angle) * 35;
+        radarAxisLines.AppendLine($"<line x1=\"50\" y1=\"50\" x2=\"{ax.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y2=\"{ay.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" stroke=\"currentColor\" stroke-width=\"0.3\" opacity=\"0.12\" />");
+
+        var lx = 50 + Math.Cos(angle) * 44;
+        var ly = 50 + Math.Sin(angle) * 44 + 1.2;
+        radarLabelSvg.AppendLine($"<text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.5\">{clockLabels[i]}</text>");
+    }
+
+    var radarFill   = Model.IsBot ? "rgba(239,68,68,0.22)" : "rgba(34,197,94,0.22)";
+    var radarStroke = accent;
+
+    var primarySig  = Model.Signatures?.PrimarySignature;
+    var ipSig       = Model.Signatures?.IpSignature;
+    var uaSig       = Model.Signatures?.UaSignature;
+    var clientSig   = Model.Signatures?.ClientSideSignature;
 }
 
-<div class="bot-detection-container bot-detection-compact" x-data="{ showDetails: false, showSignatures: false }">
-    <!-- Compact Header with Key Metrics -->
-    <div class="bot-detection-header">
-        <div class="bot-detection-status @(Model.IsBot ? "is-bot" : "is-human")">
-            <span class="status-icon"><i class="@(Model.IsBot ? "bx bx-bot" : "bx bx-user")"></i></span>
-            <span class="status-text">@(Model.IsBot ? "Bot" : "Human")</span>
+<div class="bot-detection-container" data-sb-widget="your-detection">
+    @* Header: LIVE pulse + verdict badge + request id + timing -- all real signal, no fluff *@
+    <div class="flex items-center justify-between gap-2 mb-3">
+        <div class="flex items-center gap-2">
+            <span class="sb-live-dot" aria-hidden="true"></span>
+            <span class="text-[10px] font-bold uppercase tracking-wider text-base-content/60">Live · Your Detection</span>
+            <span class="badge badge-xs @(Model.IsBot ? "badge-error" : "badge-success")">@verdictLabel</span>
         </div>
-        <div class="bot-detection-score">
-            <div class="score-label">Bot Probability</div>
-            <div class="score-value">@Model.BotProbability.ToString("P0")</div>
-        </div>
-        <div class="bot-detection-risk">
-            <div class="risk-label">Risk</div>
-            <div class="risk-value risk-@Model.RiskBand.ToLower()">@Model.RiskBand</div>
-        </div>
-        <div class="bot-detection-recommendation">
-            <div class="recommendation-label">Recommendation</div>
-            <div class="recommendation-value action-@recommendedAction.Item1.ToLower()">@recommendedAction.Item1</div>
-        </div>
-        <div class="bot-detection-timing">
-            <div class="timing-label">Fast Path</div>
-            <div class="timing-value">@Model.ProcessingTimeMs.ToString("F0")ms</div>
+        <div class="text-[10px] text-base-content/40 tabular-nums">
+            @Model.Timestamp.ToString("HH:mm:ss") · @Model.ProcessingTimeMs.ToString("F0")ms
         </div>
     </div>
 
-    <!-- Quick Summary Bar -->
-    <div class="bot-detection-summary">
-        <span class="summary-item">
-            <strong>@detectorCount</strong> detectors ran
-        </span>
-        <span class="summary-item">
-            <strong>@(aiRan ? "AI" : "Heuristic")</strong> analysis
-        </span>
-        @if (!string.IsNullOrEmpty(Model.PolicyName))
-        {
-            <span class="summary-item">
-                Policy: <strong>@Model.PolicyName</strong>
-            </span>
-        }
-        @if (Model.Signatures?.FactorCount > 0)
-        {
-            <span class="summary-item">
-                <strong>@Model.Signatures.FactorCount</strong> signature factors
-            </span>
-        }
-    </div>
-
-    <!-- Recommendation Explanation -->
-    <div class="bot-detection-recommendation-detail">
-        <span class="recommendation-reason">@recommendedAction.Item2</span>
-        <span class="recommendation-bot"> | Identified: <strong>@(Model.BotName ?? Model.BotType ?? "Visitor")</strong></span>
-    </div>
-
-    <!-- Top Reasons (always visible, compact) -->
-    @if (Model.TopReasons.Any())
-    {
-        <div class="bot-detection-reasons-compact">
-            <strong>Key signals:</strong>
-            @string.Join(" | ", Model.TopReasons.Take(3))
+    @* Two-column body: radar (left, 12-clock) + verdict/reason/pills (right) *@
+    <div class="grid grid-cols-[140px_1fr] gap-4 items-center">
+        <div class="text-base-content">
+            <svg viewBox="0 0 100 100" width="140" height="140" xmlns="http://www.w3.org/2000/svg" aria-label="Behavioural fingerprint -- 12-axis clock projection">
+                <circle cx="50" cy="50" r="35" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.16" />
+                <circle cx="50" cy="50" r="23" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.10" />
+                <circle cx="50" cy="50" r="12" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.08" />
+                @Html.Raw(radarAxisLines.ToString())
+                <polygon points="@radarVertices.ToString().TrimEnd()" fill="@radarFill" stroke="@radarStroke" stroke-width="1.2" />
+                @Html.Raw(radarLabelSvg.ToString())
+            </svg>
         </div>
-    }
 
-    <!-- Expandable Signatures Section -->
-    @if (Model.Signatures != null && Model.Signatures.AvailableFactors.Any())
-    {
-        <div class="bot-detection-signatures-compact">
-            <button type="button" class="toggle-btn" @@click="showSignatures = !showSignatures">
-                <i class="bx" :class="showSignatures ? 'bx-chevron-down' : 'bx-chevron-right'"></i>
-                <i class="bx bx-fingerprint"></i>
-                Fingerprint (@Model.Signatures.FactorCount factors + behavioural shape) - Zero PII
-            </button>
-            <div x-show="showSignatures" x-collapse class="signatures-content">
-                <div class="bot-detection-fingerprint-row">
-                    @* Left column: per-detector behavioural-shape radar derived from contributions.
-                       Each axis is a detector; the polygon distance from centre is the magnitude of
-                       that detector's contribution to the final classification. *@
-                    @if (radarDetectors.Count >= 3)
-                    {
-                        <div class="bot-detection-radar">
-                            <svg viewBox="0 0 100 100" width="120" height="120" xmlns="http://www.w3.org/2000/svg">
-                                <circle cx="50" cy="50" r="35" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.18" />
-                                <circle cx="50" cy="50" r="23" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.10" />
-                                <circle cx="50" cy="50" r="12" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.10" />
-                                @Html.Raw(radarAxisLines.ToString())
-                                <polygon points="@radarPolygonPoints" fill="@radarFillColor" stroke="@radarStrokeColor" stroke-width="1.2" />
-                                @Html.Raw(radarLabels.ToString())
-                            </svg>
-                            <div class="bot-detection-radar-caption">Behavioural shape</div>
-                        </div>
-                    }
-
-                    @* Right column: HMAC factor hashes -- every one clickable through to its
-                       signature-detail page on the dashboard. The path is canonical across the
-                       FOSS dashboard and the marketing site (both mount at /dashboard), so we
-                       can hardcode it here instead of plumbing options into the component. *@
-                    <div class="factors-grid">
-                        @if (!string.IsNullOrEmpty(Model.Signatures.PrimarySignature))
-                        {
-                            <div class="factor-compact"><span class="factor-label">Primary:</span> <a href="/dashboard/signature/@Uri.EscapeDataString(Model.Signatures.PrimarySignature)" class="signature-link"><code>@Model.Signatures.PrimarySignature</code></a></div>
-                        }
-                        @if (!string.IsNullOrEmpty(Model.Signatures.IpSignature))
-                        {
-                            <div class="factor-compact"><span class="factor-label">IP:</span> <a href="/dashboard/signature/@Uri.EscapeDataString(Model.Signatures.IpSignature)" class="signature-link"><code>@Model.Signatures.IpSignature</code></a></div>
-                        }
-                        @if (!string.IsNullOrEmpty(Model.Signatures.UaSignature))
-                        {
-                            <div class="factor-compact"><span class="factor-label">UA:</span> <a href="/dashboard/signature/@Uri.EscapeDataString(Model.Signatures.UaSignature)" class="signature-link"><code>@Model.Signatures.UaSignature</code></a></div>
-                        }
-                        @if (!string.IsNullOrEmpty(Model.Signatures.ClientSideSignature))
-                        {
-                            <div class="factor-compact"><span class="factor-label">Browser:</span> <a href="/dashboard/signature/@Uri.EscapeDataString(Model.Signatures.ClientSideSignature)" class="signature-link"><code>@Model.Signatures.ClientSideSignature</code></a></div>
-                        }
-                    </div>
+        <div class="flex flex-col gap-2 min-w-0">
+            <div class="flex items-baseline gap-3">
+                <div>
+                    <span class="text-2xl font-black" style="color: @accent;">@(probPct)%</span>
+                    <span class="text-[10px] text-base-content/50 ml-1">bot probability</span>
                 </div>
-                <div class="privacy-note">All signatures are HMAC-SHA256 hashed. No PII stored. The behavioural shape is derived from runtime detector contributions only.</div>
+                <span class="badge badge-xs sb-risk-@(Model.RiskBand.ToLowerInvariant())">@Model.RiskBand</span>
+                <span class="badge badge-xs sb-action-@recommendedAction.Item1.ToLowerInvariant()">@recommendedAction.Item1</span>
             </div>
-        </div>
-    }
 
-    <!-- Expandable Detector Details -->
-    @if (Model.DetectorContributions?.Any() == true)
-    {
-        <div class="bot-detection-details-compact">
-            <button type="button" class="toggle-btn" @@click="showDetails = !showDetails">
-                <i class="bx" :class="showDetails ? 'bx-chevron-down' : 'bx-chevron-right'"></i>
-                <i class="bx bx-bar-chart-alt-2"></i>
-                Detector Details (@detectorCount detectors)
-            </button>
-            <div x-show="showDetails" x-collapse class="details-content">
-                <div class="contributions-compact">
-                    @foreach (var detector in Model.DetectorContributions.OrderByDescending(d => Math.Abs(d.Contribution)))
+            @if (!string.IsNullOrEmpty(Model.BotName) || !string.IsNullOrEmpty(Model.BotType))
+            {
+                <div class="text-[11px] text-base-content/70">
+                    Identified as <strong>@(Model.BotName ?? Model.BotType)</strong>
+                </div>
+            }
+
+            @if (Model.TopReasons.Any())
+            {
+                <ul class="text-[10px] text-base-content/55 space-y-0.5 list-none p-0 m-0">
+                    @foreach (var reason in Model.TopReasons.Take(3))
                     {
-                        var contributionPercent = detector.Contribution * 100;
-                        var contributionClass = detector.Contribution > 0 ? "positive" : "negative";
-                        <div class="contribution-row">
-                            <span class="detector-name-compact">@detector.Name</span>
-                            <span class="contribution-value-compact @contributionClass">@contributionPercent.ToString("+0.0;-0.0;0")%</span>
-                            <span class="detector-time-compact">@detector.ExecutionTimeMs.ToString("F0")ms</span>
-                            @if (!string.IsNullOrEmpty(detector.Reason))
-                            {
-                                <span class="detector-reason-compact">@detector.Reason</span>
-                            }
-                        </div>
+                        <li class="truncate" title="@reason">· @reason</li>
+                    }
+                </ul>
+            }
+
+            @* Signature pills -- every one routes to the dashboard signature detail.
+               The visitor can click their own primary signature and land on the same
+               drill-through page operators use in the live dashboard. *@
+            @if (Model.Signatures is { } sigs)
+            {
+                <div class="flex flex-wrap gap-1 mt-1">
+                    @if (!string.IsNullOrEmpty(primarySig))
+                    {
+                        <a href="/dashboard/signature/@Uri.EscapeDataString(primarySig)"
+                           class="sb-sig-pill" title="Primary signature -- full hash: @primarySig">
+                            <span class="opacity-50">Primary</span>
+                            <code>@(primarySig[..Math.Min(8, primarySig.Length)])</code>
+                        </a>
+                    }
+                    @if (!string.IsNullOrEmpty(ipSig))
+                    {
+                        <a href="/dashboard/signature/@Uri.EscapeDataString(ipSig)"
+                           class="sb-sig-pill" title="IP signature -- full hash: @ipSig">
+                            <span class="opacity-50">IP</span>
+                            <code>@(ipSig[..Math.Min(8, ipSig.Length)])</code>
+                        </a>
+                    }
+                    @if (!string.IsNullOrEmpty(uaSig))
+                    {
+                        <a href="/dashboard/signature/@Uri.EscapeDataString(uaSig)"
+                           class="sb-sig-pill" title="UA signature -- full hash: @uaSig">
+                            <span class="opacity-50">UA</span>
+                            <code>@(uaSig[..Math.Min(8, uaSig.Length)])</code>
+                        </a>
+                    }
+                    @if (!string.IsNullOrEmpty(clientSig))
+                    {
+                        <a href="/dashboard/signature/@Uri.EscapeDataString(clientSig)"
+                           class="sb-sig-pill" title="Browser-side signature -- full hash: @clientSig">
+                            <span class="opacity-50">Browser</span>
+                            <code>@(clientSig[..Math.Min(8, clientSig.Length)])</code>
+                        </a>
                     }
                 </div>
-            </div>
+            }
         </div>
-    }
+    </div>
 
-    <!-- Compact Footer -->
-    <div class="bot-detection-footer-compact">
-        <span>ID: @Model.RequestId</span>
-        <span>@Model.Timestamp.ToString("HH:mm:ss")</span>
+    @* Bottom strip: top 5 bots currently being seen. Each row is a drill-through to the
+       same signature-detail page operators use -- the marketing visitor is using the
+       same UI we ship to customers. Zero-PII, all real recorded traffic. *@
+    <div class="mt-4 pt-3 border-t border-base-content/10">
+        <div class="flex items-center justify-between mb-2">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-base-content/60">Bots seen here recently</span>
+            <a href="/dashboard" class="text-[10px] text-base-content/40 hover:text-base-content/70">All →</a>
+        </div>
+        <sb-top-bots page-size="5" filter="bots" sort="recent" widget-id="your-detection-topbots" />
     </div>
 </div>
