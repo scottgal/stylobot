@@ -1,26 +1,38 @@
 @using Mostlylucid.BotDetection.UI.Models.Primitives
 @model IntentIconModel
 @{
-    // Filled (bxs-) glyphs at a larger size so a Scraper spider doesn't read as a
-    // tiny scribble. Each category gets a distinct hue used as IDENTITY, not
-    // severity: red Scraper / orange Probe / purple AI / blue Browser / cyan
-    // Crawler / amber Automated / green Monitor / muted Unknown. Threat is the
-    // column that carries the severity gradient; intent answers "what kind of
-    // actor is this" and a glance across the column tells you the visitor mix.
+    // Type icon. Distinct SHAPE per category (spider / search / brain / globe /
+    // network / bot / pulse / wrench) so the operator can read what kind of
+    // actor this is from across the room; COLOUR uses the same red->amber->
+    // green palette as the other row signals so the entire row's concerning-
+    // ness reads consistently. Operator-actionable mapping:
+    //   - Scraper / Scanner -- red (active harvesting, high concern)
+    //   - Probe             -- red (vuln-probing, high concern)
+    //   - AI / AiBot        -- amber (consuming content, training data)
+    //   - Automated         -- amber (unclear intent)
+    //   - Tool              -- blue (generic HTTP, could go either way)
+    //   - Crawler           -- blue (indexing, mostly legitimate)
+    //   - Browser           -- green (real visitor)
+    //   - MonitoringBot     -- green (benign)
+    //   - Unknown           -- muted grey (signals couldn't classify)
+    //
+    // Colour is inline `color: var(--color-...)` to dodge the Tailwind JIT
+    // bundle issue that left text-error / text-warning / text-info classes
+    // out of the compiled CSS and made every icon render white.
     var intent = Model.Intent ?? "Unknown";
-    var (icon, colorClass, label, tip) = intent switch
+    var (icon, color, label, tip) = intent switch
     {
-        "Scraper" or "Scanner"  => ("bxs-spider",         "text-error",          "Scraper",   "Scrapes pages at scale -- credential harvest, content reuse, inventory theft"),
-        "Probe"                 => ("bxs-search-alt-2",   "text-orange-400",     "Probe",     "Probes endpoints looking for vulns, leaked secrets, or open admin paths"),
-        "AI" or "AiBot"         => ("bxs-brain",          "text-purple-400",     "AI",        "AI / LLM crawler training on your content"),
-        "Tool"                  => ("bxs-wrench",         "text-base-content/60","Tool",      "Generic HTTP tool / library (curl, requests, etc.)"),
-        "Browser"               => ("bxs-globe",          "text-info",           "Browser",   "Looks like a real interactive browser"),
-        "Crawler"               => ("bxs-network-chart",  "text-cyan-400",       "Crawler",   "Indexing / SEO crawler"),
-        "Automated"             => ("bxs-bot",            "text-amber-400",      "Automated", "Headless / scripted automation -- intent unclear"),
-        "MonitoringBot"         => ("bxs-pulse",          "text-success",        "Monitor",   "Uptime / synthetic monitoring"),
-        _                       => ("bxs-help-circle",    "text-base-content/40", intent,     "Intent could not be classified from signals")
+        "Scraper" or "Scanner"  => ("bxs-spider",         "var(--color-error,   #ef4444)", "Scraper",   "Scrapes pages at scale -- credential harvest, content reuse, inventory theft"),
+        "Probe"                 => ("bxs-search-alt-2",   "var(--color-error,   #ef4444)", "Probe",     "Probes endpoints looking for vulns, leaked secrets, or open admin paths"),
+        "AI" or "AiBot"         => ("bxs-brain",          "var(--color-warning, #f59e0b)", "AI",        "AI / LLM crawler training on your content"),
+        "Automated"             => ("bxs-bot",            "var(--color-warning, #f59e0b)", "Automated", "Headless / scripted automation -- intent unclear"),
+        "Tool"                  => ("bxs-wrench",         "var(--color-info,    #38bdf8)", "Tool",      "Generic HTTP tool / library (curl, requests, etc.)"),
+        "Crawler"               => ("bxs-network-chart",  "var(--color-info,    #38bdf8)", "Crawler",   "Indexing / SEO crawler"),
+        "Browser"               => ("bxs-globe",          "var(--color-success, #22c55e)", "Browser",   "Looks like a real interactive browser"),
+        "MonitoringBot"         => ("bxs-pulse",          "var(--color-success, #22c55e)", "Monitor",   "Uptime / synthetic monitoring"),
+        _                       => ("bxs-help-circle",    "rgba(148,163,184,0.55)",         intent,     "Intent could not be classified from signals")
     };
 }
 <span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="@label -- @tip">
-    <i class="bx @icon @colorClass text-lg" aria-label="@label"></i>
+    <i class="bx @icon text-lg" style="color: @color;" aria-label="@label"></i>
 </span>

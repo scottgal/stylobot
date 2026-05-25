@@ -1,0 +1,28 @@
+@using Mostlylucid.BotDetection.UI.Models.Primitives
+@model RiskBadgeModel
+@{
+    // Filled shield (bxs-shield / bxs-shield-minus / bxs-shield-x) so the SHAPE
+    // changes with severity and the gradient survives colour-blindness. Colour
+    // uses the same red->amber->blue->green palette as BOT% and CONFIDENCE so a
+    // row reads as one consistent "concerning"-ness story across the columns.
+    //
+    // Colour is inline `color: var(--color-...)` not Tailwind text-error /
+    // text-warning utilities -- the JIT-compiled tailwind.min.css bundle was
+    // missing those modifiers and the icons rendered in the default white.
+    var band = Model.Band ?? "None";
+    var probPct = (Model.BotProbability * 100).ToString("F0");
+    var (icon, color, label, tip) = band switch
+    {
+        "Critical" => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Critical", "Active attack -- block immediately"),
+        "VeryHigh" => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Very High","Confident bot -- highest risk band"),
+        "High"     => ("bxs-shield-minus", "var(--color-error,   #ef4444)", "High",     "Bot, very likely unwanted"),
+        "Elevated" => ("bxs-shield-minus", "var(--color-warning, #f59e0b)", "Elevated", "Suspicious behaviour above ambient"),
+        "Medium"   => ("bxs-shield-minus", "var(--color-warning, #f59e0b)", "Medium",   "Bot signals present, classification uncertain"),
+        "Low"      => ("bxs-shield",       "var(--color-success, #22c55e)", "Low",      "Likely benign automation"),
+        "VeryLow"  => ("bxs-shield",       "var(--color-success, #22c55e)", "Very Low", "Almost certainly human"),
+        _          => ("bxs-shield",       "rgba(148,163,184,0.55)",         "None",     "No risk band assigned")
+    };
+}
+<span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="@label risk -- @probPct% bot probability. @tip">
+    <i class="bx @icon text-lg" style="color: @color;" aria-label="@label risk"></i>
+</span>

@@ -1,25 +1,30 @@
 @using Mostlylucid.BotDetection.UI.Models.Primitives
 @model ThreatIconModel
 @{
-    // Filled (bxs-) shield glyphs at a larger size, with the colour carrying the
-    // green->red severity gradient. Critical / VeryHigh / High all sit in the
-    // error red so a column of mixed-severity rows reads "where the danger is"
-    // before any tooltip is opened. The shield SHAPE changes too (full shield
-    // for None / Low, quarter for elevated/medium/high, x for critical) so the
-    // gradient survives the colour-blindness corner cases.
+    // Filled (bxs-) shield glyphs at text-lg size, colour carrying the green->red
+    // severity gradient. Critical / VeryHigh / High share the error red so a
+    // column of mixed-severity rows reads "where the danger is" before any
+    // tooltip is opened. The shield shape changes too (full / minus / x) so the
+    // gradient survives colour-vision deficits.
+    //
+    // Colour is inline via `color: var(--color-...)` rather than the Tailwind
+    // text-error / text-warning / text-success utilities. Those class modifiers
+    // weren't picked up by the JIT scan when the bundled tailwind.min.css was
+    // generated, so the previous version rendered every shield in the default
+    // text colour (white on dark) -- a uniform "always white" column.
     var band = Model.Band ?? "None";
     var probPct = (Model.BotProbability * 100).ToString("F0");
-    var (icon, colorClass, label, tip) = band switch
+    var (icon, color, label, tip) = band switch
     {
-        "Critical" => ("bxs-shield-x",       "text-error",            "Critical", "Active attack -- block immediately"),
-        "VeryHigh" => ("bxs-shield-x",       "text-error",            "Very High","High-confidence malicious or abusive bot"),
-        "High"     => ("bxs-shield-minus",   "text-error",            "High",     "Bot, likely unwanted -- challenge or throttle"),
-        "Elevated" => ("bxs-shield-minus",   "text-warning",          "Elevated", "Suspicious behaviour -- monitor"),
-        "Medium"   => ("bxs-shield-minus",   "text-warning",          "Medium",   "Bot signals present but classification uncertain"),
-        "Low"      => ("bxs-shield",         "text-success",          "Low",      "Likely benign automation"),
-        _          => ("bxs-shield",         "text-base-content/30",  "None",     "No threat signals detected")
+        "Critical" => ("bxs-shield-x",     "var(--color-error,   #ef4444)",        "Critical", "Active attack -- block immediately"),
+        "VeryHigh" => ("bxs-shield-x",     "var(--color-error,   #ef4444)",        "Very High","High-confidence malicious or abusive bot"),
+        "High"     => ("bxs-shield-minus", "var(--color-error,   #ef4444)",        "High",     "Bot, likely unwanted -- challenge or throttle"),
+        "Elevated" => ("bxs-shield-minus", "var(--color-warning, #f59e0b)",        "Elevated", "Suspicious behaviour -- monitor"),
+        "Medium"   => ("bxs-shield-minus", "var(--color-warning, #f59e0b)",        "Medium",   "Bot signals present but classification uncertain"),
+        "Low"      => ("bxs-shield",       "var(--color-success, #22c55e)",        "Low",      "Likely benign automation"),
+        _          => ("bxs-shield",       "rgba(148, 163, 184, 0.55)",            "None",     "No threat signals detected")
     };
 }
 <span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="@label -- @probPct% bot probability. @tip">
-    <i class="bx @icon @colorClass text-lg" aria-label="@label"></i>
+    <i class="bx @icon text-lg" style="color: @color;" aria-label="@label"></i>
 </span>

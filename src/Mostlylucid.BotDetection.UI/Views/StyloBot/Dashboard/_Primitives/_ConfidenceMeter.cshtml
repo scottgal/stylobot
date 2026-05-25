@@ -1,0 +1,51 @@
+@using Mostlylucid.BotDetection.UI.Models.Primitives
+@model ConfidenceMeterModel
+@{
+    // Confidence is a 5-dot vertical-ish stack -- distinct shape from BOT%'s
+    // 5 RECTANGLES so the operator can tell which column they're scanning
+    // even when both share the green/amber/red palette. Polarity follows
+    // IsBot: confident bot = red, confident human = green, uncertain (low
+    // confidence either way) = grey. Magnitude follows Confidence.
+    //
+    // Inline colours via CSS variables -- not Tailwind class modifiers --
+    // for the same compile-bundle reason the other primitives flipped.
+    var c = System.Math.Clamp(Model.Confidence, 0, 1);
+    var filled = (int)System.Math.Ceiling(c * 5);
+    var pct = (c * 100).ToString("F0");
+
+    // Low confidence is always grey regardless of bot/human direction:
+    // the operator should not infer "safe" from a low-confidence human
+    // verdict because detection itself is unsure.
+    string filledColor;
+    string label;
+    if (c < 0.30)
+    {
+        filledColor = "rgba(148,163,184,0.55)";
+        label = "Uncertain";
+    }
+    else if (Model.IsBot)
+    {
+        filledColor = c >= 0.80 ? "var(--color-error,   #ef4444)"
+                    : c >= 0.55 ? "var(--color-warning, #f59e0b)"
+                    :             "#fb923c";
+        label = c >= 0.80 ? "Confident bot" : "Likely bot";
+    }
+    else
+    {
+        filledColor = c >= 0.80 ? "var(--color-success, #22c55e)"
+                    : c >= 0.55 ? "#38bdf8"
+                    :             "rgba(148,163,184,0.55)";
+        label = c >= 0.80 ? "Confident human" : "Likely human";
+    }
+    const string emptyColor = "rgba(148,163,184,0.18)";
+    var title = $"{label} -- {pct}% confidence";
+}
+<span class="tooltip tooltip-left before:max-w-xs" data-tip="@title">
+    <span class="inline-flex items-center" style="gap:2px;" aria-label="@title">
+    @for (int i = 0; i < 5; i++)
+    {
+        var bg = i < filled ? filledColor : emptyColor;
+        <span style="background:@bg; width:8px; height:8px; border-radius:50%; display:inline-block;"></span>
+    }
+    </span>
+</span>

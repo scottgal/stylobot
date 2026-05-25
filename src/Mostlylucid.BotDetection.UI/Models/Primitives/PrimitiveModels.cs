@@ -10,6 +10,23 @@ public sealed record IntentIconModel(string? Intent);
 public sealed record RiskBarModel(double Probability, string? Band);
 
 /// <summary>
+///     Shield-shape risk indicator. Distinct icon shape from the BOT% segment
+///     bar so the operator can tell the two columns apart at a glance, while
+///     the colour follows the same severity gradient (green->red) across
+///     every concerning-ness column in the row.
+/// </summary>
+public sealed record RiskBadgeModel(string? Band, double BotProbability);
+
+/// <summary>
+///     Dot-meter confidence indicator. Confidence magnitude drives saturation
+///     and segment fill; IsBot drives the polarity of the colour (confident
+///     bot = red, confident human = green) so the row reads consistently with
+///     the BOT% and RISK columns. Low confidence is muted grey regardless of
+///     direction.
+/// </summary>
+public sealed record ConfidenceMeterModel(double Confidence, bool IsBot, double BotProbability);
+
+/// <summary>
 ///     SSR'd inline SVG sparkline. Server emits the path string -- zero client JS,
 ///     zero extra fetches. Bot and human trend arrays must be the same length;
 ///     y-axis auto-scales to max(bot, human).
