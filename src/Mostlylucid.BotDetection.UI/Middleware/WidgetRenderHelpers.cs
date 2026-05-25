@@ -63,21 +63,28 @@ internal static class WidgetRenderHelpers
             if (regionMatch.Value.Contains("hx-swap-oob", StringComparison.Ordinal))
                 return html;
 
+            // Bare `morph` (no :innerHTML / :outerHTML suffix) -- Idiomorph's OOB
+            // hook in 0.7.4 only matches the unqualified keyword for `hx-swap-oob`;
+            // the colon-suffixed variants trigger htmx:oobErrorNoTarget because
+            // htmx's standard parser doesn't recognise them and the extension only
+            // intercepts the plain word. Bare `morph` defaults to outerHTML
+            // semantics, replacing the matched element with the new one whose
+            // children have been morphed against the live ones -- the data
+            // region's attributes (id, data-sb-data-region) survive because the
+            // server emits them identically each time.
             return html[..(regionMatch.Index + regionMatch.Groups[1].Length)]
-                   + " hx-swap-oob=\"morph:innerHTML\""
+                   + " hx-swap-oob=\"morph\""
                    + html[(regionMatch.Index + regionMatch.Groups[1].Length)..];
         }
 
-        // Fallback: no data region marked. Morph the whole widget element in
-        // place. Same morph algorithm, applied to the root rather than its
-        // children -- unchanged subtrees still go untouched, no flicker.
+        // Fallback: no data region marked. Morph the whole widget element.
         var rootMatch = FirstTagRegex.Match(html);
         if (!rootMatch.Success) return html;
         if (rootMatch.Value.Contains("hx-swap-oob", StringComparison.Ordinal)) return html;
 
         return html[..rootMatch.Groups[1].Index]
                + rootMatch.Groups[1].Value
-               + " hx-swap-oob=\"morph:outerHTML\""
+               + " hx-swap-oob=\"morph\""
                + rootMatch.Groups[2].Value
                + html[(rootMatch.Index + rootMatch.Length)..];
     }
