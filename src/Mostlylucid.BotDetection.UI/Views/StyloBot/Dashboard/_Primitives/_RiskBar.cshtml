@@ -5,29 +5,32 @@
     // reads "how full" and "what colour" at a glance, the title attr carries the
     // exact percent for anyone who needs the digit.
     //
-    // Earlier dimensions (8px / 6px squares with 2px gap) disappeared into the
+    // Earlier dimensions (8px x 6px squares with 2px gap) disappeared into the
     // row -- the segments were technically present but unreadable at row height.
-    // 14px wide x 10px tall with 2px gap keeps the bar visible without taking the
-    // column hostage.
+    // 14px x 10px with 2px gap keeps the bar visible without taking the column
+    // hostage. Severity colours are inline rgba values (not Tailwind class
+    // modifiers like bg-base-content/15) so they paint regardless of which
+    // utilities the JIT scan picked up at build time.
     var p = System.Math.Clamp(Model.Probability, 0, 1);
     var filled = (int)System.Math.Ceiling(p * 5);
     var band = Model.Band ?? "None";
-    var segColor = band switch
+    var filledColor = band switch
     {
-        "Critical" or "VeryHigh" or "High" => "bg-error",
-        "Elevated" or "Medium"             => "bg-warning",
-        "Low"                              => "bg-success",
-        _                                  => "bg-base-content/30"
+        "Critical" or "VeryHigh" or "High" => "var(--color-error,   #ef4444)",
+        "Elevated" or "Medium"             => "var(--color-warning, #f59e0b)",
+        "Low"                              => "var(--color-success, #22c55e)",
+        _                                  => "var(--color-base-content, #94a3b8)"
     };
+    const string emptyColor = "rgba(148, 163, 184, 0.25)";
     var pctText = (p * 100).ToString("F0") + "%";
     var title = $"{band} -- {pctText} bot probability";
 }
 <span class="tooltip tooltip-left" data-tip="@title">
-    <span class="inline-flex items-center gap-[2px]" aria-label="@title">
+    <span class="inline-flex items-center" style="gap:2px;" aria-label="@title">
     @for (int i = 0; i < 5; i++)
     {
-        var cls = i < filled ? segColor : "bg-base-content/15";
-        <span class="@cls" style="width:14px; height:10px; border-radius:2px; display:inline-block;"></span>
+        var bg = i < filled ? filledColor : emptyColor;
+        <span style="background:@bg; width:14px; height:10px; border-radius:2px; display:inline-block;"></span>
     }
     </span>
 </span>
