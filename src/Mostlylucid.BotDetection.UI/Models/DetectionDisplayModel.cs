@@ -4,7 +4,7 @@ namespace Mostlylucid.BotDetection.UI.Models;
 ///     View model for displaying bot detection results.
 ///     Works with both HttpContext.Items (inline middleware) and YARP proxy headers.
 /// </summary>
-public sealed class DetectionDisplayModel
+public sealed record DetectionDisplayModel
 {
     /// <summary>Is this request identified as a bot?</summary>
     public bool IsBot { get; init; }

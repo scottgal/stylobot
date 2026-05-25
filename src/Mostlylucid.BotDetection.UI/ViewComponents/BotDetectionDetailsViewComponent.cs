@@ -1,80 +1,70 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.ViewComponents;
 
 /// <summary>
-///     View component for displaying bot detection results.
-///     Works in two modes:
-///     1. Inline with middleware: Reads from HttpContext.Items
-///     2. Behind YARP proxy: Reads from X-Bot-Detection-* headers
+///     Renders the BotDetectionDetails partial for the current request.
+///
 ///     <para>
-///     Also enriches the model with <see cref="DetectionDisplayModel.ClockAxes"/>
-///     from the same <see cref="ClockAxesResolver"/> the dashboard signature
-///     detail page uses, so the marketing-site Your Detection radar and the
-///     dashboard's render the visitor's behavioural shape from the same source.
-///     Without this the card fell back to projecting detector contributions
-///     onto the clock positions, which produced a visibly different polygon
-///     than the dashboard's <c>RadarShape</c>-driven render -- two surfaces
-///     showing two shapes for the same visitor.
+///     Enrichment path: pull the visitor's most-recent session vector from
+///     <see cref="ISessionStore"/> -- the same source the dashboard's
+///     <c>/api/sessions/signature/&lt;sig&gt;</c> endpoint uses -- and run it
+///     through <see cref="ClockAxesResolver.FromSessionVector"/>. The
+///     dashboard signature detail page now calls the same helper, so the
+///     12-axis radar polygon for one visitor is byte-identical on both
+///     surfaces (no more "different shape on the homepage vs the dashboard"
+///     drift). When the visitor doesn't yet have a finalised session vector,
+///     <see cref="DetectionDisplayModel.ClockAxes"/> stays null and the
+///     view renders an empty radar.
 ///     </para>
 /// </summary>
 public class BotDetectionDetailsViewComponent : ViewComponent
 {
     private readonly DetectionDataExtractor _extractor;
-    private readonly VisitorListCache? _visitorCache;
+    private readonly ISessionStore? _sessionStore;
 
     public BotDetectionDetailsViewComponent(
         DetectionDataExtractor extractor,
-        VisitorListCache? visitorCache = null)
+        ISessionStore? sessionStore = null)
     {
         _extractor = extractor;
-        _visitorCache = visitorCache;
+        _sessionStore = sessionStore;
     }
 
-    public IViewComponentResult Invoke(string viewName = "Default")
+    public async Task<IViewComponentResult> InvokeAsync(string viewName = "Default")
     {
         var context = HttpContext;
         var model = context != null ? _extractor.Extract(context) : new DetectionDisplayModel();
 
-        // Enrich with the visitor's persisted 12-axis clock from the same source
-        // the signature detail page uses. Lookup by the resolved primary signature;
-        // when the visitor hasn't yet been cached the model stays with ClockAxes=null
-        // and the view degrades gracefully (renders an empty radar rather than a
-        // detector-contribution polygon that disagrees with the dashboard).
         var primarySig = model.Signatures?.PrimarySignature;
-        if (!string.IsNullOrEmpty(primarySig) && _visitorCache is not null)
+        if (!string.IsNullOrEmpty(primarySig) && _sessionStore is not null)
         {
-            var visitor = _visitorCache.Get(primarySig);
-            var clockAxes = ClockAxesResolver.FromRadarShape(visitor?.RadarShape);
-            if (clockAxes is not null)
+            try
             {
-                model = new DetectionDisplayModel
+                // Pull the most-recent finalised session for this visitor. The dashboard
+                // surface fetches up to 20 sessions; the Your Detection card only needs
+                // the latest one, so limit=1 keeps the storage hit minimal.
+                var sessions = await _sessionStore.GetSessionsAsync(primarySig, limit: 1, HttpContext!.RequestAborted);
+                var latest = sessions.FirstOrDefault();
+                if (latest?.Vector is { Length: > 0 } encodedVector)
                 {
-                    IsBot = model.IsBot,
-                    BotProbability = model.BotProbability,
-                    Confidence = model.Confidence,
-                    RiskBand = model.RiskBand,
-                    BotType = model.BotType,
-                    BotName = model.BotName,
-                    PolicyName = model.PolicyName,
-                    Action = model.Action,
-                    ProcessingTimeMs = model.ProcessingTimeMs,
-                    TopReasons = model.TopReasons,
-                    DetectorContributions = model.DetectorContributions,
-                    RawSignals = model.RawSignals,
-                    FingerprintHash = model.FingerprintHash,
-                    RequestId = model.RequestId,
-                    Timestamp = model.Timestamp,
-                    YarpCluster = model.YarpCluster,
-                    YarpDestination = model.YarpDestination,
-                    Signatures = model.Signatures,
-                    ClockAxes = clockAxes,
-                    UaFamily = visitor?.UaFamily ?? model.UaFamily,
-                    CountryCode = visitor?.CountryCode ?? model.CountryCode,
-                };
+                    var sessionVector = SqliteSessionStore.DeserializeVector(encodedVector);
+                    var clockAxes = ClockAxesResolver.FromSessionVector(sessionVector);
+                    if (clockAxes is not null)
+                    {
+                        model = model with { ClockAxes = clockAxes };
+                    }
+                }
+            }
+            catch
+            {
+                // Session store lookup is best-effort. Falling through with ClockAxes
+                // null is preferable to surfacing a partial-data outage on the home
+                // page -- the radar degrades to empty axes rather than a stale shape.
             }
         }
 

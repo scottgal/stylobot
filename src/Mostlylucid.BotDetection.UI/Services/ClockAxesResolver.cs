@@ -1,29 +1,58 @@
+using Mostlylucid.BotDetection.Analysis;
+
 namespace Mostlylucid.BotDetection.UI.Services;
 
 /// <summary>
 ///     Single source of truth for the 12-axis behavioural clock projection
-///     rendered as the radar in both the marketing-site Your Detection card
-///     and the dashboard signature detail page.
-///
+///     rendered by both the marketing-site Your Detection card and the
+///     dashboard signature detail / behavioral evolution surfaces.
 ///     <para>
-///     The 16-dim <c>RadarShape</c> emitted by detection (axes per
-///     <see cref="Mostlylucid.BotDetection.Analysis.RadarDimensions"/>) is
-///     folded into the 8 semantic detector hours and combined with the
-///     4 Markov request-class hours by <see cref="ClockProjection.Compose12Axes"/>.
-///     Both surfaces call <see cref="FromRadarShape"/> so the radar
-///     visualisation is identical -- previously each had its own
-///     inline projection and they drifted apart producing a glaring
-///     "different shape for same visitor" bug.
+///     <see cref="FromSessionVector"/> is the canonical entry point -- it
+///     composes the 8 semantic detector axes from
+///     <see cref="VectorRadarProjection.Project"/> and the 4 Markov
+///     request-class axes from <see cref="ClockProjection.ProjectMarkovTo4Axes"/>
+///     and hands them to <see cref="ClockProjection.Compose12Axes"/>. The
+///     dashboard sessions API and the marketing card both go through this
+///     helper so the radar polygon for one visitor is byte-identical
+///     across surfaces.
+///     </para>
+///     <para>
+///     <see cref="FromRadarShape"/> is the lower-resolution fallback for
+///     surfaces that only have the 16-dim <c>RadarShape</c> (e.g. a
+///     dashboard widget that hasn't been given the underlying session
+///     vector). It folds the 16-dim vector into the 8 semantic axes and
+///     leaves the Markov hours at zero -- still goes through the same
+///     <see cref="ClockProjection.Compose12Axes"/> output so the chart
+///     reads consistently with the higher-resolution path.
 ///     </para>
 /// </summary>
 public static class ClockAxesResolver
 {
     /// <summary>
-    ///     Project a 16-dim <c>RadarShape</c> into the 12-axis clock layout.
-    ///     Returns null when the input isn't a 16-element vector -- the
-    ///     view layer should render an empty radar in that case rather
-    ///     than synthesise something else (which is what caused the two
-    ///     surfaces to disagree).
+    ///     Canonical 12-axis clock projection from a 129-dim
+    ///     <see cref="SessionVectorizer"/> session vector. Returns null
+    ///     when the input is shorter than 118 dims (the minimum that
+    ///     <see cref="VectorRadarProjection.Project"/> requires).
+    /// </summary>
+    public static double[]? FromSessionVector(float[]? sessionVector)
+    {
+        if (sessionVector is not { Length: >= 118 }) return null;
+
+        var semantic8 = VectorRadarProjection.Project(sessionVector);
+        if (semantic8 is null) return null;
+
+        var stateFreqs = SliceStateFreqs(sessionVector);
+        var markov4 = ClockProjection.ProjectMarkovTo4Axes(stateFreqs);
+
+        return ClockProjection.Compose12Axes(semantic8, markov4);
+    }
+
+    /// <summary>
+    ///     Fallback projection from a 16-dim <c>RadarShape</c>. Use this
+    ///     when the consumer only has the cached radar shape (e.g. live
+    ///     visitor cards that haven't yet been backed by a finalised
+    ///     session vector). Markov hours stay at the origin -- the 8
+    ///     semantic detector hours carry the visible signal.
     /// </summary>
     public static double[]? FromRadarShape(float[]? shape16)
     {
@@ -34,11 +63,24 @@ public static class ClockAxesResolver
     }
 
     /// <summary>
-    ///     Folds the 16-dim RadarDimensions vector into the 8 semantic detector
-    ///     axes the clock projection consumes (Browsing, API, Scan/Probe, Auth,
-    ///     Timing, Burst, Fingerprint, Path Diversity). Identical mapping to the
-    ///     inline helper that used to live in StyloBotDashboardMiddleware --
-    ///     hoisted here so the two surfaces can never drift again.
+    ///     State frequencies live at positions [100..109] of the
+    ///     <see cref="SessionVectorizer"/> output. Identical extraction
+    ///     to the helper that used to live inline in
+    ///     <c>ServeSignatureSessionsApiAsync</c> -- hoisted so callers
+    ///     can't drift.
+    /// </summary>
+    private static float[] SliceStateFreqs(float[] vector)
+    {
+        var sf = new float[10];
+        if (vector.Length >= 110)
+            Array.Copy(vector, 100, sf, 0, 10);
+        return sf;
+    }
+
+    /// <summary>
+    ///     Folds a 16-dim RadarDimensions vector into the 8 semantic detector
+    ///     axes the clock projection consumes. Mapping matches what the
+    ///     dashboard middleware used to do inline.
     /// </summary>
     private static double[] ProjectShape16ToSemantic8(float[] shape16)
     {
