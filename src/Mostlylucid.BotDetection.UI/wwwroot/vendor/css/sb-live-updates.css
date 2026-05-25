@@ -1,0 +1,19 @@
+/*
+ * Live-updates widget styles. Loaded by <sb-live-updates /> via a <link>
+ * referencing the static web asset -- never inlined into a <style> tag.
+ *
+ * contain: layout style scopes layout / paint invalidation to each widget
+ * so a row-height change in one widget cannot cascade reflow up through
+ * its ancestors.
+ *
+ * view-transition-name: none opts every widget out of the browser's view-
+ * transition API. The earlier opt-IN with a 160ms cross-fade was perceived
+ * by operators as a flash on every SignalR beacon (multiple per second);
+ * the right pattern is the two-region contract -- chrome stays put, only
+ * the [data-sb-data-region] inner container innerHTML-swaps, and there is
+ * nothing to cross-fade.
+ */
+[data-sb-widget] {
+    contain: layout style;
+    view-transition-name: none;
+}
