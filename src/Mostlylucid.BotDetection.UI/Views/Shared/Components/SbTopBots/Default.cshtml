@@ -213,7 +213,15 @@
                             var confMeter  = new ConfidenceMeterModel(bot.Confidence, bot.BotProbability >= 0.5, bot.BotProbability);
                             var flag       = new CountryFlagModel(bot.CountryCode, bot.CountryCode);
                             var timeAgo    = new TimeAgoModel(bot.LastSeen, bot.TimeAgo);
-                            <tr class="hover:bg-base-300/50 cursor-pointer transition-colors">
+                            @* Idiomorph keys rows by `id` -- without a stable key it falls
+                               back to positional diffing and treats a reordered row
+                               (sort=lastseen DESC pushes new hits to the top, shifts old
+                               rows down) as "different content at this position", which
+                               triggers a per-row replace and is what the operator sees
+                               as flicker. Keying by signature lets morph track the row
+                               across position changes and only mutate the cells whose
+                               data actually shifted. *@
+                            <tr id="sb-row-@(Model.WidgetId)-@bot.PrimarySignature" class="hover:bg-base-300/50 cursor-pointer transition-colors">
                                 <td class="py-1 w-6">
                                     <a href="@navBp/signature/@Uri.EscapeDataString(bot.PrimarySignature)" class="block">
                                         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_CountryFlag.cshtml", flag)
