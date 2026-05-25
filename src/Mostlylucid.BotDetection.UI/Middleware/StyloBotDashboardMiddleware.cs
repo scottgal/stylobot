@@ -5020,18 +5020,10 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                     BasePath = _options.BasePath.TrimEnd('/')
                 };
 
-            // 12-axis clock for the Your Detection mini-radar. Live visitors don't yet
-            // have an aggregated session vector (no state-freq slice), so the 4 Markov
-            // hours just sit at the origin -- the 8 semantic detector hours carry the
-            // 'who are you' signal.
-            double[]? clockAxes = null;
-            if (visitor.RadarShape is { Length: 16 } rs)
-            {
-                var semantic8 = ProjectDetectionRadarTo8Axes(rs);
-                clockAxes = Mostlylucid.BotDetection.UI.Services.ClockProjection.Compose12Axes(
-                    semantic8,
-                    new double[] { 0, 0, 0, 0 });
-            }
+            // 12-axis clock for the Your Detection mini-radar -- single source via
+            // ClockAxesResolver so the marketing-site card and this dashboard
+            // surface render the same vector for the same visitor.
+            var clockAxes = Mostlylucid.BotDetection.UI.Services.ClockAxesResolver.FromRadarShape(visitor.RadarShape);
 
             return new YourDetectionModel
             {
