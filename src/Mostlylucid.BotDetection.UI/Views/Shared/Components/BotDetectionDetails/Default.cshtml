@@ -84,6 +84,13 @@
         ? $"/dashboard/signature/{Uri.EscapeDataString(primarySig)}"
         : null;
 }
+@{
+    var __diag = Model.RawSignals?.TryGetValue("__yourDetectionDiag", out var __dv) == true ? __dv?.ToString() : null;
+}
+@if (!string.IsNullOrEmpty(__diag))
+{
+    <!-- yourDetection-diag: @__diag -->
+}
 <div class="bot-detection-container" data-sb-widget="your-detection">
     @* Whole upper card is one anchor to /dashboard/signature/<primary> -- visitor
        clicks anywhere on the LIVE header, radar, verdict, or reasons block and
