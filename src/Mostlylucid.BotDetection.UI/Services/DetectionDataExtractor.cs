@@ -331,12 +331,17 @@ public class DetectionDataExtractor
     {
         var availableFactors = new List<string>();
 
-        var primary = Truncate(signatures.GetValueOrDefault("primary"));
-        var ip = Truncate(signatures.GetValueOrDefault("ip"));
-        var ua = Truncate(signatures.GetValueOrDefault("ua"));
-        var clientSide = Truncate(signatures.GetValueOrDefault("clientSide"));
-        var plugin = Truncate(signatures.GetValueOrDefault("plugin"));
-        var ipSubnet = Truncate(signatures.GetValueOrDefault("ipSubnet"));
+        // Carry the FULL hash through to the model -- truncation was the cause of
+        // broken /dashboard/signature/<sig>... URLs in the YourDetection card. View
+        // layers that need a short display label apply `[..N]` themselves; the model
+        // is the source of truth and must keep the full bytes so drill-through links
+        // resolve to real signature pages.
+        var primary    = NullIfEmpty(signatures.GetValueOrDefault("primary"));
+        var ip         = NullIfEmpty(signatures.GetValueOrDefault("ip"));
+        var ua         = NullIfEmpty(signatures.GetValueOrDefault("ua"));
+        var clientSide = NullIfEmpty(signatures.GetValueOrDefault("clientSide"));
+        var plugin     = NullIfEmpty(signatures.GetValueOrDefault("plugin"));
+        var ipSubnet   = NullIfEmpty(signatures.GetValueOrDefault("ipSubnet"));
 
         if (!string.IsNullOrEmpty(primary)) availableFactors.Add("Primary (IP+UA)");
         if (!string.IsNullOrEmpty(ip)) availableFactors.Add("IP");
@@ -380,8 +385,7 @@ public class DetectionDataExtractor
         };
     }
 
-    private static string? Truncate(string? s) =>
-        string.IsNullOrEmpty(s) ? null : s.Length > 12 ? s[..12] + "..." : s;
+    private static string? NullIfEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
 
     private static string? GetHeaderValue(IHeaderDictionary headers, string key) =>
         headers.TryGetValue(key, out var value) ? value.ToString() : null;
