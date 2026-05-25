@@ -15,12 +15,17 @@
     var filled = (int)System.Math.Ceiling(c * 5);
     var pct = (c * 100).ToString("F0");
 
+    // Confidence is the ONLY axis that inverts the palette: high = green (we
+    // know what to do), low = red (we don't know, the recommendation should
+    // gate on this). The other three axes (BOT %, RISK, THREAT) read red-high
+    // because they answer "how concerning" -- confidence answers "how sure",
+    // and high sureness is the desirable state.
     var filledColor = c switch
     {
-        >= 0.80 => "var(--color-error,   #ef4444)",
-        >= 0.55 => "var(--color-warning, #f59e0b)",
-        >= 0.30 => "var(--color-info,    #38bdf8)",
-        _       => "rgba(148,163,184,0.55)"
+        >= 0.80 => "var(--color-success, #22c55e)",
+        >= 0.55 => "var(--color-info,    #38bdf8)",
+        >= 0.30 => "var(--color-warning, #f59e0b)",
+        _       => "var(--color-error,   #ef4444)"
     };
     var label = c switch
     {
