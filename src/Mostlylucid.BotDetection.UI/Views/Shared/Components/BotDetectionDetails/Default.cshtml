@@ -24,10 +24,11 @@
 
     // 12-axis clock labels match ClockProjection.Compose12Axes order, so the marketing
     // radar reads identically to the dashboard's behavioural-evolution panel.
+    // Grouped quadrants: Footprint (12-2), Surface (3-5), Cadence (6-8), Signal (9-11).
     string[] clockLabels =
     [
-        "Browsing","API","Asset","Realtime","Form","Auth",
-        "Burst","Timing","Path","404","Scan","FP"
+        "Browsing","Path","Asset","Realtime","Form","API",
+        "Auth","Burst","Timing","404","Scan","FP"
     ];
 
     // The radar projects from the visitor's persisted session vector via the

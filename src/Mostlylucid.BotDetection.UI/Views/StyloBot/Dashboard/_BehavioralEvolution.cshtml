@@ -67,18 +67,18 @@
         {
                 ("Footprint", new[] {
                     (12, "Browsing", "semantic"),
-                    ( 1, "API Activity", "semantic"),
+                    ( 1, "Path Diversity", "semantic"),
                     ( 2, "Asset Share", "markov")
                 }),
                 ("Surface", new[] {
                     ( 3, "Realtime Share", "markov"),
                     ( 4, "Form / Search", "markov"),
-                    ( 5, "Auth Pressure", "semantic")
+                    ( 5, "API Activity", "semantic")
                 }),
                 ("Cadence", new[] {
-                    ( 6, "Burst Speed", "semantic"),
-                    ( 7, "Timing", "semantic"),
-                    ( 8, "Path Diversity", "semantic")
+                    ( 6, "Auth Pressure", "semantic"),
+                    ( 7, "Burst Speed", "semantic"),
+                    ( 8, "Timing", "semantic")
                 }),
                 ("Signal", new[] {
                     ( 9, "404 Share", "markov"),
@@ -133,9 +133,11 @@
     var playBtn   = root.querySelector('[data-evolution-play]');
     var metricsEl = root.querySelector('[data-evolution-metrics]');
 
+    // Grouped quadrants: Footprint (12-2), Surface (3-5), Cadence (6-8), Signal (9-11).
+    // Order matches ClockProjection.Compose12Axes.
     var axisLabels = [
-        'Browsing','API Activity','Asset','Realtime','Form/Search','Auth Pressure',
-        'Burst Speed','Timing','Path Diversity','404','Scan/Probe','Fingerprint'
+        'Browsing','Path Diversity','Asset','Realtime','Form/Search','API Activity',
+        'Auth Pressure','Burst Speed','Timing','404','Scan/Probe','Fingerprint'
     ];
 
     var allSessions = [];   // entire fetched list, newest first
