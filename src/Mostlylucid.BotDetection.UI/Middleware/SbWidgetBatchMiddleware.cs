@@ -330,7 +330,8 @@ public sealed class SbWidgetBatchMiddleware
             SortDir = sortDir,
             Page = page,
             PageSize = pageSize,
-            TotalCount = all.Count
+            TotalCount = all.Count,
+            AllowEndpointPinning = _options.EnableEndpointPinning,
         };
     }
 

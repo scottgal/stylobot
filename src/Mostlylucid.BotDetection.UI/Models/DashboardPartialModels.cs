@@ -180,6 +180,14 @@ public sealed record EndpointsListModel
     /// "Pin Endpoint" / honeypot management UI -- pinning is a paid feature
     /// and must never render or accept input in FOSS mode.</summary>
     public bool IsCommercial { get; init; }
+
+    /// <summary>Operator opted in to the "Pin Endpoint" admin UI via
+    /// <see cref="Configuration.StyloBotDashboardOptions.EnableEndpointPinning"/>.
+    /// Default false; only true when the dashboard host explicitly gates access
+    /// behind admin auth. The button + form render only when this AND
+    /// <see cref="IsCommercial"/> are true -- so the public marketing demo
+    /// (commercial-tier chrome, anonymous visitors) never sees a write button.</summary>
+    public bool AllowEndpointPinning { get; init; }
 }
 
 /// <summary>

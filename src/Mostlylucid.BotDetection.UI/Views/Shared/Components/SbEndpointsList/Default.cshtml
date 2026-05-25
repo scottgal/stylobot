@@ -24,7 +24,7 @@
             <h3 class="text-sm font-bold text-base-content">Endpoints</h3>
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "endpoints")
         </div>
-        @if (Model.IsCommercial)
+        @if (Model.IsCommercial && Model.AllowEndpointPinning)
         {
             <button class="btn btn-xs btn-ghost gap-1 text-base-content/60"
                     data-action="toggle-pin-form">
@@ -32,7 +32,7 @@
             </button>
         }
     </div>
-    @if (Model.IsCommercial)
+    @if (Model.IsCommercial && Model.AllowEndpointPinning)
     {
         <div id="pin-endpoint-form" class="hidden mb-4 p-3 bg-base-200 rounded-lg">
             <form hx-post="@(bp)/api/endpoint-pins"

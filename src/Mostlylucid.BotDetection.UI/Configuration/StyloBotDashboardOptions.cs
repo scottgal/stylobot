@@ -111,6 +111,19 @@ public sealed class StyloBotDashboardOptions
     public int UserActiveCooldownMs { get; set; } = 3000;
 
     /// <summary>
+    ///     Exposes the "Pin Endpoint" admin UI on the Endpoints widget.
+    ///     Default <c>false</c> -- the button is a write operation
+    ///     (declares a new endpoint pin / honeypot marker against the live
+    ///     gateway) and must not appear on public-facing demo dashboards
+    ///     where anonymous visitors can see the surface. Set <c>true</c>
+    ///     only when the dashboard host gates access behind admin auth.
+    ///     Gating <see cref="EnableConfigEditing"/> alone is too broad --
+    ///     that flag also drives the policies tab and other read-mostly
+    ///     commercial chrome, which the public demo legitimately exposes.
+    /// </summary>
+    public bool EnableEndpointPinning { get; set; }
+
+    /// <summary>
     ///     Minimum interval between outbound SignalR invalidation broadcasts, in
     ///     milliseconds. At production traffic the detection pipeline fires many
     ///     events per second; without a constrainer the dashboard would receive a

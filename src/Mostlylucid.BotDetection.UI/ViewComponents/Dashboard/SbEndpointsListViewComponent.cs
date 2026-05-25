@@ -43,7 +43,8 @@ public class SbEndpointsListViewComponent(
             PageSize = pageSize,
             TotalCount = data.Count,
             BasePath = options.Value.BasePath.TrimEnd('/'),
-            IsCompact = compact
+            IsCompact = compact,
+            AllowEndpointPinning = options.Value.EnableEndpointPinning,
         });
     }
 

@@ -5231,7 +5231,8 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             Page = page,
             PageSize = pageSize,
             TotalCount = all.Count,
-            IsCommercial = IsCommercialMode(context)
+            IsCommercial = IsCommercialMode(context),
+            AllowEndpointPinning = _options.EnableEndpointPinning,
         };
     }
 
