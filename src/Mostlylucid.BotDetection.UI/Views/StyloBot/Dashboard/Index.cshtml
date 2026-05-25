@@ -194,6 +194,7 @@
             <a href="@TabUrl("endpoints")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("endpoints")">Endpoints</a>
             <a href="@TabUrl("sessions")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("sessions")">Sessions</a>
             <a href="@TabUrl("threats")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("threats")">Threats</a>
+            <a href="@TabUrl("policies")" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass("policies")">Policies</a>
             @foreach (var pack in Model.MonitoringPacks)
             {
                 <a href="@TabUrl(pack.Id)" class="px-3 py-1.5 text-xs font-medium rounded-md transition-all @TabClass(pack.Id)">@pack.TabName</a>
@@ -381,6 +382,10 @@
         else if (tab == "clusters")
         {
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_ClustersList.cshtml", Model.Clusters)
+        }
+        else if (tab == "policies")
+        {
+            <sb-policies-tab />
         }
         else if (tab == "threats")
         {

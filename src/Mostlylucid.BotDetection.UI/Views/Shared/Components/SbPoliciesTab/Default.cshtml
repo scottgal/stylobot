@@ -1,0 +1,198 @@
+@using Mostlylucid.BotDetection.EndpointPolicies
+@using Mostlylucid.BotDetection.RateLimiting
+@model PoliciesTabModel
+@{
+    string Expr(string? cmp) => string.IsNullOrEmpty(cmp) ? "*" : cmp;
+    string TypesLine(IReadOnlyList<string> values) => values.Count == 0 ? "*" : string.Join(", ", values);
+
+    string SubjectLine(RateLimitSubjectSpec spec)
+    {
+        var values = spec.Effective();
+        var v = values.Count == 1 ? values[0] : "[" + string.Join(", ", values) + "]";
+        return $"{spec.Type} = {v}";
+    }
+}
+<div id="policies-tab" data-sb-widget="policies" data-sb-depends="policies" class="space-y-4">
+
+    @* DETECTION POLICIES -- the post-detection four-axis matcher. *@
+    <div class="card bg-base-200">
+        <div class="card-body p-4">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                    <h3 class="text-sm font-bold text-base-content">Detection Policies</h3>
+                    <span class="text-[10px] text-base-content/40">
+                        Post-detection matcher (BotProbability, Confidence, Type, Threat)
+                    </span>
+                </div>
+                <span class="badge badge-xs badge-ghost">@Model.DetectionPolicies.Rules.Count rules</span>
+            </div>
+
+            @if (!Model.DetectionPolicies.Enabled)
+            {
+                <div class="alert alert-warning text-xs">
+                    Detection Policies are <strong>disabled</strong>
+                    (<code>BotDetection:DetectionPolicies:Enabled = false</code>). No rule in
+                    this section will fire until re-enabled.
+                </div>
+            }
+            else if (Model.DetectionPolicies.Rules.Count == 0)
+            {
+                <div class="text-xs text-base-content/40 py-6 text-center">
+                    No detection-policy rules declared. Add some under
+                    <code>BotDetection:DetectionPolicies:Rules</code> in appsettings.json
+                    or via <code>stylobot policy add</code>.
+                </div>
+            }
+            else
+            {
+                <div class="overflow-x-auto">
+                    <table class="table table-xs w-full">
+                        <thead>
+                            <tr class="text-[10px] uppercase tracking-wider text-base-content/40">
+                                <th class="py-1">Name</th>
+                                <th class="py-1">Method</th>
+                                <th class="py-1">Path</th>
+                                <th class="py-1">Bot %</th>
+                                <th class="py-1">Conf</th>
+                                <th class="py-1">Type</th>
+                                <th class="py-1">Threat</th>
+                                <th class="py-1">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (int i = 0; i < Model.DetectionPolicies.Rules.Count; i++)
+                            {
+                                var rule = Model.DetectionPolicies.Rules[i];
+                                <tr class="hover:bg-base-300/40">
+                                    <td class="py-1 text-xs font-semibold">@(rule.Name ?? $"(rule #{i + 1})")</td>
+                                    <td class="py-1 text-xs font-mono text-base-content/70">@(rule.Method ?? "*")</td>
+                                    <td class="py-1 text-xs font-mono text-base-content/70 max-w-[160px] truncate" title="@rule.Path">@(rule.Path ?? "*")</td>
+                                    <td class="py-1 text-xs font-mono">@Expr(rule.BotProbability)</td>
+                                    <td class="py-1 text-xs font-mono">@Expr(rule.Confidence)</td>
+                                    <td class="py-1 text-xs">@TypesLine(rule.EffectiveTypes())</td>
+                                    <td class="py-1 text-xs">@TypesLine(rule.EffectiveThreats())</td>
+                                    <td class="py-1 text-xs">
+                                        <span class="badge badge-xs badge-outline">@rule.Action</span>
+                                        @if (!string.IsNullOrEmpty(rule.Reason))
+                                        {
+                                            <div class="text-[10px] text-base-content/40 italic mt-0.5" title="@rule.Reason">@rule.Reason</div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+
+    @* RATE LIMITS -- global scope + per-endpoint scope. Domain/subdomain scopes
+       are commercial; FOSS renders the global + endpoint tree only. *@
+    <div class="card bg-base-200">
+        <div class="card-body p-4">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                    <h3 class="text-sm font-bold text-base-content">Rate Limits</h3>
+                    <span class="text-[10px] text-base-content/40">
+                        Token-bucket request rate + leaky-bucket data rate, by subject
+                    </span>
+                </div>
+                <span class="badge badge-xs badge-ghost">@(Model.RateLimitOptions.Limits.Count + Model.RateLimitOptions.Endpoints.Count) scopes</span>
+            </div>
+
+            @if (!Model.RateLimitOptions.Enabled)
+            {
+                <div class="alert alert-warning text-xs mb-3">
+                    Rate limits are <strong>disabled</strong>
+                    (<code>BotDetection:RateLimits:Enabled = false</code>).
+                </div>
+            }
+
+            <!-- Global scope -->
+            <div class="mb-4">
+                <div class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1">Global</div>
+                @if (Model.RateLimitOptions.Limits.Count == 0)
+                {
+                    <div class="text-xs text-base-content/40 italic">No global rate limits declared.</div>
+                }
+                else
+                {
+                    @foreach (var (ruleName, rule) in Model.RateLimitOptions.Limits)
+                    {
+                        <div class="bg-base-100 rounded-lg p-2 mb-2">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-xs font-semibold">@ruleName</span>
+                                <span class="badge badge-xs badge-outline">over-limit: @rule.OverLimitAction</span>
+                            </div>
+                            <div class="text-[10px] text-base-content/60">
+                                @rule.RequestRate.RequestsPerMinute req/min, burst @rule.RequestRate.BurstSize
+                                @if (rule.DataRate is { BytesPerSecond: > 0 } dr)
+                                {
+                                    <span class="ml-2">· @(dr.BytesPerSecond / 1024) KB/s</span>
+                                }
+                            </div>
+                            <div class="text-[10px] text-base-content/50 mt-1">
+                                Subjects:
+                                @if (rule.Subjects.Count == 0)
+                                {
+                                    <span class="italic">(none -- rule always matches)</span>
+                                }
+                                else
+                                {
+                                    @string.Join(" AND ", rule.Subjects.Select(SubjectLine))
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+
+            <!-- Endpoint scopes -->
+            @if (Model.RateLimitOptions.Endpoints.Count > 0)
+            {
+                <div class="mb-4">
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50 mb-1">Endpoints</div>
+                    @foreach (var (pathGlob, scope) in Model.RateLimitOptions.Endpoints)
+                    {
+                        <div class="bg-base-100 rounded-lg p-2 mb-2">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-xs font-semibold font-mono">@pathGlob</span>
+                                <span class="text-[10px] text-base-content/40">
+                                    @(scope.Inherit ? "inherits global" : "replaces global")
+                                </span>
+                            </div>
+                            @if (scope.Limits.Count == 0)
+                            {
+                                <div class="text-[10px] text-base-content/40 italic">No rules at this scope.</div>
+                            }
+                            else
+                            {
+                                @foreach (var (ruleName, rule) in scope.Limits)
+                                {
+                                    <div class="text-[10px] text-base-content/60 mb-0.5">
+                                        <span class="font-semibold">@ruleName</span>:
+                                        @rule.RequestRate.RequestsPerMinute req/min, burst @rule.RequestRate.BurstSize
+                                        · over-limit @rule.OverLimitAction
+                                    </div>
+                                }
+                            }
+                            @if (scope.Methods.Count > 0)
+                            {
+                                <div class="text-[10px] text-base-content/40 mt-1">
+                                    Method overrides: @string.Join(", ", scope.Methods.Keys)
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    @* Reference link to the spec docs so operators can read the rule shape. *@
+    <div class="text-[10px] text-base-content/40 text-center pb-2">
+        Rule shape: <code>docs/superpowers/specs/2026-05-25-detection-policy-grammar-design.md</code>
+        · Rate-limit shape: <code>docs/superpowers/specs/2026-05-25-rate-limit-core-design.md</code>
+    </div>
+</div>

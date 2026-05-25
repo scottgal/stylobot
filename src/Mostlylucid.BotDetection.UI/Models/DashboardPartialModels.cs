@@ -775,3 +775,17 @@ public sealed record IdentityListEntry
     /// <summary>EWMA-smoothed boundary-probing score 0..1 (task #42); high values flag adversarial probing.</summary>
     public double AmbiguityPersistence { get; init; }
 }
+
+/// <summary>
+///     Model for the /dashboard?tab=policies view. Aggregates the two policy
+///     surfaces (detection-policy rules with the four-axis matcher, rate-
+///     limit rules with composite subjects + scope inheritance) into a
+///     single read-only render so operators can see the entire rule set in
+///     one place.
+/// </summary>
+public sealed class PoliciesTabModel
+{
+    public required string BasePath { get; init; }
+    public required Mostlylucid.BotDetection.EndpointPolicies.DetectionPolicyOptions DetectionPolicies { get; init; }
+    public required Mostlylucid.BotDetection.RateLimiting.RateLimitOptions RateLimitOptions { get; init; }
+}
