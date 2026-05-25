@@ -1,29 +1,31 @@
 @using Mostlylucid.BotDetection.UI.Models.Primitives
 @model RiskBarModel
 @{
-    // Graphical-only segment bar. Number is intentionally absent -- the operator
-    // reads "how full" and "what colour" at a glance, the title attr carries the
-    // exact percent for anyone who needs the digit.
+    // Graphical-only segment bar. The fill count maps to the probability (1-5
+    // segments); the fill colour maps to the magnitude of that probability so
+    // the bar reads even when no active threat has fired -- a freshly seen
+    // Googlebot (Low/None threat) at 95% bot probability still gets a red bar,
+    // because the column answers "how confident is detection that this is a
+    // bot" first and "how dangerous" second (Threat owns that).
     //
-    // Earlier dimensions (8px x 6px squares with 2px gap) disappeared into the
-    // row -- the segments were technically present but unreadable at row height.
-    // 14px x 10px with 2px gap keeps the bar visible without taking the column
-    // hostage. Severity colours are inline rgba values (not Tailwind class
-    // modifiers like bg-base-content/15) so they paint regardless of which
-    // utilities the JIT scan picked up at build time.
+    // Inline rgba/CSS variables, not Tailwind class modifiers -- bg-base-content/15
+    // and friends were silently absent from the compiled tailwind.min.css bundle
+    // (JIT scan didn't pick them up at build time), so the previous version
+    // rendered the spans transparent and the column appeared empty.
     var p = System.Math.Clamp(Model.Probability, 0, 1);
     var filled = (int)System.Math.Ceiling(p * 5);
     var band = Model.Band ?? "None";
-    var filledColor = band switch
+    var filledColor = p switch
     {
-        "Critical" or "VeryHigh" or "High" => "var(--color-error,   #ef4444)",
-        "Elevated" or "Medium"             => "var(--color-warning, #f59e0b)",
-        "Low"                              => "var(--color-success, #22c55e)",
-        _                                  => "var(--color-base-content, #94a3b8)"
+        >= 0.80 => "var(--color-error,   #ef4444)",
+        >= 0.55 => "var(--color-warning, #f59e0b)",
+        >= 0.30 => "var(--color-info,    #38bdf8)",
+        >= 0.10 => "var(--color-success, #22c55e)",
+        _       => "rgba(148, 163, 184, 0.55)"
     };
-    const string emptyColor = "rgba(148, 163, 184, 0.25)";
+    const string emptyColor = "rgba(148, 163, 184, 0.18)";
     var pctText = (p * 100).ToString("F0") + "%";
-    var title = $"{band} -- {pctText} bot probability";
+    var title = $"{pctText} bot probability -- {band} threat band";
 }
 <span class="tooltip tooltip-left" data-tip="@title">
     <span class="inline-flex items-center" style="gap:2px;" aria-label="@title">
