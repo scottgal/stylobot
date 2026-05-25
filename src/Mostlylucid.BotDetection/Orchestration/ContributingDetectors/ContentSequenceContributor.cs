@@ -77,7 +77,11 @@ public class ContentSequenceContributor : ConfiguredContributorBase, IFoundation
     }
 
     public override string Name => "ContentSequence";
-    public override int Priority => Manifest?.Priority ?? 4;
+    // Wave 6 -- AFTER TransportProtocolContributor (wave 5) so RequestMarkovClassifier
+    // can read TransportIsSignalR / IsUpgrade / ProtocolClass. Previously wave 4, which
+    // ran before transport classification and misclassified SignalR negotiates as
+    // PageView. The sequence-tracking logic itself doesn't depend on wave 4 vs 6.
+    public override int Priority => Manifest?.Priority ?? 6;
 
     // No triggers — runs immediately in Wave 0
     public override IReadOnlyList<TriggerCondition> TriggerConditions => Array.Empty<TriggerCondition>();
@@ -98,6 +102,23 @@ public class ContentSequenceContributor : ConfiguredContributorBase, IFoundation
         BlackboardState state,
         CancellationToken cancellationToken = default)
     {
+        // Publish the Markov classification for the current request BEFORE any of
+        // the sequence-context logic short-circuits. The orchestrator's per-request
+        // persistence path (BlackboardOrchestrator.TryPersistRequest) reads this
+        // signal to write the markov_state column, and downstream consumers expect
+        // it on every request -- not just continuation requests with an active
+        // sequence. Idempotent: SessionVectorContributor at wave 30 may overwrite
+        // with the same value, which is fine.
+        try
+        {
+            var requestState = RequestMarkovClassifier.Classify(state);
+            state.WriteSignal(SignalKeys.SessionCurrentState, requestState.ToString());
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "ContentSequence: failed to classify+publish markov state");
+        }
+
         // Require a primary signature — without it, no session context is possible
         var signature = state.GetSignal<string>(SignalKeys.PrimarySignature);
         if (string.IsNullOrEmpty(signature))
