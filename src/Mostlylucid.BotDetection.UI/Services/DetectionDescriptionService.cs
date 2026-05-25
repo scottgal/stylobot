@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 using Mostlylucid.BotDetection.UI.Models;
 
@@ -30,6 +31,7 @@ Detection:
     private readonly IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> _hubContext;
     private readonly ILogger<DetectionDescriptionService> _logger;
     private readonly BotDetectionOptions _options;
+    private readonly StyloBotDashboardOptions _dashboardOptions;
     private readonly IServiceProvider _serviceProvider;
     private readonly SemaphoreSlim _throttle = new(2);
 
@@ -37,12 +39,14 @@ Detection:
         ILogger<DetectionDescriptionService> logger,
         IOptions<BotDetectionOptions> options,
         IHubContext<StyloBotDashboardHub, IStyloBotDashboardHub> hubContext,
-        IServiceProvider serviceProvider)
+        IServiceProvider serviceProvider,
+        IOptions<StyloBotDashboardOptions>? dashboardOptions = null)
     {
         _logger = logger;
         _options = options.Value;
         _hubContext = hubContext;
         _serviceProvider = serviceProvider;
+        _dashboardOptions = dashboardOptions?.Value ?? new StyloBotDashboardOptions();
     }
 
     public async Task GenerateAndBroadcastAsync(DashboardDetectionEvent detection, CancellationToken ct = default)
@@ -68,8 +72,9 @@ Detection:
             if (!string.IsNullOrWhiteSpace(description))
             {
                 detection.Description = description;
-                // Beacon-only: signal that signature data changed
-                await _hubContext.Clients.All.BroadcastInvalidation("signature");
+                // Beacon-only: signal that signature data changed. Through the
+                // constrainer so the dashboard's outbound 10s window applies.
+                SignalRBroadcastConstrainer.Queue(_hubContext, "signature", _dashboardOptions.BroadcastMinIntervalMs);
                 _logger.LogDebug("Broadcast description invalidation for {RequestId}", detection.RequestId);
             }
         }

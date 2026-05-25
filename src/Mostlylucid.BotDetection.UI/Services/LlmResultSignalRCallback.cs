@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Services;
+using Mostlylucid.BotDetection.UI.Configuration;
 using Mostlylucid.BotDetection.UI.Hubs;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -21,6 +23,7 @@ public class LlmResultSignalRCallback : ILlmResultCallback
     private readonly VisitorListCache _visitorCache;
     private readonly IDashboardEventStore _eventStore;
     private readonly SqliteFingerprintStore? _fingerprintStore;
+    private readonly StyloBotDashboardOptions _dashboardOptions;
     private readonly ILogger<LlmResultSignalRCallback> _logger;
 
     public LlmResultSignalRCallback(
@@ -29,7 +32,8 @@ public class LlmResultSignalRCallback : ILlmResultCallback
         SignatureAggregateCache signatureCache,
         VisitorListCache visitorCache,
         IDashboardEventStore eventStore,
-        SqliteFingerprintStore? fingerprintStore = null)
+        SqliteFingerprintStore? fingerprintStore = null,
+        IOptions<StyloBotDashboardOptions>? dashboardOptions = null)
     {
         _logger = logger;
         _hubContext = hubContext;
@@ -37,13 +41,16 @@ public class LlmResultSignalRCallback : ILlmResultCallback
         _visitorCache = visitorCache;
         _eventStore = eventStore;
         _fingerprintStore = fingerprintStore;
+        _dashboardOptions = dashboardOptions?.Value ?? new StyloBotDashboardOptions();
     }
 
-    public async Task OnLlmResultAsync(string requestId, string primarySignature, string description, CancellationToken ct = default)
+    public Task OnLlmResultAsync(string requestId, string primarySignature, string description, CancellationToken ct = default)
     {
-        // Beacon-only: signal that signature data changed, clients re-fetch via HTMX
-        await _hubContext.Clients.All.BroadcastInvalidation("signature");
+        // Beacon-only: signal that signature data changed, clients re-fetch via HTMX.
+        // Through the constrainer so the dashboard's outbound 10s window applies.
+        SignalRBroadcastConstrainer.Queue(_hubContext, "signature", _dashboardOptions.BroadcastMinIntervalMs);
         _logger.LogDebug("Broadcast LLM description invalidation for {RequestId}", requestId);
+        return Task.CompletedTask;
     }
 
     public async Task OnSignatureDescriptionAsync(string signature, string name, string description, CancellationToken ct = default)
@@ -68,14 +75,15 @@ public class LlmResultSignalRCallback : ILlmResultCallback
             }
         }
 
-        // Beacon-only: invalidate signature widgets + the specific signature
-        await _hubContext.Clients.All.BroadcastInvalidation("signature");
-        await _hubContext.Clients.All.BroadcastInvalidation(signature);
+        // Beacon-only: invalidate signature widgets + the specific signature.
+        // Through the constrainer so the dashboard's outbound 10s window applies.
+        SignalRBroadcastConstrainer.Queue(_hubContext, "signature", _dashboardOptions.BroadcastMinIntervalMs);
+        SignalRBroadcastConstrainer.Queue(_hubContext, signature,   _dashboardOptions.BroadcastMinIntervalMs);
         _logger.LogInformation("Applied LLM bot name for {Signature}: '{Name}'",
             signature[..Math.Min(8, signature.Length)], name);
     }
 
-    public async Task OnScoreNarrativeAsync(string signature, string narrative, CancellationToken ct = default)
+    public Task OnScoreNarrativeAsync(string signature, string narrative, CancellationToken ct = default)
     {
         // Write narrative to visitor cache
         var visitor = _visitorCache.Get(signature);
@@ -87,9 +95,11 @@ public class LlmResultSignalRCallback : ILlmResultCallback
             }
         }
 
-        // Beacon-only: invalidate the specific signature widget
-        await _hubContext.Clients.All.BroadcastInvalidation(signature);
+        // Beacon-only: invalidate the specific signature widget.
+        // Through the constrainer so the dashboard's outbound 10s window applies.
+        SignalRBroadcastConstrainer.Queue(_hubContext, signature, _dashboardOptions.BroadcastMinIntervalMs);
         _logger.LogDebug("Broadcast score narrative invalidation for {Signature}",
             signature[..Math.Min(8, signature.Length)]);
+        return Task.CompletedTask;
     }
 }

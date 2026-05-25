@@ -99,15 +99,17 @@ public class DashboardSummaryBroadcaster : BackgroundService
                     UserAgents = await userAgentsTask
                 });
 
-                // Send lightweight invalidation signals - the HTMX coordinator
-                // will fetch fresh server-rendered partials on demand.
-                // No need to serialize full data payloads over the wire.
-                await _hubContext.Clients.All.BroadcastInvalidation("summary");
-                await _hubContext.Clients.All.BroadcastInvalidation("countries");
-                await _hubContext.Clients.All.BroadcastInvalidation("endpoints");
-                await _hubContext.Clients.All.BroadcastInvalidation("signature");
-                await _hubContext.Clients.All.BroadcastInvalidation("useragents");
-                await _hubContext.Clients.All.BroadcastInvalidation("metrics");
+                // Send lightweight invalidation signals through the constrainer
+                // so all dashboard broadcasts share the same outbound 10s window
+                // -- direct hub.BroadcastInvalidation calls bypassed the rate cap
+                // and the client observed refresh gaps of ~3.6s under load even
+                // though every individual caller "obeyed" its own schedule.
+                SignalRBroadcastConstrainer.Queue(_hubContext, "summary",    _options.BroadcastMinIntervalMs);
+                SignalRBroadcastConstrainer.Queue(_hubContext, "countries",  _options.BroadcastMinIntervalMs);
+                SignalRBroadcastConstrainer.Queue(_hubContext, "endpoints",  _options.BroadcastMinIntervalMs);
+                SignalRBroadcastConstrainer.Queue(_hubContext, "signature",  _options.BroadcastMinIntervalMs);
+                SignalRBroadcastConstrainer.Queue(_hubContext, "useragents", _options.BroadcastMinIntervalMs);
+                SignalRBroadcastConstrainer.Queue(_hubContext, "metrics",    _options.BroadcastMinIntervalMs);
 
                 // Prune detections older than 7 days on each tick so storage stays bounded
                 // without requiring a process restart.
