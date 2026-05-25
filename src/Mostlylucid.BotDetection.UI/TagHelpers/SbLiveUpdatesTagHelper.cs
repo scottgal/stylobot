@@ -31,8 +31,9 @@ namespace Mostlylucid.BotDetection.UI.TagHelpers;
 [HtmlTargetElement("sb-live-updates", TagStructure = TagStructure.WithoutEndTag)]
 public class SbLiveUpdatesTagHelper : TagHelper
 {
-    private const string AssetCssPath = "/_content/Mostlylucid.BotDetection.UI/vendor/css/sb-live-updates.css";
-    private const string AssetJsPath  = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-live-updates.js";
+    private const string AssetCssPath       = "/_content/Mostlylucid.BotDetection.UI/vendor/css/sb-live-updates.css";
+    private const string AssetJsPath        = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-live-updates.js";
+    private const string IdiomorphScriptPath = "/_content/Mostlylucid.BotDetection.UI/vendor/js/idiomorph-ext.min.js";
 
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly StyloBotDashboardOptions? _options;
@@ -89,6 +90,13 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // transition opt-out rule. Inline <style> would force unsafe-inline in the
         // CSP; the <link> reference stays self-hosted and nonceable.
         output.Content.AppendHtml($@"<link rel=""stylesheet"" href=""{AssetCssPath}"" />");
+
+        // Idiomorph -- official htmx extension that swaps DOM in place via a morph
+        // algorithm (unchanged nodes are left alone, only deltas mutate). Combined
+        // with hx-swap-oob="morph:innerHTML" on the server-side OOB fragments this
+        // is the "mutate on update, don't replace" half of the live-updates design.
+        // Self-hosted from the package's vendor/js so no CDN dependency.
+        output.Content.AppendHtml($@"<script src=""{IdiomorphScriptPath}""{nonceAttr}></script>");
 
         if (ShowStatus)
         {

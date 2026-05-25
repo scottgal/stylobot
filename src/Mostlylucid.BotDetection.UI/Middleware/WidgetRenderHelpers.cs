@@ -50,9 +50,13 @@ internal static class WidgetRenderHelpers
     internal static string InjectOobAttribute(string html)
     {
         // Preferred path: a [data-sb-data-region] element exists in the chunk.
-        // Inject hx-swap-oob="innerHTML" on it so HTMX replaces ONLY the contents
-        // of the data region, leaving the widget chrome untouched. This is the
-        // structural fix for the "flickery resetting" SignalR refresh.
+        // Inject hx-swap-oob="morph:innerHTML" on it so Idiomorph (the official
+        // htmx morph extension, loaded via SbLiveUpdates) mutates the data
+        // region's children in place -- unchanged rows are left untouched,
+        // only the deltas mutate. Rows the operator's cursor is over, links
+        // they're about to click, and any focused / hovered DOM nodes survive
+        // a beacon. This replaces the previous innerHTML wholesale-replace
+        // which tore down and rebuilt every row on every signal.
         var regionMatch = DataRegionTagRegex.Match(html);
         if (regionMatch.Success)
         {
@@ -60,21 +64,20 @@ internal static class WidgetRenderHelpers
                 return html;
 
             return html[..(regionMatch.Index + regionMatch.Groups[1].Length)]
-                   + " hx-swap-oob=\"innerHTML\""
+                   + " hx-swap-oob=\"morph:innerHTML\""
                    + html[(regionMatch.Index + regionMatch.Groups[1].Length)..];
         }
 
-        // Legacy fallback: no data region marked. Inject the old outerHTML OOB on the
-        // root. Kept so partials not yet migrated to the two-region contract keep
-        // working. The widget will continue to flicker on update -- a deliberate
-        // signal that the partial needs migration.
+        // Fallback: no data region marked. Morph the whole widget element in
+        // place. Same morph algorithm, applied to the root rather than its
+        // children -- unchanged subtrees still go untouched, no flicker.
         var rootMatch = FirstTagRegex.Match(html);
         if (!rootMatch.Success) return html;
         if (rootMatch.Value.Contains("hx-swap-oob", StringComparison.Ordinal)) return html;
 
         return html[..rootMatch.Groups[1].Index]
                + rootMatch.Groups[1].Value
-               + " hx-swap-oob=\"true\""
+               + " hx-swap-oob=\"morph:outerHTML\""
                + rootMatch.Groups[2].Value
                + html[(rootMatch.Index + rootMatch.Length)..];
     }

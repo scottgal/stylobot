@@ -4749,7 +4749,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 }}
 </style>
 </head>
-<body>
+<body hx-ext=""morph"">
 {navbarHtml}
 <div class=""max-w-7xl mx-auto px-4 py-1.5 text-[10px] text-base-content/40 flex items-center justify-between"">
   <div>
@@ -4826,7 +4826,7 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
 body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-height: 100vh; }}
 </style>
 </head>
-<body>
+<body hx-ext=""morph"">
 {navbarHtml}
 <div class=""max-w-7xl mx-auto px-4 py-1.5 text-[10px] text-base-content/40 flex items-center justify-between"">
   <div>

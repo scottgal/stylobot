@@ -267,14 +267,10 @@
         .then(function () { setStatus('connected'); })
         .catch(function () { setStatus('disconnected'); });
 
-    if (REFRESH_MS > 0) {
-        setInterval(function () {
-            document.querySelectorAll('[data-sb-widget]').forEach(function (el) {
-                var wid = el.getAttribute('data-sb-widget');
-                if (wid) pending[wid] = true;
-            });
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(flush, DEBOUNCE_MS);
-        }, REFRESH_MS);
-    }
+    // SignalR is push-only. No setInterval-based forced refresh -- the design
+    // is that nothing happens to widgets except in response to a beacon, and
+    // the morph swap means even a beacon only mutates rows whose data actually
+    // changed. REFRESH_MS is kept as a configuration knob for back-compat but
+    // is intentionally not consumed.
+    void REFRESH_MS;
 })();
