@@ -133,9 +133,8 @@
                         _        => "rgba(148,163,184,0.7)"
                     };
                     <tr class="hover:bg-base-200/50 transition-colors cursor-pointer"
-                        hx-get="@bp/partials/endpoint-detail?method=@Uri.EscapeDataString(endpoint.Method)&path=@Uri.EscapeDataString(endpoint.Path)"
-                        hx-target="#endpoint-detail-panel"
-                        hx-swap="innerHTML transition:true">
+                        data-href="@bp/endpoint?method=@Uri.EscapeDataString(endpoint.Method)&path=@Uri.EscapeDataString(endpoint.Path)"
+                        title="Open @endpoint.Method @endpoint.Path detail">
                         <td class="py-1 text-[10px] font-bold" style="color: @methodColor;">@endpoint.Method</td>
                         <td class="py-1 text-xs font-medium max-w-[280px] truncate" title="@endpoint.Path">
                             @if (endpoint.IsPinned)

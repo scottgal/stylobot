@@ -23,6 +23,7 @@
         _          => ("bxs-shield",       "rgba(148, 163, 184, 0.55)",     "None",     "No hostile signals (honeypot, CVE, etc.) fired")
     };
 }
-<span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="Threat: @label -- @tip">
+@{ var fullTip = $"Threat: {label} -- {tip}"; }
+<span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="@fullTip" title="@fullTip">
     <i class="bx @icon text-lg" style="color: @color;" aria-label="Threat: @label"></i>
 </span>

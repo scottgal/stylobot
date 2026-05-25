@@ -27,7 +27,7 @@
     var pctText = (p * 100).ToString("F0") + "%";
     var title = $"{pctText} bot probability -- {band} threat band";
 }
-<span class="tooltip tooltip-left" data-tip="@title">
+<span class="tooltip tooltip-left" data-tip="@title" title="@title">
     <span class="inline-flex items-center" style="gap:2px;" aria-label="@title">
     @for (int i = 0; i < 5; i++)
     {
