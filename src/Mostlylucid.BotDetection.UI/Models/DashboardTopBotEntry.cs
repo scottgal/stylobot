@@ -27,6 +27,15 @@ public sealed record DashboardTopBotEntry
     public string? ThreatBand { get; init; }
 
     /// <summary>
+    ///     Resolved UA family name (Chrome, Firefox, curl, etc.) from the
+    ///     UaProfileStore. Used as a fallback identity label when neither
+    ///     <see cref="BotName"/> nor a real <see cref="BotType"/> resolved --
+    ///     a real signal we already extract during detection, not a
+    ///     hash-derived invention.
+    /// </summary>
+    public string? UaFamily { get; init; }
+
+    /// <summary>
     ///     60-bucket per-minute hit count, oldest-first (index 0 = 59 minutes ago,
     ///     index 59 = current minute). Empty array when the ring buffer has no
     ///     observations yet. Used by the _Sparkline primitive for SSR svg paths.

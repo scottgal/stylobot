@@ -101,7 +101,7 @@
                 <tbody id="visitor-rows" data-sb-data-region>
                     @foreach (var v in Model.Visitors)
                     {
-                        var displayName = SignatureDisplayName.Resolve(v.PrimarySignature, v.BotName, v.BotType, null, v.CountryCode, v.IsBot);
+                        var displayName = SignatureDisplayName.Resolve(v.PrimarySignature, v.BotName, v.BotType, null, v.CountryCode, v.IsBot, v.UaFamily);
                         var probPct = (v.BotProbability * 100).ToString("F0");
                         var probClass = v.RiskBand switch { "VeryHigh" or "High" => "text-error", "Medium" or "Elevated" => "text-warning", _ => "text-success" };
                         var riskBadge = v.RiskBand switch { "VeryHigh" => "badge-error", "High" => "badge-error", "Medium" => "badge-warning", "Elevated" => "badge-warning", "Low" => "badge-success", _ => "badge-ghost" };

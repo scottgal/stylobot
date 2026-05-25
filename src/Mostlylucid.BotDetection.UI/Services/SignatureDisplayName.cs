@@ -18,8 +18,14 @@ public static class SignatureDisplayName
     ///     2. Detected <paramref name="botName"/> (e.g. "Googlebot", "GPTBot").
     ///     3. Detected <paramref name="botType"/> (e.g. "Scraper") when not the
     ///        useless "Unknown"/"Tool"/"Other" sentinels.
-    ///     4. The first 8 characters of <paramref name="signature"/> -- a real
-    ///        signal the operator can copy/paste, not an invented label.
+    ///     4. <paramref name="uaFamily"/> when present, prefixed with "Bot · "
+    ///        when <paramref name="isBot"/> is true so an unidentified bot
+    ///        running Chrome reads "Bot · Chrome" and an unidentified human
+    ///        running Chrome reads "Chrome". The UA family is a real signal
+    ///        the detector pipeline already extracts -- no invention.
+    ///     5. The first 8 characters of <paramref name="signature"/> -- the
+    ///        real hash prefix when nothing else is known. Operators can grep
+    ///        the same row in logs or the database without us making up a name.
     ///     Never returns null and never returns a hallucinated label.
     /// </summary>
     public static string Resolve(
@@ -28,14 +34,21 @@ public static class SignatureDisplayName
         string? botType,
         string? customLabel,
         string? countryCode,
-        bool isBot)
+        bool isBot,
+        string? uaFamily = null)
     {
         if (!string.IsNullOrWhiteSpace(customLabel)) return customLabel.Trim();
         if (!string.IsNullOrWhiteSpace(botName))     return botName.Trim();
         if (!string.IsNullOrWhiteSpace(botType) && !IsUselessBotType(botType))
             return botType.Trim();
 
-        return ShortHash(signature);
+        if (!string.IsNullOrWhiteSpace(uaFamily))
+        {
+            var fam = uaFamily.Trim();
+            return isBot ? $"Bot · {fam}" : fam;
+        }
+
+        return isBot ? $"Bot · {ShortHash(signature)}" : ShortHash(signature);
     }
 
     /// <summary>
