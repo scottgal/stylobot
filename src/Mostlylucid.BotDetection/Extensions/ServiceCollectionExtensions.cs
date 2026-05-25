@@ -272,6 +272,17 @@ public static class ServiceCollectionExtensions
     /// </summary>
     private static void RegisterCoreServices(IServiceCollection services)
     {
+        // Rate-limiting primitives -- in-memory token bucket + leaky-bucket data
+        // stream. Commercial replaces IRateLimitStateStore with a Redis-backed
+        // implementation via TryAdd so a multi-gateway cluster shares budgets.
+        // The high-level limiter and data-rate wrapper stay FOSS regardless.
+        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimiting.IRateLimitStateStore,
+                                  Mostlylucid.BotDetection.RateLimiting.MemoryRateLimitStateStore>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimiting.IRateLimiter,
+                                  Mostlylucid.BotDetection.RateLimiting.MemoryRateLimiter>();
+        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimiting.IDataRateLimiter,
+                                  Mostlylucid.BotDetection.RateLimiting.MemoryDataRateLimiter>();
+
         // Add HttpClient factory for bot list fetching
         services.AddHttpClient();
 
