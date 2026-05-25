@@ -246,6 +246,17 @@
 
     function flush() {
         if (isPaused()) { pending = {}; return; }
+        // Belt-and-braces: even if a setTimeout fires before its calculated
+        // grace-bounded delay (clock-skew, tab-throttling, debugger pauses)
+        // refuse to flush during the startup grace window. Re-schedule the
+        // flush to fire exactly when the grace window closes; the pending
+        // set is preserved so no signals are lost.
+        if (inStartupGrace()) {
+            var remaining = STARTUP_GRACE_MS - (Date.now() - loadedAt);
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(flush, Math.max(50, remaining));
+            return;
+        }
         var ids = Object.keys(pending).filter(function (id) {
             return !userActiveWidgets.has(id);
         });
