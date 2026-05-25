@@ -48,6 +48,10 @@ public class VisitorListCache
     /// </summary>
     public CachedVisitor Upsert(DashboardDetectionEvent detection)
     {
+        // Temporary diagnostic: trace UA arrival at Upsert. Will be removed once the
+        // Postgres user_agent_raw flow is verified end-to-end on staging.
+        Console.WriteLine($"[VLC.Upsert] sig={detection.PrimarySignature?[..Math.Min(8, detection.PrimarySignature?.Length ?? 0)]} userAgent={(string.IsNullOrEmpty(detection.UserAgent) ? "<null>" : detection.UserAgent[..Math.Min(40, detection.UserAgent.Length)])} userAgentRaw={(string.IsNullOrEmpty(detection.UserAgentRaw) ? "<null>" : detection.UserAgentRaw[..Math.Min(40, detection.UserAgentRaw.Length)])}");
+
         var sig = detection.PrimarySignature;
         if (string.IsNullOrEmpty(sig))
             sig = detection.RequestId;
