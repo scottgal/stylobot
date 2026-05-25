@@ -808,11 +808,17 @@
     font-weight: 600;
 }
 
-.detection-bar-action.action-allow { background: rgba(40, 167, 69, 0.2); color: #51cf66; border: 1px solid rgba(40, 167, 69, 0.4); }
-.detection-bar-action.action-monitor { background: rgba(23, 162, 184, 0.2); color: #17a2b8; border: 1px solid rgba(23, 162, 184, 0.4); }
-.detection-bar-action.action-throttle { background: rgba(255, 193, 7, 0.2); color: #ffc107; border: 1px solid rgba(255, 193, 7, 0.4); }
-.detection-bar-action.action-challenge { background: rgba(253, 126, 20, 0.2); color: #fd7e14; border: 1px solid rgba(253, 126, 20, 0.4); }
-.detection-bar-action.action-block { background: rgba(220, 53, 69, 0.2); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.4); }
+/* Action badges -- solid background, high-contrast text. The earlier
+   variant used a 20%-opacity tint with a saturated-but-light coloured
+   text, which read as "white on light cyan" against the dark dashboard
+   theme. The risk badges next to these always used solid backgrounds;
+   matching that contract here keeps the two indicators readable from
+   across the room. */
+.detection-bar-action.action-allow     { background: #28a745; color: #fff; }
+.detection-bar-action.action-monitor   { background: #17a2b8; color: #fff; }
+.detection-bar-action.action-throttle  { background: #ffc107; color: #1a1a2e; }
+.detection-bar-action.action-challenge { background: #fd7e14; color: #fff; }
+.detection-bar-action.action-block     { background: #dc3545; color: #fff; }
 
 .detection-bar-signal {
     flex: 1;

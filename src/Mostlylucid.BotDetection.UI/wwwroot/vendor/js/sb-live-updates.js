@@ -45,6 +45,20 @@
     var REFRESH_MS = parseInt(thisScript.dataset.refreshInterval, 10);
     if (isNaN(REFRESH_MS)) REFRESH_MS = 30000;
 
+    // Startup grace period: don't fire any client-side refresh in the first
+    // N milliseconds after page load even if SignalR delivers beacons during
+    // that window. The dashboard is freshly SSR-rendered; an immediate
+    // refresh tears down DOM nodes the operator's eye just locked onto.
+    // Matches the server-side broadcast cap so cold-start and steady-state
+    // share the same cadence -- one refresh every BroadcastMinIntervalMs
+    // (default 10s), no exceptions.
+    var STARTUP_GRACE_MS = parseInt(thisScript.dataset.startupGrace, 10);
+    if (!(STARTUP_GRACE_MS > 0)) STARTUP_GRACE_MS = 10000;
+    var loadedAt = Date.now();
+    function inStartupGrace() {
+        return (Date.now() - loadedAt) < STARTUP_GRACE_MS;
+    }
+
     // ----- Live-updates pause toggle ------------------------------------
     // localStorage key: 'sb:live-updates' = 'live' (default) | 'paused'.
     // When paused, the coordinator refuses to fire any flush and stays
@@ -220,7 +234,14 @@
         var widgets = widgetMap[signal] || [];
         widgets.forEach(function (w) { pending[w] = true; });
         clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(flush, DEBOUNCE_MS);
+        // During the startup grace window, hold all queued invalidations
+        // and fire them in one batch when the window closes -- so the
+        // first flush is at most STARTUP_GRACE_MS after page load,
+        // regardless of how many beacons arrive in the interim.
+        var delay = inStartupGrace()
+            ? Math.max(DEBOUNCE_MS, STARTUP_GRACE_MS - (Date.now() - loadedAt))
+            : DEBOUNCE_MS;
+        debounceTimer = setTimeout(flush, delay);
     }
 
     function flush() {
