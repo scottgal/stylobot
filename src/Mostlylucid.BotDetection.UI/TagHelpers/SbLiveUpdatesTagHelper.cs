@@ -35,6 +35,13 @@ public class SbLiveUpdatesTagHelper : TagHelper
     private const string AssetJsPath        = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-live-updates.js";
     private const string IdiomorphScriptPath = "/_content/Mostlylucid.BotDetection.UI/vendor/js/idiomorph-ext.min.js";
 
+    // Module Version Id changes every build, so appending it as a query string
+    // forces CDNs and browser caches to fetch the new asset after a deploy.
+    // Without this, Cloudflare's max-age=14400 default served a 4-hour-old JS
+    // to clients after a deploy, silently bypassing newly-shipped fixes.
+    private static readonly string AssetVersion =
+        typeof(SbLiveUpdatesTagHelper).Assembly.ManifestModule.ModuleVersionId.ToString("N").Substring(0, 12);
+
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly StyloBotDashboardOptions? _options;
 
@@ -89,14 +96,14 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // Vendored stylesheet -- contains the [data-sb-widget] containment + view-
         // transition opt-out rule. Inline <style> would force unsafe-inline in the
         // CSP; the <link> reference stays self-hosted and nonceable.
-        output.Content.AppendHtml($@"<link rel=""stylesheet"" href=""{AssetCssPath}"" />");
+        output.Content.AppendHtml($@"<link rel=""stylesheet"" href=""{AssetCssPath}?v={AssetVersion}"" />");
 
         // Idiomorph -- official htmx extension that swaps DOM in place via a morph
         // algorithm (unchanged nodes are left alone, only deltas mutate). Combined
         // with hx-swap-oob="morph:innerHTML" on the server-side OOB fragments this
         // is the "mutate on update, don't replace" half of the live-updates design.
         // Self-hosted from the package's vendor/js so no CDN dependency.
-        output.Content.AppendHtml($@"<script src=""{IdiomorphScriptPath}""{nonceAttr}></script>");
+        output.Content.AppendHtml($@"<script src=""{IdiomorphScriptPath}?v={AssetVersion}""{nonceAttr}></script>");
 
         if (ShowStatus)
         {
@@ -128,7 +135,7 @@ public class SbLiveUpdatesTagHelper : TagHelper
         var basePathAttr = System.Web.HttpUtility.HtmlAttributeEncode(basePath);
         var hubUrlAttr   = System.Web.HttpUtility.HtmlAttributeEncode(hubUrl);
         output.Content.AppendHtml(
-            $@"<script src=""{AssetJsPath}""" +
+            $@"<script src=""{AssetJsPath}?v={AssetVersion}""" +
             $@" data-base-path=""{basePathAttr}""" +
             $@" data-hub-url=""{hubUrlAttr}""" +
             $@" data-debounce=""{DebounceMs}""" +
