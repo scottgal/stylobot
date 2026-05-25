@@ -17,3 +17,30 @@
     contain: layout style;
     view-transition-name: none;
 }
+
+/*
+ * Connection-state status dot. The coordinator (sb-live-updates.js) sets
+ * sb-connected / sb-disconnected / sb-connecting / sb-paused on the dot
+ * via setStatus(). The dashboard's CSS variables are reused so the dot
+ * picks up the active daisyUI theme's colours.
+ */
+.sb-connected    { background: var(--color-success, #22c55e); }
+.sb-disconnected { background: var(--color-error,   #ef4444); }
+.sb-connecting   { background: var(--color-warning, #f59e0b); animation: sb-status-pulse 1.5s infinite; }
+.sb-paused       { background: rgba(148, 163, 184, 0.55); }
+
+@keyframes sb-status-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+}
+
+/*
+ * Toggle button styles: clear visual difference between live and paused
+ * so the operator sees at a glance whether updates are flowing.
+ */
+#sb-live-toggle[data-state="paused"] {
+    background: rgba(148, 163, 184, 0.18);
+    color: var(--color-base-content);
+    opacity: 0.85;
+}
+#sb-live-toggle[data-state="live"]:hover { opacity: 1; }

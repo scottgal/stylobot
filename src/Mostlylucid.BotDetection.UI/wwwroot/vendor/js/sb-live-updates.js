@@ -45,6 +45,54 @@
     var REFRESH_MS = parseInt(thisScript.dataset.refreshInterval, 10);
     if (isNaN(REFRESH_MS)) REFRESH_MS = 30000;
 
+    // ----- Live-updates pause toggle ------------------------------------
+    // localStorage key: 'sb:live-updates' = 'live' (default) | 'paused'.
+    // When paused, the coordinator refuses to fire any flush and stays
+    // disconnected from the SignalR hub. Toggled by the <button id="sb-live-toggle">
+    // emitted by the SbLiveUpdates tag helper. State is per-browser and
+    // survives reloads -- the operator doesn't want to re-pause every navigation.
+    var LIVE_KEY = 'sb:live-updates';
+    function isPaused() {
+        try { return localStorage.getItem(LIVE_KEY) === 'paused'; }
+        catch (e) { return false; }
+    }
+    function setPaused(paused) {
+        try { localStorage.setItem(LIVE_KEY, paused ? 'paused' : 'live'); }
+        catch (e) { /* ignore quota / disabled storage */ }
+    }
+    var toggleBtn = document.getElementById('sb-live-toggle');
+    var toggleLabel = document.getElementById('sb-live-toggle-label');
+    function renderToggle() {
+        if (!toggleBtn) return;
+        var paused = isPaused();
+        toggleBtn.dataset.state = paused ? 'paused' : 'live';
+        toggleBtn.title = paused ? 'Live updates: paused (click to resume)'
+                                 : 'Live updates: on (click to pause)';
+        if (toggleLabel) toggleLabel.textContent = paused ? 'PAUSED' : 'LIVE';
+    }
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', function () {
+            var nowPaused = !isPaused();
+            setPaused(nowPaused);
+            renderToggle();
+            if (nowPaused) {
+                // Tear down the active SignalR connection so we're truly idle
+                // (no socket traffic, no heartbeats) until resumed.
+                try { connection && connection.stop && connection.stop(); }
+                catch (e) { /* ignore */ }
+                setStatus('paused');
+            } else {
+                // Resume: re-establish the SignalR connection.
+                try {
+                    connection && connection.start && connection.start()
+                        .then(function () { setStatus('connected'); })
+                        .catch(function () { setStatus('disconnected'); });
+                } catch (e) { setStatus('disconnected'); }
+            }
+        });
+    }
+    renderToggle();
+
     function getWidgetMap() {
         var map = {};
         document.querySelectorAll('[data-sb-widget]').forEach(function (el) {
@@ -167,6 +215,7 @@
     });
 
     function invalidate(signal) {
+        if (isPaused()) return;
         var widgetMap = getWidgetMap();
         var widgets = widgetMap[signal] || [];
         widgets.forEach(function (w) { pending[w] = true; });
@@ -175,6 +224,7 @@
     }
 
     function flush() {
+        if (isPaused()) { pending = {}; return; }
         var ids = Object.keys(pending).filter(function (id) {
             return !userActiveWidgets.has(id);
         });
@@ -263,9 +313,16 @@
     connection.onreconnected(function () { setStatus('connected'); });
     connection.onclose(function () { setStatus('disconnected'); });
 
-    connection.start()
-        .then(function () { setStatus('connected'); })
-        .catch(function () { setStatus('disconnected'); });
+    // Honour the live-updates toggle on first paint: if the operator left
+    // the dashboard in 'paused' state, do not auto-connect. The connection
+    // is established only when the toggle flips back to 'live'.
+    if (isPaused()) {
+        setStatus('paused');
+    } else {
+        connection.start()
+            .then(function () { setStatus('connected'); })
+            .catch(function () { setStatus('disconnected'); });
+    }
 
     // SignalR is push-only. No setInterval-based forced refresh -- the design
     // is that nothing happens to widgets except in response to a beacon, and

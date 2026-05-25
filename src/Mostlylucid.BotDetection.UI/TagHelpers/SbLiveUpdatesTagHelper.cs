@@ -100,9 +100,25 @@ public class SbLiveUpdatesTagHelper : TagHelper
 
         if (ShowStatus)
         {
+            // Live-updates toggle + status dot. The button is the operator's
+            // off-switch for the SignalR connection -- pressing it sets
+            // localStorage['sb:live-updates']='paused' and the coordinator
+            // (sb-live-updates.js) refuses to fire any flush until it's set
+            // back to 'live'. The status dot inside the button reflects the
+            // SignalR connection state (connected / connecting / disconnected
+            // / paused). Both the toggle and the status dot live in the same
+            // span so they sit together in the dashboard header without extra
+            // markup from the caller.
             output.Content.AppendHtml(
+                "<button type=\"button\" id=\"sb-live-toggle\" " +
+                "class=\"inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded-md " +
+                "bg-base-200 hover:bg-base-300 text-base-content/60 hover:text-base-content border border-base-300/60\" " +
+                "data-state=\"live\" title=\"Live updates: on (click to pause)\" " +
+                "aria-label=\"Toggle live updates\">" +
                 "<span id=\"sb-connection-status\" class=\"w-2 h-2 rounded-full sb-disconnected\" " +
-                "title=\"SignalR: disconnected\" style=\"display:inline-block\"></span>\n");
+                "style=\"display:inline-block\"></span>" +
+                "<span id=\"sb-live-toggle-label\">LIVE</span>" +
+                "</button>\n");
         }
 
         // Vendored coordinator script. Config travels on data-* attrs (read by
