@@ -2,7 +2,7 @@
 
 StyloBot wouldn't exist without these projects. Listed by purpose, with links to source repos and the project files where they're consumed. Microsoft.* framework dependencies (`Microsoft.AspNetCore.*`, `Microsoft.Extensions.*`) are baseline ASP.NET Core 10 and not enumerated separately.
 
-If we use your project and you're not listed here, please open an issue — credit is owed and we want to get it right.
+If we use your project and you're not listed here, please open an issue - credit is owed and we want to get it right.
 
 ## Detection pipeline
 
@@ -93,11 +93,11 @@ These are first-party packages by the same author, but live in separate repos an
 
 ## Distribution channels
 
-Not direct dependencies but worth crediting — the people whose pipelines we lean on for distribution.
+Not direct dependencies but worth crediting - the people whose pipelines we lean on for distribution.
 
-- [Docker Hub](https://hub.docker.com/u/scottgal) — `scottgal/stylobot`, `scottgal/stylobot-gateway`, `scottgal/stylobot-sidecar`, `scottgal/stylobot-demo`, `scottgal/stylobot-ui`, `scottgal/stylobot-all`.
-- [Sigstore cosign](https://github.com/sigstore/cosign) — Docker image signing.
-- [Chocolatey](https://chocolatey.org/) — Windows package distribution.
-- [Homebrew](https://brew.sh/) — macOS / Linux package distribution via `scottgal/stylobot` tap.
-- [NuGet](https://www.nuget.org/) — library distribution.
-- [Cloudsmith](https://cloudsmith.io/) — apt / yum distribution for Linux servers.
+- [Docker Hub](https://hub.docker.com/u/scottgal) - `scottgal/stylobot`, `scottgal/stylobot-gateway`, `scottgal/stylobot-sidecar`, `scottgal/stylobot-demo`, `scottgal/stylobot-ui`, `scottgal/stylobot-all`.
+- [Sigstore cosign](https://github.com/sigstore/cosign) - Docker image signing.
+- [Chocolatey](https://chocolatey.org/) - Windows package distribution.
+- [Homebrew](https://brew.sh/) - macOS / Linux package distribution via `scottgal/stylobot` tap.
+- [NuGet](https://www.nuget.org/) - library distribution.
+- [Cloudsmith](https://cloudsmith.io/) - apt / yum distribution for Linux servers.

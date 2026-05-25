@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Every fingerprint always has a display name. Generated **once** on allocation from characterization (matched archetype name + UA family + OS + variance), persisted on the `Fingerprint` record, and read on every subsequent match. **Recomputed only when significant behavioural drift is detected** — never per-request, never gated on bot/human classification, never empty.
+**Goal:** Every fingerprint always has a display name. Generated **once** on allocation from characterization (matched archetype name + UA family + OS + variance), persisted on the `Fingerprint` record, and read on every subsequent match. **Recomputed only when significant behavioural drift is detected** - never per-request, never gated on bot/human classification, never empty.
 
 **Why this is required:** The 2026-05-16-naming-via-centroid-variance plan landed per-request derivation in the synthesizer. That produces names but they churn between requests when drift signals jitter. The contract the user articulated is: characterize → match → if no match generate; once generated, the name is stable until significant drift triggers an update. Per-request derivation also doesn't reach `evidence.PrimaryBotName` (which is what the response header / dashboard aggregate read), so the visible name surface is still empty for unknown clients today.
 
@@ -14,33 +14,33 @@
 
 1. **Name is stable per fingerprint.** Same fingerprint, 100 requests, same name. The variance term is part of the name when it's generated, not per-request decoration.
 2. **Name update has a high bar.** Only fires when drift exceeds `SignificantDriftEpsilon` (default 0.20), which is 4× the existing per-request `DriftEpsilon` (0.05). Float noise must not move names.
-3. **Two near-identical fingerprints can share the same display name.** This is correct — they're the same kind of client. The fingerprint identity (id, centroid) stays distinct; the display name is descriptive, not an identity merger.
+3. **Two near-identical fingerprints can share the same display name.** This is correct - they're the same kind of client. The fingerprint identity (id, centroid) stays distinct; the display name is descriptive, not an identity merger.
 4. **Bot classification ≠ display name.** "Bot" / "Human" is the verdict label (separate UI element). Display name is the derived identity ("Chrome on Windows", "python-requests", "curl"). Everyone has both. Removing the `isActuallyBot` gate on `PrimaryBotName` exposes the derived name regardless of verdict.
-5. **`evidence.PrimaryBotType` stays gated.** That's a classification claim about what *kind* of bot — only valid when classified as bot. Keep the gate there.
+5. **`evidence.PrimaryBotType` stays gated.** That's a classification claim about what *kind* of bot - only valid when classified as bot. Keep the gate there.
 
 ---
 
 ## File Structure
 
 ### Modified
-- `src/Mostlylucid.BotDetection/Identity/Fingerprint.cs` — add `DisplayName` (required string) + `DisplayNameUpdatedAt` (DateTime)
-- `src/Mostlylucid.BotDetection/Identity/IdentitySchema.cs` — add columns to fingerprints CREATE + migration in `MigrateExistingTablesAsync`
-- `src/Mostlylucid.BotDetection/Identity/SqliteFingerprintStore.cs` — insert/get/update mappers carry the new columns; add `UpdateDisplayNameAsync`
-- `src/Mostlylucid.BotDetection/Identity/IdentityOptions.cs` — add `Match.SignificantDriftEpsilon` (default 0.20)
-- `src/Mostlylucid.BotDetection/Models/DetectionContext.cs` — add `IdentityDisplayName = "identity.display_name"` signal key
-- `src/Mostlylucid.BotDetection/Services/DeterministicBotNameSynthesizer.cs` — keep its existing signal-based composition, but expose the static `GenerateName` as `internal static FingerprintNameComposer.Compose(signals)` so the matcher can call it
-- `src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/FingerprintMatchContributor.cs` — compute on alloc, read on match, drift-gated recompute
-- `src/Mostlylucid.BotDetection/Orchestration/DetectionLedgerExtensions.cs` — drop `isActuallyBot` gate on `PrimaryBotName`; prefer `identity.display_name` signal over `ledger.BotName` when both present
-- `src/Mostlylucid.BotDetection/Endpoints/BdfReplayEndpoints.cs` — probe `IdentityDisplayName` in `SignalProbes` + surface on `BdfReplayActual`
+- `src/Mostlylucid.BotDetection/Identity/Fingerprint.cs` - add `DisplayName` (required string) + `DisplayNameUpdatedAt` (DateTime)
+- `src/Mostlylucid.BotDetection/Identity/IdentitySchema.cs` - add columns to fingerprints CREATE + migration in `MigrateExistingTablesAsync`
+- `src/Mostlylucid.BotDetection/Identity/SqliteFingerprintStore.cs` - insert/get/update mappers carry the new columns; add `UpdateDisplayNameAsync`
+- `src/Mostlylucid.BotDetection/Identity/IdentityOptions.cs` - add `Match.SignificantDriftEpsilon` (default 0.20)
+- `src/Mostlylucid.BotDetection/Models/DetectionContext.cs` - add `IdentityDisplayName = "identity.display_name"` signal key
+- `src/Mostlylucid.BotDetection/Services/DeterministicBotNameSynthesizer.cs` - keep its existing signal-based composition, but expose the static `GenerateName` as `internal static FingerprintNameComposer.Compose(signals)` so the matcher can call it
+- `src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/FingerprintMatchContributor.cs` - compute on alloc, read on match, drift-gated recompute
+- `src/Mostlylucid.BotDetection/Orchestration/DetectionLedgerExtensions.cs` - drop `isActuallyBot` gate on `PrimaryBotName`; prefer `identity.display_name` signal over `ledger.BotName` when both present
+- `src/Mostlylucid.BotDetection/Endpoints/BdfReplayEndpoints.cs` - probe `IdentityDisplayName` in `SignalProbes` + surface on `BdfReplayActual`
 
 ### Created
-- `src/Mostlylucid.BotDetection/Services/FingerprintNameComposer.cs` — pure-function name composition extracted from the synthesizer (same logic)
-- `src/Mostlylucid.BotDetection.Test/Services/FingerprintNameComposerTests.cs` — characterization tests for the static composer
-- `src/Mostlylucid.BotDetection.Orchestration.Tests/Unit/Identity/FingerprintDisplayNameTests.cs` — alloc persists, match reads, drift-gate fires only at threshold
+- `src/Mostlylucid.BotDetection/Services/FingerprintNameComposer.cs` - pure-function name composition extracted from the synthesizer (same logic)
+- `src/Mostlylucid.BotDetection.Test/Services/FingerprintNameComposerTests.cs` - characterization tests for the static composer
+- `src/Mostlylucid.BotDetection.Orchestration.Tests/Unit/Identity/FingerprintDisplayNameTests.cs` - alloc persists, match reads, drift-gate fires only at threshold
 
 ---
 
-## Phase 1 — Storage: `Fingerprint.DisplayName` + schema migration
+## Phase 1 - Storage: `Fingerprint.DisplayName` + schema migration
 
 ### Task 1.1: Add fields to `Fingerprint` record
 
@@ -55,7 +55,7 @@ After `InferredTypeChangedAt`, add:
     ///     Human-readable display name. Generated once at allocation via
     ///     <see cref="FingerprintNameComposer.Compose"/> from the matched archetype + UA
     ///     characterization. Updated only when drift exceeds
-    ///     <c>Match.SignificantDriftEpsilon</c>. Never null — every fingerprint always has a
+    ///     <c>Match.SignificantDriftEpsilon</c>. Never null - every fingerprint always has a
     ///     name, even if it's a short fingerprint-id prefix as the last-resort fallback.
     /// </summary>
     public required string DisplayName { get; init; }
@@ -68,7 +68,7 @@ After `InferredTypeChangedAt`, add:
     public required DateTime DisplayNameUpdatedAt { get; init; }
 ```
 
-- [ ] **Step 1.1.2: Update `FingerprintObservation` record similarly only if observations carry the name** — they do not (per-observation rows don't replicate naming). No change.
+- [ ] **Step 1.1.2: Update `FingerprintObservation` record similarly only if observations carry the name** - they do not (per-observation rows don't replicate naming). No change.
 
 ### Task 1.2: Schema migration
 
@@ -157,7 +157,7 @@ git commit -m "feat(identity): persist DisplayName on Fingerprint record"
 
 ---
 
-## Phase 2 — Pure name composer
+## Phase 2 - Pure name composer
 
 ### Task 2.1: Extract `FingerprintNameComposer` from the synthesizer
 
@@ -293,7 +293,7 @@ git commit -m "refactor(naming): extract FingerprintNameComposer as pure static 
 
 ---
 
-## Phase 3 — Compute on alloc, read on match, drift-gated update
+## Phase 3 - Compute on alloc, read on match, drift-gated update
 
 ### Task 3.1: Add `Match.SignificantDriftEpsilon` option + `IdentityDisplayName` signal
 
@@ -306,7 +306,7 @@ In `IdentityMatchOptions`:
 ```csharp
     /// <summary>
     ///     Drift threshold that triggers a display-name recompute + persist on a matched
-    ///     fingerprint. ~4× DriftEpsilon — float noise must not move names. Default 0.20.
+    ///     fingerprint. ~4× DriftEpsilon - float noise must not move names. Default 0.20.
     /// </summary>
     public double SignificantDriftEpsilon { get; set; } = 0.20;
 ```
@@ -390,7 +390,7 @@ Edge case: empty `DisplayName` on a row migrated from before this change. Compos
         if (drift is not null && drift.Value.Score > _options.Match.SignificantDriftEpsilon)
         {
             var sigs = state.Signals.ToDictionary(s => s.Key, s => (object?)s.Value);
-            var newName = FingerprintNameComposer.Compose(sigs, /* fingerprintId here — need to thread it */);
+            var newName = FingerprintNameComposer.Compose(sigs, /* fingerprintId here - need to thread it */);
             if (!string.Equals(newName, /* current name */, StringComparison.Ordinal))
             {
                 state.WriteSignal(SignalKeys.IdentityDisplayName, newName);
@@ -407,7 +407,7 @@ To thread the matched fingerprint's id + current name into `WriteArchetypeSignal
         Fingerprint? matchedForDriftUpdate = null)
 ```
 
-Pass `matched` from each `EmitConfirmedSignals` call site; pass `null` from the new-fingerprint branch (no drift update on alloc — name was just computed).
+Pass `matched` from each `EmitConfirmedSignals` call site; pass `null` from the new-fingerprint branch (no drift update on alloc - name was just computed).
 
 - [ ] **Step 3.2.4: Run BDF rig + identity tests**
 
@@ -428,7 +428,7 @@ git commit -m "feat(identity): compute display name on alloc, read on match, dri
 
 ---
 
-## Phase 4 — Aggregator reads `identity.display_name`
+## Phase 4 - Aggregator reads `identity.display_name`
 
 ### Task 4.1: `DetectionLedgerExtensions.ToAggregatedEvidence`
 
@@ -439,7 +439,7 @@ git commit -m "feat(identity): compute display name on alloc, read on match, dri
 Replace lines 63-65 with:
 
 ```csharp
-        // PrimaryBotType stays gated — it's a classification claim ("this looks like a Scraper")
+        // PrimaryBotType stays gated - it's a classification claim ("this looks like a Scraper")
         // only meaningful when classified as bot.
         var isActuallyBot = botProbability >= 0.5;
         var primaryBotType = isActuallyBot ? ParseBotType(ledger.BotType) : null;
@@ -484,7 +484,7 @@ git commit -m "feat(aggregator): PrimaryBotName reads identity.display_name; nev
 
 ---
 
-## Phase 5 — BDF probe + acceptance verification
+## Phase 5 - BDF probe + acceptance verification
 
 ### Task 5.1: Probe `IdentityDisplayName`
 
@@ -520,15 +520,15 @@ And in the construction below.
         if (last.Actual.IdentityFingerprintId is not null)
         {
             Assert.True(probes.TryGetValue(SignalKeys.IdentityDisplayName, out var hasName) && hasName,
-                $"{scenarioName}: {SignalKeys.IdentityDisplayName} missing from ev.Signals — " +
+                $"{scenarioName}: {SignalKeys.IdentityDisplayName} missing from ev.Signals - " +
                 "FingerprintMatchContributor did not write the persisted display name");
             Assert.False(string.IsNullOrEmpty(last.Actual.IdentityDisplayName),
-                $"{scenarioName}: identity.display_name was empty — the contract is that every " +
+                $"{scenarioName}: identity.display_name was empty - the contract is that every " +
                 "fingerprint always has a name");
         }
 ```
 
-This assertion IS load-bearing — unlike the archetype-name probe (which can be absent when no archetype matches), `display_name` must always be present when there's a fingerprint. The composer's last-resort fallback (fingerprint id prefix) guarantees it.
+This assertion IS load-bearing - unlike the archetype-name probe (which can be absent when no archetype matches), `display_name` must always be present when there's a fingerprint. The composer's last-resort fallback (fingerprint id prefix) guarantees it.
 
 - [ ] **Step 5.1.3: Run BDF rig**
 
@@ -559,7 +559,7 @@ curl -sI -A "curl/8.7.1" http://localhost:5080/api/demo/open | grep StyloBot-Bot
 ```
 
 Expected output:
-- Chrome: `X-StyloBot-BotName: Chrome on Windows (US:<sigprefix>)` (or similar — archetype name when matched, family+OS when not)
+- Chrome: `X-StyloBot-BotName: Chrome on Windows (US:<sigprefix>)` (or similar - archetype name when matched, family+OS when not)
 - curl: `X-StyloBot-BotName: curl (US:<sigprefix>)` (UA-derived priority)
 
 Neither should be empty.
@@ -590,7 +590,7 @@ Open `http://localhost:5080/_stylobot` and confirm every visitor row shows a der
 - "Names update only when significant behavioural drift detected" → `SignificantDriftEpsilon` gate in `WriteArchetypeSignals`. Default 0.20 (4× existing per-request `DriftEpsilon`).
 - "Verdict label ≠ name" → Phase 4 drops `isActuallyBot` gate on `PrimaryBotName` but keeps it on `PrimaryBotType`.
 
-**Placeholders:** Every step has the actual code or command. The "thread fingerprintId" comment in Phase 3.2.3 is a callout, not a placeholder — the immediately-following code block shows exactly how to thread it.
+**Placeholders:** Every step has the actual code or command. The "thread fingerprintId" comment in Phase 3.2.3 is a callout, not a placeholder - the immediately-following code block shows exactly how to thread it.
 
 **Type consistency:** `DisplayName` (Fingerprint field, signal value, response header) is `string` throughout. `DisplayNameUpdatedAt` is `DateTime` everywhere. `SignalKeys.IdentityDisplayName = "identity.display_name"` is the single key used by writer (matcher) and reader (aggregator + probe).
 

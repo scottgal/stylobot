@@ -31,7 +31,7 @@ Every numeric memory in the system uses the same shape of update:
 new = (1 - α) × previous + α × observation
 ```
 
-Pattern reputation, per-detector weights, per-signature `bot_probability`, the pipeline load sensor's smoothed RPS — all of them blend a new observation into a running value with a small mixing weight `α`. The default is 0.15 for the signature posterior, 0.10 for pattern reputation. The mathematical effect is that any single observation contributes only a fraction; it takes a sustained pattern of observations of one kind to move the running value substantially.
+Pattern reputation, per-detector weights, per-signature `bot_probability`, the pipeline load sensor's smoothed RPS - all of them blend a new observation into a running value with a small mixing weight `α`. The default is 0.15 for the signature posterior, 0.10 for pattern reputation. The mathematical effect is that any single observation contributes only a fraction; it takes a sustained pattern of observations of one kind to move the running value substantially.
 
 This shape was deliberately chosen over the obvious-but-wrong alternative: storing the *maximum* probability ever observed. A max-of-history store would let a single 0.95 spike pin a fingerprint at 0.95 forever, no matter how it behaved afterwards. The EWMA store has the opposite property: a 0.95 spike followed by hundreds of benign observations decays smoothly back toward benign. False positives are recoverable.
 
@@ -74,7 +74,7 @@ Any one of these trips, and the pipeline runs fresh. The cache becomes a hint ag
 
 **Refresh sampling.** A configurable fraction of Skip-eligible requests (default 5%) is deterministically downgraded to Bias so the pipeline runs and refreshes the live record. The signature hash decides which requests get refreshed, so retries land identically, but over time every fingerprint gets a periodic full re-evaluation. The cache cannot drift far from reality between rotations.
 
-**Entity-family fallback.** When a fingerprint rotates and its new identity has no cached verdict of its own, the gate falls through to the family's canonical signature. A bot that's been merged into a family because the behavioral vector matched a known sibling inherits its sibling's verdict instead of starting from scratch — but only if the family anchor is itself still in the sliding window. Cold family anchors evict naturally; split events drop the family mapping. There is no separate invalidation channel because the sliding window's TTL is the invalidation channel.
+**Entity-family fallback.** When a fingerprint rotates and its new identity has no cached verdict of its own, the gate falls through to the family's canonical signature. A bot that's been merged into a family because the behavioral vector matched a known sibling inherits its sibling's verdict instead of starting from scratch - but only if the family anchor is itself still in the sliding window. Cold family anchors evict naturally; split events drop the family mapping. There is no separate invalidation channel because the sliding window's TTL is the invalidation channel.
 
 ## The verdict cache as a contribution, not a decision
 
@@ -86,7 +86,7 @@ prior_confidence × multiplier × linear_age_decay
 
 A 30-second-old verdict with confidence 0.9 anchors the posterior strongly. A 23-hour-old verdict with confidence 0.4 barely touches it. A 26-hour-old verdict has zero effective weight even if it would have qualified for Skip on its own.
 
-The downstream aggregator computes a `RequestContributionDelta` showing how much this specific request moved the fingerprint's score. When the dashboard renders the detection feed, it shows that delta instead of the per-request absolute probability. A row no longer reads "this request scored 0.42 bot" — which is misleading on cached verdicts where the per-request evidence is light. It reads "this request moved the fingerprint score by +0.5%", which is the question someone investigating the feed actually wants to answer.
+The downstream aggregator computes a `RequestContributionDelta` showing how much this specific request moved the fingerprint's score. When the dashboard renders the detection feed, it shows that delta instead of the per-request absolute probability. A row no longer reads "this request scored 0.42 bot" - which is misleading on cached verdicts where the per-request evidence is light. It reads "this request moved the fingerprint score by +0.5%", which is the question someone investigating the feed actually wants to answer.
 
 ## What this looks like at runtime
 
@@ -99,7 +99,7 @@ Once warmed, the live pipeline distribution settles into a pattern like:
 | Miss | brand-new fingerprints, rare rotations | full pipeline |
 | Watchdog-trip | something changed | full pipeline + reason |
 
-The CLI dashboard shows this directly. Cached rows carry a dim asterisk in front of the timestamp. The Top Fingerprints sidebar shows each known fingerprint's EWMA-smoothed posterior with an 8-sample sparkline of recent observations, so volatility shows up as a trend rather than as a row-by-row swing in the feed. The bullet next to the fingerprint reflects the EWMA — the stable verdict — not whichever way the most recent request happened to swing.
+The CLI dashboard shows this directly. Cached rows carry a dim asterisk in front of the timestamp. The Top Fingerprints sidebar shows each known fingerprint's EWMA-smoothed posterior with an 8-sample sparkline of recent observations, so volatility shows up as a trend rather than as a row-by-row swing in the feed. The bullet next to the fingerprint reflects the EWMA - the stable verdict - not whichever way the most recent request happened to swing.
 
 That visual choice matches the system's behavior. The per-request score is information about the request, not about the actor. The actor's score moves slowly and on purpose.
 
@@ -109,4 +109,4 @@ A bot detector that runs the full pipeline on every request is honest but unecon
 
 The EWMA shape of every memory, the asymmetric hysteresis in the state machine, the sample-size gate on confidence, the deterministic refresh sampling, the path-family memory, and the family-canonical fallback all exist for the same reason. Each one is a place the system can be wrong about a fingerprint and still recover, on its own, without an operator intervening.
 
-The headline number is the latency — repeat traffic in microseconds — but the actual feature is the recovery posture. Detection that learns is only useful if it can also un-learn.
+The headline number is the latency - repeat traffic in microseconds - but the actual feature is the recovery posture. Detection that learns is only useful if it can also un-learn.

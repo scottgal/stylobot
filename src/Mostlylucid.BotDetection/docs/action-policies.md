@@ -232,7 +232,7 @@ These policies are available without configuration:
 
 #### `throttle-status` and friendly bots
 
-`throttle-status` is the "informational rate-limit" path for **friendly clustering bots** — the canonical case is a fediverse link-preview stampede where 50 Mastodon instances all hit the same URL within a second when someone shares it. Blocking them with `403` makes well-behaved previewers give up entirely; a `429` with a `Retry-After: 60` header tells them to back off and retry, which is what we actually want.
+`throttle-status` is the "informational rate-limit" path for **friendly clustering bots** - the canonical case is a fediverse link-preview stampede where 50 Mastodon instances all hit the same URL within a second when someone shares it. Blocking them with `403` makes well-behaved previewers give up entirely; a `429` with a `Retry-After: 60` header tells them to back off and retry, which is what we actually want.
 
 The orchestrator routes friendly bot types (`SocialMediaBot`, `MonitoringBot`, `SearchEngine`, `GoodBot`, `VerifiedBot`) through `throttle-status` automatically when:
 
@@ -240,7 +240,7 @@ The orchestrator routes friendly bot types (`SocialMediaBot`, `MonitoringBot`, `
 - `BotProbability >= BotThreshold` (would have been blocked otherwise), AND
 - `ThreatScore < 0.55` (not also doing shady stuff while pretending to be friendly).
 
-The friendly-bot set + threat gate are defined once in `Models/BotTypeClassification.cs`. To opt out per-detection-policy, set `TriggeredActionPolicyName` explicitly in a transition — anything non-empty wins over the auto-route.
+The friendly-bot set + threat gate are defined once in `Models/BotTypeClassification.cs`. To opt out per-detection-policy, set `TriggeredActionPolicyName` explicitly in a transition - anything non-empty wins over the auto-route.
 
 ### Rate-Limit Policies (6.8+)
 

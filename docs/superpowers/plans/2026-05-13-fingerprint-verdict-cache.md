@@ -45,8 +45,8 @@
 - `src/Mostlylucid.BotDetection.Test/Orchestration/FingerprintPriorContributorTests.cs`
 
 **Modified files:**
-- `src/Mostlylucid.BotDetection/Data/SqliteSessionStore.cs` (replace MAX with EWMA on upsert; add `LastUpdatedUtc` column) — **Task 1 complete**
-- `src/Mostlylucid.BotDetection/Data/SessionPersistence.cs` (add `LastUpdatedUtc` to `PersistedSignature`) — **Task 1 complete**
+- `src/Mostlylucid.BotDetection/Data/SqliteSessionStore.cs` (replace MAX with EWMA on upsert; add `LastUpdatedUtc` column) - **Task 1 complete**
+- `src/Mostlylucid.BotDetection/Data/SessionPersistence.cs` (add `LastUpdatedUtc` to `PersistedSignature`) - **Task 1 complete**
 - `src/Mostlylucid.BotDetection/Orchestration/SignatureCoordinator.cs` (add `TryGetVerdict(signature)` returning a snapshot of the existing per-signature state)
 - `src/Mostlylucid.BotDetection/Policies/DetectionPolicy.cs` (add `SignatureCache` property)
 - `src/Mostlylucid.BotDetection/Policies/DetectionPolicyConfiguration.cs` (bind it from JSON)
@@ -2149,7 +2149,7 @@ Total new tests: 24.
 Verify no em dashes:
 
 ```bash
-grep -- '—' CHANGELOG.md | head -5 && echo "(pre-existing em dashes only)"
+grep -- '-' CHANGELOG.md | head -5 && echo "(pre-existing em dashes only)"
 ```
 
 - [ ] **Step 10.4: Commit**

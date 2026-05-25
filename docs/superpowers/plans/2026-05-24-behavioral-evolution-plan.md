@@ -219,7 +219,7 @@ public class ClockProjectionTests
 dotnet test /Users/scottgalloway/RiderProjects/stylobot/src/Mostlylucid.BotDetection.Test \
   --filter "FullyQualifiedName~ClockProjectionTests" -nologo
 ```
-Expected: build error — `The type or namespace name 'ClockProjection' could not be found`. That is the failing state we want.
+Expected: build error - `The type or namespace name 'ClockProjection' could not be found`. That is the failing state we want.
 
 - [ ] **Step 2.3: Write minimal implementation**
 
@@ -384,7 +384,7 @@ Append to `ClockProjectionTests.cs`:
 dotnet test /Users/scottgalloway/RiderProjects/stylobot/src/Mostlylucid.BotDetection.Test \
   --filter "FullyQualifiedName~ClockProjectionTests" -nologo
 ```
-Expected: build error — `'ClockProjection' does not contain a definition for 'Compose12Axes'`.
+Expected: build error - `'ClockProjection' does not contain a definition for 'Compose12Axes'`.
 
 - [ ] **Step 3.3: Implement `Compose12Axes`**
 
@@ -444,9 +444,9 @@ git commit -m "feat(ui): ClockProjection.Compose12Axes interleaves semantic + ma
 
 Three code paths in `ServeSignatureSessionsApiAsync` (starts at line 1834) build session entries:
 
-1. **Finalised sessions** (around lines 1865–1894) — has `sessionVectors[idx]`, computes `radarAxes`.
-2. **Live in-memory** (around lines 1909–1932) — has `liveVector`, computes `liveRadar`.
-3. **Detection-fallback synthetic** (around lines 1987–2042) — no vector; builds `radarAxes` from detector contributions, or leaves null.
+1. **Finalised sessions** (around lines 1865–1894) - has `sessionVectors[idx]`, computes `radarAxes`.
+2. **Live in-memory** (around lines 1909–1932) - has `liveVector`, computes `liveRadar`.
+3. **Detection-fallback synthetic** (around lines 1987–2042) - no vector; builds `radarAxes` from detector contributions, or leaves null.
 
 For each path the recipe is identical: derive a `stateFreqs10` slice (zeros if no vector) and a `semantic8` array (already computed locally), then call:
 ```csharp
@@ -537,7 +537,7 @@ In the detection-fallback synthetic-entry block (~line 2017–2042), the entry e
                         };
 ```
 
-(The exact line to insert before is `};` that closes the anonymous object — preserve every existing field.)
+(The exact line to insert before is `};` that closes the anonymous object - preserve every existing field.)
 
 - [ ] **Step 4.5: Build**
 
@@ -605,7 +605,7 @@ git commit -m "feat(ui): BehavioralEvolutionModel view model"
 
 ---
 
-### Task 6: `_BehavioralEvolution.cshtml` — shell + axis legend + metrics-strip skeleton
+### Task 6: `_BehavioralEvolution.cshtml` - shell + axis legend + metrics-strip skeleton
 
 **File:** Create `src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/_BehavioralEvolution.cshtml`
 
@@ -757,7 +757,7 @@ The inline script reads the `data-*` attributes on the root, fetches the session
 
 Render strategy:
 - One ApexCharts radar instance with one series per visible session. Colours, fill opacities, stroke widths, stroke dash arrays are all arrays parallel to `series`.
-- Right column: card per session built with DOM methods (no use of `Element.innerHTML` with untrusted strings — matches existing security pattern at `_SignatureDetail.cshtml:739`). Use `textContent`, `createElement`, and `appendChild` only.
+- Right column: card per session built with DOM methods (no use of `Element.innerHTML` with untrusted strings - matches existing security pattern at `_SignatureDetail.cshtml:739`). Use `textContent`, `createElement`, and `appendChild` only.
 - Focus state lives in a single closure variable `focusedId`; every render reads it.
 
 **File:** modify `Views/StyloBot/Dashboard/_BehavioralEvolution.cshtml`
@@ -1110,7 +1110,7 @@ Replace that span with:
 
 - [ ] **Step 8.2: Remove lines 695–832 (the inline radar script)**
 
-In the same file, scroll to the comment `<!-- Behavioral Shape Radar Chart -->` (originally at line 695; after Step 8.1's ~48-line deletion it sits around line ~647 — search by the comment string to be safe) and delete the entire `<script nonce="@Model.CspNonce"> ... </script>` block that follows it, including the comment. That script's role moved into `_BehavioralEvolution.cshtml`.
+In the same file, scroll to the comment `<!-- Behavioral Shape Radar Chart -->` (originally at line 695; after Step 8.1's ~48-line deletion it sits around line ~647 - search by the comment string to be safe) and delete the entire `<script nonce="@Model.CspNonce"> ... </script>` block that follows it, including the comment. That script's role moved into `_BehavioralEvolution.cshtml`.
 
 - [ ] **Step 8.3: Build**
 
@@ -1132,7 +1132,7 @@ git commit -m "feat(ui): swap three behavioral panels for _BehavioralEvolution p
 
 ### Task 9: Interaction-verify against prod via chrome-devtools-mcp
 
-Per repo memory: UI tasks are not complete until a real click / keypress has been driven in chrome-devtools (or playwright) and the resulting state observed. DOM-existence checks and API-direct-fetch checks DO NOT count. Verify against **prod (`www.stylobot.net`) only** — staging lacks the session history needed to read the panel.
+Per repo memory: UI tasks are not complete until a real click / keypress has been driven in chrome-devtools (or playwright) and the resulting state observed. DOM-existence checks and API-direct-fetch checks DO NOT count. Verify against **prod (`www.stylobot.net`) only** - staging lacks the session history needed to read the panel.
 
 First confirm the change reaches prod. The repo memory has the canonical deploy flow:
 - Maxo (`.15`) builds via `C:\build\build-gateway.ps1` → registry `192.168.0.89:5000` → staging on `.15` (`stylobot-test` compose, `staging.stylobot.net`) → WAIT FOR APPROVAL → prod on `.89` (`stylobot` compose, `www.stylobot.net`).
@@ -1145,7 +1145,7 @@ This task only fires *after* the build has been promoted to prod via that flow.
 ```
 curl -s https://www.stylobot.net/_stylobot/api/top-bots\?count\=1 | jq -r '.[0].signatureId'
 ```
-Note the value — call it `$SIG`.
+Note the value - call it `$SIG`.
 
 - [ ] **Step 9.2: Confirm the API now returns `clockAxes`**
 
@@ -1157,11 +1157,11 @@ Expected:
 ```
 { "radarLen": 8, "clockLen": 12 }
 ```
-If `clockLen` is missing or ≠ 12, the deploy has not promoted — stop here.
+If `clockLen` is missing or ≠ 12, the deploy has not promoted - stop here.
 
 - [ ] **Step 9.3: Open the signature page in chrome-devtools**
 
-Use `mcp__plugin_chrome-devtools-mcp_chrome-devtools__new_page` with URL `https://www.stylobot.net/_stylobot/signature/<urlencode($SIG)>`. Wait for the page (no fixed sleep — use `wait_for` on a selector emitted by the new partial, e.g. text `Behavioral Evolution`).
+Use `mcp__plugin_chrome-devtools-mcp_chrome-devtools__new_page` with URL `https://www.stylobot.net/_stylobot/signature/<urlencode($SIG)>`. Wait for the page (no fixed sleep - use `wait_for` on a selector emitted by the new partial, e.g. text `Behavioral Evolution`).
 
 - [ ] **Step 9.4: Wait for the radar to render**
 
@@ -1176,7 +1176,7 @@ Use `mcp__plugin_chrome-devtools-mcp_chrome-devtools__new_page` with URL `https:
 - A vertical session card stack on the right, with the topmost row outlined in teal.
 - Metrics strip at the bottom with non-`--` values for the focused session.
 
-If any of these are absent, stop and reproduce locally — do not patch in prod.
+If any of these are absent, stop and reproduce locally - do not patch in prod.
 
 - [ ] **Step 9.6: Click a non-focused session row and observe focus migrate**
 
@@ -1203,7 +1203,7 @@ Per repo memory ("repro first then fix"): reproduce against prod, do not patch f
 
 - [ ] **Step 9.9: Mark complete only after Steps 9.5–9.7 all pass**
 
-No commit on this task — verification only.
+No commit on this task - verification only.
 
 ---
 
@@ -1211,18 +1211,18 @@ No commit on this task — verification only.
 
 After every task above has its checkboxes ticked, sweep the spec one more time:
 
-- [ ] **Spec coverage** — every section of `docs/superpowers/specs/2026-05-24-behavioral-evolution-design.md` is implemented:
+- [ ] **Spec coverage** - every section of `docs/superpowers/specs/2026-05-24-behavioral-evolution-design.md` is implemented:
   - 12-axis clock layout ✔ Tasks 2-3, 6
   - Axis legend ✔ Task 6
-  - Quadrant labels — rendered as text-only quadrant headings inside the axis legend (Task 6). The spec's "subtle background washes" aren't supported natively by ApexCharts radar; they are not implemented in this plan. `ShowQuadrantBackgrounds` remains on the options record so a follow-up can wire an SVG overlay if the user wants the washes back.
+  - Quadrant labels - rendered as text-only quadrant headings inside the axis legend (Task 6). The spec's "subtle background washes" aren't supported natively by ApexCharts radar; they are not implemented in this plan. `ShowQuadrantBackgrounds` remains on the options record so a follow-up can wire an SVG overlay if the user wants the washes back.
   - Component layout ✔ Task 6
   - Data flow ✔ Tasks 2-4
   - Interaction model ✔ Task 7
   - Opacity & stroke curves ✔ Task 7 (`ghostOpacity`, `colorFor`, dash array on oldest)
   - Files (new + modified + kept) ✔ Tasks 1, 2, 5, 6, 8
   - Configurable settings ✔ Task 1
-- [ ] **Placeholder scan** — no TBD/TODO strings appear in the produced code.
-- [ ] **Type consistency** — `BehavioralEvolutionOptions` properties referenced from the partial (`MaxOverlaySessions`, `HalfLifeMinutes`, `MinGhostOpacity`, `MaxGhostOpacity`, `MinStrokeOpacity`, `FocusFillOpacity`, `FocusStrokeOpacity`, `CurrentStrokeWidth`, `GhostStrokeWidth`, `PlayIntervalMs`, `RingCount`, `BlueShiftAfterMinutes`, `ShowQuadrantBackgrounds`, `ShowAxisLegend`, `ShowMetricsStrip`) match the names in Task 1.
+- [ ] **Placeholder scan** - no TBD/TODO strings appear in the produced code.
+- [ ] **Type consistency** - `BehavioralEvolutionOptions` properties referenced from the partial (`MaxOverlaySessions`, `HalfLifeMinutes`, `MinGhostOpacity`, `MaxGhostOpacity`, `MinStrokeOpacity`, `FocusFillOpacity`, `FocusStrokeOpacity`, `CurrentStrokeWidth`, `GhostStrokeWidth`, `PlayIntervalMs`, `RingCount`, `BlueShiftAfterMinutes`, `ShowQuadrantBackgrounds`, `ShowAxisLegend`, `ShowMetricsStrip`) match the names in Task 1.
 
 ### Test-coverage decisions
 
@@ -1230,10 +1230,10 @@ The spec's **Testing** section lists four categories. Coverage and decisions:
 
 | Spec test | Plan coverage |
 |-----------|---------------|
-| `ClockProjectionTests` (unit) | Tasks 2 + 3 — 12 tests on the projection helpers |
-| `SignatureSessionsApiTests` (API contract) | Step 4.6 (curl + jq) asserts `clockAxes` length 12 alongside `radarAxes` against a local dashboard or prod. Step 9.2 re-asserts after deploy. The middleware composition glue is three calls to `Compose12Axes(semantic, ProjectMarkov(slice))` per branch — each is runtime-verified by Task 9's chrome-devtools gate. A `WebApplicationFactory<Program>` integration test is **not added**: the UI test directory does not host one, adding it is separate infra work, and the live verification is already automated and required by the gate. |
-| `BehavioralEvolutionPartialTests` (partial render) | **Not added.** The chrome-devtools gate (Steps 9.4–9.7) renders the partial against real prod data and drives real clicks/keypresses — that's the meaningful behavior, not the static HTML structure that a server-side render test could check. |
-| Browser interaction (chrome-devtools-mcp) | Task 9 — the HARD GATE |
+| `ClockProjectionTests` (unit) | Tasks 2 + 3 - 12 tests on the projection helpers |
+| `SignatureSessionsApiTests` (API contract) | Step 4.6 (curl + jq) asserts `clockAxes` length 12 alongside `radarAxes` against a local dashboard or prod. Step 9.2 re-asserts after deploy. The middleware composition glue is three calls to `Compose12Axes(semantic, ProjectMarkov(slice))` per branch - each is runtime-verified by Task 9's chrome-devtools gate. A `WebApplicationFactory<Program>` integration test is **not added**: the UI test directory does not host one, adding it is separate infra work, and the live verification is already automated and required by the gate. |
+| `BehavioralEvolutionPartialTests` (partial render) | **Not added.** The chrome-devtools gate (Steps 9.4–9.7) renders the partial against real prod data and drives real clicks/keypresses - that's the meaningful behavior, not the static HTML structure that a server-side render test could check. |
+| Browser interaction (chrome-devtools-mcp) | Task 9 - the HARD GATE |
 
 If a future change ever splits the middleware composition into multiple deployables or branches behavior between the three session paths in ways the gate can't cover, add the WebApplicationFactory fixture then.
 
@@ -1243,8 +1243,8 @@ If a future change ever splits the middleware composition into multiple deployab
 
 **Plan complete and saved to `docs/superpowers/plans/2026-05-24-behavioral-evolution-plan.md`. Two execution options:**
 
-**1. Subagent-Driven (recommended)** — A fresh subagent per task, review between tasks, fast iteration. Best for this plan because each task has narrow file scope.
+**1. Subagent-Driven (recommended)** - A fresh subagent per task, review between tasks, fast iteration. Best for this plan because each task has narrow file scope.
 
-**2. Inline Execution** — Execute tasks in this session using executing-plans, batch execution with checkpoints.
+**2. Inline Execution** - Execute tasks in this session using executing-plans, batch execution with checkpoints.
 
 **Which approach?**

@@ -1,4 +1,4 @@
-# Tabular Data Foundation — shared chrome, inline data, in-place updates
+# Tabular Data Foundation - shared chrome, inline data, in-place updates
 
 **Status:** Draft for review
 **Author:** Scott + Claude (paired)
@@ -10,12 +10,12 @@ Every tabular surface on the FOSS dashboard (`Views/StyloBot/Dashboard/Index.csh
 
 - Five separate "filter chip" implementations (Visitors has them, Top Bots does not, Threats has a different set, Endpoints has none)
 - Three different pagination footers (`_Pagination.cshtml`, a custom Prev/Next in `SbTopBots/Default.cshtml`, none at all in `SbEndpointsList`)
-- Threat band shown as the literal string "High" / "Medium" / "Low" in every partial — wide text columns where a 16px icon would do
-- Intent shown as the literal string "Scraper" / "Probe" / "AI" — same waste
+- Threat band shown as the literal string "High" / "Medium" / "Low" in every partial - wide text columns where a 16px icon would do
+- Intent shown as the literal string "Scraper" / "Probe" / "AI" - same waste
 - Bot probability shown as "78%" with no visual scale
 - Hit-rate-over-time shown as a single integer "1247" with no trend at all
 
-SignalR live updates make this worse, not better. The current OOB swap (`WidgetRenderHelpers.InjectOobAttribute`, Middleware/WidgetRenderHelpers.cs:44) injects `hx-swap-oob="true"` on the widget root, which is an **outerHTML replacement**. Every beacon destroys and rebuilds the entire widget. Scroll position resets, sort indicators flash, expanded rows close, focus is lost, horizontal scroll snaps back to zero. Five prior attempts wrapped this in View Transitions, debounces, and sessionStorage rehydration — none of them stopped the destroy-and-rebuild. The user describes the result as "a flickery resetting mess."
+SignalR live updates make this worse, not better. The current OOB swap (`WidgetRenderHelpers.InjectOobAttribute`, Middleware/WidgetRenderHelpers.cs:44) injects `hx-swap-oob="true"` on the widget root, which is an **outerHTML replacement**. Every beacon destroys and rebuilds the entire widget. Scroll position resets, sort indicators flash, expanded rows close, focus is lost, horizontal scroll snaps back to zero. Five prior attempts wrapped this in View Transitions, debounces, and sessionStorage rehydration - none of them stopped the destroy-and-rebuild. The user describes the result as "a flickery resetting mess."
 
 ## Non-goals
 
@@ -45,11 +45,11 @@ Every widget partial (`Views/Shared/Components/Sb*List/Default.cshtml`) is restr
      data-sb-depends="signature,summary"
      data-sb-params="page=@Model.Page&filter=@Model.Filter&...">
 
-    <!-- CHROME — SSR'd once, never touched by SignalR.
+    <!-- CHROME - SSR'd once, never touched by SignalR.
          Toolbar (filter chips, search, time-window), sort headers, help icon. -->
     @await Html.PartialAsync("_Primitives/_TableToolbar", toolbarModel)
 
-    <!-- DATA REGION — the only thing SignalR mutates. -->
+    <!-- DATA REGION - the only thing SignalR mutates. -->
     <div id="@(Model.WidgetId)-data" data-sb-data-region>
         <table>
             <thead>...sort headers...</thead>
@@ -57,7 +57,7 @@ Every widget partial (`Views/Shared/Components/Sb*List/Default.cshtml`) is restr
         </table>
     </div>
 
-    <!-- CHROME — pagination footer. -->
+    <!-- CHROME - pagination footer. -->
     @await Html.PartialAsync("_Primitives/_TablePagination", paginationModel)
 </div>
 ```
@@ -65,7 +65,7 @@ Every widget partial (`Views/Shared/Components/Sb*List/Default.cshtml`) is restr
 Constraints:
 
 - The data region MUST be a single direct child element with `data-sb-data-region` and a stable id (`{widgetId}-data`).
-- The data region contains ONLY data — no toolbar, no pagination, no sort headers. Sort headers stay in chrome so their indicators don't flash on every beacon.
+- The data region contains ONLY data - no toolbar, no pagination, no sort headers. Sort headers stay in chrome so their indicators don't flash on every beacon.
 - Chrome elements MUST NOT have ids that collide with the data region id.
 
 ### 2. OOB injection (single change point)
@@ -73,7 +73,7 @@ Constraints:
 `WidgetRenderHelpers.InjectOobAttribute` switches behaviour:
 
 - **Old:** finds the first tag in the response, injects `hx-swap-oob="true"`. HTMX outerHTML-replaces the widget root.
-- **New:** finds the element with `data-sb-data-region`, injects `hx-swap-oob="innerHTML"`. HTMX innerHTML-replaces the data region's children. Chrome HTML in the response is sent but ignored — no matching OOB target.
+- **New:** finds the element with `data-sb-data-region`, injects `hx-swap-oob="innerHTML"`. HTMX innerHTML-replaces the data region's children. Chrome HTML in the response is sent but ignored - no matching OOB target.
 
 If a partial does not contain `data-sb-data-region`, the helper falls back to the old behaviour with a `_logger.LogWarning` so we notice unmigrated partials in dev.
 
@@ -85,7 +85,7 @@ Regex change in WidgetRenderHelpers.cs:11:
 
 When the user clicks a filter chip, sort header, or pagination control, the existing `hx-get` direct calls with `hx-target="#widget-root"` and `hx-swap="outerHTML"` still fire. Chrome AND data re-render together. User expects the chrome to update (filter chip highlights, page number changes, sort arrow flips). This path is unchanged.
 
-The two paths are distinguishable by URL: SignalR uses `/partials/update?widgets=...` (always renders with innerHTML OOB injected on the data region). User clicks use `/partials/{widget}?...` (no OOB injection at all — the response IS the new widget root, replacing the old one wholesale).
+The two paths are distinguishable by URL: SignalR uses `/partials/update?widgets=...` (always renders with innerHTML OOB injected on the data region). User clicks use `/partials/{widget}?...` (no OOB injection at all - the response IS the new widget root, replacing the old one wholesale).
 
 ### 4. Edge case: total count drifts under SignalR
 
@@ -94,10 +94,10 @@ User is on page 14, total drops from 135 → 132 between beacons. The new page 1
 The data region renders an empty-state message:
 ```html
 <div class="text-xs text-base-content/40 text-center py-6">
-  No items on this page — <a href="..." class="link">jump to page 1</a> or refresh
+  No items on this page - <a href="..." class="link">jump to page 1</a> or refresh
 </div>
 ```
-Pagination chrome stays put (says "page 14 of 14" — stale, but not broken). User clicks the jump link or any pagination control → full widget re-render via the user-initiated path, chrome catches up.
+Pagination chrome stays put (says "page 14 of 14" - stale, but not broken). User clicks the jump link or any pagination control → full widget re-render via the user-initiated path, chrome catches up.
 
 ### 5. The eight primitive partials
 
@@ -105,7 +105,7 @@ All live in `Views/StyloBot/Dashboard/_Primitives/`. Each accepts a typed model 
 
 #### `_ThreatIcon.cshtml`
 Input: `ThreatIconModel(string Band, double BotProbability)`.
-Output: a single `<i>` with the right Boxicons class and DaisyUI colour, `title="High — 78% bot probability"` for native browser tooltip.
+Output: a single `<i>` with the right Boxicons class and DaisyUI colour, `title="High - 78% bot probability"` for native browser tooltip.
 Mapping:
 - `Critical` → `bx-shield-x text-error` (filled red shield)
 - `High` → `bx-shield-quarter text-error` (red)
@@ -129,7 +129,7 @@ Mapping (using `BotDisplayHelpers` for canonical intent strings):
 
 #### `_RiskBar.cshtml`
 Input: `RiskBarModel(double Probability, string Band)`.
-Output: 5-segment horizontal bar, segments filled proportional to probability, colour matching `_ThreatIcon`'s colour mapping. Lifted from the existing Investigate signature cards — extracted into a partial so all tables share it.
+Output: 5-segment horizontal bar, segments filled proportional to probability, colour matching `_ThreatIcon`'s colour mapping. Lifted from the existing Investigate signature cards - extracted into a partial so all tables share it.
 Width: 60px. Height: 8px. Replaces "78%" text columns (the text becomes the `title` tooltip on the bar).
 
 #### `_Sparkline.cshtml`
@@ -164,7 +164,7 @@ Each chip carries `count` shown in muted text next to the label, matching the ex
 #### `_TablePagination.cshtml`
 Input: `TablePaginationModel(int Page, int PageSize, int TotalCount, Func<int,string> PageUrl, Func<int,string> PageSizeUrl, string TargetId)`.
 Output:
-- Page-size dropdown (10 / 25 / 50 / 100) — HTMX `hx-get` to widget partial with the new pageSize, resets page=1
+- Page-size dropdown (10 / 25 / 50 / 100) - HTMX `hx-get` to widget partial with the new pageSize, resets page=1
 - Numbered pages with ellipsis: `‹ 1 … 5 6 [7] 8 9 … 14 ›` (max 7 visible page numbers)
 - "Showing 51–75 of 135" text
 Replaces both `_Pagination.cshtml` (which is too thin) AND the custom Prev/Next blocks in `SbTopBots/Default.cshtml` and elsewhere.
@@ -178,7 +178,7 @@ public int[] Trend { get; init; } = Array.Empty<int>();
 public int[] HumanTrend { get; init; } = Array.Empty<int>();
 ```
 
-`SignatureAggregateCache.GetTopBots()` and the equivalent build paths populate these from the existing detection event stream during their existing tick. The store query is one extra `GROUP BY signature, minute_bucket` clause on the same scan that already builds aggregates — no new round trips, no separate cache.
+`SignatureAggregateCache.GetTopBots()` and the equivalent build paths populate these from the existing detection event stream during their existing tick. The store query is one extra `GROUP BY signature, minute_bucket` clause on the same scan that already builds aggregates - no new round trips, no separate cache.
 
 Window: last 60 minutes, one bucket per minute. Bucket count is fixed (60) so the SVG path math is constant.
 
@@ -192,17 +192,17 @@ Foundation lands FIRST, in this order:
 2. Change `WidgetRenderHelpers.InjectOobAttribute` to target `data-sb-data-region` with `hx-swap-oob="innerHTML"`, with fallback warning.
 3. Add `Trend` / `HumanTrend` fields to row records + populate in aggregate cache.
 
-Then, ONE WIDGET AT A TIME (each its own PR — easy to revert if a regression slips):
+Then, ONE WIDGET AT A TIME (each its own PR - easy to revert if a regression slips):
 
-4. `SbTopBots` (Live Activity) — split chrome / data, swap in `_ThreatIcon`, `_IntentIcon`, `_RiskBar`, `_Sparkline`, `_CountryFlag`, `_TimeAgo`, `_TableToolbar`, `_TablePagination`.
-5. `SbVisitorList` — same swap-in.
-6. `SbThreatsList` — same.
-7. `SbEndpointsList` — same (no Intent column; `_RiskBar` for bot-rate; sparkline for hits).
-8. `SbSessionsList` — same.
-9. `SbUserAgentsList` — same.
-10. `SbCountriesList` — same.
+4. `SbTopBots` (Live Activity) - split chrome / data, swap in `_ThreatIcon`, `_IntentIcon`, `_RiskBar`, `_Sparkline`, `_CountryFlag`, `_TimeAgo`, `_TableToolbar`, `_TablePagination`.
+5. `SbVisitorList` - same swap-in.
+6. `SbThreatsList` - same.
+7. `SbEndpointsList` - same (no Intent column; `_RiskBar` for bot-rate; sparkline for hits).
+8. `SbSessionsList` - same.
+9. `SbUserAgentsList` - same.
+10. `SbCountriesList` - same.
 
-Each migration is mechanical once the primitives exist. The widget chrome stops re-rendering on SignalR after step 2 lands — every widget benefits immediately, even the ones not yet migrated to primitives.
+Each migration is mechanical once the primitives exist. The widget chrome stops re-rendering on SignalR after step 2 lands - every widget benefits immediately, even the ones not yet migrated to primitives.
 
 ## Testing
 
@@ -225,5 +225,5 @@ Each migration is mechanical once the primitives exist. The widget chrome stops 
 
 ## Decisions locked in
 
-- **Search box target:** widget root. Filter-chip counts must update with the search, so the chrome re-renders too. Same path as filter chips and pagination — `hx-get` to the widget's partial route, `hx-target="#widget-root"`, `hx-swap="outerHTML"`. Debounced trigger: `keyup changed delay:300ms`.
-- **Time-window pill scope:** filters the row set. The sparkline window matches the active pill automatically — when the pill is `1h`, the row set is signatures active in the last hour and the sparkline shows 60 one-minute buckets; when `24h`, the row set widens and the sparkline shows 24 one-hour buckets (still 60-ish data points by varying the bucket size). Bucket count stays fixed at 60 so the SVG path math is constant.
+- **Search box target:** widget root. Filter-chip counts must update with the search, so the chrome re-renders too. Same path as filter chips and pagination - `hx-get` to the widget's partial route, `hx-target="#widget-root"`, `hx-swap="outerHTML"`. Debounced trigger: `keyup changed delay:300ms`.
+- **Time-window pill scope:** filters the row set. The sparkline window matches the active pill automatically - when the pill is `1h`, the row set is signatures active in the last hour and the sparkline shows 60 one-minute buckets; when `24h`, the row set widens and the sparkline shows 24 one-hour buckets (still 60-ish data points by varying the bucket size). Bucket count stays fixed at 60 so the SVG path math is constant.

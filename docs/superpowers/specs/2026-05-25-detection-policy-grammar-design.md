@@ -1,4 +1,4 @@
-# Detection Policy Grammar — design
+# Detection Policy Grammar - design
 
 **Date:** 2026-05-25
 **Status:** spec, awaiting plan

@@ -416,7 +416,7 @@ app.use(sbVerdictInjector({ mode: 'sidecar', endpoint: 'http://localhost:5091' }
 
 ## Handlebars
 
-Define `RISK_ORDER` once at module scope — the Nunjucks and EJS helpers below use the same map:
+Define `RISK_ORDER` once at module scope - the Nunjucks and EJS helpers below use the same map:
 
 ```ts
 import type { Verdict, RiskBand } from '@stylobot/core';
@@ -480,7 +480,7 @@ In templates:
 ```ts
 import nunjucks from 'nunjucks';
 
-// RISK_ORDER — same map defined in the Handlebars section above
+// RISK_ORDER - same map defined in the Handlebars section above
 
 class SbGateExtension {
   tags = ['sbgate'];
@@ -519,7 +519,7 @@ env.addExtension('SbGateExtension', new SbGateExtension());
 EJS does not have block helpers, but locals functions cover most cases cleanly:
 
 ```ts
-// RISK_ORDER — same map defined in the Handlebars section above
+// RISK_ORDER - same map defined in the Handlebars section above
 
 app.use((req, res, next) => {
   const v = res.locals.sbVerdict ?? null;

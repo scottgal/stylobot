@@ -50,7 +50,7 @@ StyloBot runs in your own infrastructure. It knows what a real page-load sequenc
 
 ## Quick start
 
-**macOS (Homebrew — recommended)**
+**macOS (Homebrew - recommended)**
 ```bash
 brew install scottgal/stylobot/stylobot
 stylobot 5080 http://localhost:3000        # starts in demo mode (observe only)
@@ -58,7 +58,7 @@ stylobot 5080 http://localhost:3000 --mode production   # enable blocking
 ```
 Homebrew strips macOS's quarantine flag automatically. If you'd rather download the tarball, see the macOS first-run note in [docs/RELEASE_SIGNING.md](docs/RELEASE_SIGNING.md).
 
-**Linux (apt - Debian/Ubuntu — recommended)**
+**Linux (apt - Debian/Ubuntu - recommended)**
 ```bash
 curl -1sLf 'https://dl.cloudsmith.io/public/mostlylucid/stylobot/setup.deb.sh' | sudo bash
 sudo apt update && sudo apt install stylobot
@@ -98,7 +98,7 @@ docker run --rm -p 8080:8080 -e DEFAULT_UPSTREAM=http://host.docker.internal:300
 
 **Docker (sidecar - detection API your app calls explicitly, gRPC + REST)**
 
-The sidecar is a deliberately low-surface-area build of the same detection engine, scoped to the sidecar topology: your app makes a per-request call (gRPC or REST), gets a verdict back, decides what to do with it. No dashboard, no Razor, no SignalR, no HTML — just the detector pipeline behind a thin auth + transport layer. Run it next to your app (same pod, same host, same container) so the network hop is loopback. The proto and the REST schema are stable; the binary is single-file and self-contained.
+The sidecar is a deliberately low-surface-area build of the same detection engine, scoped to the sidecar topology: your app makes a per-request call (gRPC or REST), gets a verdict back, decides what to do with it. No dashboard, no Razor, no SignalR, no HTML - just the detector pipeline behind a thin auth + transport layer. Run it next to your app (same pod, same host, same container) so the network hop is loopback. The proto and the REST schema are stable; the binary is single-file and self-contained.
 
 ```bash
 docker run --rm -p 5090:5090 \
@@ -107,7 +107,7 @@ docker run --rm -p 5090:5090 \
 # gRPC: localhost:5090  |  REST: POST localhost:5090/api/v1/detect
 ```
 
-**Docker (all-in-one — gateway + dashboard for the simplest deployment)**
+**Docker (all-in-one - gateway + dashboard for the simplest deployment)**
 
 `stylobot-all` bundles YARP detection proxy and the dashboard into one process. One container, hit `/_stylobot` for the dashboard, point YARP at your upstream via `ReverseProxy:Routes` in appsettings.
 
@@ -116,7 +116,7 @@ docker run --rm -p 8080:8080 scottgal/stylobot-all:latest
 # Dashboard: http://localhost:8080/_stylobot   |  Proxy + detection on the same port
 ```
 
-**Docker (dashboard viewer — `stylobot-ui` against a remote gateway)**
+**Docker (dashboard viewer - `stylobot-ui` against a remote gateway)**
 
 `stylobot-ui` is the dashboard-host product. It runs *next to* a `stylobot` gateway (started with `--enable-api`) and proxies every dashboard read over HTTP. Hosted inside your network with local-only access; nothing leaves the LAN.
 
@@ -155,7 +155,7 @@ Dashboard at `/stylobot`. Detection at `~150µs` per request from first request.
 
 ## Running as a daemon (production)
 
-The foreground commands in [Quick start](#quick-start) are for kicking the tyres — they hold the terminal and die when you close the SSH session. **In production, `stylobot` runs as a background daemon under a process manager.** That's the path the Homebrew formula, the Debian package, and every Docker image take internally.
+The foreground commands in [Quick start](#quick-start) are for kicking the tyres - they hold the terminal and die when you close the SSH session. **In production, `stylobot` runs as a background daemon under a process manager.** That's the path the Homebrew formula, the Debian package, and every Docker image take internally.
 
 The CLI exposes daemon control directly:
 
@@ -172,10 +172,10 @@ stylobot 5080 http://localhost:3000 --daemon  # same as -d
 When run with `-d` / `--daemon` / `start`:
 - The process double-forks and detaches from the controlling terminal.
 - A PID file is written so `stop` / `status` can find it later.
-- Logs go to stdout/stderr — under systemd/launchd these are journaled. Outside a process manager, redirect (`> stylobot.log 2>&1`).
+- Logs go to stdout/stderr - under systemd/launchd these are journaled. Outside a process manager, redirect (`> stylobot.log 2>&1`).
 - `stylobot status` returns non-zero if the daemon isn't running, so it composes with shell health checks.
 
-Daemon mode is opt-in, not the default — running `stylobot 5080 http://localhost:3000` without `-d` stays foreground so demos and CI runs aren't surprised by a backgrounded process. Don't add `-d` to `docker run` invocations either; containers run in the foreground by design and the orchestrator (Docker / Kubernetes / systemd-resolved) handles supervision.
+Daemon mode is opt-in, not the default - running `stylobot 5080 http://localhost:3000` without `-d` stays foreground so demos and CI runs aren't surprised by a backgrounded process. Don't add `-d` to `docker run` invocations either; containers run in the foreground by design and the orchestrator (Docker / Kubernetes / systemd-resolved) handles supervision.
 
 Under systemd, the recommended unit looks like:
 

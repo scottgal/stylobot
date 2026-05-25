@@ -6,10 +6,10 @@ Fast-match a metastable fingerprint. Each visitor is a **shape** in vector space
 
 - a centroid (the maturity-weighted long-term baseline of every observation ever absorbed)
 - a small cloud of recent unabsorbed observation vectors (the current forms, before they roll into the centroid)
-- a per-fingerprint weight vector (which dimensions identify *this* visitor — not all dims matter equally for everyone)
+- a per-fingerprint weight vector (which dimensions identify *this* visitor - not all dims matter equally for everyone)
 - statistics that describe how the shape evolves (maturity, quality, drift, member count)
 
-A request's per-request vector V matches a shape when V is close to *any part* of it — the centroid (long-term identity) or any of its recent forms (current behaviour) — measured by the shape's own weight vector. Same visitor through IP rotation, UA updates, browser version bumps, mobile-cell-tower changes resolves to the same shape because rotation moves only a few dims and the shape's weighting holds the identity together.
+A request's per-request vector V matches a shape when V is close to *any part* of it - the centroid (long-term identity) or any of its recent forms (current behaviour) - measured by the shape's own weight vector. Same visitor through IP rotation, UA updates, browser version bumps, mobile-cell-tower changes resolves to the same shape because rotation moves only a few dims and the shape's weighting holds the identity together.
 
 Everything lives in one SQLite database. No external index files. No separate vector store.
 
@@ -31,9 +31,9 @@ Pass 1 (point lookup, O(1))
   fingerprint_keys[primary_signature] → candidate fingerprint_id (or null)
 
 If L1 hit:
-  Load candidate row (centroid, weights, inferred_client_type) — single SELECT.
+  Load candidate row (centroid, weights, inferred_client_type) - single SELECT.
   Compute effective_weight = global_weight ⊙ candidate.weights.
-  Quick confirm — weighted_cosine(V, candidate.centroid, effective_weight).
+  Quick confirm - weighted_cosine(V, candidate.centroid, effective_weight).
                    No vec0 search; one dot product.
   if score >= MERGE_THRESHOLD:
     confirmed; record observation; emit identity.* signals; DONE.
@@ -69,7 +69,7 @@ If L1 miss OR L1 confirm-failed:
          next request with this IP+UA goes straight to the right fingerprint)
 
 Rotation-candidate semantics (LOOSE <= score < MERGE):
-  Treat as match for this request — assign the candidate fingerprint_id.
+  Treat as match for this request - assign the candidate fingerprint_id.
   Record observation on the candidate so its centroid drifts toward the new form
   (this is the only path by which significant rotation is absorbed without
   fragmenting identity).
@@ -101,9 +101,9 @@ Feedback must propagate fast or it isn't really feedback. Each loop runs at the 
 | Global weights calibration      | every 30 min (default) | Fisher ratios over the dataset move slowly; running this less frequently is fine. Operator-tunable. |
 | Archetype refinement            | same cycle as calibration | Bundled with the calibration tick. |
 
-The hot path serves the cached score from the previous tick of the loop. The previous tick had at most a few seconds of staleness for drift, near-zero for the cached bot probability, and 30 min for global calibration weights — and the in-line classifier pipeline still runs every request, so gross misclassification always gets corrected within the same response, not only on the next one.
+The hot path serves the cached score from the previous tick of the loop. The previous tick had at most a few seconds of staleness for drift, near-zero for the cached bot probability, and 30 min for global calibration weights - and the in-line classifier pipeline still runs every request, so gross misclassification always gets corrected within the same response, not only on the next one.
 
-Sampling rate for the drift-verification queue is configurable (`DriftSamplingRate`, default 0.05 — 5% of L1-confirmed requests get re-verified by L2 in the background); the slow-path classifier detectors always run regardless of sampling.
+Sampling rate for the drift-verification queue is configurable (`DriftSamplingRate`, default 0.05 - 5% of L1-confirmed requests get re-verified by L2 in the background); the slow-path classifier detectors always run regardless of sampling.
 
 Cost profile by traffic shape:
 - Stable human (L1 hit, confirm passes): one point lookup, one cosine. ≪ 1 ms.
@@ -113,7 +113,7 @@ Cost profile by traffic shape:
 
 ## Storage
 
-One SQLite database. Seven tables — `fingerprints`, `fingerprint_keys`, `fingerprint_observations`, `fingerprint_corrections`, `identity_dimension_weights`, `identity_archetypes`, `identity_vector_layout` — plus two vec0 virtual indexes in vec0 mode.
+One SQLite database. Seven tables - `fingerprints`, `fingerprint_keys`, `fingerprint_observations`, `fingerprint_corrections`, `identity_dimension_weights`, `identity_archetypes`, `identity_vector_layout` - plus two vec0 virtual indexes in vec0 mode.
 
 A fingerprint can be the canonical identity for many `primary_signature` values over its lifetime (every IP+UA rotation under the same identity adds another row to `fingerprint_keys` pointing at the same `fingerprint_id`). `member_count` on the fingerprint row equals the number of `fingerprint_keys` rows it owns. `fingerprint_keys` is the L1 cache; `fingerprints` is the canonical identity store.
 
@@ -267,7 +267,7 @@ Both vec0 queries are O(log n) effective. The re-rank is O(K). Total per-request
 
 ## Cluster-derived global dimension weights
 
-Some dimensions discriminate identity better than others as a property of the dataset, independent of any one fingerprint. TLS JA4 stays nearly constant within a visitor and varies sharply between visitors — high identity weight. Request rate varies request-to-request even for one visitor — low identity weight. ASN is in between.
+Some dimensions discriminate identity better than others as a property of the dataset, independent of any one fingerprint. TLS JA4 stays nearly constant within a visitor and varies sharply between visitors - high identity weight. Request rate varies request-to-request even for one visitor - low identity weight. ASN is in between.
 
 `BotClusterService` already groups related fingerprints (Leiden clustering over the existing signature graph). Those cluster labels are the supervision signal: dimensions that vary little within a cluster but a lot between clusters are the strong identity discriminators.
 
@@ -322,7 +322,7 @@ CREATE TABLE identity_archetypes (
 );
 ```
 
-Loaded at startup from `Definitions/IdentityArchetypes/*.yaml` (alongside the existing `BotPatterns/`). Stored in their own table — they are not rows in `fingerprints` and have no entry in `fingerprint_keys`. The L1 cache never points at them. Pass 2 queries them as a separate fallback step (small set, brute-force cosine is fine; vec0 unnecessary).
+Loaded at startup from `Definitions/IdentityArchetypes/*.yaml` (alongside the existing `BotPatterns/`). Stored in their own table - they are not rows in `fingerprints` and have no entry in `fingerprint_keys`. The L1 cache never points at them. Pass 2 queries them as a separate fallback step (small set, brute-force cosine is fine; vec0 unnecessary).
 
 ### Three roles for archetypes
 
@@ -342,7 +342,7 @@ Loaded at startup from `Definitions/IdentityArchetypes/*.yaml` (alongside the ex
    ```
    `α` ramps from 0 (no descendants) toward 0.7 as `descendant_count` grows. The original YAML seed is regulariser; with millions of real Chrome desktop fingerprints the archetype matches what Chrome actually looks like in this deployment, not what the spec writer guessed.
 
-The matcher's effective weights are therefore: *seeded* (from the nearest archetype on allocation), *personalised* (per-fingerprint learning from corrections and stability — see next section), and *contextualised* (global from Fisher ratios over fingerprints + archetypes). All three durable, all in the same DB.
+The matcher's effective weights are therefore: *seeded* (from the nearest archetype on allocation), *personalised* (per-fingerprint learning from corrections and stability - see next section), and *contextualised* (global from Fisher ratios over fingerprints + archetypes). All three durable, all in the same DB.
 
 ### Global weight loading on the matcher
 
@@ -354,8 +354,8 @@ The system's job is not just to identify a fingerprint as itself; it is to *infe
 
 Per fingerprint, the matcher tracks two archetype links:
 
-- **`archetype_origin`** — the archetype the fingerprint was seeded from when first allocated. Immutable. Lineage.
-- **`inferred_client_type`** — the archetype this fingerprint currently most resembles by weighted cosine over its centroid. Mutable. Recomputed *whenever the centroid updates* (during absorption transactions); the result is stored on the row. Per-request emission of `identity.client_type` reads the cached value off the row — never a per-request scan over archetypes.
+- **`archetype_origin`** - the archetype the fingerprint was seeded from when first allocated. Immutable. Lineage.
+- **`inferred_client_type`** - the archetype this fingerprint currently most resembles by weighted cosine over its centroid. Mutable. Recomputed *whenever the centroid updates* (during absorption transactions); the result is stored on the row. Per-request emission of `identity.client_type` reads the cached value off the row - never a per-request scan over archetypes.
 
 These can diverge. A fingerprint allocated as a Chrome desktop visitor whose subsequent observations look more like HeadlessChrome ends up with `archetype_origin = chrome-desktop` and `inferred_client_type = headless-chrome`. That divergence is a strong signal in itself.
 
@@ -373,7 +373,7 @@ Per-request signals carry the inference into the rest of the pipeline:
 identity.client_type            inferred_client_type of the matched fingerprint
 identity.client_type_confidence weighted cosine score to that archetype
 identity.client_type_origin     archetype_origin (lineage)
-identity.client_type_drift      bool — set when this request's update flipped
+identity.client_type_drift      bool - set when this request's update flipped
                                 inferred_client_type to a different archetype
 ```
 
@@ -429,7 +429,7 @@ For each dim i:
 
 ### Signal 2: stability (what stays the same on this fingerprint's traffic)
 
-When a confirmed match folds an observation into the centroid (the absorption transaction), per-dim deviation is also computable: dims where the observation matched the centroid closely are dims that have been *stable* for this fingerprint. Boost the fingerprint's weight there. Conversely, dims where the observation deviated wildly are noisy for this fingerprint — slightly reduce their weight.
+When a confirmed match folds an observation into the centroid (the absorption transaction), per-dim deviation is also computable: dims where the observation matched the centroid closely are dims that have been *stable* for this fingerprint. Boost the fingerprint's weight there. Conversely, dims where the observation deviated wildly are noisy for this fingerprint - slightly reduce their weight.
 
 ```
 For each dim i:
@@ -440,7 +440,7 @@ For each dim i:
                                                      # positive nudge when stable, negative when noisy
 ```
 
-A fingerprint whose Accept-Encoding has been the exact same string for 1000 absorptions ends up with a high weight on that dim — for *that fingerprint*, Accept-Encoding is highly identifying. A fingerprint whose request-rate dim swings widely ends up with a low weight on that dim — request-rate doesn't reliably identify *that fingerprint*.
+A fingerprint whose Accept-Encoding has been the exact same string for 1000 absorptions ends up with a high weight on that dim - for *that fingerprint*, Accept-Encoding is highly identifying. A fingerprint whose request-rate dim swings widely ends up with a low weight on that dim - request-rate doesn't reliably identify *that fingerprint*.
 
 The two signals compose. Stability provides the everyday gradient (every absorption is a learning event, no rare correction needed). Corrections provide the sharp edits (when the matcher was actually wrong, the discriminating dims jump in importance).
 
@@ -465,11 +465,11 @@ identity.fingerprint_l1        Pass 1's candidate (may differ from final)
 identity.vector                the composed feature vector (for debugging / replay)
 identity.vector_quality        scalar [0, 1] from the quality dimension
 identity.match_score           weighted cosine of the winning match
-identity.is_new_fingerprint    bool — set on the allocate-new branch
-identity.is_correction         bool — Pass 1 and Pass 2 disagreed (NOT the same as
+identity.is_new_fingerprint    bool - set on the allocate-new branch
+identity.is_correction         bool - Pass 1 and Pass 2 disagreed (NOT the same as
                                 rotation candidate; rotation lands on the same
                                 fingerprint, correction picks a different one)
-identity.rotation_candidate    bool — score landed in [LOOSE, MERGE) band; the
+identity.rotation_candidate    bool - score landed in [LOOSE, MERGE) band; the
                                 candidate was assigned and observation recorded
                                 on it; EntityResolution will review
 identity.rotation_dimensions   list of {dim_name, observed, expected} triples
@@ -477,7 +477,7 @@ identity.rotation_dimensions   list of {dim_name, observed, expected} triples
                                 top-K dims by |V[i] - candidate.centroid[i]| weighted
                                 by effective_weight[i]; named via the layout-version
                                 map in identity_vector_layout.layout_json
-config.warning.cleartext_http  bool — set when transport dims are zero on what should be TLS
+config.warning.cleartext_http  bool - set when transport dims are zero on what should be TLS
 ```
 
 `identity.fingerprint_id` is the canonical identity for downstream consumers: persistence (`requests` and `signatures` get an `identity_fingerprint_id` column), reputation, dashboard fingerprint table, learning, EntityResolution.
@@ -506,7 +506,7 @@ Persistence:
 
 ## Learning feedback system
 
-Every component named so far is a node in one closed loop. Each cycle improves the next match's accuracy with no separate "training step" — learning is online, durable, and runs in the same DB the matcher reads.
+Every component named so far is a node in one closed loop. Each cycle improves the next match's accuracy with no separate "training step" - learning is online, durable, and runs in the same DB the matcher reads.
 
 ```
                          ┌──────────────────────────────┐
@@ -625,42 +625,42 @@ Each component owns one node in the loop. None reach across; data passes through
 
 ## Slow-path coordinator
 
-The matcher's Pass 2 + correction-write + observation-record + EWMA-update path is the actual cost of identity work. Pass 1 (cache hits, L1 confirm wins) is sub-ms; Pass 2 needs the vector search and the store writes. Under burst — legitimate flash crowd, or an adversary deliberately tripping Pass 2 on every request — running Pass 2 in parallel for a single fingerprint produces N×CPU and N×SQLite-write contention for one verdict that should serve all of them. Worse, an adversary who understands the gate semantics can engineer requests to live in the ambiguity band, keeping the slow path saturated while the fast path emits low-confidence verdicts on the current request.
+The matcher's Pass 2 + correction-write + observation-record + EWMA-update path is the actual cost of identity work. Pass 1 (cache hits, L1 confirm wins) is sub-ms; Pass 2 needs the vector search and the store writes. Under burst - legitimate flash crowd, or an adversary deliberately tripping Pass 2 on every request - running Pass 2 in parallel for a single fingerprint produces N×CPU and N×SQLite-write contention for one verdict that should serve all of them. Worse, an adversary who understands the gate semantics can engineer requests to live in the ambiguity band, keeping the slow path saturated while the fast path emits low-confidence verdicts on the current request.
 
 `IdentityProcessingCoordinator` is the bounded queue that gates the slow path. Pass 1 (cache hits, L1 confirm wins) does NOT touch this coordinator; verdicts continue to serve in microseconds. The coordinator only gates Pass 2 (when an L1 candidate exists to fall back to) and on-demand drift verification.
 
 Four layered defences:
 
-**Layer 1 — Keyed serialisation per fingerprint id.** At most one slow-path operation in flight per fp. Subsequent requests for the same fp arriving within `CoalesceWindowMs` of an in-flight call are *coalesced* — they receive a "shed" outcome and the matcher falls back to the L1 candidate's identity verdict. Older in-flight calls (>CoalesceWindowMs) cause new arrivals to skip the queue entirely and use the fast-path default. This eliminates duplicate Pass 2 invocations and serialises correction writes / observation inserts per fp so SQLite never sees concurrent updates to the same row.
+**Layer 1 - Keyed serialisation per fingerprint id.** At most one slow-path operation in flight per fp. Subsequent requests for the same fp arriving within `CoalesceWindowMs` of an in-flight call are *coalesced* - they receive a "shed" outcome and the matcher falls back to the L1 candidate's identity verdict. Older in-flight calls (>CoalesceWindowMs) cause new arrivals to skip the queue entirely and use the fast-path default. This eliminates duplicate Pass 2 invocations and serialises correction writes / observation inserts per fp so SQLite never sees concurrent updates to the same row.
 
-**Layer 2 — Priority scheduling.** Single global priority queue rather than per-fp queues, so risky work jumps the line. Item priority is the fingerprint's risk score (cached_bot_probability for known fps) plus an aging boost so low-priority work can't be starved indefinitely. Operator-triggered work (`OperatorReverify`, `OperatorAiOpinion` from the Identities dashboard) gets a +100 priority bias and bypasses the breaker — a "Re-verify" click always runs, even under sustained pressure.
+**Layer 2 - Priority scheduling.** Single global priority queue rather than per-fp queues, so risky work jumps the line. Item priority is the fingerprint's risk score (cached_bot_probability for known fps) plus an aging boost so low-priority work can't be starved indefinitely. Operator-triggered work (`OperatorReverify`, `OperatorAiOpinion` from the Identities dashboard) gets a +100 priority bias and bypasses the breaker - a "Re-verify" click always runs, even under sustained pressure.
 
-**Layer 3 — Admission control.** Per-fp cap on queued items (`MaxQueuedPerFingerprint`, default 4) plus a global queue depth cap (`MaxQueueDepth`, default 10000) with drop-oldest backpressure. Under sustained burst from one fp the freshest few requests set the verdict for all; older queued items resolve as `SheddedQueueFull` and their callers fall back to the fast-path default. The drop-oldest semantics match the verdict cache's "one verdict serves many" intent.
+**Layer 3 - Admission control.** Per-fp cap on queued items (`MaxQueuedPerFingerprint`, default 4) plus a global queue depth cap (`MaxQueueDepth`, default 10000) with drop-oldest backpressure. Under sustained burst from one fp the freshest few requests set the verdict for all; older queued items resolve as `SheddedQueueFull` and their callers fall back to the fast-path default. The drop-oldest semantics match the verdict cache's "one verdict serves many" intent.
 
-**Layer 4 — Circuit breaker.** When global queue depth stays above `BreakerTripThreshold` (default 80%) for `BreakerTripHoldSeconds` (default 5s), the breaker opens. New non-operator slow-path work returns `SheddedBreakerOpen` immediately; the matcher falls back to L1 verdicts. Auto-resets when depth drops below `BreakerResetThreshold` (default 30%) for `BreakerResetHoldSeconds` (default 10s). Both transitions require sustained conditions to avoid flapping.
+**Layer 4 - Circuit breaker.** When global queue depth stays above `BreakerTripThreshold` (default 80%) for `BreakerTripHoldSeconds` (default 5s), the breaker opens. New non-operator slow-path work returns `SheddedBreakerOpen` immediately; the matcher falls back to L1 verdicts. Auto-resets when depth drops below `BreakerResetThreshold` (default 30%) for `BreakerResetHoldSeconds` (default 10s). Both transitions require sustained conditions to avoid flapping.
 
 The breaker matters because the slow path is a finite resource. Under adversarial burst, the right behaviour is to **fail open to the fast path**, not block requests. The fast path keeps serving cached or default verdicts at sub-ms; the dashboard surfaces shed events via `identity.slow_path_shed` so operators see the degradation rather than silent failure.
 
-Worker pool: `WorkerCount` (default 4) parallel workers pull from the priority queue. Per-fp ordering is enforced by an in-flight tracker — a worker dequeueing an item whose fp is already in flight requeues it with a small priority penalty and continues. WorkerCount=1 makes the dispatch strictly serial (deterministic, useful for tests); higher counts give parallelism across fingerprints (essential for the manual AI opinion path which can take seconds via the LLM call).
+Worker pool: `WorkerCount` (default 4) parallel workers pull from the priority queue. Per-fp ordering is enforced by an in-flight tracker - a worker dequeueing an item whose fp is already in flight requeues it with a small priority penalty and continues. WorkerCount=1 makes the dispatch strictly serial (deterministic, useful for tests); higher counts give parallelism across fingerprints (essential for the manual AI opinion path which can take seconds via the LLM call).
 
-Caller contract: the matcher only routes Pass 2 through the coordinator when an L1 candidate exists (so the shed fallback path has a verdict to emit). For first-time identities (no L1 binding), Pass 2 runs INLINE — concurrent allocations may produce duplicate fps (loser becomes an orphan, `fingerprint_keys` upsert resolves to one of them), but every request still emits a fingerprint id, which is the load-bearing invariant.
+Caller contract: the matcher only routes Pass 2 through the coordinator when an L1 candidate exists (so the shed fallback path has a verdict to emit). For first-time identities (no L1 binding), Pass 2 runs INLINE - concurrent allocations may produce duplicate fps (loser becomes an orphan, `fingerprint_keys` upsert resolves to one of them), but every request still emits a fingerprint id, which is the load-bearing invariant.
 
 ## Ambiguity-persistence meta-signal
 
-The boundary-probing defence. An adversary who understands the two-pass match can engineer requests to live in the ambiguity band — just novel enough to trip Pass 2 on every request, knowing the slow path is always one request behind the fast path's emitted verdict. The cluster-inheritance / entity-family fallback closes most of that gap, but a probe-the-boundary attacker is specifically engineered to NOT cluster cleanly, so cluster fallback doesn't catch them.
+The boundary-probing defence. An adversary who understands the two-pass match can engineer requests to live in the ambiguity band - just novel enough to trip Pass 2 on every request, knowing the slow path is always one request behind the fast path's emitted verdict. The cluster-inheritance / entity-family fallback closes most of that gap, but a probe-the-boundary attacker is specifically engineered to NOT cluster cleanly, so cluster fallback doesn't catch them.
 
 The fix: aggregate the ambiguity-band events into a per-fingerprint signal that flags persistent boundary-probing as bot behaviour in its own right. Repeated slow-path triggering is itself a behavioural shape, and a rare one for legitimate traffic.
 
 Implementation:
-- `fingerprints.ambiguity_persistence` (REAL, 0..1) — EWMA-smoothed fraction of recent matches for this fp that landed in the ambiguity band.
+- `fingerprints.ambiguity_persistence` (REAL, 0..1) - EWMA-smoothed fraction of recent matches for this fp that landed in the ambiguity band.
 - Each match outcome bumps the EWMA: ambiguity events (Pass 2 correction, rotation candidate, L1 confirm fail, allocation) push toward 1; clean L1 confirm successes push toward 0.
 - The bump uses `UPDATE … RETURNING` for an atomic single-roundtrip read of the post-EWMA value. Concurrent writers serialise at the SQLite layer (no lost updates).
 - When the post-bump value crosses `AmbiguityProbingThreshold` (default 0.4), the matcher emits `identity.ambiguity_probing = true` as a positive bot signal. Downstream classifiers can apply a flat probability bias on top.
 - Always emits `identity.ambiguity_persistence` (the raw value) so the dashboard and the verdict cache can see the EWMA without thresholding.
 
-The signal composes with the slow-path coordinator: even when the breaker is tripped under adversarial burst, the EWMA bump still happens on every request (the bump is a single UPDATE — fast). So the matcher's fast path keeps recording the boundary-probing pattern even when slow-path enrichment is shed. The adversary loses the "always one request behind" advantage they get when the slow path is the only thing watching for the pattern.
+The signal composes with the slow-path coordinator: even when the breaker is tripped under adversarial burst, the EWMA bump still happens on every request (the bump is a single UPDATE - fast). So the matcher's fast path keeps recording the boundary-probing pattern even when slow-path enrichment is shed. The adversary loses the "always one request behind" advantage they get when the slow path is the only thing watching for the pattern.
 
-The Identities dashboard surfaces the value as a colour-banded "Ambig" column (red ≥40%, amber ≥20%, muted otherwise) so operators triaging a fingerprint can spot the boundary-probing pattern at a glance — a fingerprint with high ambiguity_persistence + low correction_count is the classic engineered-to-stay-ambiguous signal.
+The Identities dashboard surfaces the value as a colour-banded "Ambig" column (red ≥40%, amber ≥20%, muted otherwise) so operators triaging a fingerprint can spot the boundary-probing pattern at a glance - a fingerprint with high ambiguity_persistence + low correction_count is the classic engineered-to-stay-ambiguous signal.
 
 ## What this replaces
 
@@ -742,7 +742,7 @@ Each item should be checkable against the body above.
 18. **Archetypes self-refine.** The same calibration service that computes global weights also re-blends each archetype's centroid toward its descendants' mean, regularised by the original YAML seed. Stated in role 3 of the archetypes section.
 19. **Behavioural inference is a first-class output.** Each fingerprint's nearest current archetype is its `inferred_client_type`, recomputed on every centroid update, surfaced as `identity.client_type` per request, with a `identity.client_type_drift` event when it flips. Stated in the inferred-client-type section.
 20. **Per-fingerprint weights have two learning signals.** Corrections (sharp edits when L1 was wrong) and stability (everyday gradient from per-dim deviation on absorptions). Both compose; both stated in the per-fingerprint weight learning section.
-21. **All learning state is durable in the same DB.** Archetypes, dimension weights, per-fingerprint weights, observations, corrections — all SQLite tables. No in-process caches that can't be reconstructed from the DB.
+21. **All learning state is durable in the same DB.** Archetypes, dimension weights, per-fingerprint weights, observations, corrections - all SQLite tables. No in-process caches that can't be reconstructed from the DB.
 22. **Effective weight is the only weight at match time.** Pass 1 quick confirm and Pass 2 re-rank both use `effective_weight = global_weight ⊙ candidate.weights`. Per-fingerprint weights alone never decide a match. Stated in the two-pass section, the lookup mechanics, and the global-weight-loading section.
 23. **Rotation candidate is not a correction.** Distinct semantics: rotation lands on the same fingerprint and absorbs the new form into its centroid; correction picks a different fingerprint. Two distinct signals. Stated in the rotation-candidate semantics block and the signals section.
 24. **Engine choice is a C# abstraction, schema differs.** The vec0 layout and brute-force layout share the C# `IIdentityAnchorIndex` interface and identical query semantics, not identical SQL. Stated in the engine abstraction subsection.
@@ -751,7 +751,7 @@ Each item should be checkable against the body above.
 27. **Archetype scan happens only on the new-fingerprint branch.** Lookup mechanics step 5 references it; the matcher never scans archetypes for confirmed matches or rotation candidates.
 28. **Closed-loop learning system.** Eight named feedback paths, each writing a DB row that the next request reads. No terminal nodes, no separate training step. Stated in the learning feedback section.
 29. **One component per loop node.** Each named C# class owns exactly one node in the feedback diagram. Components communicate through DB rows, never directly. Restarting any one resumes the loop from its last persisted output.
-30. **L1-confirmed still observes.** Pass 1 confirm is "trust the identity, fast-respond, still observe" — never "trust and skip". Every confirmed match writes an observation row (subject to ObservationSamplingRate) and the full classifier pipeline still runs. Background absorption then drives drift detection. Stated in the two-pass section after the cost profile.
+30. **L1-confirmed still observes.** Pass 1 confirm is "trust the identity, fast-respond, still observe" - never "trust and skip". Every confirmed match writes an observation row (subject to ObservationSamplingRate) and the full classifier pipeline still runs. Background absorption then drives drift detection. Stated in the two-pass section after the cost profile.
 31. **Cached fingerprint-level verdict served in L1.** Each fingerprint row carries `cached_bot_probability` and `cached_risk_band`. L1 confirm reads them and emits as signals so action policies use the fingerprint's *learned* prior, not just this request's in-line score. Stated in the L1-still-observes consequences.
 32. **FingerprintDriftService runs delayed L2 verification.** Distinct from the absorption service. Pulls sampled observations from the L1-confirm queue every few seconds, runs Pass 2, records delayed corrections, updates fingerprint_keys. Stated in the L1-still-observes consequences and in the loop diagram (extra node).
 33. **Latency tiers for feedback are explicit.** `cached_bot_probability` updates per request in-line; drift verification runs every few seconds; absorption fires per-fp on maturity threshold; global calibration runs every 30 min. The hot path serves the previous tick of every loop. Stated in the feedback latency tiers table.

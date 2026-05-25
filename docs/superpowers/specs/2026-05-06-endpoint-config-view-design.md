@@ -129,7 +129,7 @@ DELETE returns 204 on success, 404 if not found.
 
 ### Endpoint list (`_EndpointsCompact.cshtml`)
 
-New column after **Sigs**: **Policy** -shows `endpoint.ActivePolicyName` as a small mono badge, or `—` if default.
+New column after **Sigs**: **Policy** -shows `endpoint.ActivePolicyName` as a small mono badge, or `-` if default.
 
 Pin/honeypot indicators in the **Path** cell:
 - Pinned: `bx-pin` icon (muted)

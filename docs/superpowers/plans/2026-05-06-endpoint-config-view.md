@@ -792,7 +792,7 @@ else
                         }
                         else
                         {
-                            <span class="text-[10px] text-base-content/30">—</span>
+                            <span class="text-[10px] text-base-content/30">-</span>
                         }
                     </td>
                 </tr>

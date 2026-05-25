@@ -114,9 +114,9 @@ Available via `Algorithm=label_propagation`:
 When `EnableBehaviouralVectorAxis=true` (default) and the metastable identity layer is enabled, the similarity graph edges blend the heuristic axis with the per-fingerprint behavioural centroid:
 
 - **Heuristic similarity** (60%): 12-dimensional feature vector comparison (see table above)
-- **Behavioural-vector similarity** (40%): Cosine similarity of `fingerprints.centroid` — the stabilised learned shape from the metastable identity layer (~110 dims; per-fp + global Fisher-weighted)
+- **Behavioural-vector similarity** (40%): Cosine similarity of `fingerprints.centroid` - the stabilised learned shape from the metastable identity layer (~110 dims; per-fp + global Fisher-weighted)
 
-The centroid is the actual learned shape from real observations, not a text embedding of pre-aggregated features. This replaced the prior ONNX `all-MiniLM-L6-v2` text-embedding axis in 6.4.7 — embedding a hand-summarised string was a workaround for not having a real behavioural vector; the metastable centroid is the real thing.
+The centroid is the actual learned shape from real observations, not a text embedding of pre-aggregated features. This replaced the prior ONNX `all-MiniLM-L6-v2` text-embedding axis in 6.4.7 - embedding a hand-summarised string was a workaround for not having a real behavioural vector; the metastable centroid is the real thing.
 
 Configure the blend via `BehaviouralVectorWeight` (0.0 = heuristic only, 1.0 = behavioural-vector only). When Identity is disabled or a signature has no resolved fingerprint binding, similarity falls back to the heuristic axis only.
 

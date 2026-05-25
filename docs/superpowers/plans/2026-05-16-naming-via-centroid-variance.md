@@ -4,7 +4,7 @@
 
 **Goal:** Replace every hardcoded display name ("Bot", "Human", "Unknown", "Signature") with a single naming pipeline. Every visitor (bot or human) gets `"<archetype name>{ (variance)?}"`, where the archetype name comes from YAML today and from LLM-named Leiden centroids tomorrow, and the variance is decorated from already-emitted signals.
 
-**Architecture:** The synthesizer becomes pure. It reads three foundation signals (`identity.archetype_name`, `identity.archetype_match_score`, plus existing variance signals like `session.velocity_magnitude`, `geo.country_code`) and composes a name. `FingerprintMatchContributor` is the only writer of the archetype-name signal, looking up the display name on `IdentityArchetypeRegistry` after it does the nearest-archetype match. The three IsBot gates in `DetectionBroadcastMiddleware` go away — the synthesizer runs for everyone, the view layer never invents fallback strings. Leiden discovery feeds new candidate archetypes into the same registry via a background bridge (Phase 5, separable).
+**Architecture:** The synthesizer becomes pure. It reads three foundation signals (`identity.archetype_name`, `identity.archetype_match_score`, plus existing variance signals like `session.velocity_magnitude`, `geo.country_code`) and composes a name. `FingerprintMatchContributor` is the only writer of the archetype-name signal, looking up the display name on `IdentityArchetypeRegistry` after it does the nearest-archetype match. The three IsBot gates in `DetectionBroadcastMiddleware` go away - the synthesizer runs for everyone, the view layer never invents fallback strings. Leiden discovery feeds new candidate archetypes into the same registry via a background bridge (Phase 5, separable).
 
 **Tech Stack:** C# / .NET 10, xUnit + Moq for tests, SQLite, YAML for hand-authored archetypes.
 
@@ -17,31 +17,31 @@
 ## File Structure
 
 ### New files
-- `src/Mostlylucid.BotDetection.Test/Services/VarianceNameTests.cs` — focused tests for variance composition
+- `src/Mostlylucid.BotDetection.Test/Services/VarianceNameTests.cs` - focused tests for variance composition
 
 ### Modified files
-- `src/Mostlylucid.BotDetection/Services/DeterministicBotNameSynthesizer.cs` — rewrite the name-composition logic
-- `src/Mostlylucid.BotDetection/Models/DetectionContext.cs` — add `IdentityArchetypeName`, `IdentityArchetypeDescription` signal key constants
-- `src/Mostlylucid.BotDetection/Identity/IdentityArchetypeRegistry.cs` — add `TryGetById(string)` lookup
-- `src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/FingerprintMatchContributor.cs` — write archetype-name signal whenever a match is made
-- `src/Mostlylucid.BotDetection.UI/Middleware/DetectionBroadcastMiddleware.cs` — drop IsBot gates at lines 172, 360, 378
-- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/SbBadge/Default.cshtml` — drop hardcoded "Human"
-- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/SbSummary/Default.cshtml` — drop hardcoded "Human"
-- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/SbSummary/Card.cshtml` — drop hardcoded "Human"
-- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/SbSessionsList/Default.cshtml` — keep signature-hash fallback (synthesizer should always fire, but cold render still needs it)
-- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/SbThreatsList/Default.cshtml` — drop hardcoded "Unknown"
-- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/BotDetectionDetails/Default.cshtml` — show name unconditionally
-- `src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/_SignatureDetail.cshtml` — drop hardcoded "Signature"
-- `src/Mostlylucid.BotDetection.Test/Services/DeterministicBotNameTests.cs` — add human-naming tests; preserve bot-naming tests
-- `src/Mostlylucid.BotDetection/Models/DetectionContext.cs` — (Phase 5) add `IdentityArchetypeOrigin = "leiden-discovered"` constant if not present
+- `src/Mostlylucid.BotDetection/Services/DeterministicBotNameSynthesizer.cs` - rewrite the name-composition logic
+- `src/Mostlylucid.BotDetection/Models/DetectionContext.cs` - add `IdentityArchetypeName`, `IdentityArchetypeDescription` signal key constants
+- `src/Mostlylucid.BotDetection/Identity/IdentityArchetypeRegistry.cs` - add `TryGetById(string)` lookup
+- `src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/FingerprintMatchContributor.cs` - write archetype-name signal whenever a match is made
+- `src/Mostlylucid.BotDetection.UI/Middleware/DetectionBroadcastMiddleware.cs` - drop IsBot gates at lines 172, 360, 378
+- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/SbBadge/Default.cshtml` - drop hardcoded "Human"
+- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/SbSummary/Default.cshtml` - drop hardcoded "Human"
+- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/SbSummary/Card.cshtml` - drop hardcoded "Human"
+- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/SbSessionsList/Default.cshtml` - keep signature-hash fallback (synthesizer should always fire, but cold render still needs it)
+- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/SbThreatsList/Default.cshtml` - drop hardcoded "Unknown"
+- `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/BotDetectionDetails/Default.cshtml` - show name unconditionally
+- `src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/_SignatureDetail.cshtml` - drop hardcoded "Signature"
+- `src/Mostlylucid.BotDetection.Test/Services/DeterministicBotNameTests.cs` - add human-naming tests; preserve bot-naming tests
+- `src/Mostlylucid.BotDetection/Models/DetectionContext.cs` - (Phase 5) add `IdentityArchetypeOrigin = "leiden-discovered"` constant if not present
 
 ### Phase 5 new files
-- `src/Mostlylucid.BotDetection/Identity/ArchetypeDiscoveryService.cs` — promotes mature Leiden clusters into named archetype centroids
-- `src/Mostlylucid.BotDetection.Test/Identity/ArchetypeDiscoveryServiceTests.cs` — including the "fingerprints stay distinct within an archetype" assertion
+- `src/Mostlylucid.BotDetection/Identity/ArchetypeDiscoveryService.cs` - promotes mature Leiden clusters into named archetype centroids
+- `src/Mostlylucid.BotDetection.Test/Identity/ArchetypeDiscoveryServiceTests.cs` - including the "fingerprints stay distinct within an archetype" assertion
 
 ---
 
-## Phase 1 — Surface the archetype display name as a foundation signal
+## Phase 1 - Surface the archetype display name as a foundation signal
 
 ### Task 1.1: Add archetype-name signal keys
 
@@ -114,7 +114,7 @@ private static IdentityArchetypeRegistry BuildRegistry() =>
 - [ ] **Step 1.2.2: Run the test, confirm it fails to compile**
 
 Run: `dotnet test src/Mostlylucid.BotDetection.Orchestration.Tests --filter "FullyQualifiedName~IdentityArchetypeRegistryTests" --no-build`
-Expected: compile error — `TryGetById` does not exist on `IdentityArchetypeRegistry`.
+Expected: compile error - `TryGetById` does not exist on `IdentityArchetypeRegistry`.
 
 - [ ] **Step 1.2.3: Add `TryGetById` to the registry**
 
@@ -276,7 +276,7 @@ EOF
 
 ---
 
-## Phase 2 — REVISED: drift-analysis variance composer
+## Phase 2 - REVISED: drift-analysis variance composer
 
 > **Revision (2026-05-16, after user clarification):** Variance is not a set of hand-coded rules (`if velocity > 0.5 then Rotating`). It is **per-slot scaled distance** between the fingerprint's identity vector and the matched archetype's centroid, weighted by the calibrated per-dimension weights from `IdentityWeightCalibrationService` (Fisher-derived). The slot with the largest scaled distance IS the distinguishing feature. The slot's name maps to a human-readable label.
 >
@@ -333,7 +333,7 @@ public class IdentityWeightMathDriftTests
         var observed = new float[dim];
         var weights = Enumerable.Repeat(1.0f, dim).ToArray();
 
-        // Inject a unit deviation in one slot — say "network.country" (offset/width per layout).
+        // Inject a unit deviation in one slot - say "network.country" (offset/width per layout).
         var countrySlot = layout.FindSlot("network.country")!;
         for (var i = countrySlot.Offset; i < countrySlot.Offset + countrySlot.Width; i++)
             observed[i] = 1.0f;
@@ -652,7 +652,7 @@ public async Task NoDriftSignal_ProducesPlainArchetypeName()
 }
 ```
 
-The original `HighVelocity_GetsRotatingPrefix`, `NoAssets_GetsHeadlessPrefix` and `ScanningIntent_GetsScannerNoun` tests stay green only if the synthesizer keeps a small back-compat path for bot-only signals. Decide whether to keep those signals as a second-priority drift source or delete those tests when the matcher path becomes authoritative. Default: delete them — drift is the new contract.
+The original `HighVelocity_GetsRotatingPrefix`, `NoAssets_GetsHeadlessPrefix` and `ScanningIntent_GetsScannerNoun` tests stay green only if the synthesizer keeps a small back-compat path for bot-only signals. Decide whether to keep those signals as a second-priority drift source or delete those tests when the matcher path becomes authoritative. Default: delete them - drift is the new contract.
 
 - [ ] **Step 2.3.3: Commit**
 
@@ -899,7 +899,7 @@ In `DeterministicBotNameSynthesizer.cs`, replace the existing `GenerateName` wit
     /// <summary>
     ///     Returns a single variance term derived from behavioural signals, or null when
     ///     nothing notable is happening. Variance terms describe *how this fingerprint
-    ///     deviates from the population*, not what type of client it is — the archetype name
+    ///     deviates from the population*, not what type of client it is - the archetype name
     ///     handles the latter.
     /// </summary>
     private static string? GetVarianceTerm(IReadOnlyDictionary<string, object?> signals)
@@ -967,14 +967,14 @@ EOF
 
 ---
 
-## Phase 3 — Remove the IsBot gates in `DetectionBroadcastMiddleware`
+## Phase 3 - Remove the IsBot gates in `DetectionBroadcastMiddleware`
 
 ### Task 3.1: Drop IsBot gates at lines 172, 360, 378
 
 **Files:**
 - Modify: `src/Mostlylucid.BotDetection.UI/Middleware/DetectionBroadcastMiddleware.cs`
 
-**Guardrail:** Line 387 (`UserAgent = result.IsBot ? Sanitize(...) : null`) is the PII zero-rule. Do NOT touch it. Lines 121/167 (attack arc broadcast) are cosmetic and out of scope — leave for a separate decision.
+**Guardrail:** Line 387 (`UserAgent = result.IsBot ? Sanitize(...) : null`) is the PII zero-rule. Do NOT touch it. Lines 121/167 (attack arc broadcast) are cosmetic and out of scope - leave for a separate decision.
 
 - [ ] **Step 3.1.1: Write a failing test asserting humans flow through TrackSignature**
 
@@ -1010,7 +1010,7 @@ public async Task HumanDetection_BroadcastsBotNameWhenPresent()
 - [ ] **Step 3.1.2: Run tests, confirm fail**
 
 Run: `dotnet test src/Mostlylucid.BotDetection.UI.Test --filter "FullyQualifiedName~DetectionBroadcastMiddlewareTests"`
-Expected: tests FAIL — TrackSignature not called for non-bots; BotName is null.
+Expected: tests FAIL - TrackSignature not called for non-bots; BotName is null.
 
 - [ ] **Step 3.1.3: Drop the IsBot gate at line 172**
 
@@ -1097,7 +1097,7 @@ EOF
 
 ---
 
-## Phase 4 — Drop hardcoded view-layer fallbacks
+## Phase 4 - Drop hardcoded view-layer fallbacks
 
 ### Task 4.1: Replace invented strings with the system-derived name
 
@@ -1110,7 +1110,7 @@ EOF
 - Modify: `src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/_SignatureDetail.cshtml`
 - Keep: `src/Mostlylucid.BotDetection.UI/Views/Shared/Components/SbSessionsList/Default.cshtml` (signature-hash fallback is correct for cold render before broadcast lands)
 
-- [ ] **Step 4.1.1: SbBadge — drop the "Human" hardcode**
+- [ ] **Step 4.1.1: SbBadge - drop the "Human" hardcode**
 
 Replace:
 
@@ -1126,7 +1126,7 @@ with:
 
 Rationale: BotName should always be present for any seen signature; the "Visitor"/"Bot" fallback only fires for the cold first paint.
 
-- [ ] **Step 4.1.2: SbSummary Default — same fix**
+- [ ] **Step 4.1.2: SbSummary Default - same fix**
 
 Replace:
 
@@ -1142,7 +1142,7 @@ with:
         : "Unknown";
 ```
 
-- [ ] **Step 4.1.3: SbSummary Card — same fix**
+- [ ] **Step 4.1.3: SbSummary Card - same fix**
 
 Replace:
 
@@ -1158,7 +1158,7 @@ with:
         : "Unknown";
 ```
 
-- [ ] **Step 4.1.4: SbThreatsList — drop "Unknown" hardcode**
+- [ ] **Step 4.1.4: SbThreatsList - drop "Unknown" hardcode**
 
 Replace:
 
@@ -1174,7 +1174,7 @@ with:
 
 Falls back to signature hash before the catch-all "Unknown".
 
-- [ ] **Step 4.1.5: BotDetectionDetails — render unconditionally**
+- [ ] **Step 4.1.5: BotDetectionDetails - render unconditionally**
 
 Replace:
 
@@ -1191,7 +1191,7 @@ with:
         <span class="recommendation-bot"> | Identified: <strong>@(Model.BotName ?? Model.BotType ?? "Visitor")</strong></span>
 ```
 
-- [ ] **Step 4.1.6: _SignatureDetail — drop "Signature" hardcode**
+- [ ] **Step 4.1.6: _SignatureDetail - drop "Signature" hardcode**
 
 Replace:
 
@@ -1245,7 +1245,7 @@ EOF
 
 ---
 
-## Phase 5 — Leiden → archetype bridge (separable follow-up)
+## Phase 5 - Leiden → archetype bridge (separable follow-up)
 
 **Context for the worker:** This phase closes the architectural split between Leiden clustering and identity archetypes. Today they're two parallel systems that share the word "cluster" but don't talk. After this phase, a mature Leiden cluster's member vectors define a new archetype centroid, the existing `ProcessClusterAsync` LLM prompt names it, and the new archetype joins `IdentityArchetypeRegistry` so future fingerprints can match against it. The variance composer from Phase 2 then picks up the LLM-given name automatically.
 
@@ -1341,9 +1341,9 @@ EOF
 
 The service:
 - Runs as a `BackgroundService` on a configurable interval (default 30 min)
-- Iterates Leiden clusters; for each cluster not already represented by an archetype, checks the importance threshold (member count ≥ N, temporal density ≥ T, average similarity ≥ S — all configurable)
+- Iterates Leiden clusters; for each cluster not already represented by an archetype, checks the importance threshold (member count ≥ N, temporal density ≥ T, average similarity ≥ S - all configurable)
 - For qualifying clusters, computes the centroid as the mean of member identity vectors
-- Calls `LlmDescriptionCoordinator.EnqueueClusterAsync(clusterId, cluster, members)` — which already exists and writes back via the cluster callback. Reuse that callback signature; add an `ILlmResultCallback` overload `OnArchetypeDiscoveredAsync(archetypeId, centroid, name, description)` invoked by the discovery service after the LLM names the cluster.
+- Calls `LlmDescriptionCoordinator.EnqueueClusterAsync(clusterId, cluster, members)` - which already exists and writes back via the cluster callback. Reuse that callback signature; add an `ILlmResultCallback` overload `OnArchetypeDiscoveredAsync(archetypeId, centroid, name, description)` invoked by the discovery service after the LLM names the cluster.
 - Calls `IdentityArchetypeRegistry.Upsert(...)` with the centroid + LLM name. Persists via `SqliteFingerprintStore.UpsertArchetypeAsync` (already exists for the calibration loop).
 
 - [ ] **Step 5.2.1: Write the failing test for threshold gating**
@@ -1494,7 +1494,7 @@ Read `IdentityArchetype.cs`. If `ArchetypeKind` exists, ensure it's settable on 
 
 - [ ] **Step 5.3.2: Tag discovered archetypes with `"leiden-discovered"`**
 
-In `ArchetypeDiscoveryService`, when constructing the archetype to upsert, set `ArchetypeKind = "leiden-discovered"`. The calibration loop's archetype-refinement step (`IdentityWeightCalibrationService.RefineArchetypeCentroid`) treats all archetypes uniformly today — that's fine, the calibration *can* refine discovered archetypes too. The tag is for debug/audit, not gate logic.
+In `ArchetypeDiscoveryService`, when constructing the archetype to upsert, set `ArchetypeKind = "leiden-discovered"`. The calibration loop's archetype-refinement step (`IdentityWeightCalibrationService.RefineArchetypeCentroid`) treats all archetypes uniformly today - that's fine, the calibration *can* refine discovered archetypes too. The tag is for debug/audit, not gate logic.
 
 - [ ] **Step 5.3.3: Commit**
 
@@ -1515,7 +1515,7 @@ EOF
 
 ---
 
-### Task 5.4: Guardrail test — fingerprints stay distinct within an archetype
+### Task 5.4: Guardrail test - fingerprints stay distinct within an archetype
 
 **Files:**
 - Create: `src/Mostlylucid.BotDetection.Test/Identity/ArchetypeDoesNotMergeFingerprintsTests.cs`
@@ -1529,7 +1529,7 @@ public class ArchetypeDoesNotMergeFingerprintsTests
     public async Task NearlyIdenticalFingerprints_RemainDistinct_WhenSharingArchetype()
     {
         // Two fingerprints with the same archetype match but distinct enough vectors
-        // to be different fingerprints — typical of two scrapers from different IPs.
+        // to be different fingerprints - typical of two scrapers from different IPs.
         var harness = BuildIdentityHarness();
         var archetypeId = "python-requests";
 
@@ -1548,7 +1548,7 @@ public class ArchetypeDoesNotMergeFingerprintsTests
 Run: `dotnet test src/Mostlylucid.BotDetection.Test --filter "FullyQualifiedName~ArchetypeDoesNotMergeFingerprintsTests"`
 Expected: PASS without modifying production code. The matcher's L1/L2 logic already keeps fingerprints distinct; this test pins the contract.
 
-If it fails, it means a prior step (likely the Phase 5 upsert) tightened things incorrectly. Stop and diagnose — do not loosen the assertion to make it pass.
+If it fails, it means a prior step (likely the Phase 5 upsert) tightened things incorrectly. Stop and diagnose - do not loosen the assertion to make it pass.
 
 - [ ] **Step 5.4.3: Commit**
 
@@ -1589,8 +1589,8 @@ After all phases:
 
 **Spec coverage:** Phases 1–4 deliver the "name humans via the same system" goal. Phase 5 delivers the self-improving loop. The "fingerprints stay distinct within a shared archetype" guardrail is pinned by Task 5.4. The "replace hardcoded nonsense" requirement is Phase 4. The "LLM names centroids, deterministic adds variance" architecture is Phases 1+2 (synthesizer reads archetype name) and Phase 5 (LLM names archetype centroids).
 
-**Placeholders:** Every step shows the actual code or command. The `BuildHarness`, `BuildRegistry`, `BuildIdentityHarness` helpers in tests are conventional — the worker should follow existing test patterns in the same test file's namespace. If a step says "use mock", a real Moq or fake stub is intended; the worker writes the boilerplate per project convention.
+**Placeholders:** Every step shows the actual code or command. The `BuildHarness`, `BuildRegistry`, `BuildIdentityHarness` helpers in tests are conventional - the worker should follow existing test patterns in the same test file's namespace. If a step says "use mock", a real Moq or fake stub is intended; the worker writes the boilerplate per project convention.
 
-**Type consistency:** `IdentityArchetypeName` (line 1.1.1) is read by `GenerateName` in Task 2.2 and written by `FingerprintMatchContributor` in Task 1.3 — same constant. `TryGetById` (Task 1.2) is called from Task 1.3 — same signature `(string archetypeId) → IdentityArchetype?`. `GetMemberIdentityVectors(clusterId)` (Task 5.1) is called from `ArchetypeDiscoveryService.RunOnceAsync` (Task 5.2) — same signature.
+**Type consistency:** `IdentityArchetypeName` (line 1.1.1) is read by `GenerateName` in Task 2.2 and written by `FingerprintMatchContributor` in Task 1.3 - same constant. `TryGetById` (Task 1.2) is called from Task 1.3 - same signature `(string archetypeId) → IdentityArchetype?`. `GetMemberIdentityVectors(clusterId)` (Task 5.1) is called from `ArchetypeDiscoveryService.RunOnceAsync` (Task 5.2) - same signature.
 
-**Open question for the worker:** Phase 5 Task 5.2.3 wires the LLM callback through an `Action<...>` hook. This is the smallest-blast-radius change to `LlmDescriptionCoordinator`. If the codebase prefers a typed `IArchetypeCallback` interface (consistent with `IClusterDescriptionCallback`), switch to that — the test in 5.2.1 only asserts the upsert happens, not how it's wired.
+**Open question for the worker:** Phase 5 Task 5.2.3 wires the LLM callback through an `Action<...>` hook. This is the smallest-blast-radius change to `LlmDescriptionCoordinator`. If the codebase prefers a typed `IArchetypeCallback` interface (consistent with `IClusterDescriptionCallback`), switch to that - the test in 5.2.1 only asserts the upsert happens, not how it's wired.

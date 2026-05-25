@@ -1,15 +1,15 @@
-# Behavioral Evolution Panel — Design
+# Behavioral Evolution Panel - Design
 
 **Date:** 2026-05-24
-**Repo:** stylobot (FOSS UI) — consumed by stylobot-commercial dashboard and the marketing site.
+**Repo:** stylobot (FOSS UI) - consumed by stylobot-commercial dashboard and the marketing site.
 
 ## Problem
 
 The signature/visitor detail page renders three separate panels for behavioral history:
 
-1. **Behavioral History** — filmstrip of small radar thumbnails for past sessions.
-2. **Behavioral Sessions** — tabular list (Started · Duration · Requests · Dominant · Bot % · Risk · Paths).
-3. **Behavioral Shape** — single radar of the *currently focused* session with prev/play/next navigation.
+1. **Behavioral History** - filmstrip of small radar thumbnails for past sessions.
+2. **Behavioral Sessions** - tabular list (Started · Duration · Requests · Dominant · Bot % · Risk · Paths).
+3. **Behavioral Shape** - single radar of the *currently focused* session with prev/play/next navigation.
 
 The three panels share data and tell adjacent stories, but the relationship between them is invisible until you click around. The filmstrip thumbnails are too small to read shape detail; the radar shows only one session at a time, so evolution across sessions requires watching the play animation rather than seeing it in one frame.
 
@@ -40,10 +40,10 @@ The radar uses a **12-axis clock** layout: 8 semantic projection axes plus 4 dis
 
 The four quadrants render with very subtle background washes (≈ 2% alpha) and small uppercase quadrant labels (`Footprint`, `Surface`, `Cadence`, `Signal`) just inside the outer ring, so each region's story reads at a glance:
 
-- **Footprint (12-2 o'clock)** — what is the visitor fetching?
-- **Surface (3-5 o'clock)** — which surface is it pressing?
-- **Cadence (6-8 o'clock)** — how is it pacing?
-- **Signal (9-11 o'clock)** — what is the detector saying?
+- **Footprint (12-2 o'clock)** - what is the visitor fetching?
+- **Surface (3-5 o'clock)** - which surface is it pressing?
+- **Cadence (6-8 o'clock)** - how is it pacing?
+- **Signal (9-11 o'clock)** - what is the detector saying?
 
 All 12 axes are normalised to `[0, 1]`. The markov projections may be 0 for a very-early session that has not accumulated a state distribution yet; those axes simply sit at the origin with no special-case rendering.
 
@@ -51,12 +51,12 @@ All 12 axes are normalised to `[0, 1]`. The markov projections may be 0 for a ve
 
 The Behavioral Evolution card is a single rounded panel containing, top to bottom:
 
-1. **Header row** — title (`⬢ Behavioral Evolution`), session-overlay count summary (`5 of 8 sessions overlaid`), Play button.
-2. **Body grid** — two columns:
-   - **Left (flex 1)** — 420 × 420 SVG/ApexCharts radar.
-   - **Right (280 px)** — vertical session card stack (one row per session, most recent first).
-3. **Metrics strip** — six labelled metric cells for the focused session: Duration, Requests, Dominant, Bot Prob, Maturity, Entropy.
-4. **Axis legend** — four-column reference of axes grouped by quadrant. Always visible (no toggle) so operators can read the radar without memorising hour positions.
+1. **Header row** - title (`⬢ Behavioral Evolution`), session-overlay count summary (`5 of 8 sessions overlaid`), Play button.
+2. **Body grid** - two columns:
+   - **Left (flex 1)** - 420 × 420 SVG/ApexCharts radar.
+   - **Right (280 px)** - vertical session card stack (one row per session, most recent first).
+3. **Metrics strip** - six labelled metric cells for the focused session: Duration, Requests, Dominant, Bot Prob, Maturity, Entropy.
+4. **Axis legend** - four-column reference of axes grouped by quadrant. Always visible (no toggle) so operators can read the radar without memorising hour positions.
 
 A focused session is highlighted in the right-hand list with a 2 px teal left border and a slightly raised background tint. Hovering a row in the list temporarily raises that session's polygon to focused intensity for preview; leaving reverts.
 
@@ -69,12 +69,12 @@ public static double[] ProjectMarkovTo4Axes(float[] stateFreqs10);
 public static double[] Compose12Axes(double[] semantic8, double[] markov4);
 ```
 
-`ProjectMarkovTo4Axes` returns `[ Asset, Realtime, Form/Search, 404 ]` from the 10-element state-freq vector. `Compose12Axes` interleaves the existing 8-axis semantic projection with the 4-axis Markov projection into the fixed clock order documented in the Axis Layout table above. The existing `/api/sessions/signature/{id}` endpoint composes once per session and attaches a `clockAxes: number[12]` field on the response, alongside the existing `radarAxes`. The client never recombines axes — the server emits the final 12-axis vector. The `radarAxes` field stays on the wire for any other consumers.
+`ProjectMarkovTo4Axes` returns `[ Asset, Realtime, Form/Search, 404 ]` from the 10-element state-freq vector. `Compose12Axes` interleaves the existing 8-axis semantic projection with the 4-axis Markov projection into the fixed clock order documented in the Axis Layout table above. The existing `/api/sessions/signature/{id}` endpoint composes once per session and attaches a `clockAxes: number[12]` field on the response, alongside the existing `radarAxes`. The client never recombines axes - the server emits the final 12-axis vector. The `radarAxes` field stays on the wire for any other consumers.
 
 Both source vectors are already available at the API layer:
 
 - 8-axis semantic comes from `VectorRadarProjection.Project(sessionVector)` (finalised + live in-memory paths) or `ProjectDetectionRadarTo8Axes(shape16)` (detection-fallback path).
-- 10-axis state freqs come from `sessionVector[100..109]` for finalised + live, and are an empty `float[10]` (zeros) for the detection-fallback path where no session vector exists yet. Markov hours therefore sit at the origin until the session has accumulated a vector — the intended "session in progress" reading.
+- 10-axis state freqs come from `sessionVector[100..109]` for finalised + live, and are an empty `float[10]` (zeros) for the detection-fallback path where no session vector exists yet. Markov hours therefore sit at the origin until the session has accumulated a vector - the intended "session in progress" reading.
 
 No schema changes. No new persistence.
 
@@ -117,20 +117,20 @@ Colour scheme: focused and recent ghosts use teal (`var(--sb-accent)`); ghosts o
 
 ### Modified
 
-- `src/Mostlylucid.BotDetection.UI/Services/ClockProjection.cs` (new) — `ProjectMarkovTo4Axes` and `Compose12Axes` static methods.
+- `src/Mostlylucid.BotDetection.UI/Services/ClockProjection.cs` (new) - `ProjectMarkovTo4Axes` and `Compose12Axes` static methods.
 - `src/Mostlylucid.BotDetection.UI/Middleware/StyloBotDashboardMiddleware.cs`
-  In `ServeSignatureSessionsApiAsync` (line 1834), attach a `clockAxes` field to every anonymous session entry — finalised path, live-in-memory path, and detection-fallback path. Existing `radarAxes` stays.
+  In `ServeSignatureSessionsApiAsync` (line 1834), attach a `clockAxes` field to every anonymous session entry - finalised path, live-in-memory path, and detection-fallback path. Existing `radarAxes` stays.
 - `src/Mostlylucid.BotDetection.UI/Views/StyloBot/Dashboard/_SignatureDetail.cshtml`
   Remove the three existing panels (lines 193-240) and the inline radar script (lines 695-832). Insert a `@Html.Partial("_BehavioralEvolution", model)` invocation.
 - `src/Mostlylucid.BotDetection.UI/Models/DashboardPartialModels.cs`
-  No DTO type added — the `/api/sessions/signature/{id}` response is built as an anonymous object inline in the middleware. The new `clockAxes` field is attached at construction time alongside the existing `radarAxes`. If a typed DTO ever replaces the anonymous object, that's where `ClockAxes` would live.
+  No DTO type added - the `/api/sessions/signature/{id}` response is built as an anonymous object inline in the middleware. The new `clockAxes` field is attached at construction time alongside the existing `radarAxes`. If a typed DTO ever replaces the anonymous object, that's where `ClockAxes` would live.
 
 ### Kept (not touched)
 
-- `Views/Shared/Components/BotDetectionDetails/Default.cshtml` — renders the visitor's current detection state, not session history. Not affected by this work.
-- `Views/StyloBot/Dashboard/_SessionDetail.cshtml` — embeds `_SessionFingerprints` in compact-filmstrip mode for its identity column. Continues to do so; the compact path of `_SessionFingerprints.cshtml` is unchanged.
+- `Views/Shared/Components/BotDetectionDetails/Default.cshtml` - renders the visitor's current detection state, not session history. Not affected by this work.
+- `Views/StyloBot/Dashboard/_SessionDetail.cshtml` - embeds `_SessionFingerprints` in compact-filmstrip mode for its identity column. Continues to do so; the compact path of `_SessionFingerprints.cshtml` is unchanged.
 
-- `_SessionFingerprints.cshtml` — survives because it is still used by the compact identity card on the main dashboard's identity column. Its mode toggle / filmstrip behaviour is unchanged for that caller.
+- `_SessionFingerprints.cshtml` - survives because it is still used by the compact identity card on the main dashboard's identity column. Its mode toggle / filmstrip behaviour is unchanged for that caller.
 
 ## Configurable Settings
 
@@ -157,23 +157,23 @@ public sealed record BehavioralEvolutionOptions
 }
 ```
 
-Bound from `BotDetection:Dashboard:BehavioralEvolution` and passed to the view via the existing partial-model plumbing. The values reach the client by inlining them into the panel's `data-*` attributes on the root element, which the inline script reads at boot — no per-request JS payload from `IOptions`.
+Bound from `BotDetection:Dashboard:BehavioralEvolution` and passed to the view via the existing partial-model plumbing. The values reach the client by inlining them into the panel's `data-*` attributes on the root element, which the inline script reads at boot - no per-request JS payload from `IOptions`.
 
 ## Testing
 
 Existing test surfaces extend rather than fork:
 
-- **Unit (`Mostlylucid.BotDetection.Test/UI/Primitives`)** — `ProjectTo12AxisClockTests`: every-axis-zero case, every-axis-one case, missing `StateFreqs` (length-zero array) case, mixed semantic+markov case with hand-computed expected values.
-- **Integration (`Mostlylucid.BotDetection.Test/UI`)** — `BehavioralEvolutionPartialTests`: render the partial against a fixture signature with 0, 1, 5, and 20 sessions; assert HTML structure (axis legend present, session row count capped by `MaxOverlaySessions`, focused row class applied to first row by default).
-- **API contract** — `SignatureSessionsApiTests`: assert `clockAxes` is a 12-length number array on every returned session, that `radarAxes` is still present, and that markov-empty sessions return 4 zero values for the markov hours rather than omitting them.
-- **Browser interaction (chrome-devtools-mcp)** — load the live signature detail page on prod (per the `repro-first / verify-in-browser` memory rules), drive click on a non-focused session row, assert the focused polygon's stroke colour changes and the metrics strip updates. Drive Play and assert frames advance. (DOM-existence and API-fetch checks do not count for the UI gate.)
+- **Unit (`Mostlylucid.BotDetection.Test/UI/Primitives`)** - `ProjectTo12AxisClockTests`: every-axis-zero case, every-axis-one case, missing `StateFreqs` (length-zero array) case, mixed semantic+markov case with hand-computed expected values.
+- **Integration (`Mostlylucid.BotDetection.Test/UI`)** - `BehavioralEvolutionPartialTests`: render the partial against a fixture signature with 0, 1, 5, and 20 sessions; assert HTML structure (axis legend present, session row count capped by `MaxOverlaySessions`, focused row class applied to first row by default).
+- **API contract** - `SignatureSessionsApiTests`: assert `clockAxes` is a 12-length number array on every returned session, that `radarAxes` is still present, and that markov-empty sessions return 4 zero values for the markov hours rather than omitting them.
+- **Browser interaction (chrome-devtools-mcp)** - load the live signature detail page on prod (per the `repro-first / verify-in-browser` memory rules), drive click on a non-focused session row, assert the focused polygon's stroke colour changes and the metrics strip updates. Drive Play and assert frames advance. (DOM-existence and API-fetch checks do not count for the UI gate.)
 
 ## Out of Scope (this spec)
 
 Nothing. All decisions are scoped in. Specifically:
 
 - The `_SessionFingerprints.cshtml` filmstrip stays available because it is still consumed by another caller; it is not removed.
-- 8 vs 16 vs 10 axis toggles do not appear — the 12-axis clock is the only view.
+- 8 vs 16 vs 10 axis toggles do not appear - the 12-axis clock is the only view.
 - No new persisted columns. No schema migration.
 
 If, during implementation, a new question surfaces, raise it for explicit scoping rather than deciding silently.

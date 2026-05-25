@@ -1,15 +1,15 @@
 # Metastable Fingerprint Identity (6.4.7+)
 
-The identity layer that learns *who keeps coming back* — even when their IP, UA, or both rotate. Off by default; flip on with `BotDetection:Identity:Enabled = true`.
+The identity layer that learns *who keeps coming back* - even when their IP, UA, or both rotate. Off by default; flip on with `BotDetection:Identity:Enabled = true`.
 
 This is the user-facing reader. The full design with rationale and contracts lives in [`docs/architecture/fingerprint-match.md`](../../../docs/architecture/fingerprint-match.md).
 
 ## What it does
 
-Treats each visitor as a *shape* — a learned vector centroid, a per-fingerprint weight vector, and a cloud of recent observations — instead of a single hash. Two-pass match:
+Treats each visitor as a *shape* - a learned vector centroid, a per-fingerprint weight vector, and a cloud of recent observations - instead of a single hash. Two-pass match:
 
-1. **L1 (microseconds, hot path)** — looks up `fingerprint_keys[primary_signature]` and runs a quick weighted-cosine confirm. When IP+UA stays put (the overwhelming majority of human traffic), this is all that runs.
-2. **L2 (~ms, slow path)** — falls back to a vector cosine search over fingerprint centroids and recent observations when L1 misses or the confirm score is too low. Bots that rotate IP/UA pay this cost; humans don't.
+1. **L1 (microseconds, hot path)** - looks up `fingerprint_keys[primary_signature]` and runs a quick weighted-cosine confirm. When IP+UA stays put (the overwhelming majority of human traffic), this is all that runs.
+2. **L2 (~ms, slow path)** - falls back to a vector cosine search over fingerprint centroids and recent observations when L1 misses or the confirm score is too low. Bots that rotate IP/UA pay this cost; humans don't.
 
 Result: stable visitors keep the sub-ms fast path. Rotating identities still resolve to a single fingerprint. The shape *is* the identity, not the hash that points at it.
 
@@ -17,10 +17,10 @@ Result: stable visitors keep the sub-ms fast path. Rotating identities still res
 
 You need this when the legacy `PrimarySignature` (HMAC of IP + UA) keeps fragmenting on:
 
-- **Mobile carriers and CGNAT** — IP changes between requests, UA stable.
-- **Headless automation rotating proxies** — IP changes per request, UA stable, behavioural shape stable.
-- **CDN-warm content** — same client, multiple POPs, different observed source IPs.
-- **Human visitors browsing across networks** — laptop hops from home Wi-Fi to phone tether to office VPN.
+- **Mobile carriers and CGNAT** - IP changes between requests, UA stable.
+- **Headless automation rotating proxies** - IP changes per request, UA stable, behavioural shape stable.
+- **CDN-warm content** - same client, multiple POPs, different observed source IPs.
+- **Human visitors browsing across networks** - laptop hops from home Wi-Fi to phone tether to office VPN.
 
 Without identity enabled, each of those produces a fresh `signatures` row, a fresh reputation cache miss, and a fresh detection cost. With it on, all four resolve back to one `fingerprints` row.
 
@@ -43,7 +43,7 @@ Request →
   All downstream classifiers see the resolved identity via state.GetSignal<string>(SignalKeys.IdentityFingerprintId)
 ```
 
-Both contributors implement `IFoundationContributor` — they run unconditionally under any policy. Policy filters classifiers, never identity.
+Both contributors implement `IFoundationContributor` - they run unconditionally under any policy. Policy filters classifiers, never identity.
 
 ## What lives in `fingerprints.db`
 
@@ -114,9 +114,9 @@ All hosted; all dormant when `Identity:Enabled = false`.
 
 Nine starter archetypes ship as embedded YAML in `Definitions/IdentityArchetypes/*.yaml` (residential browser, datacenter scraper, search bot, AI scraper, ops tool, residential mobile, kiosk, headless automation, generic CLI). They serve three roles:
 
-- **Cold-start templates** — a new fingerprint allocates with a 70% observation / 30% archetype-prior centroid blend, plus the archetype's `dimension_mask` added on top of the per-fp weight prior.
-- **Cluster labels for calibration** — Fisher ratios bucket fingerprints by `inferred_client_type`, which is the nearest-archetype id.
-- **Self-refining anchors** — calibration blends each archetype's centroid toward the mean of its descendant fingerprints (cap-bounded). The YAML-defined `dimension_mask` stays untouched; only the centroid learns.
+- **Cold-start templates** - a new fingerprint allocates with a 70% observation / 30% archetype-prior centroid blend, plus the archetype's `dimension_mask` added on top of the per-fp weight prior.
+- **Cluster labels for calibration** - Fisher ratios bucket fingerprints by `inferred_client_type`, which is the nearest-archetype id.
+- **Self-refining anchors** - calibration blends each archetype's centroid toward the mean of its descendant fingerprints (cap-bounded). The YAML-defined `dimension_mask` stays untouched; only the centroid learns.
 
 The system infers client type from observed behaviour. There is no manual tagging.
 
@@ -129,38 +129,38 @@ The system infers client type from observed behaviour. There is no manual taggin
 | `identity.is_new_fingerprint` | `bool` | True when the matcher allocated rather than matched. First-time visitor or rotation gap. |
 | `identity.is_correction` | `bool` | True when Pass 2 disagreed with Pass 1. The L1 cache has been re-bound. |
 | `identity.rotation_candidate` | `bool` | True when Pass 2 matched in the rotation band (between `LooseThreshold` and `MergeThreshold`). |
-| `identity.client_type` | `string` | Nearest-archetype id — inferred from behaviour, not headers. |
+| `identity.client_type` | `string` | Nearest-archetype id - inferred from behaviour, not headers. |
 | `identity.client_type_confidence` | `double` | Cosine score against the chosen archetype. |
 | `identity.cached_bot_probability` | `double` | EWMA-smoothed verdict carried on the fingerprint row. Drift verifier keeps this honest. |
 
 ## What this replaces, what it doesn't
 
-- **Replaces** the load-bearing role of `PrimarySignature` for cross-rotation identity. PrimarySignature still exists and is still computed — it's the L1 point lookup key — but downstream consumers should read `identity.fingerprint_id` for anything that needs to survive rotation.
+- **Replaces** the load-bearing role of `PrimarySignature` for cross-rotation identity. PrimarySignature still exists and is still computed - it's the L1 point lookup key - but downstream consumers should read `identity.fingerprint_id` for anything that needs to survive rotation.
 - **Composes with** the verdict cache (see [`fingerprint-verdict-cache.md`](fingerprint-verdict-cache.md)). When Identity is enabled, `SignatureVerdictGate` reads both the per-signature aggregate and the per-fingerprint cached verdict and takes the fresher source. Because the fingerprint source survives IP+UA rotation, a returning visitor whose primary signature has changed inherits their prior verdict (`X-StyloBot-VerdictSource: identity-cache`) instead of paying for a fresh pipeline pass.
 - **Doesn't replace** session vectors (see `behavioral-analysis.md`). Sessions remain the per-visit behavioural unit; identity is the cross-visit anchor those sessions hang off.
 - **Doesn't replace** anonymous entity resolution. Entity resolution still runs the merge / split / convergence operations; it now has a stronger fingerprint identity to anchor on.
 
 ## Slow-path coordinator
 
-The fast path (cache hits, L1 confirm wins) is sub-ms and never touches the coordinator. The coordinator gates only the SLOW work — Pass 2 vector search, correction writes, observation absorption, EWMA updates, on-demand drift verification — so under burst the fast path never blocks; it falls through to cached or default verdicts.
+The fast path (cache hits, L1 confirm wins) is sub-ms and never touches the coordinator. The coordinator gates only the SLOW work - Pass 2 vector search, correction writes, observation absorption, EWMA updates, on-demand drift verification - so under burst the fast path never blocks; it falls through to cached or default verdicts.
 
 Four layered defences:
-- **Keyed serialisation per fingerprint id** — at most one slow-path operation in flight per fp; bursts that match an in-flight call coalesce, and the matcher falls back to the L1 candidate's verdict
-- **Priority scheduling** — global priority queue ordered by risk score with aging boost; high-risk fingerprints (already-suspicious, ambiguity-probing, drift-flagged) preempt; operator-triggered work (Re-verify / Run AI from the dashboard) always runs first and bypasses the breaker
-- **Admission control** — per-fp queued cap plus global queue depth cap with drop-oldest backpressure; the freshest few requests under sustained burst set the verdict for all
-- **Circuit breaker** — when the global queue stays >80% full for 5s, new non-operator work sheds and callers fall back to the fast-path default; auto-resets when depth drops below 30% for 10s; degradation surfaces as `identity.slow_path_shed` and `X-StyloBot-VerdictSource: identity-cache` headers so operators see the state, not silent failure
+- **Keyed serialisation per fingerprint id** - at most one slow-path operation in flight per fp; bursts that match an in-flight call coalesce, and the matcher falls back to the L1 candidate's verdict
+- **Priority scheduling** - global priority queue ordered by risk score with aging boost; high-risk fingerprints (already-suspicious, ambiguity-probing, drift-flagged) preempt; operator-triggered work (Re-verify / Run AI from the dashboard) always runs first and bypasses the breaker
+- **Admission control** - per-fp queued cap plus global queue depth cap with drop-oldest backpressure; the freshest few requests under sustained burst set the verdict for all
+- **Circuit breaker** - when the global queue stays >80% full for 5s, new non-operator work sheds and callers fall back to the fast-path default; auto-resets when depth drops below 30% for 10s; degradation surfaces as `identity.slow_path_shed` and `X-StyloBot-VerdictSource: identity-cache` headers so operators see the state, not silent failure
 
-Worker pool size is configurable (`Coordinator.WorkerCount`, default 4); 1 makes dispatch strictly serial. Per-fp ordering is enforced by an in-flight tracker — a worker dequeueing an item whose fp is already in flight requeues with a small priority penalty.
+Worker pool size is configurable (`Coordinator.WorkerCount`, default 4); 1 makes dispatch strictly serial. Per-fp ordering is enforced by an in-flight tracker - a worker dequeueing an item whose fp is already in flight requeues with a small priority penalty.
 
 ## Ambiguity-persistence meta-signal (anti-boundary-probing)
 
-An adversary who understands the gate semantics can engineer requests to live in the *ambiguity band* — just novel enough to trip Pass 2 every time, knowing the slow path is always one request behind the fast path's emitted verdict. Cluster-inheritance fallback closes most of that gap, but a probe-the-boundary attacker is engineered to NOT cluster cleanly.
+An adversary who understands the gate semantics can engineer requests to live in the *ambiguity band* - just novel enough to trip Pass 2 every time, knowing the slow path is always one request behind the fast path's emitted verdict. Cluster-inheritance fallback closes most of that gap, but a probe-the-boundary attacker is engineered to NOT cluster cleanly.
 
 The fingerprint row carries an EWMA-smoothed `ambiguity_persistence` value, bumped on every match outcome:
 - L1 confirm success → pushes toward 0 (this fp is settled)
 - L1 confirm fail / Pass 2 correction / rotation candidate / new allocation → pushes toward 1 (this fp keeps living in the ambiguity zone)
 
-When the value crosses `Drift.AmbiguityProbingThreshold` (default 0.4), the matcher emits `identity.ambiguity_probing = true` as a positive bot signal. Even when the slow-path coordinator is shedding under adversarial burst, the EWMA bump still happens on every request (a single atomic UPDATE…RETURNING). So the matcher's fast path keeps recording the boundary-probing pattern even when slow-path enrichment is shed — the adversary loses the "always one request behind" advantage.
+When the value crosses `Drift.AmbiguityProbingThreshold` (default 0.4), the matcher emits `identity.ambiguity_probing = true` as a positive bot signal. Even when the slow-path coordinator is shedding under adversarial burst, the EWMA bump still happens on every request (a single atomic UPDATE…RETURNING). So the matcher's fast path keeps recording the boundary-probing pattern even when slow-path enrichment is shed - the adversary loses the "always one request behind" advantage.
 
 Surfaces in the Identities dashboard as a colour-banded "Ambig" column (red ≥40%, amber ≥20%, muted otherwise). A fingerprint with high ambiguity_persistence + low correction_count is the classic engineered-to-stay-ambiguous signal.
 
@@ -170,22 +170,22 @@ Surfaces every metastable fingerprint with the columns an operator needs to tria
 - Fingerprint id (short) + archetype origin badge
 - Inferred client type + confidence
 - Total observation count
-- **Unabsorbed observation count** — the freshness budget the next absorption tick will fold
+- **Unabsorbed observation count** - the freshness budget the next absorption tick will fold
 - Correction count (Pass-2-corrects-Pass-1 events)
-- **Ambig %** — colour-banded boundary-probing score (see above)
+- **Ambig %** - colour-banded boundary-probing score (see above)
 - Cached verdict (probability + risk band)
 - Last verified, last seen
 - Two action buttons:
-  - **Re-verify** — `POST /api/identities/{id}/reverify` runs `FingerprintDriftService.VerifyOneAsync` on demand (skips the `CachedScoreTtlSeconds` gate, bumps `cached_score_updated_at`, returns the row HTML for HTMX swap). Routed through the slow-path coordinator with `OperatorReverify` priority — always runs even when the breaker is open.
-  - **Run AI** — `POST /api/identities/{id}/run-ai` invokes `IdentityAiOpinionService` which builds a prompt from the fingerprint's metadata, sends it to the registered `ILlmProvider`, parses the JSON reply, and updates `cached_bot_probability` + `cached_risk_band` live. Returns the row HTML; status surfaces as `X-StyloBot-AiOpinion-Status` header (one of `ok`, `identity-disabled`, `not-found`, `no-llm-provider`, `llm-not-ready`, `llm-error`, `parse-error`).
+  - **Re-verify** - `POST /api/identities/{id}/reverify` runs `FingerprintDriftService.VerifyOneAsync` on demand (skips the `CachedScoreTtlSeconds` gate, bumps `cached_score_updated_at`, returns the row HTML for HTMX swap). Routed through the slow-path coordinator with `OperatorReverify` priority - always runs even when the breaker is open.
+  - **Run AI** - `POST /api/identities/{id}/run-ai` invokes `IdentityAiOpinionService` which builds a prompt from the fingerprint's metadata, sends it to the registered `ILlmProvider`, parses the JSON reply, and updates `cached_bot_probability` + `cached_risk_band` live. Returns the row HTML; status surfaces as `X-StyloBot-AiOpinion-Status` header (one of `ok`, `identity-disabled`, `not-found`, `no-llm-provider`, `llm-not-ready`, `llm-error`, `parse-error`).
 
 Sorted by unabsorbed-count desc so drift candidates float to the top.
 
 ## Operating notes
 
-- `Identity:Enabled` is a flip-on switch — no migration step. The schema is created lazily on first request.
-- Vector layout is versioned. Don't edit `IdentityVectorLayout.DefaultV1` in place if you've shipped to anyone — bump the version and migrate. Mismatched layouts fail loud at startup.
-- Per-fp weights and global weights are clamped to `[MinWeight, MaxWeight]` purely for numeric stability. The clamp is *not* a "max boost" data cap — high-discriminating dims really do get amplified.
+- `Identity:Enabled` is a flip-on switch - no migration step. The schema is created lazily on first request.
+- Vector layout is versioned. Don't edit `IdentityVectorLayout.DefaultV1` in place if you've shipped to anyone - bump the version and migrate. Mismatched layouts fail loud at startup.
+- Per-fp weights and global weights are clamped to `[MinWeight, MaxWeight]` purely for numeric stability. The clamp is *not* a "max boost" data cap - high-discriminating dims really do get amplified.
 - The drift verifier emits structured warnings; no schema row for drift events yet. Pipe the log to your alerting system if drift rate matters operationally.
 - `cached_bot_probability` and `cached_risk_band` are populated by the matcher when a confirmed match is read; the verdict cache reads them via `IdentityVerdictLookup` and composes them with the per-signature aggregate at gate time (fresher source wins).
 - The brute-force `IIdentityAnchorIndex` is fine up to a few thousand active fingerprints. Beyond that, install the [sqlite-vec](https://github.com/asg017/sqlite-vec/releases) native extension (`vec0.dylib` / `vec0.so` / `vec0.dll`) on the OS library search path and the store auto-loads it at init; KNN dispatches to the vec0 virtual tables and the brute-force path becomes a per-call fallback (used only when vec0 errors out mid-flight). Override the load path with `BotDetection:Identity:Engine:SqliteVecExtensionPath`.

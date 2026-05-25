@@ -8,13 +8,13 @@
 
 **Why it's deferred from the cluster/naming work:** ~66 files touch the affected types (`IDashboardEventStore`, `DashboardSignatureEvent`, `IRouteCatalogService`, `SignatureAggregateCache`, `VisitorListCache`, etc.). The cluster persistence + LLM-name-to-SQLite fixes are higher-priority and orthogonal to this restructuring.
 
-**Tech Stack:** .NET 10, MSBuild SDK switch (`Microsoft.NET.Sdk` for the new project, NOT `Microsoft.NET.Sdk.Web` — that's what propagates static web assets).
+**Tech Stack:** .NET 10, MSBuild SDK switch (`Microsoft.NET.Sdk` for the new project, NOT `Microsoft.NET.Sdk.Web` - that's what propagates static web assets).
 
 **Critical invariants:**
 
-1. No type identity changes for consumers — XML/JSON serialization compatibility preserved.
+1. No type identity changes for consumers - XML/JSON serialization compatibility preserved.
 2. New project uses plain `Microsoft.NET.Sdk` (not the Web SDK) so it never propagates static web assets to consumers.
-3. The interim quick-win (wwwroot stripped from sidecar publish via `AfterTargets="Publish"` `RemoveDir`) stays — it's a defence-in-depth that protects against future regressions if someone references UI directly.
+3. The interim quick-win (wwwroot stripped from sidecar publish via `AfterTargets="Publish"` `RemoveDir`) stays - it's a defence-in-depth that protects against future regressions if someone references UI directly.
 
 ---
 
@@ -33,7 +33,7 @@
 - `Services/SqliteRouteNameStore.cs` (verify name)
 
 **Models:**
-- `Models/DashboardPartialModels.cs` (split as needed — keep only POCOs the persistence layer needs)
+- `Models/DashboardPartialModels.cs` (split as needed - keep only POCOs the persistence layer needs)
 - `Models/DashboardFilter.cs` (verify name; may live in the partial-models file)
 - `Models/RouteCatalogEntry.cs`
 - `Models/InvestigationFilter.cs`
@@ -45,23 +45,23 @@
 - `Services/VisitorListCache.cs`
 
 ### Files modified in UI (consumers of moved types)
-- Anything still in UI that uses `IDashboardEventStore`, the caches, or the models — update `using` statements only. Roughly: middleware, view components, view models, Razor `@using`s in `_ViewImports.cshtml`, `LlmResultSignalRCallback.cs`, dashboard service registrations.
+- Anything still in UI that uses `IDashboardEventStore`, the caches, or the models - update `using` statements only. Roughly: middleware, view components, view models, Razor `@using`s in `_ViewImports.cshtml`, `LlmResultSignalRCallback.cs`, dashboard service registrations.
 
 ### Files modified in Api
 - `Endpoints/RoutesEndpoints.cs`: change `using Mostlylucid.BotDetection.UI.Services.Routes;` → `using Mostlylucid.BotDetection.Dashboard.Persistence.Services;` (or whatever sub-namespace settles on)
-- `Endpoints/ReadEndpoints.cs`: same — change `UI.Models` / `UI.Services` usings
+- `Endpoints/ReadEndpoints.cs`: same - change `UI.Models` / `UI.Services` usings
 - `Mostlylucid.BotDetection.Api.csproj`: remove `<ProjectReference Include="..\Mostlylucid.BotDetection.UI\..." />`; add new project ref instead.
 
 ### Solution
 - `mostlylucid.stylobot.sln`: add the new project
 
 ### Tests
-- Tests in `Mostlylucid.BotDetection.UI.Test` (or similar) that reference moved types — update usings.
+- Tests in `Mostlylucid.BotDetection.UI.Test` (or similar) that reference moved types - update usings.
 - Tests touching `IDashboardEventStore` / `SqliteDashboardEventStore` may need to move to a `Dashboard.Persistence.Tests` project, OR stay in their current test project with an updated reference (acceptable to keep grouping).
 
 ---
 
-## Phase 1 — Create the new project skeleton
+## Phase 1 - Create the new project skeleton
 
 ### Task 1.1: Create empty project + add to solution
 
@@ -110,14 +110,14 @@ Expected: PASS (empty project).
 
 ---
 
-## Phase 2 — Move files in waves
+## Phase 2 - Move files in waves
 
 ### Task 2.1: Move `IDashboardEventStore` + `SqliteDashboardEventStore` + dashboard models
 
 **Files** (the exact paths from `src/Mostlylucid.BotDetection.UI/`):
 - Move: `Services/IDashboardEventStore.cs`
 - Move: `Services/SqliteDashboardEventStore.cs`
-- Move: `Models/DashboardPartialModels.cs` (review — if the file contains types that depend on Razor or SignalR, split first)
+- Move: `Models/DashboardPartialModels.cs` (review - if the file contains types that depend on Razor or SignalR, split first)
 
 - [ ] **Step 2.1.1: `git mv` each file to new project**
 
@@ -151,7 +151,7 @@ grep -rln "using Mostlylucid.BotDetection.UI.Services;\|using Mostlylucid.BotDet
 done
 ```
 
-(Adds the new using alongside the old. If the old usings are no longer needed by a given file because the moved types were its only ones from that namespace, the build will simply report unused usings — clean up.)
+(Adds the new using alongside the old. If the old usings are no longer needed by a given file because the moved types were its only ones from that namespace, the build will simply report unused usings - clean up.)
 
 - [ ] **Step 2.1.4: Make UI reference the new project**
 
@@ -189,13 +189,13 @@ Same pattern as Task 2.1 but for `Services/Routes/` and `Models/RouteCatalogEntr
 
 ### Task 2.3: Move write-through caches
 
-`SignatureAggregateCache`, `VisitorListCache`. Same pattern. These are write-through over `IDashboardEventStore` now — they live in the persistence project beside the event store.
+`SignatureAggregateCache`, `VisitorListCache`. Same pattern. These are write-through over `IDashboardEventStore` now - they live in the persistence project beside the event store.
 
 `LlmResultSignalRCallback.cs` (which calls these caches + the event store) STAYS in UI because it needs the SignalR Hub. Its dependencies are now Persistence (for the caches + the event store + the fingerprint store) + UI (for the Hub).
 
 ---
 
-## Phase 3 — Switch Api to depend on Persistence (not UI)
+## Phase 3 - Switch Api to depend on Persistence (not UI)
 
 ### Task 3.1: Update Api csproj + endpoint usings
 
@@ -245,7 +245,7 @@ git add -A && git commit -m "refactor(api): depend on Dashboard.Persistence inst
 
 ---
 
-## Phase 4 — Verify sidecar binary shrinks
+## Phase 4 - Verify sidecar binary shrinks
 
 ### Task 4.1: Publish + measure
 
@@ -304,6 +304,6 @@ Expected: 17/17.
 
 **Type consistency:** All moved types keep the same name + same public surface; only namespaces change. Tests reference types via their new namespaces.
 
-**Open question for the worker:** if any of the moved models has a property that references a UI-internal type (e.g. an enum defined in `UI.Components`), that dependency must be moved too OR the property re-typed. Detect by building the persistence project in isolation — unresolved references will list them. Common offenders: enums used in filters, view-state types embedded in event records. None spotted in a pre-extraction grep but worth confirming.
+**Open question for the worker:** if any of the moved models has a property that references a UI-internal type (e.g. an enum defined in `UI.Components`), that dependency must be moved too OR the property re-typed. Detect by building the persistence project in isolation - unresolved references will list them. Common offenders: enums used in filters, view-state types embedded in event records. None spotted in a pre-extraction grep but worth confirming.
 
 **Risk:** the `LlmResultSignalRCallback` write-through (just committed in `9405f45` + extended in this session) calls both `IDashboardEventStore.UpdateSignatureBotNameAsync` and `SqliteFingerprintStore.UpdateDisplayNameForSignatureAsync`. The callback stays in UI (needs the Hub). After this refactor, the callback's `using`s update; behaviour unchanged.

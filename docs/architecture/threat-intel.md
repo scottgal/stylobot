@@ -160,10 +160,10 @@ Coordinator behaviour when `ThreatIntel:Enabled = false`: the contributor short-
 
 `PrivacyMode` options for live providers:
 
-- `ip` — send the raw IP (provider expectation)
-- `redacted-ip` — /24 truncation for IPv4 (preserves netblock signal, fuzzes the host)
-- `hash` — HMAC-SHA256 the IP (only useful for providers that accept hashed lookups; rare)
-- `offline-only` — never call live providers; the live-provider block silently no-ops
+- `ip` - send the raw IP (provider expectation)
+- `redacted-ip` - /24 truncation for IPv4 (preserves netblock signal, fuzzes the host)
+- `hash` - HMAC-SHA256 the IP (only useful for providers that accept hashed lookups; rare)
+- `offline-only` - never call live providers; the live-provider block silently no-ops
 
 ## Quota + circuit breaker (live providers only)
 
@@ -253,8 +253,8 @@ emits:
 
 Two existing signals feed the KEV provider; no new CVE-extraction work needed:
 
-- `cve.probe.id` (e.g. `"CVE-2024-6386"`) — written by `CveProbeContributor` when a request matches a simulation-pack honeypot path. High confidence: the requester explicitly probed a known CVE path.
-- `cve.top_advisory_id` (e.g. `"CVE-2026-1234"` or `"GHSA-xxxx"`) — written by `CveFingerprintContributor` when the session shape matches a CVE-derived fingerprint. Lower confidence but earlier signal.
+- `cve.probe.id` (e.g. `"CVE-2024-6386"`) - written by `CveProbeContributor` when a request matches a simulation-pack honeypot path. High confidence: the requester explicitly probed a known CVE path.
+- `cve.top_advisory_id` (e.g. `"CVE-2026-1234"` or `"GHSA-xxxx"`) - written by `CveFingerprintContributor` when the session shape matches a CVE-derived fingerprint. Lower confidence but earlier signal.
 
 KEV provider does an exact lookup against either signal; on match, sets `threatintel.kev_match = <id>` and bumps `threatintel.score` to at least `kev_match_threat_floor` (default 0.7). GHSA-prefixed advisory ids are skipped (KEV is CVE-only).
 
@@ -283,9 +283,9 @@ Lookup returns `cloud:<vendor>` (e.g. `cloud:aws`) as the classification + `Inte
 
 ### Live-provider response shape (the "Huh?" question)
 
-Each vendor returns data in its own format — GreyNoise sends `{classification: "malicious"|"benign"|"unknown", riot: bool, noise: bool}`, AbuseIPDB sends `{abuseConfidenceScore: 0-100, totalReports: int, ...}`, Shodan sends ports + tags. We need one common `ThreatIntelVerdict` shape regardless of provider.
+Each vendor returns data in its own format - GreyNoise sends `{classification: "malicious"|"benign"|"unknown", riot: bool, noise: bool}`, AbuseIPDB sends `{abuseConfidenceScore: 0-100, totalReports: int, ...}`, Shodan sends ports + tags. We need one common `ThreatIntelVerdict` shape regardless of provider.
 
-Resolution: each live provider class owns its own adapter — fetch, parse, project into the common verdict. Raw response goes into `ThreatIntelVerdict.Metadata` as string key/values so dashboards / debug views can show the vendor-native fields without the provider abstraction having to know about them.
+Resolution: each live provider class owns its own adapter - fetch, parse, project into the common verdict. Raw response goes into `ThreatIntelVerdict.Metadata` as string key/values so dashboards / debug views can show the vendor-native fields without the provider abstraction having to know about them.
 
 Worked example:
 
@@ -312,7 +312,7 @@ return new ThreatIntelVerdict {
 
 ### Bootstrap behaviour
 
-When `ThreatIntel:Enabled = true` AND at least one provider is enabled: **block startup until the first refresh of each enabled provider completes** (with a configurable per-provider timeout). Operator explicitly opted in, so a partial / empty intel cache at request 1 would be a footgun — they'd silently get worse detection than they expect.
+When `ThreatIntel:Enabled = true` AND at least one provider is enabled: **block startup until the first refresh of each enabled provider completes** (with a configurable per-provider timeout). Operator explicitly opted in, so a partial / empty intel cache at request 1 would be a footgun - they'd silently get worse detection than they expect.
 
 After bootstrap, refreshes run on a **staggered** schedule to avoid concurrent fetch spikes. Each provider's first post-bootstrap refresh fires at `now + Random(0..StaggerWindow)` then ticks at `RefreshInterval` from there. Default stagger window is 5 minutes, configurable.
 

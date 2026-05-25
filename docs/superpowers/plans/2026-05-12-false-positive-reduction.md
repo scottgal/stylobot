@@ -470,7 +470,7 @@ EOF
 ## Task 4: Bump high-request-count threshold and idle reset
 
 **Files:**
-- Modify: `src/Mostlylucid.BotDetection/Services/SequenceContextStore.cs` (add `IdleResetSeconds` plumbing if needed) — no, see below: the reset lives in the contributor.
+- Modify: `src/Mostlylucid.BotDetection/Services/SequenceContextStore.cs` (add `IdleResetSeconds` plumbing if needed) - no, see below: the reset lives in the contributor.
 - Modify: `src/Mostlylucid.BotDetection/Orchestration/ContributingDetectors/ContentSequenceContributor.cs:230-289`
 - Modify: `src/Mostlylucid.BotDetection.Test/Orchestration/ContentSequenceContributorTests.cs`
 
@@ -1297,4 +1297,3 @@ If Step 8.2 requires YAML adjustments, commit them as a follow-up `tune(sequence
 - Per project rules (memory: `feedback_no_minimal_demo`): use `Mostlylucid.BotDetection.Demo` for live verification, never any `MinimalDemo` project.
 - Per project rules (`CLAUDE.md`): never add hardcoded site-specific exceptions, bypass keys, or allowlists. All tuning happens through YAML parameters.
 - The `IsGlobalReady` initial state on cold startup with no persisted "global" row must be `false`. Verify this in Task 6.
-

@@ -1,10 +1,10 @@
 # Sidecar Deployment
 
-The sidecar is a **deliberately low-surface-area build of StyloBot**, scoped to the sidecar topology and nothing else. Same detection engine as the main `stylobot` binary (gateway / middleware modes), but with the dashboard, Razor view layer, SignalR hub, OIDC scaffolding, simulation packs, and YARP proxy stripped out. What's left is: the detector pipeline, a gRPC server, a REST `/detect` endpoint, and an auth layer. You run it next to your application (same pod, same host, same container), and your app makes a per-request call to ask "is this request a bot?" No reverse proxy, no header injection — your code decides what to do with the verdict.
+The sidecar is a **deliberately low-surface-area build of StyloBot**, scoped to the sidecar topology and nothing else. Same detection engine as the main `stylobot` binary (gateway / middleware modes), but with the dashboard, Razor view layer, SignalR hub, OIDC scaffolding, simulation packs, and YARP proxy stripped out. What's left is: the detector pipeline, a gRPC server, a REST `/detect` endpoint, and an auth layer. You run it next to your application (same pod, same host, same container), and your app makes a per-request call to ask "is this request a bot?" No reverse proxy, no header injection - your code decides what to do with the verdict.
 
 Compared to the main `stylobot` binary the sidecar:
 - Ships smaller (~131MB self-contained today; Native AOT target ~50MB to match the gateway/console binary)
-- Has no HTML / dashboard / SignalR surface — gRPC + REST only
+- Has no HTML / dashboard / SignalR surface - gRPC + REST only
 - Uses SQLite locally for fingerprint + cluster state, same as the FOSS library
 - Speaks the same `detection.proto` you'd embed in any other gRPC client
 

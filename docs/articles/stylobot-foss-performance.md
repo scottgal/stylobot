@@ -4,15 +4,15 @@
 
 ---
 
-## Test bench A — Apple M5 (10C, 32GB)
+## Test bench A - Apple M5 (10C, 32GB)
 
 - **Host:** macOS, Apple M5, 10 cores, 32GB RAM
 - **Build:** `dotnet run --project src/Mostlylucid.BotDetection.Demo -c Release`
-- **Policy:** `full-demo` — 19 fast-path detectors, no LLM, no slow-path. The same setup any FOSS user gets out of the box.
+- **Policy:** `full-demo` - 19 fast-path detectors, no LLM, no slow-path. The same setup any FOSS user gets out of the box.
 - **Backing store:** SQLite (file-local, WAL mode)
 - **Loopback only.** No TLS termination, no upstream service, no network stack in the path.
 
-This is a small-to-mid-range development box. Headroom on the 9950X test bench (Section "Test bench B" — to be filled) will be substantially higher.
+This is a small-to-mid-range development box. Headroom on the 9950X test bench (Section "Test bench B" - to be filled) will be substantially higher.
 
 ## Throughput: k6 ramp 1→60 VUs over 90s
 
@@ -31,7 +31,7 @@ The script ramps virtual users 1 → 10 → 30 → 60 → 0 over 90 seconds with
 | Detection p50 | 50.0 ms |
 | Detection p95 | 52.0 ms |
 | Detection p99 | 134.0 ms |
-| Bot classification | 100.0% (k6 clients look like bots — no browser TLS/headers) |
+| Bot classification | 100.0% (k6 clients look like bots - no browser TLS/headers) |
 | Error rate | < 5% (some timeouts at 60 VUs peak) |
 
 Latency above ~50ms is dominated by request queueing on the M5's 10 logical cores under 60 concurrent VUs, not by detection cost itself. The next section measures the detector pipeline directly.
@@ -60,7 +60,7 @@ done
 
 Even at request 1, the full pipeline costs under 1ms. The risk score climbs through the EWMA-smoothed bot probability and plateaus at 0.900 by request 6 (the `NonAiMaxProbability` ceiling that prevents non-AI verdicts from exceeding 0.90).
 
-The 50ms `http_req_duration` p50 from the k6 ramp is therefore **not** detector cost — it's request queueing under concurrency. A single client gets sub-millisecond detection from the same pipeline.
+The 50ms `http_req_duration` p50 from the k6 ramp is therefore **not** detector cost - it's request queueing under concurrency. A single client gets sub-millisecond detection from the same pipeline.
 
 ## Memory footprint
 
@@ -99,13 +99,13 @@ Memory: `vmmap --summary $(pgrep -f BotDetection.Demo)` on macOS, `cat /proc/$(p
 
 The `X-StyloBot-VerdictSource` header was not observed on this run with the `full-demo` policy. The cache substrate is wired (the `SignatureCoordinator` is initialised in the demo's startup log: `window=00:15:00, maxSignatures=1000, ttl=00:30:00`) but the gate's Skip path did not engage under either k6 throughput or repeat-fingerprint loops. This is a follow-up to investigate; the FOSS perf numbers above reflect the **pipeline-on-every-request** path, which is the conservative upper bound on cost. Cache engagement can only make these numbers better.
 
-## Test bench B — Ryzen 9 9950X (16C/32T, 96GB) — TODO
+## Test bench B - Ryzen 9 9950X (16C/32T, 96GB) - TODO
 
 To be measured on `192.168.0.15` (scott / stylobot2026). Same harness, same demo build, same policy. Expected differences vs. the M5:
 
 - ~3× higher sustained throughput from doubled core count + higher base clock
 - Lower p99 tail under 60 VU peak (more headroom)
-- Similar per-request detection cost (~ sub-ms) — single-thread perf is comparable
+- Similar per-request detection cost (~ sub-ms) - single-thread perf is comparable
 - Memory baseline unchanged (~ 100MB RSS); growth bounded by sliding-window LRU at 1000 signatures
 
 The Test bench B numbers will replace this section once captured.

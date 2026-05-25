@@ -7,7 +7,7 @@ how `SignatureCacheOptions` is bound per policy).
 
 > **6.4.7+:** when the metastable identity layer ([`identity-fingerprint-match.md`](identity-fingerprint-match.md))
 > is enabled, the gate composes the per-signature aggregate with the per-fingerprint
-> cached verdict — the fresher of the two sources wins. Because the fingerprint
+> cached verdict - the fresher of the two sources wins. Because the fingerprint
 > source survives IP+UA rotation, a returning visitor whose primary signature has
 > changed inherits their prior verdict instead of paying for a fresh pipeline pass.
 > Skip-path responses set `X-StyloBot-VerdictSource: identity-cache` (vs. the plain

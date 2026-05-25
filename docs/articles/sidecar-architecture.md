@@ -17,7 +17,7 @@ Before looking at StyloBot's implementation, it is worth understanding where the
 
 The pattern is common in infrastructure tooling. [Envoy Proxy](https://www.envoyproxy.io/) is the canonical example: every service in an Istio mesh runs an Envoy sidecar that handles mTLS, retries, circuit breaking, and observability without the application knowing about any of it. [Dapr](https://dapr.io/) takes the same approach for state, pub/sub, and secrets: language-agnostic HTTP/gRPC APIs that run as a sidecar process. The [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) is typically deployed as a sidecar in Kubernetes, scraping telemetry from the main container and forwarding it to a backend. Linkerd, Consul Connect, and AWS App Mesh all follow the same model.
 
-The pattern keeps appearing because it solves a genuine problem: you want complex stateful behaviour that crosses language boundaries without reimplementing it in every language. The alternatives — embedding directly or calling a remote service — both have show-stopping drawbacks for stateful detection work (more on this below).
+The pattern keeps appearing because it solves a genuine problem: you want complex stateful behaviour that crosses language boundaries without reimplementing it in every language. The alternatives - embedding directly or calling a remote service - both have show-stopping drawbacks for stateful detection work (more on this below).
 
 What makes a sidecar work is the local-network boundary. Because the sidecar runs on the same host or in the same Pod, the round-trip to it is measured in microseconds to single-digit milliseconds rather than the 50-200ms of a remote API call. That is the budget that makes per-request detection practical at all.
 
@@ -35,7 +35,7 @@ The sidecar pattern separates the detection engine from the gateway that calls i
 
 The alternative to a sidecar is embedding detection directly into the gateway as a native library. For Go that means a pure-Go reimplementation or a CGo binding to a C library. For Node it means running detection in-process alongside the application.
 
-Neither is realistic for a detection engine of this complexity. StyloBot has 46 detectors organised across four waves, where later waves fire only when earlier signals warrant it — a credential-stuffing attempt triggers different detectors than a Googlebot crawl. It maintains per-session Markov chain vectors in a 129-dimensional space. It runs Leiden community detection for bot network discovery. It persists session state and reputation scores to SQLite between requests. All of that state has to live somewhere, and that somewhere needs an independent lifecycle — it cannot restart every time the Node process restarts, and it cannot be torn down when the gateway reloads configuration.
+Neither is realistic for a detection engine of this complexity. StyloBot has 46 detectors organised across four waves, where later waves fire only when earlier signals warrant it - a credential-stuffing attempt triggers different detectors than a Googlebot crawl. It maintains per-session Markov chain vectors in a 129-dimensional space. It runs Leiden community detection for bot network discovery. It persists session state and reputation scores to SQLite between requests. All of that state has to live somewhere, and that somewhere needs an independent lifecycle - it cannot restart every time the Node process restarts, and it cannot be torn down when the gateway reloads configuration.
 
 A sidecar lets each component do what it is good at:
 
@@ -67,9 +67,9 @@ The gateway calls the sidecar, injects the result as HTTP headers, and optionall
 
 ## gRPC
 
-[gRPC](https://grpc.io/) is a high-performance remote procedure call framework developed at Google. It uses [Protocol Buffers](https://protobuf.dev/) (protobuf) as its wire format — a compact binary encoding that is faster to serialise and smaller on the wire than JSON. gRPC runs over HTTP/2, which means it gets multiplexing (multiple requests over one TCP connection) for free.
+[gRPC](https://grpc.io/) is a high-performance remote procedure call framework developed at Google. It uses [Protocol Buffers](https://protobuf.dev/) (protobuf) as its wire format - a compact binary encoding that is faster to serialise and smaller on the wire than JSON. gRPC runs over HTTP/2, which means it gets multiplexing (multiple requests over one TCP connection) for free.
 
-The interface is defined in a `.proto` file. From that file, code generators produce typed client and server stubs in any supported language. StyloBot publishes `.proto` files so any language with a gRPC implementation can call the sidecar — Go, Node, Python, Rust, Java, and many others.
+The interface is defined in a `.proto` file. From that file, code generators produce typed client and server stubs in any supported language. StyloBot publishes `.proto` files so any language with a gRPC implementation can call the sidecar - Go, Node, Python, Rust, Java, and many others.
 
 ## The gRPC interface
 
@@ -83,7 +83,7 @@ service DetectionService {
 }
 ```
 
-**`Detect`** is the per-request hot path. Pass it method, path, headers, remote IP, and optional TLS fingerprint data. It runs the wave pipeline — only the detectors that the request's signals warrant — updates the session vector, scores against the reputation store, and returns a verdict.
+**`Detect`** is the per-request hot path. Pass it method, path, headers, remote IP, and optional TLS fingerprint data. It runs the wave pipeline - only the detectors that the request's signals warrant - updates the session vector, scores against the reputation store, and returns a verdict.
 
 **`DetectBatch`** runs multiple requests sequentially. Used for log replay and offline analysis, not per-request gateway use.
 
@@ -122,7 +122,7 @@ Gateway code in Go cannot import the ASP.NET sidecar. What it can do is call it 
 
 Protobuf-generated code is verbose and has an unusual API. Enums are represented as integers. Strings come as raw proto enum names (`RISK_BAND_HIGH`, not `"High"`). Field names are camelCase in some generators and snake_case in others. Exposing proto types in your public API means your callers have to understand all of this.
 
-The SDK translates once at the boundary — proto enums to canonical strings, proto structs to plain Go structs — and callers never see it.
+The SDK translates once at the boundary - proto enums to canonical strings, proto structs to plain Go structs - and callers never see it.
 
 ```go
 // the only interface you depend on -no proto imports required
@@ -235,7 +235,7 @@ The plugin injects all nine `X-StyloBot-*` verdict headers onto every request be
 
 This is the intended split: the gateway handles hard `Block` cases; the upstream handles everything nuanced. A session with a `Medium` risk band and a `Challenge` recommendation arrives at your Node or Go application with `X-StyloBot-Action: Challenge` in the request headers, and your application decides what to show: a proof-of-work step, a friction page, or a flagged experience.
 
-`on_block` changes the HTTP status code used when the gateway blocks (default: 403). Set `on_block 503` to return a different code — for example, to suppress retry logic in scrapers that treat 403 as a retryable error.
+`on_block` changes the HTTP status code used when the gateway blocks (default: 403). Set `on_block 503` to return a different code - for example, to suppress retry logic in scrapers that treat 403 as a retryable error.
 
 ## What the middleware does on every request
 
@@ -263,9 +263,9 @@ flowchart TD
 
 **Step 1 -strip inbound headers.** A client that knows the `X-StyloBot-*` header names could self-inject a favourable verdict and have it survive the fail-open path. Stripping them first means the verdict the upstream sees always came from the sidecar.
 
-**Step 2 -context deadline.** The timeout is derived from `r.Context()` using `context.WithTimeout` (which takes a relative duration; `context.WithDeadline` takes an absolute time — they are equivalent). Deriving from `r.Context()` rather than `context.Background()` is the key point: if the client disconnects before the gRPC call completes, the cancellation propagates through and the sidecar stops processing early.
+**Step 2 -context deadline.** The timeout is derived from `r.Context()` using `context.WithTimeout` (which takes a relative duration; `context.WithDeadline` takes an absolute time - they are equivalent). Deriving from `r.Context()` rather than `context.Background()` is the key point: if the client disconnects before the gRPC call completes, the cancellation propagates through and the sidecar stops processing early.
 
-**Steps 3–4** — detect and inject. The nine verdict fields become nine `X-StyloBot-*` headers. Headers are set before the block check, so the upstream reads them via `styloBotMiddleware({ mode: 'headers' })` for all non-blocked requests. Requests where `isBot=true` and `recommendedAction=Block` are returned as 403 at the gateway; everything else forwards with the full verdict headers attached.
+**Steps 3–4** - detect and inject. The nine verdict fields become nine `X-StyloBot-*` headers. Headers are set before the block check, so the upstream reads them via `styloBotMiddleware({ mode: 'headers' })` for all non-blocked requests. Requests where `isBot=true` and `recommendedAction=Block` are returned as 403 at the gateway; everything else forwards with the full verdict headers attached.
 
 The implementation:
 
@@ -340,11 +340,11 @@ The `--with module=path` argument is xcaddy's native equivalent of a `replace` d
 
 # RenderWidget: Liquid templates over gRPC
 
-`RenderWidget` is a gRPC RPC on the sidecar that accepts a Liquid template string, renders it with the detection context, and returns HTML. This lets any caller — Go proxy, Node SSR layer, batch pipeline — produce bot-aware HTML without running a separate render process.
+`RenderWidget` is a gRPC RPC on the sidecar that accepts a Liquid template string, renders it with the detection context, and returns HTML. This lets any caller - Go proxy, Node SSR layer, batch pipeline - produce bot-aware HTML without running a separate render process.
 
 ### Liquid templates
 
-[Liquid](https://shopify.github.io/liquid/) is a templating language created by Shopify, used by Shopify themes, Jekyll, GitHub Pages, and many other systems. Its key properties: safe to run with user-supplied templates (no arbitrary code execution), simple enough for non-developers to write, and widely understood. StyloBot uses [Fluid.Core](https://github.com/sebastienros/fluid) — a high-performance .NET implementation of Liquid — to render templates server-side.
+[Liquid](https://shopify.github.io/liquid/) is a templating language created by Shopify, used by Shopify themes, Jekyll, GitHub Pages, and many other systems. Its key properties: safe to run with user-supplied templates (no arbitrary code execution), simple enough for non-developers to write, and widely understood. StyloBot uses [Fluid.Core](https://github.com/sebastienros/fluid) - a high-performance .NET implementation of Liquid - to render templates server-side.
 
 The sidecar implementation:
 
@@ -378,7 +378,7 @@ public override async Task<Proto.RenderWidgetResponse> RenderWidget(
 }
 ```
 
-Fluid.Core maintains an internal compiled template cache — repeated renders of the same template string skip re-parsing. The `FluidParser` is static and shared across all gRPC calls.
+Fluid.Core maintains an internal compiled template cache - repeated renders of the same template string skip re-parsing. The `FluidParser` is static and shared across all gRPC calls.
 
 The Node `StyloBotGrpcClient.renderWidget()` example and the full template variable reference are in the [TypeScript SDK article](/blog/typescript-sdk).
 

@@ -1,4 +1,4 @@
-# Grouping Systems Audit — Leiden Cost, HNSW Status, and Where Consolidation Actually Helps
+# Grouping Systems Audit - Leiden Cost, HNSW Status, and Where Consolidation Actually Helps
 
 **Date:** 2026-05-24
 **Scope:** Every grouping / similarity / clustering / identity-matching system in the codebase. Three parallel deep-reads of 30+ files. File:line citations preserved.
@@ -29,7 +29,7 @@ Every system that produces or consumes a "group key" for signatures, mapped agai
 
 | System | File | Purpose | Index | Output |
 |---|---|---|---|---|
-| Leiden clustering | `Clustering/LeidenClustering.cs` | Community detection on weighted graph (CPM, refinement step) | None — takes precomputed graph | Community ID per node |
+| Leiden clustering | `Clustering/LeidenClustering.cs` | Community detection on weighted graph (CPM, refinement step) | None - takes precomputed graph | Community ID per node |
 | BotClusterService | `Services/BotClusterService.cs` | Background cycle: build graph → Leiden → classify → persist | N² brute-force pair similarity over features+centroids (lines 854-886) | `BotCluster` records with `ClusterId` |
 | AdaptiveSimilarityWeighter | `Clustering/AdaptiveSimilarityWeighter.cs` | Per-cycle data-driven feature weights from CV / entropy | Trivial O(20·N) | Weights dict |
 | SignatureConvergenceService | `Services/SignatureConvergenceService.cs` | Merge / split signature families based on entity-resolution evidence | Family-graph traversal | `signature_merges` table edges |
@@ -40,7 +40,7 @@ Every system that produces or consumes a "group key" for signatures, mapped agai
 
 | System | File | Purpose | Lookup | Cost |
 |---|---|---|---|---|
-| ClusterContributor | `Orchestration/ContributingDetectors/ClusterContributor.cs` | At request: is signature in a discovered cluster? | `_clusterService.FindCluster(signature)` — O(1) frozen dict; plus O(C) community affinity scan | Microseconds |
+| ClusterContributor | `Orchestration/ContributingDetectors/ClusterContributor.cs` | At request: is signature in a discovered cluster? | `_clusterService.FindCluster(signature)` - O(1) frozen dict; plus O(C) community affinity scan | Microseconds |
 | FingerprintMatchContributor | `Orchestration/ContributingDetectors/FingerprintMatchContributor.cs` | Two-pass match: L1 point lookup, L2 KNN via `IIdentityAnchorIndex` | sqlite-vec when available, brute-force fallback | <1ms on warm cache; tens of ms on cold |
 | SimilarityContributor | `Orchestration/ContributingDetectors/SimilarityContributor.cs` | Top-K=5 over `ISignatureSimilaritySearch` | Brute-force SIMD over bounded cache (~5k vectors) | <1ms typical |
 | FastPathSignatureMatcher | `Orchestration/FastPathSignatureMatcher.cs` | Multi-factor signature match (IpSubnet/IP/UAFamily/Geo/Headers) | Per-factor comparison, no index | <100µs |
@@ -71,7 +71,7 @@ All three replaced HNSW implementations on 2026-05-09 (`048185f`).
 
 | Surface | File | Group key | Why |
 |---|---|---|---|
-| VisitorListCache | `UI/Services/VisitorListCache.cs:282` | Bot name (when `IsGroupableIdentity`) or raw signature | Current rule — collapses Googlebot, Amazonbot etc |
+| VisitorListCache | `UI/Services/VisitorListCache.cs:282` | Bot name (when `IsGroupableIdentity`) or raw signature | Current rule - collapses Googlebot, Amazonbot etc |
 | SbTopBots | `UI/Views/Shared/Components/SbTopBots/Default.cshtml:104` | Same as above (calls `IsGroupableIdentity`) | Same rule |
 | Sessions list | `UI/Views/StyloBot/Dashboard/_InvestigateSignatures.cshtml` | Raw signature | No collapse |
 | Clusters tab | `UI/Views/StyloBot/Dashboard/_ClustersList.cshtml` | `ClusterId` | Leiden community view |
@@ -102,18 +102,18 @@ No. Detailed numbers:
 - Leiden refinement: **<1%**
 - Adaptive weight computation: **<1%**
 
-Leiden as an algorithm is doing fine. The cycle cost is the **input** Leiden sees, not Leiden itself. This matches the cluster-service comment at `BotClusterService.cs:6`: "typical in bot clustering: <1000 nodes" — that's the operating assumption, and Leiden handles it comfortably.
+Leiden as an algorithm is doing fine. The cycle cost is the **input** Leiden sees, not Leiden itself. This matches the cluster-service comment at `BotClusterService.cs:6`: "typical in bot clustering: <1000 nodes" - that's the operating assumption, and Leiden handles it comfortably.
 
 What changes at N=5000:
 - Graph construction: 25M → **2.5B** ops (still O(N²))
 - Leiden: 2.5M → 25M ops (linear in N+E)
-- Total cycle time: minutes, not seconds. **This is when Leiden's own loop becomes visible** — but the graph-build dominance only widens.
+- Total cycle time: minutes, not seconds. **This is when Leiden's own loop becomes visible** - but the graph-build dominance only widens.
 
 So the real question is: **how big does the operator's signature population get?** For most FOSS deployments on a single host: <500 signatures over the cluster window. For multi-tenant gateways or high-traffic sites: 5k-50k. At 50k, the graph build is the only thing that matters.
 
 ---
 
-## 3. HNSW — why it was removed, when it'd help return
+## 3. HNSW - why it was removed, when it'd help return
 
 ### Why it was removed (commit `048185f`, 2026-05-09):
 
@@ -121,19 +121,19 @@ So the real question is: **how big does the operator's signature population get?
 
 The three files deleted (`HnswFileSimilaritySearch`, `HnswSessionVectorSearch`, `HnswIntentSearch`) and their on-disk JSON manifests (`hnsw-index/*.json`) were replaced by `Slim*` services backed by SQLite centroid tables + `BoundedVectorCache`. The XML docs of the replacements name the specific failure modes:
 
-- **"unbounded LOH growth"** — HnswSharp keeps full graph in managed memory; large objects don't compact, fragmenting the heap.
-- **"HNSW graph overhead"** — graph metadata (edges, M-neighbours, level pointers) is ~2-3× the raw vector size.
-- **"file-system [persistence]"** — JSON index files on disk; slow startup, no atomic durability, no concurrent-read story.
+- **"unbounded LOH growth"** - HnswSharp keeps full graph in managed memory; large objects don't compact, fragmenting the heap.
+- **"HNSW graph overhead"** - graph metadata (edges, M-neighbours, level pointers) is ~2-3× the raw vector size.
+- **"file-system [persistence]"** - JSON index files on disk; slow startup, no atomic durability, no concurrent-read story.
 
 **The verdict was specifically against `HnswSharp + JSON files`, not HNSW-the-algorithm.** Reading the replacement code (`SlimSessionVectorSearch.cs:12`, `SlimSignatureSimilaritySearch.cs:10`), the wins are: bounded LFU cache, SQLite-backed centroids (atomic + crash-safe), brute-force SIMD cosine over a small set is faster than HNSW graph walks anyway at N≤5k.
 
-This is correct for the **in-process similarity-search hot caches** — those exist precisely to serve top-K=5 queries on a small recent corpus. KNN graph indexing buys nothing when N≤5k and the cache is the index.
+This is correct for the **in-process similarity-search hot caches** - those exist precisely to serve top-K=5 queries on a small recent corpus. KNN graph indexing buys nothing when N≤5k and the cache is the index.
 
 ### Where HNSW (or sqlite-vec) WOULD help:
 
 **Cluster graph construction.** Different workload: all-pairs similarity across N=500-50k signatures, every 30-60 seconds. A KNN index here lets the cluster service build a sparse K-NN graph in `O(N log N)` instead of `O(N²)`.
 
-Algorithmic improvement: KNN-graph Leiden is well-studied; for community detection, using a K-NN graph instead of a full similarity graph usually produces **tighter, more interpretable clusters** (full-graph Leiden tends to over-merge at low resolution). So this isn't just a speed-up — it's likely a quality improvement.
+Algorithmic improvement: KNN-graph Leiden is well-studied; for community detection, using a K-NN graph instead of a full similarity graph usually produces **tighter, more interpretable clusters** (full-graph Leiden tends to over-merge at low resolution). So this isn't just a speed-up - it's likely a quality improvement.
 
 **Identity anchor at scale.** Already covered by `SqliteVecIdentityAnchorIndex`. Validation that the pattern works.
 
@@ -154,14 +154,14 @@ sqlite-vec gives us K-NN indexing with the failure modes of the old HNSW impl ex
 
 ## 4. Where the duplication actually IS
 
-Three centroid stores and three similarity searches are NOT duplication — they're orthogonal feature spaces:
+Three centroid stores and three similarity searches are NOT duplication - they're orthogonal feature spaces:
 
 **Centroid stores (intentional separation):**
-- `SignatureCentroid` (64D) — "WHO is this request" — request shape, header pattern, UA family
-- `SessionCentroid` (129D) — "HOW does this actor behave" — Markov chain, timing, velocity, variance
-- `IntentCentroid` (36D) — "WHAT is this actor trying to do" — paths, response codes, attack signals
+- `SignatureCentroid` (64D) - "WHO is this request" - request shape, header pattern, UA family
+- `SessionCentroid` (129D) - "HOW does this actor behave" - Markov chain, timing, velocity, variance
+- `IntentCentroid` (36D) - "WHAT is this actor trying to do" - paths, response codes, attack signals
 
-A unified table would merge unrelated features into one row with optional sparse columns. No win — three queries become one but each consumer would still pull only its own subset.
+A unified table would merge unrelated features into one row with optional sparse columns. No win - three queries become one but each consumer would still pull only its own subset.
 
 **Similarity searches (intentional separation):**
 - SessionVectorSearch reads the 129D space
@@ -200,7 +200,7 @@ The BehaviouralGrouper's hierarchy (Identity > Cluster > Vector > Sequence > Sub
 
 ### 4.3 What's not duplication but worth tightening
 
-- `SignatureConvergenceService` (merge/split families) writes `signature_merges` rows. These are read by `SignatureCoordinator.TryGetVerdictAsync` for verdict-cache fall-through but **not by the grouper**. The grouper should consult the merge table as a hard "these signatures ARE the same actor" signal — higher than Cluster, equal-or-just-below Identity.
+- `SignatureConvergenceService` (merge/split families) writes `signature_merges` rows. These are read by `SignatureCoordinator.TryGetVerdictAsync` for verdict-cache fall-through but **not by the grouper**. The grouper should consult the merge table as a hard "these signatures ARE the same actor" signal - higher than Cluster, equal-or-just-below Identity.
 
 ---
 
@@ -238,7 +238,7 @@ BotClusterService cycle:
 
 **Mechanics of step 4 with sqlite-vec:**
 
-Each FeatureVector becomes a 110D centroid (or the cluster service's existing 20D feature vector). Insert all N vectors into a vec0 virtual table (or reuse the existing fingerprint store's centroids — same data). For each vector, query top-K=20 nearest. Emit edges `(i, j, similarity)` for each result.
+Each FeatureVector becomes a 110D centroid (or the cluster service's existing 20D feature vector). Insert all N vectors into a vec0 virtual table (or reuse the existing fingerprint store's centroids - same data). For each vector, query top-K=20 nearest. Emit edges `(i, j, similarity)` for each result.
 
 - Insertion: `O(N log N)` amortised in vec0
 - Query: `O(N × K × log N)` total
@@ -252,7 +252,7 @@ Leiden on a K-NN graph vs full similarity graph: empirically (e.g. Traag et al's
 
 ### What this DOESN'T break
 
-- `ClusterContributor` (request hot path): still reads `_clusterService.FindCluster(signature)` — O(1). No change.
+- `ClusterContributor` (request hot path): still reads `_clusterService.FindCluster(signature)` - O(1). No change.
 - `BotCluster` record: unchanged.
 - Cluster persistence in `SqliteClusterStore`: unchanged.
 - All the existing detector signals that depend on cluster metadata (`cluster.community_cluster_id`, etc): unchanged.
@@ -265,13 +265,13 @@ The change is entirely inside `BotClusterService.BuildSimilarityGraph` and a new
 
 In priority order:
 
-### R1 — Build BehaviouralGrouper (display-layer consolidation)
+### R1 - Build BehaviouralGrouper (display-layer consolidation)
 
 Plan already written: `docs/plans/2026-05-24-behavioural-grouper.md`. **Bot-only gate** -- humans never group regardless of behavioural similarity. Hierarchy: Identity > Cluster > Vector cosine > Sequence centroid > Subnet rotation > Friendly name > raw signature. Every display surface consults one grouper.
 
 This is the user-visible fix. ~2.5 days, mostly Razor + one new bridge service. Zero analytical-layer change.
 
-### R2 — KnnGraphBuilder for cluster graph construction
+### R2 - KnnGraphBuilder for cluster graph construction
 
 New abstraction:
 ```csharp
@@ -283,14 +283,14 @@ public interface IKnnGraphBuilder
 ```
 
 Two implementations:
-- `SqliteVecKnnGraphBuilder` — uses vec0 batched KNN; the FOSS-by-default path when extension is installed.
-- `BruteForceKnnGraphBuilder` — SIMD-batched top-K scan, fallback when vec0 unavailable.
+- `SqliteVecKnnGraphBuilder` - uses vec0 batched KNN; the FOSS-by-default path when extension is installed.
+- `BruteForceKnnGraphBuilder` - SIMD-batched top-K scan, fallback when vec0 unavailable.
 
 `BotClusterService.BuildSimilarityGraph` becomes a 5-line call into the builder. Same pattern as `IIdentityAnchorIndex`. Quality should improve; speed will improve substantially at N > 500.
 
 Estimated: 1-1.5 days. Includes benchmarks against the old brute-force impl to make sure quality (cluster compactness, modularity score) is at-least-equal.
 
-### R3 — Bridge SignatureConvergenceService into the grouper
+### R3 - Bridge SignatureConvergenceService into the grouper
 
 Family merge data already exists; grouper should consult it as a tier between Identity and Cluster ("these signatures were explicitly merged by entity resolution -- highest possible group-strength below the metastable layer"). Two-line change in `BehaviouralGrouper.GetGroupKeyAsync`.
 
@@ -308,7 +308,7 @@ Family merge data already exists; grouper should consult it as a tier between Id
 1. **Production N today.** What's the actual signature-count distribution on stylobot.net's cluster cycles? If it's <300, R2's speedup is real-but-not-urgent. If >2000, R2 jumps in priority.
 2. **sqlite-vec install story.** R2 assumes the extension is installable on the target deployment. Docker layer addition is trivial; bare-metal needs `apt install` or similar. Need to verify with the deployment pipeline what's already in the gateway image.
 3. **Cluster quality benchmark.** Need a fixture set (BDF replay corpus would work) for A/B'ing brute-force-N² vs KNN-graph Leiden. Without it, the "quality should improve" claim is uncalibrated.
-4. **Behavioural grouper test corpus.** Same need — a labelled fixture set where we know which signatures SHOULD group is needed for tier-hierarchy tests. The BDF replay scenarios may already provide this.
+4. **Behavioural grouper test corpus.** Same need - a labelled fixture set where we know which signatures SHOULD group is needed for tier-hierarchy tests. The BDF replay scenarios may already provide this.
 
 ---
 
@@ -325,7 +325,7 @@ Family merge data already exists; grouper should consult it as a tier between Id
 
 ---
 
-## Appendix A — Audit citations
+## Appendix A - Audit citations
 
 All file:line citations preserved from the three parallel audits. Available in raw form on request; condensed here:
 

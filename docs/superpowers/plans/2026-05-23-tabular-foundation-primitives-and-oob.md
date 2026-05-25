@@ -1,12 +1,12 @@
-# Tabular Foundation — Primitives + InnerHTML OOB Implementation Plan
+# Tabular Foundation - Primitives + InnerHTML OOB Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Land the eight shared primitive partials (icons, bars, sparkline shell, country flag, time-ago, toolbar, pagination) AND switch the SignalR OOB swap from outerHTML-on-widget-root to innerHTML-on-data-region. No widget is migrated to use them in this plan — that's the next plans, one per widget.
+**Goal:** Land the eight shared primitive partials (icons, bars, sparkline shell, country flag, time-ago, toolbar, pagination) AND switch the SignalR OOB swap from outerHTML-on-widget-root to innerHTML-on-data-region. No widget is migrated to use them in this plan - that's the next plans, one per widget.
 
 **Architecture:** Pure additive Razor partials under `Views/StyloBot/Dashboard/_Primitives/` plus a one-method change to `WidgetRenderHelpers.InjectOobAttribute`. After this lands, no visible behaviour changes (no partial yet emits `data-sb-data-region`, so the InjectOobAttribute fallback path keeps the old behaviour). The next plan migrates `SbTopBots` and the user sees flicker-free updates.
 
-**Tech Stack:** ASP.NET Core MVC + Razor + HTMX 2.0 + Boxicons + xUnit. No new dependencies. No client-side JS frameworks (the user has explicitly forbidden React/Vue/Alpine state stores for this work — partials emit final HTML).
+**Tech Stack:** ASP.NET Core MVC + Razor + HTMX 2.0 + Boxicons + xUnit. No new dependencies. No client-side JS frameworks (the user has explicitly forbidden React/Vue/Alpine state stores for this work - partials emit final HTML).
 
 **Spec:** `docs/superpowers/specs/2026-05-23-tabular-data-foundation-design.md`
 
@@ -90,7 +90,7 @@ public class PrimitiveModelsTests
 cd /Users/scottgalloway/RiderProjects/stylobot
 dotnet test src/Mostlylucid.BotDetection.Test --filter "FullyQualifiedName~PrimitiveModelsTests" --no-restore 2>&1 | tail -20
 ```
-Expected: compile failure — `Mostlylucid.BotDetection.UI.Models.Primitives` namespace does not exist.
+Expected: compile failure - `Mostlylucid.BotDetection.UI.Models.Primitives` namespace does not exist.
 
 - [ ] **Step 3: Create the model records**
 
@@ -129,7 +129,7 @@ public sealed record TimeWindowOption(string Key, string Label, string Url);
 
 /// <summary>
 ///     Table toolbar: filter chips, optional search, optional time-window pills.
-///     The caller pre-builds every URL — the partial does no URL construction so the
+///     The caller pre-builds every URL - the partial does no URL construction so the
 ///     route/widget naming convention stays the caller's concern.
 /// </summary>
 public sealed record TableToolbarModel(
@@ -384,7 +384,7 @@ public class SparklinePathBuilderTests
 ```bash
 dotnet test /Users/scottgalloway/RiderProjects/stylobot/src/Mostlylucid.BotDetection.Test --filter "FullyQualifiedName~SparklinePathBuilderTests" --no-restore 2>&1 | tail -10
 ```
-Expected: compile error — `SparklinePathBuilder` does not exist.
+Expected: compile error - `SparklinePathBuilder` does not exist.
 
 - [ ] **Step 3: Create the helper**
 
@@ -1138,7 +1138,7 @@ _ThreatIcon.cshtml
 _TimeAgo.cshtml
 ```
 
-No commit for this task — it's verification only.
+No commit for this task - it's verification only.
 
 ---
 

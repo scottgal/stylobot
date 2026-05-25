@@ -1275,7 +1275,7 @@ Several capabilities customers ask about already exist:
 - [ ] **Step 9.2: Verify no em dashes**
 
 ```bash
-grep -- '—' src/Mostlylucid.BotDetection/docs/policy-system.md && echo "FOUND" || echo "clean"
+grep -- '-' src/Mostlylucid.BotDetection/docs/policy-system.md && echo "FOUND" || echo "clean"
 ```
 Expected: `clean`.
 
@@ -1387,7 +1387,7 @@ Internal callsites are suppressed with `#pragma warning disable CS0618` until th
 Verify no em dashes:
 
 ```bash
-grep -- '—' CHANGELOG.md | head -5 ; echo "--- count above ---"
+grep -- '-' CHANGELOG.md | head -5 ; echo "--- count above ---"
 ```
 Expected: only pre-existing em dashes outside the new section.
 

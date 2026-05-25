@@ -1,6 +1,6 @@
 # ASP.NET MonitoringPack Implementation Plan
 
-> **Note (2026-05-14):** the pack itself is FOSS (collect → store → dashboard tab). The live-edit / no-restart add-on is commercial at $5/mo, planned in `stylobot-commercial/docs/superpowers/plans/2026-05-14-aspnet-monitoring-pack-commercial.md`. The seam that connects them is **Task 4a** below — keep it; the commercial pack attaches there.
+> **Note (2026-05-14):** the pack itself is FOSS (collect → store → dashboard tab). The live-edit / no-restart add-on is commercial at $5/mo, planned in `stylobot-commercial/docs/superpowers/plans/2026-05-14-aspnet-monitoring-pack-commercial.md`. The seam that connects them is **Task 4a** below - keep it; the commercial pack attaches there.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -1289,7 +1289,7 @@ git commit -m "feat(monitoring): add IPackRuntimeController seam for commercial 
 
 ## Task 4b: Extension Assembly Loader (drop-a-DLL install model)
 
-**Why:** Commercial packs need a way to be installed by customers without modifying the host's `Program.cs` per pack. The v1 distribution model is "drop a DLL into a known directory, add one line to appsettings.json, restart" — same shape as IIS modules. NuGet auto-discovery and MEF-style streamlined integration are deferred to v2; the loader interface is generic enough that either can be added later without changing the contract.
+**Why:** Commercial packs need a way to be installed by customers without modifying the host's `Program.cs` per pack. The v1 distribution model is "drop a DLL into a known directory, add one line to appsettings.json, restart" - same shape as IIS modules. NuGet auto-discovery and MEF-style streamlined integration are deferred to v2; the loader interface is generic enough that either can be added later without changing the contract.
 
 **Files:**
 - Create: `src/Mostlylucid.BotDetection/Extensions/IBotDetectionExtension.cs`

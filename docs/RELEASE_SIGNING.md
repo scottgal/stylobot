@@ -6,11 +6,11 @@ How StyloBot release artifacts get cryptographically attested, and how end users
 
 | Artifact | Signing | Verification path |
 |---|---|---|
-| Windows `.exe` (`stylobot-win-*.zip`) | **Azure Trusted Signing** — Microsoft's cloud-managed code-signing service, RFC 3161 timestamped | Right-click → Properties → Digital Signatures in Windows; or `signtool verify /pa stylobot.exe` |
-| Linux/macOS tarballs (GitHub Releases) | **SLSA Build Provenance Attestation** — keyless sigstore attestation linking the binary back to the exact workflow run + commit hash | `gh attestation verify stylobot-linux-x64.tar.gz --owner scottgal` |
-| `SHA256SUMS.txt` (all platforms) | **GPG detached signature** (when `RELEASE_GPG_PRIVATE_KEY` secret is populated — see task #46) | `gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt` then `sha256sum -c SHA256SUMS.txt` |
-| Cloudsmith apt repo (`stylobot-linux-x64.deb`) | **Cloudsmith repo signing** — `Release.gpg` signed with Cloudsmith's repo key per their managed signing infrastructure | Automatic via `apt update` — apt rejects unsigned repos by default |
-| macOS native dylibs (`libe_sqlite3.dylib`) | **Ad-hoc linker signature only** — not Developer-ID-signed (task #45) | Gatekeeper refuses to dlopen on quarantined downloads; see "macOS first-run" below |
+| Windows `.exe` (`stylobot-win-*.zip`) | **Azure Trusted Signing** - Microsoft's cloud-managed code-signing service, RFC 3161 timestamped | Right-click → Properties → Digital Signatures in Windows; or `signtool verify /pa stylobot.exe` |
+| Linux/macOS tarballs (GitHub Releases) | **SLSA Build Provenance Attestation** - keyless sigstore attestation linking the binary back to the exact workflow run + commit hash | `gh attestation verify stylobot-linux-x64.tar.gz --owner scottgal` |
+| `SHA256SUMS.txt` (all platforms) | **GPG detached signature** (when `RELEASE_GPG_PRIVATE_KEY` secret is populated - see task #46) | `gpg --verify SHA256SUMS.txt.asc SHA256SUMS.txt` then `sha256sum -c SHA256SUMS.txt` |
+| Cloudsmith apt repo (`stylobot-linux-x64.deb`) | **Cloudsmith repo signing** - `Release.gpg` signed with Cloudsmith's repo key per their managed signing infrastructure | Automatic via `apt update` - apt rejects unsigned repos by default |
+| macOS native dylibs (`libe_sqlite3.dylib`) | **Ad-hoc linker signature only** - not Developer-ID-signed (task #45) | Gatekeeper refuses to dlopen on quarantined downloads; see "macOS first-run" below |
 
 ## Verifying a release as an end user
 
@@ -45,7 +45,7 @@ xattr -dr com.apple.quarantine .     # same effect
 ./stylobot --help
 ```
 
-This goes away when task #45 lands — Apple Developer ID + notarisation makes the tarball pass Gatekeeper from a fresh download.
+This goes away when task #45 lands - Apple Developer ID + notarisation makes the tarball pass Gatekeeper from a fresh download.
 
 **Easier**: install via Homebrew, which strips quarantine automatically:
 
@@ -53,7 +53,7 @@ This goes away when task #45 lands — Apple Developer ID + notarisation makes t
 brew install scottgal/stylobot/stylobot
 ```
 
-### apt (Cloudsmith repo) — Linux
+### apt (Cloudsmith repo) - Linux
 
 Already signed at the repo level by Cloudsmith. `apt-secure` verifies on every `apt update`. No manual action required.
 
@@ -74,12 +74,12 @@ gpg --quick-generate-key "Mostlylucid Releases <releases@mostlylucid.net>" ed255
 gpg --list-secret-keys --keyid-format=long
 #    pub   ed25519/ABCDEF1234567890 2026-05-16 [SC] [expires: 2031-05-15]
 
-# 3. Export the public key — commit to repo root + publish to keyservers
+# 3. Export the public key - commit to repo root + publish to keyservers
 gpg --armor --export ABCDEF1234567890 > STYLOBOT_SIGNING_KEY.asc
 gpg --keyserver hkps://keys.openpgp.org --send-keys ABCDEF1234567890
 git add STYLOBOT_SIGNING_KEY.asc && git commit -m "chore: publish release-signing public key"
 
-# 4. Export the private key — store as a GitHub secret, never commit
+# 4. Export the private key - store as a GitHub secret, never commit
 gpg --armor --export-secret-keys ABCDEF1234567890 > release-private.asc
 # In GitHub → Settings → Secrets and variables → Actions:
 #   RELEASE_GPG_PRIVATE_KEY  = (paste contents of release-private.asc)
@@ -118,4 +118,4 @@ What it verifies:
 - The workflow ran on a specific commit you can inspect
 - The attestation was signed by GitHub's keyless OIDC identity (no human in the trust path)
 
-Conformance: this matches **SLSA Build Level 3** — the build platform (GitHub Actions) is trusted but the build itself runs in a tamper-evident environment, and the attestation is non-forgeable without compromising GitHub OIDC.
+Conformance: this matches **SLSA Build Level 3** - the build platform (GitHub Actions) is trusted but the build itself runs in a tamper-evident environment, and the attestation is non-forgeable without compromising GitHub OIDC.

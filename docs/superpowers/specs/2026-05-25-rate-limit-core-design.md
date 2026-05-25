@@ -1,4 +1,4 @@
-# Rate-Limit Core — design
+# Rate-Limit Core - design
 
 **Date:** 2026-05-25
 **Status:** spec, awaiting plan
@@ -7,15 +7,15 @@
 
 Real throttling. Capacity limits, not per-request `Task.Delay`. An operator says "Scraper bots get 60 req/min, 100 KB/s outbound, scoped to `/api/*`", and the gateway enforces both the request rate and the response data rate at runtime. Limits apply at any scope from global down to a single endpoint+method, and inherit through the tree unless overridden. Subjects of a limit are the things an operator already reasons about on the dashboard: fingerprint, bot type, bot name, geo, customer-pinned identity, subnet.
 
-The detection-policy grammar (separate spec) is the *selector* — "which rule fires for this request". This spec is the *enforcer* — "what does the rule do once it fires" — when that action is rate-limiting.
+The detection-policy grammar (separate spec) is the *selector* - "which rule fires for this request". This spec is the *enforcer* - "what does the rule do once it fires" - when that action is rate-limiting.
 
 ## What exists today
 
 `Mostlylucid.BotDetection/Actions/`:
 
-- `throttle-stealth` — silent `Task.Delay`
-- `throttle-tools` — HTTP 429 with `Retry-After` + exponential backoff inside a single request
-- `throttle-status` — fast 429 with fixed `Retry-After: 60`
+- `throttle-stealth` - silent `Task.Delay`
+- `throttle-tools` - HTTP 429 with `Retry-After` + exponential backoff inside a single request
+- `throttle-status` - fast 429 with fixed `Retry-After: 60`
 
 All three are per-request delays or fixed-response actions. None of them maintain a budget. There is no token bucket, no leaky bucket, no carry-over between requests, no concept of "this client has used N of M tokens." Bots that obey `Retry-After` voluntarily back off; bots that don't keep getting delayed forever. The dashboard cannot show "X has 12 of 60 tokens remaining" because there is no bucket.
 
@@ -44,13 +44,13 @@ public interface IDataRateLimiter
 }
 ```
 
-**Request rate** is a classic token bucket per `(subject, scope)` pair: capacity = `BurstSize`, refill at `RequestsPerMinute / 60` per second. `TryAcquire` is non-blocking — the over-limit caller routes to the rule's `OverLimitAction` (typically `throttle-status` or `block-soft`).
+**Request rate** is a classic token bucket per `(subject, scope)` pair: capacity = `BurstSize`, refill at `RequestsPerMinute / 60` per second. `TryAcquire` is non-blocking - the over-limit caller routes to the rule's `OverLimitAction` (typically `throttle-status` or `block-soft`).
 
-**Data rate** is a leaky-bucket wrapping `HttpContext.Response.Body`. Writes that would exceed the per-second budget block-await the next refill slot. The client sees their effective download bandwidth capped at `BytesPerSecond`. This is the actual "throttle" the operator wants — the bot can keep its connection open but cannot drain content any faster than the limit.
+**Data rate** is a leaky-bucket wrapping `HttpContext.Response.Body`. Writes that would exceed the per-second budget block-await the next refill slot. The client sees their effective download bandwidth capped at `BytesPerSecond`. This is the actual "throttle" the operator wants - the bot can keep its connection open but cannot drain content any faster than the limit.
 
 Both primitives are subject-keyed via `RateLimitSubject` (next section). State is process-wide via a `ConcurrentDictionary<RateLimitSubject, Bucket>` in FOSS. Commercial swaps in a Redis-backed `IRateLimitStateStore` so multi-gateway clusters share the budget. The same in-memory default applies to FOSS that the existing `IClusterBackplane` pattern uses for other shared state.
 
-### 2. Subjects — what gets rate-limited
+### 2. Subjects - what gets rate-limited
 
 A subject is one or more typed predicates that key a bucket. A single rule can name multiple subjects; the request consumes from *each* matching bucket and is over-limit if *any* bucket is empty. AND semantics across subjects.
 
@@ -120,7 +120,7 @@ Global              (FOSS + commercial)
                  └─ Method               (FOSS + commercial)
 ```
 
-Each scope is a config block that can declare its own `RateLimits` map and either `inherit: true` (default — also use parent's limits) or `inherit: false` (this scope's limits replace the parent's entirely for the matching subject). Resolution is nearest-defined-wins per `(subject, scope-key)`: a `Method: GET` block override on `/api/users` shadows the same subject's limit at `Endpoint: /api/users`, which itself shadows the `Subdomain: api.example.com` block, and so on.
+Each scope is a config block that can declare its own `RateLimits` map and either `inherit: true` (default - also use parent's limits) or `inherit: false` (this scope's limits replace the parent's entirely for the matching subject). Resolution is nearest-defined-wins per `(subject, scope-key)`: a `Method: GET` block override on `/api/users` shadows the same subject's limit at `Endpoint: /api/users`, which itself shadows the `Subdomain: api.example.com` block, and so on.
 
 YAML form:
 
@@ -166,7 +166,7 @@ BotDetection:
                       OverLimitAction: block-soft
 ```
 
-FOSS supports `Endpoint` + `Method` scopes only. The `Domains` / `Subdomains` blocks are licensed surfaces — operators on FOSS get a config-load error if they declare them (gated through the existing `IStyloBotLicenseGate` / `ILicenseManager.RequireFeatureAsync` path used for other commercial config).
+FOSS supports `Endpoint` + `Method` scopes only. The `Domains` / `Subdomains` blocks are licensed surfaces - operators on FOSS get a config-load error if they declare them (gated through the existing `IStyloBotLicenseGate` / `ILicenseManager.RequireFeatureAsync` path used for other commercial config).
 
 A request resolves its applicable limit set by walking *up* the tree from method to global, collecting limits-by-subject, and applying `Inherit: false` to truncate the walk. A limit defined at multiple levels for the same subject collapses to the nearest one ("Method overrides Endpoint overrides Subdomain ..."). Composite subjects (BotType AND Country) are keyed by the full predicate set, so two scopes with non-identical predicates produce distinct buckets.
 
@@ -179,7 +179,7 @@ Operators label actors via an existing surface (the `CustomBotName` field alread
 3. Rate-limit rules referencing `PinnedLabel: partner-feed` immediately apply (the next request the matcher sees with that label gets the bucket).
 4. The label is per-customer (per-domain in commercial), so two customers can label different actors `partner-feed` without collision.
 
-This gives operators a stable name to attach policy to — separate from the volatile fingerprint hash which rotates as the actor's signals shift.
+This gives operators a stable name to attach policy to - separate from the volatile fingerprint hash which rotates as the actor's signals shift.
 
 ### 5. Action dispatch
 
@@ -203,7 +203,7 @@ The data-rate wrap only happens once the request passes the request-rate gate. O
 
 ### 6. Adaptive scaling
 
-The policy-grammar plan describes a `BotMultiplier` that scales `RequestsPerMinute` down when the origin degrades. Same multiplier applies here, to both `RequestRate.RequestsPerMinute` and `DataRate.BytesPerSecond` — humans never traverse rate limits so the scaling is invisible to them. The multiplier resolves at the `IRateLimiter.TryAcquire` call site (effective rate = configured rate × multiplier).
+The policy-grammar plan describes a `BotMultiplier` that scales `RequestsPerMinute` down when the origin degrades. Same multiplier applies here, to both `RequestRate.RequestsPerMinute` and `DataRate.BytesPerSecond` - humans never traverse rate limits so the scaling is invisible to them. The multiplier resolves at the `IRateLimiter.TryAcquire` call site (effective rate = configured rate × multiplier).
 
 ### 7. Persistence + cluster
 
@@ -225,18 +225,18 @@ Live updates flow through the existing SignalR beacon constrainer (10s cap), so 
 
 ## Out of scope
 
-- Geo region maps (which countries are in "EU") — config-driven, not code; operators define their own.
-- Algorithmic auto-tuning of caps based on traffic shape — out of v1.
-- Per-tenant rate-limit isolation for multi-tenant commercial — separate spec.
-- Cluster failover / Redis partition handling — relies on the existing commercial cluster spec.
+- Geo region maps (which countries are in "EU") - config-driven, not code; operators define their own.
+- Algorithmic auto-tuning of caps based on traffic shape - out of v1.
+- Per-tenant rate-limit isolation for multi-tenant commercial - separate spec.
+- Cluster failover / Redis partition handling - relies on the existing commercial cluster spec.
 
 ## Open questions
 
 - **Bucket key cardinality.** `Fingerprint` subjects produce one bucket per actor; at production rates (10k+ active fingerprints per hour) the in-memory map needs LRU eviction. **Tentative:** evict buckets idle for > 10x their refill interval.
 - **Data-rate granularity.** Refill every 100 ms? Every 1 s? Smaller intervals are smoother but cost more CPU. **Tentative:** 250 ms refill window.
-- **OverLimitAction default.** If a rule omits `OverLimitAction`, fall back to `throttle-status` (HTTP 429 + Retry-After) or to `logonly` (count the over-limit, do nothing)? **Tentative:** `throttle-status` — silent observe defeats the point of declaring a cap.
-- **Subject precedence on composite OR.** A rule with multiple `Subjects` blocks today reads as AND. Do we also need an explicit OR? **Tentative:** no — operators write a second rule for the OR case. Composing AND/OR in a single rule is the slippery slope toward a tiny expression language.
-- **Inheritance default direction.** `Inherit: true` (default) means "use parent's limits in addition to mine"; `Inherit: false` means "I replace the parent for any subject I redefine". Is the additive-default right, or should scope-defined-wins be the default with `Inherit: parent` opt-in? **Tentative:** additive-default — fewer surprises for operators who write a tighter cap at a leaf scope and expect the parent's other limits to still apply.
+- **OverLimitAction default.** If a rule omits `OverLimitAction`, fall back to `throttle-status` (HTTP 429 + Retry-After) or to `logonly` (count the over-limit, do nothing)? **Tentative:** `throttle-status` - silent observe defeats the point of declaring a cap.
+- **Subject precedence on composite OR.** A rule with multiple `Subjects` blocks today reads as AND. Do we also need an explicit OR? **Tentative:** no - operators write a second rule for the OR case. Composing AND/OR in a single rule is the slippery slope toward a tiny expression language.
+- **Inheritance default direction.** `Inherit: true` (default) means "use parent's limits in addition to mine"; `Inherit: false` means "I replace the parent for any subject I redefine". Is the additive-default right, or should scope-defined-wins be the default with `Inherit: parent` opt-in? **Tentative:** additive-default - fewer surprises for operators who write a tighter cap at a leaf scope and expect the parent's other limits to still apply.
 
 ## Cross-spec dependencies
 

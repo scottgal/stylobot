@@ -6,7 +6,7 @@
 
 The metastable identity layer (see [`fingerprint-match.md`](fingerprint-match.md)) handles "is this the same visitor under surface rotation?" by matching weighted-cosine over the identity vector. But two genuine questions sit just above it:
 
-1. **Behavioural convergence under sustained rotation.** Two distinct fingerprints (different IPs, different UAs, different headers — different enough that the matcher allocated two separate fingerprints) may produce *converging behavioural trajectories* over time: same pages in the same order, same per-request timing distribution, same drift directions when challenged. We want to recognise that they're behaviourally the same actor without destroying either identity.
+1. **Behavioural convergence under sustained rotation.** Two distinct fingerprints (different IPs, different UAs, different headers - different enough that the matcher allocated two separate fingerprints) may produce *converging behavioural trajectories* over time: same pages in the same order, same per-request timing distribution, same drift directions when challenged. We want to recognise that they're behaviourally the same actor without destroying either identity.
 
 2. **Direction prediction.** A fingerprint's centroid drifts as observations accumulate. The *direction* of that drift is itself a signal: a fingerprint sliding toward bot-shape (lower request entropy, fewer static-asset fetches, tighter timing distribution) before the bot probability has crossed any threshold gives the operator early warning. Currently we score the *current* vector but never the *direction* of the drift.
 
@@ -15,7 +15,7 @@ The metastable identity layer (see [`fingerprint-match.md`](fingerprint-match.md
 - **Audit-preserving soft-merge**: when two fingerprints' trajectories converge, link them into a `TrajectoryFamily` without merging or destroying either. Both keep their distinct ids, centroids, displayed names, and full surface-dim history (IP/UA/headers per row). The dashboard surfaces them as siblings.
 - **Trajectory traces are first-class persistent state**, sized for retention horizon (e.g. last 90 days of compressed deltas per fingerprint).
 - **Direction prediction** runs as a separate analyst contributor, emits `trajectory.drift_direction` + `trajectory.bot_likelihood_30d` signals.
-- **Never fully merges** — the user's exact phrasing. Two fingerprints stay distinct entities forever; the family is a *view*, not a replacement.
+- **Never fully merges** - the user's exact phrasing. Two fingerprints stay distinct entities forever; the family is a *view*, not a replacement.
 
 ## Core types
 
@@ -33,7 +33,7 @@ public sealed record TrajectoryPoint
 }
 
 /// A family of fingerprints that behaviourally converged. NEVER replaces the
-/// member fingerprints — they keep their ids, centroids, distinct names. The
+/// member fingerprints - they keep their ids, centroids, distinct names. The
 /// family is a *grouping* the dashboard shows; SQL joins preserve the per-
 /// fingerprint surface-dim history that's the audit trail.
 public sealed record TrajectoryFamily
@@ -106,9 +106,9 @@ Per-request contributor `TrajectoryDirectionContributor`:
 2. Compute the per-dim mean delta vector across that window.
 3. Project onto two reference axes derived from labelled archetypes: `bot_axis` (centroid of `bot_*` archetypes minus centroid of `human_*` archetypes) and `human_axis` (opposite).
 4. Emit:
-   - `trajectory.drift_direction` — `"toward_bot"` / `"toward_human"` / `"stable"`
-   - `trajectory.bot_likelihood_30d` — projected position on `bot_axis` (0..1)
-   - `trajectory.drift_velocity` — magnitude of the mean delta vector
+   - `trajectory.drift_direction` - `"toward_bot"` / `"toward_human"` / `"stable"`
+   - `trajectory.bot_likelihood_30d` - projected position on `bot_axis` (0..1)
+   - `trajectory.drift_velocity` - magnitude of the mean delta vector
 
 This gives early warning of fingerprints sliding bot-ward before any threshold crosses.
 
@@ -140,8 +140,8 @@ Commercial:
 
 The bits that ARE worth implementing in FOSS later:
 
-1. The `fingerprint_trajectory` table + snapshot service — pure persistence, modest cost.
-2. The `TrajectoryDirectionContributor` — per-request, no DTW, just per-dim delta projection onto a bot/human axis. Useful even without family analysis.
+1. The `fingerprint_trajectory` table + snapshot service - pure persistence, modest cost.
+2. The `TrajectoryDirectionContributor` - per-request, no DTW, just per-dim delta projection onto a bot/human axis. Useful even without family analysis.
 
 If a third use case appears that wants per-fingerprint trajectory data (entity resolution v2, ML training corpus, replay-by-trajectory investigation), that's the trigger to ship parts 1+2 in FOSS and put 3 (family management) in commercial.
 
