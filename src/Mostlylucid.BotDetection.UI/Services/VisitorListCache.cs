@@ -48,10 +48,6 @@ public class VisitorListCache
     /// </summary>
     public CachedVisitor Upsert(DashboardDetectionEvent detection)
     {
-        // Temporary diagnostic: trace UA arrival at Upsert. Will be removed once the
-        // Postgres user_agent_raw flow is verified end-to-end on staging.
-        Console.WriteLine($"[VLC.Upsert] sig={detection.PrimarySignature?[..Math.Min(8, detection.PrimarySignature?.Length ?? 0)]} userAgent={(string.IsNullOrEmpty(detection.UserAgent) ? "<null>" : detection.UserAgent[..Math.Min(40, detection.UserAgent.Length)])} userAgentRaw={(string.IsNullOrEmpty(detection.UserAgentRaw) ? "<null>" : detection.UserAgentRaw[..Math.Min(40, detection.UserAgentRaw.Length)])}");
-
         var sig = detection.PrimarySignature;
         if (string.IsNullOrEmpty(sig))
             sig = detection.RequestId;
@@ -474,6 +470,17 @@ public class VisitorListCache
                     ThreatScore = v.ThreatScore,
                     ThreatBand = v.ThreatBand,
                     Protocol = v.Protocol,
+                    // Identity / fingerprint fields. Previously omitted -- the snapshot
+                    // built a CachedVisitor without these and every consumer that read
+                    // through SnapshotAll (GetFiltered, CollapseGroupable, the visitor
+                    // table) saw nulls regardless of what Upsert had assigned. That's
+                    // why the Visitors table's UA column rendered "-" even with
+                    // user_agent_raw flowing all the way through Postgres into Upsert.
+                    UaFamily = v.UaFamily,
+                    IpSubnetSignature = v.IpSubnetSignature,
+                    FingerprintId = v.FingerprintId,
+                    ClusterId = v.ClusterId,
+                    RadarShape = v.RadarShape,
                 });
             }
         }
