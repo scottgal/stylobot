@@ -103,20 +103,25 @@
             <!-- Chrome: scrollable container + table chrome (thead) -->
             <div class="overflow-auto flex-1 min-h-0">
                 <table class="table table-xs w-full">
-                    @* Column order is the operator's decision flow:
+                    @* Column order follows the operator's reasoning chain:
                        flag - who (visual locator)
                        NAME - the identity
-                       TYPE - what kind of actor (drives config decisions like "block all Scrapers")
-                       BOT% - how confident detection is that this is a bot
-                       RISK - operator-actionable severity band
-                       CONF - how sure the bot/human verdict is
-                       HITS - volume so far
-                       1h   - traffic shape over the last hour
-                       SEEN - last activity timestamp
-                       All four signal columns (TYPE / BOT% / RISK / CONF) share the
-                       same red->amber->green palette so the row reads as one
-                       consistent concerning-ness story; the icon SHAPE differs per
-                       column so the operator can tell which signal they're scanning. *@
+                       BOT % - "is this a bot?" -- the headline answer
+                       CONF  - "how sure are we?" -- gates everything else
+                       TYPE  - "what is it trying to do?" (AI / Scraper / Crawler...)
+                       THREAT- "is it hitting a honeypot / CVE / known-bad shape?"
+                       HITS  - volume so far
+                       1h    - traffic shape over the last hour
+                       SEEN  - last activity timestamp
+                       BOT % and CONF are orthogonal axes that go side-by-side so
+                       the operator reads "100% bot but only 30% sure" as a single
+                       glance and knows the false-positive risk before acting.
+                       TYPE answers what the bot wants; THREAT answers whether it's
+                       hitting hostile signals. RiskBand is intentionally dropped
+                       from the row -- it's a derived quantity that conflated bot
+                       probability with threat severity and produced "1% bot,
+                       Critical risk" misreads when the row had a benign actor on
+                       a honeypot path. *@
                     <thead>
                         <tr class="text-[10px] uppercase tracking-wider">
                             <th class="py-1 w-6"></th>
@@ -124,16 +129,16 @@
                                 hx-get="@SortUrl("name")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Name@(Html.Raw(SortIcon("name")))
                             </th>
-                            <th class="py-1 text-center text-[10px] text-base-content/40" title="Type of actor -- drives policy decisions">Type</th>
                             <th class="py-1 text-center @ThClass("probability")"
                                 hx-get="@SortUrl("probability")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Bot %@(Html.Raw(SortIcon("probability")))
                             </th>
+                            <th class="py-1 text-center text-[10px] text-base-content/40" title="Detection confidence -- gates the recommendation. Low confidence + high bot % = monitor, not block.">Conf</th>
+                            <th class="py-1 text-center text-[10px] text-base-content/40" title="What kind of actor -- drives policy decisions like 'block all Scrapers'.">Type</th>
                             <th class="py-1 text-center @ThClass("threat")"
                                 hx-get="@SortUrl("threat")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
-                                Risk@(Html.Raw(SortIcon("threat")))
+                                Threat@(Html.Raw(SortIcon("threat")))
                             </th>
-                            <th class="py-1 text-center text-[10px] text-base-content/40" title="Detection confidence in the bot/human verdict">Conf</th>
                             <th class="py-1 text-right @ThClass("hits")"
                                 hx-get="@SortUrl("hits")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Hits@(Html.Raw(SortIcon("hits")))
@@ -195,10 +200,16 @@
 
                             var intentIcon = new IntentIconModel(displayIntent);
                             var riskBar    = new RiskBarModel(bot.BotProbability, threatBand);
-                            var riskBadge  = new RiskBadgeModel(bot.RiskBand ?? threatBand, bot.BotProbability);
-                            // DashboardTopBotEntry doesn't carry IsBot directly -- top-bots rows are
-                            // (with rare uncertain-band exceptions) bots by definition. Treat bot
-                            // probability >= 0.5 as the bot/human polarity for the confidence meter.
+                            // ThreatBand is the orthogonal axis -- "is this hostile" -- driven
+                            // by honeypot / CVE / known-bad-shape signals, NOT by bot probability.
+                            // We pass it through unmodified; the ThreatIcon paints a shield that's
+                            // green for None / Low and red for Critical / High, independent of
+                            // how confident detection is that the actor is automated.
+                            var threatIconModel = new ThreatIconModel(threatBand, bot.BotProbability);
+                            // Confidence is magnitude-only -- "how sure is detection" -- without
+                            // any IsBot polarity flip. A low-confidence row is grey regardless of
+                            // direction so the operator never reads "safe" from an uncertain
+                            // human verdict; the recommendation logic downstream gates on this.
                             var confMeter  = new ConfidenceMeterModel(bot.Confidence, bot.BotProbability >= 0.5, bot.BotProbability);
                             var flag       = new CountryFlagModel(bot.CountryCode, bot.CountryCode);
                             var timeAgo    = new TimeAgoModel(bot.LastSeen, bot.TimeAgo);
@@ -213,16 +224,16 @@
                                        class="hover:underline @(isLlmNamed ? "" : "text-base-content/60 italic")">@displayName</a>@if (isCustomNamed) {<span class="ml-1 text-[9px] text-primary opacity-60" title="Custom label">&#9632;</span>}
                                 </td>
                                 <td class="py-1 text-center">
-                                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_IntentIcon.cshtml", intentIcon)
-                                </td>
-                                <td class="py-1 text-center">
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_RiskBar.cshtml", riskBar)
                                 </td>
                                 <td class="py-1 text-center">
-                                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_RiskBadge.cshtml", riskBadge)
+                                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ConfidenceMeter.cshtml", confMeter)
                                 </td>
                                 <td class="py-1 text-center">
-                                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ConfidenceMeter.cshtml", confMeter)
+                                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_IntentIcon.cshtml", intentIcon)
+                                </td>
+                                <td class="py-1 text-center">
+                                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ThreatIcon.cshtml", threatIconModel)
                                 </td>
                                 <td class="py-1 text-right text-xs text-base-content/60 font-mono">@bot.HitCount</td>
                                 <td class="py-1 text-center align-middle">
