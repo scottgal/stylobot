@@ -1331,12 +1331,18 @@ static void ShowManPage()
 
     [bold]DESCRIPTION[/]
         StyloBot proxies HTTP traffic to an upstream server while running real-time
-        bot detection. 32 detectors, including the new Threat Intelligence detector, analyze
-        every request in <1ms. Results display
-        in a live terminal table with color-coded verdicts.
+        bot detection. 49 detectors analyze every request in <1ms, including
+        Threat Intelligence (Spamhaus DROP / Tor exit / CISA KEV / cloud ranges)
+        and behavioural pattern matching. Results display in a live terminal
+        table with color-coded verdicts.
 
         Detection works fully without any LLM. LLM enrichment (optional) adds bot
         naming and intent classification asynchronously.
+
+        Out of the box (6.8+): malicious bots are blocked, search/AI bots are
+        rate-limited, humans are untouched, and bots get throttled harder when
+        the origin starts slowing down. See the policy-defaults doc on GitHub
+        for the full per-BotType mapping.
 
     [bold]COMMANDS[/]
         [bold]start[/]     Start as a background daemon (writes PID file)
@@ -1377,14 +1383,27 @@ static void ShowManPage()
     [bold]OPTIONS[/]
         [bold]--port[/] <port>                   Listen port (alternative to positional)
         [bold]--upstream[/] <url>                Upstream URL (alternative to positional)
-        [bold]--mode[/] <demo|production>       Detection mode (default: production)
-        [bold]--policy[/] <name>                Action: logonly, block, throttle, challenge
-                                               (default: block in production, logonly in demo)
+        [bold]--mode[/] <demo|production>       Detection mode (default: demo -- observe only;
+                                               override to production to enable policy actions)
+        [bold]--policy[/] <name>                Action policy override. Default action grammar (6.8+)
+                                               routes per BotType: MaliciousBot -> block-hard,
+                                               AiBot -> rate-limit-ai, SearchEngine -> rate-limit-search,
+                                               etc. Override the fallback (used when no per-type entry
+                                               matches): logonly | block | throttle-stealth | challenge.
         [bold]--threshold[/] <0.0-1.0>          Bot probability threshold (default: 0.7)
         [bold]--cert[/] <path>                  TLS certificate (.pfx or .pem)
         [bold]--key[/] <path>                   TLS private key (with .pem cert)
         [bold]--cert-password[/] <pass>         PFX certificate password
-        [bold]--tunnel[/] [[token]]               Cloudflare Tunnel (requires cloudflared)
+        [bold]--tunnel[/] [[token]]               Cloudflare Tunnel for public ingress (Tunnel A).
+                                               No token: quick tunnel (*.trycloudflare.com URL,
+                                               printed on startup). With token: named tunnel from
+                                               your CF dashboard. Requires cloudflared on PATH.
+        [bold]--origin-tunnel[/] <hostname>      (6.8.2+) Reach a private origin through a Cloudflare
+                                               Tunnel (Tunnel B). Stylobot picks a free loopback port,
+                                               launches `cloudflared access tcp --hostname <h> --url
+                                               localhost:<port>`, and uses that as its upstream. Lets
+                                               your legacy box have ZERO public exposure. Pairs with
+                                               --tunnel for the full brownfield retrofit.
         [bold]--llm[/] <provider>               LLM: openai, anthropic, gemini, groq, ollama...
         [bold]--llm-key[/] <key>                API key (or env STYLOBOT_LLM_KEY)
         [bold]--llm-url[/] <url>                Custom provider base URL
@@ -1392,6 +1411,24 @@ static void ShowManPage()
         [bold]--config[/] <path>                Custom appsettings.json
         [bold]--log-level[/] <level>            Minimum log level (default: Warning)
         [bold]--verbose[/]                      Full log output (disables live table)
+
+    [bold]POLICY GRAMMAR (6.8+)[/]
+        Action policies are now intent-keyed (Pass / Block / RateLimit / Throttle / Challenge)
+        and route per-BotType automatically. Set per-policy overrides in appsettings.json:
+
+          BotDetection:BotTypeActionPolicies.MaliciousBot   = "block-hard"        (default)
+          BotDetection:BotTypeActionPolicies.AiBot          = "rate-limit-ai"     (default)
+          BotDetection:BotTypeActionPolicies.SearchEngine   = "rate-limit-search" (default)
+          BotDetection:BotTypeActionPolicies.Tool           = "throttle-tools"    (default)
+          ...
+
+        Set BotDetection:ObserveOnly = true to shadow every policy through logonly
+        (the dashboard still records which policy *would* have fired). Use during
+        pre-launch calibration. Replaces the 6.7 implicit observe-only posture.
+
+        Adaptive scaling: when upstream P95 latency >= 1000ms or 5xx rate >= 3%,
+        bot rate limits scale down (humans don't traverse rate limits, so they
+        get priority). Configure via BotDetection:RateLimit:AdaptiveScaling.
 
     [bold]LLM PROVIDERS[/]
         Any provider, any tier. Bring your own API key.
@@ -1425,15 +1462,20 @@ static void ShowManPage()
           4. appsettings.{mode}.json
           5. appsettings.json
 
-        Full reference: https://github.com/scottgal/stylobot/blob/main/Mostlylucid.BotDetection/docs/configuration.md
+        Full reference: https://github.com/scottgal/stylobot/blob/main/src/Mostlylucid.BotDetection/docs/configuration-reference.md
+        Policy defaults: https://github.com/scottgal/stylobot/blob/main/src/Mostlylucid.BotDetection/docs/policy-defaults.md
+        Brownfield retrofit: https://github.com/scottgal/stylobot/blob/main/docs/brownfield-retrofit.md
 
     [bold]EXAMPLES[/]
         stylobot 5080 http://localhost:3000
         stylobot 5080 http://localhost:3000 --mode demo
-        stylobot 8000 http://api.mysite.com --mode production --policy block
+        stylobot 8000 http://api.mysite.com --mode production
         stylobot 5080 http://localhost:3000 --tunnel
         stylobot 5080 http://localhost:3000 --llm groq --llm-key gsk-...
-        stylobot start 443 https://backend:8080 --cert cert.pfx --policy block
+        stylobot start 443 https://backend:8080 --cert cert.pfx
+        # Brownfield retrofit (6.8.2+): private origin via Cloudflare Tunnel B,
+        # public ingress via Tunnel A. Old box has zero public exposure.
+        stylobot 5080 --origin-tunnel oldsite.tunnel.example.org --tunnel <ingress-token>
 
     [bold]ENDPOINTS[/]
         /health          Health check (minimal JSON)
@@ -1453,7 +1495,7 @@ static void ShowManPage()
         https://stylobot.net
         https://github.com/scottgal/stylobot
 
-    [dim]StyloBot Community Edition                Free forever                    v5.6[/]
+    [dim]StyloBot Community Edition                Free forever                  v6.8.2[/]
     """;
 
     // Render [bold]...[/] and [dim]...[/] tags with ANSI codes (no Spectre dependency)

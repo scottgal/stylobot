@@ -79,7 +79,26 @@
     var clientSig   = Model.Signatures?.ClientSideSignature;
 }
 
+@{
+    var cardHref = !string.IsNullOrEmpty(primarySig)
+        ? $"/dashboard/signature/{Uri.EscapeDataString(primarySig)}"
+        : null;
+}
 <div class="bot-detection-container" data-sb-widget="your-detection">
+    @* Whole upper card is one anchor to /dashboard/signature/<primary> -- visitor
+       clicks anywhere on the LIVE header, radar, verdict, or reasons block and
+       lands on their own signature detail page. The bottom Top Bots strip is a
+       sibling (not nested inside this anchor) because it contains its own row
+       anchors -- nesting <a> is invalid HTML and stops the inner clicks working.
+       Razor can't keep an <a> open across an if-block, so we render the open
+       tag (or its <div> fallback when no signature resolved) via Html.Raw. *@
+    @{
+        var upperOpen = cardHref is not null
+            ? $"<a href=\"{System.Web.HttpUtility.HtmlAttributeEncode(cardHref)}\" class=\"block no-underline text-base-content hover:bg-base-content/[0.04] rounded transition-colors\" title=\"Open your signature detail · {System.Web.HttpUtility.HtmlAttributeEncode(primarySig ?? string.Empty)}\">"
+            : "<div>";
+        var upperClose = cardHref is not null ? "</a>" : "</div>";
+    }
+    @Html.Raw(upperOpen)
     @* Header: LIVE pulse + verdict badge + request id + timing -- all real signal, no fluff *@
     <div class="flex items-center justify-between gap-2 mb-3">
         <div class="flex items-center gap-2">
@@ -132,54 +151,21 @@
                 </ul>
             }
 
-            @* Signature pills -- every one routes to the dashboard signature detail.
-               The visitor can click their own primary signature and land on the same
-               drill-through page operators use in the live dashboard. *@
-            @if (Model.Signatures is { } sigs)
-            {
-                <div class="flex flex-wrap gap-1 mt-1">
-                    @if (!string.IsNullOrEmpty(primarySig))
-                    {
-                        <a href="/dashboard/signature/@Uri.EscapeDataString(primarySig)"
-                           class="sb-sig-pill" title="Primary signature -- full hash: @primarySig">
-                            <span class="opacity-50">Primary</span>
-                            <code>@(primarySig[..Math.Min(8, primarySig.Length)])</code>
-                        </a>
-                    }
-                    @if (!string.IsNullOrEmpty(ipSig))
-                    {
-                        <a href="/dashboard/signature/@Uri.EscapeDataString(ipSig)"
-                           class="sb-sig-pill" title="IP signature -- full hash: @ipSig">
-                            <span class="opacity-50">IP</span>
-                            <code>@(ipSig[..Math.Min(8, ipSig.Length)])</code>
-                        </a>
-                    }
-                    @if (!string.IsNullOrEmpty(uaSig))
-                    {
-                        <a href="/dashboard/signature/@Uri.EscapeDataString(uaSig)"
-                           class="sb-sig-pill" title="UA signature -- full hash: @uaSig">
-                            <span class="opacity-50">UA</span>
-                            <code>@(uaSig[..Math.Min(8, uaSig.Length)])</code>
-                        </a>
-                    }
-                    @if (!string.IsNullOrEmpty(clientSig))
-                    {
-                        <a href="/dashboard/signature/@Uri.EscapeDataString(clientSig)"
-                           class="sb-sig-pill" title="Browser-side signature -- full hash: @clientSig">
-                            <span class="opacity-50">Browser</span>
-                            <code>@(clientSig[..Math.Min(8, clientSig.Length)])</code>
-                        </a>
-                    }
-                </div>
-            }
+            @* Signature pills removed by design -- the whole card is clickable
+               (data-href on the root container) so visitors land on their own
+               primary signature detail page without us cluttering the card with
+               four hash chips three of which had no dashboard surface to drill
+               into. The primary hash stays available as the wrapper's title
+               for copy/paste. *@
         </div>
     </div>
 
-    @* Bottom strip: top 5 bots currently being seen. SbTopBots renders its own
-       "Top Bots" heading + toolbar, so we just give it the divider and let it
-       title itself -- stacking a second "Bots seen here recently" label on top
-       of its H3 was a 22px-of-redundant-chrome bug. Each row is a drill-through
-       to the same signature-detail page operators use. *@
+    @Html.Raw(upperClose)
+
+    @* Bottom strip: top 5 bots currently being seen. Sits OUTSIDE the upper-card
+       anchor so SbTopBots's own per-row anchors keep their click behaviour --
+       nesting them inside the outer <a> would invalidate the HTML and break
+       row clicks. *@
     <div class="mt-4 pt-3 border-t border-base-content/10">
         <sb-top-bots page-size="5" filter="bots" sort="recent" widget-id="your-detection-topbots" />
     </div>

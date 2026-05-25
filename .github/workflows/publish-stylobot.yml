@@ -185,9 +185,19 @@ jobs:
 
         Quick start:
 
-          stylobot 5080 https://www.example.com
-          stylobot 5080 https://www.example.com --tunnel
+          stylobot 5080 https://www.example.com           # demo mode (observe only)
           stylobot 5080 https://www.example.com --mode production
+          stylobot 5080 https://www.example.com --tunnel  # public quick tunnel
+
+          # Brownfield retrofit (6.8.2+): private origin via Cloudflare Tunnel,
+          # zero public exposure on the legacy box.
+          stylobot 5080 --origin-tunnel oldsite.tunnel.example.org --tunnel TOKEN
+
+        Full CLI reference:  stylobot man        (embedded; no internet needed)
+
+        Out of the box (6.8+): malicious bots blocked, search and AI bots
+        rate-limited, humans untouched, bot rate limits tighten when the
+        upstream slows down.
 
         macOS first-run note:
           Browsers add com.apple.quarantine to downloaded files. The bundled

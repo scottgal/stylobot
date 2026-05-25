@@ -1,6 +1,8 @@
 # StyloBot CLI
 
-**Self-hosted bot defense. Free forever.** Single binary, 32 detectors including the new `Threat Intelligence` detector, live detection table, daemon mode, Cloudflare Tunnel support. AOT-compiled for sub-30MB footprint across 6 platforms.
+**Self-hosted bot defense. Free forever.** Single binary, 49 detectors including Threat Intelligence (Spamhaus DROP / Tor / CISA KEV / cloud ranges) and behavioural pattern matching, live detection table, daemon mode, Cloudflare Tunnel support (including brownfield-retrofit `--origin-tunnel`). AOT-compiled across 6 platforms.
+
+Out of the box (6.8+): malicious bots blocked, search and AI bots rate-limited, humans untouched, bot rate limits tighten when the upstream slows down. See [`policy-defaults.md`](../Mostlylucid.BotDetection/docs/policy-defaults.md) for the full per-`BotType` mapping or run `stylobot man` for the embedded CLI reference.
 
 ## Install
 
