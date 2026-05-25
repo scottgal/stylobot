@@ -43,11 +43,16 @@ public static class SignatureDisplayName
         var country = !string.IsNullOrEmpty(countryCode) && countryCode.Length == 2 && countryCode != "XX"
             ? BotDisplayHelpers.CountryAdjective(countryCode)
             : null;
-        var family = string.IsNullOrWhiteSpace(uaFamily) ? null : uaFamily.Trim();
+        var family = string.IsNullOrWhiteSpace(uaFamily) || IsUselessUaFamily(uaFamily)
+            ? null
+            : uaFamily.Trim();
         var role = isBot ? "Bot" : "User";
 
         if (country != null && family != null)
             return $"{country} {family} {role} · {ShortHash(signature, 4)}";
+
+        if (country != null)
+            return $"{country} {role} · {ShortHash(signature, 4)}";
 
         if (family != null)
             return isBot ? $"Bot · {family}" : family;
@@ -70,6 +75,17 @@ public static class SignatureDisplayName
         botType.Equals("Unknown",   StringComparison.OrdinalIgnoreCase) ||
         botType.Equals("Tool",      StringComparison.OrdinalIgnoreCase) ||
         botType.Equals("Other",     StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    ///     UA family values that the UA parser emits when it couldn't recognise
+    ///     anything specific. Showing "Other" in the visible label is no better
+    ///     than showing nothing -- it just clutters the row, and the UA column
+    ///     already exposes the raw family separately.
+    /// </summary>
+    private static bool IsUselessUaFamily(string family) =>
+        family.Equals("Other", StringComparison.OrdinalIgnoreCase) ||
+        family.Equals("Unknown", StringComparison.OrdinalIgnoreCase) ||
+        family.Equals("-", StringComparison.Ordinal);
 
     /// <summary>
     ///     First N chars of the signature, or "—" when there is no signature
