@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [6.8.2] - 2026-05-25
 
-Hotfix release. Crashes always trump features: the gateway must start.
+Hotfix release that unblocks the brownfield retrofit story. Two changes: the gateway always starts even without a configured HMAC key, and a new `--origin-tunnel` flag lets stylobot reach a private origin through Cloudflare Tunnel with zero public exposure on the backend.
+
+### Added: `--origin-tunnel <private-hostname>` -- brownfield retrofit's second tunnel
+
+Stylobot now bundles the second cloudflared instance the [brownfield retrofit](../docs/brownfield-retrofit.md) needs. Before 6.8.2 the fully-private-origin shape (the "old box has zero public exposure" story) required the operator to manually launch a separate `cloudflared access tcp` on the stylobot host. Now it's one flag.
+
+```bash
+stylobot 5080 --origin-tunnel oldsite.tunnel.example.org --tunnel <ingress-token>
+```
+
+What happens:
+1. Stylobot picks a free loopback port at startup (let's say 47891).
+2. Launches `cloudflared access tcp --hostname oldsite.tunnel.example.org --url localhost:47891` as a sidecar.
+3. Sets its own upstream to `http://localhost:47891`. From stylobot's point of view it's just a normal proxy hop.
+4. The `--tunnel <ingress-token>` flag still handles the public ingress side (Tunnel A).
+
+Result: neither the stylobot host nor the legacy host has any inbound port open. Both speak outbound 443 to Cloudflare only. Reaches the three-step retrofit narrative without manual cloudflared juggling.
+
+Precedence: an explicit `<upstream>` argument (positional, `--upstream`, or `DEFAULT_UPSTREAM` env) wins over `--origin-tunnel`. Operators who supply both get a warning, and the explicit upstream is used so a misconfigured retrofit can't silently divert production traffic.
+
+`OriginTunnelLauncher` (new) parallels the existing `CloudflaredTunnelLauncher`: same cloudflared-presence check, same log routing, same "exited within 5s = warn loud" diagnostic. No new dependencies.
 
 ### Fixed: production mode no longer refuses to start without a configured HMAC key
 

@@ -87,18 +87,20 @@ cloudflared tunnel --no-autoupdate run --token <backend-token>
 # the tunnel's local sink is http://localhost:8080 (the legacy app)
 ```
 
-On the **stylobot host**:
+On the **stylobot host** (6.8.2+ -- one command):
 
 ```bash
-# reach the backend through the same tunnel (cloudflared as an outbound client)
-cloudflared access tcp --hostname oldsite.tunnel.your-org --url localhost:9000 &
-stylobot 5080 http://localhost:9000 --tunnel <ingress-token>
+stylobot 5080 --origin-tunnel oldsite.tunnel.your-org --tunnel <ingress-token>
 ```
 
+`--origin-tunnel <hostname>` makes stylobot pick a free loopback port at startup, launch `cloudflared access tcp` as a sidecar pointed at that port, and rewrite its own upstream to `http://localhost:<auto-port>`. From stylobot's point of view it's a normal proxy hop; from the operator's it's a single flag.
+
 - Legacy host: no inbound port. Outbound 443 to CF only.
-- Stylobot host: no inbound port. Outbound 443 to CF only (Tunnel A for ingress, `cloudflared access tcp` for the outbound origin hop).
+- Stylobot host: no inbound port. Outbound 443 to CF only (Tunnel A for ingress, the bundled `--origin-tunnel` cloudflared for the outbound origin hop).
 - No VPN, no port-forwarding, no private mesh you have to maintain.
 - The "even the old box doesn't talk to the internet directly" story is real here.
+
+Pre-6.8.2 the operator had to run the `cloudflared access tcp` themselves -- see the [git history of this doc](https://github.com/scottgal/stylobot/commits/main/docs/brownfield-retrofit.md) for the manual chain.
 
 ### Shape 4 -- docker compose on the legacy host
 
@@ -123,16 +125,17 @@ services:
 - Zero ports exposed to the host network. Everything traverses the docker network.
 - Easiest path when the legacy site is already containerised.
 
-## What the `--tunnel <token>` flag actually does today
+## What the `--tunnel <token>` and `--origin-tunnel <hostname>` flags do
 
-A correct answer matters more than a clean architecture diagram. The current stylobot:
+Two flags, two tunnels, one binary:
 
-- `stylobot <port> <upstream> --tunnel` (no token) -> launches `cloudflared tunnel --url http://localhost:<port>`. You get a random `*.trycloudflare.com` URL printed to the console. Useful for demos; the URL changes every restart.
-- `stylobot <port> <upstream> --tunnel <token>` -> launches `cloudflared tunnel run` with `TUNNEL_TOKEN=<token>` in the environment (the token never appears in process listings). The token identifies a **named tunnel** you created in the CF dashboard; the *ingress rule* (which public hostname maps to which local URL) is preset in that dashboard config, not in stylobot.
+| Flag | Direction | What it identifies | Underlying cloudflared command |
+|------|-----------|-------------------|---------------------------------|
+| `--tunnel` (no value) | Tunnel A (public ingress) | Quick tunnel -- random `*.trycloudflare.com` URL printed at startup, demo-only | `cloudflared tunnel --url http://localhost:<port>` |
+| `--tunnel <token>` | Tunnel A (public ingress) | Named tunnel; CF dashboard config supplies the hostname -> local mapping. Token passed via `TUNNEL_TOKEN` env so it never appears in process listings. | `cloudflared tunnel run` |
+| `--origin-tunnel <hostname>` (6.8.2+) | Tunnel B (private origin) | Private hostname for your backend tunnel in the CF Zero Trust dashboard. Stylobot picks a free loopback port and rewrites its upstream automatically. | `cloudflared access tcp --hostname <hostname> --url localhost:<auto-port>` |
 
-**The token is for Tunnel A only -- public ingress.** Stylobot's `--tunnel` does not currently launch a second cloudflared for the private-origin hop (Tunnel B). To run the fully-private-origin shape today, you run the second cloudflared yourself on the stylobot host as a normal background process and point stylobot's upstream at its local TCP socket. See [Shape 3](#shape-3----stylobot-host--tunnel-b-to-the-backend-no-private-mesh-needed) above.
-
-What would close the gap to a literal three-step install: a `--origin-tunnel <backend-token>` flag that auto-launches the second cloudflared so the operator passes two tokens and gets the fully-private-origin shape with no manual chain. Tracked in the "what's between this and ship-it" section below.
+Combined: `stylobot 5080 --origin-tunnel <backend-host> --tunnel <ingress-token>` -> stylobot binds the gateway, launches both cloudflared sidecars, wires the proxy chain. Two tokens (sort of -- the origin side is a hostname, the ingress side is a token), one command.
 
 ## Getting the tokens
 
@@ -166,9 +169,8 @@ No code touches the legacy site. The old database, the old PHP, the old `.aspx` 
 
 ## What's between "this works today" and "ship it as a one-liner"
 
-Shapes 1, 2, and 4 work end-to-end today with stock binaries. Shape 3 (the fully-private-origin story) works too but currently requires the operator to run two separate cloudflared processes and chain them. A single-flag bundling is the obvious ergonomics win and is tracked separately:
+All four shapes work end-to-end today. Shape 3 (the fully-private-origin story) became a single command in 6.8.2 via `--origin-tunnel`. Remaining packaging polish:
 
-- `stylobot --tunnel <public-token> --origin-tunnel <backend-token>` -- one binary, two tokens, automatic chain.
 - A bundled `stylobot` Docker image that includes `cloudflared` (current image is detection-only; Shape 4 today needs both containers).
 - An install script (`curl ... | bash` style) that prompts for the token(s) and writes a systemd unit -- so the one-liner story matches the "3 steps" narrative.
 - Per-host site profiles ([planned](deferred/site-profiles.md)) so the gateway auto-loads e.g. the WordPress simulation pack when a tunnel routes a WordPress domain.
