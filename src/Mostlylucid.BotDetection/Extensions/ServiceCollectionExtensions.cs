@@ -282,6 +282,11 @@ public static class ServiceCollectionExtensions
                                   Mostlylucid.BotDetection.RateLimiting.MemoryRateLimiter>();
         services.TryAddSingleton<Mostlylucid.BotDetection.RateLimiting.IDataRateLimiter,
                                   Mostlylucid.BotDetection.RateLimiting.MemoryDataRateLimiter>();
+        // Subject resolver -- IPinnedLabelLookup and IRegionMap are optional; the
+        // resolver tolerates nulls. The UI layer registers a label-lookup adapter
+        // separately; FOSS apps without that ship with no PinnedLabel matching,
+        // which is the correct behaviour (no label store, no labels to match).
+        services.TryAddSingleton<Mostlylucid.BotDetection.RateLimiting.RateLimitSubjectResolver>();
 
         // Add HttpClient factory for bot list fetching
         services.AddHttpClient();
