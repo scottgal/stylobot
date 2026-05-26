@@ -58,8 +58,16 @@ output:
 
 triggers:
   requires: []  # No dependencies - runs in Wave 0
-  skip_when:
-    - detection.early_exit
+  # Intentionally NO skip_when: detection.early_exit. The contributor is cheap
+  # (IP-range table lookup + cached FCrDNS) and is the ONLY source of the
+  # verifiedbot.* signals that drive the green-tick verification badge in the
+  # dashboard. If we skipped on early-exit, second-and-later visits to a
+  # cached signature (the steady state once FastPathReputation kicks in)
+  # would never produce a verifiedbot.confirmed signal and the badge could
+  # never graduate from amber `?` to green tick. Running this on every
+  # request is the correct trade -- ~microseconds of work for an observable
+  # identity confidence signal across the whole dashboard.
+  skip_when: []
 
 emits:
   on_start:
