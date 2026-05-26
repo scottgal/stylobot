@@ -155,7 +155,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 ("signatures", "top_reasons_json", "TEXT"),
                 ("detections", "domain", "TEXT"),
                 ("detections", "referrer_host", "TEXT"),
-                ("detections", "ua_device_class", "TEXT")
+                ("detections", "ua_device_class", "TEXT"),
+                ("detections", "is_verified_bot", "INTEGER DEFAULT 0")
             })
             {
                 var colExists = false;
@@ -269,9 +270,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.CommandText = """
                 INSERT INTO detections (timestamp, signature, method, path, is_bot, bot_probability, confidence,
                     risk_band, bot_name, bot_type, action, country_code, processing_time_ms, threat_score, threat_band,
-                    status_code, user_agent_raw, risk_justification, domain, referrer_host, ua_device_class, response_bytes)
+                    status_code, user_agent_raw, risk_justification, domain, referrer_host, ua_device_class, response_bytes,
+                    is_verified_bot)
                 VALUES (@ts, @sig, @method, @path, @isBot, @prob, @conf, @risk, @name, @type, @action, @country, @ms,
-                    @threat, @band, @status, @uaRaw, @justification, @domain, @refHost, @deviceClass, @responseBytes)
+                    @threat, @band, @status, @uaRaw, @justification, @domain, @refHost, @deviceClass, @responseBytes,
+                    @verifiedBot)
                 """;
             cmd.Parameters.AddWithValue("@ts", detection.Timestamp.ToString("O"));
             cmd.Parameters.AddWithValue("@sig", detection.PrimarySignature ?? "unknown");
@@ -296,6 +299,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.Parameters.AddWithValue("@refHost", (object?)detection.ReferrerHost ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@deviceClass", (object?)detection.UaDeviceClass ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@responseBytes", (object?)detection.ResponseBytes ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@verifiedBot", detection.IsVerifiedBot ? 1 : 0);
             await cmd.ExecuteNonQueryAsync();
 
             // Upsert UA stats for analytics
@@ -485,7 +489,12 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 ResponseBytes   = SafeGetInt64Nullable(reader, "response_bytes"),
                 Domain          = reader.IsDBNull(ordDomain)      ? null : reader.GetString(ordDomain),
                 ReferrerHost    = reader.IsDBNull(ordRefHost)      ? null : reader.GetString(ordRefHost),
-                UaDeviceClass   = reader.IsDBNull(ordDeviceClass)  ? null : reader.GetString(ordDeviceClass)
+                UaDeviceClass   = reader.IsDBNull(ordDeviceClass)  ? null : reader.GetString(ordDeviceClass),
+                // SafeGet form so older DBs that haven't run the is_verified_bot
+                // migration yet (e.g. during the rollout window before
+                // EnsureInitializedAsync has run the ALTER TABLE) read as false
+                // rather than throwing on missing column.
+                IsVerifiedBot   = SafeGetInt32(reader, "is_verified_bot") == 1
             });
         }
         return results;
@@ -1883,6 +1892,19 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         catch (ArgumentOutOfRangeException)
         {
             return null; // Column doesn't exist yet (pre-migration DB)
+        }
+    }
+
+    private static int SafeGetInt32(SqliteDataReader reader, string column)
+    {
+        try
+        {
+            var ordinal = reader.GetOrdinal(column);
+            return reader.IsDBNull(ordinal) ? 0 : Convert.ToInt32(reader.GetValue(ordinal));
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return 0; // Column doesn't exist yet (pre-migration DB)
         }
     }
 
