@@ -70,6 +70,13 @@ public partial class VerifiedBotContributor : ConfiguredContributorBase
         var botName = _registry.MatchBotUserAgent(userAgent);
         if (botName == null)
         {
+            // Always write `verifiedbot.checked` so the signal-intelligence panel
+            // shows the contributor DID run, even on the no-match path. Without
+            // this the panel would be missing the category entirely and an
+            // operator can't tell whether the contributor was skipped, gated out,
+            // or just had no UA to match against.
+            state.WriteSignal(SignalKeys.VerifiedBotChecked, true);
+
             // Not a known bot - but check for "honest bot" pattern:
             // UA has a URL, and reverse DNS of client IP matches that domain
             var honestResult = await CheckHonestBot(state, userAgent, clientIp, cancellationToken);

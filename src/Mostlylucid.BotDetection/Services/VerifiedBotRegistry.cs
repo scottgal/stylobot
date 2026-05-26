@@ -96,6 +96,17 @@ public sealed class VerifiedBotRegistry : IHostedService, IDisposable
                 p.IpRangesUrl,
                 p.VerifiedDomains))
             .ToArray();
+
+        // Diagnostic: log the pattern count so we can confirm at startup whether
+        // BotPatternLoader is actually reading the embedded YAML files. The
+        // VerifiedBotContributor relies on this list -- if it is empty, every
+        // verifiedbot.* signal goes unwritten and the verification badge can
+        // never graduate to the green tick. Logging at INFO so it shows up
+        // without enabling debug.
+        _logger.LogInformation(
+            "VerifiedBotRegistry initialised with {Count} bot definitions (sample: {Sample})",
+            _botDefinitions.Length,
+            string.Join(",", _botDefinitions.Take(5).Select(b => b.Name)));
     }
 
     /// <summary>
