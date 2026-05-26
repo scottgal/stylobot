@@ -46,67 +46,67 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         var primarySig = model.Signatures?.PrimarySignature;
         if (!string.IsNullOrEmpty(primarySig))
         {
-            var (clockAxes, diag) = await ResolveClockAxesAsync(primarySig);
+            var clockAxes = await ResolveClockAxesAsync(primarySig);
             if (clockAxes is not null)
                 model = model with { ClockAxes = clockAxes };
-            ViewData["YdDiag"] = diag;
         }
 
         return View(viewName, model);
     }
 
-    private async Task<(double[]?, string)> ResolveClockAxesAsync(string primarySig)
+    private async Task<double[]?> ResolveClockAxesAsync(string primarySig)
     {
-        var trail = "";
-
-        if (_liveStore is null) trail += "live-store-null|";
-        else
+        // 1. LIVE in-flight session -- the dashboard's "idx=0 live" row. Only
+        //    carries data once the orchestrator reaches wave-30
+        //    SessionVectorContributor for the visitor; clearly-human visitors
+        //    usually quorum-exit before that, so this branch misses on first
+        //    visit. We try it first anyway because when it IS hot the radar is
+        //    as fresh as possible.
+        if (_liveStore is not null)
         {
             try
             {
                 var liveSession = _liveStore.GetCurrentSession(primarySig);
-                if (liveSession is null) trail += "live-session-null|";
-                else if (liveSession.Count < 1) trail += $"live-count-{liveSession.Count}|";
-                else
+                if (liveSession is { Count: >= 1 })
                 {
                     var vector = SessionVectorizer.Encode(liveSession);
-                    if (vector.Length < 118) trail += $"live-vec-{vector.Length}|";
-                    else
+                    if (vector.Length >= 118)
                     {
                         var axes = ClockAxesResolver.FromSessionVector(vector);
-                        if (axes is not null)
-                            return (axes, $"live-ok-n{liveSession.Count}-len{vector.Length}");
-                        trail += "live-axes-null|";
+                        if (axes is not null) return axes;
                     }
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                return (null, trail + $"live-throw:{ex.GetType().Name}:{ex.Message?.Substring(0, Math.Min(40, ex.Message.Length))}");
+                // Live accumulator is best-effort -- fall through to persisted.
             }
         }
 
-        if (_persistedStore is null) return (null, trail + "persisted-null");
+        // 2. PERSISTED most-recent session -- SessionAtomizerService runs every
+        //    2 min and writes the visitor's finalised session vector. This is
+        //    the steady-state source; by the visitor's second page-load a
+        //    finalised session almost always exists and the projection matches
+        //    what the dashboard renders on the signature detail page. First-
+        //    visit visitors before the first atomization tick legitimately
+        //    fall through to a null radar -- the view renders the empty grid.
+        if (_persistedStore is null) return null;
 
         try
         {
             var sessions = await _persistedStore.GetSessionsAsync(
                 primarySig, limit: 1, HttpContext!.RequestAborted);
             var latest = sessions.FirstOrDefault();
-            if (latest is null) return (null, trail + "persisted-no-rows");
-            if (latest.Vector is not { Length: > 0 } encoded) return (null, trail + "persisted-no-vector");
+            if (latest?.Vector is not { Length: > 0 } encoded) return null;
 
             var vector = SqliteSessionStore.DeserializeVector(encoded);
-            if (vector.Length < 118) return (null, trail + $"persisted-vec-{vector.Length}");
+            if (vector.Length < 118) return null;
 
-            var axes = ClockAxesResolver.FromSessionVector(vector);
-            return axes is not null
-                ? (axes, trail + $"persisted-ok-len{vector.Length}")
-                : (null, trail + $"persisted-axes-null-len{vector.Length}");
+            return ClockAxesResolver.FromSessionVector(vector);
         }
-        catch (Exception ex)
+        catch
         {
-            return (null, trail + $"persisted-throw:{ex.GetType().Name}:{ex.Message?.Substring(0, Math.Min(40, ex.Message.Length))}");
+            return null;
         }
     }
 }
