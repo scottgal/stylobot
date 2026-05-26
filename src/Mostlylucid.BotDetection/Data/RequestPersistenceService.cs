@@ -25,6 +25,12 @@ public sealed class RequestPersistenceService : IAsyncDisposable
     // Tracks in-flight batch count for backpressure sampling
     private int _pendingBatches;
 
+    // Counters for soak observability. Categorise each ShouldWrite decision so a
+    // load test can confirm the sampler tiers actually engage under sustained pressure.
+    private long _writtenAlways;
+    private long _writtenSampledIn;
+    private long _droppedSampledOut;
+
     public RequestPersistenceService(
         ISessionStore store,
         ILogger<RequestPersistenceService> logger)
@@ -40,6 +46,18 @@ public sealed class RequestPersistenceService : IAsyncDisposable
 
     /// <summary>Number of batches currently in-flight (writing to SQLite).</summary>
     public int PendingWrites => _pendingBatches;
+
+    /// <summary>Size of the LFU sampling state dictionary. Bounded near 50K by eviction.</summary>
+    public int WriteStateCount => _writeState.Count;
+
+    /// <summary>Requests written because they were bots or below the backpressure threshold.</summary>
+    public long WrittenAlwaysCount => Interlocked.Read(ref _writtenAlways);
+
+    /// <summary>Low-risk requests that survived LFU sampling under backpressure.</summary>
+    public long WrittenSampledInCount => Interlocked.Read(ref _writtenSampledIn);
+
+    /// <summary>Low-risk requests dropped by LFU sampling under backpressure.</summary>
+    public long DroppedSampledOutCount => Interlocked.Read(ref _droppedSampledOut);
 
     /// <summary>
     ///     Enqueue a single request for persistence. Returns immediately.
@@ -108,19 +126,29 @@ public sealed class RequestPersistenceService : IAsyncDisposable
 
     private bool ShouldWrite(string signature, double botProbability)
     {
-        // Bot requests are always written — they are the primary signal
         if (botProbability > 0.7)
+        {
+            Interlocked.Increment(ref _writtenAlways);
             return true;
+        }
 
         var pending = _pendingBatches;
 
         if (pending < 5)
+        {
+            Interlocked.Increment(ref _writtenAlways);
             return true;
+        }
 
-        if (pending < 20)
-            return SampleRequest(signature, modulo: 3);
+        var modulo = pending < 20 ? 3 : 10;
+        if (SampleRequest(signature, modulo))
+        {
+            Interlocked.Increment(ref _writtenSampledIn);
+            return true;
+        }
 
-        return SampleRequest(signature, modulo: 10);
+        Interlocked.Increment(ref _droppedSampledOut);
+        return false;
     }
 
     private bool SampleRequest(string signature, int modulo)

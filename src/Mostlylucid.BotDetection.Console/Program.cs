@@ -11,6 +11,7 @@ using Mostlylucid.BotDetection.Console.Models;
 using Mostlylucid.BotDetection.Console.Services;
 using Mostlylucid.BotDetection.Console.Transforms;
 using Mostlylucid.BotDetection.Api;
+using Mostlylucid.BotDetection.Data;
 using Mostlylucid.BotDetection.Extensions;
 using Mostlylucid.BotDetection.UI.Extensions;
 using Mostlylucid.BotDetection.Models;
@@ -759,6 +760,15 @@ try
 
     // Health check endpoint (AOT-compatible) - mapped BEFORE YARP to avoid being proxied
     app.MapGet("/health", () => Results.Text("{\"status\":\"healthy\"}", "application/json"));
+
+    // Persistence stats endpoint. Used by the multi-day soak harness to verify the
+    // RequestPersistenceService backpressure sampler actually engages under load.
+    // Hand-rolled JSON to stay AOT-friendly. All fields are integers.
+    app.MapGet("/admin/persistence-stats", (RequestPersistenceService svc) =>
+    {
+        var json = $"{{\"pendingWrites\":{svc.PendingWrites},\"writeStateCount\":{svc.WriteStateCount},\"writtenAlways\":{svc.WrittenAlwaysCount},\"writtenSampledIn\":{svc.WrittenSampledInCount},\"droppedSampledOut\":{svc.DroppedSampledOutCount}}}";
+        return Results.Text(json, "application/json");
+    });
 
     // REST API surface (opt-in via --enable-api). Maps /api/v1/* before YARP so the
     // proxy never sees those requests. Auth enforced per-route by ApiKeyAuthenticationHandler.

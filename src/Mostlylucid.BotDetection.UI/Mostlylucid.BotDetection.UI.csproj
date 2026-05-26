@@ -58,15 +58,36 @@
         </Content>
     </ItemGroup>
 
-    <!-- Ensure Razor views are compiled -->
+    <!-- Ensure Razor views are compiled.
+         TargetPath is set explicitly because when this project is loaded via a symlinked path
+         (e.g. from a commercial worktree that references it through a filesystem symlink), the
+         MSBuild AssignTargetPath task cannot correctly compute the relative path from the symlink
+         directory to the canonical file path and falls back to a filename-only TargetPath. The
+         Razor SDK source generator then uses that flat TargetPath to build the hint name for the
+         generated .g.cs file, causing all _ViewImports.cshtml files to produce the same hint name
+         (_ViewImports_cshtml.g.cs) and triggering a CS8785 collision. An explicit TargetPath
+         forces the correct relative path regardless of how the project is loaded.
+         The "Views\" prefix is prepended explicitly because %(RecursiveDir) only contains the
+         sub-path relative to the glob root ("Views\"), not the root folder itself. -->
     <ItemGroup>
-        <Content Include="Views\**\*.cshtml" />
+        <Content Include="Views\**\*.cshtml">
+            <TargetPath>Views\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+        </Content>
     </ItemGroup>
 
-    <!-- Notifications: include as Content so the Razor SDK compiles them; RazorSlices source-generator emits the proxy types -->
+    <!-- Notifications: include as Content so the Razor SDK compiles them; RazorSlices source-generator emits the proxy types.
+         TargetPath must include the full path from the project root so the source generator derives
+         the correct namespace (Notifications.Slices.*).  %(RecursiveDir) only gives the sub-path
+         relative to the glob root ("Notifications\"), so we prepend "Notifications\" explicitly.
+         Item identity is set to an absolute symlink-based path ($(MSBuildProjectDirectory)) to
+         ensure the editorconfig section header and AdditionalText.Path both use the same path
+         (symlink path), which allows the RazorSlices source generator to match GenerateRazorSlice
+         metadata to the correct files when the project is loaded via a symlink. -->
     <ItemGroup>
         <UpToDateCheckInput Include="Notifications\**\*.cshtml" />
-        <Content Include="Notifications\**\*.cshtml" />
+        <Content Include="$(MSBuildProjectDirectory)\Notifications\**\*.cshtml">
+            <TargetPath>Notifications\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
+        </Content>
     </ItemGroup>
 
     <!-- Package icon -->
@@ -89,6 +110,31 @@
         <None Include="Examples\**\*.cs" />
     </ItemGroup>
 
+
+    <!-- Resolve the canonical (symlink-dereferenced) project directory so the RazorSlices
+         source generator can compute correct relative paths for proxy-type namespaces.
+         MSBuildProjectDirectory stays as the symlink path when the project is loaded via a
+         symlink, but %(FullPath) on an item resolves through symlinks to the canonical path.
+         We patch the generated editorconfig AFTER it is written to append a second
+         build_property.MSBuildProjectDirectory entry with the canonical path.
+         The Roslyn editorconfig parser uses last-write-wins for duplicate global properties. -->
+    <ItemGroup>
+        <_CsProjMarker Include="$(MSBuildProjectFullPath)" />
+    </ItemGroup>
+    <Target Name="_PatchEditorConfigProjectDir"
+            AfterTargets="GenerateMSBuildEditorConfigFile">
+        <PropertyGroup>
+            <_CanonicalProjectDir>$([System.IO.Path]::GetDirectoryName(%(_CsProjMarker.FullPath)))</_CanonicalProjectDir>
+        </PropertyGroup>
+        <WriteLinesToFile File="$(GeneratedMSBuildEditorConfigFile)"
+                          Lines="build_property.MSBuildProjectDirectory = $(_CanonicalProjectDir)"
+                          Overwrite="false"
+                          Condition="'$(_CanonicalProjectDir)' != '' AND '$(_CanonicalProjectDir)' != '$(MSBuildProjectDirectory)'" />
+        <Message Text="Patching editorconfig MSBuildProjectDirectory: $(MSBuildProjectDirectory) -&gt; $(_CanonicalProjectDir)"
+                 Importance="High"
+                 Condition="'$(_CanonicalProjectDir)' != '' AND '$(_CanonicalProjectDir)' != '$(MSBuildProjectDirectory)'" />
+    </Target>
+
     <!-- Tailwind CSS build: compile on dotnet build if node_modules exists -->
     <Target Name="BuildTailwindCSS" BeforeTargets="Build" Condition="Exists('node_modules')">
         <Exec Command="npx @tailwindcss/cli -i ./wwwroot/css/tailwind-input.css -o ./wwwroot/vendor/css/tailwind.min.css --minify" WorkingDirectory="$(MSBuildProjectDirectory)" />
@@ -99,5 +145,6 @@
         <Content Remove="node_modules\**" />
         <None Remove="node_modules\**" />
     </ItemGroup>
+
 
 </Project>

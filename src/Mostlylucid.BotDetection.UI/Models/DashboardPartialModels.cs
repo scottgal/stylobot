@@ -387,6 +387,15 @@ public sealed record SignatureDetectionRow
     public string? Method { get; init; }
     public double ProcessingTimeMs { get; init; }
     public string? Action { get; init; }
+
+    /// <summary>
+    ///     True when the request carried <c>Sec-Purpose: prefetch</c> or
+    ///     <c>Purpose: prefetch</c> -- a browser preload, not a user-driven
+    ///     click. The Raw Requests panel paints a "preload" badge so the
+    ///     operator can tell apart two same-path rows that are really one
+    ///     preload + one navigation, not a duplicate write.
+    /// </summary>
+    public bool IsPrefetch { get; init; }
 }
 
 /// <summary>
