@@ -209,8 +209,6 @@ public sealed class StyloBotDashboardOptions
 
     /// <summary>
     ///     When true, the Tuner action surface is shown in the detection detail view.
-    ///     Requires a paid StyloBot license with the <c>stylobot.tuner</c> feature flag.
-    ///     Set by the commercial gateway plugin via <c>AddStyloBotCommercialPlugin()</c>.
     ///     Default: false.
     /// </summary>
     public bool EnableTuner { get; set; }

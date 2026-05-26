@@ -306,7 +306,7 @@ When the gateway sits behind Cloudflare / Caddy / nginx / AWS ALB, the proxy-to-
 - `X-Client-TLS-Version`, `X-Client-TLS-Cipher`, `X-Client-TLS-Ext-Sha1`
 - `X-Client-ASN`
 
-Commercial CF Enterprise extension adds `X-Client-Bot-Score`, `X-Client-Verified-Bot`, `X-Client-JA3`, `X-Client-JA4` (surfaced as `HttpContext.Items` keys; the FOSS gateway ignores them unless the commercial plugin is registered). Recipes for each proxy in [`docs/REVERSE_PROXY_SIGNALS.md`](docs/REVERSE_PROXY_SIGNALS.md).
+For JA3/JA4: `TlsFingerprintContributor` reads `X-JA3-Hash` and `X-JA3-String` from any edge that can compute and forward them (CF Bot Management Enterprise via Transform Rules, nginx `ssl_ja3` module, Caddy `ja3` plugin, HAProxy Lua, or `Stylobot.Gateway`'s own Kestrel TLS metadata capture). Single header name, source-agnostic. Recipes for each proxy in [`docs/REVERSE_PROXY_SIGNALS.md`](docs/REVERSE_PROXY_SIGNALS.md).
 
 ## Adding a New Detector
 

@@ -16,7 +16,7 @@ Behind cloudflared / Caddy / nginx / any reverse proxy, the gateway's connection
 | HTTP version | proxy↔origin hop only | inject `Sb-Http-Version` (preferred) or `X-Client-HTTP-Version` at the edge |
 | TLS version / cipher | proxy↔origin TLS (or plaintext) | inject `X-Client-TLS-Version` / `X-Client-TLS-Cipher` |
 | Client extensions hash | not visible | inject `X-Client-TLS-Ext-Sha1` (CF free tier exposes this as `cf.tls_client_extensions_sha1`) |
-| JA3 / JA4 | not computable at origin | requires edge cooperation: CF Enterprise (commercial plugin), nginx `ssl_ja3` module, Caddy `ja3` plugin, or HAProxy Lua. Inject as `X-JA3-Hash` / `X-JA3-String`. |
+| JA3 / JA4 | not computable at origin | requires the edge to compute and forward it: CF Bot Management Enterprise (exposes `cf.bot_management.ja3_hash`), nginx `ssl_ja3` module, Caddy `ja3` plugin, or HAProxy Lua. Inject as `X-JA3-Hash` / `X-JA3-String` and the gateway reads them directly. |
 | ASN | needs GeoIP DB at origin | inject `X-Client-ASN` from the edge (e.g. CF's `ip.geoip.asnum`) to skip the lookup |
 | TCP / IP fingerprint (p0f) | gone for good | not recoverable behind a tunnel; needs direct TLS termination at the gateway |
 | HTTP/2 frame fingerprint (AKAMAI) | gone for good | not recoverable behind a tunnel; needs direct HTTP/2 termination at the gateway |
@@ -62,20 +62,18 @@ You can put all the headers into a single rule - under "Modify request header" c
 
 After deploy, hit any page from a modern browser. The signature detail card's TLS Version, HTTP Protocol etc. will populate from the new headers. Existing persisted signatures show historical (pre-rule) data; they update on next detection event for that signature.
 
-### Enterprise CF fields (commercial stylobot only)
+### If you have Cloudflare Bot Management (Enterprise SKU)
 
-Cloudflare Bot Management (Enterprise SKU) exposes signals the free tier cannot. The commercial stylobot plugin (`Stylobot.Commercial.GatewayPlugin`) registers a `CloudflareEnterpriseSignalEnricher` middleware that reads four additional headers and surfaces them as `HttpContext.Items` keys (`sb.cf.bot_score`, `sb.cf.verified_bot`, `sb.cf.ja3`, `sb.cf.ja4`) for downstream contributors.
-
-Configure four more dynamic-header Transform Rules in the same CF zone:
+Bot Management Enterprise exposes a JA3 hash (`cf.bot_management.ja3_hash`) and a JA4 fingerprint (`cf.bot_management.ja4`) as Transform Rule fields. Map them into the canonical `X-JA3-Hash` / `X-JA3-String` header names that the gateway already reads:
 
 | Header name | CF Enterprise expression | What it tells you |
 |---|---|---|
-| `X-Client-Bot-Score` | `cf.bot_management.score` | 1-99 (lower = more bot-like) - CF's own bot score |
-| `X-Client-Verified-Bot` | `cf.bot_management.verified_bot` | `true` for IP-verified vendor bots (Googlebot etc.) |
-| `X-Client-JA3` | `cf.bot_management.ja3_hash` | JA3 TLS handshake fingerprint |
-| `X-Client-JA4` | `cf.bot_management.ja4` | Newer JA4 fingerprint |
+| `X-JA3-Hash` | `cf.bot_management.ja3_hash` | JA3 TLS handshake fingerprint - read by `TlsFingerprintContributor` |
+| `X-Client-TLS-Ext-Sha1` | `cf.tls_client_extensions_sha1` | (already in the free-tier table above; included here for completeness) |
 
-These have no effect without the commercial plugin (`AddStyloBotCommercialPlugin`) - the FOSS gateway ignores them. With the commercial plugin in the pipeline, the values are exposed for detection contributors to consume (e.g. inflating bot probability when CF's score is ≤ 30, pinning to friendly when `verified_bot` is true).
+That's it - no extra middleware or plugin needed. The same `X-JA3-Hash` header that nginx-with-ssl_ja3 or HAProxy-with-Lua sends is what the gateway expects from CF Enterprise too. Pick the single header name and the gateway doesn't care which edge produced it.
+
+(If you also want to forward CF's own `cf.bot_management.score` or `cf.bot_management.verified_bot` for use in your own gateway / WAF rules, you can - the gateway doesn't read them today.)
 
 ## Caddy
 

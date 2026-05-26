@@ -1,21 +1,16 @@
 # The Tunnel Trade-off: What StyloBot Can (and Can't) See Behind a Reverse Proxy
 
-*StyloBot still works behind Cloudflare Tunnel, Caddy, nginx, or any reverse proxy. It just sees less. This is the story of which signals survive the tunnel hop, which die at the edge, and what to do about it.*
+*StyloBot still works behind Cloudflare Tunnel, Caddy, nginx, or any reverse proxy. It just sees less. This is which signals survive the tunnel hop, which die at the edge, and what to do about it.*
 
 <!--category-- Architecture, Operations, StyloBot, TLS -->
 
-# The setup that surprised me
+# Why I run StyloBot behind a tunnel anyway
 
-The production deploy of `www.stylobot.net` looks like every other modern .NET site: Cloudflare Tunnel out front, Caddy doing TLS, YARP running detection, ASP.NET behind it. Standard. Boring. Until I noticed every signature card in the dashboard reported the same thing:
+`www.stylobot.net` runs behind Cloudflare Tunnel because when the original colo box died, cloudflared on a small VPS was the path of least resistance: no public IP exposure, no firewall rules, no inbound port to defend, no DNS dance. That tradeoff is the right one for a small site and I'd make it again. The cost is what this article is about.
 
-- **HTTP Protocol**: `HTTP/1.1`
-- **TLS Version**: blank
-- **TLS Cipher**: blank
-- **JA3**: empty
+Behind any tunnel-shaped topology - cloudflared, Caddy doing TLS in front of YARP, nginx in front of Kestrel, AWS ALB, anything that terminates TLS - the gateway no longer sees the client's TLS handshake, TCP options, or HTTP/2 frame sequence. The dashboard's signature cards reflect that honestly: behind cloudflared without header forwarding, every visitor's TLS Version is blank and HTTP Protocol reads `HTTP/1.1`, because that's literally what the cloudflared↔Kestrel hop is. The detection engine still classifies correctly (the behavioural waveform doesn't care what protocol the bytes arrived on), but a meaningful chunk of the fingerprint surface is dark.
 
-Every visitor. Chrome on macOS, Safari on iPhone, curl from a VPS, Googlebot. All identical. All HTTP/1.1, no TLS, no JA3. The detection engine still classified them correctly (the behavioural waveform doesn't care what protocol the bytes arrive on), but a meaningful chunk of the fingerprint surface was permanently dark.
-
-The bug wasn't a bug. It was physics.
+This isn't a bug. It's the shape of the deployment. Knowing what's lost - and which of those losses can be patched with header forwarding - is the difference between "running StyloBot behind a tunnel" and "running StyloBot behind a tunnel correctly."
 
 # Why the tunnel breaks fingerprinting
 
@@ -82,9 +77,9 @@ X-JA3-Hash                MD5 hash of the JA3 string (the real fingerprint)
 X-JA3-String              raw JA3 string (gateway computes the hash if needed)
 ```
 
-Cloudflare's free tier gives you all of those except JA3/JA4 via a single Transform Rule. Free CF Bot Management gives nothing extra. CF Enterprise adds `cf.bot_management.ja3_hash` / `cf.bot_management.ja4`, but that's the commercial tier and the StyloBot plugin to read those is also commercial.
+Cloudflare's free tier gives you all of those except JA3/JA4 via a single Transform Rule. CF's Bot Management Enterprise SKU additionally exposes `cf.bot_management.ja3_hash` and `cf.bot_management.ja4` as Transform Rule fields; map those into `X-JA3-Hash` / `X-JA3-String` and the gateway reads them with no extra wiring.
 
-For self-hosters, JA3 isn't gated behind Cloudflare. Three open routes:
+JA3 isn't gated behind Cloudflare at all. Three CF-free routes:
 
 - **nginx with [`nginx-ssl-ja3`](https://github.com/fooinha/nginx-ssl-ja3)**: a one-line `proxy_set_header X-JA3-Hash $ssl_ja3_hash;` and you're done
 - **HAProxy with the JA3 Lua module**: same pattern, different syntax

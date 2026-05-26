@@ -4328,6 +4328,12 @@ public class StyloBotDashboardMiddleware
             ? null
             : await heatmapService.ComputeAsync(decodedSignature, windowDays: 30, ct: context.RequestAborted);
 
+        // "Looks like" -- vec0 KNN against the current centroid population, computed
+        // per request because the answer drifts as new fingerprints are allocated and
+        // existing ones absorb observations. Never cached on the row. Computed once
+        // here so both model branches receive the same result.
+        var looksLike = await ResolveLooksLikeAsync(context, decodedSignature);
+
         if (_signatureCache.TryGet(decodedSignature, out var agg) && agg != null)
         {
             List<double>? sparkline;
@@ -4464,7 +4470,8 @@ public class StyloBotDashboardMiddleware
                 DetectorContributions = detectorContributions,
                 SignalCategories = signalCategories,
                 TunerEnabled = _options.EnableTuner,
-                PeriodicityHeatmap = heatmap
+                PeriodicityHeatmap = heatmap,
+                LooksLike = looksLike
             };
         }
         else
@@ -4576,7 +4583,8 @@ public class StyloBotDashboardMiddleware
                         DetectorContributions = latestContributions,
                         SignalCategories = signalCategories,
                         TunerEnabled = _options.EnableTuner,
-                PeriodicityHeatmap = heatmap
+                        PeriodicityHeatmap = heatmap,
+                        LooksLike = looksLike
                     };
                 }
                 else
@@ -4597,6 +4605,46 @@ public class StyloBotDashboardMiddleware
         var html = await _razorViewRenderer.RenderViewToStringAsync(
             "/Views/StyloBot/Dashboard/_SignatureDetail.cshtml", model, context, isMainPage: true);
         await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>
+    ///     Runs the per-page-load "Looks like" KNN. Honours the IdentityOptions.LooksLike
+    ///     gate, the configurable neighbour count, and the configurable distance ceiling.
+    ///     Returns an empty list when identity is off, the reader is absent, the lookup
+    ///     throws (vec0 unavailable, remote-mode adapter), or no centroid neighbour comes
+    ///     back within the distance ceiling. The signature detail page tolerates the empty
+    ///     case by hiding the panel; nothing else depends on the result.
+    /// </summary>
+    private async Task<IReadOnlyList<BotDetection.Identity.NearestFingerprint>> ResolveLooksLikeAsync(
+        HttpContext context, string decodedSignature)
+    {
+        var idOpts = context.RequestServices
+            .GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>()
+            ?.Value.Identity;
+        if (idOpts is null || !idOpts.Enabled) return Array.Empty<BotDetection.Identity.NearestFingerprint>();
+
+        var cfg = idOpts.LooksLike;
+        if (!cfg.Enabled || cfg.NeighbourCount <= 0)
+            return Array.Empty<BotDetection.Identity.NearestFingerprint>();
+
+        var reader = context.RequestServices.GetService<BotDetection.Identity.IFingerprintReader>();
+        if (reader is null) return Array.Empty<BotDetection.Identity.NearestFingerprint>();
+
+        try
+        {
+            var hits = await reader.GetNearestForSignatureAsync(
+                decodedSignature, cfg.NeighbourCount, context.RequestAborted);
+            return hits.Count == 0
+                ? Array.Empty<BotDetection.Identity.NearestFingerprint>()
+                : hits.Where(h => h.Distance <= cfg.MaxDistance).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex,
+                "Looks-like KNN failed for {Signature}; rendering signature detail without it",
+                decodedSignature);
+            return Array.Empty<BotDetection.Identity.NearestFingerprint>();
+        }
     }
 
     private static async Task WriteSignatureNotFoundAsync(HttpContext context, string signature, string basePath)

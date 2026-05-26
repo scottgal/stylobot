@@ -29,4 +29,12 @@ internal sealed class RemoteFingerprintReader : IFingerprintReader
     public async Task<int> GetUnabsorbedObservationCountAsync(string fingerprintId, CancellationToken ct = default)
         => await _api.GetEnvelopeAsync<int>(
             $"/api/v1/fingerprints/{Uri.EscapeDataString(fingerprintId)}/unabsorbed-count", ct);
+
+    public Task<IReadOnlyList<NearestFingerprint>> GetNearestForSignatureAsync(
+        string primarySignature, int k, CancellationToken ct = default)
+        // The remote control-plane API does not yet expose a centroid-KNN endpoint;
+        // when it does, this becomes another GetEnvelopeListAsync call. Returning
+        // empty keeps the "Looks like" panel a no-op rather than a broken section
+        // when the dashboard is pointed at a remote gateway.
+        => Task.FromResult<IReadOnlyList<NearestFingerprint>>(Array.Empty<NearestFingerprint>());
 }

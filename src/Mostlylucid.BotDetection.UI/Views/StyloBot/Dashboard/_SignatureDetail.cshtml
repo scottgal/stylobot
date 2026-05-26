@@ -258,6 +258,49 @@ else
         }
     </div>
 
+    @* "Looks like" -- nearest centroid neighbours by vec0 KNN, computed per page
+       load (the answer drifts with the population). Most useful when the visitor's
+       own archetype is Unknown / generic, but we always render the panel when the
+       lookup returns hits so operators get a consistent point of reference. *@
+    @if (Model.LooksLike.Count > 0)
+    {
+        <div class="rounded-xl border p-4 mb-4" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+            <h3 class="text-xs font-semibold text-base-content/70 uppercase mb-2">
+                <i class="bx bx-search-alt-2 text-sm" style="color: var(--sb-accent);"></i>
+                Looks like
+                <span class="text-[10px] font-normal text-base-content/40 normal-case ml-1">
+                    closest known fingerprints by centroid distance (recomputed per request)
+                </span>
+            </h3>
+            <ul class="text-xs space-y-1 list-none p-0 m-0">
+                @foreach (var n in Model.LooksLike)
+                {
+                    var label = !string.IsNullOrEmpty(n.DisplayName)
+                        ? n.DisplayName
+                        : (!string.IsNullOrEmpty(n.InferredClientType) ? n.InferredClientType : "Unnamed fingerprint");
+                    <li class="flex items-center justify-between gap-3 py-1 border-b border-base-content/5 last:border-b-0">
+                        @* No drill-through link yet: there is no per-fingerprint-id UI
+                           page (only the Identities tab list), and synthesising a route
+                           here would 404. The fingerprint id is in the row's title for
+                           copy/paste; if a dedicated fingerprint detail page lands later
+                           this becomes an anchor. *@
+                        <span class="truncate text-base-content/85" title="fingerprint_id: @n.FingerprintId">
+                            @label
+                            @if (!string.IsNullOrEmpty(n.InferredClientType) && !string.Equals(label, n.InferredClientType, StringComparison.Ordinal))
+                            {
+                                <span class="text-[10px] text-base-content/40 ml-1">(@n.InferredClientType)</span>
+                            }
+                        </span>
+                        <span class="tabular-nums text-base-content/55 text-[10px] whitespace-nowrap"
+                              title="L2 distance from this visitor's centroid -- lower means more similar">
+                            d = @n.Distance.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)
+                        </span>
+                    </li>
+                }
+            </ul>
+        </div>
+    }
+
     <!-- Periodicity heatmap: 7×24 day-of-week × hour-of-day hit counts over the
          trailing 30 days, aggregated from the requests table. Renders nothing
          when there's no data yet (short-lived signature, first-touch visitor). -->

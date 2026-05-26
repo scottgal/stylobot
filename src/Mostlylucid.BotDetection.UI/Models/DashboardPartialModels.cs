@@ -340,6 +340,16 @@ public sealed class SignatureDetailModel
     ///     yet" in that case.
     /// </summary>
     public Mostlylucid.BotDetection.UI.Services.HeatmapResult? PeriodicityHeatmap { get; init; }
+
+    /// <summary>
+    ///     Nearest known fingerprints by centroid L2 distance, ordered closest
+    ///     first, computed fresh per request via vec0 KNN. Empty when identity
+    ///     is disabled, vec0 is unavailable, the signature is unbound, or the
+    ///     dashboard runs against a remote gateway whose API does not yet
+    ///     expose centroid KNN.
+    /// </summary>
+    public IReadOnlyList<Mostlylucid.BotDetection.Identity.NearestFingerprint> LooksLike { get; init; }
+        = Array.Empty<Mostlylucid.BotDetection.Identity.NearestFingerprint>();
 }
 
 /// <summary>
