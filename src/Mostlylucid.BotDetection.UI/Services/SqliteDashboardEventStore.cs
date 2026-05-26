@@ -269,9 +269,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.CommandText = """
                 INSERT INTO detections (timestamp, signature, method, path, is_bot, bot_probability, confidence,
                     risk_band, bot_name, bot_type, action, country_code, processing_time_ms, threat_score, threat_band,
-                    status_code, user_agent_raw, risk_justification, domain, referrer_host, ua_device_class)
+                    status_code, user_agent_raw, risk_justification, domain, referrer_host, ua_device_class, response_bytes)
                 VALUES (@ts, @sig, @method, @path, @isBot, @prob, @conf, @risk, @name, @type, @action, @country, @ms,
-                    @threat, @band, @status, @uaRaw, @justification, @domain, @refHost, @deviceClass)
+                    @threat, @band, @status, @uaRaw, @justification, @domain, @refHost, @deviceClass, @responseBytes)
                 """;
             cmd.Parameters.AddWithValue("@ts", detection.Timestamp.ToString("O"));
             cmd.Parameters.AddWithValue("@sig", detection.PrimarySignature ?? "unknown");
@@ -295,6 +295,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.Parameters.AddWithValue("@domain", (object?)detection.Domain ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@refHost", (object?)detection.ReferrerHost ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@deviceClass", (object?)detection.UaDeviceClass ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@responseBytes", (object?)detection.ResponseBytes ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync();
 
             // Upsert UA stats for analytics

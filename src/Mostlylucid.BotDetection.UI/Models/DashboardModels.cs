@@ -96,6 +96,12 @@ public sealed record DashboardDetectionEvent
     public string? UaDeviceClass { get; init; }
 
     /// <summary>
+    ///     Response wire bytes from the Content-Length header. NULL for chunked / streamed
+    ///     responses (Server-Sent Events, hub responses); rendered as "—" in UI.
+    /// </summary>
+    public long? ResponseBytes { get; init; }
+
+    /// <summary>
     ///     16-dimensional radar shape vector for visual fingerprint display.
     ///     Derived from detector contributions and signal dimensions at detection time.
     /// </summary>
