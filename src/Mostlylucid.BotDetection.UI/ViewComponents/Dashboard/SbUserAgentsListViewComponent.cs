@@ -35,13 +35,15 @@ public class SbUserAgentsListViewComponent(
             // Legacy: use the pre-computed cache snapshot so the live dashboard hot path is unchanged.
             all = aggregateCache.Current.UserAgents;
         }
+        // Category values are lowercase strings produced by DashboardUserAgentAggregator.InferUaCategory:
+        // "browser", "search", "ai", "tool", "unknown".
         IEnumerable<DashboardUserAgentSummary> filtered = filter switch
         {
-            "browser" => all.Where(x => x.Category == "Browser"),
-            "bot" => all.Where(x => x.BotRate > 0.5),
-            "ai" => all.Where(x => x.Category is "AI" or "AiBot"),
-            "tool" => all.Where(x => x.Category is "Tool" or "Scraper" or "MonitoringBot"),
-            _ => all
+            "browser" => all.Where(x => x.Category == "browser"),
+            "bot"     => all.Where(x => x.BotRate > 0.5),
+            "ai"      => all.Where(x => x.Category is "ai" or "search"),
+            "tool"    => all.Where(x => x.Category == "tool"),
+            _         => all
         };
         var filteredList = filtered.ToList();
         IEnumerable<DashboardUserAgentSummary> sorted = sort switch

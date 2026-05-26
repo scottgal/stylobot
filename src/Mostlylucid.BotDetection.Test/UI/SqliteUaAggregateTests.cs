@@ -134,6 +134,7 @@ public class SqliteUaAggregateTests
             sigCache,
             options,
             services,
-            NullLogger<DashboardSummaryBroadcaster>.Instance);
+            NullLogger<DashboardSummaryBroadcaster>.Instance,
+            new DashboardUserAgentAggregator(store));
     }
 }

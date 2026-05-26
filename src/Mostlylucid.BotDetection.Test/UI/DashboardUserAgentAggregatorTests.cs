@@ -136,6 +136,31 @@ public class DashboardUserAgentAggregatorTests
         curl!.BytesOut.Should().Be(0);
     }
 
+    // ─── InferUaCategory returns canonical lowercase values ────────────────
+
+    [Theory]
+    [InlineData("Chrome",           "browser")]
+    [InlineData("Firefox",          "browser")]
+    [InlineData("Safari",           "browser")]
+    [InlineData("Edge",             "browser")]
+    [InlineData("Googlebot",        "search")]
+    [InlineData("Bingbot",          "search")]
+    [InlineData("DuckDuckBot",      "search")]
+    [InlineData("GPTBot",           "ai")]
+    [InlineData("ClaudeBot",        "ai")]
+    [InlineData("CCBot",            "ai")]
+    [InlineData("curl",             "tool")]
+    [InlineData("python",           "tool")]
+    [InlineData("wget",             "tool")]
+    [InlineData("CompletelyUnknown","unknown")]
+    public void InferUaCategory_returns_lowercase_canonical_value(string family, string expectedCategory)
+    {
+        var result = DashboardUserAgentAggregator.InferUaCategory(family);
+        result.Should().Be(expectedCategory,
+            $"InferUaCategory(\"{family}\") must return lowercase \"{expectedCategory}\" " +
+            $"to match SbUserAgentsListViewComponent filter switch");
+    }
+
     // ─── helpers ──────────────────────────────────────────────────────────────
 
     private static DashboardDetectionEvent MakeDetection(string userAgent, bool isBot, long? bytes) =>

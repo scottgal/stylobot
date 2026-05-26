@@ -757,15 +757,18 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         if (string.Equals(audienceFilter, "humans", StringComparison.OrdinalIgnoreCase))
             return new List<DashboardTopBotEntry>();
 
+        // When a time window is specified, aggregate directly from detections so the
+        // hit counts honour the window boundary instead of returning all-time totals.
+        if (startTime.HasValue || endTime.HasValue)
+            return await GetTopBotsWindowedAsync(count, startTime, endTime);
+
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
         await using var cmd = conn.CreateCommand();
-        // bytes_out is computed over ALL detections for this signature, not just
-        // detections within startTime/endTime. The signatures-table query above
-        // already ignores the time window, so this matches existing behavior.
-        // A windowed bytes-out belongs to v2's write-through KpiBucketCache.
+        // bytes_out is computed over ALL detections for this signature (no time filter).
+        // This is the all-time / cache-seed path — windowed calls go to GetTopBotsWindowedAsync.
         cmd.CommandText = """
             SELECT s.signature, s.bot_name, s.bot_type, s.bot_probability, s.hit_count, s.last_seen,
                    s.threat_score, s.threat_band, s.action, s.narrative, s.top_reasons_json, s.country_code,
@@ -808,6 +811,79 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 CountryCode = reader.IsDBNull(11) ? null : reader.GetString(11),
                 LastPath = reader.IsDBNull(12) ? null : reader.GetString(12),
                 BytesOut = reader.IsDBNull(13) ? 0L : Convert.ToInt64(reader.GetValue(13)),
+            });
+        }
+        return results;
+    }
+
+    /// <summary>
+    ///     Windowed variant of <see cref="GetTopBotsAsync"/>: aggregates directly from the
+    ///     <c>detections</c> table so hit counts are bounded by the supplied time window.
+    ///     Used when at least one of <paramref name="startTime"/> / <paramref name="endTime"/>
+    ///     is set. The all-time (no-window) path continues to use the signatures table.
+    /// </summary>
+    private async Task<List<DashboardTopBotEntry>> GetTopBotsWindowedAsync(
+        int count, DateTime? startTime, DateTime? endTime)
+    {
+        await EnsureInitializedAsync();
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync();
+
+        // Build the time-window predicate. Audience is already handled by the caller
+        // (humans → empty list; bots/null → no extra predicate since is_bot = 1 is fixed).
+        var timeWhere = new System.Text.StringBuilder();
+        if (startTime.HasValue) timeWhere.Append(" AND timestamp >= @start");
+        if (endTime.HasValue)   timeWhere.Append(" AND timestamp <= @end");
+
+        await using var cmd = conn.CreateCommand();
+        // Column order: signature(0), bot_name(1), bot_type(2), bot_probability(3), hit_count(4),
+        //   last_seen(5), threat_score(6), action(7), threat_band(8), country_code(9), bytes_out(10)
+        // narrative/top_reasons are not stored per-detection row; they default to null for windowed results.
+        cmd.CommandText = $"""
+            SELECT signature,
+                   MAX(bot_name)         AS bot_name,
+                   MAX(bot_type)         AS bot_type,
+                   MAX(bot_probability)  AS bot_probability,
+                   COUNT(*)              AS hit_count,
+                   MAX(timestamp)        AS last_seen,
+                   AVG(threat_score)     AS threat_score,
+                   MAX(action)           AS action,
+                   MAX(threat_band)      AS threat_band,
+                   MAX(country_code)     AS country_code,
+                   COALESCE(SUM(response_bytes), 0) AS bytes_out
+            FROM detections
+            WHERE is_bot = 1{timeWhere}
+            GROUP BY signature
+            ORDER BY hit_count DESC
+            LIMIT @count
+            """;
+
+        if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end",   endTime.Value.ToString("O"));
+        cmd.Parameters.AddWithValue("@count", count);
+
+        var results = new List<DashboardTopBotEntry>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(new DashboardTopBotEntry
+            {
+                PrimarySignature = reader.GetString(0),
+                BotName          = reader.IsDBNull(1)  ? null : reader.GetString(1),
+                BotType          = reader.IsDBNull(2)  ? null : reader.GetString(2),
+                BotProbability   = reader.IsDBNull(3)  ? 0    : reader.GetDouble(3),
+                HitCount         = reader.GetInt32(4),
+                LastSeen         = DateTime.Parse(reader.GetString(5)),
+                ThreatScore      = reader.IsDBNull(6)  ? 0    : reader.GetDouble(6),
+                Action           = reader.IsDBNull(7)  ? null : reader.GetString(7),
+                ThreatBand       = reader.IsDBNull(8)  ? null : reader.GetString(8),
+                CountryCode      = reader.IsDBNull(9)  ? null : reader.GetString(9),
+                BytesOut         = reader.IsDBNull(10) ? 0L   : Convert.ToInt64(reader.GetValue(10)),
+                // narrative and top_reasons_json live on the signatures table, not detections;
+                // they are not available in the windowed path.
+                Narrative        = null,
+                TopReasons       = null,
+                LastPath         = null,
             });
         }
         return results;

@@ -35,7 +35,7 @@ public class DashboardSummaryBroadcaster : BackgroundService
         StyloBotDashboardOptions options,
         IServiceProvider serviceProvider,
         ILogger<DashboardSummaryBroadcaster> logger,
-        DashboardUserAgentAggregator? uaAggregator = null)
+        DashboardUserAgentAggregator uaAggregator)
     {
         _hubContext = hubContext;
         _eventStore = eventStore;
@@ -44,9 +44,7 @@ public class DashboardSummaryBroadcaster : BackgroundService
         _options = options;
         _serviceProvider = serviceProvider;
         _logger = logger;
-        // Fall back to constructing a local aggregator when not injected (e.g. from unit tests
-        // that build the broadcaster directly without the new parameter).
-        _uaAggregator = uaAggregator ?? new DashboardUserAgentAggregator(eventStore);
+        _uaAggregator = uaAggregator;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
