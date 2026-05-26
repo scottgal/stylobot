@@ -27,15 +27,18 @@ public class BotDetectionDetailsViewComponent : ViewComponent
     private readonly DetectionDataExtractor _extractor;
     private readonly SessionStore? _liveStore;
     private readonly ISessionStore? _persistedStore;
+    private readonly VisitorListCache? _visitorCache;
 
     public BotDetectionDetailsViewComponent(
         DetectionDataExtractor extractor,
         SessionStore? liveStore = null,
-        ISessionStore? persistedStore = null)
+        ISessionStore? persistedStore = null,
+        VisitorListCache? visitorCache = null)
     {
         _extractor = extractor;
         _liveStore = liveStore;
         _persistedStore = persistedStore;
+        _visitorCache = visitorCache;
     }
 
     public async Task<IViewComponentResult> InvokeAsync(string viewName = "Default")
@@ -87,26 +90,56 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         //    2 min and writes the visitor's finalised session vector. This is
         //    the steady-state source; by the visitor's second page-load a
         //    finalised session almost always exists and the projection matches
-        //    what the dashboard renders on the signature detail page. First-
-        //    visit visitors before the first atomization tick legitimately
-        //    fall through to a null radar -- the view renders the empty grid.
-        if (_persistedStore is null) return null;
-
-        try
+        //    what the dashboard renders on the signature detail page.
+        if (_persistedStore is not null)
         {
-            var sessions = await _persistedStore.GetSessionsAsync(
-                primarySig, limit: 1, HttpContext!.RequestAborted);
-            var latest = sessions.FirstOrDefault();
-            if (latest?.Vector is not { Length: > 0 } encoded) return null;
-
-            var vector = SqliteSessionStore.DeserializeVector(encoded);
-            if (vector.Length < 118) return null;
-
-            return ClockAxesResolver.FromSessionVector(vector);
+            try
+            {
+                var sessions = await _persistedStore.GetSessionsAsync(
+                    primarySig, limit: 1, HttpContext!.RequestAborted);
+                var latest = sessions.FirstOrDefault();
+                if (latest?.Vector is { Length: > 0 } encoded)
+                {
+                    var vector = SqliteSessionStore.DeserializeVector(encoded);
+                    if (vector.Length >= 118)
+                    {
+                        var axes = ClockAxesResolver.FromSessionVector(vector);
+                        if (axes is not null) return axes;
+                    }
+                }
+            }
+            catch
+            {
+                // Fall through to the visitor-cache fallback below.
+            }
         }
-        catch
+
+        // 3. CACHED RadarShape fallback. The VisitorListCache lives in process
+        //    and is populated from every detection event the dashboard sees,
+        //    including the 16-dim RadarShape the orchestrator emits BEFORE the
+        //    session vector is finalised. SessionAtomizerService can wipe the
+        //    live in-flight session every 2 min on its atomization tick; for
+        //    a brief window after that tick the persisted store also has no
+        //    matching row, and the radar visibly disappeared between renders.
+        //    Reading RadarShape from the visitor cache always has something to
+        //    project because the cache is updated on the same hot path that
+        //    just rendered the page. Lower-resolution than the 118-dim
+        //    session vector (Markov hours collapse to origin) but identical
+        //    visual semantics via the shared ClockProjection.Compose12Axes.
+        if (_visitorCache is not null)
         {
-            return null;
+            try
+            {
+                var visitor = _visitorCache.Get(primarySig);
+                if (visitor?.RadarShape is { Length: 16 } shape)
+                    return ClockAxesResolver.FromRadarShape(shape);
+            }
+            catch
+            {
+                // Cache miss / shape uninitialised -- no projection available.
+            }
         }
+
+        return null;
     }
 }

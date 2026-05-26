@@ -23,41 +23,6 @@ namespace Mostlylucid.BotDetection.UI.Services;
 public static class BotDisplayHelpers
 {
     /// <summary>
-    ///     Map a 2-letter ISO country code to its English demonym.
-    ///     Falls through to the raw code for any country not in the small set we display.
-    /// </summary>
-    public static string CountryAdjective(string code) => code.ToUpperInvariant() switch
-    {
-        "CN" => "Chinese",
-        "RU" => "Russian",
-        "US" => "US",
-        "DE" => "German",
-        "FR" => "French",
-        "IN" => "Indian",
-        "BR" => "Brazilian",
-        "KR" => "Korean",
-        "UA" => "Ukrainian",
-        "NL" => "Dutch",
-        "GB" => "British",
-        "JP" => "Japanese",
-        "CA" => "Canadian",
-        "AU" => "Australian",
-        "SG" => "Singapore",
-        "HK" => "HK",
-        "TR" => "Turkish",
-        "PL" => "Polish",
-        "IT" => "Italian",
-        "ES" => "Spanish",
-        "CZ" => "Czech",
-        "RO" => "Romanian",
-        "ID" => "Indonesian",
-        "VN" => "Vietnamese",
-        "IR" => "Iranian",
-        "PK" => "Pakistani",
-        _ => code
-    };
-
-    /// <summary>
     ///     Classify a requested path into a scanner type (ENV / Config / Admin / Backup /
     ///     API / Auth / App / generic Path) based on the actual file/path it was looking for.
     /// </summary>
@@ -89,8 +54,11 @@ public static class BotDisplayHelpers
     public static string DescriptiveBotName(DashboardTopBotEntry bot)
     {
         var reasons = bot.TopReasons ?? [];
+        // Country CODE, not adjective. "British curl Scanner" reads heavier
+        // than "GB curl Scanner" and the country flag primitive in the same
+        // row already paints the country visually.
         var country = (!string.IsNullOrEmpty(bot.CountryCode) && bot.CountryCode.Length == 2 && bot.CountryCode != "XX")
-            ? CountryAdjective(bot.CountryCode)
+            ? bot.CountryCode.ToUpperInvariant()
             : "";
 
         var modifier = "";

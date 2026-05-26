@@ -76,15 +76,6 @@ public class BotDisplayHelpersTests
         Assert.Equal(expected, BotDisplayHelpers.CategorizePath(path));
     }
 
-    [Theory]
-    [InlineData("CN", "Chinese")]
-    [InlineData("us", "US")]
-    [InlineData("ZZ", "ZZ")] // unknown -> raw code
-    public void CountryAdjective_maps_or_falls_through(string code, string expected)
-    {
-        Assert.Equal(expected, BotDisplayHelpers.CountryAdjective(code));
-    }
-
     [Fact]
     public void DescriptiveBotName_pins_credential_attack_above_path_classification()
     {
@@ -92,7 +83,10 @@ public class BotDisplayHelpersTests
             reasons: ["Severe login brute-forcing: 47 failed login attempts"],
             lastPath: "/.env",
             countryCode: "CN");
-        Assert.Equal("Chinese Credential Attack", BotDisplayHelpers.DescriptiveBotName(bot));
+        // Country CODE prefix, not the adjective form -- the row label is
+        // width-constrained and the country flag in the row already shows
+        // the country visually.
+        Assert.Equal("CN Credential Attack", BotDisplayHelpers.DescriptiveBotName(bot));
     }
 
     [Fact]

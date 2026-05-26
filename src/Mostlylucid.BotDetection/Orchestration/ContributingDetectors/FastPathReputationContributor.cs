@@ -208,10 +208,17 @@ public class FastPathReputationContributor : ConfiguredContributorBase, IFoundat
         // should still get full detection rather than instant abort.
         if (matchType == "IP" && !hasBrowserAttestation)
         {
+            // Do NOT propagate matchedPattern.PatternId ("ip:2a02:c7c:d293::/4")
+            // as the botName -- it's an internal reputation key, not a visible
+            // label. SignatureDisplayName then renders the literal CIDR string
+            // as the row name, which is both meaningless to operators and
+            // unbounded in length (IPv6 ranges blow past column width). Leave
+            // botName null and let the dashboard's regular resolver fall back
+            // to the country / UA / shortHash form.
             var contribution = DetectionContribution.VerifiedBot(
                     Name,
                     $"Previously identified as bot ({matchType} seen {matchedPattern.Support:F0} times)",
-                    botName: matchedPattern.PatternId)
+                    botName: null)
                 with
                 {
                     ConfidenceDelta = matchedPattern.BotScore,

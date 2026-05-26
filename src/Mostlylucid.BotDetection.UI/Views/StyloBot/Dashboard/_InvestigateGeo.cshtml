@@ -14,7 +14,9 @@
      style="grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));">
     @foreach (var c in Model.Result.CountryBreakdown)
     {
-        var demonym = BotDisplayHelpers.CountryAdjective(c.CountryCode);
+        // Two-letter country CODE, not the adjective ("US", not "American").
+        // Dashboard-wide convention: codes everywhere user-visible, no demonyms.
+        var demonym = c.CountryCode?.ToUpperInvariant() ?? "??";
         var humanCount = Math.Max(0, c.Count - c.BotCount);
         var botPct = c.Count > 0 ? (int)Math.Round(100.0 * c.BotCount / c.Count) : 0;
         var riskColor = BotDisplayHelpers.ColorForRiskBand(c.DominantRiskBand);

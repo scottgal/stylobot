@@ -101,14 +101,14 @@
         }
         else
         {
-            <!-- Chrome: scrollable container + table chrome (thead). Keep
-                 overflow-auto here -- the panel needs vertical scroll for long
-                 row counts, and a Y-scrollable container will clip tooltips
-                 vertically by definition. Cells use daisyUI tooltip-left/-top
-                 with a native title="" fallback so the data is still
-                 discoverable at the edges. -->
-            <div class="overflow-auto flex-1 min-h-0">
-                <table class="table table-xs w-full">
+            <!-- Chrome: scrollable container + table chrome (thead). Only Y
+                 scrolls -- horizontal scroll on Live Activity is never
+                 acceptable (the user has called it out). table-fixed +
+                 truncate on the NAME cell keeps row width bounded. The
+                 tooltip portal moves cell tooltips to body level so the
+                 daisy hover popouts still escape this Y-scrolling wrapper. -->
+            <div class="overflow-y-auto overflow-x-hidden flex-1 min-h-0">
+                <table class="table table-xs w-full table-fixed">
                     @* Column order follows the operator's reasoning chain:
                        flag - who (visual locator)
                        NAME - the identity
@@ -139,9 +139,23 @@
                         Inter-column padding tightened from default to px-1.5 so
                         eight columns fit the visitor card.
                     *@
+                    @* table-fixed column budget (sum = 100%). NAME takes the slack
+                       so it always truncates instead of pushing the row past the
+                       container. Numeric columns (BOT%, CONF, THREAT, HITS, 1h,
+                       SEEN) are clamped to their natural minimum. *@
+                    <colgroup>
+                        <col style="width:24px" />
+                        <col />
+                        <col style="width:60px" />
+                        <col style="width:48px" />
+                        <col style="width:42px" />
+                        <col style="width:56px" />
+                        <col style="width:60px" />
+                        <col style="width:60px" />
+                    </colgroup>
                     <thead>
                         <tr class="text-[10px] uppercase tracking-wider">
-                            <th class="py-1 px-1 w-6"></th>
+                            <th class="py-1 px-1"></th>
                             <th class="py-1 px-1.5 @ThClass("name")"
                                 hx-get="@SortUrl("name")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Name@(Html.Raw(SortIcon("name")))
@@ -253,7 +267,12 @@
                                         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_CountryFlag.cshtml", flag)
                                     </a>
                                 </td>
-                                <td class="py-1 px-1.5 font-medium text-xs max-w-[180px]" title="@(bot.CustomBotName ?? bot.BotName ?? bot.PrimarySignature)">
+                                @* table-fixed allots NAME the remaining width;
+                                   inline overflow-hidden + truncate on the link
+                                   below keeps the cell from pushing the row past
+                                   the panel. max-w-[180px] removed -- it fought
+                                   the fixed-layout budget. *@
+                                <td class="py-1 px-1.5 font-medium text-xs overflow-hidden" title="@displayName">
                                     <span class="flex items-center gap-1 min-w-0">
                                         @* Type icon prefixed inside the name cell so the separate
                                            TYPE column can be dropped. The icon's distinct shape
