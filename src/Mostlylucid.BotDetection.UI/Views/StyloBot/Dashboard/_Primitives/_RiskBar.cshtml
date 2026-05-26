@@ -28,11 +28,18 @@
     var title = $"{pctText} bot probability -- {band} threat band";
 }
 <span class="tooltip tooltip-left" data-tip="@title" title="@title">
+    @* Match the ConfidenceMeter footprint (8x8 dots, 2px gap = ~48px total)
+       instead of the previous 5x14x10 segment bar (~78px) -- the Activity /
+       Visitors tables were clipping at 100% zoom because BOT% + CONF + TYPE +
+       THREAT + HITS + 1H + BYTES + SEEN columns added up wider than the
+       container. Same five-segment fill semantics; pure-visual primitive,
+       no model change. Distinct fill colour gradient still tells the operator
+       BOT% is the "how confident bot" axis vs CONF's "how sure overall". *@
     <span class="inline-flex items-center" style="gap:2px;" aria-label="@title">
     @for (int i = 0; i < 5; i++)
     {
         var bg = i < filled ? filledColor : emptyColor;
-        <span style="background:@bg; width:14px; height:10px; border-radius:2px; display:inline-block;"></span>
+        <span style="background:@bg; width:8px; height:8px; border-radius:50%; display:inline-block;"></span>
     }
     </span>
 </span>
