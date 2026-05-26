@@ -11,6 +11,7 @@ public sealed record DashboardEndpointStats
     public int BotCount { get; init; }
     public int HumanCount => TotalCount - BotCount;
     public double BotRate { get; init; }
+    public long BytesOut { get; init; }
     public int UniqueSignatures { get; init; }
     public double AvgProcessingTimeMs { get; init; }
     public double MinProcessingTimeMs { get; init; }

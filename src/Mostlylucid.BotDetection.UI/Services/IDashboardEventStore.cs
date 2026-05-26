@@ -70,7 +70,7 @@ public interface IDashboardEventStore
     /// <summary>
     ///     Get endpoint-level statistics aggregated by method + path.
     /// </summary>
-    Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null);
+    Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null);
 
     /// <summary>
     ///     Get detailed statistics for a single endpoint.

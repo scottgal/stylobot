@@ -809,17 +809,35 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         };
     }
 
-    public async Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null)
+    public async Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
+        int count = 50,
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        string? audienceFilter = null)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
+        // Build WHERE clause. Time predicates fix the latent bug where startTime/endTime were
+        // accepted by the signature but never applied. The audience filter maps "humans"/"bots"
+        // to the is_bot column written by AddDetectionAsync (detection.IsBot ? 1 : 0).
+        var where = new System.Text.StringBuilder("WHERE 1=1");
+        if (startTime.HasValue) where.Append(" AND timestamp >= @start");
+        if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
+        switch (audienceFilter?.ToLowerInvariant())
+        {
+            case "humans": where.Append(" AND is_bot = 0"); break;
+            case "bots":   where.Append(" AND is_bot = 1"); break;
+            // null / "all" / anything else: no additional predicate
+        }
+
         await using var cmd = conn.CreateCommand();
-        // SQLite lacks PERCENTILE_CONT, so p95 is approximated using AVG + 2*STDDEV as a rough
-        // p95 estimate (assumes roughly-normal distribution). Min/Max are exact via SQL.
-        // For accurate p95 the Postgres backend uses PERCENTILE_CONT.
-        cmd.CommandText = """
+        // SQLite lacks PERCENTILE_CONT, so p95 is approximated using avg + 90% of (max - avg).
+        // Crude but consistent with the existing convention; the Postgres backend returns true p95.
+        // Column order (0-based): method(0), path(1), total(2), bots(3), sigs(4),
+        //   avg_ms(5), min_ms(6), max_ms(7), avg_threat(8), last_seen(9), bytes_out(10)
+        cmd.CommandText = $"""
             SELECT method, path,
                    COUNT(*) as total,
                    SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots,
@@ -828,41 +846,45 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                    MIN(processing_time_ms) as min_ms,
                    MAX(processing_time_ms) as max_ms,
                    AVG(threat_score) as avg_threat,
-                   MAX(timestamp) as last_seen
+                   MAX(timestamp) as last_seen,
+                   COALESCE(SUM(response_bytes), 0) as bytes_out
             FROM detections
+            {where}
             GROUP BY method, path
             ORDER BY total DESC
             LIMIT @count
             """;
         cmd.Parameters.AddWithValue("@count", count);
+        if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
 
         var results = new List<DashboardEndpointStats>();
         await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
             var total = reader.GetInt32(2);
-            var bots = reader.GetInt32(3);
+            var bots  = reader.GetInt32(3);
             var avgMs = reader.GetDouble(5);
             var minMs = reader.IsDBNull(6) ? 0 : reader.GetDouble(6);
             var maxMs = reader.IsDBNull(7) ? 0 : reader.GetDouble(7);
-            // Crude p95 estimate for SQLite (no native percentile function): half-way between avg
-            // and max. Good enough for the FOSS standalone smoke; commercial Postgres path
-            // returns true PERCENTILE_CONT(0.95).
+            // p95 approximation: avg + 90% of the gap to max. Matches the Postgres
+            // backend convention; real percentile requires PERCENTILE_CONT (Task 10).
             var p95Ms = avgMs + (maxMs - avgMs) * 0.9;
             results.Add(new DashboardEndpointStats
             {
-                Method = reader.GetString(0),
-                Path = reader.GetString(1),
-                TotalCount = total,
-                BotCount = bots,
-                BotRate = total > 0 ? (double)bots / total : 0,
-                UniqueSignatures = reader.GetInt32(4),
+                Method              = reader.GetString(0),
+                Path                = reader.GetString(1),
+                TotalCount          = total,
+                BotCount            = bots,
+                BotRate             = total > 0 ? (double)bots / total : 0,
+                UniqueSignatures    = reader.GetInt32(4),
                 AvgProcessingTimeMs = avgMs,
                 MinProcessingTimeMs = minMs,
                 MaxProcessingTimeMs = maxMs,
                 P95ProcessingTimeMs = p95Ms,
-                AvgThreatScore = reader.IsDBNull(8) ? 0 : reader.GetDouble(8),
-                LastSeen = DateTime.Parse(reader.GetString(9))
+                AvgThreatScore      = reader.IsDBNull(8) ? 0 : reader.GetDouble(8),
+                LastSeen            = DateTime.Parse(reader.GetString(9)),
+                BytesOut            = reader.GetInt64(10),
             });
         }
         return results;

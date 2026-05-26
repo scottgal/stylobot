@@ -94,9 +94,11 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return await _api.GetEnvelopeAsync<DashboardCountryDetail>(query);
     }
 
-    public async Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null)
+    public async Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
     {
         var query = BuildRangedQuery("/api/v1/endpoints", count, startTime, endTime);
+        if (!string.IsNullOrEmpty(audienceFilter))
+            query += (query.Contains('?') ? "&" : "?") + $"audience={Uri.EscapeDataString(audienceFilter)}";
         var list = await _api.GetEnvelopeAsync<List<DashboardEndpointStats>>(query);
         return list ?? new List<DashboardEndpointStats>();
     }
