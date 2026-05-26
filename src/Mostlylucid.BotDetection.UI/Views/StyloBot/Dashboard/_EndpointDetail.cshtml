@@ -142,7 +142,10 @@
                 if (humanData)   series.push({ name: 'Human', data: breakUniform(humanData) });
                 if (overallData) series.push({ name: 'All',   data: breakUniform(overallData) });
 
-                var isDark = document.documentElement.getAttribute('data-theme') !== 'sb-light';
+                // 'sb-light' is not a theme value; _ThemeBoot toggles the 'dark'
+                // class on <html> for every non-light theme. That's the canonical
+                // check, so the chart paints visible colors against a white card.
+                var isDark = document.documentElement.classList.contains('dark');
                 var labelColor = isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)';
 
                 new ApexCharts(el, {

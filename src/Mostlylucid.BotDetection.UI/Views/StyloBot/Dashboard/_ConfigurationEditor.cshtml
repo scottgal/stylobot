@@ -202,7 +202,7 @@
                 editor = window.monaco.editor.create(monacoHost, {
                     value: activeOriginal,
                     language: 'yaml',
-                    theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'vs-dark' : 'vs',
+                    theme: document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs',
                     automaticLayout: true,
                     minimap: { enabled: false },
                     scrollBeyondLastLine: false,

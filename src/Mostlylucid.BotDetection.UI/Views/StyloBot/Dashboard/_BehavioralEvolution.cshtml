@@ -193,7 +193,11 @@
         // size the grid against. The user must never see an empty rectangle on the
         // signature detail page -- the fingerprint outline is the signature.
         var hasData = visible.length > 0;
-        var isDark = document.documentElement.getAttribute('data-theme') !== 'sb-light';
+        // 'sb-light' was never a real theme value -- the actual themes are
+        // 'dark'/'light' (and the daisy palette aliases). _ThemeBoot syncs the
+        // 'dark' class on <html> for every non-light theme, so that's the
+        // canonical check for chart-color decisions.
+        var isDark = document.documentElement.classList.contains('dark');
         var fg     = isDark ? '#94a3b8' : '#475569';
 
         var series  = hasData ? buildSeries() : [{ name: 'No data', data: new Array(12).fill(0) }];

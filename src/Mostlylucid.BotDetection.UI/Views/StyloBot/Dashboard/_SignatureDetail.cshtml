@@ -623,7 +623,10 @@ else
     {
         <script nonce="@Model.CspNonce">
         (function() {
-            var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            // _ThemeBoot toggles the 'dark' class on <html> for every non-light
+            // theme. Checking the class (not just 'dark') keeps chart colors
+            // consistent with the rest of the dashboard across all daisy themes.
+            var isDark = document.documentElement.classList.contains('dark');
             var fg = isDark ? '#94a3b8' : '#475569';
             var gridColor = isDark ? 'rgba(148,163,184,0.1)' : 'rgba(15,23,42,0.08)';
 
