@@ -216,6 +216,9 @@ public static class StyloBotDashboardServiceExtensions
         // Write-through signature cache - single source of truth for top bots
         services.AddSingleton<SignatureAggregateCache>();
 
+        // Stateless UA aggregator - used by broadcaster beacon + view components with params
+        services.TryAddSingleton<DashboardUserAgentAggregator>();
+
         // Background beacon - computes all dashboard aggregates periodically
         services.AddHostedService<DashboardSummaryBroadcaster>();
 
@@ -537,6 +540,9 @@ public static class StyloBotDashboardServiceExtensions
         // Write-through signature cache
         services.TryAddSingleton<SignatureAggregateCache>();
 
+        // Stateless UA aggregator - used by view components with audience/range params
+        services.TryAddSingleton<DashboardUserAgentAggregator>();
+
         // Server-side visitor cache used by the visitor-list widget
         services.TryAddSingleton<VisitorListCache>();
 
@@ -607,6 +613,9 @@ public static class StyloBotDashboardServiceExtensions
 
         // Write-through signature cache - single source of truth for top bots
         services.TryAddSingleton<SignatureAggregateCache>();
+
+        // Stateless UA aggregator - used by broadcaster beacon + view components with params
+        services.TryAddSingleton<DashboardUserAgentAggregator>();
 
         // Server-side visitor cache (needed by broadcast middleware)
         services.TryAddSingleton<VisitorListCache>();

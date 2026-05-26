@@ -1,0 +1,44 @@
+using FluentAssertions;
+using Mostlylucid.BotDetection.UI.Helpers;
+using Xunit;
+
+namespace Mostlylucid.BotDetection.Test.UI;
+
+public class AnalyticsRangeParserTests
+{
+    [Theory]
+    [InlineData("1h",  60)]      // 1 hour = 60 minutes
+    [InlineData("6h",  6 * 60)]
+    [InlineData("24h", 24 * 60)]
+    [InlineData("7d",  7 * 24 * 60)]
+    [InlineData("30d", 30 * 24 * 60)]
+    public void Parse_returns_window_for_known_quick_ranges(string range, int expectedWindowMinutes)
+    {
+        var (start, end) = AnalyticsRangeParser.Parse(range);
+
+        start.Should().NotBeNull();
+        end.Should().NotBeNull();
+        (end!.Value - start!.Value).TotalMinutes.Should().BeApproximately(expectedWindowMinutes, 0.5);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    [InlineData("unknown")]
+    [InlineData("5min")]
+    public void Parse_returns_null_pair_for_null_or_unknown(string? range)
+    {
+        var (start, end) = AnalyticsRangeParser.Parse(range);
+        start.Should().BeNull();
+        end.Should().BeNull();
+    }
+
+    [Fact]
+    public void Parse_is_case_insensitive()
+    {
+        var (start, end) = AnalyticsRangeParser.Parse("24H");
+        start.Should().NotBeNull();
+        end.Should().NotBeNull();
+    }
+}

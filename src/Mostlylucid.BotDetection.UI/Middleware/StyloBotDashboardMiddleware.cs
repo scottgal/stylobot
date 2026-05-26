@@ -2236,7 +2236,7 @@ public class StyloBotDashboardMiddleware
                     family = bn?.ToString();
             }
             if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(d.UserAgent))
-                family = DashboardSummaryBroadcaster.ExtractBrowserFamily(d.UserAgent);
+                family = DashboardUserAgentAggregator.ExtractBrowserFamily(d.UserAgent);
             if (string.IsNullOrEmpty(family)) family = "Unknown";
 
             if (!uaGroups.TryGetValue(family, out var g))
@@ -2256,7 +2256,7 @@ public class StyloBotDashboardMiddleware
         return uaGroups.Select(kv => new DashboardUserAgentSummary
         {
             Family = kv.Key,
-            Category = DashboardSummaryBroadcaster.InferUaCategory(kv.Key),
+            Category = DashboardUserAgentAggregator.InferUaCategory(kv.Key),
             TotalCount = kv.Value.total, BotCount = kv.Value.bot, HumanCount = kv.Value.human,
             BotRate = kv.Value.total > 0 ? Math.Round((double)kv.Value.bot / kv.Value.total, 4) : 0,
             Versions = kv.Value.versions, Countries = kv.Value.countries,
