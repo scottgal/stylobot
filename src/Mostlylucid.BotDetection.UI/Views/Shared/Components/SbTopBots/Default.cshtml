@@ -1,6 +1,7 @@
 @using Mostlylucid.BotDetection.UI.Models
 @using Mostlylucid.BotDetection.UI.Models.Primitives
 @using Mostlylucid.BotDetection.UI.Services
+@using Mostlylucid.BotDetection.UI.Helpers
 @model TopBotsListModel
 @{
     var bp = Model.BasePath;
@@ -143,6 +144,7 @@
                                 hx-get="@SortUrl("hits")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Hits@(Html.Raw(SortIcon("hits")))
                             </th>
+                            <th class="py-1 text-right text-[10px] text-base-content/40 hidden md:table-cell" title="Total response bytes served (Content-Length sum)">Bytes</th>
                             <th class="py-1 text-center text-[10px] text-base-content/40" title="Hits per minute, last hour">1h</th>
                             <th class="py-1 text-right @ThClass("lastseen")"
                                 hx-get="@SortUrl("lastseen")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
@@ -244,6 +246,7 @@
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ThreatIcon.cshtml", threatIconModel)
                                 </td>
                                 <td class="py-1 text-right text-xs text-base-content/60 font-mono">@bot.HitCount</td>
+                                <td class="py-1 text-right text-xs font-mono tabular-nums hidden md:table-cell" title="Total response bytes served">@AnalyticsFormatting.FormatBytes(bot.BytesOut)</td>
                                 <td class="py-1 text-center align-middle">
                                     @{
                                         // Bot trend is the same data plotted in both series for now;

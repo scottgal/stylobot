@@ -1,4 +1,5 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Helpers
 @model UserAgentsListModel
 @{
     var bp = Model.BasePath;
@@ -82,6 +83,8 @@
                                     hx-get="@SortUrl("lastseen")" hx-target="#useragents-list" hx-swap="outerHTML transition:true">
                                     Last Seen@(Html.Raw(SortIcon("lastseen")))
                                 </th>
+                                <th class="py-1 text-right text-base-content/40 hidden lg:table-cell" title="95th-percentile request processing time">p95</th>
+                                <th class="py-1 text-right text-base-content/40 hidden lg:table-cell" title="Total response bytes served (Content-Length sum)">Bytes</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -100,6 +103,8 @@
                                     <td class="py-1 text-right font-bold text-xs @rateClass">@(botRatePct)%</td>
                                     <td class="py-1 text-right text-xs">@(confPct)%</td>
                                     <td class="py-1 hidden sm:table-cell text-[10px] text-base-content/40">@ua.LastSeen.ToString("HH:mm:ss")</td>
+                                    <td class="py-1 text-right text-xs font-mono hidden lg:table-cell" title="95th-percentile processing time">@AnalyticsFormatting.FormatMs(ua.P95ProcessingTimeMs)</td>
+                                    <td class="py-1 text-right text-xs font-mono hidden lg:table-cell" title="Total response bytes served">@AnalyticsFormatting.FormatBytes(ua.BytesOut)</td>
                                 </tr>
                             }
                         </tbody>
