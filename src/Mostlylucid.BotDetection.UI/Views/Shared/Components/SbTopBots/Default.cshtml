@@ -123,30 +123,39 @@
                        probability with threat severity and produced "1% bot,
                        Critical risk" misreads when the row had a benign actor on
                        a honeypot path. *@
+                    @*
+                        Layout note: TYPE icon is now rendered inside the NAME cell
+                        (prefix before the bot-name text) and the standalone TYPE
+                        column was dropped -- it was empty 7 rows out of 10 on Live
+                        Activity and the column padding alone was pushing the table
+                        past 100% zoom. BYTES is also dropped here because the
+                        Content-Length sum is always 0/-/- for current traffic;
+                        the column rendered as a dash on every row.
+                        Inter-column padding tightened from default to px-1.5 so
+                        eight columns fit the visitor card.
+                    *@
                     <thead>
                         <tr class="text-[10px] uppercase tracking-wider">
-                            <th class="py-1 w-6"></th>
-                            <th class="py-1 @ThClass("name")"
+                            <th class="py-1 px-1 w-6"></th>
+                            <th class="py-1 px-1.5 @ThClass("name")"
                                 hx-get="@SortUrl("name")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Name@(Html.Raw(SortIcon("name")))
                             </th>
-                            <th class="py-1 text-center @ThClass("probability")"
+                            <th class="py-1 px-1.5 text-center @ThClass("probability")"
                                 hx-get="@SortUrl("probability")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Bot %@(Html.Raw(SortIcon("probability")))
                             </th>
-                            <th class="py-1 text-center text-[10px] text-base-content/40" title="Detection confidence -- gates the recommendation. Low confidence + high bot % = monitor, not block.">Conf</th>
-                            <th class="py-1 text-center text-[10px] text-base-content/40" title="What kind of actor -- drives policy decisions like 'block all Scrapers'.">Type</th>
-                            <th class="py-1 text-center @ThClass("threat")"
+                            <th class="py-1 px-1.5 text-center text-[10px] text-base-content/40" title="Detection confidence -- gates the recommendation. Low confidence + high bot % = monitor, not block.">Conf</th>
+                            <th class="py-1 px-1.5 text-center @ThClass("threat")"
                                 hx-get="@SortUrl("threat")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Threat@(Html.Raw(SortIcon("threat")))
                             </th>
-                            <th class="py-1 text-right @ThClass("hits")"
+                            <th class="py-1 px-1.5 text-right @ThClass("hits")"
                                 hx-get="@SortUrl("hits")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Hits@(Html.Raw(SortIcon("hits")))
                             </th>
-                            <th class="py-1 text-right text-[10px] text-base-content/40 hidden md:table-cell" title="Total response bytes served (Content-Length sum)">Bytes</th>
-                            <th class="py-1 text-center text-[10px] text-base-content/40" title="Hits per minute, last hour">1h</th>
-                            <th class="py-1 text-right @ThClass("lastseen")"
+                            <th class="py-1 px-1.5 text-center text-[10px] text-base-content/40" title="Hits per minute, last hour">1h</th>
+                            <th class="py-1 px-1.5 text-right @ThClass("lastseen")"
                                 hx-get="@SortUrl("lastseen")" hx-target="#@widgetRootId" hx-swap="outerHTML transition:true">
                                 Seen@(Html.Raw(SortIcon("lastseen")))
                             </th>
@@ -240,34 +249,38 @@
                                across position changes and only mutate the cells whose
                                data actually shifted. *@
                             <tr id="sb-row-@(Model.WidgetId)-@bot.PrimarySignature" class="hover:bg-base-300/50 cursor-pointer transition-colors">
-                                <td class="py-1 w-6">
+                                <td class="py-1 px-1 w-6">
                                     <a href="@navBp/signature/@Uri.EscapeDataString(bot.PrimarySignature)" class="block">
                                         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_CountryFlag.cshtml", flag)
                                     </a>
                                 </td>
-                                <td class="py-1 font-medium text-xs max-w-[160px]" title="@(bot.CustomBotName ?? bot.BotName ?? bot.PrimarySignature)">
+                                <td class="py-1 px-1.5 font-medium text-xs max-w-[180px]" title="@(bot.CustomBotName ?? bot.BotName ?? bot.PrimarySignature)">
                                     <span class="flex items-center gap-1 min-w-0">
+                                        @* Type icon prefixed inside the name cell so the separate
+                                           TYPE column can be dropped. The icon's distinct shape
+                                           still carries the actor-kind cue (spider/brain/wrench
+                                           etc.) and its tooltip still surfaces the full
+                                           description on hover -- one fewer column to fit. *@
+                                        <span class="shrink-0">
+                                            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_IntentIcon.cshtml", intentIcon)
+                                        </span>
                                         <a href="@navBp/signature/@Uri.EscapeDataString(bot.PrimarySignature)"
                                            class="hover:underline truncate @(isLlmNamed ? "" : "text-base-content/60 italic")">@displayName</a>
                                         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_VerificationBadge.cshtml", verificationBadge)
                                         @if (isCustomNamed) {<span class="text-[9px] text-primary opacity-60" title="Custom label">&#9632;</span>}
                                     </span>
                                 </td>
-                                <td class="py-1 text-center">
+                                <td class="py-1 px-1.5 text-center">
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_RiskBar.cshtml", riskBar)
                                 </td>
-                                <td class="py-1 text-center">
+                                <td class="py-1 px-1.5 text-center">
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ConfidenceMeter.cshtml", confMeter)
                                 </td>
-                                <td class="py-1 text-center">
-                                    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_IntentIcon.cshtml", intentIcon)
-                                </td>
-                                <td class="py-1 text-center">
+                                <td class="py-1 px-1.5 text-center">
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ThreatIcon.cshtml", threatIconModel)
                                 </td>
-                                <td class="py-1 text-right text-xs text-base-content/60 font-mono">@bot.HitCount</td>
-                                <td class="py-1 text-right text-xs font-mono tabular-nums hidden md:table-cell" title="Total response bytes served">@AnalyticsFormatting.FormatBytes(bot.BytesOut)</td>
-                                <td class="py-1 text-center align-middle">
+                                <td class="py-1 px-1.5 text-right text-xs text-base-content/60 font-mono">@bot.HitCount</td>
+                                <td class="py-1 px-1.5 text-center align-middle">
                                     @{
                                         // Bot trend is the same data plotted in both series for now;
                                         // human/bot split per signature is a follow-on that needs the
