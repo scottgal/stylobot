@@ -200,6 +200,23 @@
                             var isLlmNamed = bot.BotName != null || isCustomNamed;
                             var probPct = (bot.BotProbability * 100).ToString("F0");
 
+                            // Bot-identity verification state -- shown as a small badge next to
+                            // the name so the operator knows whether the UA claim is verified,
+                            // unconfirmed, or actively spoofed. The "Spoofed-" prefix is the
+                            // convention VerifiedBotContributor uses when a UA claims to be a
+                            // known bot but the IP fails verification. Any other named bot is
+                            // Unconfirmed until we plumb the positive confirmation signal
+                            // through to the entry. Humans + un-named rows render no badge.
+                            var verification = (bot.BotName, bot.IsKnownBot) switch
+                            {
+                                ({ } n, _) when n.StartsWith("Spoofed-", StringComparison.OrdinalIgnoreCase)
+                                    => BotVerificationState.Spoofed,
+                                ({ } _, _) => BotVerificationState.Unconfirmed,
+                                (null, true) => BotVerificationState.Unconfirmed,
+                                _ => BotVerificationState.None
+                            };
+                            var verificationBadge = new VerificationBadgeModel(verification);
+
                             var intentIcon = new IntentIconModel(displayIntent);
                             var riskBar    = new RiskBarModel(bot.BotProbability, threatBand);
                             // ThreatBand is the orthogonal axis -- "is this hostile" -- driven
@@ -229,9 +246,13 @@
                                         @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_CountryFlag.cshtml", flag)
                                     </a>
                                 </td>
-                                <td class="py-1 font-medium text-xs truncate max-w-[140px]" title="@(bot.CustomBotName ?? bot.BotName ?? bot.PrimarySignature)">
-                                    <a href="@navBp/signature/@Uri.EscapeDataString(bot.PrimarySignature)"
-                                       class="hover:underline @(isLlmNamed ? "" : "text-base-content/60 italic")">@displayName</a>@if (isCustomNamed) {<span class="ml-1 text-[9px] text-primary opacity-60" title="Custom label">&#9632;</span>}
+                                <td class="py-1 font-medium text-xs max-w-[160px]" title="@(bot.CustomBotName ?? bot.BotName ?? bot.PrimarySignature)">
+                                    <span class="flex items-center gap-1 min-w-0">
+                                        <a href="@navBp/signature/@Uri.EscapeDataString(bot.PrimarySignature)"
+                                           class="hover:underline truncate @(isLlmNamed ? "" : "text-base-content/60 italic")">@displayName</a>
+                                        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_VerificationBadge.cshtml", verificationBadge)
+                                        @if (isCustomNamed) {<span class="text-[9px] text-primary opacity-60" title="Custom label">&#9632;</span>}
+                                    </span>
                                 </td>
                                 <td class="py-1 text-center">
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_RiskBar.cshtml", riskBar)

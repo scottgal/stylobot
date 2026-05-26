@@ -1,0 +1,38 @@
+@using Mostlylucid.BotDetection.UI.Models.Primitives
+@model VerificationBadgeModel
+@{
+    // System-wide vocabulary for bot identity confidence. Used next to every bot
+    // name in the dashboard so the operator can tell at a glance whether the UA
+    // claim has been verified (tick), still pending (amber ?), or actively spoofed
+    // (red !). Distinct icons in addition to colour so the cue survives any future
+    // colour-palette change and is accessible to colour-blind operators.
+    //
+    // Tooltip uses BOTH the daisyUI `tooltip` class AND the native `title=` attribute.
+    // The native title always works; the daisyUI one gives the prettier hover bubble
+    // when the CSS is present. If daisyUI's tooltip layer gets purged the operator
+    // still gets the system tooltip on hover.
+    if (Model.State == BotVerificationState.None) { return; }
+
+    var (icon, color, label, tip) = Model.State switch
+    {
+        BotVerificationState.Confirmed   => ("bx-check-circle",
+                                             "var(--color-success, #22c55e)",
+                                             "Verified",
+                                             "Verified: UA claim was confirmed against the operator's IP range or via FCrDNS round-trip."),
+        BotVerificationState.Spoofed     => ("bx-error-circle",
+                                             "var(--color-error,   #ef4444)",
+                                             "Spoofed",
+                                             "Spoofed: UA claims to be a known bot but the source IP does not verify. Treat as a scraper."),
+        BotVerificationState.Unconfirmed => ("bx-help-circle",
+                                             "var(--color-warning, #f59e0b)",
+                                             "Unconfirmed",
+                                             "Unconfirmed: detected by UA pattern but the bot-verification check has not yet returned a verdict for this signature."),
+        _                                => ("", "", "", "")
+    };
+}
+<span class="tooltip tooltip-left inline-flex items-center align-middle"
+      data-tip="@label -- @tip"
+      title="@label -- @tip"
+      aria-label="@label">
+    <i class="bx @icon text-sm leading-none" style="color: @color;"></i>
+</span>

@@ -1,5 +1,34 @@
 namespace Mostlylucid.BotDetection.UI.Models.Primitives;
 
+/// <summary>
+///     Verification state for a bot identity. The Standard system-wide vocabulary:
+///     a green tick when the UA claim has been verified against IP range / FCrDNS,
+///     a red `!` when the UA claims a bot but verification failed (spoofed), and an
+///     amber `?` when the bot was detected by UA pattern alone with no verification
+///     run yet. Humans get None (no badge).
+/// </summary>
+public enum BotVerificationState
+{
+    /// <summary>Not a bot, or no UA-derived identity. Render nothing.</summary>
+    None,
+
+    /// <summary>UA looks like a bot but verification hasn't run / didn't reach a verdict. Amber `?`.</summary>
+    Unconfirmed,
+
+    /// <summary>UA claims to be a known bot but IP doesn't verify via DNS / range. Red `!`.</summary>
+    Spoofed,
+
+    /// <summary>UA claim verified against IP range or FCrDNS round-trip. Green tick.</summary>
+    Confirmed
+}
+
+/// <summary>
+///     System-wide bot-identity confidence badge. One renderer for every place a
+///     bot name appears so the visual vocabulary stays consistent across Top Bots,
+///     signature detail, visitor cards, your-detection and raw requests rows.
+/// </summary>
+public sealed record VerificationBadgeModel(BotVerificationState State);
+
 /// <summary>Icon + colour + tooltip for a threat band cell. Replaces text columns.</summary>
 public sealed record ThreatIconModel(string? Band, double BotProbability);
 
