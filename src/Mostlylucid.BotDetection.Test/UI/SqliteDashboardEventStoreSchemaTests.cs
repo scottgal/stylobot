@@ -1,10 +1,11 @@
+using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
-namespace Mostlylucid.BotDetection.Demo.Tests.Dashboard;
+namespace Mostlylucid.BotDetection.Test.UI;
 
 public class SqliteDashboardEventStoreSchemaTests
 {
@@ -40,7 +41,7 @@ public class SqliteDashboardEventStoreSchemaTests
             while (await reader.ReadAsync())
                 columns.Add(reader.GetString(1));
 
-            Assert.Contains("response_bytes", columns);
+            columns.Should().Contain("response_bytes");
         }
         finally
         {
