@@ -4735,76 +4735,48 @@ public class StyloBotDashboardMiddleware
             return;
         }
 
-        // Reuse the partial -- it renders the detail body without an <html> shell. We wrap
-        // it here in the same shell the signature-detail page uses so theme + assets + nav
-        // are consistent across drill-down pages.
-        var detailHtml = await RenderEndpointDetailBodyAsync(context, method, path);
-        // Render the shared navbar AND theme-boot partials here so the endpoint
-        // detail page gets the same chrome AND theme handling as the marketing
-        // site / dashboard root / signature detail. Brand styles
-        // (brand-wordmark / nav-link / logo-adaptive) now ship in the vendor bundle.
-        var navbarHtml = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/Shared/_StylobotNavbar.cshtml", model: null!, context);
-        var themeBootHtml = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/Shared/_ThemeBoot.cshtml", model: null!, context);
-        var cspNonce = context.Items.TryGetValue("CspNonce", out var n) && n is string ns ? ns : "";
-        var navBp = (string.IsNullOrEmpty(_options.NavBasePath) ? _options.BasePath : _options.NavBasePath).TrimEnd('/');
-        var pageTitle = $"{method} {path} -- StyloBot endpoint detail";
-        // Same chrome as _SignatureDetail.cshtml -- both pages link the FOSS vendor CSS
-        // bundle (no shared partial) so duplicating the markup keeps the two drill-down
-        // surfaces visually identical. Drift here is the third-header bug the user has
-        // called out twice already.
-        var html = $@"<!DOCTYPE html>
-<html lang=""en"" data-theme=""dark"">
-<head>
-<meta charset=""utf-8"" />
-<meta name=""viewport"" content=""width=device-width, initial-scale=1.0"" />
-<title>{System.Net.WebUtility.HtmlEncode(pageTitle)}</title>
-<link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/tailwind.min.css"" />
-<link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/boxicons.min.css"" />
-<link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/fonts.css"" />
-<link rel=""stylesheet"" href=""/_content/Mostlylucid.BotDetection.UI/vendor/css/jsvectormap.min.css"" />
-<script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/htmx.min.js"" nonce=""{cspNonce}""></script>
-<script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/apexcharts.min.js"" nonce=""{cspNonce}""></script>
-<script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/jsvectormap.min.js"" nonce=""{cspNonce}""></script>
-<script src=""/_content/Mostlylucid.BotDetection.UI/vendor/js/world-merc.js"" nonce=""{cspNonce}""></script>
-{themeBootHtml}
-<style nonce=""{cspNonce}"">
-:root, [data-theme] {{
-  --sb-surface: var(--color-base-200);
-  --sb-card-bg: var(--color-base-100);
-  --sb-card-border: color-mix(in oklch, var(--color-base-content) 15%, transparent);
-  --sb-card-divider: color-mix(in oklch, var(--color-base-content) 8%, transparent);
-  --sb-brand-muted: color-mix(in oklch, var(--color-base-content) 55%, transparent);
-  --sb-brand-strong: var(--color-base-content);
-  --sb-signal-pos: var(--color-success);
-  --sb-signal-warn: var(--color-warning);
-  --sb-signal-danger: var(--color-error);
-}}
-body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-height: 100vh; }}
-.brand-header {{
-  background: var(--color-base-200);
-  border-bottom: 1px solid color-mix(in oklch, var(--color-base-content) 10%, transparent);
-}}
-</style>
-</head>
-<body hx-ext=""morph"">
-{navbarHtml}
-<div class=""max-w-7xl mx-auto px-4 py-1.5 text-[10px] text-base-content/40 flex items-center justify-between"">
-  <div>
-    <a href=""{navBp}"" data-action=""smart-back"" class=""hover:text-base-content/70"">&larr; Dashboard</a>
-    <span class=""mx-1"">/</span>
-    <span class=""text-base-content/60"">Endpoint Detail</span>
-  </div>
-  <a href=""{navBp}?tab=endpoints"" class=""hover:text-base-content/70"">All endpoints &rarr;</a>
-</div>
-<main class=""max-w-5xl mx-auto px-2 py-4"">
-{detailHtml}
-</main>
-</body>
-</html>";
+        // Same chrome contract as the signature-detail page: render _EndpointDetail.cshtml
+        // as a main page and let the host's _ViewStart pick the layout (marketing-site
+        // _Layout on stylobot.net; whatever the FOSS host provides elsewhere). Previously
+        // this handler hand-rolled <!DOCTYPE>... + vendor CSS links + an embedded navbar,
+        // which guaranteed visual drift the moment the host layout evolved (new theme
+        // tokens, footer rules, vendor bundle updates). The signature-detail page already
+        // moved off that pattern; the endpoint-detail page was the last hand-rolled shell.
+        SetDashboardCsp(context);
+
+        var model = await BuildEndpointDetailModelAsync(context, method, path, standalonePage: true);
+
         context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/StyloBot/Dashboard/_EndpointDetail.cshtml", model, context, isMainPage: true);
         await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>
+    ///     Applies the dashboard CSP + frame-ancestors headers. Shared by the
+    ///     signature-detail and endpoint-detail page handlers so both pages get
+    ///     identical scriptlet/worker/font allow-lists. Lifted out of inline
+    ///     duplication when the endpoint-detail page moved to the host-layout
+    ///     pattern.
+    /// </summary>
+    private void SetDashboardCsp(HttpContext context)
+    {
+        var cspNonce = GetOrCreateCspNonce(context);
+        context.Response.Headers.Remove("X-Frame-Options");
+        context.Response.Headers["X-Frame-Options"] = "SAMEORIGIN";
+        context.Response.Headers.Remove("Content-Security-Policy");
+        var dashboardCsp = string.Join("; ",
+            "default-src 'self'",
+            "base-uri 'self'",
+            "frame-ancestors 'self'",
+            "object-src 'none'",
+            "img-src 'self' data: https:",
+            "font-src 'self' data: https://fonts.gstatic.com https://unpkg.com",
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+            $"script-src 'self' 'nonce-{cspNonce}' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com https://cdn.tailwindcss.com",
+            "worker-src 'self' blob:",
+            "connect-src 'self' ws: wss:");
+        context.Response.Headers["Content-Security-Policy"] = dashboardCsp;
     }
 
     /// <summary>
@@ -4915,37 +4887,6 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         }
     }
 
-    private async Task<string> RenderEndpointDetailBodyAsync(HttpContext context, string method, string path)
-    {
-        // Replicate the partial route's model build then render the partial to a string.
-        // Using a synthetic query so ServeEndpointDetailPartialAsync's internals don't need
-        // to be refactored -- we capture its writer output.
-        var origPath = context.Request.Path;
-        var origQuery = context.Request.QueryString;
-        context.Request.Path = "/__internal-endpoint-detail-render";
-        context.Request.QueryString = QueryString.Create(new[]
-        {
-            new KeyValuePair<string, string?>("method", method),
-            new KeyValuePair<string, string?>("path", path)
-        });
-        var origBody = context.Response.Body;
-        var sw = new System.IO.MemoryStream();
-        context.Response.Body = sw;
-        try
-        {
-            await ServeEndpointDetailPartialAsync(context);
-            sw.Position = 0;
-            using var reader = new System.IO.StreamReader(sw);
-            return await reader.ReadToEndAsync();
-        }
-        finally
-        {
-            context.Response.Body = origBody;
-            context.Request.Path = origPath;
-            context.Request.QueryString = origQuery;
-        }
-    }
-
     private async Task ServeEndpointDetailPartialAsync(HttpContext context)
     {
         var method = context.Request.Query["method"].FirstOrDefault();
@@ -4957,6 +4898,23 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
             return;
         }
 
+        var model = await BuildEndpointDetailModelAsync(context, method, path, standalonePage: false);
+        context.Response.ContentType = "text/html";
+        var html = await _razorViewRenderer.RenderViewToStringAsync(
+            "/Views/StyloBot/Dashboard/_EndpointDetail.cshtml", model, context);
+        await context.Response.WriteAsync(html);
+    }
+
+    /// <summary>
+    ///     Builds the endpoint-detail view model from the persisted event store
+    ///     plus pin / policy / pack-coverage state. Shared between the HTMX
+    ///     partial response (<see cref="ServeEndpointDetailPartialAsync"/>) and
+    ///     the standalone page (<see cref="ServeEndpointDetailPageAsync"/>) so
+    ///     the two surfaces cannot drift on what they consider "this endpoint".
+    /// </summary>
+    private async Task<EndpointDetailModel> BuildEndpointDetailModelAsync(
+        HttpContext context, string method, string path, bool standalonePage)
+    {
         var detail = await _eventStore.GetEndpointDetailAsync(method, path);
         var epNonce = context.Items.TryGetValue("CspNonce", out var epN) && epN is string epNs ? epNs : "";
 
@@ -4971,12 +4929,18 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         var packCoverage = BuildEndpointDetailCoverage(context, path);
 
         var isCommercial = IsCommercialMode(context);
-        var model = detail == null
-            ? new EndpointDetailModel
+        var basePath = _options.BasePath.TrimEnd('/');
+        var navBasePath = string.IsNullOrEmpty(_options.NavBasePath) ? _options.BasePath : _options.NavBasePath;
+        navBasePath = navBasePath.TrimEnd('/');
+
+        if (detail == null)
+            return new EndpointDetailModel
             {
                 Method = method,
                 Path = path,
-                BasePath = _options.BasePath.TrimEnd('/'),
+                BasePath = basePath,
+                NavBasePath = navBasePath,
+                HubPath = _options.HubPath,
                 Found = false,
                 CspNonce = epNonce,
                 PolicyName = policyName,
@@ -4984,47 +4948,47 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
                 IsPinned = pin != null,
                 IsHoneypot = pin?.IsHoneypot ?? false,
                 PinId = pin?.Id,
-                IsCommercial = isCommercial
-            }
-            : new EndpointDetailModel
-            {
-                Method = detail.Method,
-                Path = detail.Path,
-                BasePath = _options.BasePath.TrimEnd('/'),
-                Found = true,
-                TotalCount = detail.TotalCount,
-                BotCount = detail.BotCount,
-                HumanCount = detail.HumanCount,
-                BotRate = detail.BotRate,
-                UniqueSignatures = detail.UniqueSignatures,
-                AvgProcessingTimeMs = detail.AvgProcessingTimeMs,
-                MinProcessingTimeMs = detail.MinProcessingTimeMs,
-                MaxProcessingTimeMs = detail.MaxProcessingTimeMs,
-                P95ProcessingTimeMs = detail.P95ProcessingTimeMs,
-                AvgThreatScore = detail.AvgThreatScore,
-                TopActions = detail.TopActions,
-                TopCountries = detail.TopCountries,
-                RiskBands = detail.RiskBands,
-                // Same predicate the visitor list + Top Bots widget use -- one
-                // Amazonbot row, not N rows for N converged fingerprints.
-                TopBots = WidgetRenderHelpers.CollapseGroupableIdentities(detail.TopBots),
-                RecentDetections = detail.RecentDetections,
-                BotProfile = detail.BotProfile,
-                HumanProfile = detail.HumanProfile,
-                OverallProfile = detail.OverallProfile,
-                CspNonce = epNonce,
-                PolicyName = policyName,
-                PackCoverage = packCoverage,
-                IsPinned = pin != null,
-                IsHoneypot = pin?.IsHoneypot ?? false,
-                PinId = pin?.Id,
-                IsCommercial = isCommercial
+                IsCommercial = isCommercial,
+                IsStandalonePage = standalonePage
             };
 
-        context.Response.ContentType = "text/html";
-        var html = await _razorViewRenderer.RenderViewToStringAsync(
-            "/Views/StyloBot/Dashboard/_EndpointDetail.cshtml", model, context);
-        await context.Response.WriteAsync(html);
+        return new EndpointDetailModel
+        {
+            Method = detail.Method,
+            Path = detail.Path,
+            BasePath = basePath,
+            NavBasePath = navBasePath,
+            HubPath = _options.HubPath,
+            Found = true,
+            TotalCount = detail.TotalCount,
+            BotCount = detail.BotCount,
+            HumanCount = detail.HumanCount,
+            BotRate = detail.BotRate,
+            UniqueSignatures = detail.UniqueSignatures,
+            AvgProcessingTimeMs = detail.AvgProcessingTimeMs,
+            MinProcessingTimeMs = detail.MinProcessingTimeMs,
+            MaxProcessingTimeMs = detail.MaxProcessingTimeMs,
+            P95ProcessingTimeMs = detail.P95ProcessingTimeMs,
+            AvgThreatScore = detail.AvgThreatScore,
+            TopActions = detail.TopActions,
+            TopCountries = detail.TopCountries,
+            RiskBands = detail.RiskBands,
+            // Same predicate the visitor list + Top Bots widget use -- one
+            // Amazonbot row, not N rows for N converged fingerprints.
+            TopBots = WidgetRenderHelpers.CollapseGroupableIdentities(detail.TopBots),
+            RecentDetections = detail.RecentDetections,
+            BotProfile = detail.BotProfile,
+            HumanProfile = detail.HumanProfile,
+            OverallProfile = detail.OverallProfile,
+            CspNonce = epNonce,
+            PolicyName = policyName,
+            PackCoverage = packCoverage,
+            IsPinned = pin != null,
+            IsHoneypot = pin?.IsHoneypot ?? false,
+            PinId = pin?.Id,
+            IsCommercial = isCommercial,
+            IsStandalonePage = standalonePage
+        };
     }
 
     // ─── Shared model builders ───────────────────────────────────────────

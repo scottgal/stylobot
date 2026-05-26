@@ -3,6 +3,13 @@
 @using System.Text.Json
 @model EndpointDetailModel
 @{
+    // When the host's _ViewStart picks up this view (IsStandalonePage=true), let it
+    // wrap us in its _Layout. When we're being rendered as an HTMX-swap fragment
+    // (IsStandalonePage=false), Layout = null so we emit body markup only.
+    if (!Model.IsStandalonePage) { Layout = null; }
+    else { ViewData["Title"] = $"{Model.Method} {Model.Path} -- StyloBot endpoint detail"; }
+    var bp = Model.BasePath;
+    var navBp = Model.ResolvedNavBasePath;
     var chartId = "ep-radar-" + Guid.NewGuid().ToString("N")[..8];
     bool HasRadar = Model.Found && (Model.BotProfile != null || Model.HumanProfile != null || Model.OverallProfile != null);
 
@@ -33,7 +40,18 @@
         return $"{(int)span.TotalDays}d";
     }
 }
-<div class="p-4" data-endpoint-detail>
+@if (Model.IsStandalonePage)
+{
+    <div class="max-w-7xl mx-auto px-4 py-1.5 text-[10px] text-base-content/40 flex items-center justify-between">
+        <div>
+            <a href="@navBp" data-action="smart-back" class="hover:text-base-content/70">&larr; Dashboard</a>
+            <span class="mx-1">/</span>
+            <span class="text-base-content/60">Endpoint Detail</span>
+        </div>
+        <a href="@navBp?tab=endpoints" class="hover:text-base-content/70">All endpoints &rarr;</a>
+    </div>
+}
+<div class="p-4 max-w-5xl mx-auto" data-endpoint-detail>
     @if (!Model.Found)
     {
         <div class="text-xs text-base-content/40 text-center py-8">Endpoint detail not found</div>
@@ -170,7 +188,6 @@
            hit this endpoint most. Click any row to drill into its signature detail. *@
         @if (Model.TopBots.Count > 0)
         {
-            var navBp = Model.BasePath.TrimEnd('/');
             <div class="mt-3 pt-3 border-t border-base-300/40">
                 <div class="flex items-center justify-between mb-1">
                     <div class="text-[10px] uppercase tracking-wider text-base-content/40">Most regular visitors</div>

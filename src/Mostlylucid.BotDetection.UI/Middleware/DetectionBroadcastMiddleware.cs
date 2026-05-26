@@ -222,15 +222,47 @@ public partial class DetectionBroadcastMiddleware
 
     // ─── Shared storage: ONE path for detection + signature ───────────────
 
+    /// <summary>Marker key on <see cref="HttpContext.Items"/> set the first time a
+    /// detection has been persisted for the current request. Guards against the
+    /// dashboard event store ever receiving two rows for one logical request --
+    /// e.g. if a host accidentally wires <see cref="DetectionBroadcastMiddleware"/>
+    /// twice via both <c>UseStyloBot</c> and <c>UseStyloBotDashboard</c>, or if an
+    /// internal-render trick re-enters the pipeline for the same context. The
+    /// Raw Requests panel previously showed every detection twice on the demo
+    /// signature page; that was the symptom that motivated this guard.</summary>
+    internal const string DetectionStoredFlag = "StyloBot.DetectionBroadcast.Stored";
+
     /// <summary>
     ///     Single method that stores both detection and signature to the event store.
-    ///     Every code path calls this - no duplication.
+    ///     Idempotent per HttpContext: a second call on the same context is a no-op
+    ///     (returns a synthesized "already-stored" signature event so the caller's
+    ///     cache-update + SignalR-queue logic still runs against consistent data).
     /// </summary>
     private async Task<DashboardSignatureEvent> StoreDetectionAndSignatureAsync(
         HttpContext context,
         DashboardDetectionEvent detection,
         IDashboardEventStore eventStore)
     {
+        if (context.Items.ContainsKey(DetectionStoredFlag))
+        {
+            _logger.LogDebug(
+                "Skipping duplicate detection store for {Path} sig={Signature} -- already persisted in this request",
+                detection.Path,
+                detection.PrimarySignature?[..Math.Min(8, detection.PrimarySignature.Length)]);
+            // Returning a non-null shell keeps the caller's reference to
+            // updatedSignature.HitCount valid; the cache updates are no-ops on
+            // identical data anyway.
+            return new DashboardSignatureEvent
+            {
+                SignatureId = string.Empty,
+                Timestamp = detection.Timestamp,
+                PrimarySignature = detection.PrimarySignature ?? detection.RequestId,
+                RiskBand = detection.RiskBand ?? "Unknown",
+                HitCount = 0
+            };
+        }
+        context.Items[DetectionStoredFlag] = true;
+
         await eventStore.AddDetectionAsync(detection);
 
         var factors = ParseSignatureFactors(context);

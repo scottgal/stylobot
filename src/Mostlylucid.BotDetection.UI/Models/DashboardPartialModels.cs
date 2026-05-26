@@ -228,6 +228,26 @@ public sealed class EndpointDetailModel
     /// Unpin button -- FOSS may display the pinned/honeypot badge (seeded data
     /// shows the feature exists) but the unpin action itself is paid.</summary>
     public bool IsCommercial { get; init; }
+
+    /// <summary>
+    ///     True when the view is being rendered as a standalone page (host's
+    ///     _Layout wraps it) rather than a hx-target swap fragment. The page
+    ///     surface renders a breadcrumb / back-to-dashboard nav above the
+    ///     detail body; the partial surface skips that chrome.
+    /// </summary>
+    public bool IsStandalonePage { get; init; }
+
+    /// <summary>
+    ///     Base path for user-facing navigation links (back to dashboard, all
+    ///     endpoints). Defaults to <see cref="BasePath"/>; commercial hosts can
+    ///     point it at the marketing-site shell so the in-page "back to
+    ///     dashboard" link traverses the host's tab system.
+    /// </summary>
+    public string NavBasePath { get; init; } = "";
+    public string ResolvedNavBasePath => string.IsNullOrEmpty(NavBasePath) ? BasePath : NavBasePath;
+
+    /// <summary>Hub path for SignalR (forwarded to client-side widgets that need it).</summary>
+    public string HubPath { get; init; } = "/dashboard/hub";
 }
 
 /// <summary>
