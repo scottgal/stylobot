@@ -20,6 +20,32 @@ public sealed class IdentityOptions
     public IdentityCalibrationOptions Calibration { get; set; } = new();
     public IdentityEngineOptions Engine { get; set; } = new();
     public IdentityCoordinatorOptions Coordinator { get; set; } = new();
+    public IdentityLooksLikeOptions LooksLike { get; set; } = new();
+}
+
+/// <summary>
+///     "Looks like" lookup on the signature detail page. The dashboard runs a vec0
+///     KNN over <c>fingerprints_vec</c> (excluding self) when an operator opens a
+///     visitor whose own archetype is generic / unknown, so they can see what
+///     known shapes the centroid is closest to. The relationship is a calculation,
+///     not a stored field: as the population evolves the neighbours drift, so the
+///     lookup runs per page load against the current centroid set.
+/// </summary>
+public sealed class IdentityLooksLikeOptions
+{
+    /// <summary>Master switch for the signature-detail "Looks like" panel.</summary>
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>How many neighbours to surface. Operators usually want the single closest, but 3 reads as a small ranked list when curiosity > brevity.</summary>
+    public int NeighbourCount { get; set; } = 3;
+
+    /// <summary>
+    ///     L2 distance ceiling. Matches farther than this are dropped — at extreme
+    ///     distances the "looks like" answer is more confusing than useful (a
+    ///     visitor's centroid can be near-equidistant from every archetype in a
+    ///     sparse population). Set to a large number to never filter.
+    /// </summary>
+    public double MaxDistance { get; set; } = 4.0;
 }
 
 /// <summary>

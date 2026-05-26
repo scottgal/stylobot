@@ -6,13 +6,42 @@ That makes signature cards permanently report `HTTP/1.1`, blank TLS version, etc
 
 The fix is to inject the client-side values as request headers at the proxy. StyloBot reads the following headers in priority order and falls back to `HttpContext.Request.*` only when none is present. **No code changes needed on the gateway** - set up the headers at your edge and they show up automatically.
 
+## What survives a tunnel, what doesn't
+
+Behind cloudflared / Caddy / nginx / any reverse proxy, the gateway's connection to the proxy is a *separate* TCP + TLS + HTTP session from the client's connection to the edge. By the time bytes hit the gateway the client's TLS handshake, TCP options, and HTTP/2 frame ordering are long gone, so anything fingerprint-shaped has to be forwarded by the edge or it stays invisible.
+
+| Signal | Behind a tunnel | Recovery path |
+|---|---|---|
+| Client IP | sees proxy IP | proxy header (`CF-Connecting-IP`, `X-Real-IP`, `X-Forwarded-For`); auto-detected, see [`proxy-topologies.md`](../src/Mostlylucid.BotDetection/docs/proxy-topologies.md) |
+| HTTP version | proxy↔origin hop only | inject `Sb-Http-Version` (preferred) or `X-Client-HTTP-Version` at the edge |
+| TLS version / cipher | proxy↔origin TLS (or plaintext) | inject `X-Client-TLS-Version` / `X-Client-TLS-Cipher` |
+| Client extensions hash | not visible | inject `X-Client-TLS-Ext-Sha1` (CF free tier exposes this as `cf.tls_client_extensions_sha1`) |
+| JA3 / JA4 | not computable at origin | requires edge cooperation: CF Enterprise (commercial plugin), nginx `ssl_ja3` module, Caddy `ja3` plugin, or HAProxy Lua. Inject as `X-JA3-Hash` / `X-JA3-String`. |
+| ASN | needs GeoIP DB at origin | inject `X-Client-ASN` from the edge (e.g. CF's `ip.geoip.asnum`) to skip the lookup |
+| TCP / IP fingerprint (p0f) | gone for good | not recoverable behind a tunnel; needs direct TLS termination at the gateway |
+| HTTP/2 frame fingerprint (AKAMAI) | gone for good | not recoverable behind a tunnel; needs direct HTTP/2 termination at the gateway |
+| HTTP/3 fingerprint (QUIC) | gone for good | not recoverable; needs QUIC termination at the gateway |
+
+For most deployments the first six recover enough. If you specifically need TCP-, H2-, or H3-frame fingerprints (rare; mostly enterprise threat hunting), terminate TLS at the gateway directly via `Stylobot.Gateway`'s built-in Kestrel TLS metadata capture (see [`TLS_FINGERPRINTING_SETUP.md`](../src/Stylobot.Gateway/docs/TLS_FINGERPRINTING_SETUP.md)) instead of fronting with a tunnel.
+
+## Header read order
+
+The gateway reads the protocol header from these names in order, taking the first non-empty value before falling back to `HttpContext.Request.Protocol` (the proxy↔origin hop):
+
+1. `Sb-Http-Version` (preferred; bare name avoids `X-` filters some CDNs apply to dynamic headers)
+2. `X-Client-HTTP-Version`
+3. `X-Forwarded-Proto-Version`
+4. `X-Client-Protocol` (Caddy idiom)
+
+TLS, ASN, and JA3 headers have a single canonical name each (table below). If you're hand-rolling proxy config, pick `Sb-Http-Version` for HTTP version; everything else uses the `X-Client-*` / `X-JA3-*` names.
+
 ## Cloudflare Tunnel (free tier)
 
 Configure these in **Rules → Transform Rules → Modify Request Header** on the zone serving your traffic. Each rule sets one dynamic header from a `cf.*` / `http.*` / `ip.*` expression.
 
 | Header name | CF expression | What it tells you |
 |---|---|---|
-| `X-Client-HTTP-Version` | `http.request.version` | Real client HTTP version (HTTP/1.1, HTTP/2, HTTP/3) - bypasses the `HTTP/1.1` you'd see at the cloudflared↔origin hop |
+| `Sb-Http-Version` *(preferred)* or `X-Client-HTTP-Version` | `http.request.version` | Real client HTTP version (HTTP/1.1, HTTP/2, HTTP/3) - bypasses the `HTTP/1.1` you'd see at the cloudflared↔origin hop. `Sb-Http-Version` is preferred because some CF setups silently strip dynamic `X-`-prefixed headers. |
 | `X-Client-TLS-Version` | `cf.tls_version` | TLSv1.2 / TLSv1.3. Lights up the TLS Version card on signature detail |
 | `X-Client-TLS-Cipher` | `cf.tls_cipher` | Negotiated cipher suite (e.g. `AEAD-AES128-GCM-SHA256`) |
 | `X-Client-TLS-Ext-Sha1` | `cf.tls_client_extensions_sha1` | SHA1 of the TLS client extensions - a stable handshake fingerprint, useful for grouping clients that share the same TLS stack |
@@ -65,10 +94,37 @@ example.com {
 
 ## nginx
 
+Base headers (any nginx build):
+
 ```nginx
-proxy_set_header X-Client-HTTP-Version $server_protocol;
+proxy_set_header Sb-Http-Version       $server_protocol;
 proxy_set_header X-Client-TLS-Version  $ssl_protocol;
 proxy_set_header X-Client-TLS-Cipher   $ssl_cipher;
+```
+
+With the [`nginx-ssl-ja3`](https://github.com/fooinha/nginx-ssl-ja3) module (or any module exposing `$ssl_ja3` / `$ssl_ja3_hash`), forward the JA3 fingerprint as well:
+
+```nginx
+proxy_set_header X-JA3-Hash    $ssl_ja3_hash;
+proxy_set_header X-JA3-String  $ssl_ja3;
+```
+
+`TlsFingerprintContributor` reads `X-JA3-Hash` (priority) or computes the MD5 from `X-JA3-String` when only the raw string is available. With this in place the TLS Fingerprint card on signature detail shows a real JA3 hash, not the `cf.tls_client_extensions_sha1` partial substitute.
+
+## HAProxy
+
+With Lua-based JA3 (e.g. the `haproxy-ja3` library):
+
+```haproxy
+frontend https_front
+    bind *:443 ssl crt /etc/haproxy/certs/
+    http-request lua.ja3
+    http-request set-header X-JA3-Hash      %[var(txn.ja3_hash)]
+    http-request set-header X-JA3-String    %[var(txn.ja3)]
+    http-request set-header X-Client-TLS-Version %[ssl_fc_protocol]
+    http-request set-header X-Client-TLS-Cipher  %[ssl_fc_cipher]
+    http-request set-header Sb-Http-Version $HTTP_VERSION
+    default_backend stylobot_gateway
 ```
 
 ## AWS ALB / CloudFront

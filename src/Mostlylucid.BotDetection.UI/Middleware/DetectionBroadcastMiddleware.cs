@@ -655,7 +655,7 @@ public partial class DetectionBroadcastMiddleware
         signals.TryAdd("request.protocol", protocol);
 
         // Additional CF Transform Rule signals -- all free-tier accessible. See
-        // docs/cloudflare-tunnel-setup.md for the rule recipe. Each is optional;
+        // docs/REVERSE_PROXY_SIGNALS.md for the rule recipe. Each is optional;
         // origin without CF (or without the rules deployed) just doesn't see them.
         var tlsVersion = context.Request.Headers["X-Client-TLS-Version"].FirstOrDefault();
         if (!string.IsNullOrWhiteSpace(tlsVersion))

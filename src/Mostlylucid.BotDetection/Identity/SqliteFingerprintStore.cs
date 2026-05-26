@@ -1151,6 +1151,37 @@ public class SqliteFingerprintStore : IFingerprintReader
         return results;
     }
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<NearestFingerprint>> GetNearestForSignatureAsync(
+        string primarySignature, int k, CancellationToken ct = default)
+    {
+        if (string.IsNullOrEmpty(primarySignature) || k <= 0 || !_vecAvailable)
+            return Array.Empty<NearestFingerprint>();
+
+        var selfId = await LookupFingerprintIdAsync(primarySignature, ct);
+        if (string.IsNullOrEmpty(selfId)) return Array.Empty<NearestFingerprint>();
+
+        var self = await GetFingerprintAsync(selfId, ct);
+        if (self?.Centroid is not { Length: > 0 }) return Array.Empty<NearestFingerprint>();
+
+        var hits = await SearchVecCentroidsAsync(self.Centroid, k + 1, ct);
+
+        var matched = new List<NearestFingerprint>(k);
+        foreach (var (id, distance) in hits)
+        {
+            if (string.Equals(id, selfId, StringComparison.Ordinal)) continue;
+            var neighbour = await GetFingerprintAsync(id, ct);
+            if (neighbour is null) continue;
+            matched.Add(new NearestFingerprint(
+                FingerprintId: id,
+                DisplayName: neighbour.DisplayName,
+                InferredClientType: neighbour.InferredClientType,
+                Distance: distance));
+            if (matched.Count >= k) break;
+        }
+        return matched;
+    }
+
     /// <summary>vec0 KNN over the unabsorbed observation index. Same shape as the centroid variant.</summary>
     public async Task<IReadOnlyList<(string FingerprintId, double Distance)>> SearchVecObservationsAsync(
         float[] vector, int k, CancellationToken ct = default)
