@@ -83,7 +83,7 @@
                                     hx-get="@SortUrl("lastseen")" hx-target="#useragents-list" hx-swap="outerHTML transition:true">
                                     Last Seen@(Html.Raw(SortIcon("lastseen")))
                                 </th>
-                                <th class="py-1 text-right text-base-content/40 hidden lg:table-cell" title="95th-percentile request processing time">p95</th>
+                                <th class="py-1 text-right text-base-content/40 hidden lg:table-cell" title="95th-percentile latency estimate (approximated on SQLite, exact on Postgres)">p95</th>
                                 <th class="py-1 text-right text-base-content/40 hidden lg:table-cell" title="Total response bytes served (Content-Length sum)">Bytes</th>
                             </tr>
                         </thead>

@@ -52,8 +52,8 @@ else
                     @if (!Model.IsCompact)
                     {
                         <td class="py-1 text-right text-xs font-mono hidden sm:table-cell">@endpoint.UniqueSignatures</td>
-                        <td class="py-1 text-right text-xs font-mono hidden md:table-cell">@AnalyticsFormatting.FormatMs(endpoint.P95ProcessingTimeMs)</td>
-                        <td class="py-1 text-right text-xs font-mono hidden md:table-cell">@AnalyticsFormatting.FormatBytes(endpoint.BytesOut)</td>
+                        <td class="py-1 text-right text-xs font-mono hidden md:table-cell" title="95th-percentile request processing time">@AnalyticsFormatting.FormatMs(endpoint.P95ProcessingTimeMs)</td>
+                        <td class="py-1 text-right text-xs font-mono hidden md:table-cell" title="Total response bytes served (Content-Length sum)">@AnalyticsFormatting.FormatBytes(endpoint.BytesOut)</td>
                         <td class="py-1 hidden md:table-cell">
                             @if (!string.IsNullOrEmpty(endpoint.ActivePolicyName))
                             {

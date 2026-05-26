@@ -58,7 +58,7 @@
                                 hx-get="@SortUrl("botrate")" hx-target="#countries-list" hx-swap="outerHTML transition:true">
                                 Bot %@(Html.Raw(SortIcon("botrate")))
                             </th>
-                            <th class="py-1 text-right text-base-content/40 hidden md:table-cell" title="95th-percentile request processing time">p95</th>
+                            <th class="py-1 text-right text-base-content/40 hidden md:table-cell" title="95th-percentile latency estimate (approximated on SQLite, exact on Postgres)">p95</th>
                             <th class="py-1 text-right text-base-content/40 hidden md:table-cell" title="Total response bytes served (Content-Length sum)">Bytes</th>
                             <th class="py-1 text-xs" style="min-width:80px">SPLIT</th>
                         </tr>
