@@ -2,6 +2,7 @@ package stylobot_test
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +42,49 @@ func TestExtractIPFromRemoteAddr(t *testing.T) {
 	req.RemoteAddr = "5.6.7.8:12345"
 	if got := stylobot.ExtractIP(req); got != "5.6.7.8" {
 		t.Errorf("expected 5.6.7.8, got %q", got)
+	}
+}
+
+func TestExtractTLSReturnsNilWithoutTLS(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	if got := stylobot.ExtractTLS(req); got != nil {
+		t.Errorf("expected nil for non-TLS request, got %+v", got)
+	}
+}
+
+func TestExtractTLSPopulatesVersionAndCipher(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.TLS = &tls.ConnectionState{
+		Version:     tls.VersionTLS13,
+		CipherSuite: tls.TLS_AES_128_GCM_SHA256,
+	}
+	info := stylobot.ExtractTLS(req)
+	if info == nil {
+		t.Fatal("expected non-nil TLSInfo")
+	}
+	if info.Version != "TLSv1.3" {
+		t.Errorf("expected TLSv1.3, got %q", info.Version)
+	}
+	if info.Cipher != tls.CipherSuiteName(tls.TLS_AES_128_GCM_SHA256) {
+		t.Errorf("expected cipher name, got %q", info.Cipher)
+	}
+	if info.JA3 != "" || info.JA4 != "" {
+		t.Errorf("expected empty JA3/JA4 when headers absent, got JA3=%q JA4=%q", info.JA3, info.JA4)
+	}
+}
+
+func TestExtractTLSReadsJa3AndJa4FromHeaders(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.TLS = &tls.ConnectionState{Version: tls.VersionTLS12, CipherSuite: tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256}
+	req.Header.Set("X-JA3-Hash", "769,4866-4867,0-23-65281-10-11,29-23-24,0")
+	req.Header.Set("X-JA4", "t13d1516h2_8daaf6152771_b0da82dd1658")
+
+	info := stylobot.ExtractTLS(req)
+	if info.JA3 != "769,4866-4867,0-23-65281-10-11,29-23-24,0" {
+		t.Errorf("JA3 not picked up: %q", info.JA3)
+	}
+	if info.JA4 != "t13d1516h2_8daaf6152771_b0da82dd1658" {
+		t.Errorf("JA4 not picked up: %q", info.JA4)
 	}
 }
 

@@ -90,6 +90,22 @@ example.com {
 }
 ```
 
+### Caddy + StyloBot sidecar plugin (no header forwarding needed)
+
+If your topology is Caddy → StyloBot sidecar (gRPC) → upstream app, the [`stylobot` Caddy plugin](../sdk/caddy/) does the TLS extraction for you. It reads `r.TLS.Version`, `r.TLS.CipherSuite`, and optional `X-JA3-Hash` / `X-JA4` headers (set by a co-loaded JA3/JA4 Caddy module if you have one) and forwards them to the sidecar over gRPC via the `TlsInfo` proto. The sidecar's `SyntheticHttpContext` projects them back into the canonical `X-Client-TLS-*` / `X-JA3-Hash` / `X-JA4` headers before invoking the detection pipeline, so contributors fire the same way they would behind a direct-gateway TLS termination.
+
+```caddyfile
+example.com {
+    stylobot {
+        endpoint localhost:5090
+        timeout 50ms
+    }
+    reverse_proxy app:3000
+}
+```
+
+No `header_up` directives required. This is the recommended shape for Caddy + sidecar deployments. See [`sdk/caddy/README.md`](../sdk/caddy/README.md).
+
 ## nginx
 
 Base headers (any nginx build):

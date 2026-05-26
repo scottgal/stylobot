@@ -119,6 +119,7 @@ func (s *StyloBot) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyh
 		RemoteIP: ExtractIP(r),
 		Protocol: r.Proto,
 		Headers:  ExtractHeaders(r),
+		TLS:      ExtractTLS(r),
 	})
 	if err != nil {
 		s.logger.Warn("stylobot detect failed, failing open", zap.Error(err))

@@ -192,17 +192,51 @@ public sealed record DetectionPolicy
     public static DetectionPolicy Default => new()
     {
         Name = "default",
-        Description = "Fast path with early bailout and reputation cache",
-        // All static/fast detectors - includes reputation for instant allow/block
-        // Wave 0 (no triggers): FastPathReputation, UserAgent, Header, Ip, SecurityTool, Behavioral, CacheBehavior
-        // Wave 1 (trigger on ua.raw): Inconsistency, VersionAge, Heuristic, HeuristicLate, ReputationBias
-        // Wave 1+ (trigger on fingerprint): ClientSide
-        // NOTE: ProjectHoneypot is EXCLUDED from default - DNS lookups run via BackgroundEnrichmentService
-        // and feed results into reputation for next request. Still runs in Learning/Demo policies.
+        Description = "Full detection surface - all fast-path classifiers active. A bare " +
+                      "`stylobot` install runs this, so anything we silently omit here goes " +
+                      "permanently dark in production. Locked by DetectorRegistrationCoverageTests.",
+        // The classifier set is the union of:
+        //   - basic identity/UA/IP fast-path (UserAgent, Header, Ip, ...)
+        //   - protocol-deep fingerprinting (TlsFingerprint, TcpIpFingerprint, Http2Fingerprint,
+        //     Http3Fingerprint, MultiLayerCorrelation) which only fire when proxy headers / direct
+        //     TLS termination feed them - cheap no-ops otherwise
+        //   - bot-specific shape detectors (AiScraper, Haxxor) - explicitly named as fast-path in
+        //     CLAUDE.md and benchmarked at <2us; omitting them blinds the engine to whole bot
+        //     families (curl/python/Go scrapers, SQLi probes, AI crawlers)
+        //   - behavioral / session-aware classifiers (BehavioralWaveform, SessionVector,
+        //     Periodicity, ReactivePattern, ClaimedIdentity, ResponseBehavior, AdvancedBehavioral)
+        //     - these have triggers and gate on prior signals, so they cost ~0 on first hit
+        //   - threat-feed gate (ThreatIntel) - cheap dict lookup
+        //   - honeypot tagging (HoneypotLink) - path-prefix match
+        //   - intent / transport classification (Intent, StreamAbuse)
+        //   - Fediverse hint (FediverseDomain) - User-Agent host parse
+        // ExcludedDetectors below explicitly carves out the DNS-dependent ones - they run in
+        // BackgroundEnrichmentService instead so the request path stays synchronous.
         FastPathDetectors =
         [
-            "FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool", "Behavioral", "ClientSide",
-            "CacheBehavior", "Inconsistency", "VersionAge", "Heuristic", "HeuristicLate", "ReputationBias", "Geo", "GeoClient"
+            // Identity and basic fast path
+            "FastPathReputation", "UserAgent", "Header", "Ip", "SecurityTool",
+            "Behavioral", "AdvancedBehavioral", "ClientSide", "CacheBehavior",
+            "Inconsistency", "VersionAge", "Heuristic", "HeuristicLate", "ReputationBias",
+            "Geo", "GeoClient",
+            // Honeypot / threat-feed
+            "HoneypotLink", "ThreatIntel",
+            // Bot-shape classifiers. VerifiedBot is intentionally NOT here - rDNS lookup
+            // is too expensive for the inline path; BackgroundEnrichmentService runs it
+            // async and feeds results into FastPathReputation for subsequent requests.
+            "AiScraper", "Haxxor", "FediverseDomain",
+            // Protocol-deep fingerprinting (no-op when proxy/TLS not present)
+            "TlsFingerprint", "TcpIpFingerprint", "Http2Fingerprint", "Http3Fingerprint",
+            "MultiLayerCorrelation",
+            // Behavioral / session-aware
+            "BehavioralWaveform", "SessionVector", "Periodicity", "ReactivePattern",
+            "ClaimedIdentity",
+            // Transport / intent / stream
+            "TransportProtocol", "Intent", "StreamAbuse",
+            // CVE probe / header correlation / honeypot path tracking
+            "CveProbe", "HeaderCorrelation", "EndpointHistory",
+            // Token / approval re-verification (no-op when token absent, cheap when present)
+            "ChallengeVerification", "FingerprintApproval"
         ],
         SlowPathDetectors = [],
         AiPathDetectors = [], // Empty by default - add ONNX/LLM/others via JSON config

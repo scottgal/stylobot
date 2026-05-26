@@ -279,6 +279,16 @@ public static class BdfReplayEndpoints
                 [Models.SignalKeys.UserAgentBotName] = signals.ContainsKey(Models.SignalKeys.UserAgentBotName),
                 [Models.SignalKeys.UserAgentBotType] = signals.ContainsKey(Models.SignalKeys.UserAgentBotType),
                 [Models.SignalKeys.UserAgentFamily]  = signals.ContainsKey(Models.SignalKeys.UserAgentFamily),
+                // TLS forwarding signals. Only land when the reverse proxy is forwarding
+                // edge-computed TLS metadata (X-JA3-Hash / X-JA4 / X-Client-TLS-*). Probe
+                // is False for the no-edge-forwarding case; True confirms the read path
+                // in TlsFingerprintContributor + DetectionBroadcastMiddleware fired.
+                ["tls.is_https"]    = signals.ContainsKey("tls.is_https"),
+                ["tls.available"]   = signals.ContainsKey("tls.available"),
+                ["tls.ja3_hash"]    = signals.ContainsKey("tls.ja3_hash"),
+                ["tls.ja4"]         = signals.ContainsKey("tls.ja4"),
+                ["tls.version"]     = signals.ContainsKey("tls.version"),
+                ["tls.protocol"]    = signals.ContainsKey("tls.protocol"),
                 // Foundation signal asserted by the synthesizer's archetype-name branch.
                 // Only meaningful when Identity:Enabled = true; absent at every-request when off.
                 [Models.SignalKeys.IdentityArchetypeName] = signals.ContainsKey(Models.SignalKeys.IdentityArchetypeName),

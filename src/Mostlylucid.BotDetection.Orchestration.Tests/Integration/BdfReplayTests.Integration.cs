@@ -35,6 +35,18 @@ public sealed class BdfReplayTests
     public static IEnumerable<object[]> BotScenarios() => DiscoverScenarios("bots");
     public static IEnumerable<object[]> HumanScenarios() => DiscoverScenarios("humans");
 
+    /// <summary>
+    ///     Scenarios that include edge-injected TLS metadata headers (X-JA3-Hash, X-JA4,
+    ///     X-Client-TLS-*). These exercise the contract documented in REVERSE_PROXY_SIGNALS.md:
+    ///     a reverse proxy that forwards client-side TLS data via headers must produce the
+    ///     same tls.* signals as a gateway with direct TLS termination would. If those signals
+    ///     stop landing, the JA4-aware contributors (IdentityVectorContributor's
+    ///     transport.tls_ja4 dim, LearningTriggers' tls.ja4_hash monitor) silently lose input.
+    /// </summary>
+    public static IEnumerable<object[]> TlsForwardingScenarios() =>
+        DiscoverScenarios("humans").Concat(DiscoverScenarios("bots"))
+            .Where(args => Path.GetFileName((string)args[0]).Contains("tls-forwarding", StringComparison.OrdinalIgnoreCase));
+
     [Theory]
     [MemberData(nameof(BotScenarios))]
     public async Task BotScenario_DetectsAsBot_AndPipelineFeedsDownstreamSignals(string scenarioFile)
@@ -86,6 +98,49 @@ public sealed class BdfReplayTests
             $"last band={last.Actual.RiskBand} signals={last.Actual.SignalCount} " +
             $"fp={last.Actual.IdentityFingerprintId?[..Math.Min(8, last.Actual.IdentityFingerprintId.Length)]} " +
             $"client={last.Actual.IdentityClientType}");
+    }
+
+    /// <summary>
+    ///     For scenarios that simulate edge-injected TLS metadata via X-JA3-Hash / X-JA4 /
+    ///     X-Client-TLS-* headers, assert the contributor read paths actually fired and
+    ///     produced the tls.* signals downstream identity / learning consumers depend on.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(TlsForwardingScenarios))]
+    public async Task TlsForwardingScenario_EdgeInjectedHeadersProduceTlsSignals(string scenarioFile)
+    {
+        var response = await ReplayAsync(scenarioFile);
+        Assert.NotNull(response);
+        Assert.NotEmpty(response.Results);
+
+        var last = response.Results[^1];
+        Assert.NotNull(last.Actual);
+        var probes = last.Actual!.SignalProbes;
+
+        // Diagnostic dump first so failures show the full TLS signal landscape.
+        var tlsProbeDump = string.Join(", ", probes
+            .Where(p => p.Key.StartsWith("tls.", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(p => p.Key, StringComparer.Ordinal)
+            .Select(p => $"{p.Key}={p.Value}"));
+        _output.WriteLine($"{response.ScenarioName}: TLS probes -> {tlsProbeDump}");
+
+        Assert.True(probes.TryGetValue("tls.ja3_hash", out var hasJa3) && hasJa3,
+            $"{response.ScenarioName}: tls.ja3_hash missing - X-JA3-Hash header was set but " +
+            $"TlsFingerprintContributor.GetJa3Fingerprint did not emit the signal. TLS probes: {tlsProbeDump}");
+
+        Assert.True(probes.TryGetValue("tls.ja4", out var hasJa4) && hasJa4,
+            $"{response.ScenarioName}: tls.ja4 missing - X-JA4 header was set but " +
+            "TlsFingerprintContributor.ReadJa4Fingerprint did not emit the signal. " +
+            "IdentityVectorContributor's transport.tls_ja4 dim and LearningTriggers' " +
+            "tls.ja4_hash monitor lose input when this fails.");
+
+        Assert.True(probes.TryGetValue("tls.protocol", out var hasTlsProto) && hasTlsProto,
+            $"{response.ScenarioName}: tls.protocol missing - X-Client-TLS-Version (or legacy " +
+            "X-TLS-Protocol) header was set but TlsFingerprintContributor did not emit the " +
+            $"signal. TLS probes: {tlsProbeDump}");
+
+        _output.WriteLine($"{response.ScenarioName}: TLS forwarding signals all present " +
+                          $"(ja3_hash, ja4, version). bot={last.Actual.IsBot} prob={last.Actual.BotProbability:F2}");
     }
 
     /// <summary>

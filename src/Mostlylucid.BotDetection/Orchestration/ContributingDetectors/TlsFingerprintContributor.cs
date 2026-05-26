@@ -125,21 +125,33 @@ public class TlsFingerprintContributor : ConfiguredContributorBase
 
             state.WriteSignal("tls.available", true);
 
-            // Get TLS protocol from reverse proxy header (e.g., nginx: $ssl_protocol)
-            if (state.HttpContext.Request.Headers.TryGetValue("X-TLS-Protocol", out var tlsProtoHeader))
+            // Get TLS protocol. Accept both the documented public name
+            // (X-Client-TLS-Version - used by DetectionBroadcastMiddleware and recommended in
+            // docs/REVERSE_PROXY_SIGNALS.md) and the contributor's legacy nginx-shaped name
+            // (X-TLS-Protocol). Both conventions appear in the wild; reading either keeps the
+            // signal flowing regardless of which one the operator configured at the edge.
+            string? protocol = state.HttpContext.Request.Headers["X-Client-TLS-Version"].FirstOrDefault()
+                            ?? state.HttpContext.Request.Headers["X-TLS-Protocol"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(protocol))
             {
-                var protocol = tlsProtoHeader.ToString();
                 state.WriteSignal(SignalKeys.TlsProtocol, protocol);
                 AnalyzeTlsProtocol(protocol, contributions, state);
             }
 
-            // Get cipher suite from reverse proxy header (e.g., nginx: $ssl_cipher)
-            if (state.HttpContext.Request.Headers.TryGetValue("X-TLS-Cipher", out var cipherHeader))
+            // Cipher suite. Same dual-name rule as TLS protocol.
+            string? cipher = state.HttpContext.Request.Headers["X-Client-TLS-Cipher"].FirstOrDefault()
+                          ?? state.HttpContext.Request.Headers["X-TLS-Cipher"].FirstOrDefault();
+            if (!string.IsNullOrEmpty(cipher))
             {
-                var cipher = cipherHeader.ToString();
                 state.WriteSignal("tls.cipher_suite", cipher);
                 AnalyzeCipherSuite(cipher, contributions, state);
             }
+
+            // Get JA4 fingerprint from reverse proxy (CF Bot Management Enterprise,
+            // Caddy ja4 plugin, custom edges). No "known JA4" list yet so this is
+            // signal-emit only; downstream consumers (IdentityVectorContributor,
+            // LearningTriggers) pick it up via tls.ja4 / tls.ja4_hash.
+            ReadJa4Fingerprint(state.HttpContext, state);
 
             // Get JA3 fingerprint from reverse proxy
             var ja3Hash = GetJa3Fingerprint(state.HttpContext, state);
@@ -238,6 +250,28 @@ public class TlsFingerprintContributor : ConfiguredContributorBase
                 confidenceOverride: OutdatedSslPenalty - 0.1, // Slightly less than full SSL
                 weightMultiplier: 1.4,
                 botType: BotType.Scraper.ToString()));
+    }
+
+    private static void ReadJa4Fingerprint(HttpContext context, BlackboardState state)
+    {
+        // JA4 is a structured fingerprint (e.g. t13d1516h2_8daaf6152771_b0da82dd1658)
+        // produced by the edge. Unlike JA3 there's no separate hash form - the
+        // fingerprint string itself is the canonical identifier - so we write the
+        // same value to both tls.ja4 (consumed by IdentityVectorContributor) and
+        // tls.ja4_hash (monitored by LearningTriggers).
+        string? ja4 = null;
+        if (context.Request.Headers.TryGetValue("X-JA4", out var ja4Header))
+            ja4 = ja4Header.ToString();
+        else if (context.Request.Headers.TryGetValue("X-JA4-Fingerprint", out var ja4FpHeader))
+            ja4 = ja4FpHeader.ToString();
+        else if (context.Request.Headers.TryGetValue("X-JA4-Hash", out var ja4HashHeader))
+            ja4 = ja4HashHeader.ToString();
+
+        if (!string.IsNullOrWhiteSpace(ja4))
+        {
+            state.WriteSignal("tls.ja4", ja4);
+            state.WriteSignal("tls.ja4_hash", ja4);
+        }
     }
 
     private string GetJa3Fingerprint(HttpContext context, BlackboardState state)

@@ -1,0 +1,57 @@
+{
+  "scenarioName": "curl-scraper-with-tls-forwarding",
+  "description": "TLS FORWARDING + BOT: curl scraper behind a reverse proxy that forwards edge-computed TLS metadata. curl's TLS fingerprint is materially different from a real browser (no GREASE, fewer extensions, OpenSSL cipher prefs); this exercises the JA3/JA4 forwarding paths with bot-shaped values. Verdict should remain bot.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "curl/8.7.1",
+        "Accept": "*/*",
+        "X-Forwarded-Proto": "https",
+        "X-Client-HTTP-Version": "HTTP/2",
+        "X-Client-TLS-Version": "TLSv1.3",
+        "X-Client-TLS-Cipher": "TLS_AES_256_GCM_SHA384",
+        "X-Client-ASN": "16509",
+        "X-JA3-Hash": "4e5f6b7c8d9e0a1b2c3d4e5f6a7b8c9d",
+        "X-JA4": "t13d2014h2_a09f3c8c5f00_e8c3d7e3aa3a"
+      },
+      "delayAfter": 0.05,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/posts",
+      "headers": {
+        "User-Agent": "curl/8.7.1",
+        "Accept": "*/*",
+        "X-Forwarded-Proto": "https",
+        "X-Client-HTTP-Version": "HTTP/2",
+        "X-Client-TLS-Version": "TLSv1.3",
+        "X-Client-TLS-Cipher": "TLS_AES_256_GCM_SHA384",
+        "X-Client-ASN": "16509",
+        "X-JA3-Hash": "4e5f6b7c8d9e0a1b2c3d4e5f6a7b8c9d",
+        "X-JA4": "t13d2014h2_a09f3c8c5f00_e8c3d7e3aa3a"
+      },
+      "delayAfter": 0.05,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    },
+    {
+      "method": "GET",
+      "path": "/api/users",
+      "headers": {
+        "User-Agent": "curl/8.7.1",
+        "Accept": "*/*",
+        "X-Forwarded-Proto": "https",
+        "X-Client-HTTP-Version": "HTTP/2",
+        "X-Client-TLS-Version": "TLSv1.3",
+        "X-Client-TLS-Cipher": "TLS_AES_256_GCM_SHA384",
+        "X-Client-ASN": "16509",
+        "X-JA3-Hash": "4e5f6b7c8d9e0a1b2c3d4e5f6a7b8c9d",
+        "X-JA4": "t13d2014h2_a09f3c8c5f00_e8c3d7e3aa3a"
+      },
+      "delayAfter": 0.05,
+      "expectedDetection": { "isBot": true, "botProbability": 0.9, "riskBand": "High" }
+    }
+  ]
+}

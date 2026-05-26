@@ -1,0 +1,54 @@
+{
+  "scenarioName": "fp-firefox-linux-human-with-tls-forwarding",
+  "description": "FALSE POSITIVE PREVENTION + TLS FORWARDING: Firefox on Linux behind a reverse proxy that injects edge-computed TLS metadata (X-Client-TLS-Version, X-Client-TLS-Cipher, X-JA3-Hash, X-JA4). Exercises the edge-injected client-signal read paths in TlsFingerprintContributor and DetectionBroadcastMiddleware. JA3/JA4 values are realistic Firefox-on-Linux fingerprints (not in the known-bot list). Must NOT be blocked.",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Upgrade-Insecure-Requests": "1",
+        "X-Forwarded-Proto": "https",
+        "X-Client-HTTP-Version": "HTTP/2",
+        "X-Client-TLS-Version": "TLSv1.3",
+        "X-Client-TLS-Cipher": "TLS_AES_128_GCM_SHA256",
+        "X-Client-TLS-Ext-Sha1": "8f9c5a6d7b3e4f1a2c8d9e0b1f2a3c4d5e6f7a8b",
+        "X-Client-ASN": "12345",
+        "X-JA3-Hash": "b32309a26951912be7dba376398abc3b",
+        "X-JA4": "t13d1715h2_5b57614c22b0_3d5424432f57"
+      },
+      "delayAfter": 0.9,
+      "expectedDetection": { "isBot": false, "botProbability": 0.35, "riskBand": "Low" }
+    },
+    {
+      "method": "GET",
+      "path": "/docs",
+      "headers": {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Referer": "http://localhost:5080/",
+        "X-Forwarded-Proto": "https",
+        "X-Client-HTTP-Version": "HTTP/2",
+        "X-Client-TLS-Version": "TLSv1.3",
+        "X-Client-TLS-Cipher": "TLS_AES_128_GCM_SHA256",
+        "X-Client-TLS-Ext-Sha1": "8f9c5a6d7b3e4f1a2c8d9e0b1f2a3c4d5e6f7a8b",
+        "X-Client-ASN": "12345",
+        "X-JA3-Hash": "b32309a26951912be7dba376398abc3b",
+        "X-JA4": "t13d1715h2_5b57614c22b0_3d5424432f57"
+      },
+      "delayAfter": 2.3,
+      "expectedDetection": { "isBot": false, "botProbability": 0.35, "riskBand": "Low" }
+    }
+  ]
+}

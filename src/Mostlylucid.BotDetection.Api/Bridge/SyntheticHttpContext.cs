@@ -38,6 +38,24 @@ public static class SyntheticHttpContext
         if (request.Tls is not null)
         {
             context.Items["BotDetection.TlsInfo"] = request.Tls;
+
+            // Project TLS fields into the canonical headers that TlsFingerprintContributor
+            // already reads. Same code path the gateway uses for proxy-forwarded TLS, so
+            // a request arriving via the Caddy plugin / sidecar gRPC and a request arriving
+            // direct-to-gateway with proxy headers produce identical signals downstream.
+            // Caller's headers win if they already supplied a value (don't clobber).
+            void SetIfMissing(string name, string? value)
+            {
+                if (!string.IsNullOrWhiteSpace(value) && !context.Request.Headers.ContainsKey(name))
+                    context.Request.Headers[name] = value;
+            }
+
+            SetIfMissing("X-Client-TLS-Version", request.Tls.Version);
+            SetIfMissing("X-Client-TLS-Cipher", request.Tls.Cipher);
+            SetIfMissing("X-TLS-Protocol", request.Tls.Version);
+            SetIfMissing("X-TLS-Cipher", request.Tls.Cipher);
+            SetIfMissing("X-JA3-Hash", request.Tls.Ja3);
+            SetIfMissing("X-JA4", request.Tls.Ja4);
         }
 
         context.TraceIdentifier = Guid.NewGuid().ToString("N")[..12];

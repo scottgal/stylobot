@@ -87,6 +87,35 @@ JA3 isn't gated behind Cloudflare at all. Three CF-free routes:
 
 The gateway reads `X-JA3-Hash` first, then falls back to computing MD5 from `X-JA3-String` if only the raw string is forwarded. With either one in place, the TLS Fingerprint card on signature detail pages goes from empty to a real hash, the TLS fingerprint detector starts contributing, and the early-detection window for headless-library bots reopens.
 
+# The Caddy plugin path (no Transform Rules required)
+
+If your edge is Caddy and your detection runs in a StyloBot sidecar, the `stylobot` Caddy plugin removes the entire header-forwarding ceremony. Caddy is doing TLS termination, so it has `r.TLS` natively (Go's `*tls.ConnectionState`). The plugin reads version + cipher from there, picks up JA3/JA4 from headers a co-loaded JA3/JA4 Caddy module exposes, and ships the whole bundle to the sidecar over gRPC. The sidecar projects those fields back into the canonical `X-Client-TLS-*` / `X-JA3-Hash` / `X-JA4` headers before invoking the detection pipeline, so the same contributors fire as in the direct-gateway path.
+
+```
+Internet → Caddy (TLS termination + stylobot plugin) ──gRPC──→ stylobot-sidecar (detection)
+                                                                       │
+                                                                       ↓
+                                                            same detection pipeline,
+                                                            same signal output
+```
+
+`Caddyfile`:
+
+```caddyfile
+example.com {
+    stylobot {
+        endpoint localhost:5090
+        timeout 50ms
+        on_block 403
+    }
+    reverse_proxy app:3000
+}
+```
+
+That's the whole setup. Add a JA3 Caddy module (community plugin) and JA3 starts flowing too, no `header_up` lines needed. Behind the scenes the plugin populates `DetectRequest.TLS = { Version, Cipher, JA3, JA4 }` over the gRPC proto; the sidecar's `SyntheticHttpContext` materialises that into the headers `TlsFingerprintContributor` already reads. Same code path, fewer moving parts.
+
+This is the cleanest tunnel-shape deployment: TLS termination and detection sit one process apart but on the same host, with structured TLS metadata flowing as proto fields rather than header strings. For Caddy + sidecar deployments, this is the recommended shape.
+
 # When to skip the tunnel entirely
 
 For TCP/IP fingerprinting and HTTP/2 frame fingerprinting, there is no header workaround. The signal exists only at the raw socket layer, and no proxy I know of forwards it (you can't really; "the third TCP option byte was zero" isn't a thing you put in an HTTP header). If you specifically need those signals - typically because you're running threat-hunting against custom malware that bypasses headless-library detection - you need direct TLS termination at the gateway.
