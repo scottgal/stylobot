@@ -215,6 +215,63 @@
             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_StatusStrip.cshtml", Model.StatusStrip)
         }
 
+        @* Tunnel-without-enrichment banner. Auto-detected at startup by
+           ITunnelEnvironmentInspector after MinSamples requests. Dismissable
+           per-browser via localStorage so an operator who has decided to live
+           with the trade-off doesn't have to look at it every page load. The
+           banner only renders when (a) the inspector has settled, (b) we are
+           behind a proxy, and (c) no TLS / forwarded-TLS / native-TLS signal
+           is reaching the gateway -- false positives are bad here, the
+           operator's trust matters more than catching every borderline case. *@
+        @if (Model.TunnelEnvironment is { IsTunnelWithoutEnrichment: true } tunnelSnap)
+        {
+            var dismissKey = $"sb-tunnel-banner-dismissed:{tunnelSnap.Topology}";
+            <div id="sb-tunnel-banner"
+                 data-dismiss-key="@dismissKey"
+                 style="display:none; background: color-mix(in oklab, var(--sb-signal-warn) 12%, var(--sb-card-bg)); border: 1px solid color-mix(in oklab, var(--sb-signal-warn) 35%, transparent);"
+                 class="flex items-start gap-3 px-4 py-3 mb-4 rounded-xl text-xs">
+                <i class="bx bx-error-circle text-warning text-lg shrink-0 mt-0.5"></i>
+                <div class="flex-1 min-w-0">
+                    <div class="font-semibold text-base-content mb-0.5">
+                        StyloBot is running behind a tunnel -- TLS fingerprint surface is dark.
+                    </div>
+                    <div class="text-base-content/70 leading-snug">
+                        Proxy detected (@tunnelSnap.Topology), but no TLS handshake or
+                        forwarded TLS headers reach the gateway. JA3/JA4, TLS version,
+                        and HTTP/2 frame fingerprint contributors will write empty
+                        signals -- the behavioural detectors still classify correctly,
+                        but headless-library bots are harder to catch.
+                        <a href="@Model.TunnelDocsUrl" target="_blank" rel="noopener"
+                           class="underline text-warning hover:text-warning/80">
+                            Read the recipe to enable header forwarding</a>.
+                    </div>
+                </div>
+                <button type="button"
+                        id="sb-tunnel-banner-dismiss"
+                        class="btn btn-ghost btn-xs shrink-0"
+                        aria-label="Dismiss tunnel warning"
+                        title="Hide this banner on this browser">
+                    <i class="bx bx-x text-base"></i>
+                </button>
+            </div>
+            <script nonce="@Model.CspNonce">
+                (function() {
+                    var banner = document.getElementById('sb-tunnel-banner');
+                    if (!banner) return;
+                    var key = banner.getAttribute('data-dismiss-key');
+                    try {
+                        if (localStorage.getItem(key) === '1') return; // stay hidden
+                    } catch (_) { /* localStorage blocked -- show by default */ }
+                    banner.style.display = 'flex';
+                    var btn = document.getElementById('sb-tunnel-banner-dismiss');
+                    if (btn) btn.addEventListener('click', function() {
+                        banner.style.display = 'none';
+                        try { localStorage.setItem(key, '1'); } catch (_) {}
+                    });
+                })();
+            </script>
+        }
+
         @if (tab == "overview")
         {
             var highRiskEndpoints = Model.Endpoints.Endpoints.Count(e => e.BotRate > 0.5 && e.TotalCount >= 5);

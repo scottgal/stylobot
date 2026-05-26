@@ -2766,6 +2766,20 @@ public static class BotDetectionMiddlewareExtensions
     /// </example>
     public static IApplicationBuilder UseBotDetection(this IApplicationBuilder builder)
     {
+        // Tunnel-environment inspector observes the first N requests and snapshots
+        // what TLS / JA3 / proxy signals reach the gateway, so the dashboard can
+        // show an actionable banner when a tunnel is hiding the fingerprint surface.
+        // Runs first so its observation covers every request the gateway sees,
+        // including ones that later short-circuit on EndpointPolicy / lifecycle.
+        // After MinSamples the lambda is a single Volatile.Read + return inside
+        // Observe -- not worth its own middleware class.
+        builder.Use(async (ctx, next) =>
+        {
+            var inspector = ctx.RequestServices.GetService<Proxy.ITunnelEnvironmentInspector>();
+            inspector?.Observe(ctx);
+            await next();
+        });
+
         builder.UseMiddleware<AssetHashMiddleware>();
         // Endpoint policy resolver runs FIRST: hard operator rules
         // (block POST /xmlrpc.php, throttle DELETE /api/*, etc.) short-circuit

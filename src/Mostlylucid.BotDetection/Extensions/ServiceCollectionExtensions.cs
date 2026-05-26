@@ -327,6 +327,12 @@ public static class ServiceCollectionExtensions
         // Registered as singleton - topology is detected once on first request and cached.
         services.TryAddSingleton<IProxyEnvironment, ProxyEnvironmentDetector>();
 
+        // Startup-time tunnel-enrichment inspector: observes the first N requests, decides
+        // whether the gateway sees TLS / JA3 (native or forwarded), and snapshots the verdict
+        // for the dashboard to render an actionable banner. No continuous polling, no
+        // per-request cost once settled.
+        services.TryAddSingleton<ITunnelEnvironmentInspector, TunnelEnvironmentInspector>();
+
         // Add memory cache if not already registered
         services.AddMemoryCache();
 

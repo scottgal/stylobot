@@ -151,6 +151,16 @@ public class BotDetectionOptions
     public ProxyEnvironmentOptions ProxyEnvironment { get; set; } = new();
 
     /// <summary>
+    ///     Startup-time tunnel-enrichment inspector. Samples the first N requests
+    ///     after process start, snapshots whether the gateway is behind a tunnel
+    ///     AND whether the TLS / JA3 recovery headers (or native TLS handshake)
+    ///     are reaching it, then exposes the verdict for the dashboard to render
+    ///     a "fingerprint surface is hobbled" banner. The check does not repeat at
+    ///     runtime -- on FOSS, restart re-evaluates.
+    /// </summary>
+    public Proxy.TunnelEnvironmentOptions TunnelEnvironment { get; set; } = new();
+
+    /// <summary>
     ///     When true, detections from local/private IPs are excluded from SignalR broadcasts
     ///     and the live feed. Prevents self-detection from contaminating production data.
     ///     Default: true (set to false for local development/testing).

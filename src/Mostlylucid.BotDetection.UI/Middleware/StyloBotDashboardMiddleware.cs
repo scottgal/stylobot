@@ -972,7 +972,13 @@ public class StyloBotDashboardMiddleware
             Compliance = tab.Equals("compliance", StringComparison.OrdinalIgnoreCase)
                 ? BuildComplianceTabModel(context)
                 : null,
-            MonitoringPacks = _packTabs
+            MonitoringPacks = _packTabs,
+            TunnelEnvironment = context.RequestServices
+                .GetService<BotDetection.Proxy.ITunnelEnvironmentInspector>()?.GetSnapshot(),
+            TunnelDocsUrl = context.RequestServices
+                .GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>()
+                ?.Value.TunnelEnvironment.DocsUrl
+                ?? "https://stylobot.net/articles/tunnel-trade-off"
         };
 
         var html = await _razorViewRenderer.RenderViewToStringAsync(

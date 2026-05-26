@@ -469,6 +469,22 @@ public sealed class DashboardShellModel
     /// <summary>System status strip model (overview tab header).</summary>
     public StatusStripModel? StatusStrip { get; init; }
 
+    /// <summary>
+    ///     Settled snapshot from <c>ITunnelEnvironmentInspector</c>. Null when the
+    ///     inspector hasn't seen enough requests to settle yet, or when tunnel
+    ///     detection is disabled. The overview tab renders a dismissable banner
+    ///     when <c>IsTunnelWithoutEnrichment</c> is true so the operator knows
+    ///     the TLS fingerprint surface is dark and can follow the docs link to
+    ///     wire forwarding.
+    /// </summary>
+    public Mostlylucid.BotDetection.Proxy.TunnelEnvironmentSnapshot? TunnelEnvironment { get; init; }
+
+    /// <summary>
+    ///     Docs URL the tunnel banner links to. Cached on the shell model so the
+    ///     view doesn't have to resolve options again at render time.
+    /// </summary>
+    public string TunnelDocsUrl { get; init; } = "https://stylobot.net/articles/tunnel-trade-off";
+
     /// <summary>Compliance tab model. Only set when active tab is "compliance".</summary>
     public ComplianceTabModel? Compliance { get; init; }
 
