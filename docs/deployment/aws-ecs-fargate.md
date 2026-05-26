@@ -112,13 +112,7 @@ The security group needs:
 
 ## Step 3: front it with an ALB
 
-Standard ALB setup, with one wrinkle: enable the `X-Forwarded-For` preserve-host attribute so the gateway sees the real client IP, not the ALB's.
-
-```bash
-aws elbv2 modify-load-balancer-attributes \
-  --load-balancer-arn arn:...stylobot-alb \
-  --attributes Key=routing.http.xff_header_processing.mode,Value=append
-```
+Standard ALB setup. The ALB appends the client IP to `X-Forwarded-For` by default (`routing.http.xff_header_processing.mode=append`), which is what StyloBot needs. If your organisation has customised that attribute to `preserve` or `remove`, set it back to `append` for this ALB.
 
 Target group health check path: `/admin/alive` (HTTP 200 when the gateway is up).
 

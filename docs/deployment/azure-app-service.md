@@ -119,12 +119,11 @@ In the App Service portal, **Deployment Center > Containers > Sidecars**, add:
 Add these as **Application Settings** on the App Service:
 
 ```
-STYLOBOT_BIND=loopback
-STYLOBOT__APIKEYS__0=<a long random string>
+BotDetection__ApiKeys__0=<a long random string>
 BotDetection__DatabasePath=/home/data/stylobot/botdetection.db
 ```
 
-The sidecar refuses to bind to non-loopback interfaces without an API key configured, so the loopback default is the right shape for App Service.
+The sidecar binds to loopback by default and refuses to start on a public interface unless an API key is configured. Leave `STYLOBOT_BIND` unset; the loopback default is the right shape for an App Service sidecar.
 
 ### 2. Call the sidecar from your app
 
