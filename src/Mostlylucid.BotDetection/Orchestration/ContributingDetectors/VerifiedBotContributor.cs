@@ -66,10 +66,23 @@ public partial class VerifiedBotContributor : ConfiguredContributorBase
         var userAgent = state.UserAgent;
         var clientIp = state.ClientIp;
 
+        // Diagnostic: log every entry so we can confirm the orchestrator is
+        // even invoking this contributor. Today we cannot tell from the
+        // dashboard whether the contributor ran-and-returned-no-match, or
+        // never ran at all (e.g. orchestrator skip_when filter for
+        // detection.early_exit pruning it on cached signatures).
+        _logger.LogInformation(
+            "VerifiedBotContributor invoked: ua-prefix={UaPrefix} ip-present={HasIp}",
+            string.IsNullOrEmpty(userAgent) ? "<empty>" : userAgent[..Math.Min(60, userAgent.Length)],
+            !string.IsNullOrEmpty(clientIp));
+
         // Quick check: does the UA claim to be a known bot?
         var botName = _registry.MatchBotUserAgent(userAgent);
         if (botName == null)
         {
+            _logger.LogInformation(
+                "VerifiedBotContributor: no registry match for UA {UaPrefix}",
+                string.IsNullOrEmpty(userAgent) ? "<empty>" : userAgent[..Math.Min(60, userAgent.Length)]);
             // Always write `verifiedbot.checked` so the signal-intelligence panel
             // shows the contributor DID run, even on the no-match path. Without
             // this the panel would be missing the category entirely and an
