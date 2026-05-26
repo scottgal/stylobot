@@ -91,6 +91,7 @@
         ? $"/dashboard/signature/{Uri.EscapeDataString(primarySig)}"
         : null;
 }
+<!-- yd-diag: @(ViewData["YdDiag"] as string ?? "n/a") -->
 <div class="bot-detection-container" data-sb-widget="your-detection">
     @* Whole upper card is one anchor to /dashboard/signature/<primary> -- visitor
        clicks anywhere on the LIVE header, radar, verdict, or reasons block and
