@@ -101,6 +101,17 @@ Running AI detection (heuristic or LLM) increases detection confidence in two wa
 
 A request evaluated by fast-path detectors alone may have a detection confidence of 0.5-0.7. The same request with AI escalation typically reaches 0.8-0.95 confidence, even if the bot probability stays the same.
 
+### Declared bots: categorical, not probabilistic (6.8.6+)
+
+The two-dimensional model above applies to *ambiguous* traffic -- requests where the system has to weigh evidence. **Self-declared bots are not ambiguous.** A UA that says `Googlebot/2.1` or `Mastodon/4.2.0 (+https://mastodon.social)` is making a categorical claim; the bot/human verdict is settled at the UA. Nobody pretends to be a bot.
+
+For declared bots (signal: `SignalKeys.UserAgentIsBot == true`), `DetectionLedgerExtensions.ToAggregatedEvidence` overrides the aggregated values:
+
+- `BotProbability` pins to **1.0** -- the 0.90 non-AI clamp does not apply to a declaration.
+- `Confidence` becomes the **identity axis**: 1.0 once any verification (`friendly.ip_verified`, `friendly.domain_verified`, or `verifiedbot.checked`) has run, 0.5 while the UA is still merely declared. A *failed* verification still pins confidence to 1.0 -- catching a spoofer is a confident identity judgement.
+
+Verified-good early-exit (Googlebot via FCrDNS, etc.) and the friendly-pin `RiskBand` logic are untouched -- both already pinned 1.0/1.0 for verified bots; the override fills the gap *between* "UA self-declares" and "rDNS / NodeInfo confirmed". See [`declared-bot-scoring.md`](declared-bot-scoring.md) for the full semantics, dashboard read mapping, and the four regression-pinning tests.
+
 ### HttpContext Extensions
 
 ```csharp

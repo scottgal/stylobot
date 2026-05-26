@@ -5,6 +5,33 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.8.6] - 2026-05-26
+
+Scoring fix: declared bots now read correctly on the dashboard. Plus an in-flight cleanup of two pre-existing test regressions surfaced while verifying the change.
+
+### Fixed: declared-bot probability is categorical, not probabilistic
+
+Known-bot UAs (Googlebot, Mastodon, MJ12bot, generic `python-requests`, etc.) were rolling up through the sigmoid + 0.90 AI-clamp + coverage-throttled confidence path. A clean Googlebot ended up looking like "70% bot at 0.4 confidence" -- which is the wrong framing: **nobody pretends to be a bot**. If a UA self-declares as automation the bot/human verdict is categorical, not a guess. The remaining question lives on a separate identity axis.
+
+`DetectionLedgerExtensions.ToAggregatedEvidence` now applies a declared-bot override when `SignalKeys.UserAgentIsBot == true`:
+
+- `BotProbability` is pinned to **1.0** -- bypasses the 0.90 non-AI clamp.
+- `Confidence` becomes the **identity axis**: 1.0 once any verification (`friendly.ip_verified`, `friendly.domain_verified`, or `verifiedbot.checked`) has run (positive *or* negative -- a confirmed spoofer is also a confident identity judgement), 0.5 while the UA is still merely declared.
+
+Verified-good early-exit (`CreateEarlyExitResult`) and the friendly-pin RiskBand logic (`DetermineRiskBand`) are unchanged -- both still set probability/confidence to 1.0/1.0 for verified Googlebot / Bingbot / fediverse instances. The override only fires on the path *between* "UA self-declares" and "rDNS / NodeInfo confirmed". See [`docs/declared-bot-scoring.md`](src/Mostlylucid.BotDetection/docs/declared-bot-scoring.md) for the full semantics and the four regression-pinning tests in `DefaultPolicyAndCoverageTests`.
+
+Dashboard effect: a Mastodon signature without `friendly.*_verified` wired flips from "~0.7 probability capped at 0.90, ~0.4 confidence" to a clean **1.0 / 0.5**. The moment NodeInfo or vendor-IP verification fires, confidence pins to **1.0 / 1.0**.
+
+### Fixed: stale `ContentSequenceContributor` priority assertion
+
+`ContentSequenceContributor` was moved from priority 4 to priority 6 so `RequestMarkovClassifier` could read `TransportProtocol`'s `signalr` / `upgrade` / `protocol_class` signals (previously SignalR negotiates were misclassified as `PageView`). The YAML manifest, xml-doc summary, and the `Priority_ReturnsFour` test were left behind -- updated all three to match the actual priority 6.
+
+### Fixed: stale `Compose12Axes` placement assertion
+
+`19abf2b` reorganised the 12-axis behavioural clock into four contiguous quadrants (Footprint / Surface / Cadence / Signal) so a visitor paints a single fat lobe rather than scattered spikes. The `Compose12Axes_places_each_source_at_its_clock_hour` test still asserted the pre-quadrant interleave. Production code is the source of truth -- the test now pins the quadrant layout.
+
+---
+
 ## [6.8.2] - 2026-05-25
 
 Hotfix release that unblocks the brownfield retrofit story. Two changes: the gateway always starts even without a configured HMAC key, and a new `--origin-tunnel` flag lets stylobot reach a private origin through Cloudflare Tunnel with zero public exposure on the backend.
