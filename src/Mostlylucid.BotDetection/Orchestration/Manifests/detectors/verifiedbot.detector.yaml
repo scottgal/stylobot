@@ -58,16 +58,15 @@ output:
 
 triggers:
   requires: []  # No dependencies - runs in Wave 0
-  # Intentionally NO skip_when: detection.early_exit. The contributor is cheap
-  # (IP-range table lookup + cached FCrDNS) and is the ONLY source of the
-  # verifiedbot.* signals that drive the green-tick verification badge in the
-  # dashboard. If we skipped on early-exit, second-and-later visits to a
-  # cached signature (the steady state once FastPathReputation kicks in)
-  # would never produce a verifiedbot.confirmed signal and the badge could
-  # never graduate from amber `?` to green tick. Running this on every
-  # request is the correct trade -- ~microseconds of work for an observable
-  # identity confidence signal across the whole dashboard.
-  skip_when: []
+  # Stays skipped on detection.early_exit. Running this contributor on EVERY
+  # request (including human Chrome traffic with no bot UA pattern) regressed
+  # risk classification -- humans were flagged VeryHigh after the gate was
+  # removed. The badge graduates to green via the persisted
+  # SignatureAggregate.IsVerifiedBot flag once the FIRST detection writes
+  # verifiedbot.confirmed=true; subsequent cached requests inherit the latched
+  # flag without needing the contributor to fire again.
+  skip_when:
+    - detection.early_exit
 
 emits:
   on_start:

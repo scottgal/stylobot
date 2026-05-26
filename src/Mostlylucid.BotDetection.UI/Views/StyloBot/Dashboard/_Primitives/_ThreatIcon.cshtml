@@ -12,15 +12,49 @@
     // Tailwind text-error / text-warning / text-success class modifiers were
     // missing from the JIT-compiled bundle.
     var band = Model.Band ?? "None";
-    var (icon, color, label, tip) = band switch
+    // Effective severity: max of the explicit ThreatBand (honeypot/CVE/known-bad
+    // signals) AND a coarse bucket from BotProbability. Operators read "threat"
+    // as the actor's overall risk-to-the-site, not just "did this UA hit a
+    // honeypot path" -- with the strict pure-ThreatBand semantics every row
+    // sat muted-grey because most live bots are scrapers that have not (yet)
+    // probed anything hostile. We still let an actual ThreatBand override
+    // upward; bot-prob just provides a floor so a 100% bot row never looks
+    // ignorable. The shield SHAPE still tracks the highest severity component
+    // so colour-blind operators see the gradient via icon shape too.
+    int Rank(string b) => b switch
     {
-        "Critical" => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Critical", "Active attack signals -- block immediately"),
-        "VeryHigh" => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Very High","Multiple high-confidence hostile signals"),
-        "High"     => ("bxs-shield-minus", "var(--color-error,   #ef4444)", "High",     "Hostile shape detected -- challenge or throttle"),
-        "Elevated" => ("bxs-shield-minus", "var(--color-warning, #f59e0b)", "Elevated", "Suspicious shape -- monitor"),
-        "Medium"   => ("bxs-shield-minus", "var(--color-warning, #f59e0b)", "Medium",   "Some hostile-shape signals fired"),
-        "Low"      => ("bxs-shield",       "var(--color-success, #22c55e)", "Low",      "No active hostile signals"),
-        _          => ("bxs-shield",       "rgba(148, 163, 184, 0.55)",     "None",     "No hostile signals (honeypot, CVE, etc.) fired")
+        "Critical" => 5,
+        "VeryHigh" => 4,
+        "High"     => 4,
+        "Elevated" => 3,
+        "Medium"   => 3,
+        "Low"      => 1,
+        _          => 0
+    };
+    var probRank = Model.BotProbability switch
+    {
+        >= 0.85 => 4,   // High-confidence bot -- red shield
+        >= 0.55 => 3,   // Moderate -- amber
+        >= 0.30 => 1,   // Low -- green
+        _       => 0    // Below threshold -- muted
+    };
+    var rank = Math.Max(Rank(band), probRank);
+    var (icon, color, label, tip) = rank switch
+    {
+        5 => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "Critical",
+              band == "Critical"
+                ? "Active attack signals -- block immediately"
+                : "Active attack signals (escalated by threat band)"),
+        4 => ("bxs-shield-x",     "var(--color-error,   #ef4444)", "High",
+              band is "VeryHigh" or "High"
+                ? "Hostile shape detected -- challenge or throttle"
+                : "High-confidence bot -- treat as risk to the site"),
+        3 => ("bxs-shield-minus", "var(--color-warning, #f59e0b)", "Medium",
+              band is "Elevated" or "Medium"
+                ? "Suspicious shape -- monitor"
+                : "Moderate-confidence bot -- monitor"),
+        1 => ("bxs-shield",       "var(--color-success, #22c55e)", "Low",      "Low risk -- no hostile signals"),
+        _ => ("bxs-shield",       "rgba(148, 163, 184, 0.55)",     "None",     "No hostile signals or bot evidence")
     };
 }
 @{ var fullTip = $"Threat: {label} -- {tip}"; }

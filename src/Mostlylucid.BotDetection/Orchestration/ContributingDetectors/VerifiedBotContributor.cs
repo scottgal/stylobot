@@ -80,23 +80,17 @@ public partial class VerifiedBotContributor : ConfiguredContributorBase
         var botName = _registry.MatchBotUserAgent(userAgent);
         if (botName == null)
         {
-            _logger.LogInformation(
-                "VerifiedBotContributor: no registry match for UA {UaPrefix}",
-                string.IsNullOrEmpty(userAgent) ? "<empty>" : userAgent[..Math.Min(60, userAgent.Length)]);
-            // Always write `verifiedbot.checked` so the signal-intelligence panel
-            // shows the contributor DID run, even on the no-match path. Without
-            // this the panel would be missing the category entirely and an
-            // operator can't tell whether the contributor was skipped, gated out,
-            // or just had no UA to match against.
-            state.WriteSignal(SignalKeys.VerifiedBotChecked, true);
-
             // Not a known bot - but check for "honest bot" pattern:
             // UA has a URL, and reverse DNS of client IP matches that domain
             var honestResult = await CheckHonestBot(state, userAgent, clientIp, cancellationToken);
             if (honestResult != null)
                 return Single(honestResult);
 
-            // Not a known bot and no honest bot signal
+            // Not a known bot and no honest bot signal. We INTENTIONALLY do not
+            // write verifiedbot.checked here -- a human Chrome visitor should
+            // leave no verifiedbot.* trace on their detection row. Writing a
+            // "checked" marker silently caused humans to flag higher in some
+            // downstream aggregators when the gate was removed.
             return Single(DetectionContribution.Info(
                 Name, "VerifiedBot", "No known bot UA pattern"));
         }
