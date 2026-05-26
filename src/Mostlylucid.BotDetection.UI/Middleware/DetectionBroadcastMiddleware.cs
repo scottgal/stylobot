@@ -53,7 +53,15 @@ public partial class DetectionBroadcastMiddleware
             // known-friendly UA was banded VeryHigh.
             "risk.",
             // Friendly-bot vendor IP verification signals (true / false / absent).
-            "friendly."
+            "friendly.",
+            // Verified-bot identity signals -- verifiedbot.checked / .confirmed /
+            // .spoofed / .name / .method, written by VerifiedBotContributor after
+            // IP-range or FCrDNS verification. Without this prefix the signals
+            // were getting stripped before reaching dashboard_detections.important_signals,
+            // so the signature detail panel never showed the verification status
+            // category, and the regression test for "did the contributor actually
+            // run on this detection" had no observable signal to assert against.
+            "verifiedbot."
         ], StringComparer.OrdinalIgnoreCase);
 
     private static bool IsAllowedSignal(string key)
