@@ -293,7 +293,12 @@ public sealed class SignatureAggregateCache
             IsBot = latest.IsBot,
             ThreatScore = latest.ThreatScore,
             ThreatBand = threatBand,
-            RiskJustification = latest.RiskJustification
+            RiskJustification = latest.RiskJustification,
+            // ANY detection in the window that confirmed verification latches the
+            // aggregate as verified -- same sticky-true semantics as the live
+            // Update path. A quorum-exit detection that skipped VerifiedBotContributor
+            // does not erase a verified state observed from an earlier detection.
+            IsVerifiedBot = detections.Any(d => d.IsVerifiedBot)
         };
 
         // Score history walks oldest-to-newest so the sparkline reads left-to-right.
@@ -361,6 +366,7 @@ public sealed class SignatureAggregateCache
             IsBot = detection.IsBot,
             ThreatScore = detection.ThreatScore,
             ThreatBand = detection.ThreatBand,
+            IsVerifiedBot = detection.IsVerifiedBot,
         };
 
         // No lock needed - object is not yet visible to other threads
@@ -408,6 +414,11 @@ public sealed class SignatureAggregateCache
             existing.Description = detection.Description ?? existing.Description;
             existing.ThreatScore = detection.ThreatScore ?? existing.ThreatScore;
             existing.ThreatBand = detection.ThreatBand ?? existing.ThreatBand;
+            // Latch verified-bot true forever. A confirmed Googlebot signature does
+            // not "un-verify" on a subsequent request that happened to skip the
+            // verifier (e.g., quorum-exit before VerifiedBotContributor ran), so
+            // OR-in rather than overwrite.
+            existing.IsVerifiedBot |= detection.IsVerifiedBot;
             // RiskJustification is the rendered "why this band" string -- it must track
             // the CURRENT band (which we always overwrite on detection at line 363),
             // not the first one we ever saw. Previously this coalesced with `??`, so
@@ -476,6 +487,7 @@ public sealed class SignatureAggregateCache
                 IsKnownBot = agg.IsBot,
                 ThreatScore = agg.ThreatScore,
                 ThreatBand = agg.ThreatBand,
+                IsVerifiedBot = agg.IsVerifiedBot,
                 HitTrend = agg.ReadHitTrend(),
             };
         }
@@ -552,6 +564,14 @@ public sealed class SignatureAggregate
     public double? ThreatScore;
     public string? ThreatBand;
     public string? RiskJustification;
+
+    /// <summary>
+    ///     Latched on the first detection that wrote <c>verifiedbot.confirmed=true</c>.
+    ///     Stays true once verified (a Googlebot signature does not "un-verify" between
+    ///     requests). Flows to <c>DashboardTopBotEntry.IsVerifiedBot</c> so the row's
+    ///     verification badge shows the green tick instead of the amber `?`.
+    /// </summary>
+    public bool IsVerifiedBot;
 
     /// <summary>LFU access counter - incremented on read, periodically aged.</summary>
     public long AccessCount;

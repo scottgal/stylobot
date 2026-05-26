@@ -26,6 +26,15 @@ public sealed record DashboardTopBotEntry
     public double? ThreatScore { get; init; }
     public string? ThreatBand { get; init; }
 
+    /// <summary>
+    ///     True when <c>VerifiedBotContributor</c> confirmed the UA's bot claim
+    ///     against an operator IP range or via FCrDNS round-trip. Drives the
+    ///     green tick on the row's verification badge. The "spoofed" state is
+    ///     still derived from the <c>Spoofed-</c> name prefix that contributor
+    ///     uses when the IP fails verification.
+    /// </summary>
+    public bool IsVerifiedBot { get; init; }
+
     /// <summary>Total bytes sent in responses attributed to detections for this signature.</summary>
     public long BytesOut { get; init; }
 

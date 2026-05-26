@@ -376,6 +376,7 @@ public partial class DetectionBroadcastMiddleware
             ThreatBand = evidence.ThreatBand != Orchestration.ThreatBand.None
                 ? evidence.ThreatBand.ToString() : null,
             RiskJustification = evidence.RiskJustification,
+            IsVerifiedBot = ReadVerifiedBotConfirmed(evidence.Signals),
             Domain = context.Request.Host.Host?.ToLowerInvariant(),
             Referer = captureReferer ? rawReferer : null,
             ReferrerHost = derivedReferrerHost,
@@ -480,6 +481,7 @@ public partial class DetectionBroadcastMiddleware
                 && tsObj is double tsVal ? tsVal : null,
             ThreatBand = importantSignals.TryGetValue("intent.threat_band", out var tbObj)
                 ? tbObj?.ToString() : null,
+            IsVerifiedBot = ReadVerifiedBotConfirmed(importantSignals),
             // Domain is unconditional for the upstream path too (multi-domain partition key)
             Domain = context.Request.Host.Host?.ToLowerInvariant(),
             ResponseBytes = context.Response.ContentLength,
@@ -656,6 +658,26 @@ public partial class DetectionBroadcastMiddleware
     {
         if (string.IsNullOrWhiteSpace(ua)) return null;
         return EmailPattern().Replace(ua, "[email-redacted]");
+    }
+
+    /// <summary>
+    ///     Reads the canonical verified-bot signal off the evidence's signal bag.
+    ///     <c>VerifiedBotContributor</c> writes <c>verifiedbot.confirmed=true</c>
+    ///     after IP-range / FCrDNS verification succeeds. We accept either a
+    ///     boolean or its string representation ("true"/"True") since signal
+    ///     payloads round-trip through dictionaries with mixed value types.
+    /// </summary>
+    private static bool ReadVerifiedBotConfirmed(IReadOnlyDictionary<string, object>? signals)
+    {
+        if (signals is null) return false;
+        if (!signals.TryGetValue(Mostlylucid.BotDetection.Models.SignalKeys.VerifiedBotConfirmed, out var v) || v is null)
+            return false;
+        return v switch
+        {
+            bool b => b,
+            string s => bool.TryParse(s, out var parsed) && parsed,
+            _ => false
+        };
     }
 
     private string GenerateFallbackSignature(HttpContext context)

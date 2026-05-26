@@ -200,19 +200,18 @@
                             var isLlmNamed = bot.BotName != null || isCustomNamed;
                             var probPct = (bot.BotProbability * 100).ToString("F0");
 
-                            // Bot-identity verification state -- shown as a small badge next to
-                            // the name so the operator knows whether the UA claim is verified,
-                            // unconfirmed, or actively spoofed. The "Spoofed-" prefix is the
-                            // convention VerifiedBotContributor uses when a UA claims to be a
-                            // known bot but the IP fails verification. Any other named bot is
-                            // Unconfirmed until we plumb the positive confirmation signal
-                            // through to the entry. Humans + un-named rows render no badge.
-                            var verification = (bot.BotName, bot.IsKnownBot) switch
+                            // Bot-identity verification state. Source priority:
+                            //   1. "Spoofed-" name prefix from VerifiedBotContributor (red `!`)
+                            //   2. bot.IsVerifiedBot latched from verifiedbot.confirmed signal (green tick)
+                            //   3. Otherwise any named bot or IsKnownBot=true (amber `?`)
+                            //   4. Humans + un-named human-like rows -> no badge
+                            var verification = (bot.BotName, bot.IsVerifiedBot, bot.IsKnownBot) switch
                             {
-                                ({ } n, _) when n.StartsWith("Spoofed-", StringComparison.OrdinalIgnoreCase)
+                                ({ } n, _, _) when n.StartsWith("Spoofed-", StringComparison.OrdinalIgnoreCase)
                                     => BotVerificationState.Spoofed,
-                                ({ } _, _) => BotVerificationState.Unconfirmed,
-                                (null, true) => BotVerificationState.Unconfirmed,
+                                (_, true, _) => BotVerificationState.Confirmed,
+                                ({ } _, _, _) => BotVerificationState.Unconfirmed,
+                                (null, _, true) => BotVerificationState.Unconfirmed,
                                 _ => BotVerificationState.None
                             };
                             var verificationBadge = new VerificationBadgeModel(verification);

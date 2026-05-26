@@ -59,6 +59,16 @@ public sealed record DashboardDetectionEvent
     public string? RiskJustification { get; init; }
 
     /// <summary>
+    ///     True when <c>VerifiedBotContributor</c> confirmed the UA's bot claim
+    ///     via the source signal <c>verifiedbot.confirmed=true</c> (operator IP
+    ///     range or FCrDNS round-trip). Drives the green tick on the row's
+    ///     verification badge once the value propagates into
+    ///     <c>SignatureAggregate.IsVerifiedBot</c> and through the cache to
+    ///     <c>DashboardTopBotEntry.IsVerifiedBot</c>.
+    /// </summary>
+    public bool IsVerifiedBot { get; init; }
+
+    /// <summary>
     ///     PII-stripped raw User-Agent string for search and analytics.
     ///     Emails, credential URLs, and phone numbers are redacted before storage.
     /// </summary>
