@@ -73,16 +73,20 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return list ?? new List<DashboardTimeSeriesPoint>();
     }
 
-    public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null)
+    public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
     {
         var query = BuildRangedQuery("/api/v1/topbots", count, startTime, endTime);
+        if (!string.IsNullOrEmpty(audienceFilter))
+            query += (query.Contains('?') ? "&" : "?") + $"audience={Uri.EscapeDataString(audienceFilter)}";
         var list = await _api.GetEnvelopeAsync<List<DashboardTopBotEntry>>(query);
         return list ?? new List<DashboardTopBotEntry>();
     }
 
-    public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
+    public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
     {
         var query = BuildRangedQuery("/api/v1/countries", count, startTime, endTime);
+        if (!string.IsNullOrEmpty(audienceFilter))
+            query += (query.Contains('?') ? "&" : "?") + $"audience={Uri.EscapeDataString(audienceFilter)}";
         var list = await _api.GetEnvelopeAsync<List<DashboardCountryStats>>(query);
         return list ?? new List<DashboardCountryStats>();
     }

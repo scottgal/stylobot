@@ -482,6 +482,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 StatusCode      = reader.GetInt32(ordStatus),
                 UserAgentRaw    = SafeGetString(reader, "user_agent_raw"),
                 RiskJustification = SafeGetString(reader, "risk_justification"),
+                ResponseBytes   = SafeGetInt64Nullable(reader, "response_bytes"),
                 Domain          = reader.IsDBNull(ordDomain)      ? null : reader.GetString(ordDomain),
                 ReferrerHost    = reader.IsDBNull(ordRefHost)      ? null : reader.GetString(ordRefHost),
                 UaDeviceClass   = reader.IsDBNull(ordDeviceClass)  ? null : reader.GetString(ordDeviceClass)
@@ -681,8 +682,16 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     // Both stores share the same database file. The join is intentional; on a fresh DB with no
     // sessions yet, the subquery returns NULL for last_path, which is handled via reader.IsDBNull(12).
     // top_reasons_json is migrated by EnsureInitializedAsync — absent on pre-migration DBs it reads NULL.
-    public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null)
+    // Column order (0-based): signature(0), bot_name(1), bot_type(2), bot_probability(3), hit_count(4),
+    //   last_seen(5), threat_score(6), threat_band(7), action(8), narrative(9), top_reasons_json(10),
+    //   country_code(11), last_path(12), bytes_out(13)
+    public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
     {
+        // Top-bots is inherently a bot aggregate (reads signatures.is_bot = 1).
+        // When the caller explicitly asks for humans, return empty -- there are no human entries.
+        if (string.Equals(audienceFilter, "humans", StringComparison.OrdinalIgnoreCase))
+            return new List<DashboardTopBotEntry>();
+
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
@@ -695,7 +704,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     FROM sessions ses
                     WHERE ses.signature = s.signature AND ses.paths_json IS NOT NULL AND ses.is_bot = 1
                     ORDER BY ses.ended_at DESC
-                    LIMIT 1) AS last_path
+                    LIMIT 1) AS last_path,
+                   COALESCE((SELECT SUM(d.response_bytes) FROM detections d WHERE d.signature = s.signature), 0) AS bytes_out
             FROM signatures s
             WHERE s.is_bot = 1
             ORDER BY s.hit_count DESC
@@ -727,30 +737,45 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 Narrative = reader.IsDBNull(9) ? null : reader.GetString(9),
                 TopReasons = topReasons,
                 CountryCode = reader.IsDBNull(11) ? null : reader.GetString(11),
-                LastPath = reader.IsDBNull(12) ? null : reader.GetString(12)
+                LastPath = reader.IsDBNull(12) ? null : reader.GetString(12),
+                BytesOut = reader.IsDBNull(13) ? 0L : Convert.ToInt64(reader.GetValue(13)),
             });
         }
         return results;
     }
 
-    public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
+    // Column order (0-based): country_code(0), total(1), bots(2), bytes_out(3)
+    public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
+        // Build WHERE clause — mirrors Task-4 GetEndpointStatsAsync convention.
+        var where = new System.Text.StringBuilder("WHERE country_code IS NOT NULL AND country_code != ''");
+        if (startTime.HasValue) where.Append(" AND timestamp >= @start");
+        if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
+        switch (audienceFilter?.ToLowerInvariant())
+        {
+            case "humans": where.Append(" AND is_bot = 0"); break;
+            case "bots":   where.Append(" AND is_bot = 1"); break;
+        }
+
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT country_code,
                    COUNT(*) as total,
-                   SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots
+                   SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots,
+                   COALESCE(SUM(response_bytes), 0) as bytes_out
             FROM detections
-            WHERE country_code IS NOT NULL AND country_code != ''
+            {where}
             GROUP BY country_code
             ORDER BY total DESC
             LIMIT @count
             """;
         cmd.Parameters.AddWithValue("@count", count);
+        if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
 
         var results = new List<DashboardCountryStats>();
         await using var reader = await cmd.ExecuteReaderAsync();
@@ -763,7 +788,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 CountryCode = reader.GetString(0),
                 TotalCount = total,
                 BotCount = bots,
-                BotRate = total > 0 ? (double)bots / total : 0
+                BotRate = total > 0 ? (double)bots / total : 0,
+                BytesOut = reader.IsDBNull(3) ? 0L : Convert.ToInt64(reader.GetValue(3)),
             });
         }
         return results;
@@ -884,7 +910,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 P95ProcessingTimeMs = p95Ms,
                 AvgThreatScore      = reader.IsDBNull(8) ? 0 : reader.GetDouble(8),
                 LastSeen            = DateTime.Parse(reader.GetString(9)),
-                BytesOut            = reader.GetInt64(10),
+                BytesOut            = reader.IsDBNull(10) ? 0L : Convert.ToInt64(reader.GetValue(10)),
             });
         }
         return results;
@@ -1677,6 +1703,24 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         {
             var ordinal = reader.GetOrdinal(column);
             return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null; // Column doesn't exist yet (pre-migration DB)
+        }
+    }
+
+    /// <summary>
+    ///     Safe nullable int64 read that handles missing or NULL columns.
+    ///     Uses <c>Convert.ToInt64</c> rather than <c>GetInt64</c> to avoid a type-mismatch
+    ///     when SQLite returns an aggregate (e.g. SUM) as REAL instead of INTEGER.
+    /// </summary>
+    private static long? SafeGetInt64Nullable(SqliteDataReader reader, string column)
+    {
+        try
+        {
+            var ordinal = reader.GetOrdinal(column);
+            return reader.IsDBNull(ordinal) ? null : Convert.ToInt64(reader.GetValue(ordinal));
         }
         catch (ArgumentOutOfRangeException)
         {

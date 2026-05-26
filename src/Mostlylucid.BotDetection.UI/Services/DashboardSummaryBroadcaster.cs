@@ -162,12 +162,12 @@ public class DashboardSummaryBroadcaster : BackgroundService
     ///     Compute user agent aggregates from detections.
     ///     This logic was previously inline in ServeUserAgentsApiAsync - now computed once per beacon tick.
     /// </summary>
-    private async Task<List<DashboardUserAgentSummary>> ComputeUserAgentsAsync()
+    internal async Task<List<DashboardUserAgentSummary>> ComputeUserAgentsAsync()
     {
         var detections = await _eventStore.GetDetectionsAsync(new DashboardFilter { Limit = 500 });
 
         var uaGroups = new Dictionary<string, (int total, int bot, int human, double confSum, double procSum,
-            DateTime lastSeen, Dictionary<string, int> versions, Dictionary<string, int> countries)>(
+            DateTime lastSeen, Dictionary<string, int> versions, Dictionary<string, int> countries, long bytesOut)>(
             StringComparer.OrdinalIgnoreCase);
 
         foreach (var d in detections)
@@ -184,8 +184,12 @@ public class DashboardSummaryBroadcaster : BackgroundService
                     family = bn?.ToString();
             }
 
-            if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(d.UserAgent))
-                family = ExtractBrowserFamily(d.UserAgent);
+            // UserAgent is the in-flight SignalR property; UserAgentRaw is the DB-persisted column.
+            // Fall back through both so DB-loaded detections (which only populate UserAgentRaw)
+            // still get a family assigned.
+            var rawUa = d.UserAgent ?? d.UserAgentRaw;
+            if (string.IsNullOrEmpty(family) && !string.IsNullOrEmpty(rawUa))
+                family = ExtractBrowserFamily(rawUa);
 
             if (string.IsNullOrEmpty(family))
                 family = "Unknown";
@@ -193,13 +197,15 @@ public class DashboardSummaryBroadcaster : BackgroundService
             if (!uaGroups.TryGetValue(family, out var group))
                 group = (0, 0, 0, 0, 0, DateTime.MinValue,
                     new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
-                    new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase));
+                    new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                    0L);
 
             group.total++;
             if (d.IsBot) group.bot++;
             else group.human++;
             group.confSum += d.Confidence;
             group.procSum += d.ProcessingTimeMs;
+            group.bytesOut += d.ResponseBytes ?? 0;
             if (d.Timestamp > group.lastSeen) group.lastSeen = d.Timestamp;
 
             if (!string.IsNullOrEmpty(version))
@@ -231,6 +237,7 @@ public class DashboardSummaryBroadcaster : BackgroundService
                 AvgConfidence = kv.Value.total > 0 ? Math.Round(kv.Value.confSum / kv.Value.total, 4) : 0,
                 AvgProcessingTimeMs = kv.Value.total > 0 ? Math.Round(kv.Value.procSum / kv.Value.total, 2) : 0,
                 LastSeen = kv.Value.lastSeen,
+                BytesOut = kv.Value.bytesOut,
             })
             .OrderByDescending(u => u.TotalCount)
             .ToList();

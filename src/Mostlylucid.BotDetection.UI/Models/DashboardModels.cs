@@ -231,6 +231,8 @@ public sealed record DashboardUserAgentSummary
     public required double AvgConfidence { get; init; }
     public required double AvgProcessingTimeMs { get; init; }
     public required DateTime LastSeen { get; init; }
+    /// <summary>Total bytes sent in responses for requests attributed to this UA family.</summary>
+    public long BytesOut { get; init; }
 }
 
 /// <summary>

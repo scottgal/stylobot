@@ -11,4 +11,6 @@ public sealed record DashboardCountryStats
     public int BotCount { get; init; }
     public int HumanCount => TotalCount - BotCount;
     public double BotRate { get; init; }
+    /// <summary>Total bytes sent in responses for requests from this country.</summary>
+    public long BytesOut { get; init; }
 }
