@@ -18,6 +18,26 @@
     foreach (var v in Model.HumanTrend) humanSum += v;
     var title = $"{Model.WindowMinutes}m: {botSum:N0} bot · {humanSum:N0} human";
     var hasData = botPath.Length > 0 || humanPath.Length > 0;
+
+    // Bot-trend stroke colour echoes the threat shield, not the is-bot flag.
+    // A Googlebot row at high volume should not paint red just because the
+    // actor is automated -- red on the row is reserved for actual threat
+    // signals (honeypot / CVE / known-bad shape). Threat-shield free rows
+    // get a muted base-content tone so the sparkline reads as "volume" not
+    // "danger". Same banding the _ThreatIcon partial uses; keep the two in
+    // lock-step.
+    var botStroke = Model.ThreatBand switch
+    {
+        "VeryHigh" or "Critical" or "High" => "var(--color-error,   #ef4444)",
+        "Medium"   or "Elevated"            => "var(--color-warning, #f59e0b)",
+        _                                   => "var(--color-base-content, #94a3b8)"
+    };
+    var botOpacity = Model.ThreatBand switch
+    {
+        "VeryHigh" or "Critical" or "High" => "1.0",
+        "Medium"   or "Elevated"            => "0.85",
+        _                                   => "0.55"
+    };
 }
 <svg width="@W" height="@H" viewBox="0 0 @W @H" style="overflow:visible;" role="img" aria-label="@title">
     <title>@title</title>
@@ -29,7 +49,7 @@
         }
         @if (botPath.Length > 0)
         {
-            <path d="@botPath" stroke="var(--color-error, #ef4444)" fill="none" stroke-width="1.2" />
+            <path d="@botPath" stroke="@botStroke" fill="none" stroke-width="1.2" opacity="@botOpacity" />
         }
     }
     else

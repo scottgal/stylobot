@@ -250,7 +250,18 @@
                                         // human/bot split per signature is a follow-on that needs the
                                         // ring buffer to track is_bot per minute. Today every detection
                                         // on this signature falls in one bucket.
-                                        var spark = new SparklineModel(BotTrend: bot.HitTrend, HumanTrend: System.Array.Empty<int>(), WindowMinutes: 60);
+                                        // ThreatBand flows the row's resolved threat into the
+                                        // sparkline stroke so the trend line agrees with the
+                                        // threat shield (the row's authoritative danger signal).
+                                        // Without this, every bot row paints red regardless of
+                                        // whether the actor is hostile -- a Googlebot at high
+                                        // volume reads as threatening when it should read as
+                                        // routine indexing.
+                                        var spark = new SparklineModel(
+                                            BotTrend: bot.HitTrend,
+                                            HumanTrend: System.Array.Empty<int>(),
+                                            WindowMinutes: 60,
+                                            ThreatBand: threatBand);
                                     }
                                     @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_Sparkline.cshtml", spark)
                                 </td>

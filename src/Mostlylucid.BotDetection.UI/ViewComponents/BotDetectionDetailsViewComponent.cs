@@ -57,63 +57,70 @@ public class BotDetectionDetailsViewComponent : ViewComponent
 
     private async Task<(double[]?, string)> ResolveClockAxesAsync(string primarySig)
     {
-        // 1. Live accumulator -- this is what the dashboard signature page reads
-        //    as its idx=0 "live" row. Reading the same source means the home
-        //    card's radar matches the dashboard's radar for the same visitor.
-        if (_liveStore is null) return (null, "live-store-null");
-
-        IReadOnlyList<SessionRequest>? liveSession = null;
-        try
+        // 1. LIVE in-flight session -- the dashboard's "idx=0 live" row. This
+        //    only carries data once the orchestrator's wave-30
+        //    SessionVectorContributor has run for the visitor; for clearly-human
+        //    visitors the orchestrator usually quorum-exits BEFORE wave 30, so
+        //    the live cache is empty on first visit. We try it first because
+        //    when it IS hot the radar is as fresh as possible.
+        if (_liveStore is not null)
         {
-            liveSession = _liveStore.GetCurrentSession(primarySig);
+            try
+            {
+                var liveSession = _liveStore.GetCurrentSession(primarySig);
+                // SessionVectorizer.Encode short-circuits at Count<2 and returns
+                // a zero-filled vector that won't carry useful shape, so we keep
+                // the threshold at 2 -- below that we fall through to persisted.
+                if (liveSession is { Count: >= 2 })
+                {
+                    var vector = SessionVectorizer.Encode(liveSession);
+                    if (vector.Length >= 118)
+                    {
+                        var axes = ClockAxesResolver.FromSessionVector(vector);
+                        if (axes is not null)
+                            return (axes, $"live-ok-n{liveSession.Count}-len{vector.Length}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                return (null, $"live-throw:{ex.GetType().Name}");
+            }
         }
-        catch (Exception ex)
+
+        // 2. PERSISTED most-recent session -- SessionAtomizerService runs every
+        //    2 min and writes the visitor's finalised session vector to SQLite.
+        //    This is the steady-state source: by the visitor's second page-load
+        //    a finalised session almost always exists, and projecting from its
+        //    stored vector is identical to what the dashboard renders on the
+        //    signature detail page for the same visitor.
+        if (_persistedStore is not null)
         {
-            return (null, $"live-get-throw:{ex.GetType().Name}");
+            try
+            {
+                var sessions = await _persistedStore.GetSessionsAsync(
+                    primarySig, limit: 1, HttpContext!.RequestAborted);
+                var latest = sessions.FirstOrDefault();
+                if (latest?.Vector is { Length: > 0 } encoded)
+                {
+                    var vector = SqliteSessionStore.DeserializeVector(encoded);
+                    if (vector.Length >= 118)
+                    {
+                        var axes = ClockAxesResolver.FromSessionVector(vector);
+                        if (axes is not null)
+                            return (axes, $"persisted-ok-len{vector.Length}");
+                        return (null, $"persisted-axes-null-len{vector.Length}");
+                    }
+                    return (null, $"persisted-vec-short-{vector.Length}");
+                }
+                return (null, "persisted-empty");
+            }
+            catch (Exception ex)
+            {
+                return (null, $"persisted-throw:{ex.GetType().Name}");
+            }
         }
 
-        if (liveSession is null) liveSession = await TryHydrateFromPersistedAsync(primarySig);
-
-        if (liveSession is null)              return (null, "no-session");
-        if (liveSession.Count < 1)            return (null, $"live-count-{liveSession.Count}");
-
-        float[] vector;
-        try
-        {
-            vector = SessionVectorizer.Encode(liveSession);
-        }
-        catch (Exception ex)
-        {
-            return (null, $"encode-throw:{ex.GetType().Name}");
-        }
-
-        if (vector.Length < 118) return (null, $"vec-short-{vector.Length}");
-
-        var axes = ClockAxesResolver.FromSessionVector(vector);
-        return axes is null
-            ? (null, "axes-null")
-            : (axes, $"ok-count{liveSession.Count}-len{vector.Length}");
-    }
-
-    private async Task<IReadOnlyList<SessionRequest>?> TryHydrateFromPersistedAsync(string primarySig)
-    {
-        if (_persistedStore is null) return null;
-        try
-        {
-            var sessions = await _persistedStore.GetSessionsAsync(
-                primarySig, limit: 1, HttpContext!.RequestAborted);
-            var latest = sessions.FirstOrDefault();
-            if (latest?.Vector is not { Length: > 0 } encoded) return null;
-            // Persisted path historically returned a vector directly. We have no
-            // raw requests to re-encode, so we'll synthesise a one-request shell
-            // session purely so the live-path can re-project against the same
-            // pipeline. (Today this is unreachable because Encode requires >=2
-            // requests; the diag below will tell us if we ever hit it.)
-            return null;
-        }
-        catch
-        {
-            return null;
-        }
+        return (null, "no-stores");
     }
 }

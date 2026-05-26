@@ -30,8 +30,18 @@ public sealed record ConfidenceMeterModel(double Confidence, bool IsBot, double 
 ///     SSR'd inline SVG sparkline. Server emits the path string -- zero client JS,
 ///     zero extra fetches. Bot and human trend arrays must be the same length;
 ///     y-axis auto-scales to max(bot, human).
+///     <para>
+///     <paramref name="ThreatBand"/> drives the bot-trend stroke colour so the
+///     sparkline conveys threat (the dangerous-row signal) rather than just
+///     "is-bot" -- a Googlebot row at high volume should not paint red just
+///     because the actor is automated. Empty / "None" / "Low" keep the line
+///     neutral; "Medium" / "Elevated" go amber; "High" / "Critical" /
+///     "VeryHigh" go red. This is the same rule the per-row threat shield
+///     follows so the operator never sees the sparkline disagreeing with the
+///     shield about how concerning a row is.
+///     </para>
 /// </summary>
-public sealed record SparklineModel(int[] BotTrend, int[] HumanTrend, int WindowMinutes);
+public sealed record SparklineModel(int[] BotTrend, int[] HumanTrend, int WindowMinutes, string? ThreatBand = null);
 
 /// <summary>Flag SVG + country-name tooltip.</summary>
 public sealed record CountryFlagModel(string? Code, string? Name);

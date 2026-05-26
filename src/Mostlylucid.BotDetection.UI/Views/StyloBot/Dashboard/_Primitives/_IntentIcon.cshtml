@@ -3,34 +3,39 @@
 @{
     // Type icon. Distinct SHAPE per category (spider / search / brain / globe /
     // network / bot / pulse / wrench) so the operator can read what kind of
-    // actor this is from across the room; COLOUR uses the same red->amber->
-    // green palette as the other row signals so the entire row's concerning-
-    // ness reads consistently. Operator-actionable mapping:
-    //   - Scraper / Scanner -- red (active harvesting, high concern)
-    //   - Probe             -- red (vuln-probing, high concern)
-    //   - AI / AiBot        -- amber (consuming content, training data)
-    //   - Automated         -- amber (unclear intent)
-    //   - Tool              -- blue (generic HTTP, could go either way)
-    //   - Crawler           -- blue (indexing, mostly legitimate)
-    //   - Browser           -- green (real visitor)
-    //   - MonitoringBot     -- green (benign)
-    //   - Unknown           -- muted grey (signals couldn't classify)
+    // actor this is from across the room. COLOUR is purely identity / kind --
+    // the Type column is CLASSIFICATION, not threat. Red is reserved system-wide
+    // for actual danger signals (the threat shield, the bot-rate cell when it's
+    // genuinely concerning). A "Scraper" classification is type info, not a
+    // judgement; Googlebot is a scraper too. Painting type-cells red made every
+    // row look hostile even when the threat shield said "None".
+    //
+    //   - Browser / MonitoringBot -- green (recognised friendly actor; this is
+    //                                       useful operator context, not a
+    //                                       threat statement)
+    //   - Crawler / Tool          -- info (recognised utility actor)
+    //   - AI / AiBot              -- accent (distinctive but neutral)
+    //   - Automated               -- muted (generic automation, no judgement)
+    //   - Scraper / Scanner       -- muted (active classification, not danger)
+    //   - Probe                   -- muted (active classification, not danger)
+    //   - Unknown                 -- muted grey
     //
     // Colour is inline `color: var(--color-...)` to dodge the Tailwind JIT
     // bundle issue that left text-error / text-warning / text-info classes
     // out of the compiled CSS and made every icon render white.
     var intent = Model.Intent ?? "Unknown";
+    var muted  = "color-mix(in oklab, var(--color-base-content) 65%, transparent)";
     var (icon, color, label, tip) = intent switch
     {
-        "Scraper" or "Scanner"  => ("bxs-spider",         "var(--color-error,   #ef4444)", "Scraper",   "Scrapes pages at scale -- credential harvest, content reuse, inventory theft"),
-        "Probe"                 => ("bxs-search-alt-2",   "var(--color-error,   #ef4444)", "Probe",     "Probes endpoints looking for vulns, leaked secrets, or open admin paths"),
-        "AI" or "AiBot"         => ("bxs-brain",          "var(--color-warning, #f59e0b)", "AI",        "AI / LLM crawler training on your content"),
-        "Automated"             => ("bxs-bot",            "var(--color-warning, #f59e0b)", "Automated", "Headless / scripted automation -- intent unclear"),
-        "Tool"                  => ("bxs-wrench",         "var(--color-info,    #38bdf8)", "Tool",      "Generic HTTP tool / library (curl, requests, etc.)"),
-        "Crawler"               => ("bxs-network-chart",  "var(--color-info,    #38bdf8)", "Crawler",   "Indexing / SEO crawler"),
-        "Browser"               => ("bxs-globe",          "var(--color-success, #22c55e)", "Browser",   "Looks like a real interactive browser"),
-        "MonitoringBot"         => ("bxs-pulse",          "var(--color-success, #22c55e)", "Monitor",   "Uptime / synthetic monitoring"),
-        _                       => ("bxs-help-circle",    "rgba(148,163,184,0.55)",         intent,     "Intent could not be classified from signals")
+        "Scraper" or "Scanner"  => ("bxs-spider",         muted,                                     "Scraper",   "Scrapes pages at scale -- credential harvest, content reuse, inventory theft. Threat severity is in the shield column."),
+        "Probe"                 => ("bxs-search-alt-2",   muted,                                     "Probe",     "Probes endpoints looking for vulns, leaked secrets, or open admin paths. Threat severity is in the shield column."),
+        "AI" or "AiBot"         => ("bxs-brain",          "var(--color-accent,  #a78bfa)",           "AI",        "AI / LLM crawler training on your content"),
+        "Automated"             => ("bxs-bot",            muted,                                     "Automated", "Headless / scripted automation -- intent unclear"),
+        "Tool"                  => ("bxs-wrench",         "var(--color-info,    #38bdf8)",           "Tool",      "Generic HTTP tool / library (curl, requests, etc.)"),
+        "Crawler"               => ("bxs-network-chart",  "var(--color-info,    #38bdf8)",           "Crawler",   "Indexing / SEO crawler"),
+        "Browser"               => ("bxs-globe",          "var(--color-success, #22c55e)",           "Browser",   "Looks like a real interactive browser"),
+        "MonitoringBot"         => ("bxs-pulse",          "var(--color-success, #22c55e)",           "Monitor",   "Uptime / synthetic monitoring"),
+        _                       => ("bxs-help-circle",    "rgba(148,163,184,0.55)",                  intent,     "Intent could not be classified from signals")
     };
 }
 <span class="tooltip tooltip-left before:max-w-xs before:whitespace-pre-line" data-tip="@label -- @tip">
