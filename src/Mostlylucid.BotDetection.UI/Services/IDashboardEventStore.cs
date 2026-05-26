@@ -39,16 +39,27 @@ public interface IDashboardEventStore
 
     /// <summary>
     ///     Get summary statistics.
+    ///     When both <paramref name="startTime"/> and <paramref name="endTime"/> are null the window
+    ///     defaults to the last 6 hours (preserving legacy behavior). When set, the query is bounded to
+    ///     [startTime, endTime]. <paramref name="audienceFilter"/> ("bots" | "humans" | null) restricts
+    ///     the detection-level counts (TotalRequests, BotRequests, HumanRequests, bytes/p95); the
+    ///     fingerprint-level sub-query remains unfiltered.
     /// </summary>
-    Task<DashboardSummary> GetSummaryAsync();
+    Task<DashboardSummary> GetSummaryAsync(
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        string? audienceFilter = null);
 
     /// <summary>
     ///     Get time-series data for charts.
+    ///     <paramref name="audienceFilter"/> ("bots" | "humans" | null) restricts each bucket to the
+    ///     matching audience.
     /// </summary>
     Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(
         DateTime startTime,
         DateTime endTime,
-        TimeSpan bucketSize);
+        TimeSpan bucketSize,
+        string? audienceFilter = null);
 
     /// <summary>
     ///     Get top bot signatures ordered by hit count descending.

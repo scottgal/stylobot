@@ -38,9 +38,27 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         return list ?? new List<DashboardSignatureEvent>();
     }
 
-    public async Task<DashboardSummary> GetSummaryAsync()
+    public async Task<DashboardSummary> GetSummaryAsync(
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        string? audienceFilter = null)
     {
-        var summary = await _api.GetEnvelopeAsync<DashboardSummary>("/api/v1/summary");
+        var query = "/api/v1/summary";
+        var sep = '?';
+        if (startTime.HasValue)
+        {
+            query += $"{sep}since={Uri.EscapeDataString(startTime.Value.ToString("o"))}";
+            sep = '&';
+        }
+        if (endTime.HasValue)
+        {
+            query += $"{sep}until={Uri.EscapeDataString(endTime.Value.ToString("o"))}";
+            sep = '&';
+        }
+        if (!string.IsNullOrEmpty(audienceFilter))
+            query += $"{sep}audience={Uri.EscapeDataString(audienceFilter)}";
+
+        var summary = await _api.GetEnvelopeAsync<DashboardSummary>(query);
         return summary ?? EmptySummary();
     }
 
@@ -57,7 +75,11 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         UniqueSignatures = 0
     };
 
-    public async Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(DateTime startTime, DateTime endTime, TimeSpan bucketSize)
+    public async Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(
+        DateTime startTime,
+        DateTime endTime,
+        TimeSpan bucketSize,
+        string? audienceFilter = null)
     {
         var interval = bucketSize.TotalMinutes switch
         {
@@ -69,6 +91,8 @@ internal sealed class RemoteDashboardEventStore : IDashboardEventStore
         var query = $"/api/v1/timeseries?interval={interval}"
             + $"&since={Uri.EscapeDataString(startTime.ToString("o"))}"
             + $"&until={Uri.EscapeDataString(endTime.ToString("o"))}";
+        if (!string.IsNullOrEmpty(audienceFilter))
+            query += $"&audience={Uri.EscapeDataString(audienceFilter)}";
         var list = await _api.GetEnvelopeAsync<List<DashboardTimeSeriesPoint>>(query);
         return list ?? new List<DashboardTimeSeriesPoint>();
     }

@@ -185,6 +185,14 @@ public sealed record DashboardSummary
     public int BotFingerprints { get; init; }
     public int HumanFingerprints { get; init; }
     public int HighRiskFingerprints { get; init; }
+
+    // Traffic volume and latency aggregates — computed from the detections sub-query
+    // and therefore subject to the same audience filter (when set).
+    public long BytesOut { get; init; }
+    // SQLite lacks PERCENTILE_CONT — approximation: avg + (max - avg) * 0.9.
+    // Postgres backend returns true PERCENTILE_CONT.
+    public double P95ProcessingTimeMs { get; init; }
+    public double MaxProcessingTimeMs { get; init; }
 }
 
 /// <summary>
@@ -197,6 +205,12 @@ public sealed record DashboardTimeSeriesPoint
     public required int HumanCount { get; init; }
     public required int TotalCount { get; init; }
     public Dictionary<string, int>? RiskBandCounts { get; init; }
+    public long BytesOut { get; init; }
+    public double AvgProcessingTimeMs { get; init; }
+    // SQLite lacks PERCENTILE_CONT — approximation: avg + (max - avg) * 0.9.
+    // Postgres backend returns true PERCENTILE_CONT.
+    public double P95ProcessingTimeMs { get; init; }
+    public double MaxProcessingTimeMs { get; init; }
 }
 
 /// <summary>

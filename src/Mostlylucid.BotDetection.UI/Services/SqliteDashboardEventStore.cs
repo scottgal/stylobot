@@ -516,38 +516,69 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         return results;
     }
 
-    public async Task<DashboardSummary> GetSummaryAsync()
+    public async Task<DashboardSummary> GetSummaryAsync(
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        string? audienceFilter = null)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
-        var since = DateTime.UtcNow.AddHours(-6).ToString("O");
+        // When no window is provided, preserve legacy 6-hour default.
+        var sinceStr = (startTime ?? DateTime.UtcNow.AddHours(-6)).ToString("O");
+        var untilStr = (endTime ?? DateTime.MaxValue).ToString("O");
+        var hasUntil = endTime.HasValue;
+
+        // Audience predicate for the detection-level sub-query only.
+        var audiencePredicate = audienceFilter?.ToLowerInvariant() switch
+        {
+            "bots"   => " AND is_bot = 1",
+            "humans" => " AND is_bot = 0",
+            _        => string.Empty
+        };
 
         // Request-level counts (one detection row per request — drives traffic charts).
+        // Also aggregates bytes_out, avg/max processing time for the KPI strip.
         int total = 0, bots = 0;
+        long bytesOut = 0;
+        double avgMs = 0.0, maxMs = 0.0;
+
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = """
+            var untilClause = hasUntil ? " AND timestamp < @until" : string.Empty;
+            cmd.CommandText = $"""
                 SELECT
                     COUNT(*) AS total,
-                    SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots
+                    SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots,
+                    COALESCE(SUM(response_bytes), 0) AS bytes_out,
+                    AVG(processing_time_ms) AS avg_ms,
+                    MAX(processing_time_ms) AS max_ms
                 FROM detections
-                WHERE timestamp >= @since
+                WHERE timestamp >= @since{untilClause}{audiencePredicate}
                 """;
-            cmd.Parameters.AddWithValue("@since", since);
+            cmd.Parameters.AddWithValue("@since", sinceStr);
+            if (hasUntil) cmd.Parameters.AddWithValue("@until", untilStr);
             await using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
             {
-                total = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
-                bots  = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
+                total    = reader.IsDBNull(0) ? 0  : reader.GetInt32(0);
+                bots     = reader.IsDBNull(1) ? 0  : reader.GetInt32(1);
+                bytesOut = reader.IsDBNull(2) ? 0L : Convert.ToInt64(reader.GetValue(2));
+                avgMs    = reader.IsDBNull(3) ? 0.0 : Convert.ToDouble(reader.GetValue(3));
+                maxMs    = reader.IsDBNull(4) ? 0.0 : Convert.ToDouble(reader.GetValue(4));
             }
         }
+
+        // SQLite lacks PERCENTILE_CONT — approximation; Postgres backend returns true PERCENTILE_CONT.
+        var p95Ms = avgMs + (maxMs - avgMs) * 0.9;
 
         // Fingerprint-level counts (one signatures row per unique fingerprint).
         // bot_probability is the EWMA-blended posterior, risk_band is the latest
         // band — so these are the "how many actors did we see" counts the
         // dashboard banner should be showing.
+        // The audience filter does NOT apply here — fingerprint counts are identity-level,
+        // not request-level, and remain unfiltered regardless of the audience parameter.
         int sigs = 0, botSigs = 0, humanSigs = 0, highSigs = 0;
         var riskBands = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         await using (var cmd = conn.CreateCommand())
@@ -561,7 +592,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 FROM signatures
                 WHERE last_seen >= @since
                 """;
-            cmd.Parameters.AddWithValue("@since", since);
+            cmd.Parameters.AddWithValue("@since", sinceStr);
             await using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
             {
@@ -581,7 +612,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 WHERE last_seen >= @since
                 GROUP BY band
                 """;
-            cmd.Parameters.AddWithValue("@since", since);
+            cmd.Parameters.AddWithValue("@since", sinceStr);
             await using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
@@ -604,11 +635,19 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             HighRiskFingerprints = highSigs,
             RiskBandCounts = riskBands,
             TopBotTypes = new Dictionary<string, int>(),
-            TopActions = new Dictionary<string, int>()
+            TopActions = new Dictionary<string, int>(),
+            BytesOut = bytesOut,
+            AverageProcessingTimeMs = Math.Round(avgMs, 2),
+            P95ProcessingTimeMs = Math.Round(p95Ms, 2),
+            MaxProcessingTimeMs = Math.Round(maxMs, 2)
         };
     }
 
-    public async Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(DateTime startTime, DateTime endTime, TimeSpan bucketSize)
+    public async Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(
+        DateTime startTime,
+        DateTime endTime,
+        TimeSpan bucketSize,
+        string? audienceFilter = null)
     {
         await EnsureInitializedAsync();
 
@@ -619,20 +658,31 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // overlapping/scrambled series the chart drew as disconnected points.
         var bucketSeconds = Math.Max((int)bucketSize.TotalSeconds, 1);
 
+        // Audience predicate restricts each bucket to the matching audience.
+        var audiencePredicate = audienceFilter?.ToLowerInvariant() switch
+        {
+            "bots"   => " AND is_bot = 1",
+            "humans" => " AND is_bot = 0",
+            _        => string.Empty
+        };
+
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT
                 strftime('%Y-%m-%dT%H:%M:%SZ',
                          (CAST(strftime('%s', timestamp) AS INTEGER) / @bucket) * @bucket,
                          'unixepoch') AS bucket,
                 SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots,
                 SUM(CASE WHEN is_bot = 0 THEN 1 ELSE 0 END) AS humans,
-                COUNT(*) AS total
+                COUNT(*) AS total,
+                COALESCE(SUM(response_bytes), 0) AS bytes_out,
+                AVG(processing_time_ms) AS avg_ms,
+                MAX(processing_time_ms) AS max_ms
             FROM detections
-            WHERE timestamp >= @start AND timestamp < @end
+            WHERE timestamp >= @start AND timestamp < @end{audiencePredicate}
             GROUP BY bucket
             ORDER BY bucket
             """;
@@ -647,13 +697,24 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             var bucket = reader.GetString(0);
             if (DateTime.TryParse(bucket, System.Globalization.CultureInfo.InvariantCulture,
                                   System.Globalization.DateTimeStyles.RoundtripKind, out var ts))
+            {
+                var bucketAvgMs = reader.IsDBNull(5) ? 0.0 : Convert.ToDouble(reader.GetValue(5));
+                var bucketMaxMs = reader.IsDBNull(6) ? 0.0 : Convert.ToDouble(reader.GetValue(6));
+                // SQLite lacks PERCENTILE_CONT — approximation; Postgres backend returns true PERCENTILE_CONT.
+                var bucketP95Ms = bucketAvgMs + (bucketMaxMs - bucketAvgMs) * 0.9;
+
                 dbPoints[bucket] = new DashboardTimeSeriesPoint
                 {
                     Timestamp = ts,
                     BotCount = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
                     HumanCount = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
-                    TotalCount = reader.IsDBNull(3) ? 0 : reader.GetInt32(3)
+                    TotalCount = reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+                    BytesOut = reader.IsDBNull(4) ? 0L : Convert.ToInt64(reader.GetValue(4)),
+                    AvgProcessingTimeMs = Math.Round(bucketAvgMs, 2),
+                    P95ProcessingTimeMs = Math.Round(bucketP95Ms, 2),
+                    MaxProcessingTimeMs = Math.Round(bucketMaxMs, 2)
                 };
+            }
         }
 
         // Align startTime DOWN to the nearest bucket boundary so the gap-fill iteration
@@ -671,7 +732,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 Timestamp = current,
                 BotCount = 0,
                 HumanCount = 0,
-                TotalCount = 0
+                TotalCount = 0,
+                BytesOut = 0L,
+                AvgProcessingTimeMs = 0.0,
+                P95ProcessingTimeMs = 0.0,
+                MaxProcessingTimeMs = 0.0
             });
             current = current.Add(bucketSize);
         }
