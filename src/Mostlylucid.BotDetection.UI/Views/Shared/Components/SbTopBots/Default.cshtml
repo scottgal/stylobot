@@ -171,9 +171,6 @@
                         // model-build time in WidgetRenderHelpers.CollapseGroupableIdentities,
                         // so Model.Bots already comes pre-grouped and pagination matches the
                         // visible rows.
-                        var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
-                        static string FormatFirstSeen(DateTime utc)
-                            => utc == default ? "" : $"first seen {utc.ToLocalTime():HH:mm:ss}";
                     }
                     <!-- DATA REGION: only this element gets hx-swap-oob="innerHTML" on SignalR
                          beacons. Scroll position on the .overflow-auto parent is preserved
@@ -187,27 +184,24 @@
                                 _ => "text-success"
                             };
                             var isCustomNamed = bot.CustomBotName != null;
-                            var baseDisplay = bot.CustomBotName
-                                ?? bot.BotName
-                                ?? (string.IsNullOrEmpty(bot.BotType) ? BotDisplayHelpers.DescriptiveBotName(bot) : bot.BotType);
-                            var displayName = baseDisplay;
-                            if (!Mostlylucid.BotDetection.UI.Middleware.WidgetRenderHelpers.IsGroupableIdentity(bot)
-                                && seenNames.ContainsKey(baseDisplay))
-                            {
-                                var firstSeenMod = FormatFirstSeen(bot.FirstSeen);
-                                displayName = string.IsNullOrEmpty(firstSeenMod)
-                                    ? $"{baseDisplay} #{seenNames[baseDisplay] + 1}"
-                                    : $"{baseDisplay} ({firstSeenMod})";
-                                seenNames[baseDisplay]++;
-                            }
-                            else if (seenNames.ContainsKey(baseDisplay))
-                            {
-                                seenNames[baseDisplay]++;
-                            }
-                            else
-                            {
-                                seenNames[baseDisplay] = 1;
-                            }
+                            @* Single source of truth for the row label. Every visible
+                               surface in the dashboard goes through SignatureDisplayName
+                               so the same signature renders the same label everywhere --
+                               Live Activity, Visitors, Sessions, Endpoint detail, the
+                               signature page itself, all read from this one resolver.
+                               The "· {shortHash}" suffix in the composite form already
+                               disambiguates distinct signatures that share the same
+                               country/UA, so we no longer carry per-widget local logic
+                               that appended `#2` / `(first seen ...)` -- that produced
+                               labels that diverged from the rest of the dashboard. *@
+                            var displayName = SignatureDisplayName.Resolve(
+                                bot.PrimarySignature,
+                                bot.BotName,
+                                bot.BotType,
+                                bot.CustomBotName,
+                                bot.CountryCode,
+                                isBot: bot.BotProbability >= 0.5,
+                                bot.UaFamily);
                             var displayIntent = bot.BotType ?? BotDisplayHelpers.DeterministicIntent(bot.BotProbability);
                             var displayThreat = BotDisplayHelpers.ResolvedThreat(bot.ThreatBand, bot.BotProbability);
                             var threatBand = string.IsNullOrEmpty(displayThreat) ? "None" : displayThreat;

@@ -393,7 +393,11 @@
                                 <a href="@TabUrl("endpoints")" class="ml-auto text-[10px] text-base-content/40 hover:text-base-content/60">All endpoints →</a>
                             </div>
                             @* SSR-first endpoints widget; SignalR-driven OOB updates via data-sb-widget. *@
-                            <sb-endpoints-list sort="total" dir="desc" page-size="15" exclude-static="true" compact="true" />
+                            @* page-size matches the sb-top-bots panel on the left
+                               so the two cards have the same row count and end at
+                               the same vertical line; operators see a balanced
+                               split instead of the endpoints card visibly shorter. *@
+                            <sb-endpoints-list sort="total" dir="desc" page-size="25" exclude-static="true" compact="true" />
                         </div>
                     </div>
                 </div>
