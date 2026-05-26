@@ -46,53 +46,74 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         var primarySig = model.Signatures?.PrimarySignature;
         if (!string.IsNullOrEmpty(primarySig))
         {
-            var clockAxes = await ResolveClockAxesAsync(primarySig);
+            var (clockAxes, diag) = await ResolveClockAxesAsync(primarySig);
             if (clockAxes is not null)
                 model = model with { ClockAxes = clockAxes };
+            ViewData["YdDiag"] = diag;
         }
 
         return View(viewName, model);
     }
 
-    private async Task<double[]?> ResolveClockAxesAsync(string primarySig)
+    private async Task<(double[]?, string)> ResolveClockAxesAsync(string primarySig)
     {
         // 1. Live accumulator -- this is what the dashboard signature page reads
         //    as its idx=0 "live" row. Reading the same source means the home
         //    card's radar matches the dashboard's radar for the same visitor.
-        if (_liveStore is not null)
+        if (_liveStore is null) return (null, "live-store-null");
+
+        IReadOnlyList<SessionRequest>? liveSession = null;
+        try
         {
-            try
-            {
-                var liveSession = _liveStore.GetCurrentSession(primarySig);
-                if (liveSession is { Count: >= 1 })
-                {
-                    var vector = SessionVectorizer.Encode(liveSession);
-                    var axes = ClockAxesResolver.FromSessionVector(vector);
-                    if (axes is not null) return axes;
-                }
-            }
-            catch { /* live accumulator best-effort */ }
+            liveSession = _liveStore.GetCurrentSession(primarySig);
+        }
+        catch (Exception ex)
+        {
+            return (null, $"live-get-throw:{ex.GetType().Name}");
         }
 
-        // 2. Persistent finalised session -- fallback when live accumulator is
-        //    cold (post-restart, or returning visitor whose new session hasn't
-        //    started yet).
-        if (_persistedStore is not null)
+        if (liveSession is null) liveSession = await TryHydrateFromPersistedAsync(primarySig);
+
+        if (liveSession is null)              return (null, "no-session");
+        if (liveSession.Count < 1)            return (null, $"live-count-{liveSession.Count}");
+
+        float[] vector;
+        try
         {
-            try
-            {
-                var sessions = await _persistedStore.GetSessionsAsync(
-                    primarySig, limit: 1, HttpContext!.RequestAborted);
-                var latest = sessions.FirstOrDefault();
-                if (latest?.Vector is { Length: > 0 } encoded)
-                {
-                    var vector = SqliteSessionStore.DeserializeVector(encoded);
-                    return ClockAxesResolver.FromSessionVector(vector);
-                }
-            }
-            catch { /* persisted lookup best-effort */ }
+            vector = SessionVectorizer.Encode(liveSession);
+        }
+        catch (Exception ex)
+        {
+            return (null, $"encode-throw:{ex.GetType().Name}");
         }
 
-        return null;
+        if (vector.Length < 118) return (null, $"vec-short-{vector.Length}");
+
+        var axes = ClockAxesResolver.FromSessionVector(vector);
+        return axes is null
+            ? (null, "axes-null")
+            : (axes, $"ok-count{liveSession.Count}-len{vector.Length}");
+    }
+
+    private async Task<IReadOnlyList<SessionRequest>?> TryHydrateFromPersistedAsync(string primarySig)
+    {
+        if (_persistedStore is null) return null;
+        try
+        {
+            var sessions = await _persistedStore.GetSessionsAsync(
+                primarySig, limit: 1, HttpContext!.RequestAborted);
+            var latest = sessions.FirstOrDefault();
+            if (latest?.Vector is not { Length: > 0 } encoded) return null;
+            // Persisted path historically returned a vector directly. We have no
+            // raw requests to re-encode, so we'll synthesise a one-request shell
+            // session purely so the live-path can re-project against the same
+            // pipeline. (Today this is unreachable because Encode requires >=2
+            // requests; the diag below will tell us if we ever hit it.)
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

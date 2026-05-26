@@ -91,6 +91,10 @@
         ? $"/dashboard/signature/{Uri.EscapeDataString(primarySig)}"
         : null;
 }
+@* DIAG: emits the radar-resolution path ("ok-...", "live-store-null", "no-session",
+   "encode-throw:...", "vec-short-N", "axes-null") so we can see live why the home
+   radar is blank. Strip after the root cause is locked in. *@
+<!-- yd-diag: @(ViewData["YdDiag"] as string ?? "n/a") -->
 <div class="bot-detection-container" data-sb-widget="your-detection">
     @* Whole upper card is one anchor to /dashboard/signature/<primary> -- visitor
        clicks anywhere on the LIVE header, radar, verdict, or reasons block and
