@@ -284,5 +284,52 @@
 
 [data-theme="dark"] .text-base-content\/20 { color: oklch(var(--bc) / 45%); }
 [data-theme="dark"] .text-base-content\/30 { color: oklch(var(--bc) / 52%); }
+
+/* =============================================
+   Table scroll container that does not clip
+   tooltips. `overflow-x: auto` + `overflow-y: visible`
+   is invalid in the CSS spec (browsers coerce to
+   auto/auto), so we use `overflow-x: clip` which IS
+   spec-compliant alongside `overflow-y: visible` --
+   horizontal overflow is clipped without creating
+   a scrollable area that traps daisyUI tooltip
+   ::before pseudo-elements. Daisy tooltips on cells
+   near the top or bottom edge can now pop above /
+   below the row without being chopped by the table
+   wrapper.
+
+   Use `.sb-table-scroll` instead of `overflow-x-auto`
+   on table wrappers when the cells contain tooltips.
+   ============================================= */
+.sb-table-scroll {
+    overflow-x: clip;
+    overflow-y: visible;
+    overflow-clip-margin: 0.5rem;
+}
+
+/* =============================================
+   Tooltip portal. While the portal is showing
+   a cell's tooltip at body level, suppress the
+   original ::before / ::after pseudos so we
+   don't render a clipped copy alongside the
+   portaled one.
+   ============================================= */
+.tooltip.sb-tooltip-portal-active::before,
+.tooltip.sb-tooltip-portal-active::after {
+    opacity: 0 !important;
+    visibility: hidden !important;
+}
+
+.sb-tooltip-portal-tip {
+    background: oklch(var(--n) / 0.95);
+    color: oklch(var(--nc));
+    font-size: 11px;
+    line-height: 1.3;
+    padding: 4px 8px;
+    border-radius: 4px;
+    max-width: 22rem;
+    white-space: pre-line;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
 [data-theme="dark"] .text-base-content\/40 { color: oklch(var(--bc) / 60%); }
 [data-theme="dark"] .text-base-content\/50 { color: oklch(var(--bc) / 68%); }

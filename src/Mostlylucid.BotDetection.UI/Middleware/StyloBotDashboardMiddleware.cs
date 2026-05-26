@@ -5456,8 +5456,8 @@ body {{ font-family: 'Inter', sans-serif; background: var(--sb-surface); min-hei
         "api_abuse" => "API Abuse",
         "reconnaissance" => "Reconnaissance",
         "monitoring" => "Monitoring Bots",
-        "browsing" => "Automated Browsing",
-        "unclassified" => "Unclassified Bots",
+        "browsing" => "Browsing",
+        "unclassified" => "Unclassified",
         _ => category
     };
 

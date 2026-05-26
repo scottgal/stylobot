@@ -81,7 +81,12 @@
     }
     else
     {
-        <div class="overflow-x-auto rounded-xl border" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
+        @* Compact mode (right column of the Activity tab) shows the panel inside a
+           half-page card. Latency/Bytes/Sigs/Policy/Split don't fit there, so they
+           are dropped, and `overflow-x-auto` is replaced with the tooltip-safe
+           `.sb-table-scroll` wrapper so daisyUI cell tooltips can escape vertically. *@
+        var compact = Model.IsCompact;
+        <div class="@(compact ? "sb-table-scroll" : "overflow-x-auto") rounded-xl border" style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
             <table class="table table-xs w-full">
                 <thead>
                 @* Column order follows the operator's eye:
@@ -94,13 +99,16 @@
                     <th class="py-1 @ThClass("method") cursor-pointer" hx-get="@SortUrl("method")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Method@(Html.Raw(SortIcon("method")))</th>
                     <th class="py-1 @ThClass("path") cursor-pointer" hx-get="@SortUrl("path")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Path@(Html.Raw(SortIcon("path")))</th>
                     <th class="py-1 text-center @ThClass("botrate") cursor-pointer" hx-get="@SortUrl("botrate")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Bot pressure -- bot hits as a fraction of total in the trailing window">Bot Pressure@(Html.Raw(SortIcon("botrate")))</th>
-                    <th class="py-1 text-center @ThClass("threat") cursor-pointer hidden md:table-cell" hx-get="@SortUrl("threat")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Threat@(Html.Raw(SortIcon("threat")))</th>
+                    <th class="py-1 text-center @ThClass("threat") cursor-pointer @(compact ? "" : "hidden md:table-cell")" hx-get="@SortUrl("threat")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Threat@(Html.Raw(SortIcon("threat")))</th>
                     <th class="py-1 text-right @ThClass("total") cursor-pointer" hx-get="@SortUrl("total")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Hits@(Html.Raw(SortIcon("total")))</th>
-                    <th class="py-1 text-right @ThClass("latency") cursor-pointer hidden md:table-cell" hx-get="@SortUrl("latency")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Avg / p95 ms">Latency@(Html.Raw(SortIcon("latency")))</th>
-                    <th class="py-1 text-right @ThClass("bytes") cursor-pointer hidden md:table-cell" hx-get="@SortUrl("bytes")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Total response bytes served (Content-Length sum)">Bytes@(Html.Raw(SortIcon("bytes")))</th>
-                    <th class="py-1 text-right @ThClass("unique") cursor-pointer hidden lg:table-cell" hx-get="@SortUrl("unique")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Sigs@(Html.Raw(SortIcon("unique")))</th>
-                    <th class="py-1 hidden lg:table-cell text-base-content/40">Policy</th>
-                    <th class="py-1 text-xs hidden md:table-cell" style="min-width:60px">Split</th>
+                    @if (!compact)
+                    {
+                        <th class="py-1 text-right @ThClass("latency") cursor-pointer hidden md:table-cell whitespace-nowrap" hx-get="@SortUrl("latency")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Avg / p95 ms">Latency@(Html.Raw(SortIcon("latency")))</th>
+                        <th class="py-1 text-right @ThClass("bytes") cursor-pointer hidden md:table-cell" hx-get="@SortUrl("bytes")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true" title="Total response bytes served (Content-Length sum)">Bytes@(Html.Raw(SortIcon("bytes")))</th>
+                        <th class="py-1 text-right @ThClass("unique") cursor-pointer hidden lg:table-cell" hx-get="@SortUrl("unique")" hx-target="#endpoints-list" hx-swap="outerHTML transition:true">Sigs@(Html.Raw(SortIcon("unique")))</th>
+                        <th class="py-1 hidden lg:table-cell text-base-content/40">Policy</th>
+                        <th class="py-1 text-xs hidden md:table-cell" style="min-width:60px">Split</th>
+                    }
                 </tr>
                 </thead>
                 <tbody>
@@ -152,41 +160,44 @@
                         <td class="py-1 text-center">
                             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_RiskBar.cshtml", pressureBar)
                         </td>
-                        <td class="py-1 text-center hidden md:table-cell">
+                        <td class="py-1 text-center @(compact ? "" : "hidden md:table-cell")">
                             @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_ThreatIcon.cshtml", threatIcon)
                         </td>
                         <td class="py-1 text-right text-xs font-mono tabular-nums">@endpoint.TotalCount</td>
-                        <td class="py-1 text-right text-xs hidden md:table-cell font-mono tabular-nums"
-                            title="min @BotDisplayHelpers.FormatProcessingTime(endpoint.MinProcessingTimeMs) · avg @BotDisplayHelpers.FormatProcessingTime(endpoint.AvgProcessingTimeMs) · p95 @BotDisplayHelpers.FormatProcessingTime(endpoint.P95ProcessingTimeMs) · max @BotDisplayHelpers.FormatProcessingTime(endpoint.MaxProcessingTimeMs)">
-                            <span>@BotDisplayHelpers.FormatProcessingTime(endpoint.AvgProcessingTimeMs)</span>
-                            <span class="text-base-content/40">/</span>
-                            <span class="text-base-content/70">@BotDisplayHelpers.FormatProcessingTime(endpoint.P95ProcessingTimeMs)</span>
-                        </td>
-                        <td class="py-1 text-right text-xs font-mono tabular-nums hidden md:table-cell" title="Total response bytes served">@AnalyticsFormatting.FormatBytes(endpoint.BytesOut)</td>
-                        <td class="py-1 text-right text-xs font-mono hidden lg:table-cell">@endpoint.UniqueSignatures</td>
-                        <td class="py-1 hidden lg:table-cell">
-                            <div class="flex items-center gap-1">
-                                @if (!string.IsNullOrEmpty(endpoint.ActivePolicyName))
-                                {
-                                    <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-base-300 text-base-content/60 font-medium">@endpoint.ActivePolicyName</span>
-                                }
-                                <button type="button"
-                                        title="Apply policy to this endpoint"
-                                        class="btn btn-ghost btn-xs p-0.5 min-h-0 h-auto"
-                                        data-action="open-policy-modal"
-                                        data-method="@Html.Raw(endpoint.Method.Replace("\"", "&quot;"))"
-                                        data-path="@Html.Raw(Uri.EscapeDataString(endpoint.Path))"
-                                        data-policy="@Html.Raw((endpoint.ActivePolicyName ?? string.Empty).Replace("\"", "&quot;"))">
-                                    <i class="bx bx-shield-alt text-[11px] text-base-content/30 hover:text-base-content/70"></i>
-                                </button>
-                            </div>
-                        </td>
-                        <td class="py-1 hidden md:table-cell" title="@humanPct% human / @(100 - humanPct)% bot">
-                            <div class="flex h-2 rounded-full overflow-hidden" style="background: rgba(148,163,184,0.18); min-width:60px;">
-                                <div style="background: var(--color-success, #22c55e); width:@(humanPct)%;"></div>
-                                <div style="background: var(--color-error,   #ef4444); width:@(100 - humanPct)%;"></div>
-                            </div>
-                        </td>
+                        @if (!compact)
+                        {
+                            <td class="py-1 text-right text-xs hidden md:table-cell font-mono tabular-nums whitespace-nowrap"
+                                title="min @BotDisplayHelpers.FormatProcessingTime(endpoint.MinProcessingTimeMs) · avg @BotDisplayHelpers.FormatProcessingTime(endpoint.AvgProcessingTimeMs) · p95 @BotDisplayHelpers.FormatProcessingTime(endpoint.P95ProcessingTimeMs) · max @BotDisplayHelpers.FormatProcessingTime(endpoint.MaxProcessingTimeMs)">
+                                <span>@BotDisplayHelpers.FormatProcessingTime(endpoint.AvgProcessingTimeMs)</span>
+                                <span class="text-base-content/40">/</span>
+                                <span class="text-base-content/70">@BotDisplayHelpers.FormatProcessingTime(endpoint.P95ProcessingTimeMs)</span>
+                            </td>
+                            <td class="py-1 text-right text-xs font-mono tabular-nums hidden md:table-cell" title="Total response bytes served">@AnalyticsFormatting.FormatBytes(endpoint.BytesOut)</td>
+                            <td class="py-1 text-right text-xs font-mono hidden lg:table-cell">@endpoint.UniqueSignatures</td>
+                            <td class="py-1 hidden lg:table-cell">
+                                <div class="flex items-center gap-1">
+                                    @if (!string.IsNullOrEmpty(endpoint.ActivePolicyName))
+                                    {
+                                        <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-base-300 text-base-content/60 font-medium">@endpoint.ActivePolicyName</span>
+                                    }
+                                    <button type="button"
+                                            title="Apply policy to this endpoint"
+                                            class="btn btn-ghost btn-xs p-0.5 min-h-0 h-auto"
+                                            data-action="open-policy-modal"
+                                            data-method="@Html.Raw(endpoint.Method.Replace("\"", "&quot;"))"
+                                            data-path="@Html.Raw(Uri.EscapeDataString(endpoint.Path))"
+                                            data-policy="@Html.Raw((endpoint.ActivePolicyName ?? string.Empty).Replace("\"", "&quot;"))">
+                                        <i class="bx bx-shield-alt text-[11px] text-base-content/30 hover:text-base-content/70"></i>
+                                    </button>
+                                </div>
+                            </td>
+                            <td class="py-1 hidden md:table-cell" title="@humanPct% human / @(100 - humanPct)% bot">
+                                <div class="flex h-2 rounded-full overflow-hidden" style="background: rgba(148,163,184,0.18); min-width:60px;">
+                                    <div style="background: var(--color-success, #22c55e); width:@(humanPct)%;"></div>
+                                    <div style="background: var(--color-error,   #ef4444); width:@(100 - humanPct)%;"></div>
+                                </div>
+                            </td>
+                        }
                     </tr>
                 }
                 </tbody>

@@ -70,7 +70,7 @@
          The "Views\" prefix is prepended explicitly because %(RecursiveDir) only contains the
          sub-path relative to the glob root ("Views\"), not the root folder itself. -->
     <ItemGroup>
-        <Content Include="Views\**\*.cshtml">
+        <Content Include="$(MSBuildProjectDirectory)\Views\**\*.cshtml">
             <TargetPath>Views\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
         </Content>
     </ItemGroup>

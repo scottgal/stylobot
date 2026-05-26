@@ -137,13 +137,15 @@ public static class BotDisplayHelpers
             // Low-prob entities (< 0.5) are humans -- calling a 1% bot-probability visitor a
             // "Suspicious Client" was a glaring bug. High-prob with no specific signal is
             // genuinely an unidentified automated client; medium is the ambiguous middle.
+            // "Automated X" is redundant -- every bot row is by definition automated.
+            // Operators want the kind (Scanner / Bot / Probe), not a tautology.
             activity = (bot.RiskBand ?? bot.ThreatBand) switch
             {
                 "VeryHigh" => "High-Risk Scanner",
-                "High" => "Automated Scanner",
-                "Medium" or "Elevated" => "Automated Client",
-                _ => bot.BotProbability >= 0.90 ? "Automated Client"
-                   : bot.BotProbability >= 0.50 ? "Suspicious Client"
+                "High" => "Scanner",
+                "Medium" or "Elevated" => "Bot",
+                _ => bot.BotProbability >= 0.90 ? "Bot"
+                   : bot.BotProbability >= 0.50 ? "Suspicious"
                    : "Visitor"
             };
         }
@@ -161,7 +163,7 @@ public static class BotDisplayHelpers
     /// </summary>
     public static string DeterministicIntent(double prob) => prob switch
     {
-        >= 0.95 => "Automated",
+        >= 0.95 => "Bot",
         >= 0.80 => "Scanner",
         >= 0.60 => "Crawler",
         _ => "Probe"

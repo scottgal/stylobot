@@ -34,6 +34,7 @@ public class SbLiveUpdatesTagHelper : TagHelper
     private const string AssetCssPath       = "/_content/Mostlylucid.BotDetection.UI/vendor/css/sb-live-updates.css";
     private const string AssetJsPath        = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-live-updates.js";
     private const string IdiomorphScriptPath = "/_content/Mostlylucid.BotDetection.UI/vendor/js/idiomorph-ext.min.js";
+    private const string TooltipPortalPath  = "/_content/Mostlylucid.BotDetection.UI/vendor/js/sb-tooltip-portal.js";
 
     // Module Version Id changes every build, so appending it as a query string
     // forces CDNs and browser caches to fetch the new asset after a deploy.
@@ -104,6 +105,13 @@ public class SbLiveUpdatesTagHelper : TagHelper
         // is the "mutate on update, don't replace" half of the live-updates design.
         // Self-hosted from the package's vendor/js so no CDN dependency.
         output.Content.AppendHtml($@"<script src=""{IdiomorphScriptPath}?v={AssetVersion}""{nonceAttr}></script>");
+
+        // Tooltip portal: clones .tooltip[data-tip] hovers into a body-level
+        // fixed-position layer so daisyUI tooltips escape any clip ancestor
+        // (overflow-x-auto on table wrappers, overflow:hidden on card chrome).
+        // Without this the cell tooltips were chopped at table edges across
+        // the dashboard.
+        output.Content.AppendHtml($@"<script src=""{TooltipPortalPath}?v={AssetVersion}""{nonceAttr}></script>");
 
         if (ShowStatus)
         {

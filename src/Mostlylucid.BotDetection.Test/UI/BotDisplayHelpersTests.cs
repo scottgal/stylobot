@@ -15,7 +15,7 @@ namespace Mostlylucid.BotDetection.Test.UI;
 public class BotDisplayHelpersTests
 {
     [Theory]
-    [InlineData(0.95, "Automated")]
+    [InlineData(0.95, "Bot")]
     [InlineData(0.85, "Scanner")]
     [InlineData(0.70, "Crawler")]
     [InlineData(0.10, "Probe")]
@@ -109,7 +109,7 @@ public class BotDisplayHelpersTests
     public void DescriptiveBotName_falls_back_to_riskband_label_when_no_signals()
     {
         var bot = MakeBot(reasons: [], lastPath: "", countryCode: "", riskBand: "High");
-        Assert.Equal("Automated Scanner", BotDisplayHelpers.DescriptiveBotName(bot));
+        Assert.Equal("Scanner", BotDisplayHelpers.DescriptiveBotName(bot));
     }
 
     [Fact]

@@ -101,7 +101,12 @@
         }
         else
         {
-            <!-- Chrome: scrollable container + table chrome (thead) -->
+            <!-- Chrome: scrollable container + table chrome (thead). Keep
+                 overflow-auto here -- the panel needs vertical scroll for long
+                 row counts, and a Y-scrollable container will clip tooltips
+                 vertically by definition. Cells use daisyUI tooltip-left/-top
+                 with a native title="" fallback so the data is still
+                 discoverable at the edges. -->
             <div class="overflow-auto flex-1 min-h-0">
                 <table class="table table-xs w-full">
                     @* Column order follows the operator's reasoning chain:
