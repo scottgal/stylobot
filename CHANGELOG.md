@@ -5,6 +5,46 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.8.8] - 2026-05-26
+
+Edge-injected TLS fingerprint forwarding through Caddy. When stylobot sits behind a TLS-terminating reverse proxy, the proxy-to-origin hop's TLS context is not the client's -- 6.8.8 wires the canonical forwarding header set end-to-end so the contributor sees the *client's* TLS shape, not Kestrel's.
+
+### Added: Caddy Go SDK `ExtractTLS()` (`92c8c0e`)
+
+The Caddy SDK (`sdk/caddy/headers.go`) gains an `ExtractTLS(*http.Request)` that returns `*sb.TLSInfo` with:
+
+- `Version` and `Cipher` from `r.TLS` directly -- Caddy terminates TLS so these are free.
+- `JA3` from `X-JA3-Hash` and `JA4` from `X-JA4` (or `X-JA4-Fingerprint`) when an upstream Caddy plugin has computed them. The Go stdlib doesn't compute JA3/JA4 itself.
+
+Returns `nil` when the request did not arrive over TLS (so detection can still distinguish "TLS terminated upstream of Caddy" from "no TLS at all").
+
+### Added: dual-name TLS headers on the contributor
+
+`TlsFingerprintContributor` now reads **both** the documented public names *and* the legacy nginx-shaped names it shipped with, so docs and code agree regardless of which convention the operator wired at the edge:
+
+| Signal | Documented (new) | Legacy (still accepted) |
+|--------|------------------|-------------------------|
+| TLS version | `X-Client-TLS-Version` | `X-TLS-Protocol` |
+| Cipher suite | `X-Client-TLS-Cipher` | `X-TLS-Cipher` |
+| JA3 | `X-JA3-Hash` | (same -- single-name surface) |
+
+This is the source of truth alignment that the in-flight Caddy SDK + `DetectionBroadcastMiddleware` cross-references in `docs/REVERSE_PROXY_SIGNALS.md`.
+
+### Added: BDF replay carries TLS-forwarding headers end-to-end
+
+`SyntheticHttpContext` + `BdfReplayEndpoints` now propagate the edge-injected TLS headers through the replay pipeline. Two new fixtures pin the behaviour under `DetectionPolicy.Default`:
+
+- `test-suites/bots/14-curl-with-tls-forwarding.bdf.json`
+- `test-suites/humans/fp-05-firefox-linux-with-tls-forwarding.bdf.json`
+
+Both run as part of `BdfReplayTests.Integration` -- a regression in the forwarding path breaks the integration suite.
+
+### Added: detector-registration coverage test
+
+`DetectorRegistrationCoverageTests` is a DI wiring guard. If a contributor is added to the YAML manifests but never registered (or vice versa), the test fails the build -- closes the "silent disabled detector" failure mode.
+
+---
+
 ## [6.8.7] - 2026-05-26
 
 Scoring fix: declared bots now read correctly on the dashboard. Plus an in-flight cleanup of two pre-existing test regressions surfaced while verifying the change.
