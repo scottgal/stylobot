@@ -129,6 +129,27 @@ public class SqliteCountryStatsAggregateTests
         rows.Should().NotContain(r => r.CountryCode == "US");
     }
 
+    [Fact]
+    public async Task GetCountryStatsAsync_p95_avg_max_processing_time_computed()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("country-p95");
+
+        // 19 rows at 10 ms, 1 row at 100 ms — all for "US".
+        // avg = (19*10 + 100) / 20 = 290 / 20 = 14.5
+        // max = 100
+        // p95 = avg + (max - avg) * 0.9 = 14.5 + (100 - 14.5) * 0.9 = 14.5 + 76.95 = 91.45
+        for (var i = 0; i < 19; i++)
+            await fx.Store.AddDetectionAsync(MakeDetection("US", isBot: false, bytes: 0) with { ProcessingTimeMs = 10 });
+        await fx.Store.AddDetectionAsync(MakeDetection("US", isBot: false, bytes: 0) with { ProcessingTimeMs = 100 });
+
+        var rows = await fx.Store.GetCountryStatsAsync();
+        var us = rows.Single(r => r.CountryCode == "US");
+
+        us.AvgProcessingTimeMs.Should().BeApproximately(14.5, 0.1);
+        us.MaxProcessingTimeMs.Should().BeApproximately(100.0, 0.1);
+        us.P95ProcessingTimeMs.Should().BeApproximately(91.45, 0.5);
+    }
+
     // --- helpers ---
 
     private static DashboardDetectionEvent MakeDetection(string country, bool isBot, long bytes) =>

@@ -167,7 +167,7 @@ public class DashboardSummaryBroadcaster : BackgroundService
         var detections = await _eventStore.GetDetectionsAsync(new DashboardFilter { Limit = 500 });
 
         var uaGroups = new Dictionary<string, (int total, int bot, int human, double confSum, double procSum,
-            DateTime lastSeen, Dictionary<string, int> versions, Dictionary<string, int> countries, long bytesOut)>(
+            double maxProcMs, DateTime lastSeen, Dictionary<string, int> versions, Dictionary<string, int> countries, long bytesOut)>(
             StringComparer.OrdinalIgnoreCase);
 
         foreach (var d in detections)
@@ -195,7 +195,7 @@ public class DashboardSummaryBroadcaster : BackgroundService
                 family = "Unknown";
 
             if (!uaGroups.TryGetValue(family, out var group))
-                group = (0, 0, 0, 0, 0, DateTime.MinValue,
+                group = (0, 0, 0, 0, 0, 0, DateTime.MinValue,
                     new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
                     new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
                     0L);
@@ -205,6 +205,7 @@ public class DashboardSummaryBroadcaster : BackgroundService
             else group.human++;
             group.confSum += d.Confidence;
             group.procSum += d.ProcessingTimeMs;
+            group.maxProcMs = Math.Max(group.maxProcMs, d.ProcessingTimeMs);
             group.bytesOut += d.ResponseBytes ?? 0;
             if (d.Timestamp > group.lastSeen) group.lastSeen = d.Timestamp;
 
@@ -224,20 +225,29 @@ public class DashboardSummaryBroadcaster : BackgroundService
         }
 
         return uaGroups
-            .Select(kv => new DashboardUserAgentSummary
+            .Select(kv =>
             {
-                Family = kv.Key,
-                Category = InferUaCategory(kv.Key),
-                TotalCount = kv.Value.total,
-                BotCount = kv.Value.bot,
-                HumanCount = kv.Value.human,
-                BotRate = kv.Value.total > 0 ? Math.Round((double)kv.Value.bot / kv.Value.total, 4) : 0,
-                Versions = kv.Value.versions,
-                Countries = kv.Value.countries,
-                AvgConfidence = kv.Value.total > 0 ? Math.Round(kv.Value.confSum / kv.Value.total, 4) : 0,
-                AvgProcessingTimeMs = kv.Value.total > 0 ? Math.Round(kv.Value.procSum / kv.Value.total, 2) : 0,
-                LastSeen = kv.Value.lastSeen,
-                BytesOut = kv.Value.bytesOut,
+                var avgMs = kv.Value.total > 0 ? kv.Value.procSum / kv.Value.total : 0;
+                var maxMs = kv.Value.maxProcMs;
+                // p95 approximation: avg + 90% of the gap to max. Matches the Postgres
+                // backend convention; real percentile requires PERCENTILE_CONT (Task 10).
+                var p95Ms = avgMs + (maxMs - avgMs) * 0.9;
+                return new DashboardUserAgentSummary
+                {
+                    Family              = kv.Key,
+                    Category            = InferUaCategory(kv.Key),
+                    TotalCount          = kv.Value.total,
+                    BotCount            = kv.Value.bot,
+                    HumanCount          = kv.Value.human,
+                    BotRate             = kv.Value.total > 0 ? Math.Round((double)kv.Value.bot / kv.Value.total, 4) : 0,
+                    Versions            = kv.Value.versions,
+                    Countries           = kv.Value.countries,
+                    AvgConfidence       = kv.Value.total > 0 ? Math.Round(kv.Value.confSum / kv.Value.total, 4) : 0,
+                    AvgProcessingTimeMs = Math.Round(avgMs, 2),
+                    LastSeen            = kv.Value.lastSeen,
+                    BytesOut            = kv.Value.bytesOut,
+                    P95ProcessingTimeMs = Math.Round(p95Ms, 2),
+                };
             })
             .OrderByDescending(u => u.TotalCount)
             .ToList();

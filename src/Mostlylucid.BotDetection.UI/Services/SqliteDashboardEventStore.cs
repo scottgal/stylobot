@@ -697,6 +697,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         await conn.OpenAsync();
 
         await using var cmd = conn.CreateCommand();
+        // bytes_out is computed over ALL detections for this signature, not just
+        // detections within startTime/endTime. The signatures-table query above
+        // already ignores the time window, so this matches existing behavior.
+        // A windowed bytes-out belongs to v2's write-through KpiBucketCache.
         cmd.CommandText = """
             SELECT s.signature, s.bot_name, s.bot_type, s.bot_probability, s.hit_count, s.last_seen,
                    s.threat_score, s.threat_band, s.action, s.narrative, s.top_reasons_json, s.country_code,
@@ -744,7 +748,10 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         return results;
     }
 
-    // Column order (0-based): country_code(0), total(1), bots(2), bytes_out(3)
+    // SQLite lacks PERCENTILE_CONT, so p95 is approximated using avg + 90% of (max - avg).
+    // Crude but consistent with the GetEndpointStatsAsync convention; the Postgres backend
+    // returns true p95 via PERCENTILE_CONT (Task 10).
+    // Column order (0-based): country_code(0), total(1), bots(2), avg_ms(3), max_ms(4), bytes_out(5)
     public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
     {
         await EnsureInitializedAsync();
@@ -766,6 +773,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             SELECT country_code,
                    COUNT(*) as total,
                    SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots,
+                   AVG(processing_time_ms) AS avg_ms,
+                   MAX(processing_time_ms) AS max_ms,
                    COALESCE(SUM(response_bytes), 0) as bytes_out
             FROM detections
             {where}
@@ -782,14 +791,22 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         while (await reader.ReadAsync())
         {
             var total = reader.GetInt32(1);
-            var bots = reader.GetInt32(2);
+            var bots  = reader.GetInt32(2);
+            var avgMs = reader.IsDBNull(3) ? 0 : reader.GetDouble(3);
+            var maxMs = reader.IsDBNull(4) ? 0 : reader.GetDouble(4);
+            // p95 approximation: avg + 90% of the gap to max. Matches the Postgres
+            // backend convention; real percentile requires PERCENTILE_CONT (Task 10).
+            var p95Ms = avgMs + (maxMs - avgMs) * 0.9;
             results.Add(new DashboardCountryStats
             {
-                CountryCode = reader.GetString(0),
-                TotalCount = total,
-                BotCount = bots,
-                BotRate = total > 0 ? (double)bots / total : 0,
-                BytesOut = reader.IsDBNull(3) ? 0L : Convert.ToInt64(reader.GetValue(3)),
+                CountryCode         = reader.GetString(0),
+                TotalCount          = total,
+                BotCount            = bots,
+                BotRate             = total > 0 ? (double)bots / total : 0,
+                AvgProcessingTimeMs = Math.Round(avgMs, 2),
+                MaxProcessingTimeMs = Math.Round(maxMs, 2),
+                P95ProcessingTimeMs = Math.Round(p95Ms, 2),
+                BytesOut            = reader.IsDBNull(5) ? 0L : Convert.ToInt64(reader.GetValue(5)),
             });
         }
         return results;

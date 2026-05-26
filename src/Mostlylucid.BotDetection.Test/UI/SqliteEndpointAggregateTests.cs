@@ -1,9 +1,5 @@
 using FluentAssertions;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.UI.Models;
-using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.Test.UI;
 
@@ -12,7 +8,7 @@ public class SqliteEndpointAggregateTests
     [Fact]
     public async Task GetEndpointStatsAsync_returns_bytes_out_and_human_count_alongside_bot_count()
     {
-        await using var fx = await StoreFixture.NewAsync();
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("endpoint-bytes");
 
         // 1 human, 200 bytes, 5 ms
         await fx.Store.AddDetectionAsync(MakeDetection("/api/widget", isBot: false, bytes: 200, ms: 5));
@@ -32,7 +28,7 @@ public class SqliteEndpointAggregateTests
     [Fact]
     public async Task GetEndpointStatsAsync_audience_humans_filters_to_human_rows_only()
     {
-        await using var fx = await StoreFixture.NewAsync();
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("endpoint-humans");
 
         await fx.Store.AddDetectionAsync(MakeDetection("/api/widget", isBot: false, bytes: 200, ms: 5));
         await fx.Store.AddDetectionAsync(MakeDetection("/api/widget", isBot: true,  bytes: 1000, ms: 20));
@@ -49,7 +45,7 @@ public class SqliteEndpointAggregateTests
     [Fact]
     public async Task GetEndpointStatsAsync_audience_bots_filters_to_bot_rows_only()
     {
-        await using var fx = await StoreFixture.NewAsync();
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("endpoint-bots");
 
         await fx.Store.AddDetectionAsync(MakeDetection("/api/widget", isBot: false, bytes: 200, ms: 5));
         await fx.Store.AddDetectionAsync(MakeDetection("/api/widget", isBot: true,  bytes: 1000, ms: 20));
@@ -66,7 +62,7 @@ public class SqliteEndpointAggregateTests
     [Fact]
     public async Task GetEndpointStatsAsync_honours_startTime_endTime_window()
     {
-        await using var fx = await StoreFixture.NewAsync();
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("endpoint-time");
 
         var t0 = DateTime.UtcNow.AddHours(-3);
         var t1 = DateTime.UtcNow.AddHours(-1);
@@ -83,49 +79,21 @@ public class SqliteEndpointAggregateTests
         rows.Select(r => r.Path).Should().BeEquivalentTo(new[] { "/api/recent" });
     }
 
-    // --- fixture helpers ---
+    // --- detection helpers ---
 
     private static DashboardDetectionEvent MakeDetection(string path, bool isBot, long bytes, double ms) =>
         new()
         {
-            RequestId      = Guid.NewGuid().ToString("N")[..12],
-            Timestamp      = DateTime.UtcNow,
-            IsBot          = isBot,
-            BotProbability = isBot ? 0.9 : 0.1,
-            Confidence     = 0.5,
-            RiskBand       = isBot ? "High" : "Low",
-            Method         = "GET",
-            Path           = path,
-            StatusCode     = 200,
+            RequestId        = Guid.NewGuid().ToString("N")[..12],
+            Timestamp        = DateTime.UtcNow,
+            IsBot            = isBot,
+            BotProbability   = isBot ? 0.9 : 0.1,
+            Confidence       = 0.5,
+            RiskBand         = isBot ? "High" : "Low",
+            Method           = "GET",
+            Path             = path,
+            StatusCode       = 200,
             ProcessingTimeMs = ms,
-            ResponseBytes  = bytes,
+            ResponseBytes    = bytes,
         };
-
-    private sealed class StoreFixture : IAsyncDisposable
-    {
-        public required string TempDir { get; init; }
-        public required SqliteDashboardEventStore Store { get; init; }
-
-        public static async Task<StoreFixture> NewAsync()
-        {
-            var tempDir = Path.Combine(Path.GetTempPath(), $"stylobot-endpoint-{Guid.NewGuid():N}");
-            Directory.CreateDirectory(tempDir);
-            var fakeDbPath = Path.Combine(tempDir, "botdetection.db");
-
-            var opts  = Options.Create(new BotDetectionOptions { DatabasePath = fakeDbPath });
-            var store = new SqliteDashboardEventStore(
-                NullLogger<SqliteDashboardEventStore>.Instance, opts);
-
-            // Trigger init via a read-touching method (same pattern as Task 1/2 schema tests).
-            _ = await store.GetDetectionsAsync();
-
-            return new StoreFixture { TempDir = tempDir, Store = store };
-        }
-
-        public ValueTask DisposeAsync()
-        {
-            try { if (Directory.Exists(TempDir)) Directory.Delete(TempDir, recursive: true); } catch { /* best-effort cleanup */ }
-            return ValueTask.CompletedTask;
-        }
-    }
 }

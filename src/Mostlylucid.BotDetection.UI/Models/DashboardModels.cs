@@ -233,6 +233,11 @@ public sealed record DashboardUserAgentSummary
     public required DateTime LastSeen { get; init; }
     /// <summary>Total bytes sent in responses for requests attributed to this UA family.</summary>
     public long BytesOut { get; init; }
+    /// <summary>
+    ///     P95 processing-time approximation: avg + 90% of (max - avg).
+    ///     SQLite lacks PERCENTILE_CONT; the Postgres mirror in Task 10 replaces this with native p95.
+    /// </summary>
+    public double P95ProcessingTimeMs { get; init; }
 }
 
 /// <summary>

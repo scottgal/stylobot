@@ -77,6 +77,27 @@ public class SqliteUaAggregateTests
         curl!.BytesOut.Should().Be(9999);
     }
 
+    [Fact]
+    public async Task ComputeUserAgentsAsync_p95_processing_time_computed()
+    {
+        await using var fx = await SqliteDashboardStoreFixture.NewAsync("ua-p95");
+
+        // 19 rows at 10 ms, 1 row at 100 ms — all "curl" family.
+        // avg = (19*10 + 100) / 20 = 14.5, max = 100
+        // p95 = 14.5 + (100 - 14.5) * 0.9 = 91.45
+        for (var i = 0; i < 19; i++)
+            await fx.Store.AddDetectionAsync(MakeDetection("curl/7.88", isBot: true, bytes: 0) with { ProcessingTimeMs = 10 });
+        await fx.Store.AddDetectionAsync(MakeDetection("curl/7.88", isBot: true, bytes: 0) with { ProcessingTimeMs = 100 });
+
+        var broadcaster = MakeBroadcaster(fx.Store);
+        var summaries = await broadcaster.ComputeUserAgentsAsync();
+
+        var curl = summaries.FirstOrDefault(s => s.Family.Equals("curl", StringComparison.OrdinalIgnoreCase));
+        curl.Should().NotBeNull();
+        curl!.AvgProcessingTimeMs.Should().BeApproximately(14.5, 0.1);
+        curl!.P95ProcessingTimeMs.Should().BeApproximately(91.45, 0.5);
+    }
+
     // --- helpers ---
 
     private static DashboardDetectionEvent MakeDetection(string userAgent, bool isBot, long? bytes) =>
