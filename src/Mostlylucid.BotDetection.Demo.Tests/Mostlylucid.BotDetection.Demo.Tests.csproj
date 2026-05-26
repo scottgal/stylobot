@@ -40,6 +40,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Mostlylucid.BotDetection.Demo\Mostlylucid.BotDetection.Demo.csproj" />
+    <ProjectReference Include="..\Mostlylucid.BotDetection.UI\Mostlylucid.BotDetection.UI.csproj" />
   </ItemGroup>
 
 </Project>

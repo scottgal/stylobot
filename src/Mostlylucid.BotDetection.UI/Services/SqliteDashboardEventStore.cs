@@ -67,6 +67,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 threat_band TEXT,
                 status_code INTEGER DEFAULT 0,
                 user_agent_raw TEXT,
+                response_bytes INTEGER,
                 risk_justification TEXT
             );
 
@@ -148,6 +149,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             foreach (var (table, column, colDef) in new (string, string, string)[]
             {
                 ("detections", "user_agent_raw", "TEXT"),
+                ("detections", "response_bytes", "INTEGER"),
                 ("detections", "risk_justification", "TEXT"),
                 ("signatures", "risk_justification", "TEXT"),
                 ("signatures", "top_reasons_json", "TEXT"),
