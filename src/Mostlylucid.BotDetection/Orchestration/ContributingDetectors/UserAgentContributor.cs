@@ -350,7 +350,14 @@ public partial class UserAgentContributor : ConfiguredContributorBase
     [GeneratedRegex(@"compatible;\s*([A-Za-z][A-Za-z0-9_-]+)")]
     private static partial Regex CompatibleBotRegex();
 
-    [GeneratedRegex(@"^([A-Za-z][A-Za-z0-9_.-]+)/[\d.]")]
+    // Tool-name extractor. Original pattern required a digit / period after the
+    // slash so it would only match version strings (curl/8.4.0, Scrapy/2.11), but
+    // that excluded named bots whose post-slash token is a name not a version --
+    // e.g. AliyunSecBot/Aliyun (...). The name (everything before the first slash)
+    // is what we want, and the form-of-the-tail-is-irrelevant. Mozilla-style UAs
+    // are excluded by the gate at the caller (`!ua.Contains("Mozilla/") || len<60`)
+    // so this relaxation does not start mis-extracting "Mozilla" as a bot name.
+    [GeneratedRegex(@"^([A-Za-z][A-Za-z0-9_.-]+)/")]
     private static partial Regex SimpleToolRegex();
 }
 
