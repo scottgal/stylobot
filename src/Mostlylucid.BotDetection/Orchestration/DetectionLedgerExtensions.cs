@@ -65,6 +65,26 @@ public static class DetectionLedgerExtensions
         var friendlyDomainVerified = preSignals.TryGetValue(SignalKeys.FriendlyDomainVerified, out var fdv)
             ? (bool?)Convert.ToBoolean(fdv)
             : null;
+
+        // Declared-bot override. When the UA self-identifies as a bot, the bot/human
+        // verdict is categorical, not probabilistic -- nobody pretends to be a bot.
+        // The sigmoid rollup + 0.90 AI-clamp would otherwise leave a clean Googlebot
+        // / Mastodon row looking like "70% bot at 0.4 confidence", which is the wrong
+        // framing: probability is 1.0, and the only remaining question lives on the
+        // identity axis ("do we trust the claim?"). Confidence here means strictly
+        // identity confidence -- high once vendor-IP or NodeInfo verification has run
+        // (positive OR negative -- a confirmed spoofer is also a confident identity
+        // judgement), modest while the UA is still merely declared.
+        var declaredBot = preSignals.TryGetValue(SignalKeys.UserAgentIsBot, out var uib) && uib is true;
+        if (declaredBot)
+        {
+            botProbability = 1.0;
+            var verificationAttempted = friendlyIpVerified.HasValue
+                || friendlyDomainVerified.HasValue
+                || preSignals.ContainsKey(SignalKeys.VerifiedBotChecked);
+            confidence = verificationAttempted ? 1.0 : 0.5;
+        }
+
         // ledger.BotType is last-writer-wins (HeuristicEarly often overwrites the
         // authoritative UA pattern's "GoodBot" with a generic "Scraper" guess), but
         // DetermineRiskBand's own YAML fallback recovers from that by looking the

@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Models;
 using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.Policies;
 using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
@@ -144,5 +145,133 @@ public class DefaultPolicyAndCoverageTests
         // Should have at least 14 detectors (the core set + additions)
         Assert.True(policy.FastPathDetectors.Count >= 14,
             $"Expected >= 14 detectors in default policy, got {policy.FastPathDetectors.Count}: {string.Join(", ", policy.FastPathDetectors)}");
+    }
+
+    /// <summary>
+    /// A bare UA-matched bot contribution (Mastodon, MJ12bot, generic Python-requests)
+    /// without identity verification used to roll up as "probability capped at 0.90,
+    /// confidence dragged down by coverage gaps" -- the dashboard read it as a
+    /// lukewarm bot guess. The declared-bot override pins probability to 1.0 (nobody
+    /// pretends to be a bot) and sets confidence to 0.5 (declared but unverified).
+    /// </summary>
+    [Fact]
+    public void DeclaredBot_WithoutVerification_PinsProbabilityToOne_AndConfidenceToHalf()
+    {
+        var ledger = new DetectionLedger("test");
+        ledger.AddContribution(new DetectionContribution
+        {
+            DetectorName = "UserAgent",
+            Category = "Identity",
+            ConfidenceDelta = 0.7,
+            Weight = 1.0,
+            Reason = "Known bot pattern: Mastodon"
+        });
+
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.UserAgentIsBot] = true,
+            [SignalKeys.UserAgentBotType] = "SocialMediaBot",
+            [SignalKeys.UserAgentBotName] = "Mastodon"
+        };
+
+        var result = ledger.ToAggregatedEvidence(aiRan: false, premergedSignals: signals);
+
+        Assert.Equal(1.0, result.BotProbability);
+        Assert.Equal(0.5, result.Confidence);
+    }
+
+    /// <summary>
+    /// Once vendor-IP or NodeInfo verification has run (FriendlyIpVerified or
+    /// FriendlyDomainVerified is set to true), the identity claim is corroborated --
+    /// confidence pins to 1.0.
+    /// </summary>
+    [Fact]
+    public void DeclaredBot_WithDomainVerification_PinsBothToOne()
+    {
+        var ledger = new DetectionLedger("test");
+        ledger.AddContribution(new DetectionContribution
+        {
+            DetectorName = "UserAgent",
+            Category = "Identity",
+            ConfidenceDelta = 0.7,
+            Weight = 1.0,
+            Reason = "Known bot pattern: Mastodon"
+        });
+
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.UserAgentIsBot] = true,
+            [SignalKeys.UserAgentBotType] = "SocialMediaBot",
+            [SignalKeys.UserAgentBotName] = "Mastodon",
+            [SignalKeys.FriendlyDomainVerified] = true
+        };
+
+        var result = ledger.ToAggregatedEvidence(aiRan: false, premergedSignals: signals);
+
+        Assert.Equal(1.0, result.BotProbability);
+        Assert.Equal(1.0, result.Confidence);
+    }
+
+    /// <summary>
+    /// A spoofer (UA claims Googlebot but verification ran and failed) is still 100%
+    /// bot -- the identity claim has been resolved (in the negative), which is itself
+    /// a confident identity judgement. Confidence stays at 1.0.
+    /// </summary>
+    [Fact]
+    public void DeclaredBot_WithFailedVerification_KeepsConfidenceHigh()
+    {
+        var ledger = new DetectionLedger("test");
+        ledger.AddContribution(new DetectionContribution
+        {
+            DetectorName = "VerifiedBot",
+            Category = "Identity",
+            ConfidenceDelta = 0.85,
+            Weight = 1.5,
+            Reason = "Spoofed Googlebot UA"
+        });
+
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.UserAgentIsBot] = true,
+            [SignalKeys.UserAgentBotType] = "SearchEngine",
+            [SignalKeys.UserAgentBotName] = "Googlebot",
+            [SignalKeys.VerifiedBotChecked] = true,
+            [SignalKeys.VerifiedBotSpoofed] = true
+        };
+
+        var result = ledger.ToAggregatedEvidence(aiRan: false, premergedSignals: signals);
+
+        Assert.Equal(1.0, result.BotProbability);
+        Assert.Equal(1.0, result.Confidence);
+    }
+
+    /// <summary>
+    /// Normal human traffic (UserAgentIsBot=false or absent) must NOT trip the
+    /// declared-bot override -- probability and confidence should follow the
+    /// existing rollup/clamp logic unchanged.
+    /// </summary>
+    [Fact]
+    public void Human_NoOverride_FollowsExistingRollup()
+    {
+        var ledger = new DetectionLedger("test");
+        ledger.AddContribution(new DetectionContribution
+        {
+            DetectorName = "UserAgent",
+            Category = "Identity",
+            ConfidenceDelta = -0.3,
+            Weight = 1.0,
+            Reason = "User-Agent appears normal"
+        });
+
+        var signals = new Dictionary<string, object>
+        {
+            [SignalKeys.UserAgentIsBot] = false
+        };
+
+        var result = ledger.ToAggregatedEvidence(aiRan: false, premergedSignals: signals);
+
+        // Sigmoid of -0.3 = ~0.426; well below the AI-clamp ceiling, well above floor.
+        Assert.True(result.BotProbability < 0.5,
+            $"Human UA should not get pinned to 1.0; got {result.BotProbability}");
     }
 }
