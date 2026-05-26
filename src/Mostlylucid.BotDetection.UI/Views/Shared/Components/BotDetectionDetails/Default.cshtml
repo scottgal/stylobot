@@ -91,8 +91,7 @@
         ? $"/dashboard/signature/{Uri.EscapeDataString(primarySig)}"
         : null;
 }
-<!-- yd-diag: @(ViewData["YdDiag"] as string ?? "n/a") -->
-<div class="bot-detection-container" data-sb-widget="your-detection">
+<div class="bot-detection-container" data-sb-widget="your-detection" data-yd-diag="@(ViewData["YdDiag"] as string ?? "n/a")">
     @* Whole upper card is one anchor to /dashboard/signature/<primary> -- visitor
        clicks anywhere on the LIVE header, radar, verdict, or reasons block and
        lands on their own signature detail page. The bottom Top Bots strip is a
