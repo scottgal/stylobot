@@ -1,8 +1,8 @@
-# Declared-bot scoring (6.8.6+)
+# Declared-bot scoring (6.8.7+)
 
 ## Why this exists
 
-Before 6.8.6, a self-declaring bot UA (Googlebot, Mastodon, MJ12bot, generic `python-requests/2.31.0`, etc.) went through the same sigmoid + clamp + coverage-throttled pipeline as ambiguous traffic. The dashboard showed clean known bots as **"~70% bot at ~0.4 confidence"**: lukewarm, hedged, and wrong.
+Before 6.8.7, a self-declaring bot UA (Googlebot, Mastodon, MJ12bot, generic `python-requests/2.31.0`, etc.) went through the same sigmoid + clamp + coverage-throttled pipeline as ambiguous traffic. The dashboard showed clean known bots as **"~70% bot at ~0.4 confidence"**: lukewarm, hedged, and wrong.
 
 The framing error is in the question being asked. For a UA that literally says `Googlebot/2.1`, "is this a bot?" is not the question -- **nobody pretends to be a bot.** The bot/human verdict is *categorical*, not probabilistic. The only open question is whether the identity *claim* is genuine -- which is a different axis.
 
@@ -41,9 +41,9 @@ confidence     = anyVerificationAttempted ? 1.0 : 0.5
 
 ## Dashboard read
 
-The signature dashboard surfaces `BotProbability` and `Confidence` from `AggregatedEvidence`. After 6.8.6 a Mastodon row with no `friendly.*` wiring reads:
+The signature dashboard surfaces `BotProbability` and `Confidence` from `AggregatedEvidence`. After 6.8.7 a Mastodon row with no `friendly.*` wiring reads:
 
-| Field | Pre-6.8.6 | Post-6.8.6 |
+| Field | Pre-6.8.7 | Post-6.8.7 |
 |-------|-----------|------------|
 | Bot Probability | ~0.7 (clamped to 0.90 ceiling) | **1.0** |
 | Confidence | ~0.4 (coverage-throttled) | **0.5** |

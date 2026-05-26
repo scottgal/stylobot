@@ -101,7 +101,7 @@ Running AI detection (heuristic or LLM) increases detection confidence in two wa
 
 A request evaluated by fast-path detectors alone may have a detection confidence of 0.5-0.7. The same request with AI escalation typically reaches 0.8-0.95 confidence, even if the bot probability stays the same.
 
-### Declared bots: categorical, not probabilistic (6.8.6+)
+### Declared bots: categorical, not probabilistic (6.8.7+)
 
 The two-dimensional model above applies to *ambiguous* traffic -- requests where the system has to weigh evidence. **Self-declared bots are not ambiguous.** A UA that says `Googlebot/2.1` or `Mastodon/4.2.0 (+https://mastodon.social)` is making a categorical claim; the bot/human verdict is settled at the UA. Nobody pretends to be a bot.
 

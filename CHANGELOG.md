@@ -5,7 +5,7 @@ All notable changes to StyloBot are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [6.8.6] - 2026-05-26
+## [6.8.7] - 2026-05-26
 
 Scoring fix: declared bots now read correctly on the dashboard. Plus an in-flight cleanup of two pre-existing test regressions surfaced while verifying the change.
 
@@ -21,6 +21,14 @@ Known-bot UAs (Googlebot, Mastodon, MJ12bot, generic `python-requests`, etc.) we
 Verified-good early-exit (`CreateEarlyExitResult`) and the friendly-pin RiskBand logic (`DetermineRiskBand`) are unchanged -- both still set probability/confidence to 1.0/1.0 for verified Googlebot / Bingbot / fediverse instances. The override only fires on the path *between* "UA self-declares" and "rDNS / NodeInfo confirmed". See [`docs/declared-bot-scoring.md`](src/Mostlylucid.BotDetection/docs/declared-bot-scoring.md) for the full semantics and the four regression-pinning tests in `DefaultPolicyAndCoverageTests`.
 
 Dashboard effect: a Mastodon signature without `friendly.*_verified` wired flips from "~0.7 probability capped at 0.90, ~0.4 confidence" to a clean **1.0 / 0.5**. The moment NodeInfo or vendor-IP verification fires, confidence pins to **1.0 / 1.0**.
+
+### Fixed: home YourDetection radar empty for quorum-exit visitors (`852c972`)
+
+The home YourDetection radar was empty for every visitor whose orchestrator quorum-exits before wave-30 `SessionVectorContributor` runs — i.e. every clearly-human visitor on first paint. The live `SessionStore` cache stays empty in that case, and the persisted fallback was broken (loaded the persisted session row but never projected from its stored vector). Restored the fallback: project directly from `SqliteSessionStore.DeserializeVector(latest.Vector)` into the 12-axis clock when no live session is in cache. Steady state for the home card becomes "2-min-stale at worst" via `SessionAtomizerService`.
+
+### Fixed: red palette overload on dashboard (`852c972`)
+
+Red on the dashboard meant two different things at once. Reserved red exclusively for the **danger** semantic; type column + sparkline updated to use a non-red palette so a glance at the row no longer conflates "this is a bot" with "this is dangerous".
 
 ### Fixed: stale `ContentSequenceContributor` priority assertion
 
