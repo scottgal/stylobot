@@ -11,7 +11,7 @@ using Mostlylucid.Ephemeral.Atoms.Taxonomy.Ledger;
 namespace Mostlylucid.BotDetection.Orchestration.ContributingDetectors;
 
 /// <summary>
-///     Wave 0 (Priority 4) sequencer that tracks where each fingerprint is in its content
+///     Wave 0 (Priority 6) sequencer that tracks where each fingerprint is in its content
 ///     request sequence and writes <c>sequence.*</c> signals for deferred detectors.
 ///
 ///     On a document hit (Sec-Fetch-Mode: navigate OR Accept: text/html + GET):

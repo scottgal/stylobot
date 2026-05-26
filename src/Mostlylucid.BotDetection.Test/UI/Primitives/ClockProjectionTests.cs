@@ -87,16 +87,22 @@ public class ClockProjectionTests
 
         var clock = ClockProjection.Compose12Axes(semantic, markov);
 
+        // Layout is grouped by behavioural quadrant (Footprint / Surface / Cadence /
+        // Signal) so a visitor paints a single fat lobe rather than scattered spikes.
         Assert.Equal(12, clock.Length);
+        // Footprint -- what they navigate
         Assert.Equal(0.10, clock[0],  5); // 12 Browsing       ← semantic[0]
-        Assert.Equal(0.11, clock[1],  5); //  1 API Activity   ← semantic[1]
-        Assert.Equal(0.21, clock[2],  5); //  2 Asset          ← markov[0]
+        Assert.Equal(0.17, clock[1],  5); //  1 Path Diversity ← semantic[7]
+        Assert.Equal(0.21, clock[2],  5); //  2 Asset Share    ← markov[0]
+        // Surface -- how they interact
         Assert.Equal(0.22, clock[3],  5); //  3 Realtime       ← markov[1]
         Assert.Equal(0.23, clock[4],  5); //  4 Form/Search    ← markov[2]
-        Assert.Equal(0.13, clock[5],  5); //  5 Auth Pressure  ← semantic[3]
-        Assert.Equal(0.15, clock[6],  5); //  6 Burst Speed    ← semantic[5]
-        Assert.Equal(0.14, clock[7],  5); //  7 Timing         ← semantic[4]
-        Assert.Equal(0.17, clock[8],  5); //  8 Path Diversity ← semantic[7]
+        Assert.Equal(0.11, clock[5],  5); //  5 API Activity   ← semantic[1]
+        // Cadence -- speed / rhythm
+        Assert.Equal(0.13, clock[6],  5); //  6 Auth Pressure  ← semantic[3]
+        Assert.Equal(0.15, clock[7],  5); //  7 Burst Speed    ← semantic[5]
+        Assert.Equal(0.14, clock[8],  5); //  8 Timing         ← semantic[4]
+        // Signal -- anomaly / identity tells
         Assert.Equal(0.24, clock[9],  5); //  9 404 Share      ← markov[3]
         Assert.Equal(0.12, clock[10], 5); // 10 Scan/Probe     ← semantic[2]
         Assert.Equal(0.16, clock[11], 5); // 11 Fingerprint    ← semantic[6]

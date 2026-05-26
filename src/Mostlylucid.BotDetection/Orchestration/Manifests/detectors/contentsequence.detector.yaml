@@ -1,6 +1,6 @@
 # Content Sequence Detector
 name: ContentSequenceContributor
-priority: 4
+priority: 6
 enabled: true
 description: Tracks content request sequences and writes signals for deferred detection
 

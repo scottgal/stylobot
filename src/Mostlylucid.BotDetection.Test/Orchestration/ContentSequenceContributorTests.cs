@@ -153,10 +153,13 @@ public class ContentSequenceContributorTests : IDisposable
     }
 
     [Fact]
-    public void Priority_ReturnsFour()
+    public void Priority_ReturnsSix()
     {
+        // Bumped from 4 → 6 so RequestMarkovClassifier sees TransportProtocol's
+        // SignalR / Upgrade / ProtocolClass signals (previously SignalR negotiates
+        // were misclassified as PageView).
         var contributor = CreateContributor();
-        Assert.Equal(4, contributor.Priority);
+        Assert.Equal(6, contributor.Priority);
     }
 
     [Fact]
