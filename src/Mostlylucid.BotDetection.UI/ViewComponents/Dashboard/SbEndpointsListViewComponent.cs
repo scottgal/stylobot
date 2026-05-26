@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -18,10 +19,24 @@ public class SbEndpointsListViewComponent(
         int page = 1,
         int pageSize = 25,
         bool excludeStatic = false,
-        bool compact = false)
+        bool compact = false,
+        string? audience = null,
+        string? range = null)
     {
-        var cached = aggregateCache.Current.Endpoints;
-        IReadOnlyList<DashboardEndpointStats> data = cached.Count > 0 ? cached : await eventStore.GetEndpointStatsAsync(500);
+        var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
+
+        IReadOnlyList<DashboardEndpointStats> data;
+        if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
+        {
+            // Parameter-driven: always bypass cache, query store with the provided args.
+            data = await eventStore.GetEndpointStatsAsync(500, startTime, endTime, audience);
+        }
+        else
+        {
+            // Legacy: cache-first / store-fallback so the live dashboard hot path is unchanged.
+            var cached = aggregateCache.Current.Endpoints;
+            data = cached.Count > 0 ? cached : await eventStore.GetEndpointStatsAsync(500);
+        }
         if (excludeStatic)
         {
             data = data.Where(e => !IsStaticResource(e.Path)).ToList();
@@ -32,6 +47,7 @@ public class SbEndpointsListViewComponent(
             "botrate" => dir == "asc" ? data.OrderBy(x => x.BotRate) : data.OrderByDescending(x => x.BotRate),
             "latency" => dir == "asc" ? data.OrderBy(x => x.AvgProcessingTimeMs) : data.OrderByDescending(x => x.AvgProcessingTimeMs),
             "unique" => dir == "asc" ? data.OrderBy(x => x.UniqueSignatures) : data.OrderByDescending(x => x.UniqueSignatures),
+            "bytes" => dir == "asc" ? data.OrderBy(x => x.BytesOut) : data.OrderByDescending(x => x.BytesOut),
             _ => dir == "asc" ? data.OrderBy(x => x.TotalCount) : data.OrderByDescending(x => x.TotalCount)
         };
         return View(new EndpointsListModel

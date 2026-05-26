@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -8,24 +9,41 @@ namespace Mostlylucid.BotDetection.UI.ViewComponents.Dashboard;
 
 public class SbUserAgentsListViewComponent(
     DashboardAggregateCache aggregateCache,
+    DashboardUserAgentAggregator userAgentAggregator,
     IOptions<StyloBotDashboardOptions> options)
     : ViewComponent
 {
-    public IViewComponentResult Invoke(
+    public async Task<IViewComponentResult> InvokeAsync(
         string filter = "all",
         string sort = "requests",
         string dir = "desc",
         int page = 1,
-        int pageSize = 25)
+        int pageSize = 25,
+        string? audience = null,
+        string? range = null)
     {
-        var all = aggregateCache.Current.UserAgents;
+        var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
+
+        List<DashboardUserAgentSummary> all;
+        if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
+        {
+            // Parameter-driven: bypass cache, aggregate directly from the store.
+            all = await userAgentAggregator.ComputeAsync(audience, startTime, endTime);
+        }
+        else
+        {
+            // Legacy: use the pre-computed cache snapshot so the live dashboard hot path is unchanged.
+            all = aggregateCache.Current.UserAgents;
+        }
+        // Category values are lowercase strings produced by DashboardUserAgentAggregator.InferUaCategory:
+        // "browser", "search", "ai", "tool", "unknown".
         IEnumerable<DashboardUserAgentSummary> filtered = filter switch
         {
-            "browser" => all.Where(x => x.Category == "Browser"),
-            "bot" => all.Where(x => x.BotRate > 0.5),
-            "ai" => all.Where(x => x.Category is "AI" or "AiBot"),
-            "tool" => all.Where(x => x.Category is "Tool" or "Scraper" or "MonitoringBot"),
-            _ => all
+            "browser" => all.Where(x => x.Category == "browser"),
+            "bot"     => all.Where(x => x.BotRate > 0.5),
+            "ai"      => all.Where(x => x.Category is "ai" or "search"),
+            "tool"    => all.Where(x => x.Category == "tool"),
+            _         => all
         };
         var filteredList = filtered.ToList();
         IEnumerable<DashboardUserAgentSummary> sorted = sort switch

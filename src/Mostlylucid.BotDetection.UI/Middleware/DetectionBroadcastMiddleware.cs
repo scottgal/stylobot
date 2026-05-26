@@ -304,7 +304,7 @@ public partial class DetectionBroadcastMiddleware
     ///     UaDeviceClass analytics fields are populated according to the capture flags; Domain is
     ///     always set regardless of flags as it is the multi-domain partition key.
     /// </summary>
-    private DashboardDetectionEvent BuildDetectionFromEvidence(
+    internal DashboardDetectionEvent BuildDetectionFromEvidence(
         HttpContext context,
         AggregatedEvidence evidence,
         Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions? recordOptions = null)
@@ -380,6 +380,7 @@ public partial class DetectionBroadcastMiddleware
             Referer = captureReferer ? rawReferer : null,
             ReferrerHost = derivedReferrerHost,
             UaDeviceClass = derivedUaDeviceClass,
+            ResponseBytes = context.Response.ContentLength,
         };
 
         return detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };
@@ -388,7 +389,7 @@ public partial class DetectionBroadcastMiddleware
     /// <summary>
     ///     Build a DashboardDetectionEvent from upstream-trusted BotDetectionResult (no AggregatedEvidence).
     /// </summary>
-    private DashboardDetectionEvent BuildDetectionFromUpstream(HttpContext context, BotDetectionResult result)
+    internal DashboardDetectionEvent BuildDetectionFromUpstream(HttpContext context, BotDetectionResult result)
     {
         var sigValue = ResolvePrimarySignature(context);
         var botProbability = result.ConfidenceScore; // Legacy field: actually holds bot probability
@@ -481,6 +482,7 @@ public partial class DetectionBroadcastMiddleware
                 ? tbObj?.ToString() : null,
             // Domain is unconditional for the upstream path too (multi-domain partition key)
             Domain = context.Request.Host.Host?.ToLowerInvariant(),
+            ResponseBytes = context.Response.ContentLength,
         };
 
         return detection with { Narrative = DetectionNarrativeBuilder.Build(detection) };

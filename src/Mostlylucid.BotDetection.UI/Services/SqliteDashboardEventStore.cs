@@ -67,6 +67,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 threat_band TEXT,
                 status_code INTEGER DEFAULT 0,
                 user_agent_raw TEXT,
+                response_bytes INTEGER,
                 risk_justification TEXT
             );
 
@@ -148,6 +149,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             foreach (var (table, column, colDef) in new (string, string, string)[]
             {
                 ("detections", "user_agent_raw", "TEXT"),
+                ("detections", "response_bytes", "INTEGER"),
                 ("detections", "risk_justification", "TEXT"),
                 ("signatures", "risk_justification", "TEXT"),
                 ("signatures", "top_reasons_json", "TEXT"),
@@ -267,9 +269,9 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.CommandText = """
                 INSERT INTO detections (timestamp, signature, method, path, is_bot, bot_probability, confidence,
                     risk_band, bot_name, bot_type, action, country_code, processing_time_ms, threat_score, threat_band,
-                    status_code, user_agent_raw, risk_justification, domain, referrer_host, ua_device_class)
+                    status_code, user_agent_raw, risk_justification, domain, referrer_host, ua_device_class, response_bytes)
                 VALUES (@ts, @sig, @method, @path, @isBot, @prob, @conf, @risk, @name, @type, @action, @country, @ms,
-                    @threat, @band, @status, @uaRaw, @justification, @domain, @refHost, @deviceClass)
+                    @threat, @band, @status, @uaRaw, @justification, @domain, @refHost, @deviceClass, @responseBytes)
                 """;
             cmd.Parameters.AddWithValue("@ts", detection.Timestamp.ToString("O"));
             cmd.Parameters.AddWithValue("@sig", detection.PrimarySignature ?? "unknown");
@@ -293,6 +295,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             cmd.Parameters.AddWithValue("@domain", (object?)detection.Domain ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@refHost", (object?)detection.ReferrerHost ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@deviceClass", (object?)detection.UaDeviceClass ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@responseBytes", (object?)detection.ResponseBytes ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync();
 
             // Upsert UA stats for analytics
@@ -479,6 +482,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 StatusCode      = reader.GetInt32(ordStatus),
                 UserAgentRaw    = SafeGetString(reader, "user_agent_raw"),
                 RiskJustification = SafeGetString(reader, "risk_justification"),
+                ResponseBytes   = SafeGetInt64Nullable(reader, "response_bytes"),
                 Domain          = reader.IsDBNull(ordDomain)      ? null : reader.GetString(ordDomain),
                 ReferrerHost    = reader.IsDBNull(ordRefHost)      ? null : reader.GetString(ordRefHost),
                 UaDeviceClass   = reader.IsDBNull(ordDeviceClass)  ? null : reader.GetString(ordDeviceClass)
@@ -512,38 +516,69 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         return results;
     }
 
-    public async Task<DashboardSummary> GetSummaryAsync()
+    public async Task<DashboardSummary> GetSummaryAsync(
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        string? audienceFilter = null)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
-        var since = DateTime.UtcNow.AddHours(-6).ToString("O");
+        // When no window is provided, preserve legacy 6-hour default.
+        var sinceStr = (startTime ?? DateTime.UtcNow.AddHours(-6)).ToString("O");
+        var untilStr = (endTime ?? DateTime.MaxValue).ToString("O");
+        var hasUntil = endTime.HasValue;
+
+        // Audience predicate for the detection-level sub-query only.
+        var audiencePredicate = audienceFilter?.ToLowerInvariant() switch
+        {
+            "bots"   => " AND is_bot = 1",
+            "humans" => " AND is_bot = 0",
+            _        => string.Empty
+        };
 
         // Request-level counts (one detection row per request — drives traffic charts).
+        // Also aggregates bytes_out, avg/max processing time for the KPI strip.
         int total = 0, bots = 0;
+        long bytesOut = 0;
+        double avgMs = 0.0, maxMs = 0.0;
+
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = """
+            var untilClause = hasUntil ? " AND timestamp < @until" : string.Empty;
+            cmd.CommandText = $"""
                 SELECT
                     COUNT(*) AS total,
-                    SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots
+                    SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots,
+                    COALESCE(SUM(response_bytes), 0) AS bytes_out,
+                    AVG(processing_time_ms) AS avg_ms,
+                    MAX(processing_time_ms) AS max_ms
                 FROM detections
-                WHERE timestamp >= @since
+                WHERE timestamp >= @since{untilClause}{audiencePredicate}
                 """;
-            cmd.Parameters.AddWithValue("@since", since);
+            cmd.Parameters.AddWithValue("@since", sinceStr);
+            if (hasUntil) cmd.Parameters.AddWithValue("@until", untilStr);
             await using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
             {
-                total = reader.IsDBNull(0) ? 0 : reader.GetInt32(0);
-                bots  = reader.IsDBNull(1) ? 0 : reader.GetInt32(1);
+                total    = reader.IsDBNull(0) ? 0  : reader.GetInt32(0);
+                bots     = reader.IsDBNull(1) ? 0  : reader.GetInt32(1);
+                bytesOut = reader.IsDBNull(2) ? 0L : Convert.ToInt64(reader.GetValue(2));
+                avgMs    = reader.IsDBNull(3) ? 0.0 : Convert.ToDouble(reader.GetValue(3));
+                maxMs    = reader.IsDBNull(4) ? 0.0 : Convert.ToDouble(reader.GetValue(4));
             }
         }
+
+        // SQLite lacks PERCENTILE_CONT — approximation; Postgres backend returns true PERCENTILE_CONT.
+        var p95Ms = avgMs + (maxMs - avgMs) * 0.9;
 
         // Fingerprint-level counts (one signatures row per unique fingerprint).
         // bot_probability is the EWMA-blended posterior, risk_band is the latest
         // band — so these are the "how many actors did we see" counts the
         // dashboard banner should be showing.
+        // The audience filter does NOT apply here — fingerprint counts are identity-level,
+        // not request-level, and remain unfiltered regardless of the audience parameter.
         int sigs = 0, botSigs = 0, humanSigs = 0, highSigs = 0;
         var riskBands = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         await using (var cmd = conn.CreateCommand())
@@ -557,7 +592,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 FROM signatures
                 WHERE last_seen >= @since
                 """;
-            cmd.Parameters.AddWithValue("@since", since);
+            cmd.Parameters.AddWithValue("@since", sinceStr);
             await using var reader = await cmd.ExecuteReaderAsync();
             if (await reader.ReadAsync())
             {
@@ -577,7 +612,7 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 WHERE last_seen >= @since
                 GROUP BY band
                 """;
-            cmd.Parameters.AddWithValue("@since", since);
+            cmd.Parameters.AddWithValue("@since", sinceStr);
             await using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync())
             {
@@ -600,11 +635,19 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             HighRiskFingerprints = highSigs,
             RiskBandCounts = riskBands,
             TopBotTypes = new Dictionary<string, int>(),
-            TopActions = new Dictionary<string, int>()
+            TopActions = new Dictionary<string, int>(),
+            BytesOut = bytesOut,
+            AverageProcessingTimeMs = Math.Round(avgMs, 2),
+            P95ProcessingTimeMs = Math.Round(p95Ms, 2),
+            MaxProcessingTimeMs = Math.Round(maxMs, 2)
         };
     }
 
-    public async Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(DateTime startTime, DateTime endTime, TimeSpan bucketSize)
+    public async Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(
+        DateTime startTime,
+        DateTime endTime,
+        TimeSpan bucketSize,
+        string? audienceFilter = null)
     {
         await EnsureInitializedAsync();
 
@@ -615,20 +658,31 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         // overlapping/scrambled series the chart drew as disconnected points.
         var bucketSeconds = Math.Max((int)bucketSize.TotalSeconds, 1);
 
+        // Audience predicate restricts each bucket to the matching audience.
+        var audiencePredicate = audienceFilter?.ToLowerInvariant() switch
+        {
+            "bots"   => " AND is_bot = 1",
+            "humans" => " AND is_bot = 0",
+            _        => string.Empty
+        };
+
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             SELECT
                 strftime('%Y-%m-%dT%H:%M:%SZ',
                          (CAST(strftime('%s', timestamp) AS INTEGER) / @bucket) * @bucket,
                          'unixepoch') AS bucket,
                 SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) AS bots,
                 SUM(CASE WHEN is_bot = 0 THEN 1 ELSE 0 END) AS humans,
-                COUNT(*) AS total
+                COUNT(*) AS total,
+                COALESCE(SUM(response_bytes), 0) AS bytes_out,
+                AVG(processing_time_ms) AS avg_ms,
+                MAX(processing_time_ms) AS max_ms
             FROM detections
-            WHERE timestamp >= @start AND timestamp < @end
+            WHERE timestamp >= @start AND timestamp < @end{audiencePredicate}
             GROUP BY bucket
             ORDER BY bucket
             """;
@@ -643,13 +697,24 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
             var bucket = reader.GetString(0);
             if (DateTime.TryParse(bucket, System.Globalization.CultureInfo.InvariantCulture,
                                   System.Globalization.DateTimeStyles.RoundtripKind, out var ts))
+            {
+                var bucketAvgMs = reader.IsDBNull(5) ? 0.0 : Convert.ToDouble(reader.GetValue(5));
+                var bucketMaxMs = reader.IsDBNull(6) ? 0.0 : Convert.ToDouble(reader.GetValue(6));
+                // SQLite lacks PERCENTILE_CONT — approximation; Postgres backend returns true PERCENTILE_CONT.
+                var bucketP95Ms = bucketAvgMs + (bucketMaxMs - bucketAvgMs) * 0.9;
+
                 dbPoints[bucket] = new DashboardTimeSeriesPoint
                 {
                     Timestamp = ts,
                     BotCount = reader.IsDBNull(1) ? 0 : reader.GetInt32(1),
                     HumanCount = reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
-                    TotalCount = reader.IsDBNull(3) ? 0 : reader.GetInt32(3)
+                    TotalCount = reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+                    BytesOut = reader.IsDBNull(4) ? 0L : Convert.ToInt64(reader.GetValue(4)),
+                    AvgProcessingTimeMs = Math.Round(bucketAvgMs, 2),
+                    P95ProcessingTimeMs = Math.Round(bucketP95Ms, 2),
+                    MaxProcessingTimeMs = Math.Round(bucketMaxMs, 2)
                 };
+            }
         }
 
         // Align startTime DOWN to the nearest bucket boundary so the gap-fill iteration
@@ -667,7 +732,11 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 Timestamp = current,
                 BotCount = 0,
                 HumanCount = 0,
-                TotalCount = 0
+                TotalCount = 0,
+                BytesOut = 0L,
+                AvgProcessingTimeMs = 0.0,
+                P95ProcessingTimeMs = 0.0,
+                MaxProcessingTimeMs = 0.0
             });
             current = current.Add(bucketSize);
         }
@@ -678,13 +747,28 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
     // Both stores share the same database file. The join is intentional; on a fresh DB with no
     // sessions yet, the subquery returns NULL for last_path, which is handled via reader.IsDBNull(12).
     // top_reasons_json is migrated by EnsureInitializedAsync — absent on pre-migration DBs it reads NULL.
-    public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null)
+    // Column order (0-based): signature(0), bot_name(1), bot_type(2), bot_probability(3), hit_count(4),
+    //   last_seen(5), threat_score(6), threat_band(7), action(8), narrative(9), top_reasons_json(10),
+    //   country_code(11), last_path(12), bytes_out(13)
+    public async Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
     {
+        // Top-bots is inherently a bot aggregate (reads signatures.is_bot = 1).
+        // When the caller explicitly asks for humans, return empty -- there are no human entries.
+        if (string.Equals(audienceFilter, "humans", StringComparison.OrdinalIgnoreCase))
+            return new List<DashboardTopBotEntry>();
+
+        // When a time window is specified, aggregate directly from detections so the
+        // hit counts honour the window boundary instead of returning all-time totals.
+        if (startTime.HasValue || endTime.HasValue)
+            return await GetTopBotsWindowedAsync(count, startTime, endTime);
+
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
         await using var cmd = conn.CreateCommand();
+        // bytes_out is computed over ALL detections for this signature (no time filter).
+        // This is the all-time / cache-seed path — windowed calls go to GetTopBotsWindowedAsync.
         cmd.CommandText = """
             SELECT s.signature, s.bot_name, s.bot_type, s.bot_probability, s.hit_count, s.last_seen,
                    s.threat_score, s.threat_band, s.action, s.narrative, s.top_reasons_json, s.country_code,
@@ -692,7 +776,8 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                     FROM sessions ses
                     WHERE ses.signature = s.signature AND ses.paths_json IS NOT NULL AND ses.is_bot = 1
                     ORDER BY ses.ended_at DESC
-                    LIMIT 1) AS last_path
+                    LIMIT 1) AS last_path,
+                   COALESCE((SELECT SUM(d.response_bytes) FROM detections d WHERE d.signature = s.signature), 0) AS bytes_out
             FROM signatures s
             WHERE s.is_bot = 1
             ORDER BY s.hit_count DESC
@@ -724,43 +809,145 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                 Narrative = reader.IsDBNull(9) ? null : reader.GetString(9),
                 TopReasons = topReasons,
                 CountryCode = reader.IsDBNull(11) ? null : reader.GetString(11),
-                LastPath = reader.IsDBNull(12) ? null : reader.GetString(12)
+                LastPath = reader.IsDBNull(12) ? null : reader.GetString(12),
+                BytesOut = reader.IsDBNull(13) ? 0L : Convert.ToInt64(reader.GetValue(13)),
             });
         }
         return results;
     }
 
-    public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null)
+    /// <summary>
+    ///     Windowed variant of <see cref="GetTopBotsAsync"/>: aggregates directly from the
+    ///     <c>detections</c> table so hit counts are bounded by the supplied time window.
+    ///     Used when at least one of <paramref name="startTime"/> / <paramref name="endTime"/>
+    ///     is set. The all-time (no-window) path continues to use the signatures table.
+    /// </summary>
+    private async Task<List<DashboardTopBotEntry>> GetTopBotsWindowedAsync(
+        int count, DateTime? startTime, DateTime? endTime)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
+        // Build the time-window predicate. Audience is already handled by the caller
+        // (humans → empty list; bots/null → no extra predicate since is_bot = 1 is fixed).
+        var timeWhere = new System.Text.StringBuilder();
+        if (startTime.HasValue) timeWhere.Append(" AND timestamp >= @start");
+        if (endTime.HasValue)   timeWhere.Append(" AND timestamp <= @end");
+
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        // Column order: signature(0), bot_name(1), bot_type(2), bot_probability(3), hit_count(4),
+        //   last_seen(5), threat_score(6), action(7), threat_band(8), country_code(9), bytes_out(10)
+        // narrative/top_reasons are not stored per-detection row; they default to null for windowed results.
+        cmd.CommandText = $"""
+            SELECT signature,
+                   MAX(bot_name)         AS bot_name,
+                   MAX(bot_type)         AS bot_type,
+                   MAX(bot_probability)  AS bot_probability,
+                   COUNT(*)              AS hit_count,
+                   MAX(timestamp)        AS last_seen,
+                   AVG(threat_score)     AS threat_score,
+                   MAX(action)           AS action,
+                   MAX(threat_band)      AS threat_band,
+                   MAX(country_code)     AS country_code,
+                   COALESCE(SUM(response_bytes), 0) AS bytes_out
+            FROM detections
+            WHERE is_bot = 1{timeWhere}
+            GROUP BY signature
+            ORDER BY hit_count DESC
+            LIMIT @count
+            """;
+
+        if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end",   endTime.Value.ToString("O"));
+        cmd.Parameters.AddWithValue("@count", count);
+
+        var results = new List<DashboardTopBotEntry>();
+        await using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            results.Add(new DashboardTopBotEntry
+            {
+                PrimarySignature = reader.GetString(0),
+                BotName          = reader.IsDBNull(1)  ? null : reader.GetString(1),
+                BotType          = reader.IsDBNull(2)  ? null : reader.GetString(2),
+                BotProbability   = reader.IsDBNull(3)  ? 0    : reader.GetDouble(3),
+                HitCount         = reader.GetInt32(4),
+                LastSeen         = DateTime.Parse(reader.GetString(5)),
+                ThreatScore      = reader.IsDBNull(6)  ? 0    : reader.GetDouble(6),
+                Action           = reader.IsDBNull(7)  ? null : reader.GetString(7),
+                ThreatBand       = reader.IsDBNull(8)  ? null : reader.GetString(8),
+                CountryCode      = reader.IsDBNull(9)  ? null : reader.GetString(9),
+                BytesOut         = reader.IsDBNull(10) ? 0L   : Convert.ToInt64(reader.GetValue(10)),
+                // narrative and top_reasons_json live on the signatures table, not detections;
+                // they are not available in the windowed path.
+                Narrative        = null,
+                TopReasons       = null,
+                LastPath         = null,
+            });
+        }
+        return results;
+    }
+
+    // SQLite lacks PERCENTILE_CONT, so p95 is approximated using avg + 90% of (max - avg).
+    // Crude but consistent with the GetEndpointStatsAsync convention; the Postgres backend
+    // returns true p95 via PERCENTILE_CONT (Task 10).
+    // Column order (0-based): country_code(0), total(1), bots(2), avg_ms(3), max_ms(4), bytes_out(5)
+    public async Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null)
+    {
+        await EnsureInitializedAsync();
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync();
+
+        // Build WHERE clause — mirrors Task-4 GetEndpointStatsAsync convention.
+        var where = new System.Text.StringBuilder("WHERE country_code IS NOT NULL AND country_code != ''");
+        if (startTime.HasValue) where.Append(" AND timestamp >= @start");
+        if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
+        switch (audienceFilter?.ToLowerInvariant())
+        {
+            case "humans": where.Append(" AND is_bot = 0"); break;
+            case "bots":   where.Append(" AND is_bot = 1"); break;
+        }
+
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"""
             SELECT country_code,
                    COUNT(*) as total,
-                   SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots
+                   SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots,
+                   AVG(processing_time_ms) AS avg_ms,
+                   MAX(processing_time_ms) AS max_ms,
+                   COALESCE(SUM(response_bytes), 0) as bytes_out
             FROM detections
-            WHERE country_code IS NOT NULL AND country_code != ''
+            {where}
             GROUP BY country_code
             ORDER BY total DESC
             LIMIT @count
             """;
         cmd.Parameters.AddWithValue("@count", count);
+        if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
 
         var results = new List<DashboardCountryStats>();
         await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
             var total = reader.GetInt32(1);
-            var bots = reader.GetInt32(2);
+            var bots  = reader.GetInt32(2);
+            var avgMs = reader.IsDBNull(3) ? 0 : reader.GetDouble(3);
+            var maxMs = reader.IsDBNull(4) ? 0 : reader.GetDouble(4);
+            // p95 approximation: avg + 90% of the gap to max. Matches the Postgres
+            // backend convention; real percentile requires PERCENTILE_CONT (Task 10).
+            var p95Ms = avgMs + (maxMs - avgMs) * 0.9;
             results.Add(new DashboardCountryStats
             {
-                CountryCode = reader.GetString(0),
-                TotalCount = total,
-                BotCount = bots,
-                BotRate = total > 0 ? (double)bots / total : 0
+                CountryCode         = reader.GetString(0),
+                TotalCount          = total,
+                BotCount            = bots,
+                BotRate             = total > 0 ? (double)bots / total : 0,
+                AvgProcessingTimeMs = Math.Round(avgMs, 2),
+                MaxProcessingTimeMs = Math.Round(maxMs, 2),
+                P95ProcessingTimeMs = Math.Round(p95Ms, 2),
+                BytesOut            = reader.IsDBNull(5) ? 0L : Convert.ToInt64(reader.GetValue(5)),
             });
         }
         return results;
@@ -806,17 +993,35 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         };
     }
 
-    public async Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null)
+    public async Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(
+        int count = 50,
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        string? audienceFilter = null)
     {
         await EnsureInitializedAsync();
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync();
 
+        // Build WHERE clause. Time predicates fix the latent bug where startTime/endTime were
+        // accepted by the signature but never applied. The audience filter maps "humans"/"bots"
+        // to the is_bot column written by AddDetectionAsync (detection.IsBot ? 1 : 0).
+        var where = new System.Text.StringBuilder("WHERE 1=1");
+        if (startTime.HasValue) where.Append(" AND timestamp >= @start");
+        if (endTime.HasValue)   where.Append(" AND timestamp <= @end");
+        switch (audienceFilter?.ToLowerInvariant())
+        {
+            case "humans": where.Append(" AND is_bot = 0"); break;
+            case "bots":   where.Append(" AND is_bot = 1"); break;
+            // null / "all" / anything else: no additional predicate
+        }
+
         await using var cmd = conn.CreateCommand();
-        // SQLite lacks PERCENTILE_CONT, so p95 is approximated using AVG + 2*STDDEV as a rough
-        // p95 estimate (assumes roughly-normal distribution). Min/Max are exact via SQL.
-        // For accurate p95 the Postgres backend uses PERCENTILE_CONT.
-        cmd.CommandText = """
+        // SQLite lacks PERCENTILE_CONT, so p95 is approximated using avg + 90% of (max - avg).
+        // Crude but consistent with the existing convention; the Postgres backend returns true p95.
+        // Column order (0-based): method(0), path(1), total(2), bots(3), sigs(4),
+        //   avg_ms(5), min_ms(6), max_ms(7), avg_threat(8), last_seen(9), bytes_out(10)
+        cmd.CommandText = $"""
             SELECT method, path,
                    COUNT(*) as total,
                    SUM(CASE WHEN is_bot = 1 THEN 1 ELSE 0 END) as bots,
@@ -825,41 +1030,45 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
                    MIN(processing_time_ms) as min_ms,
                    MAX(processing_time_ms) as max_ms,
                    AVG(threat_score) as avg_threat,
-                   MAX(timestamp) as last_seen
+                   MAX(timestamp) as last_seen,
+                   COALESCE(SUM(response_bytes), 0) as bytes_out
             FROM detections
+            {where}
             GROUP BY method, path
             ORDER BY total DESC
             LIMIT @count
             """;
         cmd.Parameters.AddWithValue("@count", count);
+        if (startTime.HasValue) cmd.Parameters.AddWithValue("@start", startTime.Value.ToString("O"));
+        if (endTime.HasValue)   cmd.Parameters.AddWithValue("@end", endTime.Value.ToString("O"));
 
         var results = new List<DashboardEndpointStats>();
         await using var reader = await cmd.ExecuteReaderAsync();
         while (await reader.ReadAsync())
         {
             var total = reader.GetInt32(2);
-            var bots = reader.GetInt32(3);
+            var bots  = reader.GetInt32(3);
             var avgMs = reader.GetDouble(5);
             var minMs = reader.IsDBNull(6) ? 0 : reader.GetDouble(6);
             var maxMs = reader.IsDBNull(7) ? 0 : reader.GetDouble(7);
-            // Crude p95 estimate for SQLite (no native percentile function): half-way between avg
-            // and max. Good enough for the FOSS standalone smoke; commercial Postgres path
-            // returns true PERCENTILE_CONT(0.95).
+            // p95 approximation: avg + 90% of the gap to max. Matches the Postgres
+            // backend convention; real percentile requires PERCENTILE_CONT (Task 10).
             var p95Ms = avgMs + (maxMs - avgMs) * 0.9;
             results.Add(new DashboardEndpointStats
             {
-                Method = reader.GetString(0),
-                Path = reader.GetString(1),
-                TotalCount = total,
-                BotCount = bots,
-                BotRate = total > 0 ? (double)bots / total : 0,
-                UniqueSignatures = reader.GetInt32(4),
+                Method              = reader.GetString(0),
+                Path                = reader.GetString(1),
+                TotalCount          = total,
+                BotCount            = bots,
+                BotRate             = total > 0 ? (double)bots / total : 0,
+                UniqueSignatures    = reader.GetInt32(4),
                 AvgProcessingTimeMs = avgMs,
                 MinProcessingTimeMs = minMs,
                 MaxProcessingTimeMs = maxMs,
                 P95ProcessingTimeMs = p95Ms,
-                AvgThreatScore = reader.IsDBNull(8) ? 0 : reader.GetDouble(8),
-                LastSeen = DateTime.Parse(reader.GetString(9))
+                AvgThreatScore      = reader.IsDBNull(8) ? 0 : reader.GetDouble(8),
+                LastSeen            = DateTime.Parse(reader.GetString(9)),
+                BytesOut            = reader.IsDBNull(10) ? 0L : Convert.ToInt64(reader.GetValue(10)),
             });
         }
         return results;
@@ -1652,6 +1861,24 @@ public sealed class SqliteDashboardEventStore : IDashboardEventStore, IAsyncDisp
         {
             var ordinal = reader.GetOrdinal(column);
             return reader.IsDBNull(ordinal) ? null : reader.GetString(ordinal);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null; // Column doesn't exist yet (pre-migration DB)
+        }
+    }
+
+    /// <summary>
+    ///     Safe nullable int64 read that handles missing or NULL columns.
+    ///     Uses <c>Convert.ToInt64</c> rather than <c>GetInt64</c> to avoid a type-mismatch
+    ///     when SQLite returns an aggregate (e.g. SUM) as REAL instead of INTEGER.
+    /// </summary>
+    private static long? SafeGetInt64Nullable(SqliteDataReader reader, string column)
+    {
+        try
+        {
+            var ordinal = reader.GetOrdinal(column);
+            return reader.IsDBNull(ordinal) ? null : Convert.ToInt64(reader.GetValue(ordinal));
         }
         catch (ArgumentOutOfRangeException)
         {

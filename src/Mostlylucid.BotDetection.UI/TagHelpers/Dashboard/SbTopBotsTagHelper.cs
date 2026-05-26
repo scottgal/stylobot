@@ -29,10 +29,16 @@ public class SbTopBotsTagHelper(IViewComponentHelper vc) : TagHelper
     [HtmlAttributeName("widget-id")]
     public string WidgetId { get; set; } = "topbots";
 
+    [HtmlAttributeName("audience")]
+    public string? Audience { get; set; }
+
+    [HtmlAttributeName("range")]
+    public string? Range { get; set; }
+
     public override async Task ProcessAsync(TagHelperContext context, TagHelperOutput output)
     {
         if (ViewContext != null) (vc as IViewContextAware)?.Contextualize(ViewContext);
         output.TagName = null;
-        output.Content.SetHtmlContent(await vc.InvokeAsync("SbTopBots", new { sortBy = Sort, sortDir = Dir, page = Page, pageSize = PageSize, filter = Filter, widgetId = WidgetId }));
+        output.Content.SetHtmlContent(await vc.InvokeAsync("SbTopBots", new { sortBy = Sort, sortDir = Dir, page = Page, pageSize = PageSize, filter = Filter, widgetId = WidgetId, audience = Audience, range = Range }));
     }
 }

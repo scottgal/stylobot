@@ -11,10 +11,16 @@ public class SbSummaryStatsTagHelper(IViewComponentHelper vc) : TagHelper
     [ViewContext, HtmlAttributeNotBound]
     public ViewContext? ViewContext { get; set; }
 
+    [HtmlAttributeName("audience")]
+    public string? Audience { get; set; }
+
+    [HtmlAttributeName("range")]
+    public string? Range { get; set; }
+
     public override async Task ProcessAsync(TagHelperContext context, TagHelperOutput output)
     {
         if (ViewContext != null) (vc as IViewContextAware)?.Contextualize(ViewContext);
         output.TagName = null;
-        output.Content.SetHtmlContent(await vc.InvokeAsync("SbSummaryStats", new { }));
+        output.Content.SetHtmlContent(await vc.InvokeAsync("SbSummaryStats", new { audience = Audience, range = Range }));
     }
 }

@@ -1,4 +1,5 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Helpers
 @model EndpointsListModel
 @{
     var bp = Model.BasePath;
@@ -21,6 +22,8 @@ else
                 @if (!Model.IsCompact)
                 {
                     <th class="py-1 text-right hidden sm:table-cell">Sigs</th>
+                    <th class="py-1 text-right hidden md:table-cell" title="95th-percentile request processing time">p95</th>
+                    <th class="py-1 text-right hidden md:table-cell" title="Total response bytes served (Content-Length sum)">Bytes</th>
                     <th class="py-1 hidden md:table-cell">Policy</th>
                 }
             </tr>
@@ -49,6 +52,8 @@ else
                     @if (!Model.IsCompact)
                     {
                         <td class="py-1 text-right text-xs font-mono hidden sm:table-cell">@endpoint.UniqueSignatures</td>
+                        <td class="py-1 text-right text-xs font-mono hidden md:table-cell" title="95th-percentile request processing time">@AnalyticsFormatting.FormatMs(endpoint.P95ProcessingTimeMs)</td>
+                        <td class="py-1 text-right text-xs font-mono hidden md:table-cell" title="Total response bytes served (Content-Length sum)">@AnalyticsFormatting.FormatBytes(endpoint.BytesOut)</td>
                         <td class="py-1 hidden md:table-cell">
                             @if (!string.IsNullOrEmpty(endpoint.ActivePolicyName))
                             {

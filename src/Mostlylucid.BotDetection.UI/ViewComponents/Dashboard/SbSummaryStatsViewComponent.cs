@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -12,9 +13,10 @@ public class SbSummaryStatsViewComponent(
     IOptions<StyloBotDashboardOptions> options)
     : ViewComponent
 {
-    public async Task<IViewComponentResult> InvokeAsync()
+    public async Task<IViewComponentResult> InvokeAsync(string? audience = null, string? range = null)
     {
-        var summary = await eventStore.GetSummaryAsync();
+        var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
+        var summary = await eventStore.GetSummaryAsync(startTime, endTime, audience);
         var basePath = options.Value.BasePath.TrimEnd('/');
         var model = new SummaryStatsModel { Summary = summary, BasePath = basePath };
 

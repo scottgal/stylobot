@@ -39,28 +39,39 @@ public interface IDashboardEventStore
 
     /// <summary>
     ///     Get summary statistics.
+    ///     When both <paramref name="startTime"/> and <paramref name="endTime"/> are null the window
+    ///     defaults to the last 6 hours (preserving legacy behavior). When set, the query is bounded to
+    ///     [startTime, endTime]. <paramref name="audienceFilter"/> ("bots" | "humans" | null) restricts
+    ///     the detection-level counts (TotalRequests, BotRequests, HumanRequests, bytes/p95); the
+    ///     fingerprint-level sub-query remains unfiltered.
     /// </summary>
-    Task<DashboardSummary> GetSummaryAsync();
+    Task<DashboardSummary> GetSummaryAsync(
+        DateTime? startTime = null,
+        DateTime? endTime = null,
+        string? audienceFilter = null);
 
     /// <summary>
     ///     Get time-series data for charts.
+    ///     <paramref name="audienceFilter"/> ("bots" | "humans" | null) restricts each bucket to the
+    ///     matching audience.
     /// </summary>
     Task<List<DashboardTimeSeriesPoint>> GetTimeSeriesAsync(
         DateTime startTime,
         DateTime endTime,
-        TimeSpan bucketSize);
+        TimeSpan bucketSize,
+        string? audienceFilter = null);
 
     /// <summary>
     ///     Get top bot signatures ordered by hit count descending.
     ///     When startTime/endTime are provided, only detections within that range are considered.
     /// </summary>
-    Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null);
+    Task<List<DashboardTopBotEntry>> GetTopBotsAsync(int count = 10, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null);
 
     /// <summary>
     ///     Get country-level statistics (total requests, bot count, bot rate).
     ///     When startTime/endTime are provided, only detections within that range are considered.
     /// </summary>
-    Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null);
+    Task<List<DashboardCountryStats>> GetCountryStatsAsync(int count = 20, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null);
 
     /// <summary>
     ///     Get detailed statistics for a single country, including bot type and signature breakdowns.
@@ -70,7 +81,7 @@ public interface IDashboardEventStore
     /// <summary>
     ///     Get endpoint-level statistics aggregated by method + path.
     /// </summary>
-    Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null);
+    Task<List<DashboardEndpointStats>> GetEndpointStatsAsync(int count = 50, DateTime? startTime = null, DateTime? endTime = null, string? audienceFilter = null);
 
     /// <summary>
     ///     Get detailed statistics for a single endpoint.

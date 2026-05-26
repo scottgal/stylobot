@@ -31,11 +31,17 @@ public class SbEndpointsListTagHelper(IViewComponentHelper vc) : TagHelper
     [HtmlAttributeName("compact")]
     public bool Compact { get; set; }
 
+    [HtmlAttributeName("audience")]
+    public string? Audience { get; set; }
+
+    [HtmlAttributeName("range")]
+    public string? Range { get; set; }
+
     public override async Task ProcessAsync(TagHelperContext context, TagHelperOutput output)
     {
         if (ViewContext != null) (vc as IViewContextAware)?.Contextualize(ViewContext);
         output.TagName = null;
         output.Content.SetHtmlContent(await vc.InvokeAsync("SbEndpointsList",
-            new { sort = Sort, dir = Dir, page = Page, pageSize = PageSize, excludeStatic = ExcludeStatic, compact = Compact }));
+            new { sort = Sort, dir = Dir, page = Page, pageSize = PageSize, excludeStatic = ExcludeStatic, compact = Compact, audience = Audience, range = Range }));
     }
 }

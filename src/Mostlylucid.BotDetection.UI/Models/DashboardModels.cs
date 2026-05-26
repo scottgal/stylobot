@@ -96,6 +96,12 @@ public sealed record DashboardDetectionEvent
     public string? UaDeviceClass { get; init; }
 
     /// <summary>
+    ///     Response wire bytes from the Content-Length header. NULL for chunked / streamed
+    ///     responses (Server-Sent Events, hub responses); rendered as "—" in UI.
+    /// </summary>
+    public long? ResponseBytes { get; init; }
+
+    /// <summary>
     ///     16-dimensional radar shape vector for visual fingerprint display.
     ///     Derived from detector contributions and signal dimensions at detection time.
     /// </summary>
@@ -179,6 +185,14 @@ public sealed record DashboardSummary
     public int BotFingerprints { get; init; }
     public int HumanFingerprints { get; init; }
     public int HighRiskFingerprints { get; init; }
+
+    // Traffic volume and latency aggregates — computed from the detections sub-query
+    // and therefore subject to the same audience filter (when set).
+    public long BytesOut { get; init; }
+    // SQLite lacks PERCENTILE_CONT — approximation: avg + (max - avg) * 0.9.
+    // Postgres backend returns true PERCENTILE_CONT.
+    public double P95ProcessingTimeMs { get; init; }
+    public double MaxProcessingTimeMs { get; init; }
 }
 
 /// <summary>
@@ -191,6 +205,12 @@ public sealed record DashboardTimeSeriesPoint
     public required int HumanCount { get; init; }
     public required int TotalCount { get; init; }
     public Dictionary<string, int>? RiskBandCounts { get; init; }
+    public long BytesOut { get; init; }
+    public double AvgProcessingTimeMs { get; init; }
+    // SQLite lacks PERCENTILE_CONT — approximation: avg + (max - avg) * 0.9.
+    // Postgres backend returns true PERCENTILE_CONT.
+    public double P95ProcessingTimeMs { get; init; }
+    public double MaxProcessingTimeMs { get; init; }
 }
 
 /// <summary>
@@ -225,6 +245,13 @@ public sealed record DashboardUserAgentSummary
     public required double AvgConfidence { get; init; }
     public required double AvgProcessingTimeMs { get; init; }
     public required DateTime LastSeen { get; init; }
+    /// <summary>Total bytes sent in responses for requests attributed to this UA family.</summary>
+    public long BytesOut { get; init; }
+    /// <summary>
+    ///     P95 processing-time approximation: avg + 90% of (max - avg).
+    ///     SQLite lacks PERCENTILE_CONT; the Postgres mirror in Task 10 replaces this with native p95.
+    /// </summary>
+    public double P95ProcessingTimeMs { get; init; }
 }
 
 /// <summary>

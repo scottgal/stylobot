@@ -26,6 +26,9 @@ public sealed record DashboardTopBotEntry
     public double? ThreatScore { get; init; }
     public string? ThreatBand { get; init; }
 
+    /// <summary>Total bytes sent in responses attributed to detections for this signature.</summary>
+    public long BytesOut { get; init; }
+
     /// <summary>
     ///     Resolved UA family name (Chrome, Firefox, curl, etc.) from the
     ///     UaProfileStore. Used as a fallback identity label when neither

@@ -23,10 +23,16 @@ public class SbCountriesListTagHelper(IViewComponentHelper vc) : TagHelper
     [HtmlAttributeName("page-size")]
     public int PageSize { get; set; } = 20;
 
+    [HtmlAttributeName("audience")]
+    public string? Audience { get; set; }
+
+    [HtmlAttributeName("range")]
+    public string? Range { get; set; }
+
     public override async Task ProcessAsync(TagHelperContext context, TagHelperOutput output)
     {
         if (ViewContext != null) (vc as IViewContextAware)?.Contextualize(ViewContext);
         output.TagName = null;
-        output.Content.SetHtmlContent(await vc.InvokeAsync("SbCountriesList", new { sort = Sort, dir = Dir, page = Page, pageSize = PageSize }));
+        output.Content.SetHtmlContent(await vc.InvokeAsync("SbCountriesList", new { sort = Sort, dir = Dir, page = Page, pageSize = PageSize, audience = Audience, range = Range }));
     }
 }

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Mostlylucid.BotDetection.UI.Configuration;
+using Mostlylucid.BotDetection.UI.Helpers;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -16,10 +17,24 @@ public class SbCountriesListViewComponent(
         string sort = "total",
         string dir = "desc",
         int page = 1,
-        int pageSize = 20)
+        int pageSize = 20,
+        string? audience = null,
+        string? range = null)
     {
-        var cached = aggregateCache.Current.Countries;
-        var data = cached.Count > 0 ? cached : await eventStore.GetCountryStatsAsync(500);
+        var (startTime, endTime) = AnalyticsRangeParser.Parse(range);
+
+        IReadOnlyList<DashboardCountryStats> data;
+        if (!string.IsNullOrEmpty(audience) || startTime.HasValue)
+        {
+            // Parameter-driven: bypass cache, query store with the provided args.
+            data = await eventStore.GetCountryStatsAsync(500, startTime, endTime, audience);
+        }
+        else
+        {
+            // Legacy: cache-first / store-fallback so the live dashboard hot path is unchanged.
+            var cached = aggregateCache.Current.Countries;
+            data = cached.Count > 0 ? cached : await eventStore.GetCountryStatsAsync(500);
+        }
         IEnumerable<DashboardCountryStats> sorted = sort switch
         {
             "bots" => dir == "asc" ? data.OrderBy(x => x.BotCount) : data.OrderByDescending(x => x.BotCount),
