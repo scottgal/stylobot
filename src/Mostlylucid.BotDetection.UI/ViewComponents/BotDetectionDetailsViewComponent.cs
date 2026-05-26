@@ -55,6 +55,10 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         return View(viewName, model);
     }
 
+    // Concatenated trail of every branch we touched so the diag in the HTML
+    // tells the whole story rather than reporting only the last failure.
+    private string _diagTrail = "";
+
     private async Task<(double[]?, string)> ResolveClockAxesAsync(string primarySig)
     {
         // 1. LIVE in-flight session -- the dashboard's "idx=0 live" row. This
@@ -63,28 +67,42 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         //    visitors the orchestrator usually quorum-exits BEFORE wave 30, so
         //    the live cache is empty on first visit. We try it first because
         //    when it IS hot the radar is as fresh as possible.
-        if (_liveStore is not null)
+        if (_liveStore is null)
+        {
+            _diagTrail += "live-null|";
+        }
+        else
         {
             try
             {
                 var liveSession = _liveStore.GetCurrentSession(primarySig);
-                // SessionVectorizer.Encode short-circuits at Count<2 and returns
-                // a zero-filled vector that won't carry useful shape, so we keep
-                // the threshold at 2 -- below that we fall through to persisted.
-                if (liveSession is { Count: >= 2 })
+                if (liveSession is null)
+                {
+                    _diagTrail += "live-session-null|";
+                }
+                else if (liveSession.Count < 1)
+                {
+                    _diagTrail += $"live-count-{liveSession.Count}|";
+                }
+                else
                 {
                     var vector = SessionVectorizer.Encode(liveSession);
-                    if (vector.Length >= 118)
+                    if (vector.Length < 118)
+                    {
+                        _diagTrail += $"live-vec-{vector.Length}|";
+                    }
+                    else
                     {
                         var axes = ClockAxesResolver.FromSessionVector(vector);
                         if (axes is not null)
                             return (axes, $"live-ok-n{liveSession.Count}-len{vector.Length}");
+                        _diagTrail += "live-axes-null|";
                     }
                 }
             }
             catch (Exception ex)
             {
-                return (null, $"live-throw:{ex.GetType().Name}");
+                return (null, _diagTrail + $"live-throw:{ex.GetType().Name}");
             }
         }
 
@@ -94,33 +112,33 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         //    a finalised session almost always exists, and projecting from its
         //    stored vector is identical to what the dashboard renders on the
         //    signature detail page for the same visitor.
-        if (_persistedStore is not null)
+        if (_persistedStore is null)
         {
-            try
-            {
-                var sessions = await _persistedStore.GetSessionsAsync(
-                    primarySig, limit: 1, HttpContext!.RequestAborted);
-                var latest = sessions.FirstOrDefault();
-                if (latest?.Vector is { Length: > 0 } encoded)
-                {
-                    var vector = SqliteSessionStore.DeserializeVector(encoded);
-                    if (vector.Length >= 118)
-                    {
-                        var axes = ClockAxesResolver.FromSessionVector(vector);
-                        if (axes is not null)
-                            return (axes, $"persisted-ok-len{vector.Length}");
-                        return (null, $"persisted-axes-null-len{vector.Length}");
-                    }
-                    return (null, $"persisted-vec-short-{vector.Length}");
-                }
-                return (null, "persisted-empty");
-            }
-            catch (Exception ex)
-            {
-                return (null, $"persisted-throw:{ex.GetType().Name}");
-            }
+            return (null, _diagTrail + "persisted-null");
         }
 
-        return (null, "no-stores");
+        try
+        {
+            var sessions = await _persistedStore.GetSessionsAsync(
+                primarySig, limit: 1, HttpContext!.RequestAborted);
+            var latest = sessions.FirstOrDefault();
+            if (latest is null)
+                return (null, _diagTrail + "persisted-no-rows");
+            if (latest.Vector is not { Length: > 0 } encoded)
+                return (null, _diagTrail + "persisted-no-vector");
+
+            var vector = SqliteSessionStore.DeserializeVector(encoded);
+            if (vector.Length < 118)
+                return (null, _diagTrail + $"persisted-vec-{vector.Length}");
+
+            var axes = ClockAxesResolver.FromSessionVector(vector);
+            return axes is not null
+                ? (axes, _diagTrail + $"persisted-ok-len{vector.Length}")
+                : (null, _diagTrail + $"persisted-axes-null-len{vector.Length}");
+        }
+        catch (Exception ex)
+        {
+            return (null, _diagTrail + $"persisted-throw:{ex.GetType().Name}");
+        }
     }
 }
