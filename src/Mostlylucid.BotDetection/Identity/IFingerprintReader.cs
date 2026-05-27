@@ -20,6 +20,15 @@ public interface IFingerprintReader
     Task<Fingerprint?> GetFingerprintAsync(string fingerprintId, CancellationToken ct = default);
 
     /// <summary>
+    ///     L1 lookup: resolve the fingerprint id currently bound to
+    ///     <paramref name="primarySignature"/> in <c>fingerprint_keys</c>, or null when
+    ///     no binding exists yet. Used by dashboard render paths to recover the
+    ///     fingerprint id on upstream-trust / verdict-cache fast-paths that bypass
+    ///     the orchestrator (so HttpContext.Items never carries it).
+    /// </summary>
+    Task<string?> LookupFingerprintIdAsync(string primarySignature, CancellationToken ct = default);
+
+    /// <summary>
     ///     Per-fingerprint unabsorbed observation counts (drift candidates). Used to sort
     ///     the Identities tab so visitors with fresh data waiting float to the top.
     /// </summary>

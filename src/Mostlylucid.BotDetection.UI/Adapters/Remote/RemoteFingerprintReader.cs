@@ -19,6 +19,12 @@ internal sealed class RemoteFingerprintReader : IFingerprintReader
         => await _api.GetEnvelopeAsync<Fingerprint>(
             $"/api/v1/fingerprints/{Uri.EscapeDataString(fingerprintId)}", ct);
 
+    // No control-plane endpoint exposes the L1 key map yet, so remote-mode
+    // dashboards skip the upstream-trust fallback and render the calibrating
+    // placeholder instead of the centroid. Safe degradation, no broken section.
+    public Task<string?> LookupFingerprintIdAsync(string primarySignature, CancellationToken ct = default)
+        => Task.FromResult<string?>(null);
+
     public async Task<IReadOnlyDictionary<string, int>> GetUnabsorbedObservationCountsAsync(CancellationToken ct = default)
     {
         var counts = await _api.GetEnvelopeAsync<Dictionary<string, int>>(
