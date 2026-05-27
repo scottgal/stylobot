@@ -104,6 +104,7 @@ public class SessionVectorContributor : ConfiguredContributorBase
         BlackboardState state,
         CancellationToken cancellationToken = default)
     {
+        System.Console.WriteLine($"[SVC-INVOKED] hasSink={_vectorSink != null}");
         var contributions = new List<DetectionContribution>();
 
         try
@@ -111,6 +112,7 @@ public class SessionVectorContributor : ConfiguredContributorBase
             var signature = state.GetSignal<string>(SignalKeys.PrimarySignature);
             if (string.IsNullOrEmpty(signature))
             {
+                System.Console.WriteLine($"[SVC-NOSIG] state had no PrimarySignature");
                 contributions.Add(NeutralContribution("No waveform signature available"));
                 return contributions;
             }
