@@ -104,7 +104,6 @@ public class SessionVectorContributor : ConfiguredContributorBase
         BlackboardState state,
         CancellationToken cancellationToken = default)
     {
-        System.Console.WriteLine($"[SVC-INVOKED] hasSink={_vectorSink != null}");
         var contributions = new List<DetectionContribution>();
 
         try
@@ -112,7 +111,6 @@ public class SessionVectorContributor : ConfiguredContributorBase
             var signature = state.GetSignal<string>(SignalKeys.PrimarySignature);
             if (string.IsNullOrEmpty(signature))
             {
-                System.Console.WriteLine($"[SVC-NOSIG] state had no PrimarySignature");
                 contributions.Add(NeutralContribution("No waveform signature available"));
                 return contributions;
             }
@@ -176,7 +174,6 @@ public class SessionVectorContributor : ConfiguredContributorBase
                 AnalyzePartialChain(state, currentSession, fpContext, contributions);
             }
 
-            System.Console.WriteLine($"[SVC-ENTER] sig={signature[..Math.Min(8, signature.Length)]} sessionCount={currentSession?.Count ?? -1} hasSink={_vectorSink != null}");
             // === Analyze current session (in-progress) ===
             if (currentSession != null && currentSession.Count >= MinSessionRequests)
             {
@@ -185,13 +182,12 @@ public class SessionVectorContributor : ConfiguredContributorBase
 
                 state.WriteSignal(SignalKeys.SessionVectorMaturity, currentMaturity);
 
-                // Write-through to the dashboard's aggregate cache so both the
-                // home-card <bot-detection-details> view component and the
-                // dashboard /api/sessions/signature/{sig} focused-row endpoint
-                // read the same vector and render byte-identical polygons.
-                // No-op when the sink isn't registered (gateway-only deploys
-                // without the dashboard package).
-                System.Console.WriteLine($"[SVC-ENCODE] sig={signature[..Math.Min(8, signature.Length)]} vecLen={currentVector.Length} sinkNull={_vectorSink == null}");
+                // Write-through to the dashboard's aggregate cache. Note: the
+                // orchestrator quorum-exits before priority 30 for clear humans,
+                // so this contributor rarely runs in practice -- the canonical
+                // sink writer is SessionAtomizerService (every ~2 min on
+                // session finalisation). This branch keeps the write here for
+                // bot-shape requests that DO traverse all detection waves.
                 _vectorSink?.RecordLatestVector(signature, currentVector);
 
                 if (currentMaturity >= MinMaturityForScoring)
@@ -214,10 +210,10 @@ public class SessionVectorContributor : ConfiguredContributorBase
             if (_vectorSearch != null && currentSession != null && currentSession.Count >= MinSessionRequests)
             {
                 var currentVector = SessionVectorizer.Encode(currentSession, BuildFingerprintContext(state));
-                // Push the freshly-encoded vector to the dashboard sink here too
-                // -- this branch runs ONLY when the HNSW search is wired, but
-                // when it does we don't want to drop a vector just because the
-                // earlier maturity gate (line 178) didn't fire.
+                // Push the freshly-encoded vector to the dashboard sink here
+                // too -- this branch runs ONLY when the HNSW search is wired,
+                // but when it does we don't want to drop a vector just
+                // because the earlier maturity gate didn't fire.
                 _vectorSink?.RecordLatestVector(signature, currentVector);
 
                 await AnalyzeVoidnessAsync(state, currentVector, contributions, cancellationToken);
