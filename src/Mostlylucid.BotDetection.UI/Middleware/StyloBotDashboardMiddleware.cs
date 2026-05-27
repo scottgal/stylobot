@@ -106,6 +106,8 @@ public class StyloBotDashboardMiddleware
         "api/license",
         "api/config/manifests",
         "api/config/schema",
+        "api/config/sections",
+        "api/config/effective",
         "api/endpoint-pins",
     };
 
@@ -332,6 +334,18 @@ public class StyloBotDashboardMiddleware
 
             case var p when p.StartsWith("api/config/manifests/", StringComparison.OrdinalIgnoreCase):
                 await ServeConfigManifestApiAsync(context, relativePath["api/config/manifests/".Length..]);
+                break;
+
+            case "api/config/sections":
+                await ServeConfigSectionsListAsync(context);
+                break;
+
+            case var p when p.StartsWith("api/config/section/", StringComparison.OrdinalIgnoreCase):
+                await ServeConfigSectionAsync(context, relativePath["api/config/section/".Length..]);
+                break;
+
+            case "api/config/effective":
+                await ServeConfigEffectiveAsync(context);
                 break;
 
             case "api/labels":
@@ -2877,6 +2891,7 @@ public class StyloBotDashboardMiddleware
         {
             BasePath = _options.BasePath.TrimEnd('/'),
             Detectors = await editor.ListManifestsAsync(context.RequestAborted),
+            Sections = EffectiveConfigSerializer.DiscoverSections(),
             IsCommercialLicensed = commercial,
             ReadOnly = !canEdit
         };
@@ -2955,8 +2970,139 @@ public class StyloBotDashboardMiddleware
             context.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
+
+        // ?format=html drives the dashboard's Configuration tab: server-rendered,
+        // syntax-highlighted YAML or JSON returned as an HTMX fragment. Any other
+        // format (or absent) keeps the legacy JSON-of-the-document response so
+        // external API consumers don't break.
+        var format = context.Request.Query["format"].FirstOrDefault();
+        if (string.Equals(format, "html", StringComparison.OrdinalIgnoreCase))
+        {
+            var view = context.Request.Query["view"].FirstOrDefault() ?? "yaml";
+            string highlighted;
+            string label;
+            if (string.Equals(view, "json", StringComparison.OrdinalIgnoreCase))
+            {
+                // "JSON view" of a detector = the effective DetectorDefaults (weights,
+                // confidence, timing, features, parameters) AFTER appsettings overrides.
+                var provider = context.RequestServices.GetService<IDetectorConfigProvider>();
+                var manifest = provider?.GetManifest(doc.Name);
+                var defaults = manifest is not null ? provider!.GetDefaults(manifest.Name) : null;
+                if (defaults is null)
+                {
+                    context.Response.StatusCode = StatusCodes.Status404NotFound;
+                    return;
+                }
+                var json = EffectiveConfigSerializer.SerializeDetectorDefaults(defaults);
+                highlighted = ConfigSyntaxHighlighter.HighlightJson(json);
+                label = $"detectors.{slug}.effective.json";
+            }
+            else
+            {
+                highlighted = ConfigSyntaxHighlighter.HighlightYaml(doc.EffectiveYaml);
+                label = $"detectors/{slug}.detector.yaml{(doc.HasOverride ? " (override)" : " (embedded)")}";
+            }
+
+            context.Response.ContentType = "text/html; charset=utf-8";
+            await context.Response.WriteAsync(BuildConfigFragment(label, highlighted, view));
+            return;
+        }
+
         context.Response.ContentType = "application/json";
         await JsonSerializer.SerializeAsync(context.Response.Body, doc, CamelCaseJson);
+    }
+
+    /// <summary><c>GET /api/config/sections</c> — list every effective-config section the dashboard rail can render.</summary>
+    private async Task ServeConfigSectionsListAsync(HttpContext context)
+    {
+        context.Response.ContentType = "application/json";
+        await JsonSerializer.SerializeAsync(context.Response.Body,
+            new { sections = EffectiveConfigSerializer.DiscoverSections() }, CamelCaseJson);
+    }
+
+    /// <summary>
+    ///     <c>GET /api/config/section/{name}?format=html</c> — pre-highlighted JSON
+    ///     fragment for one section of <see cref="BotDetectionOptions"/>. Returns
+    ///     raw JSON when <c>format</c> is absent. Secrets are masked.
+    /// </summary>
+    private async Task ServeConfigSectionAsync(HttpContext context, string sectionId)
+    {
+        var opts = context.RequestServices
+            .GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>()?.Value;
+        if (opts is null) { context.Response.StatusCode = 503; return; }
+
+        var json = EffectiveConfigSerializer.SerializeSection(opts, sectionId);
+        if (json is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var format = context.Request.Query["format"].FirstOrDefault();
+        if (string.Equals(format, "html", StringComparison.OrdinalIgnoreCase))
+        {
+            var label = string.Equals(sectionId, EffectiveConfigSerializer.RootSectionId, StringComparison.OrdinalIgnoreCase)
+                ? "BotDetection (root settings)"
+                : $"BotDetection.{sectionId}";
+            context.Response.ContentType = "text/html; charset=utf-8";
+            await context.Response.WriteAsync(BuildConfigFragment(label, ConfigSyntaxHighlighter.HighlightJson(json), "json"));
+            return;
+        }
+
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsync(json);
+    }
+
+    /// <summary>
+    ///     <c>GET /api/config/effective</c>. <c>?download=1</c> returns the full
+    ///     effective options as a JSON attachment; otherwise returns a highlighted
+    ///     HTML fragment (intended for embedding) or raw JSON.
+    /// </summary>
+    private async Task ServeConfigEffectiveAsync(HttpContext context)
+    {
+        var opts = context.RequestServices
+            .GetService<Microsoft.Extensions.Options.IOptions<BotDetection.Models.BotDetectionOptions>>()?.Value;
+        if (opts is null) { context.Response.StatusCode = 503; return; }
+
+        var json = EffectiveConfigSerializer.SerializeFull(opts);
+
+        if (string.Equals(context.Request.Query["download"].FirstOrDefault(), "1", StringComparison.Ordinal))
+        {
+            context.Response.ContentType = "application/json";
+            context.Response.Headers["Content-Disposition"] =
+                "attachment; filename=\"stylobot-effective-config.json\"";
+            await context.Response.WriteAsync(json);
+            return;
+        }
+
+        var format = context.Request.Query["format"].FirstOrDefault();
+        if (string.Equals(format, "html", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.ContentType = "text/html; charset=utf-8";
+            await context.Response.WriteAsync(
+                BuildConfigFragment("BotDetection (effective)", ConfigSyntaxHighlighter.HighlightJson(json), "json"));
+            return;
+        }
+
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsync(json);
+    }
+
+    /// <summary>
+    ///     Wraps highlighted content in the markup the Configuration tab expects:
+    ///     a small header strip with the path label and a <c>&lt;pre&gt;&lt;code&gt;</c>
+    ///     scroller. Kept here (rather than a partial) because the fragment is
+    ///     trivial and embedding the markup avoids a per-request Razor render.
+    /// </summary>
+    private static string BuildConfigFragment(string pathLabel, string highlighted, string viewKind)
+    {
+        var encodedLabel = System.Net.WebUtility.HtmlEncode(pathLabel);
+        var lang = string.Equals(viewKind, "json", StringComparison.OrdinalIgnoreCase) ? "json" : "yaml";
+        return
+            $"<div class=\"sb-config-fragment\" data-view=\"{lang}\">" +
+            $"<div class=\"sb-config-path\">{encodedLabel}</div>" +
+            $"<pre class=\"sb-config-pre\"><code class=\"sb-config-code lang-{lang}\">{highlighted}</code></pre>" +
+            "</div>";
     }
 
     private async Task ServeConfigManifestPutAsync(HttpContext context, ConfigEditorService editor, string slug)

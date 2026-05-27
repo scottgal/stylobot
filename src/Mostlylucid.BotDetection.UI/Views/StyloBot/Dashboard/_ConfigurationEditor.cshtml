@@ -4,7 +4,10 @@
     var bp = Model.BasePath;
 }
 
-@* Commercial config editor: load from control plane via HTMX when available *@
+@* Commercial config editor: load from control plane via HTMX when available. Untouched
+   on purpose - this is a separate code path that delegates the whole editor surface
+   to a remote control plane. The FOSS view-only surface below replaces the dead
+   Monaco-from-CDN editor that used to live here. *@
 @if (!string.IsNullOrEmpty(Model.ControlPlaneUrl) && Model.IsCommercialLicensed)
 {
     <div class="flex items-center gap-1 mb-1">
@@ -25,31 +28,74 @@
     return;
 }
 
-@* FOSS fallback: Monaco YAML editor *@
-<div id="config-editor"
+@* FOSS: read-only, server-rendered, server-highlighted. Left rail lists effective-
+   config sections and detectors. Right panel shows YAML or JSON for the active
+   item, fetched as an HTMX fragment. Zero CDN dependencies; works under the
+   strict dashboard CSP (script-src 'self'). *@
+<div id="config-viewer"
      data-sb-widget="configuration"
      class="grid grid-cols-12 gap-4">
 
-    <div class="col-span-12 flex items-center gap-1 mb-1">
-        <h3 class="text-sm font-bold text-base-content">Configuration</h3>
-        @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "configuration")
+    <div class="col-span-12 flex items-center justify-between mb-1">
+        <div class="flex items-center gap-1">
+            <h3 class="text-sm font-bold text-base-content">Configuration</h3>
+            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_HelpIcon.cshtml", "configuration")
+            <span class="text-[10px] text-base-content/50 ml-2">read-only · live values</span>
+        </div>
+        <a href="@bp/api/config/effective?download=1"
+           download="stylobot-effective-config.json"
+           class="text-[11px] px-2 py-1 rounded font-semibold inline-flex items-center gap-1"
+           style="background: var(--sb-accent); color: #ffffff;"
+           title="Download the full effective BotDetectionOptions as JSON. Secrets are masked.">
+            <i class="bx bx-download"></i> Download full config
+        </a>
     </div>
 
-    <!-- LEFT: detector list -->
+    <!-- LEFT: section + detector list -->
     <aside class="col-span-12 md:col-span-3 rounded-xl border overflow-hidden"
            style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-        <div class="flex items-center justify-between px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
+
+        <div class="px-3 py-1.5 border-b flex items-center justify-between" style="border-color: var(--sb-card-divider);">
+            <span class="text-[10px] font-semibold text-base-content/70 uppercase tracking-wide">Effective config</span>
+            <span class="text-[9px] text-base-content/40">@Model.Sections.Count</span>
+        </div>
+        <ul id="config-section-list" class="max-h-[280px] overflow-y-auto text-sm divide-y" style="border-color: var(--sb-card-divider);">
+            @foreach (var sec in Model.Sections)
+            {
+                <li>
+                    <button type="button"
+                            class="sb-config-item w-full text-left px-3 py-2 hover:bg-base-200/50 cursor-pointer"
+                            data-config-kind="section"
+                            data-config-id="@sec.Id"
+                            data-config-label="@sec.DisplayName"
+                            hx-get="@bp/api/config/section/@(Uri.EscapeDataString(sec.Id))?format=html"
+                            hx-target="#config-body"
+                            hx-swap="innerHTML"
+                            hx-trigger="click"
+                            title="@sec.TypeName">
+                        <span class="text-sm">@sec.DisplayName</span>
+                    </button>
+                </li>
+            }
+        </ul>
+
+        <div class="px-3 py-1.5 border-y flex items-center justify-between" style="border-color: var(--sb-card-divider);">
             <span class="text-[10px] font-semibold text-base-content/70 uppercase tracking-wide">Detectors</span>
             <span class="text-[9px] text-base-content/40">@Model.Detectors.Count</span>
         </div>
-        <ul id="config-detector-list" class="max-h-[640px] overflow-y-auto text-sm divide-y" style="border-color: var(--sb-card-divider);">
+        <ul id="config-detector-list" class="max-h-[440px] overflow-y-auto text-sm divide-y" style="border-color: var(--sb-card-divider);">
             @foreach (var det in Model.Detectors)
             {
                 <li>
                     <button type="button"
-                            class="w-full text-left px-3 py-2 hover:bg-base-200/50 cursor-pointer flex items-center justify-between gap-2"
-                            data-config-slug="@det.Slug"
-                            data-config-name="@det.Name"
+                            class="sb-config-item w-full text-left px-3 py-2 hover:bg-base-200/50 cursor-pointer flex items-center justify-between gap-2"
+                            data-config-kind="detector"
+                            data-config-id="@det.Slug"
+                            data-config-label="@det.Slug"
+                            hx-get="@bp/api/config/manifests/@(Uri.EscapeDataString(det.Slug))?format=html&view=yaml"
+                            hx-target="#config-body"
+                            hx-swap="innerHTML"
+                            hx-trigger="click"
                             title="@det.Description">
                         <span class="truncate">
                             <span class="font-mono text-xs text-base-content/60">@det.Slug</span>
@@ -68,267 +114,147 @@
         </ul>
     </aside>
 
-    <!-- CENTRE: editor pane -->
-    <section class="col-span-12 md:col-span-@(Model.IsCommercialLicensed ? "9" : "6") rounded-xl border overflow-hidden flex flex-col"
+    <!-- CENTRE: viewer pane -->
+    <section class="col-span-12 md:col-span-9 rounded-xl border overflow-hidden flex flex-col"
              style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
 
         <!-- toolbar -->
         <div class="flex items-center justify-between gap-2 px-3 py-1.5 border-b" style="border-color: var(--sb-card-divider);">
             <div class="flex items-center gap-2">
-                <span class="text-[10px] font-semibold text-base-content/70 uppercase tracking-wide">YAML editor</span>
-                <span id="config-active-slug" class="text-xs font-mono text-base-content/50">- select a detector -</span>
-                <span id="config-dirty-indicator" class="text-[9px] px-1 py-0.5 rounded font-medium hidden"
-                      style="background: var(--sb-signal-warn); color: #1a0e00;">UNSAVED</span>
-            </div>
-            <div class="flex items-center gap-1">
-                @if (Model.ReadOnly)
-                {
-                    <span class="text-[10px] px-2 py-1 rounded bg-base-300 text-base-content/50">
-                        <i class="bx bx-lock-alt text-xs"></i> Read Only
-                    </span>
-                }
-                else
-                {
-                    <button id="config-revert-btn" type="button" disabled
-                            class="text-[11px] px-2 py-1 rounded border hover:bg-base-200/40 disabled:opacity-40"
-                            style="border-color: var(--sb-card-divider); color: var(--sb-brand-muted);"
-                            title="Discard unsaved edits and reload the current effective YAML">
-                        Revert
-                    </button>
-                    <button id="config-delete-btn" type="button" disabled
-                            class="text-[11px] px-2 py-1 rounded border hover:bg-base-200/40 disabled:opacity-40"
-                            style="border-color: var(--sb-signal-danger); color: var(--sb-signal-danger);"
-                            title="Delete the override file and revert to the embedded defaults">
-                        Reset to defaults
-                    </button>
-                    <button id="config-save-btn" type="button" disabled
-                            class="text-[11px] px-2 py-1 rounded font-semibold disabled:opacity-40"
-                            style="background: var(--sb-accent); color: #ffffff;">
-                        Save
-                    </button>
-                }
+                <span class="text-[10px] font-semibold text-base-content/70 uppercase tracking-wide">View</span>
+                <div class="inline-flex rounded border overflow-hidden" style="border-color: var(--sb-card-divider);">
+                    <button id="config-view-yaml" type="button" disabled
+                            class="sb-config-view px-2 py-0.5 text-[11px] font-semibold disabled:opacity-40"
+                            data-view="yaml">YAML</button>
+                    <button id="config-view-json" type="button" disabled
+                            class="sb-config-view px-2 py-0.5 text-[11px] font-semibold border-l disabled:opacity-40"
+                            style="border-color: var(--sb-card-divider);"
+                            data-view="json">JSON</button>
+                </div>
             </div>
         </div>
 
-        <!-- monaco mount -->
-        <div id="config-monaco-host" class="flex-1 min-h-[640px] relative">
-            <div id="config-empty-state" class="absolute inset-0 flex items-center justify-center text-sm text-base-content/40 select-none">
-                Pick a detector on the left to start editing.
+        <!-- body: highlighted fragment lands here -->
+        <div id="config-body" class="flex-1 min-h-[640px] overflow-auto">
+            <div class="flex items-center justify-center h-full text-sm text-base-content/40 select-none px-4 text-center">
+                Pick a section or detector on the left to view its effective configuration.
             </div>
-            <div id="config-monaco" class="absolute inset-0 hidden"></div>
         </div>
-
-        <!-- save-result toast -->
-        <div id="config-toast" class="hidden border-t px-3 py-1.5 text-xs" style="border-color: var(--sb-card-divider);"></div>
     </section>
-
-    @if (!Model.IsCommercialLicensed)
-    {
-        <!-- RIGHT: upsell rail. Hidden entirely on commercial licenses. -->
-        <aside class="col-span-12 md:col-span-3 rounded-xl border p-3 text-sm space-y-2"
-               style="border-color: var(--sb-card-border); background: var(--sb-card-bg);">
-            <div class="text-[10px] font-semibold text-base-content/70 uppercase tracking-wide">Scope: global</div>
-            <p class="text-base-content/70 leading-snug">
-                This editor saves overrides that apply to <strong>all traffic</strong>.
-            </p>
-            <p class="text-base-content/60 leading-snug">
-                Per-endpoint, per-user, and per-API-key overrides - plus a forms-based editor over every parameter - ship with StyloBot Startup ($100/mo per domain).
-            </p>
-            <a href="https://stylobot.net/pricing#config" target="_blank" rel="noopener"
-               class="inline-block text-xs sb-link mt-1">
-                Compare tiers →
-            </a>
-        </aside>
-    }
 </div>
 
-<!-- Monaco bootstrap. Loaded once per dashboard session, only when the Configuration tab opens. -->
+<style nonce="@ViewBag.CspNonce">
+    /* Token palette for the server-side syntax highlighter. Keyed off the existing
+       --sb-* palette so dark and light themes match the rest of the dashboard
+       without us having to re-pick colours. */
+    .sb-config-fragment { padding: 0.5rem 0.75rem 1rem; }
+    .sb-config-path {
+        font: 600 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--sb-brand-muted, #888);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 0.25rem 0 0.5rem;
+    }
+    .sb-config-pre {
+        margin: 0;
+        padding: 0.75rem 1rem;
+        background: var(--sb-bg-elevated, #0d0d0d);
+        border: 1px solid var(--sb-card-divider, #2a2a2a);
+        border-radius: 0.5rem;
+        overflow-x: auto;
+        font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, "Cascadia Code", monospace;
+        color: var(--sb-text, #d8d8d8);
+    }
+    .sb-config-code { color: inherit; background: transparent; }
+    .tok-key      { color: var(--sb-accent, #66c2ff); }
+    .tok-str      { color: var(--sb-signal-positive, #9ee493); }
+    .tok-num      { color: var(--sb-signal-warn, #f5c178); }
+    .tok-bool     { color: #c792ea; font-weight: 600; }
+    .tok-punct    { color: var(--sb-brand-muted, #888); }
+    .tok-comment  { color: var(--sb-text-muted, #6a6a6a); font-style: italic; }
+
+    .sb-config-item.is-active {
+        background: var(--sb-card-divider, rgba(255,255,255,0.06));
+    }
+    .sb-config-view.is-active {
+        background: var(--sb-accent, #66c2ff);
+        color: #0a0a0a;
+    }
+</style>
+
 <script nonce="@ViewBag.CspNonce">
 (function() {
+    // ---- state ----
     const bp = @Json.Serialize(bp);
+    let activeKind = null;   // "section" | "detector"
+    let activeId = null;
+    let activeView = "yaml"; // "yaml" | "json"
 
-    // ---------- state ----------
-    let monacoReady = false;
-    let monacoLoading = false;
-    let editor = null;
-    let activeSlug = null;
-    let activeOriginal = "";  // text the editor was last seeded with - for dirty detection
+    const yamlBtn = document.getElementById('config-view-yaml');
+    const jsonBtn = document.getElementById('config-view-json');
+    const body    = document.getElementById('config-body');
 
-    // ---------- DOM refs ----------
-    const list        = document.getElementById('config-detector-list');
-    const slugLabel   = document.getElementById('config-active-slug');
-    const dirtyBadge  = document.getElementById('config-dirty-indicator');
-    const saveBtn     = document.getElementById('config-save-btn');
-    const revertBtn   = document.getElementById('config-revert-btn');
-    const deleteBtn   = document.getElementById('config-delete-btn');
-    const monacoHost  = document.getElementById('config-monaco');
-    const emptyState  = document.getElementById('config-empty-state');
-    const toast       = document.getElementById('config-toast');
-
-    // ---------- Monaco lazy-load ----------
-    // We pull the AMD loader from CDN once; subsequent activations reuse the same instance.
-    function ensureMonaco() {
-        if (monacoReady) return Promise.resolve();
-        if (monacoLoading) return new Promise(r => {
-            const tick = () => monacoReady ? r() : setTimeout(tick, 50);
-            tick();
-        });
-        monacoLoading = true;
-        return new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs/loader.js';
-            s.onload = () => {
-                window.require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs' } });
-                window.require(['vs/editor/editor.main'], () => { monacoReady = true; resolve(); });
-            };
-            s.onerror = reject;
-            document.head.appendChild(s);
+    function highlightActiveItem() {
+        document.querySelectorAll('.sb-config-item').forEach(b => {
+            b.classList.toggle('is-active',
+                b.dataset.configKind === activeKind && b.dataset.configId === activeId);
         });
     }
 
-    // ---------- editor lifecycle ----------
-    async function openSlug(slug) {
-        try {
-            await ensureMonaco();
-            const r = await fetch(`${bp}/api/config/manifests/${encodeURIComponent(slug)}`,
-                { headers: { 'Accept': 'application/json' } });
-            if (!r.ok) { showToast(`Failed to load ${slug}: HTTP ${r.status}`, true); return; }
-            const doc = await r.json();
-
-            activeSlug = slug;
-            activeOriginal = doc.effectiveYaml || '';
-
-            if (!editor) {
-                editor = window.monaco.editor.create(monacoHost, {
-                    value: activeOriginal,
-                    language: 'yaml',
-                    theme: document.documentElement.classList.contains('dark') ? 'vs-dark' : 'vs',
-                    automaticLayout: true,
-                    minimap: { enabled: false },
-                    scrollBeyondLastLine: false,
-                    tabSize: 2,
-                    wordWrap: 'on',
-                    readOnly: @(Model.ReadOnly ? "true" : "false")
-                });
-                editor.onDidChangeModelContent(updateDirtyState);
-            } else {
-                editor.setValue(activeOriginal);
-            }
-
-            slugLabel.textContent = `${slug}.detector.yaml${doc.hasOverride ? ' (override)' : ' (embedded)'}`;
-            emptyState.classList.add('hidden');
-            monacoHost.classList.remove('hidden');
-            saveBtn.disabled = false;
-            revertBtn.disabled = false;
-            deleteBtn.disabled = !doc.hasOverride;
-            updateDirtyState();
-            highlightActive(slug);
-        } catch (err) {
-            showToast(`Failed to open ${slug}: ${err}`, true);
+    function syncViewToolbar() {
+        // YAML/JSON toolbar reflects the rules:
+        //   - sections: JSON only (YAML disabled - sections aren't manifests).
+        //   - detectors: both, default YAML.
+        if (activeKind === "detector") {
+            yamlBtn.disabled = false;
+            jsonBtn.disabled = false;
+        } else if (activeKind === "section") {
+            yamlBtn.disabled = true;
+            jsonBtn.disabled = false;
+            activeView = "json";
+        } else {
+            yamlBtn.disabled = true;
+            jsonBtn.disabled = true;
         }
+        yamlBtn.classList.toggle('is-active', activeView === 'yaml' && !yamlBtn.disabled);
+        jsonBtn.classList.toggle('is-active', activeView === 'json' && !jsonBtn.disabled);
     }
 
-    function updateDirtyState() {
-        if (!editor) return;
-        const dirty = editor.getValue() !== activeOriginal;
-        dirtyBadge.classList.toggle('hidden', !dirty);
+    function fragmentUrl(kind, id, view) {
+        if (kind === "section") {
+            return `${bp}/api/config/section/${encodeURIComponent(id)}?format=html`;
+        }
+        return `${bp}/api/config/manifests/${encodeURIComponent(id)}?format=html&view=${encodeURIComponent(view)}`;
     }
 
-    function highlightActive(slug) {
-        list.querySelectorAll('button[data-config-slug]').forEach(b => {
-            b.classList.toggle('bg-base-200/50', b.dataset.configSlug === slug);
-        });
-    }
-
-    function showToast(msg, isError) {
-        toast.textContent = msg;
-        toast.className = `border-t px-3 py-1.5 text-xs ${isError ? 'text-error' : 'text-success'}`;
-        toast.classList.remove('hidden');
-        setTimeout(() => toast.classList.add('hidden'), 5000);
-    }
-
-    // ---------- save / revert / delete ----------
-    async function saveActive() {
-        if (!editor || !activeSlug) return;
-        const yaml = editor.getValue();
-        saveBtn.disabled = true;
-        try {
-            const r = await fetch(`${bp}/api/config/manifests/${encodeURIComponent(activeSlug)}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ yaml })
+    // Capture clicks on list items so we can track which one is active and which
+    // view toggle to enable. HTMX still handles the fetch + swap.
+    document.addEventListener('click', (e) => {
+        const item = e.target.closest('.sb-config-item');
+        if (item) {
+            activeKind = item.dataset.configKind;
+            activeId   = item.dataset.configId;
+            if (activeKind === "section") activeView = "json";
+            else if (activeView !== "yaml" && activeView !== "json") activeView = "yaml";
+            highlightActiveItem();
+            syncViewToolbar();
+            return;
+        }
+        const viewBtn = e.target.closest('.sb-config-view');
+        if (viewBtn && !viewBtn.disabled && activeKind) {
+            const v = viewBtn.dataset.view;
+            if (v === activeView) return;
+            activeView = v;
+            syncViewToolbar();
+            // Issue the swap ourselves since the URL is computed from current state,
+            // not a static hx-get on the toggle buttons.
+            window.htmx?.ajax('GET', fragmentUrl(activeKind, activeId, activeView), {
+                target: '#config-body',
+                swap: 'innerHTML'
             });
-            const data = await r.json();
-            if (r.ok && data.ok) {
-                activeOriginal = yaml;
-                updateDirtyState();
-                deleteBtn.disabled = false;
-                // Update the override badge in the list without a full reload.
-                const btn = list.querySelector(`button[data-config-slug="${activeSlug}"]`);
-                if (btn && !btn.querySelector('span[data-override-badge]')) {
-                    const badge = document.createElement('span');
-                    badge.dataset.overrideBadge = '1';
-                    badge.className = 'text-[9px] px-1 py-0.5 rounded font-medium';
-                    badge.style.cssText = 'background: var(--sb-signal-warn); color: #1a0e00;';
-                    badge.textContent = 'OVERRIDE';
-                    btn.appendChild(badge);
-                }
-                showToast(`Saved ${activeSlug} (${yaml.length} bytes)`, false);
-            } else {
-                const where = data.line != null ? ` at line ${data.line}` : '';
-                showToast(`Save failed${where}: ${data.error || data.outcome || ('HTTP ' + r.status)}`, true);
-            }
-        } catch (err) {
-            showToast(`Save failed: ${err}`, true);
-        } finally {
-            saveBtn.disabled = false;
-        }
-    }
-
-    function revertActive() {
-        if (!editor) return;
-        editor.setValue(activeOriginal);
-        updateDirtyState();
-    }
-
-    async function deleteActive() {
-        if (!activeSlug) return;
-        if (!confirm(`Delete the override for ${activeSlug}? The detector will revert to its embedded defaults.`)) return;
-        try {
-            const r = await fetch(`${bp}/api/config/manifests/${encodeURIComponent(activeSlug)}`, { method: 'DELETE' });
-            if (r.ok) {
-                showToast(`Reverted ${activeSlug} to embedded defaults`, false);
-                // Strip the override badge in the list and reload the editor with embedded YAML.
-                const btn = list.querySelector(`button[data-config-slug="${activeSlug}"]`);
-                btn?.querySelector('span[data-override-badge]')?.remove();
-                openSlug(activeSlug);
-            } else {
-                showToast(`Delete failed: HTTP ${r.status}`, true);
-            }
-        } catch (err) {
-            showToast(`Delete failed: ${err}`, true);
-        }
-    }
-
-    // ---------- wire up ----------
-    list.addEventListener('click', e => {
-        const btn = e.target.closest('button[data-config-slug]');
-        if (!btn) return;
-        if (editor && editor.getValue() !== activeOriginal) {
-            if (!confirm('You have unsaved changes. Discard and switch detectors?')) return;
-        }
-        openSlug(btn.dataset.configSlug);
-    });
-    saveBtn.addEventListener('click', saveActive);
-    revertBtn.addEventListener('click', revertActive);
-    deleteBtn.addEventListener('click', deleteActive);
-
-    // Ctrl/Cmd-S inside the Monaco area triggers save.
-    document.addEventListener('keydown', e => {
-        if ((e.ctrlKey || e.metaKey) && e.key === 's' && !saveBtn.disabled) {
-            e.preventDefault();
-            saveActive();
         }
     });
+
+    syncViewToolbar();
 })();
 </script>

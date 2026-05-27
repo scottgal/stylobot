@@ -241,6 +241,12 @@ public sealed class SignatureAggregateCache
                 IsBot = bot.IsKnownBot,
                 ThreatScore = bot.ThreatScore,
                 ThreatBand = bot.ThreatBand,
+                // Carry the UA family the event store derived for us at warmup
+                // time. Without this, every seeded row starts with UaFamily=null
+                // and the Live Activity rows read "GB User" instead of
+                // "GB Chrome User" until a new live-traffic detection refreshes
+                // the aggregate.
+                UaFamily = bot.UaFamily,
             });
         }
 
