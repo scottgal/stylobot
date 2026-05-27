@@ -832,13 +832,6 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<Analysis.SessionStore>();
         services.TryAddSingleton<SessionEscalationService>();
         services.AddSingleton<IContributingDetector, SessionVectorContributor>();
-        // Pre-analysis recorder at priority 2: pushes every request into the
-        // SessionStore ring before the orchestrator can quorum-exit at
-        // priority 3. Without this, SessionStore stays empty for clear-human
-        // traffic and the dashboard's per-signature radar never materialises.
-        // Owns the session-count / state / boundary signals downstream waves
-        // read (the work the vector contributor used to do post-record).
-        services.AddSingleton<IContributingDetector, SessionRequestRecorderContributor>();
         // Periodicity detection - temporal pattern analysis. Restored 2026-05-19 after
         // the 2026-05-08 retirement (commit c43f084): the SessionVector frequency
         // encoder runs internally but never exposes the periodicity.* signal surface

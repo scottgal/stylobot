@@ -48,18 +48,6 @@ public sealed record DashboardTopBotEntry
     public string? UaFamily { get; init; }
 
     /// <summary>
-    ///     Latest 118+ dim session vector for this signature (mirrors the
-    ///     <c>SignatureAggregate.LatestSessionVector</c> field). Projected to
-    ///     a 12-axis clock polygon by <c>ClockAxesResolver.FromSessionVector</c>
-    ///     on both the home-card <c>bot-detection-details</c> view component
-    ///     and the dashboard <c>/api/sessions/signature/{sig}</c> focused-row
-    ///     endpoint, so the same signature renders the same polygon across
-    ///     both surfaces. Null until the first vector is written or after a
-    ///     cold restart before the warmup service has hydrated.
-    /// </summary>
-    public float[]? LatestSessionVector { get; init; }
-
-    /// <summary>
     ///     60-bucket per-minute hit count, oldest-first (index 0 = 59 minutes ago,
     ///     index 59 = current minute). Empty array when the ring buffer has no
     ///     observations yet. Used by the _Sparkline primitive for SSR svg paths.

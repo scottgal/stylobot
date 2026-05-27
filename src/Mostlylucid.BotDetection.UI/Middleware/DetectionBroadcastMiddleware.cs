@@ -106,72 +106,11 @@ public partial class DetectionBroadcastMiddleware
         VisitorListCache visitorListCache,
         SignatureAggregateCache signatureAggregateCache,
         Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher detectionEventPublisher,
-        Mostlylucid.BotDetection.Dashboard.MultiFactorSignatureService signatureService,
         IOptions<Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions>? recordOptionsAccessor = null,
         SignatureDescriptionService? signatureDescriptionService = null)
     {
-        // Pre-orchestrator: seed a thin aggregate row keyed by the primary
-        // signature BEFORE the detection pipeline runs. Wave-30
-        // SessionVectorContributor needs the row to already exist when it
-        // calls ISignatureVectorSink.RecordLatestVector, otherwise the first
-        // visit's vector is silently dropped and the home card shows
-        // "Calibrating" until the visitor's second page load. GenerateSignatures
-        // is a pure hash over request headers / connection -- cheap to call
-        // twice (here and inside the inner detection middleware); no caching
-        // required. EnsureRow is a TryAdd, no-op once the row exists.
-        try
-        {
-            var sigs = signatureService.GenerateSignatures(context);
-            if (!string.IsNullOrEmpty(sigs.PrimarySignature))
-                signatureAggregateCache.EnsureRow(sigs.PrimarySignature);
-        }
-        catch
-        {
-            // Pre-seed is best-effort. Any signature-resolution failure here
-            // falls back to the post-orchestrator UpdateFromDetection path
-            // that creates the row from the full DashboardDetectionEvent.
-        }
-
         // Call next middleware first (so detection runs)
         await _next(context);
-
-        // Encode-and-push the session vector to the dashboard's aggregate cache.
-        // SessionVectorContributor (orchestrator wave-30) was the intended write
-        // site, but the orchestrator quorum-exits before wave-30 for clear
-        // humans, so that contributor never runs for the typical browser
-        // visitor and the home-card radar stays empty.
-        // The broadcast middleware always runs (it's wrapping the entire
-        // detection pipeline), so encoding here and writing to the cache via
-        // ISignatureVectorSink guarantees the visitor's polygon lands on every
-        // request that produced a SessionStore session. SignalKeys.PrimarySignature
-        // was set by the inner middleware before this point.
-        try
-        {
-            // signatureService is the same MultiFactorSignatureService the
-            // pre-orchestrator EnsureRow block already calls -- pure hash of
-            // request headers / connection, cheap to invoke again. The
-            // HttpContext.Items lookup the earlier diagnostic tried isn't
-            // populated by the FOSS detection layer.
-            var sigForVector = signatureService.GenerateSignatures(context).PrimarySignature;
-            if (!string.IsNullOrEmpty(sigForVector))
-            {
-                var liveSessionStore = context.RequestServices
-                    .GetService<Mostlylucid.BotDetection.Analysis.SessionStore>();
-                var liveSession = liveSessionStore?.GetCurrentSession(sigForVector);
-                if (liveSession is { Count: >= 1 })
-                {
-                    var vector = Mostlylucid.BotDetection.Analysis.SessionVectorizer.Encode(liveSession);
-                    if (vector.Length >= 118)
-                    {
-                        signatureAggregateCache.RecordLatestVector(sigForVector, vector);
-                    }
-                }
-            }
-        }
-        catch
-        {
-            // Vector encode is best-effort enrichment for the dashboard.
-        }
 
         // After response, broadcast detection result if available
         try
