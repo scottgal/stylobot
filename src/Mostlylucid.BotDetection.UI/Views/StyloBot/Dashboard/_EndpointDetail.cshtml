@@ -69,7 +69,7 @@
                     }
                     @if (Model.IsHoneypot)
                     {
-                        <span class="badge badge-xs badge-warning">honeypot</span>
+                        <span class="badge badge-xs badge-error">honeypot</span>
                     }
                     @if (Model.IsPinned)
                     {
@@ -385,7 +385,7 @@
                         <span>Pinned</span>
                         @if (Model.IsHoneypot)
                         {
-                            <span class="badge badge-xs badge-warning ml-1">honeypot</span>
+                            <span class="badge badge-xs badge-error ml-1">honeypot</span>
                         }
                     </div>
                     @if (Model.IsCommercial)
