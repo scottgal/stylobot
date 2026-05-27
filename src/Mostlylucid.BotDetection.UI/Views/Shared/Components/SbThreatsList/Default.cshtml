@@ -43,6 +43,9 @@
                             </tr>
                         </thead>
                         <tbody>
+                            @{
+                                var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
+                            }
                             @foreach (var threat in Model.Threats)
                             {
                                 <tr class="@(threat.InHoneypot ? "bg-error/5" : "")">
@@ -71,7 +74,7 @@
                                         <span class="badge @severityClass badge-xs">@(threat.CveSeverity ?? "probe")</span>
                                     </td>
                                     <td class="text-xs font-mono max-w-[200px] truncate" title="@threat.Path">@threat.Path</td>
-                                    <td class="text-xs" title="@SignatureDisplayName.TitleAttr(threat.Signature)">@SignatureDisplayName.Resolve(threat.Signature, threat.BotName, threat.BotType, null, threat.CountryCode, true)</td>
+                                    <td class="text-xs" title="@SignatureDisplayName.TitleAttr(threat.Signature)">@SignatureDisplayName.Resolve(threat.Signature, threat.BotName, threat.BotType, null, threat.CountryCode, true, null, seenNames)</td>
                                     <td>
                                         @{
                                             var threatClass = threat.ThreatScore switch

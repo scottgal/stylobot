@@ -20,11 +20,12 @@ public static class SignatureDisplayName
     ///        available -- e.g. "GB Chrome User", "US curl Bot". Country codes
     ///        beat adjectives (American / British / German) because table cells
     ///        are width-constrained and the country-flag primitive next to the
-    ///        label already shows the country visually. A 4-char signature
-    ///        suffix is appended ("GB Chrome User · 7faa") so two distinct
-    ///        fingerprints sharing the same country / UA never collapse to one
-    ///        visible label.
-    ///     5. UaFamily on its own ("Chrome", "Bot · Chrome") when country is
+    ///        label already shows the country visually. NO random-character
+    ///        hash suffix -- the previous "GB Chrome User * rVfs" form was
+    ///        unreadable. Duplicate composite labels in the same render get a
+    ///        numeric tail (" 2", " 3", ...) via the <paramref name="seen"/>
+    ///        dictionary.
+    ///     5. UaFamily on its own ("Chrome", "Bot Chrome") when country is
     ///        unknown but the family resolved.
     ///     6. Short signature prefix as the bare-minimum fallback.
     ///     Never returns null and never returns a hallucinated label.
@@ -36,7 +37,33 @@ public static class SignatureDisplayName
         string? customLabel,
         string? countryCode,
         bool isBot,
-        string? uaFamily = null)
+        string? uaFamily = null,
+        IDictionary<string, int>? seen = null)
+    {
+        var label = BuildLabel(signature, botName, botType, customLabel, countryCode, isBot, uaFamily);
+        if (seen is null) return label;
+
+        // Dedup with a numeric suffix when multiple rows in the same render
+        // collapse to the same composite label (two distinct GB Chrome User
+        // signatures, two unverified Googlebot fingerprints, etc.). First
+        // occurrence reads cleanly; second and later get " 2", " 3", ... so
+        // the operator can see they are different rows without seeing a
+        // random shortHash. Identity grouping (Googlebot etc.) is handled
+        // upstream in WidgetRenderHelpers.CollapseGroupableIdentities so
+        // those usually never reach this counter twice.
+        var count = seen.TryGetValue(label, out var c) ? c + 1 : 1;
+        seen[label] = count;
+        return count > 1 ? $"{label} {count}" : label;
+    }
+
+    private static string BuildLabel(
+        string signature,
+        string? botName,
+        string? botType,
+        string? customLabel,
+        string? countryCode,
+        bool isBot,
+        string? uaFamily)
     {
         if (!string.IsNullOrWhiteSpace(customLabel)) return customLabel.Trim();
         if (!string.IsNullOrWhiteSpace(botName) && !IsPatternIdLeak(botName))
@@ -56,16 +83,19 @@ public static class SignatureDisplayName
             : uaFamily.Trim();
         var role = isBot ? "Bot" : "User";
 
+        // No random-character hash suffix on the visible label. Operators read
+        // "GB Chrome User" -- not "GB User * rVfs". Duplicate composite labels
+        // get a numeric tail (" 2", " 3") via the seen dictionary in Resolve.
         if (country != null && family != null)
-            return $"{country} {family} {role} · {ShortHash(signature, 4)}";
+            return $"{country} {family} {role}";
 
         if (country != null)
-            return $"{country} {role} · {ShortHash(signature, 4)}";
+            return $"{country} {role}";
 
         if (family != null)
-            return isBot ? $"Bot · {family}" : family;
+            return isBot ? $"Bot {family}" : family;
 
-        return isBot ? $"Bot · {ShortHash(signature)}" : ShortHash(signature);
+        return isBot ? $"Bot {ShortHash(signature)}" : ShortHash(signature);
     }
 
     /// <summary>

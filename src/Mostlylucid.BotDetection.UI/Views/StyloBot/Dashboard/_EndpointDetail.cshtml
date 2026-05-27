@@ -204,6 +204,9 @@
                         </tr>
                     </thead>
                     <tbody>
+                        @{
+                            var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
+                        }
                         @foreach (var bot in Model.TopBots.Take(10))
                         {
                             var probPct = (bot.BotProbability * 100).ToString("F0");
@@ -212,7 +215,7 @@
                                 "Medium" or "Elevated" => "text-warning",
                                 _ => "text-success"
                             };
-                            var visitorName = SignatureDisplayName.Resolve(bot.PrimarySignature, bot.BotName, bot.BotType, bot.CustomBotName, bot.CountryCode, isBot: true);
+                            var visitorName = SignatureDisplayName.Resolve(bot.PrimarySignature, bot.BotName, bot.BotType, bot.CustomBotName, bot.CountryCode, isBot: true, uaFamily: null, seen: seenNames);
                             <tr class="hover:bg-base-300/40">
                                 <td class="py-1 w-5">
                                     @if (HasFlag(bot.CountryCode))

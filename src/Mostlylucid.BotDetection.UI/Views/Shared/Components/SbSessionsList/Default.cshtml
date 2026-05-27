@@ -39,6 +39,7 @@
         }
         else
         {
+            var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
             <div class="space-y-2">
                 @foreach (var s in Model.Sessions)
                 {
@@ -60,7 +61,7 @@
                                 }
                                 <span class="text-xs font-semibold text-base-content truncate max-w-48"
                                       title="@SignatureDisplayName.TitleAttr(s.Signature)">
-                                    @SignatureDisplayName.Resolve(s.Signature, s.BotName, null, null, s.CountryCode, s.IsBot)
+                                    @SignatureDisplayName.Resolve(s.Signature, s.BotName, null, null, s.CountryCode, s.IsBot, null, seenNames)
                                 </span>
                                 <span class="badge badge-xs @(s.IsBot ? "badge-error" : "badge-success")">
                                     @(s.IsBot ? "Bot" : "Human")

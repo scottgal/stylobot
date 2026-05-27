@@ -185,6 +185,12 @@
                         // model-build time in WidgetRenderHelpers.CollapseGroupableIdentities,
                         // so Model.Bots already comes pre-grouped and pagination matches the
                         // visible rows.
+                        //
+                        // Per-render dedup dictionary: two distinct signatures producing the
+                        // same composite label (e.g. "GB Chrome User" twice) get suffixed
+                        // " 2", " 3", ... by SignatureDisplayName.Resolve. The dictionary
+                        // is renderer-local so the count starts at 1 for each page render.
+                        var seenNames = new Dictionary<string, int>(StringComparer.Ordinal);
                     }
                     <!-- DATA REGION: only this element gets hx-swap-oob="innerHTML" on SignalR
                          beacons. Scroll position on the .overflow-auto parent is preserved
@@ -215,7 +221,8 @@
                                 bot.CustomBotName,
                                 bot.CountryCode,
                                 isBot: bot.BotProbability >= 0.5,
-                                bot.UaFamily);
+                                bot.UaFamily,
+                                seenNames);
                             var displayIntent = bot.BotType ?? BotDisplayHelpers.DeterministicIntent(bot.BotProbability);
                             var displayThreat = BotDisplayHelpers.ResolvedThreat(bot.ThreatBand, bot.BotProbability);
                             var threatBand = string.IsNullOrEmpty(displayThreat) ? "None" : displayThreat;
