@@ -181,8 +181,8 @@ public sealed class IdentityWeightCalibrationServiceIntegrationTests : IDisposab
         Assert.True(archetypeIds.Count >= 2, "Test needs at least two archetypes loaded");
 
         var dim = _store.Layout.Dimension;
-        var v1 = MakeUnitVector(dim, seed: 1);
-        var v2 = MakeUnitVector(dim, seed: 2);
+        var v1 = IdentityTestHelpers.MakeUnitVector(dim, seed: 1);
+        var v2 = IdentityTestHelpers.MakeUnitVector(dim, seed: 2);
 
         await _store.InsertFingerprintAsync(MakeFingerprint("fp-a-1", v1, archetypeIds[0]), "sig-a-1");
         await _store.InsertFingerprintAsync(MakeFingerprint("fp-a-2", v1, archetypeIds[0]), "sig-a-2");
@@ -201,43 +201,9 @@ public sealed class IdentityWeightCalibrationServiceIntegrationTests : IDisposab
         Assert.Equal(dim, stored!.Value.Weights.Length);
     }
 
-    private static Fingerprint MakeFingerprint(string id, float[] centroid, string clientType)
-    {
-        var weights = new float[centroid.Length];
-        Array.Fill(weights, 1.0f);
-        var now = DateTime.UtcNow;
-        return new Fingerprint
-        {
-            FingerprintId = id,
-            Centroid = (float[])centroid.Clone(),
-            CentroidMaturity = 1,
-            Weights = weights,
-            MemberCount = 1,
-            ObservationCount = 1,
-            CorrectionCount = 0,
-            FirstSeen = now,
-            LastSeen = now,
-            Quality = 0.8,
-            ArchetypeOrigin = clientType,
-            InferredClientType = clientType,
-            InferredTypeConfidence = 1.0,
-            InferredTypeChangedAt = now,
-            CachedBotProbability = 0.0,
-            CachedRiskBand = null,
-            CachedScoreUpdatedAt = null
-        };
-    }
-
-    private static float[] MakeUnitVector(int dim, int seed)
-    {
-        var rng = new Random(seed);
-        var v = new float[dim];
-        for (var i = 0; i < dim; i++) v[i] = (float)rng.NextDouble();
-        double sum = 0;
-        for (var i = 0; i < dim; i++) sum += v[i] * v[i];
-        var norm = (float)Math.Sqrt(sum);
-        if (norm > 0)
-            for (var i = 0; i < dim; i++) v[i] /= norm;
-        return v;
-    }
+    // Calibration test ties InferredClientType and ArchetypeOrigin to the same
+    // archetype id so the clustering + refinement paths both fire.
+    private static Fingerprint MakeFingerprint(string id, float[] centroid, string clientType) =>
+        IdentityTestHelpers.MakeFingerprint(
+            id, centroid, inferredClientType: clientType, archetypeOrigin: clientType);
 }

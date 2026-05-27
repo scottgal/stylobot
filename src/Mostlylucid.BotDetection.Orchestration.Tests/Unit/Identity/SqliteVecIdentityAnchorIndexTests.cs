@@ -57,12 +57,12 @@ public sealed class SqliteVecIdentityAnchorIndexTests : IDisposable
         Assert.False(_store.IsVecAvailable);
 
         var dim = _store.Layout.Dimension;
-        var v1 = MakeUnitVector(dim, seed: 1);
-        var v2 = MakeUnitVector(dim, seed: 2);
-        await _store.InsertFingerprintAsync(MakeFingerprint("fp-1", v1), "sig-1");
-        await _store.InsertFingerprintAsync(MakeFingerprint("fp-2", v2), "sig-2");
+        var v1 = IdentityTestHelpers.MakeUnitVector(dim, seed: 1);
+        var v2 = IdentityTestHelpers.MakeUnitVector(dim, seed: 2);
+        await _store.InsertFingerprintAsync(IdentityTestHelpers.MakeFingerprint("fp-1", v1), "sig-1");
+        await _store.InsertFingerprintAsync(IdentityTestHelpers.MakeFingerprint("fp-2", v2), "sig-2");
 
-        var query = MakeUnitVector(dim, seed: 1); // identical to fp-1
+        var query = IdentityTestHelpers.MakeUnitVector(dim, seed: 1); // identical to fp-1
         var bruteResult = await _brute.SearchAsync(query, topK: 5, CancellationToken.None);
         var vecResult = await _vec.SearchAsync(query, topK: 5, CancellationToken.None);
 
@@ -79,48 +79,9 @@ public sealed class SqliteVecIdentityAnchorIndexTests : IDisposable
     {
         await _store.EnsureInitialisedAsync();
         var dim = _store.Layout.Dimension;
-        var query = MakeUnitVector(dim, seed: 1);
+        var query = IdentityTestHelpers.MakeUnitVector(dim, seed: 1);
         var result = await _vec.SearchAsync(query, topK: 5, CancellationToken.None);
         Assert.Empty(result);
     }
 
-    private static Fingerprint MakeFingerprint(string id, float[] centroid)
-    {
-        var weights = new float[centroid.Length];
-        Array.Fill(weights, 1.0f);
-        var now = DateTime.UtcNow;
-        return new Fingerprint
-        {
-            FingerprintId = id,
-            Centroid = (float[])centroid.Clone(),
-            CentroidMaturity = 1,
-            Weights = weights,
-            MemberCount = 1,
-            ObservationCount = 1,
-            CorrectionCount = 0,
-            FirstSeen = now,
-            LastSeen = now,
-            Quality = 0.8,
-            ArchetypeOrigin = null,
-            InferredClientType = "test",
-            InferredTypeConfidence = 1.0,
-            InferredTypeChangedAt = now,
-            CachedBotProbability = 0.0,
-            CachedRiskBand = null,
-            CachedScoreUpdatedAt = null
-        };
-    }
-
-    private static float[] MakeUnitVector(int dim, int seed)
-    {
-        var rng = new Random(seed);
-        var v = new float[dim];
-        for (var i = 0; i < dim; i++) v[i] = (float)rng.NextDouble();
-        double sum = 0;
-        for (var i = 0; i < dim; i++) sum += v[i] * v[i];
-        var norm = (float)Math.Sqrt(sum);
-        if (norm > 0)
-            for (var i = 0; i < dim; i++) v[i] /= norm;
-        return v;
-    }
 }

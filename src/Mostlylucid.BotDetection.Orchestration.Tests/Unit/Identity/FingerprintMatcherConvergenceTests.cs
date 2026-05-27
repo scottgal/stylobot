@@ -238,14 +238,8 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
         return (string)fpObj!;
     }
 
-    private static float[] MakeUnitVector(int dim, int seed)
-    {
-        var rng = new Random(seed);
-        var v = new float[dim];
-        for (var i = 0; i < dim; i++) v[i] = (float)(rng.NextDouble() - 0.5);
-        Normalize(v);
-        return v;
-    }
+    private static float[] MakeUnitVector(int dim, int seed) =>
+        IdentityTestHelpers.MakeUnitVector(dim, seed);
 
     private float[] MakeNatVector(int actorIndex)
     {
@@ -257,7 +251,7 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
         for (var i = 0; i < 12; i++) v[i] = 0.5f;
         var hot = 20 + actorIndex * 16;
         for (var i = hot; i < hot + 8 && i < dim; i++) v[i] = 1.0f;
-        Normalize(v);
+        IdentityTestHelpers.Normalize(v);
         return v;
     }
 
@@ -267,7 +261,7 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
         var v = new float[dim];
         for (var i = hotSlotStart; i < hotSlotStart + hotSlotCount && i < dim; i++)
             v[i] = 0.1f + (float)rng.NextDouble();
-        Normalize(v);
+        IdentityTestHelpers.Normalize(v);
         return v;
     }
 
@@ -278,45 +272,17 @@ public sealed class FingerprintMatcherConvergenceTests : IAsyncLifetime
         var v = new float[a.Length];
         for (var i = 0; i < a.Length; i++)
             v[i] = (float)(alpha * a[i] + beta * b[i]);
-        Normalize(v);
+        IdentityTestHelpers.Normalize(v);
         return v;
     }
 
-    private static void Normalize(float[] v)
-    {
-        double sum = 0;
-        for (var i = 0; i < v.Length; i++) sum += v[i] * v[i];
-        var norm = (float)Math.Sqrt(sum);
-        if (norm <= 0) return;
-        for (var i = 0; i < v.Length; i++) v[i] /= norm;
-    }
-
-    private static Fingerprint MakeMatureFingerprint(string id, float[] centroid)
-    {
-        var weights = new float[centroid.Length];
-        Array.Fill(weights, 1.0f);
-        var now = DateTime.UtcNow;
-        return new Fingerprint
-        {
-            FingerprintId = id,
-            Centroid = centroid,
-            CentroidMaturity = 5,
-            Weights = weights,
-            MemberCount = 1,
-            ObservationCount = 5,
-            CorrectionCount = 0,
-            FirstSeen = now.AddHours(-1),
-            LastSeen = now,
-            Quality = 0.9,
-            ArchetypeOrigin = null,
-            InferredClientType = "test",
-            InferredTypeConfidence = 1.0,
-            InferredTypeChangedAt = now,
-            CachedBotProbability = 0.5,
-            CachedRiskBand = "Medium",
-            CachedScoreUpdatedAt = now,
-            DisplayName = id,
-            DisplayNameUpdatedAt = now
-        };
-    }
+    private static Fingerprint MakeMatureFingerprint(string id, float[] centroid) =>
+        IdentityTestHelpers.MakeFingerprint(
+            id, centroid,
+            centroidMaturity: 5,
+            quality: 0.9,
+            cachedBotProbability: 0.5,
+            cachedRiskBand: "Medium",
+            cachedScoreUpdatedAt: DateTime.UtcNow,
+            displayName: id);
 }

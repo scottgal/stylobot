@@ -108,28 +108,7 @@ public sealed class IdentityAiOpinionServiceTests : IDisposable
     {
         var vec = new float[dim];
         vec[0] = 1.0f;
-        var weights = new float[dim];
-        Array.Fill(weights, 1.0f);
-        var now = DateTime.UtcNow;
-        return new Fingerprint
-        {
-            FingerprintId = id,
-            Centroid = vec,
-            CentroidMaturity = 1,
-            Weights = weights,
-            MemberCount = 1,
-            ObservationCount = 5,
-            CorrectionCount = 0,
-            FirstSeen = now,
-            LastSeen = now,
-            Quality = 0.8,
-            ArchetypeOrigin = null,
-            InferredClientType = "test-client",
-            InferredTypeConfidence = 1.0,
-            InferredTypeChangedAt = now,
-            CachedBotProbability = 0.0,
-            CachedRiskBand = null,
-            CachedScoreUpdatedAt = null
-        };
+        return IdentityTestHelpers.MakeFingerprint(
+            id, vec, inferredClientType: "test-client", observationCount: 5);
     }
 }

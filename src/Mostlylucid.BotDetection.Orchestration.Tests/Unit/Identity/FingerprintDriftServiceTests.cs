@@ -70,8 +70,8 @@ public sealed class FingerprintDriftServiceTests : IDisposable
     {
         // Centroid and observation are identical → cosine = 1.0, well above 0.92 threshold.
         var dim = _store.Layout.Dimension;
-        var vec = MakeUnitVector(dim, seed: 1);
-        await _store.InsertFingerprintAsync(MakeFingerprint("stable-fp", vec, vec), "sig-stable");
+        var vec = IdentityTestHelpers.MakeUnitVector(dim, seed: 1);
+        await _store.InsertFingerprintAsync(MakeFingerprint("stable-fp", vec), "sig-stable");
         await _store.RecordObservationAsync("stable-fp", vec);
 
         var (checks, drifts) = await _service.TickOnceAsync(CancellationToken.None);
@@ -87,9 +87,9 @@ public sealed class FingerprintDriftServiceTests : IDisposable
     {
         // Centroid and observation are orthogonal → cosine = 0, far below 0.92.
         var dim = _store.Layout.Dimension;
-        var centroid = MakeUnitVector(dim, seed: 1);
-        var orthogonalObs = MakeUnitVector(dim, seed: 2, orthogonalTo: centroid);
-        await _store.InsertFingerprintAsync(MakeFingerprint("drifting-fp", centroid, centroid), "sig-drift");
+        var centroid = IdentityTestHelpers.MakeUnitVector(dim, seed: 1);
+        var orthogonalObs = IdentityTestHelpers.MakeUnitVectorOrthogonalTo(dim, seed: 2, orthogonalTo: centroid);
+        await _store.InsertFingerprintAsync(MakeFingerprint("drifting-fp", centroid), "sig-drift");
         await _store.RecordObservationAsync("drifting-fp", orthogonalObs);
 
         var (checks, drifts) = await _service.TickOnceAsync(CancellationToken.None);
@@ -104,8 +104,8 @@ public sealed class FingerprintDriftServiceTests : IDisposable
     public async Task TickOnceAsync_FreshFingerprint_SkippedUntilTtlExpires()
     {
         var dim = _store.Layout.Dimension;
-        var vec = MakeUnitVector(dim, seed: 3);
-        await _store.InsertFingerprintAsync(MakeFingerprint("fresh-fp", vec, vec), "sig-fresh");
+        var vec = IdentityTestHelpers.MakeUnitVector(dim, seed: 3);
+        await _store.InsertFingerprintAsync(MakeFingerprint("fresh-fp", vec), "sig-fresh");
         await _store.RecordObservationAsync("fresh-fp", vec);
 
         // First tick claims it (cached_score_updated_at was null).
@@ -126,69 +126,17 @@ public sealed class FingerprintDriftServiceTests : IDisposable
     public async Task TickOnceAsync_FingerprintWithNoObservations_NotPicked()
     {
         var dim = _store.Layout.Dimension;
-        var vec = MakeUnitVector(dim, seed: 4);
-        await _store.InsertFingerprintAsync(MakeFingerprint("orphan-fp", vec, vec), "sig-orphan");
+        var vec = IdentityTestHelpers.MakeUnitVector(dim, seed: 4);
+        await _store.InsertFingerprintAsync(MakeFingerprint("orphan-fp", vec), "sig-orphan");
         // No RecordObservationAsync call — observation_count stays 0; drift service skips it.
 
         var (checks, _) = await _service.TickOnceAsync(CancellationToken.None);
         Assert.Equal(0, checks);
     }
 
-    private static Fingerprint MakeFingerprint(string id, float[] centroid, float[] weightsBasis)
-    {
-        var weights = new float[centroid.Length];
-        Array.Fill(weights, 1.0f);
-        var now = DateTime.UtcNow;
-        return new Fingerprint
-        {
-            FingerprintId = id,
-            Centroid = (float[])centroid.Clone(),
-            CentroidMaturity = 1,
-            Weights = weights,
-            MemberCount = 1,
-            ObservationCount = 0, // bumped to 1 by RecordObservationAsync below
-            CorrectionCount = 0,
-            FirstSeen = now,
-            LastSeen = now,
-            Quality = 0.8,
-            ArchetypeOrigin = null,
-            InferredClientType = "test-client",
-            InferredTypeConfidence = 1.0,
-            InferredTypeChangedAt = now,
-            CachedBotProbability = 0.0,
-            CachedRiskBand = null,
-            CachedScoreUpdatedAt = null
-        };
-    }
-
-    private static float[] MakeUnitVector(int dim, int seed, float[]? orthogonalTo = null)
-    {
-        var rng = new Random(seed);
-        var v = new float[dim];
-        if (orthogonalTo is not null)
-        {
-            // Place mass on dims where orthogonalTo is zero (the LSH/scalar layout has many such
-            // dims). Pick non-overlapping dims to guarantee dot product = 0.
-            var nonzero = new HashSet<int>();
-            for (var i = 0; i < dim; i++)
-                if (orthogonalTo[i] != 0f) nonzero.Add(i);
-            for (var i = 0; i < dim; i++)
-                if (!nonzero.Contains(i)) v[i] = (float)rng.NextDouble();
-        }
-        else
-        {
-            for (var i = 0; i < dim; i++) v[i] = (float)rng.NextDouble();
-        }
-        Normalise(v);
-        return v;
-    }
-
-    private static void Normalise(float[] v)
-    {
-        double sum = 0;
-        for (var i = 0; i < v.Length; i++) sum += v[i] * v[i];
-        var norm = (float)Math.Sqrt(sum);
-        if (norm <= 0) return;
-        for (var i = 0; i < v.Length; i++) v[i] /= norm;
-    }
+    // Drift-service fixtures use observationCount=0 because the test arranges
+    // observations explicitly via RecordObservationAsync after insert.
+    private static Fingerprint MakeFingerprint(string id, float[] centroid) =>
+        IdentityTestHelpers.MakeFingerprint(
+            id, centroid, inferredClientType: "test-client", observationCount: 0);
 }
