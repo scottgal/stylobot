@@ -59,7 +59,10 @@
             <span class="text-[10px] font-semibold text-base-content/70 uppercase tracking-wide">Effective config</span>
             <span class="text-[9px] text-base-content/40">@Model.Sections.Count</span>
         </div>
-        <ul id="config-section-list" class="max-h-[280px] overflow-y-auto text-sm divide-y" style="border-color: var(--sb-card-divider);">
+        @* hx-target/hx-swap are inherited from the <ul>, so each button only needs hx-get. *@
+        <ul id="config-section-list" class="max-h-[280px] overflow-y-auto text-sm divide-y"
+            style="border-color: var(--sb-card-divider);"
+            hx-target="#config-body" hx-swap="innerHTML">
             @foreach (var sec in Model.Sections)
             {
                 <li>
@@ -67,11 +70,7 @@
                             class="sb-config-item w-full text-left px-3 py-2 hover:bg-base-200/50 cursor-pointer"
                             data-config-kind="section"
                             data-config-id="@sec.Id"
-                            data-config-label="@sec.DisplayName"
                             hx-get="@bp/api/config/section/@(Uri.EscapeDataString(sec.Id))?format=html"
-                            hx-target="#config-body"
-                            hx-swap="innerHTML"
-                            hx-trigger="click"
                             title="@sec.TypeName">
                         <span class="text-sm">@sec.DisplayName</span>
                     </button>
@@ -83,7 +82,9 @@
             <span class="text-[10px] font-semibold text-base-content/70 uppercase tracking-wide">Detectors</span>
             <span class="text-[9px] text-base-content/40">@Model.Detectors.Count</span>
         </div>
-        <ul id="config-detector-list" class="max-h-[440px] overflow-y-auto text-sm divide-y" style="border-color: var(--sb-card-divider);">
+        <ul id="config-detector-list" class="max-h-[440px] overflow-y-auto text-sm divide-y"
+            style="border-color: var(--sb-card-divider);"
+            hx-target="#config-body" hx-swap="innerHTML">
             @foreach (var det in Model.Detectors)
             {
                 <li>
@@ -91,11 +92,7 @@
                             class="sb-config-item w-full text-left px-3 py-2 hover:bg-base-200/50 cursor-pointer flex items-center justify-between gap-2"
                             data-config-kind="detector"
                             data-config-id="@det.Slug"
-                            data-config-label="@det.Slug"
                             hx-get="@bp/api/config/manifests/@(Uri.EscapeDataString(det.Slug))?format=html&view=yaml"
-                            hx-target="#config-body"
-                            hx-swap="innerHTML"
-                            hx-trigger="click"
                             title="@det.Description">
                         <span class="truncate">
                             <span class="font-mono text-xs text-base-content/60">@det.Slug</span>
@@ -192,7 +189,6 @@
 
     const yamlBtn = document.getElementById('config-view-yaml');
     const jsonBtn = document.getElementById('config-view-json');
-    const body    = document.getElementById('config-body');
 
     function highlightActiveItem() {
         document.querySelectorAll('.sb-config-item').forEach(b => {

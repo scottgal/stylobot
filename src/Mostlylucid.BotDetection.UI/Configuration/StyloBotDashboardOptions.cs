@@ -151,23 +151,12 @@ public sealed class StyloBotDashboardOptions
     public bool AllowUnauthenticatedAccess { get; set; }
 
     /// <summary>
-    ///     Authorization filter for write operations (config save/delete, policy changes).
-    ///     Separate from read access - viewing the dashboard does NOT grant write permission.
-    ///     If null and RequireWriteAuthorizationPolicy is also null, write operations are DENIED by default.
-    /// </summary>
-    public Func<HttpContext, Task<bool>>? WriteAuthorizationFilter { get; set; }
-
-    /// <summary>
-    ///     Authorization policy name required for write operations.
-    ///     If null and WriteAuthorizationFilter is also null, write operations are DENIED by default.
-    ///     This is separate from RequireAuthorizationPolicy (which controls read access).
-    /// </summary>
-    public string? RequireWriteAuthorizationPolicy { get; set; }
-
-    /// <summary>
-    ///     When true, config editing is enabled in the dashboard UI.
-    ///     Even when enabled, write operations require WriteAuthorizationFilter or RequireWriteAuthorizationPolicy.
-    ///     Default: false (config tab is read-only).
+    ///     Master toggle for commercial-only dashboard chrome (policies tab, advanced
+    ///     investigate views, etc.). The FOSS dashboard cannot modify configuration
+    ///     regardless of this flag - this is purely a read-mostly view-feature gate.
+    ///     The property name is preserved for appsettings backwards compatibility;
+    ///     historically it gated a save path that has since been removed.
+    ///     Default: false.
     /// </summary>
     public bool EnableConfigEditing { get; set; }
 

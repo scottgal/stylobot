@@ -807,45 +807,6 @@ public class StyloBotDashboardMiddleware
             </html>
             """);
     }
-
-    /// <summary>
-    ///     Checks if the current request is authorized for WRITE operations (config save/delete).
-    ///     Write access is denied by default - requires explicit WriteAuthorizationFilter
-    ///     or RequireWriteAuthorizationPolicy configuration. Viewing the dashboard does NOT grant write access.
-    /// </summary>
-    private async Task<bool> IsWriteAuthorizedAsync(HttpContext context)
-    {
-        // Custom write filter takes precedence
-        if (_options.WriteAuthorizationFilter != null)
-            return await _options.WriteAuthorizationFilter(context);
-
-        // Policy-based write auth
-        if (!string.IsNullOrEmpty(_options.RequireWriteAuthorizationPolicy))
-        {
-            var authService = context.RequestServices
-                    .GetService(typeof(IAuthorizationService))
-                as IAuthorizationService;
-
-            if (authService != null)
-            {
-                var result = await authService.AuthorizeAsync(
-                    context.User, null, _options.RequireWriteAuthorizationPolicy);
-                return result.Succeeded;
-            }
-        }
-
-        // Config editing must be explicitly enabled AND write auth configured
-        if (!_options.EnableConfigEditing)
-        {
-            _logger.LogWarning("Config write attempt denied: EnableConfigEditing is false");
-            return false;
-        }
-
-        // Default DENY - write access is never implicitly granted
-        _logger.LogWarning("Config write attempt denied: no WriteAuthorizationFilter or RequireWriteAuthorizationPolicy configured");
-        return false;
-    }
-
     private async Task ServeDashboardPageAsync(HttpContext context)
     {
         context.Response.ContentType = "text/html";
@@ -2763,24 +2724,20 @@ public class StyloBotDashboardMiddleware
         var license = LicenseCardModelBuilder.Build(context, _options.BasePath.TrimEnd('/'));
         var commercial = license.Status is LicenseStatusKind.Active or LicenseStatusKind.Trial;
 
-        // Config editing requires explicit opt-in via EnableConfigEditing + write auth
-        var canEdit = _options.EnableConfigEditing &&
-            (_options.WriteAuthorizationFilter != null || !string.IsNullOrEmpty(_options.RequireWriteAuthorizationPolicy));
-
         return new ConfigurationEditorModel
         {
             BasePath = _options.BasePath.TrimEnd('/'),
             Detectors = await editor.ListManifestsAsync(context.RequestAborted),
             Sections = EffectiveConfigSerializer.DiscoverSections(),
-            IsCommercialLicensed = commercial,
-            ReadOnly = !canEdit
+            IsCommercialLicensed = commercial
         };
     }
 
     // ====================================================================================
-    // Configuration editor endpoints (FOSS YAML editor)
-    // The ConfigEditorService does the heavy lifting (path safety, YAML parse validation,
-    // atomic write). These methods only translate between HTTP and the service result enum.
+    // Configuration viewer endpoints (FOSS, read-only).
+    // List sections, list detectors, return a single section's effective JSON, or return
+    // a single detector manifest's YAML + effective JSON. Writes live in the commercial
+    // control plane on its own routes; nothing in this file mutates configuration state.
     // ====================================================================================
 
     /// <summary><c>GET /api/config/manifests</c> - list every editable detector + override status.</summary>
@@ -2795,41 +2752,23 @@ public class StyloBotDashboardMiddleware
     }
 
     /// <summary>
-    ///     Method-dispatched route for <c>/api/config/manifests/{slug}</c>:
-    ///     GET = read, PUT = save override, DELETE = revert to embedded.
+    ///     GET-only route for <c>/api/config/manifests/{slug}</c>. PUT and DELETE were
+    ///     removed - the FOSS dashboard cannot modify detector overrides. Editing lives
+    ///     in the commercial control plane on its own routes.
     /// </summary>
     private async Task ServeConfigManifestApiAsync(HttpContext context, string slug)
     {
-        // Reads go through the interface (remote-substitutable); writes need the concrete
-        // class. Remote-mode hosts register only IConfigEditorService, so the concrete
-        // resolution returns null and PUT/DELETE 503 cleanly.
         var reader = context.RequestServices.GetService<IConfigEditorService>();
         if (reader is null) { context.Response.StatusCode = 503; return; }
 
-        switch (context.Request.Method)
+        if (context.Request.Method != "GET")
         {
-            case "GET":
-                await ServeConfigManifestGetAsync(context, reader, slug);
-                break;
-            case "PUT":
-            {
-                var writer = context.RequestServices.GetService<ConfigEditorService>();
-                if (writer is null) { context.Response.StatusCode = 503; return; }
-                await ServeConfigManifestPutAsync(context, writer, slug);
-                break;
-            }
-            case "DELETE":
-            {
-                var writer = context.RequestServices.GetService<ConfigEditorService>();
-                if (writer is null) { context.Response.StatusCode = 503; return; }
-                await ServeConfigManifestDeleteAsync(context, writer, slug);
-                break;
-            }
-            default:
-                context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
-                context.Response.Headers["Allow"] = "GET, PUT, DELETE";
-                break;
+            context.Response.StatusCode = StatusCodes.Status405MethodNotAllowed;
+            context.Response.Headers["Allow"] = "GET";
+            return;
         }
+
+        await ServeConfigManifestGetAsync(context, reader, slug);
     }
 
     private async Task ServeConfigManifestGetAsync(HttpContext context, IConfigEditorService editor, string slug)
@@ -2983,110 +2922,6 @@ public class StyloBotDashboardMiddleware
             "</div>";
     }
 
-    private async Task ServeConfigManifestPutAsync(HttpContext context, ConfigEditorService editor, string slug)
-    {
-        // Write operations require explicit write authorization - separate from dashboard read access
-        if (!await IsWriteAuthorizedAsync(context))
-        {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync("{\"ok\":false,\"error\":\"Write access denied. Configure WriteAuthorizationFilter or RequireWriteAuthorizationPolicy.\"}");
-            return;
-        }
-
-        // Body is either text/plain YAML or JSON {"yaml":"…"} - accept both because the
-        // browser sends JSON via fetch() while curl users tend to send raw YAML.
-        string yaml;
-        try
-        {
-            using var reader = new StreamReader(context.Request.Body);
-            var body = await reader.ReadToEndAsync();
-
-            if ((context.Request.ContentType ?? "").Contains("application/json", StringComparison.OrdinalIgnoreCase))
-            {
-                using var doc = JsonDocument.Parse(body);
-                if (!doc.RootElement.TryGetProperty("yaml", out var yamlEl) || yamlEl.ValueKind != JsonValueKind.String)
-                {
-                    context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                    await context.Response.WriteAsync("{\"ok\":false,\"error\":\"missing 'yaml' string field\"}");
-                    return;
-                }
-                yaml = yamlEl.GetString() ?? string.Empty;
-            }
-            else
-            {
-                yaml = body;
-            }
-        }
-        catch (Exception ex)
-        {
-            context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            await JsonSerializer.SerializeAsync(context.Response.Body,
-                new { ok = false, error = ex.Message }, CamelCaseJson);
-            return;
-        }
-
-        var result = editor.SaveOverride(slug, yaml);
-        context.Response.StatusCode = MapSaveOutcomeToStatus(result.Outcome);
-        context.Response.ContentType = "application/json";
-
-        if (result.Ok)
-        {
-            await JsonSerializer.SerializeAsync(context.Response.Body, new
-            {
-                ok = true,
-                path = result.Path,
-                writtenAtUtc = result.WrittenAtUtc
-            }, CamelCaseJson);
-        }
-        else
-        {
-            await JsonSerializer.SerializeAsync(context.Response.Body, new
-            {
-                ok = false,
-                outcome = result.Outcome.ToString(),
-                error = result.Error,
-                line = result.Line,
-                column = result.Column
-            }, CamelCaseJson);
-        }
-    }
-
-    private async Task ServeConfigManifestDeleteAsync(HttpContext context, ConfigEditorService editor, string slug)
-    {
-        // Write operations require explicit write authorization
-        if (!await IsWriteAuthorizedAsync(context))
-        {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            context.Response.ContentType = "application/json";
-            await context.Response.WriteAsync("{\"ok\":false,\"error\":\"Write access denied.\"}");
-            return;
-        }
-
-        var outcome = editor.DeleteOverride(slug);
-        context.Response.StatusCode = outcome switch
-        {
-            DeleteOutcome.Ok => StatusCodes.Status200OK,
-            DeleteOutcome.NotFound => StatusCodes.Status404NotFound,
-            DeleteOutcome.InvalidSlug or DeleteOutcome.PathEscape => StatusCodes.Status403Forbidden,
-            DeleteOutcome.IoError => StatusCodes.Status500InternalServerError,
-            _ => StatusCodes.Status500InternalServerError
-        };
-        context.Response.ContentType = "application/json";
-        await JsonSerializer.SerializeAsync(context.Response.Body,
-            new { ok = outcome == DeleteOutcome.Ok, outcome = outcome.ToString() }, CamelCaseJson);
-    }
-
-    private static int MapSaveOutcomeToStatus(SaveOutcome outcome) => outcome switch
-    {
-        SaveOutcome.Ok => StatusCodes.Status200OK,
-        SaveOutcome.YamlInvalid => StatusCodes.Status400BadRequest,
-        SaveOutcome.UnknownDetector => StatusCodes.Status404NotFound,
-        SaveOutcome.InvalidSlug or SaveOutcome.PathEscape => StatusCodes.Status403Forbidden,
-        SaveOutcome.TooLarge => StatusCodes.Status413RequestEntityTooLarge,
-        SaveOutcome.IoError => StatusCodes.Status500InternalServerError,
-        _ => StatusCodes.Status500InternalServerError
-    };
 
     /// <summary>Render the countries list partial with server-side sort and pagination.</summary>
     private async Task ServeCountriesPartialAsync(HttpContext context)

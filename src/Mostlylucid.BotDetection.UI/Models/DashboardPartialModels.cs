@@ -543,16 +543,9 @@ public sealed class ConfigurationEditorModel
     public required bool IsCommercialLicensed { get; init; }
 
     /// <summary>
-    ///     When true, config editing (save/delete) is disabled in the UI.
-    ///     Requires EnableConfigEditing + WriteAuthorizationFilter/Policy to be false.
-    ///     Default: true (read-only).
-    /// </summary>
-    public bool ReadOnly { get; init; } = true;
-
-    /// <summary>
     ///     Control plane URL for loading the commercial config editor via HTMX.
     ///     When set, the Configuration tab loads the editor from this URL.
-    ///     When null, falls back to the FOSS Monaco YAML editor.
+    ///     When null, the FOSS view-only surface renders instead.
     /// </summary>
     public string? ControlPlaneUrl { get; init; }
 }

@@ -52,14 +52,15 @@ public interface IConfigEditorService
     Task<DetectorManifestDocument?> GetManifestAsync(string slug, CancellationToken ct = default);
 }
 
-// Not sealed: remote-mode dashboards register a HTTP-backed IConfigEditorService instead
-// of this concrete type. The base class continues to own the write path (override save,
-// revert, atomic file replace) which remote viewers never call.
+// Not sealed: remote-mode dashboards register a HTTP-backed IConfigEditorService.
+// The FOSS surface is read-only by design: there is no Save / Delete on this type and
+// no API endpoint that would invoke one. Override editing lives in the commercial
+// repo's ConfigEditorController, where it can be gated by licence + auth + RBAC. If
+// you find yourself wanting to add a write method here, you are in the wrong repo.
 public class ConfigEditorService : IConfigEditorService
 {
     private const string DetectorYamlSuffix = ".detector.yaml";
     private const string DetectorsSubDir = "detectors";
-    private const int MaxYamlBytes = 256 * 1024;
     private static readonly Regex SlugPattern = new("^[a-z0-9_-]+$", RegexOptions.Compiled);
 
     private readonly FileSystemConfigurationOverrideSource _overrideSource;
@@ -149,104 +150,12 @@ public class ConfigEditorService : IConfigEditorService
             LastModifiedUtc: overrideMtime);
     }
 
-    /// <summary>
-    ///     Persist an override YAML for <paramref name="slug"/>. Returns a result that the
-    ///     dashboard maps to HTTP status: <see cref="SaveOutcome.Ok"/> → 200,
-    ///     <see cref="SaveOutcome.InvalidSlug"/> / <see cref="SaveOutcome.PathEscape"/> → 403,
-    ///     <see cref="SaveOutcome.UnknownDetector"/> → 404,
-    ///     <see cref="SaveOutcome.YamlInvalid"/> → 400 (carries line/col),
-    ///     <see cref="SaveOutcome.TooLarge"/> → 413,
-    ///     <see cref="SaveOutcome.IoError"/> → 500.
-    /// </summary>
-    public SaveResult SaveOverride(string slug, string yaml)
-    {
-        if (!IsValidSlug(slug)) return SaveResult.Failure(SaveOutcome.InvalidSlug);
-        if (yaml.Length > MaxYamlBytes) return SaveResult.Failure(SaveOutcome.TooLarge);
-
-        var embedded = GetEmbeddedManifests();
-        if (!embedded.ContainsKey(slug)) return SaveResult.Failure(SaveOutcome.UnknownDetector);
-
-        var targetPath = GetOverridePath(slug);
-        if (!IsInsideRoot(targetPath)) return SaveResult.Failure(SaveOutcome.PathEscape);
-
-        // Validate YAML parses cleanly. A failed parse must NOT touch the on-disk file -
-        // an operator with a syntax error mid-edit would otherwise nuke a previously-good
-        // override and have no way to revert.
-        try
-        {
-            YamlSerializer.Deserialize<DetectorManifest>(Encoding.UTF8.GetBytes(yaml));
-        }
-        catch (YamlParserException yx)
-        {
-            return SaveResult.Failure(SaveOutcome.YamlInvalid, error: yx.Message);
-        }
-        catch (Exception ex)
-        {
-            return SaveResult.Failure(SaveOutcome.YamlInvalid, error: ex.Message);
-        }
-
-        try
-        {
-            var dir = Path.GetDirectoryName(targetPath)!;
-            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-
-            // Atomic replace - write to .tmp sibling then File.Move with overwrite.
-            // The watcher fires on the rename; the embedded debounce collapses the burst.
-            var tmp = targetPath + ".tmp";
-            File.WriteAllText(tmp, yaml);
-            File.Move(tmp, targetPath, overwrite: true);
-
-            _logger.LogInformation("Wrote detector override {Slug} ({Bytes} bytes)", slug, yaml.Length);
-            return SaveResult.Success(targetPath, DateTime.UtcNow);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to write detector override {Slug} to {Path}", slug, targetPath);
-            return SaveResult.Failure(SaveOutcome.IoError, error: ex.Message);
-        }
-    }
-
-    /// <summary>Remove the override file (revert to embedded defaults). Idempotent.</summary>
-    public DeleteOutcome DeleteOverride(string slug)
-    {
-        if (!IsValidSlug(slug)) return DeleteOutcome.InvalidSlug;
-        var path = GetOverridePath(slug);
-        if (!IsInsideRoot(path)) return DeleteOutcome.PathEscape;
-
-        if (!File.Exists(path)) return DeleteOutcome.NotFound;
-
-        try
-        {
-            File.Delete(path);
-            _logger.LogInformation("Deleted detector override {Slug}", slug);
-            return DeleteOutcome.Ok;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to delete detector override {Slug}", slug);
-            return DeleteOutcome.IoError;
-        }
-    }
-
     private static bool IsValidSlug(string? slug) =>
         !string.IsNullOrWhiteSpace(slug) && SlugPattern.IsMatch(slug);
 
     private string GetOverridePath(string slug) =>
         Path.Combine(_overrideSource.RootPath, DetectorsSubDir, slug + DetectorYamlSuffix);
 
-    /// <summary>
-    ///     Defence-in-depth - even after the slug regex and Path.Combine, re-resolve the
-    ///     absolute path and confirm it sits underneath the override root. Catches exotic
-    ///     edge cases (symlink races, NTFS reparse points) that a regex alone wouldn't.
-    /// </summary>
-    private bool IsInsideRoot(string path)
-    {
-        var fullTarget = Path.GetFullPath(path);
-        var fullRoot = Path.GetFullPath(_overrideSource.RootPath);
-        if (!fullRoot.EndsWith(Path.DirectorySeparatorChar))
-            fullRoot += Path.DirectorySeparatorChar;
-        return fullTarget.StartsWith(fullRoot, StringComparison.Ordinal);
-    }
 
     /// <summary>Read the embedded manifest map exactly once and cache it for the process lifetime.</summary>
     private Dictionary<string, EmbeddedManifestEntry> GetEmbeddedManifests()
@@ -319,33 +228,3 @@ public sealed record DetectorManifestDocument(
     bool HasOverride,
     DateTime? LastModifiedUtc);
 
-/// <summary>Outcome of a save attempt - middleware maps to HTTP status code.</summary>
-public enum SaveOutcome
-{
-    Ok,
-    InvalidSlug,
-    UnknownDetector,
-    PathEscape,
-    YamlInvalid,
-    TooLarge,
-    IoError
-}
-
-public sealed record SaveResult(
-    SaveOutcome Outcome,
-    string? Path = null,
-    DateTime? WrittenAtUtc = null,
-    string? Error = null,
-    long? Line = null,
-    long? Column = null)
-{
-    public bool Ok => Outcome == SaveOutcome.Ok;
-
-    public static SaveResult Success(string path, DateTime writtenAtUtc) =>
-        new(SaveOutcome.Ok, path, writtenAtUtc);
-
-    public static SaveResult Failure(SaveOutcome outcome, string? error = null, long? line = null, long? column = null) =>
-        new(outcome, Error: error, Line: line, Column: column);
-}
-
-public enum DeleteOutcome { Ok, NotFound, InvalidSlug, PathEscape, IoError }
