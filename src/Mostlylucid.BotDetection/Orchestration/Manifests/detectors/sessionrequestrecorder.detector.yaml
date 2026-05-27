@@ -1,0 +1,106 @@
+# Always-runs SessionStore writer at priority 2. Splits the record-side
+# of the session-vector pipeline out of SessionVectorContributor
+# (priority 30) so quorum-exit at priority 3 does not leave the
+# SessionStore ring empty for clear humans. The vector analyser at
+# priority 30 stays unchanged; this contributor is record-only.
+name: SessionRequestRecorderContributor
+priority: 2
+enabled: true
+description: >
+  Records the current request into the in-process SessionStore on every
+  detection. Reads SignalKeys.PrimarySignature, classifies the request
+  via RequestMarkovClassifier, writes the session-state + boundary
+  signals every downstream wave reads, returns NeutralContribution.
+
+scope:
+  sink: botdetection
+  coordinator: detection
+  atom: session-recorder
+
+taxonomy:
+  kind: pre-analysis
+  determinism: deterministic
+  persistence: ephemeral
+
+input:
+  accepts:
+    - type: botdetection.request
+      required: true
+      description: HTTP request with PrimarySignature already established.
+      signal_pattern: signature.primary
+  required_signals:
+    - signature.primary
+  optional_signals:
+    - request.headers.hashes
+
+output:
+  produces:
+    - type: botdetection.contribution
+      description: Neutral contribution; the value is in the signals it writes.
+  signals:
+    - key: session.request_count
+      entity_type: integer
+      salience: 0.5
+      description: Live session request count after this record.
+    - key: session.history_count
+      entity_type: integer
+      salience: 0.4
+      description: Number of finalised sessions in history for this signature.
+    - key: session.current_state
+      entity_type: string
+      salience: 0.6
+      description: Markov state classification of the current request.
+    - key: session.boundary_detected
+      entity_type: boolean
+      salience: 0.7
+      description: True when this record closed a session (retrogressive boundary).
+    - key: session.completed_maturity
+      entity_type: float
+      salience: 0.6
+      description: Maturity score of the just-closed session.
+    - key: session.completed_request_count
+      entity_type: integer
+      salience: 0.5
+      description: Request count of the just-closed session.
+    - key: session.dominant_state
+      entity_type: string
+      salience: 0.6
+      description: Dominant Markov state of the just-closed session.
+
+triggers:
+  requires:
+    - signal: signature.primary
+      description: PrimarySignature is set by SignatureContributor at priority 1.
+
+emits:
+  on_start:
+    - detector.session_recorder.started
+  on_failure:
+    - detector.session_recorder.failed
+
+listens:
+  required: []
+  optional: []
+
+lane:
+  name: fast
+  max_concurrency: 32
+  priority: 240  # Very high orchestrator priority -- run early in Wave 0/1.
+
+defaults:
+  weights:
+    base: 1.0
+  confidence:
+    neutral: 0.0
+  timing:
+    timeout_ms: 50
+  features:
+    detailed_logging: false
+    can_early_exit: false
+    can_escalate: false
+
+tags:
+  - session
+  - recorder
+  - always-runs
+  - pre-analysis

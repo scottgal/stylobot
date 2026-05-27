@@ -115,56 +115,17 @@ public class SessionVectorContributor : ConfiguredContributorBase
                 return contributions;
             }
 
-            // Classify the current request into a Markov state
-            var requestState = RequestMarkovClassifier.Classify(state);
-            var statusCode = state.HttpContext.Response.StatusCode;
-            var path = TemplatizePath(state.HttpContext.Request.Path.Value ?? "/");
-
-            var sessionRequest = new SessionRequest(
-                requestState,
-                DateTimeOffset.UtcNow,
-                path,
-                statusCode > 0 ? statusCode : 200);
-
-            // Build fingerprint context from blackboard signals - these are per-session
-            // constants that become dimensions in the unified vector. Fingerprint mutation
-            // across sessions appears as velocity in these dimensions.
-            var fpContext = BuildFingerprintContext(state);
-
-            // Record request - may return a completed session snapshot (retrogressive boundary)
-            var completedSession = await _sessionStore.RecordRequestAsync(signature, sessionRequest, fpContext);
-
-            // Store header hashes on first request of a session (for progressive identity)
+            // SessionStore is populated unconditionally by
+            // SessionRequestRecorderContributor at priority 2 -- this
+            // contributor only READS for analysis. The orchestrator can
+            // quorum-exit between priority 2 and 30; the recorder still
+            // fires, so the ring is hot for SessionAtomizerService even
+            // when this contributor never runs. The boundary / count /
+            // current-state signals downstream waves read are written
+            // by the recorder.
             var currentSession = _sessionStore.GetCurrentSession(signature);
-            if (currentSession is { Count: 1 })
-            {
-                var headerHashesJson = state.GetSignal<string>(SignalKeys.HeaderHashes);
-                if (!string.IsNullOrEmpty(headerHashesJson))
-                    _sessionStore.SetHeaderHashes(signature, headerHashesJson);
-            }
-
-            // Write session signals
             var sessionHistory = _sessionStore.GetHistory(signature);
-
-            state.WriteSignals([
-                new(SignalKeys.SessionRequestCount, currentSession?.Count ?? 1),
-                new(SignalKeys.SessionHistoryCount, sessionHistory.Count),
-                new(SignalKeys.SessionCurrentState, requestState.ToString())
-            ]);
-
-            if (completedSession != null)
-            {
-                state.WriteSignals([
-                    new(SignalKeys.SessionBoundaryDetected, true),
-                    new(SignalKeys.SessionCompletedMaturity, completedSession.Maturity),
-                    new(SignalKeys.SessionCompletedRequestCount, completedSession.RequestCount),
-                    new(SignalKeys.SessionDominantState, completedSession.DominantState.ToString())
-                ]);
-
-                _logger.LogDebug(
-                    "Session boundary detected for {Signature}: {Count} requests, maturity={Maturity:F2}",
-                    signature, completedSession.RequestCount, completedSession.Maturity);
-            }
+            var fpContext = BuildFingerprintContext(state);
 
             // === Partial chain early detection (before full maturity) ===
             if (currentSession != null &&
@@ -709,7 +670,7 @@ public class SessionVectorContributor : ConfiguredContributorBase
     ///     These are per-session constants that become vector dimensions,
     ///     unifying network fingerprints with behavioral vectors.
     /// </summary>
-    private static FingerprintContext BuildFingerprintContext(BlackboardState state)
+    internal static FingerprintContext BuildFingerprintContext(BlackboardState state)
     {
         // TLS version
         var tlsProtocol = state.GetSignal<string>(SignalKeys.TlsProtocol) ?? "";
@@ -778,7 +739,7 @@ public class SessionVectorContributor : ConfiguredContributorBase
     /// <summary>
     ///     Simplifies paths for Markov state comparison: /users/123/posts → /users/{id}/posts
     /// </summary>
-    private static string TemplatizePath(string path)
+    internal static string TemplatizePath(string path)
     {
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
         for (var i = 0; i < segments.Length; i++)
