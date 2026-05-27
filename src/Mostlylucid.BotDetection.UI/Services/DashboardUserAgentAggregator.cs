@@ -1,3 +1,4 @@
+using Mostlylucid.BotDetection.Definitions.BotPatterns;
 using Mostlylucid.BotDetection.UI.Models;
 
 namespace Mostlylucid.BotDetection.UI.Services;
@@ -125,17 +126,46 @@ public sealed class DashboardUserAgentAggregator(IDashboardEventStore eventStore
     internal static string ExtractBrowserFamily(string ua)
         => Mostlylucid.BotDetection.Helpers.UserAgentParser.Parse(ua).Family;
 
+    /// <summary>
+    ///     Returns the analytics-tab filter category for a UA family. The category data
+    ///     is owned by two upstream sources (no hand-rolled lists here):
+    ///     <list type="bullet">
+    ///         <item>Known bots come from <see cref="BotPatternLoader"/> (the canonical
+    ///         YAML registry under <c>Definitions/BotPatterns/</c>). The
+    ///         <see cref="BotPatternEntry.BotType"/> enum maps to one of
+    ///         <c>"ai" / "search" / "social" / "tool"</c>.</item>
+    ///         <item>Browser and tool families that UA parser produces but aren't bots
+    ///         come from <see cref="UserAgentParser.ClassifyFamily(string?)"/>, which is
+    ///         the single source of truth for which families <see cref="UserAgentParser.Parse(string)"/>
+    ///         emits.</item>
+    ///         <item>Empty / "Other" / unrecognised families return <c>"unknown"</c>.</item>
+    ///     </list>
+    ///     The two switch expressions below are pure code-logic translations of the
+    ///     upstream data into the analytics-tab's filter-chip vocabulary; they do not
+    ///     curate a list of bot names or browser names.
+    /// </summary>
     internal static string InferUaCategory(string family)
     {
-        var f = family.ToLowerInvariant();
-        if (f is "chrome" or "firefox" or "safari" or "edge" or "opera" or "brave" or "vivaldi" or "samsung internet")
-            return "browser";
-        if (f is "googlebot" or "bingbot" or "yandexbot" or "baiduspider" or "duckduckbot")
-            return "search";
-        if (f is "gptbot" or "claudebot" or "ccbot" or "perplexitybot" or "bytespider")
-            return "ai";
-        if (f is "curl" or "python" or "go" or "java" or "node" or "wget" or "other")
-            return "tool";
-        return "unknown";
+        if (string.IsNullOrWhiteSpace(family))
+            return "unknown";
+
+        // Bots: ask the canonical pattern registry first.
+        var botType = BotPatternLoader.Default.FindBotTypeByName(family);
+        if (botType is not null)
+            return botType switch
+            {
+                "AiBot"           => "ai",
+                "SearchEngine"    => "search",
+                "SocialMediaBot"  => "social",
+                "MonitoringBot"   => "tool",
+                "Tool"            => "tool",
+                "Scraper"         => "tool",
+                "GoodBot"         => "tool",
+                _                  => "unknown",
+            };
+
+        // Not a known bot: ask the UA parser if it recognises this family as a
+        // browser or a CLI/library tool. "Other" / unrecognised → null → "unknown".
+        return Mostlylucid.BotDetection.Helpers.UserAgentParser.ClassifyFamily(family) ?? "unknown";
     }
 }

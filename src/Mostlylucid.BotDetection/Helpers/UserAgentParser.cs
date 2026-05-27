@@ -79,6 +79,31 @@ public static class UserAgentParser
     }
 
     /// <summary>
+    ///     Classifies a family name returned by <see cref="Parse(string)"/> into one of
+    ///     three coarse buckets: <c>"browser"</c>, <c>"tool"</c>, or <c>null</c> when the
+    ///     family is unrecognised. Browser families cover the parser's known browser
+    ///     outputs (Chrome, Firefox, Safari, Edge, Opera, Brave, Vivaldi, IE); tool
+    ///     families cover the parser's known CLI / library outputs (curl, Python, Go,
+    ///     Java, Node.js, wget). Bots and unknown families return <c>null</c> -- callers
+    ///     wanting bot categorisation should consult <c>BotPatternLoader</c> first and
+    ///     fall back to this method for the residual.
+    ///
+    ///     Case-insensitive. The single source of truth for which families this parser
+    ///     emits; if <see cref="Parse(string)"/> learns a new family, add it here too.
+    /// </summary>
+    public static string? ClassifyFamily(string? family)
+    {
+        if (string.IsNullOrWhiteSpace(family)) return null;
+        return family.Trim().ToLowerInvariant() switch
+        {
+            "chrome" or "firefox" or "safari" or "edge"
+                or "opera" or "brave" or "vivaldi" or "internet explorer" => "browser",
+            "curl" or "python" or "go" or "java" or "node.js" or "wget" => "tool",
+            _ => null,
+        };
+    }
+
+    /// <summary>
     ///     Derives a coarse device class (Desktop / Mobile / Tablet) from a raw
     ///     User-Agent string. Uses OS-level tokens (iPhone, Android, iPad) rather
     ///     than the parsed browser family so that iOS Chrome / iOS Safari are
