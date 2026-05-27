@@ -298,7 +298,15 @@ public sealed class SignatureAggregateCache
             // aggregate as verified -- same sticky-true semantics as the live
             // Update path. A quorum-exit detection that skipped VerifiedBotContributor
             // does not erase a verified state observed from an earlier detection.
-            IsVerifiedBot = detections.Any(d => d.IsVerifiedBot)
+            IsVerifiedBot = detections.Any(d => d.IsVerifiedBot),
+            // Warmup events have empty ImportantSignals (the SignalR enrichment
+            // doesn't survive the persistence round-trip), so we derive UaFamily
+            // from the stored UA string the same way VisitorListCache does --
+            // first non-empty signal wins, then UA-string parse as the fallback.
+            UaFamily = detections
+                .Select(ExtractUaFamilySignal)
+                .FirstOrDefault(f => !string.IsNullOrEmpty(f))
+                ?? VisitorListCache.DeriveUaFamily(latest.UserAgentRaw ?? latest.UserAgent)
         };
 
         // Score history walks oldest-to-newest so the sparkline reads left-to-right.
@@ -367,6 +375,7 @@ public sealed class SignatureAggregateCache
             ThreatScore = detection.ThreatScore,
             ThreatBand = detection.ThreatBand,
             IsVerifiedBot = detection.IsVerifiedBot,
+            UaFamily = ExtractUaFamilySignal(detection),
         };
 
         // No lock needed - object is not yet visible to other threads
@@ -374,6 +383,26 @@ public sealed class SignatureAggregateCache
         agg.RecordHit(detection.Timestamp.ToUniversalTime());
 
         return agg;
+    }
+
+    /// <summary>
+    ///     Mirror of <c>VisitorListCache.ExtractSignal("ua.family")</c>. Reads
+    ///     the UA family the detection pipeline emits on every request from
+    ///     <see cref="DashboardDetectionEvent.ImportantSignals"/>. We do NOT
+    ///     also derive from <c>UserAgentRaw</c> here -- the live path always
+    ///     populates the signal; warmed-from-store events for SignatureAggregate
+    ///     come through a different code path that already supplies the
+    ///     aggregate fields directly.
+    /// </summary>
+    private static string? ExtractUaFamilySignal(DashboardDetectionEvent detection)
+    {
+        if (detection.ImportantSignals is null) return null;
+        if (detection.ImportantSignals.TryGetValue("ua.family", out var v) && v is not null)
+        {
+            var s = v.ToString();
+            return string.IsNullOrWhiteSpace(s) ? null : s;
+        }
+        return null;
     }
 
     /// <summary>
@@ -419,6 +448,14 @@ public sealed class SignatureAggregateCache
             // verifier (e.g., quorum-exit before VerifiedBotContributor ran), so
             // OR-in rather than overwrite.
             existing.IsVerifiedBot |= detection.IsVerifiedBot;
+            // UaFamily can only IMPROVE: seed from the first non-empty signal we
+            // see and never overwrite with null (some detection paths quorum-exit
+            // before UA-family resolution and emit no ua.family signal).
+            if (string.IsNullOrEmpty(existing.UaFamily))
+            {
+                var fam = ExtractUaFamilySignal(detection);
+                if (!string.IsNullOrEmpty(fam)) existing.UaFamily = fam;
+            }
             // RiskJustification is the rendered "why this band" string -- it must track
             // the CURRENT band (which we always overwrite on detection at line 363),
             // not the first one we ever saw. Previously this coalesced with `??`, so
@@ -488,6 +525,7 @@ public sealed class SignatureAggregateCache
                 ThreatScore = agg.ThreatScore,
                 ThreatBand = agg.ThreatBand,
                 IsVerifiedBot = agg.IsVerifiedBot,
+                UaFamily = agg.UaFamily,
                 HitTrend = agg.ReadHitTrend(),
             };
         }
@@ -572,6 +610,15 @@ public sealed class SignatureAggregate
     ///     verification badge shows the green tick instead of the amber `?`.
     /// </summary>
     public bool IsVerifiedBot;
+
+    /// <summary>
+    ///     UA family (Chrome / Firefox / curl / ...) extracted from the
+    ///     detection event's <c>ImportantSignals["ua.family"]</c> signal at
+    ///     write time. Drives the composite "{Country} {UaFamily} {Role}"
+    ///     label form in <see cref="SignatureDisplayName"/>; without it the
+    ///     dashboard rows degrade to "GB User" instead of "GB Chrome User".
+    /// </summary>
+    public string? UaFamily;
 
     /// <summary>LFU access counter - incremented on read, periodically aged.</summary>
     public long AccessCount;

@@ -561,8 +561,13 @@ public class VisitorListCache
     ///     Parse the UA family ("Chrome", "Safari", "curl", "Googlebot", ...) out of
     ///     the raw UA string when the live pipeline's ua.family signal isn't present.
     ///     Used for warmup-loaded events whose ImportantSignals dictionary is empty.
+    ///     <para>
+    ///     Internal -- <see cref="SignatureAggregateCache.WarmFromDetections"/> reuses
+    ///     this so the warmed aggregate's UaFamily matches the visitor cache's value
+    ///     for the same signature instead of decoupling.
+    ///     </para>
     /// </summary>
-    private static string? DeriveUaFamily(string? userAgent)
+    internal static string? DeriveUaFamily(string? userAgent)
     {
         if (string.IsNullOrEmpty(userAgent)) return null;
         var family = Mostlylucid.BotDetection.Helpers.UserAgentParser.Parse(userAgent).Family;
