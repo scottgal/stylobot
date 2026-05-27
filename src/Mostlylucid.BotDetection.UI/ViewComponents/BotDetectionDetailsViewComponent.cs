@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Mostlylucid.BotDetection.Identity;
 using Mostlylucid.BotDetection.Models;
+using Mostlylucid.BotDetection.Orchestration;
 using Mostlylucid.BotDetection.UI.Models;
 using Mostlylucid.BotDetection.UI.Services;
 
@@ -61,8 +62,8 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         var context = HttpContext;
         var model = context != null ? _extractor.Extract(context) : new DetectionDisplayModel();
 
-        if (context?.Items[SignalKeys.IdentityFingerprintId] is string fpId
-            && !string.IsNullOrEmpty(fpId))
+        var fpId = ResolveFingerprintId(context);
+        if (!string.IsNullOrEmpty(fpId) && context is not null)
         {
             try
             {
@@ -83,5 +84,39 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         }
 
         return View(viewName, model);
+    }
+
+    /// <summary>
+    ///     Identity fingerprint id is exposed through two channels by the
+    ///     detection layer:
+    ///     <list type="bullet">
+    ///         <item><c>HttpContext.Items[SignalKeys.IdentityFingerprintId]</c>
+    ///         when the request hit the gate-bias fast-path with a cached
+    ///         verdict (set by <c>BotDetectionMiddleware</c>).</item>
+    ///         <item><c>AggregatedEvidence.Signals[SignalKeys.IdentityFingerprintId]</c>
+    ///         when the full orchestrator ran (the normal path for any request
+    ///         that wasn't an L1 verdict-cache hit).</item>
+    ///     </list>
+    ///     We check both so the home card renders the fingerprint regardless of
+    ///     which path resolved it. Returns null only when neither has the id,
+    ///     which means the matcher hasn't produced a fingerprint for this
+    ///     request yet (pre-archetype-match window or matcher disabled).
+    /// </summary>
+    private static string? ResolveFingerprintId(Microsoft.AspNetCore.Http.HttpContext? context)
+    {
+        if (context is null) return null;
+
+        if (context.Items[SignalKeys.IdentityFingerprintId] is string fastPathId
+            && !string.IsNullOrEmpty(fastPathId))
+            return fastPathId;
+
+        if (context.Items[BotDetection.Middleware.BotDetectionMiddleware.AggregatedEvidenceKey]
+                is AggregatedEvidence evidence
+            && evidence.Signals.TryGetValue(SignalKeys.IdentityFingerprintId, out var sigObj)
+            && sigObj is string evidenceId
+            && !string.IsNullOrEmpty(evidenceId))
+            return evidenceId;
+
+        return null;
     }
 }
