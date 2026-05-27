@@ -63,6 +63,27 @@ public class BotDetectionDetailsViewComponent : ViewComponent
         var model = context != null ? _extractor.Extract(context) : new DetectionDisplayModel();
 
         var fpId = ResolveFingerprintId(context);
+
+        // Upstream-trust / cached-verdict fast-paths bypass the orchestrator, so
+        // neither HttpContext.Items nor AggregatedEvidence carries the
+        // IdentityFingerprintId for those requests. Fall back to a direct
+        // signature → fingerprint lookup so the home card still renders on
+        // L1 fast-allow paths. PrimarySignature is set by the FOSS detection
+        // middleware regardless of which gate fired.
+        if (string.IsNullOrEmpty(fpId) && context is not null
+            && model.Signatures?.PrimarySignature is { } primarySig
+            && !string.IsNullOrEmpty(primarySig))
+        {
+            try
+            {
+                fpId = await _fingerprintReader.LookupFingerprintIdAsync(primarySig, context.RequestAborted);
+            }
+            catch
+            {
+                // Reader failure -> falls through to calibrating.
+            }
+        }
+
         if (!string.IsNullOrEmpty(fpId) && context is not null)
         {
             try
