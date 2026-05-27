@@ -174,6 +174,7 @@ public class SessionVectorContributor : ConfiguredContributorBase
                 AnalyzePartialChain(state, currentSession, fpContext, contributions);
             }
 
+            System.Console.WriteLine($"[SVC-ENTER] sig={signature[..Math.Min(8, signature.Length)]} sessionCount={currentSession?.Count ?? -1} hasSink={_vectorSink != null}");
             // === Analyze current session (in-progress) ===
             if (currentSession != null && currentSession.Count >= MinSessionRequests)
             {
@@ -188,6 +189,7 @@ public class SessionVectorContributor : ConfiguredContributorBase
                 // read the same vector and render byte-identical polygons.
                 // No-op when the sink isn't registered (gateway-only deploys
                 // without the dashboard package).
+                System.Console.WriteLine($"[SVC-ENCODE] sig={signature[..Math.Min(8, signature.Length)]} vecLen={currentVector.Length} sinkNull={_vectorSink == null}");
                 _vectorSink?.RecordLatestVector(signature, currentVector);
 
                 if (currentMaturity >= MinMaturityForScoring)
