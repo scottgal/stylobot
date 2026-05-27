@@ -121,17 +121,36 @@
     @* Two-column body: radar (left, 12-clock) + verdict/reason/pills (right) *@
     <div class="grid grid-cols-[140px_1fr] gap-4 items-center">
         <div class="text-base-content">
-            <svg viewBox="0 0 100 100" width="140" height="140" xmlns="http://www.w3.org/2000/svg" aria-label="Behavioural fingerprint -- 12-axis clock projection">
-                <circle cx="50" cy="50" r="35" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.16" />
-                <circle cx="50" cy="50" r="23" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.10" />
-                <circle cx="50" cy="50" r="12" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.08" />
-                @Html.Raw(radarAxisLines.ToString())
-                @if (hasRadar)
-                {
+            @* While the canonical input is missing (live accumulator cold AND
+               no persisted session yet) we show a "calibrating" placeholder
+               instead of either an empty axis grid or a polygon derived from
+               a different source. Drawing a polygon from RadarShape /
+               detector contributions / anything else produces a shape that
+               diverges from the dashboard signature-detail page, which IS a
+               bug ("same fingerprint, two shapes"). Spin until the same
+               input the detail page reads becomes available, then paint. *@
+            @if (hasRadar)
+            {
+                <svg viewBox="0 0 100 100" width="140" height="140" xmlns="http://www.w3.org/2000/svg" aria-label="Behavioural fingerprint -- 12-axis clock projection">
+                    <circle cx="50" cy="50" r="35" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.16" />
+                    <circle cx="50" cy="50" r="23" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.10" />
+                    <circle cx="50" cy="50" r="12" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.08" />
+                    @Html.Raw(radarAxisLines.ToString())
                     <polygon points="@radarVertices.ToString().TrimEnd()" fill="@radarFill" stroke="@radarStroke" stroke-width="1.2" />
-                }
-                @Html.Raw(radarLabelSvg.ToString())
-            </svg>
+                    @Html.Raw(radarLabelSvg.ToString())
+                </svg>
+            }
+            else
+            {
+                <div class="w-[140px] h-[140px] flex flex-col items-center justify-center gap-2 text-base-content/40"
+                     aria-live="polite"
+                     aria-label="Behavioural fingerprint calibrating">
+                    <span class="loading loading-ring loading-md" style="color: currentColor;"></span>
+                    <div class="text-[10px] uppercase tracking-wider text-center leading-tight">
+                        Calibrating<br/>fingerprint
+                    </div>
+                </div>
+            }
         </div>
 
         <div class="flex flex-col gap-2 min-w-0">
