@@ -22,61 +22,55 @@
     var verdictLabel = Model.IsBot ? "Bot" : "Human";
     var accent       = Model.IsBot ? "#ef4444" : "#22c55e";
 
-    // 12-axis clock labels match ClockProjection.Compose12Axes order, so the marketing
-    // radar reads identically to the dashboard's behavioural-evolution panel.
-    // Grouped quadrants: Footprint (12-2), Surface (3-5), Cadence (6-8), Signal (9-11).
-    string[] clockLabels =
-    [
-        "Browsing","Path","Asset","Realtime","Form","API",
-        "Auth","Burst","Timing","404","Scan","FP"
-    ];
+    // Render source: the visitor's behavioural fingerprint, projected by
+    // FingerprintRadarProjection into 7 named buckets that match the
+    // IdentityVectorLayout's natural slot groupings. The polygon's shape
+    // means: "what does this actor look like across Network / Locale /
+    // Headers / Tool / Transport / Session / Quality?" Current centroid
+    // = solid polygon. Archetype origin (where this fingerprint started)
+    // = dotted ghost overlay. The gap between them is the "session
+    // effect" -- how absorbed observations have shifted the actor's
+    // shape from its archetype seed.
+    var shape = Model.FingerprintShape;
+    var hasRadar = shape is not null && shape.CurrentBuckets.Length > 0;
+    var bucketLabels = shape?.BucketLabels ?? FingerprintRadarProjection.BucketLabels;
 
-    // The radar projects from the visitor's persisted session vector via the
-    // same chain the dashboard signature page uses. If we don't yet have a
-    // 12-axis projection for this visitor, the radar stays empty -- we do
-    // NOT fabricate a polygon from detector-contribution magnitudes or any
-    // other ad-hoc source. Empty radar is the honest "no data yet" state.
-    var axes = Model.ClockAxes is { Length: 12 } ? Model.ClockAxes : null;
-    var hasRadar = axes is not null;
-
-    var radarVertices  = new System.Text.StringBuilder();
+    var radarCurrent  = new System.Text.StringBuilder();
+    var radarOrigin   = new System.Text.StringBuilder();
     var radarAxisLines = new System.Text.StringBuilder();
     var radarLabelSvg  = new System.Text.StringBuilder();
-    if (hasRadar)
+
+    var axisCount = bucketLabels.Length;
+    for (var i = 0; i < axisCount; i++)
     {
-        for (var i = 0; i < 12; i++)
+        var angle = (2 * Math.PI * i / axisCount) - (Math.PI / 2); // 12 o'clock at top
+
+        if (hasRadar)
         {
-            var angle = (2 * Math.PI * i / 12) - (Math.PI / 2); // 12 o'clock at top
-            var magnitude = Math.Clamp(axes![i], 0, 1);
+            var magnitude = Math.Clamp(shape!.CurrentBuckets[i], 0, 1);
             var x = 50 + Math.Cos(angle) * 35 * magnitude;
             var y = 50 + Math.Sin(angle) * 35 * magnitude;
-            radarVertices.Append($"{x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)},{y.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} ");
+            radarCurrent.Append($"{x.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)},{y.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} ");
 
-            var ax = 50 + Math.Cos(angle) * 35;
-            var ay = 50 + Math.Sin(angle) * 35;
-            radarAxisLines.AppendLine($"<line x1=\"50\" y1=\"50\" x2=\"{ax.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y2=\"{ay.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" stroke=\"currentColor\" stroke-width=\"0.3\" opacity=\"0.12\" />");
+            if (shape.OriginBuckets is { } origin && origin.Length == axisCount)
+            {
+                var om = Math.Clamp(origin[i], 0, 1);
+                var ox = 50 + Math.Cos(angle) * 35 * om;
+                var oy = 50 + Math.Sin(angle) * 35 * om;
+                radarOrigin.Append($"{ox.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)},{oy.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} ");
+            }
+        }
 
-            var lx = 50 + Math.Cos(angle) * 44;
-            var ly = 50 + Math.Sin(angle) * 44 + 1.2;
-            radarLabelSvg.AppendLine($"<text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.5\">{clockLabels[i]}</text>");
-        }
-    }
-    else
-    {
-        // Still render the axis grid + labels so the empty radar reads as a
-        // calibrating display rather than a broken element.
-        for (var i = 0; i < 12; i++)
-        {
-            var angle = (2 * Math.PI * i / 12) - (Math.PI / 2);
-            var ax = 50 + Math.Cos(angle) * 35;
-            var ay = 50 + Math.Sin(angle) * 35;
-            radarAxisLines.AppendLine($"<line x1=\"50\" y1=\"50\" x2=\"{ax.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y2=\"{ay.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" stroke=\"currentColor\" stroke-width=\"0.3\" opacity=\"0.12\" />");
-            var lx = 50 + Math.Cos(angle) * 44;
-            var ly = 50 + Math.Sin(angle) * 44 + 1.2;
-            radarLabelSvg.AppendLine($"<text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.5\">{clockLabels[i]}</text>");
-        }
+        var ax = 50 + Math.Cos(angle) * 35;
+        var ay = 50 + Math.Sin(angle) * 35;
+        radarAxisLines.AppendLine($"<line x1=\"50\" y1=\"50\" x2=\"{ax.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y2=\"{ay.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" stroke=\"currentColor\" stroke-width=\"0.3\" opacity=\"0.12\" />");
+
+        var lx = 50 + Math.Cos(angle) * 44;
+        var ly = 50 + Math.Sin(angle) * 44 + 1.2;
+        radarLabelSvg.AppendLine($"<text x=\"{lx.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" y=\"{ly.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}\" font-size=\"3\" text-anchor=\"middle\" fill=\"currentColor\" opacity=\"0.5\">{bucketLabels[i]}</text>");
     }
 
+    var hasOrigin = hasRadar && shape!.OriginBuckets is { Length: > 0 };
     var radarFill   = Model.IsBot ? "rgba(239,68,68,0.22)" : "rgba(34,197,94,0.22)";
     var radarStroke = accent;
 
@@ -118,25 +112,42 @@
         </div>
     </div>
 
-    @* Two-column body: radar (left, 12-clock) + verdict/reason/pills (right) *@
+    @* Two-column body: fingerprint radar (left) + verdict/reason/pills (right) *@
     <div class="grid grid-cols-[140px_1fr] gap-4 items-center">
         <div class="text-base-content">
-            @* While the canonical input is missing (live accumulator cold AND
-               no persisted session yet) we show a "calibrating" placeholder
-               instead of either an empty axis grid or a polygon derived from
-               a different source. Drawing a polygon from RadarShape /
-               detector contributions / anything else produces a shape that
-               diverges from the dashboard signature-detail page, which IS a
-               bug ("same fingerprint, two shapes"). Spin until the same
-               input the detail page reads becomes available, then paint. *@
+            @* The radar projects the visitor's behavioural-fingerprint centroid
+               via FingerprintRadarProjection. Solid polygon = current shape
+               (where the actor sits now, after every absorbed observation).
+               Dotted polygon (when known) = archetype origin, the seed shape
+               this fingerprint was allocated from. The gap between them is
+               the actor's drift since allocation -- the "session effect."
+               Calibrating placeholder runs only when the orchestrator
+               hasn't yet assigned an IdentityFingerprintId for this
+               request (genuine pre-archetype-match window). *@
             @if (hasRadar)
             {
-                <svg viewBox="0 0 100 100" width="140" height="140" xmlns="http://www.w3.org/2000/svg" aria-label="Behavioural fingerprint -- 12-axis clock projection">
+                <svg viewBox="0 0 100 100" width="140" height="140" xmlns="http://www.w3.org/2000/svg"
+                     aria-label="Behavioural fingerprint -- @bucketLabels.Length-bucket centroid projection">
                     <circle cx="50" cy="50" r="35" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.16" />
                     <circle cx="50" cy="50" r="23" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.10" />
                     <circle cx="50" cy="50" r="12" fill="none" stroke="currentColor" stroke-width="0.4" opacity="0.08" />
                     @Html.Raw(radarAxisLines.ToString())
-                    <polygon points="@radarVertices.ToString().TrimEnd()" fill="@radarFill" stroke="@radarStroke" stroke-width="1.2" />
+                    @if (hasOrigin)
+                    {
+                        @* Archetype-origin overlay: dotted, lower opacity, drawn
+                           BEHIND the current polygon so the current shape reads
+                           as the focused element. *@
+                        <polygon points="@radarOrigin.ToString().TrimEnd()"
+                                 fill="none"
+                                 stroke="currentColor"
+                                 stroke-width="0.8"
+                                 stroke-dasharray="1.5 1.2"
+                                 opacity="0.45" />
+                    }
+                    <polygon points="@radarCurrent.ToString().TrimEnd()"
+                             fill="@radarFill"
+                             stroke="@radarStroke"
+                             stroke-width="1.2" />
                     @Html.Raw(radarLabelSvg.ToString())
                 </svg>
             }

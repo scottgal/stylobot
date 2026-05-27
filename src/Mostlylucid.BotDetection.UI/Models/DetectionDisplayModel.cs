@@ -63,12 +63,24 @@ public sealed record DetectionDisplayModel
     /// <summary>
     ///     12-axis behavioural-fingerprint vector, clock order (Browsing, API,
     ///     Asset, Realtime, Form, Auth, Burst, Timing, PathDiv, 404, Scan, FP).
-    ///     Same projection the dashboard's behavioral evolution panel uses, so
-    ///     the marketing-site "Your Detection" radar reads identically to what
-    ///     operators see in the live dashboard. Null when the per-request
-    ///     pipeline couldn't compose a vector (e.g. upstream-trust paths).
+    ///     Session-vector projection. Retained on the model so legacy consumers
+    ///     keep compiling; the dashboard radar no longer renders from this.
+    ///     The "Your Detection" view component now renders <see cref="FingerprintShape"/>.
     /// </summary>
     public double[]? ClockAxes { get; init; }
+
+    /// <summary>
+    ///     Per-bucket projection of the visitor's <c>Fingerprint.Centroid</c>
+    ///     plus its archetype-origin overlay (when known). Drives the
+    ///     behavioural-fingerprint radar on the home card and the headline
+    ///     polygon on the signature-detail page. Built by
+    ///     <see cref="Services.FingerprintRadarProjection.Project"/> from
+    ///     the fingerprint resolved via <see cref="Mostlylucid.BotDetection.Identity.IFingerprintReader"/>.
+    ///     Null until the orchestrator has resolved <c>IdentityFingerprintId</c>
+    ///     for this request -- the view renders the calibrating placeholder
+    ///     in that window.
+    /// </summary>
+    public Services.FingerprintRadarShape? FingerprintShape { get; init; }
 
     /// <summary>Resolved UA family (Chrome, Firefox, curl, etc.) when available.</summary>
     public string? UaFamily { get; init; }
