@@ -135,6 +135,44 @@ public partial class DetectionBroadcastMiddleware
         // Call next middleware first (so detection runs)
         await _next(context);
 
+        // Encode-and-push the session vector to the dashboard's aggregate cache.
+        // SessionVectorContributor (orchestrator wave-30) was the intended write
+        // site, but the orchestrator quorum-exits before wave-30 for clear
+        // humans, so that contributor never runs for the typical browser
+        // visitor and the home-card radar stays empty.
+        // The broadcast middleware always runs (it's wrapping the entire
+        // detection pipeline), so encoding here and writing to the cache via
+        // ISignatureVectorSink guarantees the visitor's polygon lands on every
+        // request that produced a SessionStore session. SignalKeys.PrimarySignature
+        // was set by the inner middleware before this point.
+        try
+        {
+            var sigForVector = context.Items.TryGetValue("BotDetection.Signatures", out var sigObj)
+                && sigObj is Mostlylucid.BotDetection.Dashboard.MultiFactorSignatures mfs
+                ? mfs.PrimarySignature
+                : null;
+            if (!string.IsNullOrEmpty(sigForVector))
+            {
+                var liveSessionStore = context.RequestServices
+                    .GetService<Mostlylucid.BotDetection.Analysis.SessionStore>();
+                var liveSession = liveSessionStore?.GetCurrentSession(sigForVector);
+                if (liveSession is { Count: >= 1 })
+                {
+                    var vector = Mostlylucid.BotDetection.Analysis.SessionVectorizer.Encode(liveSession);
+                    if (vector.Length >= 118)
+                    {
+                        signatureAggregateCache.RecordLatestVector(sigForVector, vector);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Vector encode is best-effort enrichment for the dashboard. A failure
+            // here must never block the broadcast / event-store / SignalR work
+            // that follows -- those carry the actual detection result.
+        }
+
         // After response, broadcast detection result if available
         try
         {

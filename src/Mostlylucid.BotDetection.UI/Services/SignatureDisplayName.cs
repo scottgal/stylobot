@@ -95,7 +95,12 @@ public static class SignatureDisplayName
         if (family != null)
             return isBot ? $"Bot {family}" : family;
 
-        return isBot ? $"Bot {ShortHash(signature)}" : ShortHash(signature);
+        // No country, no UA family, no detected bot identity -- the bare-minimum
+        // fallback used to return the 8-char signature prefix ("jjS12Zf6") which
+        // looks like random garbage in the row. Use plain "Visitor" / "Bot"
+        // instead and let the seen-dictionary in Resolve append " 2", " 3", ...
+        // so duplicates stay distinguishable without random characters.
+        return isBot ? "Bot" : "Visitor";
     }
 
     /// <summary>
