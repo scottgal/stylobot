@@ -1,4 +1,5 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Models.Primitives
 @model SessionsListModel
 @{
     var bp = Model.BasePath;
@@ -136,14 +137,14 @@
                 }
             </div>
 
-            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Pagination.cshtml",
-                new PaginationModel
-                {
-                    PageUrl = p => $"{bp}/partials/sessions?page={p}&pageSize={Model.PageSize}&filter={Uri.EscapeDataString(Model.Filter ?? string.Empty)}",
-                    Page = Model.Page,
-                    TotalPages = Model.TotalPages,
-                    TargetId = "sessions-list"
-                })
+            @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_TablePagination.cshtml",
+                new TablePaginationModel(
+                    Page: Model.Page,
+                    PageSize: Model.PageSize,
+                    TotalCount: Model.TotalCount,
+                    PageUrl: p => $"{bp}/partials/sessions?page={p}&pageSize={Model.PageSize}&filter={Uri.EscapeDataString(Model.Filter ?? string.Empty)}",
+                    PageSizeUrl: s => $"{bp}/partials/sessions?page=1&pageSize={s}&filter={Uri.EscapeDataString(Model.Filter ?? string.Empty)}",
+                    TargetId: "sessions-list"))
         }
     </div>
 </div>

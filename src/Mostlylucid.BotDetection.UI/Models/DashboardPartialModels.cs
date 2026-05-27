@@ -2,18 +2,10 @@ using Mostlylucid.BotDetection.UI.Services;
 
 namespace Mostlylucid.BotDetection.UI.Models;
 
-/// <summary>
-///     View model for the shared pagination partial.
-///     Renders an ellipsis-aware page button strip via HTMX.
-/// </summary>
-public sealed record PaginationModel
-{
-    public required Func<int, string> PageUrl { get; init; }
-    public required int Page { get; init; }
-    public required int TotalPages { get; init; }
-    public required string TargetId { get; init; }
-    public string CssClass { get; init; } = "";
-}
+// PaginationModel + _Pagination.cshtml removed -- every list view now uses the
+// single canonical primitive TablePaginationModel + _Primitives/_TablePagination.cshtml.
+// Two pager shapes for one job was the bug behind the "12>" squish on the
+// endpoints list and the dropdown-rows-per-page divergence between widgets.
 
 /// <summary>
 ///     View model for the visitor list partial.
@@ -535,6 +527,14 @@ public sealed class ConfigurationEditorModel
 
     /// <summary>All editable detector manifests (slug + display metadata + override flag).</summary>
     public required IReadOnlyList<Mostlylucid.BotDetection.Orchestration.Manifests.DetectorManifestSummary> Detectors { get; init; }
+
+    /// <summary>
+    ///     Effective-config sections discovered by reflecting on
+    ///     <see cref="Mostlylucid.BotDetection.Models.BotDetectionOptions"/>. First entry
+    ///     is the synthetic "root" bucket (scalar/list properties); subsequent entries
+    ///     are the complex sub-options classes (AiDetection, Behavioral, ...).
+    /// </summary>
+    public required IReadOnlyList<Mostlylucid.BotDetection.UI.Services.ConfigSectionInfo> Sections { get; init; }
 
     /// <summary>
     ///     True when the active license is paid (Active or Trial). Hides the per-target

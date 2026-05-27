@@ -1,4 +1,5 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Models.Primitives
 @using Mostlylucid.BotDetection.UI.Helpers
 @model UserAgentsListModel
 @{
@@ -9,6 +10,7 @@
         return $"{bp}/partials/useragents?filter={Model.Filter}&sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}";
     }
     string PageUrl(int page) => $"{bp}/partials/useragents?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}";
+    string PageSizeUrl(int size) => $"{bp}/partials/useragents?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={size}";
     string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? " \u25B2" : " \u25BC") : "";
     string ThClass(string field) => Model.SortField == field
         ? "text-base-content/70 font-bold"
@@ -111,14 +113,14 @@
                     </table>
                 </div>
 
-                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Pagination.cshtml",
-                    new PaginationModel
-                    {
-                        PageUrl = p => PageUrl(p),
-                        Page = Model.Page,
-                        TotalPages = Model.TotalPages,
-                        TargetId = "useragents-list"
-                    })
+                @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_TablePagination.cshtml",
+                    new TablePaginationModel(
+                        Page: Model.Page,
+                        PageSize: Model.PageSize,
+                        TotalCount: Model.TotalCount,
+                        PageUrl: PageUrl,
+                        PageSizeUrl: PageSizeUrl,
+                        TargetId: "useragents-list"))
             </div>
 
             @* Right: Detail panel (2 cols) *@

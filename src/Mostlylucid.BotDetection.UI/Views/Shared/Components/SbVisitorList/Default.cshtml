@@ -1,4 +1,5 @@
 @using Mostlylucid.BotDetection.UI.Models
+@using Mostlylucid.BotDetection.UI.Models.Primitives
 @using Mostlylucid.BotDetection.UI.Helpers
 @model VisitorListModel
 @{
@@ -9,6 +10,7 @@
         return $"{bp}/partials/visitors?filter={Model.Filter}&sort={field}&dir={dir}&page=1&pageSize={Model.PageSize}";
     }
     string PageUrl(int page) => $"{bp}/partials/visitors?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page={page}&pageSize={Model.PageSize}";
+    string PageSizeUrl(int size) => $"{bp}/partials/visitors?filter={Model.Filter}&sort={Model.SortField}&dir={Model.SortDir}&page=1&pageSize={size}";
     string SortIcon(string field) => Model.SortField == field ? (Model.SortDir == "asc" ? "▲" : "▼") : "";
     string SortHeaderClass(string field) => Model.SortField == field
         ? "text-base-content font-semibold cursor-pointer"
@@ -147,12 +149,12 @@
         </div>
     }
 
-    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Pagination.cshtml",
-        new PaginationModel
-        {
-            PageUrl = p => PageUrl(p),
-            Page = Model.Page,
-            TotalPages = Model.TotalPages,
-            TargetId = "visitor-list"
-        })
+    @await Html.PartialAsync("~/Views/StyloBot/Dashboard/_Primitives/_TablePagination.cshtml",
+        new TablePaginationModel(
+            Page: Model.Page,
+            PageSize: Model.PageSize,
+            TotalCount: Model.TotalCount,
+            PageUrl: PageUrl,
+            PageSizeUrl: PageSizeUrl,
+            TargetId: "visitor-list"))
 </div>

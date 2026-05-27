@@ -113,6 +113,19 @@
     function bind(el) {
         if (el.getAttribute(ATTR_BOUND) === '1') return;
         el.setAttribute(ATTR_BOUND, '1');
+
+        // Templates set BOTH `data-tip` (for daisyUI styling) AND a native
+        // `title` attribute (for screen-reader / no-JS fallback). With the
+        // portal active that produces TWO tooltips on hover: the browser
+        // native one and the portal-cloned one. Stash the title into
+        // data-sb-tooltip-title (preserves the value for inspection / a11y
+        // tooling) and clear the live attribute so only the portal renders.
+        var nativeTitle = el.getAttribute('title');
+        if (nativeTitle !== null) {
+            el.setAttribute('data-sb-tooltip-title', nativeTitle);
+            el.removeAttribute('title');
+        }
+
         el.addEventListener('mouseenter', function () { show(el); });
         el.addEventListener('mouseleave', hide);
         el.addEventListener('focusin', function () { show(el); });
