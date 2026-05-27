@@ -15,6 +15,7 @@ public sealed class SessionAtomizerService : BackgroundService
     private readonly ISessionStore _store;
     private readonly ILogger<SessionAtomizerService> _logger;
     private readonly RetentionOptions _retention;
+    private readonly ISignatureVectorSink? _vectorSink;
 
     private TimeSpan SessionGap     => _retention.SessionGap;
     private TimeSpan RunInterval    => _retention.AtomizerRunInterval;
@@ -24,11 +25,13 @@ public sealed class SessionAtomizerService : BackgroundService
     public SessionAtomizerService(
         ISessionStore store,
         ILogger<SessionAtomizerService> logger,
-        IOptions<BotDetectionOptions> options)
+        IOptions<BotDetectionOptions> options,
+        ISignatureVectorSink? vectorSink = null)
     {
         _store = store;
         _logger = logger;
         _retention = options.Value.Retention;
+        _vectorSink = vectorSink;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -74,6 +77,15 @@ public sealed class SessionAtomizerService : BackgroundService
 
                 var vector   = SessionVectorizer.Encode(sessionRequests, null);
                 var maturity = SessionVectorizer.ComputeMaturity(sessionRequests);
+
+                // Write-through to the dashboard's aggregate cache so the
+                // home card and signature-detail page read this finalised
+                // vector via the single ISignatureVectorSink path. The
+                // existing SessionPersistenceService handles durability via
+                // its own SessionFinalized event subscription -- this call
+                // updates the in-memory cache so dashboard reads see the
+                // finalised value without round-tripping through SQLite.
+                _vectorSink?.RecordLatestVector(sigGroup.Key, vector);
                 var dominant = sessionRequests
                     .GroupBy(r => r.State)
                     .OrderByDescending(g => g.Count())

@@ -106,9 +106,32 @@ public partial class DetectionBroadcastMiddleware
         VisitorListCache visitorListCache,
         SignatureAggregateCache signatureAggregateCache,
         Mostlylucid.BotDetection.Orchestration.Telemetry.IDetectionEventPublisher detectionEventPublisher,
+        Mostlylucid.BotDetection.Dashboard.MultiFactorSignatureService signatureService,
         IOptions<Mostlylucid.BotDetection.Dashboard.DetectionRecordOptions>? recordOptionsAccessor = null,
         SignatureDescriptionService? signatureDescriptionService = null)
     {
+        // Pre-orchestrator: seed a thin aggregate row keyed by the primary
+        // signature BEFORE the detection pipeline runs. Wave-30
+        // SessionVectorContributor needs the row to already exist when it
+        // calls ISignatureVectorSink.RecordLatestVector, otherwise the first
+        // visit's vector is silently dropped and the home card shows
+        // "Calibrating" until the visitor's second page load. GenerateSignatures
+        // is a pure hash over request headers / connection -- cheap to call
+        // twice (here and inside the inner detection middleware); no caching
+        // required. EnsureRow is a TryAdd, no-op once the row exists.
+        try
+        {
+            var sigs = signatureService.GenerateSignatures(context);
+            if (!string.IsNullOrEmpty(sigs.PrimarySignature))
+                signatureAggregateCache.EnsureRow(sigs.PrimarySignature);
+        }
+        catch
+        {
+            // Pre-seed is best-effort. Any signature-resolution failure here
+            // falls back to the post-orchestrator UpdateFromDetection path
+            // that creates the row from the full DashboardDetectionEvent.
+        }
+
         // Call next middleware first (so detection runs)
         await _next(context);
 

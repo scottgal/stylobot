@@ -31,19 +31,22 @@ public class SessionVectorContributor : ConfiguredContributorBase
     private readonly SessionStore _sessionStore;
     private readonly ISessionVectorSearch? _vectorSearch;
     private readonly SessionEscalationService? _escalationService;
+    private readonly Mostlylucid.BotDetection.Data.ISignatureVectorSink? _vectorSink;
 
     public SessionVectorContributor(
         ILogger<SessionVectorContributor> logger,
         IDetectorConfigProvider configProvider,
         SessionStore sessionStore,
         ISessionVectorSearch? vectorSearch = null,
-        SessionEscalationService? escalationService = null)
+        SessionEscalationService? escalationService = null,
+        Mostlylucid.BotDetection.Data.ISignatureVectorSink? vectorSink = null)
         : base(configProvider)
     {
         _logger = logger;
         _sessionStore = sessionStore;
         _vectorSearch = vectorSearch;
         _escalationService = escalationService;
+        _vectorSink = vectorSink;
     }
 
     public override string Name => "SessionVector";
@@ -179,6 +182,14 @@ public class SessionVectorContributor : ConfiguredContributorBase
 
                 state.WriteSignal(SignalKeys.SessionVectorMaturity, currentMaturity);
 
+                // Write-through to the dashboard's aggregate cache so both the
+                // home-card <bot-detection-details> view component and the
+                // dashboard /api/sessions/signature/{sig} focused-row endpoint
+                // read the same vector and render byte-identical polygons.
+                // No-op when the sink isn't registered (gateway-only deploys
+                // without the dashboard package).
+                _vectorSink?.RecordLatestVector(signature, currentVector);
+
                 if (currentMaturity >= MinMaturityForScoring)
                     AnalyzeCurrentSession(state, currentVector, contributions);
             }
@@ -199,6 +210,12 @@ public class SessionVectorContributor : ConfiguredContributorBase
             if (_vectorSearch != null && currentSession != null && currentSession.Count >= MinSessionRequests)
             {
                 var currentVector = SessionVectorizer.Encode(currentSession, BuildFingerprintContext(state));
+                // Push the freshly-encoded vector to the dashboard sink here too
+                // -- this branch runs ONLY when the HNSW search is wired, but
+                // when it does we don't want to drop a vector just because the
+                // earlier maturity gate (line 178) didn't fire.
+                _vectorSink?.RecordLatestVector(signature, currentVector);
+
                 await AnalyzeVoidnessAsync(state, currentVector, contributions, cancellationToken);
 
                 if (sessionHistory.Count >= 3)

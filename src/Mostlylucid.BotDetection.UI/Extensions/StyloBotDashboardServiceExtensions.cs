@@ -214,7 +214,14 @@ public static class StyloBotDashboardServiceExtensions
         services.AddSingleton<DashboardAggregateCache>();
 
         // Write-through signature cache - single source of truth for top bots
+        // AND for per-signature behavioural session vectors. Detection-layer
+        // contributors (SessionVectorContributor wave-30, SessionAtomizerService
+        // on finalisation) write vectors via the ISignatureVectorSink view of
+        // the same instance, so the home card and signature detail page read
+        // a single byte-identical polygon source.
         services.AddSingleton<SignatureAggregateCache>();
+        services.AddSingleton<Mostlylucid.BotDetection.Data.ISignatureVectorSink>(
+            sp => sp.GetRequiredService<SignatureAggregateCache>());
 
         // Stateless UA aggregator - used by broadcaster beacon + view components with params
         services.TryAddSingleton<DashboardUserAgentAggregator>();

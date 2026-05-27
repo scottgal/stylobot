@@ -1925,159 +1925,44 @@ public class StyloBotDashboardMiddleware
             };
         }).ToList<object>();
 
-        // Live in-progress session: prefer the in-memory accumulator (has a real session
-        // vector for radar) when warm. Falls back to detection-event grouping below if the
-        // accumulator is cold (e.g. post-restart) so the radar never blanks on the in-flight
-        // entry just because the process restarted -- per "we never lose more than a couple
-        // of seconds of data" the persisted detection stream is the source of truth.
-        var liveAdded = false;
-        var liveSessionStore = context.RequestServices.GetService<BotDetection.Analysis.SessionStore>();
-        if (liveSessionStore?.GetCurrentSession(decodedSignature) is { Count: >= 1 } liveSession)
+        // Current focused row: read the latest session vector from the single
+        // source of truth -- SignatureAggregateCache. The cache is updated
+        // write-through by SessionVectorContributor (wave-30) and
+        // SessionAtomizerService (finalisation) via ISignatureVectorSink, so
+        // the polygon rendered here is byte-identical to the home card's
+        // <bot-detection-details> view component. No live-store / persisted-
+        // store / detection-event-synthesis fallback ladder -- "same
+        // fingerprint, two shapes" was caused by that ladder. If the cache
+        // has no vector yet (brand-new signature whose orchestrator hasn't
+        // reached wave-30, or restart warmup gap), the focused row simply
+        // isn't inserted and the chart focuses on the newest finalised
+        // session in the list. The visitor's home card shows the same
+        // "calibrating" placeholder during that same window.
+        if (_signatureCache.TryGet(decodedSignature, out var aggForCurrent) &&
+            aggForCurrent!.LatestSessionVector is { Length: >= 118 } currentVector)
         {
-            var liveVector = BotDetection.Analysis.SessionVectorizer.Encode(liveSession);
-            var liveRadar = BotDetection.Analysis.VectorRadarProjection.Project(liveVector);
-            var dominantState = liveSession
-                .GroupBy(r => r.State)
-                .OrderByDescending(g => g.Count())
-                .First().Key;
-
+            var currentAxes = Mostlylucid.BotDetection.UI.Services.ClockAxesResolver.FromSessionVector(currentVector);
+            var currentRadar = BotDetection.Analysis.VectorRadarProjection.Project(currentVector);
             result.Insert(0, new
             {
-                Id = "live",
-                StartedAt = liveSession[0].Timestamp,
-                EndedAt = liveSession[^1].Timestamp,
-                durationMinutes = Math.Round((liveSession[^1].Timestamp - liveSession[0].Timestamp).TotalMinutes, 1),
-                RequestCount = liveSession.Count,
-                DominantState = dominantState.ToString(),
-                IsBot = false,
-                avgBotProbability = 0.0,
-                RiskBand = "Unknown",
+                Id = "current",
+                StartedAt = DateTime.UtcNow,
+                EndedAt = DateTime.UtcNow,
+                durationMinutes = 0.0,
+                RequestCount = 0,
+                DominantState = "Active",
+                IsBot = aggForCurrent.IsBot,
+                avgBotProbability = Math.Round(aggForCurrent.BotProbability, 3),
+                RiskBand = aggForCurrent.RiskBand ?? "Unknown",
                 ErrorCount = 0,
                 timingEntropy = 0.0,
-                Maturity = BotDetection.Analysis.SessionVectorizer.ComputeMaturity(liveSession),
+                Maturity = 0.0,
                 live = true,
                 transitionCounts = (Dictionary<string, int>?)null,
-                paths = liveSession.Select(r => r.PathTemplate).Distinct().ToList(),
-                radarAxes = liveRadar,
-                clockAxes = Mostlylucid.BotDetection.UI.Services.ClockAxesResolver.FromSessionVector(liveVector)
+                paths = (List<string>?)null,
+                radarAxes = currentRadar,
+                clockAxes = currentAxes
             });
-            liveAdded = true;
-        }
-
-        // Detection-fallback: if no live session was added from the in-memory accumulator,
-        // synthesise from persisted detections. Runs whenever the accumulator is cold,
-        // regardless of whether finalised sessions exist -- restart must not blank the
-        // in-flight portion of the radar. When no finalised sessions exist either, the
-        // fallback also fills in past activity periods so a low-traffic signature still
-        // has a behavioral shape to render.
-        if (!liveAdded)
-        {
-            var eventStore = context.RequestServices.GetService<IDashboardEventStore>();
-            if (eventStore != null)
-            {
-                var detections = await eventStore.GetDetectionsAsync(new DashboardFilter
-                {
-                    SignatureId = decodedSignature,
-                    Limit = limit
-                });
-
-                if (detections.Count > 0)
-                {
-                    var syntheticGroups = GroupDetectionsBySessionGap(detections);
-
-                    // When finalised sessions exist, only synthesise the most-recent group
-                    // (the in-flight one) and only when its start is after the newest
-                    // finalised session's end -- older groups are already covered by the
-                    // finalised rows in `result`.
-                    var newestFinalisedEnd = sessions.Count > 0
-                        ? sessions.Max(s => s.EndedAt)
-                        : DateTime.MinValue;
-
-                    var groupsToEmit = sessions.Count == 0
-                        ? syntheticGroups.OrderByDescending(g => g[^1].Timestamp).ToList()
-                        : syntheticGroups
-                            .Where(g => g[0].Timestamp > newestFinalisedEnd)
-                            .OrderByDescending(g => g[^1].Timestamp)
-                            .Take(1)
-                            .ToList();
-
-                    for (var gi = 0; gi < groupsToEmit.Count; gi++)
-                    {
-                        var group = groupsToEmit[gi];
-                        var avgProb = group.Average(d => d.BotProbability);
-                        var dominantRisk = group
-                            .GroupBy(d => d.RiskBand)
-                            .OrderByDescending(g => g.Count())
-                            .First().Key;
-                        var paths = group.Select(d => d.Path).Distinct().ToList();
-
-                        // Build 8-axis radar: prefer 16-dim RadarShape; fall back to
-                        // aggregating detector contributions (available on all detections).
-                        double[]? radarAxes = null;
-                        var withShape = group.Where(d => d.RadarShape is { Length: 16 }).ToList();
-                        if (withShape.Count > 0)
-                        {
-                            var avgShape = new float[16];
-                            foreach (var d in withShape)
-                                for (var i = 0; i < 16; i++) avgShape[i] += d.RadarShape![i];
-                            for (var i = 0; i < 16; i++) avgShape[i] /= withShape.Count;
-                            radarAxes = ProjectDetectionRadarTo8Axes(avgShape);
-                        }
-                        else
-                        {
-                            // Fallback: build radar from detector_contributions using the
-                            // SearchProjection axis map (16-dim indices) then project to 8 axes.
-                            var accumulated = new float[16];
-                            var accumCount = 0;
-                            foreach (var d in group.Where(d => d.DetectorContributions is { Count: > 0 }))
-                            {
-                                foreach (var (name, contrib) in d.DetectorContributions!)
-                                {
-                                    var axisIdx = MapDetectorNameToRadarDim(name);
-                                    if (axisIdx >= 0) accumulated[axisIdx] += (float)Math.Abs(contrib.Contribution);
-                                }
-                                accumCount++;
-                            }
-                            if (accumCount > 0)
-                            {
-                                for (var i = 0; i < 16; i++) accumulated[i] /= accumCount;
-                                radarAxes = ProjectDetectionRadarTo8Axes(accumulated);
-                            }
-                        }
-
-                        // gi==0 = most-recent group, after newestFinalisedEnd ⇒ this is the
-                        // in-flight session; mark live=true and prepend so the radar chart
-                        // and session selector treat it as the active row.
-                        var isLive = gi == 0;
-                        var entry = new
-                        {
-                            Id = isLive ? "live" : $"det-{group[0].Timestamp:yyyyMMddHHmm}",
-                            StartedAt = group[0].Timestamp,
-                            EndedAt = group[^1].Timestamp,
-                            durationMinutes = Math.Round((group[^1].Timestamp - group[0].Timestamp).TotalMinutes, 1),
-                            RequestCount = group.Count,
-                            DominantState = dominantRisk,
-                            IsBot = avgProb >= 0.5,
-                            avgBotProbability = Math.Round(avgProb, 3),
-                            RiskBand = dominantRisk,
-                            ErrorCount = 0,
-                            timingEntropy = 0.0,
-                            Maturity = 0.0,
-                            live = isLive,
-                            velocity = (object?)null,
-                            transitionCounts = (Dictionary<string, int>?)null,
-                            paths,
-                            radarAxes,
-                            // Synthetic entry has no session vector yet → markov hours = 0.
-                            clockAxes = Mostlylucid.BotDetection.UI.Services.ClockProjection.Compose12Axes(
-                                radarAxes ?? new double[8],
-                                new double[] { 0, 0, 0, 0 })
-                        };
-                        if (isLive) result.Insert(0, entry);
-                        else result.Add(entry);
-                    }
-                }
-            }
         }
 
         context.Response.ContentType = "application/json";

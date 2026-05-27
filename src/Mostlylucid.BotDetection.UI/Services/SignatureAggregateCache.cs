@@ -17,7 +17,7 @@ namespace Mostlylucid.BotDetection.UI.Services;
 ///     to amortize cost - eviction only triggers when 10% over capacity.
 ///     </para>
 /// </summary>
-public sealed class SignatureAggregateCache
+public sealed class SignatureAggregateCache : Mostlylucid.BotDetection.Data.ISignatureVectorSink
 {
     private readonly ConcurrentDictionary<string, SignatureAggregate> _entries = new();
     private readonly object _sortLock = new();
@@ -45,6 +45,42 @@ public sealed class SignatureAggregateCache
 
     /// <summary>Current number of tracked signatures.</summary>
     public int Count => _entries.Count;
+
+    /// <summary>
+    ///     Idempotent thin-row seed. Creates an empty aggregate keyed by
+    ///     <paramref name="primarySignature"/> when no row exists. Called by
+    ///     <c>DetectionBroadcastMiddleware</c> BEFORE the orchestrator runs so
+    ///     wave-30 contributors (e.g. <c>SessionVectorContributor</c>) writing
+    ///     through <see cref="ISignatureVectorSink.RecordLatestVector"/> always
+    ///     find a row to update. <see cref="UpdateFromDetection"/> overlays
+    ///     the full event after the orchestrator returns. <c>TryAdd</c> is a
+    ///     no-op once the row exists, so cost on repeat visits is one
+    ///     dictionary lookup. First-impression accuracy beats first-hit
+    ///     latency: the home card renders a real polygon on the first page
+    ///     load instead of "calibrating" until the second visit.
+    /// </summary>
+    public void EnsureRow(string primarySignature)
+    {
+        if (string.IsNullOrEmpty(primarySignature)) return;
+        var now = DateTime.UtcNow;
+        _entries.TryAdd(primarySignature, new SignatureAggregate
+        {
+            HitCount = 0,
+            FirstSeen = now,
+            LastSeen = now,
+        });
+    }
+
+    /// <inheritdoc />
+    public void RecordLatestVector(string primarySignature, float[] vector)
+    {
+        if (string.IsNullOrEmpty(primarySignature) || vector is not { Length: >= 118 }) return;
+        if (!_entries.TryGetValue(primarySignature, out var agg)) return;
+        lock (agg.SyncRoot)
+        {
+            agg.LatestSessionVector = vector;
+        }
+    }
 
     /// <summary>
     ///     Update cache from a new detection event (write-through).
@@ -532,6 +568,7 @@ public sealed class SignatureAggregateCache
                 ThreatBand = agg.ThreatBand,
                 IsVerifiedBot = agg.IsVerifiedBot,
                 UaFamily = agg.UaFamily,
+                LatestSessionVector = agg.LatestSessionVector,
                 HitTrend = agg.ReadHitTrend(),
             };
         }
@@ -625,6 +662,21 @@ public sealed class SignatureAggregate
     ///     dashboard rows degrade to "GB User" instead of "GB Chrome User".
     /// </summary>
     public string? UaFamily;
+
+    /// <summary>
+    ///     Latest 118+ dim session vector for this signature, as produced by
+    ///     <c>SessionVectorContributor</c> on wave-30 OR by
+    ///     <c>SessionAtomizerService</c> on session finalisation. Single source
+    ///     of truth for every dashboard surface that projects a behavioural
+    ///     radar polygon -- the home-card <c>bot-detection-details</c> view
+    ///     component and the dashboard <c>/api/sessions/signature/{sig}</c>
+    ///     focused-row endpoint both read this field and project via
+    ///     <c>ClockAxesResolver.FromSessionVector</c>, so the same signature
+    ///     renders the same polygon across both surfaces. Null until the
+    ///     first vector is written, or after a cold restart before
+    ///     <c>SignatureAggregateCacheWarmupService</c> has hydrated.
+    /// </summary>
+    public float[]? LatestSessionVector;
 
     /// <summary>LFU access counter - incremented on read, periodically aged.</summary>
     public long AccessCount;
